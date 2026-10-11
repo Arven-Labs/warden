@@ -412,3 +412,32 @@ async fn an_always_to_a_kind_of_action_holds_for_that_conversation_and_agent_onl
     conn.send(&chat("CREATE a critic", "c2", Some("chief"))).await.unwrap();
     assert_eq!(tool_call_asks(&finish_turn_always(&mut conn).await), 1, "another conversation");
 }
+
+#[tokio::test]
+async fn the_alwayses_are_listed_and_taking_one_back_makes_the_agent_ask_again() {
+    use warden_core::autonomy::Category;
+    let hub = spin_up().await;
+    set_autonomy(&hub, "chief", 5);
+    set_approval_required(&hub, "chief", &[Category::ElevatedAgent]);
+    let mut conn = ServerConnection::connect(&hub.url, "web-1", "Browser", "test-key").await.unwrap();
+    let tool_call_asks = |others: &[ServerMessage]| asked_actions(others).iter().filter(|a| *a == "tool_call").count();
+    async fn grants(conn: &mut ServerConnection, message: ClientMessage) -> Vec<(String, Option<String>, String)> {
+        conn.send(&message).await.unwrap();
+        loop {
+            if let ServerMessage::GrantList { grants, .. } = conn.recv().await.unwrap().expect("connection closed") {
+                return grants.into_iter().map(|g| (g.conversation_id, g.agent_id, g.covers)).collect();
+            }
+        }
+    }
+
+    assert!(grants(&mut conn, ClientMessage::ListGrants { request_id: 1 }).await.is_empty());
+    conn.send(&chat("CREATE a critic", "c1", Some("chief"))).await.unwrap();
+    finish_turn_always(&mut conn).await;
+    let listed = grants(&mut conn, ClientMessage::ListGrants { request_id: 2 }).await;
+    assert_eq!(listed, vec![("c1".to_string(), Some("chief".to_string()), "elevated_agent".to_string())]);
+
+    let left = grants(&mut conn, ClientMessage::RevokeGrant { request_id: 3, conversation_id: "c1".into(), agent_id: Some("chief".into()), covers: "elevated_agent".into() }).await;
+    assert!(left.is_empty());
+    conn.send(&chat("CREATE a critic", "c1", Some("chief"))).await.unwrap();
+    assert_eq!(tool_call_asks(&finish_turn_always(&mut conn).await), 1, "asked again after the revoke");
+}

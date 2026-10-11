@@ -2,7 +2,17 @@
 
 > **Nota**: Este log foi criado junto com o projeto. As sessões serão registradas aqui conforme o trabalho avança.
 >
-> Última atualização: 2026-10-10 (Sessão 181)
+> Última atualização: 2026-10-10 (Sessão 182)
+
+---
+
+### 2026-10-11 — Sessão 182
+
+- **Objetivo**: fechar o primeiro item aberto do P122: ver e revogar o que foi permitido com "sempre".
+- **Núcleo**: `GrantBook::list()` (ordenado por conversa, agente e o que cobre) e `GrantBook::revoke(conversa, agente, covers)`; `Grant` é o item. Teste `a_grant_is_listed_and_can_be_taken_back`.
+- **Protocolo e hub**: `ListGrants` e `RevokeGrant { conversationId, agentId?, covers }`, ambos respondidos por `GrantList { grants: [GrantDto] }`. Qualquer aparelho pareado usa: o `GrantBook` é **da conexão**, então cada um vê só o que deu. Revogar **não pede a chave de pareamento**, porque só faz o agente perguntar mais. Teste de ponta a ponta em `tests/agents.rs` (dá o "sempre", lista, revoga, o agente pergunta de novo) e de JSON no protocolo.
+- **Web**: seção "Permissões dadas com 'sempre'" abaixo das tarefas na aba "Trabalho dos agentes" (`GrantsSection.tsx`): categoria (ou ferramenta), agente, título da conversa e botão "Tirar". `tsc`, build e `npm test` (43) verdes; clippy sem aviso novo.
+- **Não feito / não visto**: a seção **não foi vista numa janela**; desktop, extensão, celular e CLI não têm a lista (a CLI nem tem "sempre"); o desktop local usa um `GrantBook` próprio que ainda não é exposto; o "sempre" continua só em memória; nenhum modelo real exercitou o fluxo.
 
 ---
 

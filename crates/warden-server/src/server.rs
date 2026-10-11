@@ -1735,6 +1735,13 @@ async fn handle_connection<S: Transport>(ws: WebSocketStream<S>, peer: SocketAdd
                 Ok(ClientMessage::ListAgentTasks { request_id }) => {
                     let _ = tx.send(crate::agent_task_list::handle_list_agent_tasks(agent_tasks.as_deref().map(|p| p.as_path()), member.is_none(), request_id));
                 }
+                Ok(ClientMessage::ListGrants { request_id }) => {
+                    let _ = tx.send(grant_list(&grants, request_id));
+                }
+                Ok(ClientMessage::RevokeGrant { request_id, conversation_id, agent_id, covers }) => {
+                    grants.revoke(&conversation_id, agent_id.as_deref(), &covers);
+                    let _ = tx.send(grant_list(&grants, request_id));
+                }
                 Ok(ClientMessage::ListActivity { request_id }) => {
                     let dirs: Vec<&Path> = std::iter::once(conversation_dirs.device.as_path()).chain(conversation_dirs.tasks.as_deref()).collect();
                     let config_path = settings.as_deref().map(|host| host.config_path());
@@ -2080,4 +2087,10 @@ mod name_tests {
     fn explicit_name_wins_over_everything() {
         assert_eq!(resolve_server_name(Some("My Hub".to_string())), "My Hub");
     }
+}
+
+/// Every "always" given on this connection (P122), as `GrantList`.
+fn grant_list(grants: &warden_core::autonomy::GrantBook, request_id: u64) -> ServerMessage {
+    let grants = grants.list().into_iter().map(|g| warden_server_protocol::protocol::GrantDto { conversation_id: g.conversation, agent_id: g.agent, covers: g.covers }).collect();
+    ServerMessage::GrantList { request_id, grants }
 }

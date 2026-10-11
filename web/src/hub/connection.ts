@@ -33,6 +33,7 @@ import {
   type NodeFolder,
   type ActivityEvent,
   type AgentTask,
+  type Grant,
   type AgentTaskAction,
   type DirListing,
   type ProjectDto,
@@ -565,6 +566,7 @@ export class ServerConnection {
       case "syncStatus":
       case "taskList":
       case "agentTaskList":
+      case "grantList":
       case "activityList":
       case "webhookList":
       case "webhookCreated":
@@ -891,6 +893,20 @@ export class ServerConnection {
     const reply = await this.request((requestId) => ({ type: "listAgentTasks", requestId }));
     if (reply.type !== "agentTaskList") throw new Error("resposta inesperada do hub");
     return reply.tasks;
+  }
+
+  /** O que a pessoa disse "sempre" nesta conexão (P122), por conversa e agente. */
+  async listGrants(): Promise<Grant[]> {
+    const reply = await this.request((requestId) => ({ type: "listGrants", requestId }));
+    if (reply.type !== "grantList") throw new Error("resposta inesperada do hub");
+    return reply.grants;
+  }
+
+  /** Tira um "sempre": o agente volta a perguntar. Não pede chave (só deixa o agente mais cauteloso). Devolve a lista nova. */
+  async revokeGrant(grant: Grant): Promise<Grant[]> {
+    const reply = await this.request((requestId) => ({ type: "revokeGrant", requestId, conversationId: grant.conversationId, ...(grant.agentId ? { agentId: grant.agentId } : {}), covers: grant.covers }));
+    if (reply.type !== "grantList") throw new Error("resposta inesperada do hub");
+    return reply.grants;
   }
 
   /** O feed de atividade (P121): o que aconteceu entre os agentes, do mais novo ao mais antigo. Só leitura. */

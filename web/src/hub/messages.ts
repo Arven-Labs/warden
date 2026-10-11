@@ -615,6 +615,13 @@ export type AgentTaskState = "pending" | "running" | "waiting" | "paused" | "don
 export type AgentTaskAction = "pause" | "resume" | "cancel";
 
 /** Espelha `AgentTaskDto` (P123): uma tarefa que um agente delegou em segundo plano. `group` é comum às tarefas que um turno começou. */
+/** P122 — um "sempre" dado numa conversa: `covers` é uma categoria de risco (`delete_data`) ou o nome de uma ferramenta; sem `agentId`, o agente padrão. */
+export interface Grant {
+  conversationId: string;
+  agentId?: string;
+  covers: string;
+}
+
 export interface AgentTask {
   id: string;
   group: string;
@@ -830,6 +837,9 @@ export type ClientMessage =
   | { type: "listTasks"; requestId: number }
   /** P123 — o trabalho que os agentes passaram uns aos outros em segundo plano, respondido por `agentTaskList`. */
   | { type: "listAgentTasks"; requestId: number }
+  /** P122 — o que a pessoa disse "sempre" nesta conexão, respondido por `grantList`; `revokeGrant` tira um e devolve a lista nova. */
+  | { type: "listGrants"; requestId: number }
+  | { type: "revokeGrant"; requestId: number; conversationId: string; agentId?: string; covers: string }
   /** P121 — o feed de atividade, respondido por `activityList`. Só o dono; o membro recebe a lista vazia. */
   | { type: "listActivity"; requestId: number }
   /** Pausa, retoma ou para (`pause`, `resume`, `cancel`) uma tarefa que roda no hub, com as subtarefas. Dono; pede a chave de pareamento. */
@@ -962,6 +972,7 @@ export type ServerMessage =
   /** `runsHere`: this hub runs the tasks on schedule. */
   | { type: "taskList"; requestId: number; tasks: TaskInfo[]; runsHere: boolean }
   | { type: "agentTaskList"; requestId: number; tasks: AgentTask[] }
+  | { type: "grantList"; requestId: number; grants: Grant[] }
   | { type: "activityList"; requestId: number; events: ActivityEvent[] }
   | { type: "taskError"; requestId: number; message: string; authRejected: boolean }
   /** `servesHere`: this hub takes the calls (`/hooks/<id>`). */
@@ -1106,6 +1117,10 @@ export function decode(text: string): ServerMessage {
     case "taskList": {
       const raw = json as { requestId: number; tasks: Array<Omit<TaskInfo, "running"> & { running?: boolean }>; runsHere: boolean };
       return { type: "taskList", requestId: raw.requestId, tasks: raw.tasks.map((t) => ({ ...t, running: t.running ?? false })), runsHere: raw.runsHere };
+    }
+    case "grantList": {
+      const raw = json as { requestId: number; grants?: Grant[] };
+      return { type: "grantList", requestId: raw.requestId, grants: raw.grants ?? [] };
     }
     case "agentTaskList": {
       const raw = json as { requestId: number; tasks: AgentTask[] };

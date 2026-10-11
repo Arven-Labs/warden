@@ -167,6 +167,22 @@ impl Grants {
     fn remember(&self, covers: &str) {
         self.0.lock().unwrap_or_else(|e| e.into_inner()).insert(covers.to_string());
     }
+
+    fn forget(&self, covers: &str) -> bool {
+        self.0.lock().unwrap_or_else(|e| e.into_inner()).remove(covers)
+    }
+
+    fn covers(&self) -> Vec<String> {
+        self.0.lock().unwrap_or_else(|e| e.into_inner()).iter().cloned().collect()
+    }
+}
+
+/// One "always" a person gave: what it covers, for which conversation and agent (`agent` is `None` for the default one).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Grant {
+    pub conversation: String,
+    pub agent: Option<String>,
+    pub covers: String,
 }
 
 /// The `Grants` of each conversation and agent a host serves, made on first use.
@@ -177,6 +193,25 @@ impl GrantBook {
     pub fn of(&self, conversation: &str, agent: Option<&str>) -> Grants {
         let key = format!("{conversation}\u{0}{}", agent.unwrap_or_default());
         self.0.lock().unwrap_or_else(|e| e.into_inner()).entry(key).or_default().clone()
+    }
+
+    /// Everything allowed so far, ordered by conversation, agent and what it covers.
+    pub fn list(&self) -> Vec<Grant> {
+        let book = self.0.lock().unwrap_or_else(|e| e.into_inner());
+        let mut all: Vec<Grant> = book
+            .iter()
+            .flat_map(|(key, grants)| {
+                let (conversation, agent) = key.split_once('\u{0}').unwrap_or((key, ""));
+                grants.covers().into_iter().map(move |covers| Grant { conversation: conversation.to_string(), agent: (!agent.is_empty()).then(|| agent.to_string()), covers })
+            })
+            .collect();
+        all.sort_by(|a, b| (&a.conversation, &a.agent, &a.covers).cmp(&(&b.conversation, &b.agent, &b.covers)));
+        all
+    }
+
+    /// Takes one "always" back, so the next such call asks again. `false` when there was none.
+    pub fn revoke(&self, conversation: &str, agent: Option<&str>, covers: &str) -> bool {
+        self.of(conversation, agent).forget(covers)
     }
 }
 
@@ -275,6 +310,24 @@ mod tests {
         }
         assert!(Autonomy::Suggest < Autonomy::AskFirst);
         assert_eq!(Autonomy::DEFAULT_LEVEL, Autonomy::Autonomous.level());
+    }
+
+    #[test]
+    fn a_grant_is_listed_and_can_be_taken_back() {
+        let book = GrantBook::default();
+        book.of("c1", Some("coder")).remember("delete_data");
+        book.of("c1", None).remember("shell");
+        assert_eq!(
+            book.list(),
+            vec![
+                Grant { conversation: "c1".into(), agent: None, covers: "shell".into() },
+                Grant { conversation: "c1".into(), agent: Some("coder".into()), covers: "delete_data".into() },
+            ]
+        );
+        assert!(book.revoke("c1", Some("coder"), "delete_data"));
+        assert!(!book.revoke("c1", Some("coder"), "delete_data"));
+        assert!(!book.of("c1", Some("coder")).allows("delete_data"));
+        assert_eq!(book.list().len(), 1);
     }
 
     #[tokio::test]

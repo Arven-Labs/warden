@@ -782,6 +782,17 @@ fn default_true() -> bool {
     true
 }
 
+/// One "always" a person gave (P122): `covers` is a risk category (`delete_data`) or a tool name, for that conversation and agent
+/// (`agent_id` absent: the default agent).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GrantDto {
+    pub conversation_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent_id: Option<String>,
+    pub covers: String,
+}
+
 /// One task an agent delegated in the background (P123), as the screens list it. `state` is `pending`, `running`, `waiting` (its
 /// agent waits for a subtask), `paused` (a person paused it), `done`, `failed` or `cancelled`; `group` is shared by the tasks one turn started, which is what a progress is counted over.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -1763,6 +1774,20 @@ pub enum ClientMessage {
     ListAgentTasks {
         request_id: u64,
     },
+    /// What this connection's person said "always" to (P122), answered by `GrantList`. Open to any paired device: the grants are the
+    /// ones given on this connection, nobody else's.
+    ListGrants {
+        request_id: u64,
+    },
+    /// Takes one of those back, so the next such call asks again. Answered by the updated `GrantList`. Needs no pairing key: it only
+    /// makes the agent ask more.
+    RevokeGrant {
+        request_id: u64,
+        conversation_id: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        agent_id: Option<String>,
+        covers: String,
+    },
     /// The feed of activity (P121): who delegated, started and finished what, the notes agents left each other and the messages they started
     /// to the person, newest first, answered by `ActivityList`. Read only, for the owner: a member gets an empty list.
     ListActivity {
@@ -2403,6 +2428,11 @@ pub enum ServerMessage {
         request_id: u64,
         tasks: Vec<AgentTaskDto>,
     },
+    /// Reply to `ListGrants` and `RevokeGrant` (P122): every "always" given on this connection.
+    GrantList {
+        request_id: u64,
+        grants: Vec<GrantDto>,
+    },
     /// Reply to `ListActivity` (P121): the events, newest first.
     ActivityList {
         request_id: u64,
@@ -2961,6 +2991,20 @@ mod tests {
         assert_eq!(summary.workdir, None);
         let in_folder = ConversationSummary { workdir: Some("/srv/work".into()), ..summary };
         assert!(serde_json::to_string(&in_folder).unwrap().contains(r#""workdir":"/srv/work""#));
+    }
+
+    #[test]
+    fn the_grants_are_asked_for_listed_and_revoked() {
+        let ask = ClientMessage::ListGrants { request_id: 1 };
+        assert_eq!(serde_json::to_string(&ask).unwrap(), r#"{"type":"listGrants","requestId":1}"#);
+        let revoke = ClientMessage::RevokeGrant { request_id: 2, conversation_id: "c".into(), agent_id: None, covers: "delete_data".into() };
+        let json = serde_json::to_string(&revoke).unwrap();
+        assert_eq!(json, r#"{"type":"revokeGrant","requestId":2,"conversationId":"c","covers":"delete_data"}"#);
+        assert_eq!(serde_json::from_str::<ClientMessage>(&json).unwrap(), revoke);
+        let list = ServerMessage::GrantList { request_id: 2, grants: vec![GrantDto { conversation_id: "c".into(), agent_id: Some("a".into()), covers: "shell".into() }] };
+        let json = serde_json::to_string(&list).unwrap();
+        assert_eq!(json, r#"{"type":"grantList","requestId":2,"grants":[{"conversationId":"c","agentId":"a","covers":"shell"}]}"#);
+        assert_eq!(serde_json::from_str::<ServerMessage>(&json).unwrap(), list);
     }
 
     #[test]

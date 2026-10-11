@@ -18,6 +18,7 @@ import SettingsView from "./components/SettingsView";
 import OrganizationView from "./components/OrganizationView";
 import ActivityView from "./components/ActivityView";
 import AgentTasksView from "./components/AgentTasksView";
+import GrantsSection from "./components/GrantsSection";
 import SkillsView from "./components/SkillsView";
 import SyncView from "./components/SyncView";
 import TasksView from "./components/TasksView";
@@ -1182,7 +1183,12 @@ export default function App() {
         ) : view === "settings" ? (
           <SettingsView conn={conn} />
         ) : view === "agentWork" ? (
-          <AgentTasksView conn={conn} agent={agentWorkFilter} onClearAgent={() => setAgentWorkFilter(null)} />
+          <>
+            <AgentTasksView conn={conn} agent={agentWorkFilter} onClearAgent={() => setAgentWorkFilter(null)} />
+            <div className="usage-view">
+              <GrantsSection conn={conn} conversations={conversations} />
+            </div>
+          </>
         ) : view === "activity" ? (
           <ActivityView
             conn={conn}
