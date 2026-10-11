@@ -6,6 +6,13 @@
 
 ---
 
+### 2026-10-11 — Sessão 182 (continuação: P124, o texto do opencode ao vivo)
+
+- **Pedido do usuário**: planejar o texto do opencode ao vivo; plano aprovado.
+- **O que mudou**: o texto era descartado no `Reporter` porque não dizia de quem era. Agora `CodeEvent::TaskText { source, text }` leva a tarefa (projeto e `[wt id]`); `ChatEventDto::Text` ganhou `source` opcional (`skip_serializing_if`, então a forma antiga não muda e um JSON antigo ainda lê); `liveTurn.ts` (web e desktop) só continua um bloco do mesmo `source`, corta cada bloco nos últimos 4000 caracteres, e `ChatView`/`ChatArea` mostram o rótulo da tarefa (`.live-source`).
+- **Testes**: `code_task` (o teste das linhas ganhou as palavras, em ordem; um novo para duas tarefas isoladas com `source` diferentes; o de segundo plano passou de 3 para 4 linhas), protocolo (com e sem `source`, e o JSON antigo), o de ponta a ponta do hub **invertido** (antes afirmava que as palavras não saíam; agora cada tarefa tem as suas, marcadas), `live_event` do desktop, e `liveTurn.test.mjs` novo em `web` (49) e `desktop` (107). Workspace sem falha, clippy limpo nos arquivos tocados, `tsc` limpo.
+- **Fica**: a bolha com texto numa janela não foi vista; extensão e celular não desenham `chatEvent`; o texto não é guardado.
+
 ### 2026-10-11 — Sessão 182 (continuação: P124, revisão e integração das worktrees)
 
 - **Pedido do usuário**: "sim" para planejar a revisão e integração. Duas decisões dele: **a pessoa sempre confirma** mesclar e descartar (qualquer autonomia) e a integração é um **commit de mesclagem `--no-ff`**.

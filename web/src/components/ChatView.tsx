@@ -106,6 +106,8 @@ function LiveBubble({ live, onCancel }: { live: LiveTurn; onCancel?: () => void 
       {live.items.map((item, i) =>
         item.kind === "text" ? (
           <div key={i} className="bubble-markdown">
+            {/* Words of a manager's task say which one, since several can be writing at once. */}
+            {item.source && <p className="live-source">{item.source}</p>}
             <ReactMarkdown remarkPlugins={[remarkGfm]} components={{ a: ExternalLink }}>
               {item.text}
             </ReactMarkdown>

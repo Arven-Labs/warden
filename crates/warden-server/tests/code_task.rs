@@ -246,7 +246,7 @@ impl CodeEngine for Narrates {
 }
 
 #[tokio::test]
-async fn the_chat_sees_each_tasks_tool_rows_live_and_not_the_engines_words() {
+async fn the_chat_sees_each_tasks_tool_rows_and_words_live_told_apart() {
     use warden_server_protocol::protocol::{ChatEventDto, ToolStatusDto};
     std::env::set_var(warden_core::memory::embed::OFF_SWITCH, "1");
     let dir = std::env::temp_dir().join(format!("warden-server-code-live-{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
@@ -293,7 +293,17 @@ async fn the_chat_sees_each_tasks_tool_rows_live_and_not_the_engines_words() {
         let mine: Vec<_> = rows.iter().filter(|(call, _, _)| call == id).collect();
         assert_eq!(mine.iter().map(|(_, t, s)| (t.as_str(), *s)).collect::<Vec<_>>(), [(title, ToolStatusDto::Running), (title, ToolStatusDto::Completed)], "{id}: {rows:?}");
     }
-    assert!(!events.iter().any(|e| matches!(e, ChatEventDto::Text { .. })), "the engine's words are not streamed: {events:?}");
+    // The words come too, each marked with the task they are from, so two tasks side by side are not run together.
+    let mut words: Vec<(&str, &str)> = events
+        .iter()
+        .filter_map(|e| match e {
+            ChatEventDto::Text { text, source: Some(source) } => Some((source.as_str(), text.as_str())),
+            _ => None,
+        })
+        .collect();
+    words.sort();
+    assert_eq!(words, [("Repo", "the engine's own words"), ("Site", "the engine's own words")], "{events:?}");
+    assert!(!events.iter().any(|e| matches!(e, ChatEventDto::Text { source: None, .. })), "and none of them is unmarked: {events:?}");
 }
 
 /// Asks for a plan, then for accept-all, then says what each answered.

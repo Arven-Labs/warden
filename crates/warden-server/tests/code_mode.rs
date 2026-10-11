@@ -138,7 +138,7 @@ async fn a_code_projects_conversation_runs_on_the_engine_with_events_an_approval
     };
     me.send(&ClientMessage::ResolveApproval { approval_id, approved: true, always: false }).await.unwrap();
     assert!(matches!(next(&mut me).await, ServerMessage::ChatEvent { event: ChatEventDto::Tool { status: ToolStatusDto::Completed, .. }, .. }));
-    assert!(matches!(next(&mut me).await, ServerMessage::ChatEvent { event: ChatEventDto::Text { text }, .. } if text == "done"));
+    assert!(matches!(next(&mut me).await, ServerMessage::ChatEvent { event: ChatEventDto::Text { text, source: None }, .. } if text == "done"));
     // …and the turn ends the usual way.
     match next(&mut me).await {
         ServerMessage::ChatResponse { content, conversation_id, .. } => assert_eq!((content.as_str(), conversation_id.as_deref()), ("done", Some("c1"))),

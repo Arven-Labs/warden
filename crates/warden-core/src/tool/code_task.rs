@@ -74,8 +74,8 @@ struct Reporter {
 }
 
 impl Reporter {
-    /// The tool rows and notices of the engine, marked with the project. Not its text: two tasks in parallel would mix it in one bubble,
-    /// and it arrives in the answer anyway. Not the session either: that is not for showing.
+    /// The tool rows, notices and words of the engine, marked with the project (and worktree) they come from, so tasks in parallel
+    /// don't run into each other. Not the session: that is not for showing.
     fn report(&self, event: CodeEvent) {
         match event {
             CodeEvent::Tool(mut tool) => {
@@ -84,7 +84,9 @@ impl Reporter {
                 self.sink.send("code_task", CodeEvent::Tool(tool));
             }
             CodeEvent::Notice(text) => self.sink.send("code_task", CodeEvent::Notice(format!("{}: {text}", self.project_name))),
-            CodeEvent::Text(_) | CodeEvent::Session(_) => {}
+            // The words are told with the task they belong to: two tasks side by side would otherwise run into each other.
+            CodeEvent::Text(text) => self.sink.send("code_task", CodeEvent::TaskText { source: self.project_name.clone(), text }),
+            CodeEvent::TaskText { .. } | CodeEvent::Session(_) => {}
         }
     }
 }
@@ -592,13 +594,34 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_task_says_its_tools_and_notices_under_its_project_and_not_its_text_or_session() {
+    async fn a_task_says_its_words_tools_and_notices_under_its_project_and_not_its_session() {
         let (tool, mut receiver) = chatty_tool("says", true);
         tool.call(json!({ "project": "repo", "task": "test it" })).await.unwrap();
 
         let said = said(&mut receiver);
         let tool_row = |status| crate::tool::ToolProgress { tool: "code_task".into(), event: CodeEvent::Tool(ToolEvent { call_id: "repo:c1".into(), tool: "bash".into(), title: "REPO: cargo test".into(), status }) };
-        assert_eq!(said, [tool_row(ToolStatus::Running), crate::tool::ToolProgress { tool: "code_task".into(), event: CodeEvent::Notice("REPO: retrying".into()) }, tool_row(ToolStatus::Completed)]);
+        let words = crate::tool::ToolProgress { tool: "code_task".into(), event: CodeEvent::TaskText { source: "REPO".into(), text: "I will run the tests".into() } };
+        assert_eq!(said, [words, tool_row(ToolStatus::Running), crate::tool::ToolProgress { tool: "code_task".into(), event: CodeEvent::Notice("REPO: retrying".into()) }, tool_row(ToolStatus::Completed)], "in the order they happened, and no session");
+    }
+
+    #[tokio::test]
+    async fn the_words_of_two_tasks_side_by_side_are_told_apart_by_their_source() {
+        let (outer, vault) = git_project("words");
+        let slot: CodeEngineSlot = Arc::new(OnceLock::new());
+        let engine: Arc<dyn CodeEngine> = Arc::new(Chatty);
+        slot.set(engine).ok();
+        let mut tool = CodeTaskTool::new(vault, slot);
+        tool.approver = Some(Arc::new(Yes));
+        let (sink, mut receiver) = crate::tool::progress_channel();
+        let tool = tool.with_progress(&sink).unwrap();
+        tool.call(json!({ "project": "repo", "task": "one", "isolate": true })).await.unwrap();
+        tool.call(json!({ "project": "repo", "task": "two", "isolate": true })).await.unwrap();
+
+        let sources: Vec<String> = said(&mut receiver).into_iter().filter_map(|p| if let CodeEvent::TaskText { source, .. } = p.event { Some(source) } else { None }).collect();
+        assert_eq!(sources.len(), 2);
+        assert!(sources.iter().all(|s| s.starts_with("Repo [wt ")), "{sources:?}");
+        assert_ne!(sources[0], sources[1], "each task's words carry its own worktree");
+        std::fs::remove_dir_all(&outer).ok();
     }
 
     #[tokio::test]
@@ -632,7 +655,7 @@ mod tests {
         let started = tool.call(json!({ "project": "site", "task": "test it", "background": true })).await.unwrap();
         board.wait(started["job_id"].as_str().unwrap()).await;
         let rows = said(&mut receiver);
-        assert_eq!(rows.len(), 3, "{rows:?}");
+        assert_eq!(rows.len(), 4, "its words, its tool twice and its notice: {rows:?}");
         assert!(rows.iter().all(|p| p.tool == "code_task"));
     }
 

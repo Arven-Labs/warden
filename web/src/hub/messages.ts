@@ -42,7 +42,8 @@ export function nextCodeMode(mode: CodeMode): CodeMode {
 /** Mirrors `ChatEventDto` (P103 b): what a code engine does while a code project's task runs. The task's end is still
  * `chatResponse`/`chatError`. */
 export type ChatEventDto =
-  | { type: "text"; text: string }
+  /** `source` names the task the words are from when several are told at once (a manager's code tasks). */
+  | { type: "text"; text: string; source?: string }
   /** `callId` is the same for each stage of one call, so a client updates one line instead of adding one. */
   | { type: "tool"; callId: string; tool: string; title: string; status: "running" | "completed" | "failed" }
   | { type: "notice"; text: string };

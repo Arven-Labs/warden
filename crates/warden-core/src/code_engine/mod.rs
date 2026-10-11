@@ -26,6 +26,9 @@ pub use tracker::{PermissionAsk, Signal, Tracker};
 pub enum CodeEvent {
     /// More of the answer's text.
     Text(String),
+    /// More of the text of a task that is not the one the person is watching alone (a manager's `code_task`s, side by side): `source`
+    /// names the task, so the words of two of them are told apart.
+    TaskText { source: String, text: String },
     /// A tool the engine is using, at each stage it passes through.
     Tool(ToolEvent),
     /// Something the engine said about itself that isn't the answer: a retry, a wait.

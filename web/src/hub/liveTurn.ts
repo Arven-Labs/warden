@@ -4,8 +4,11 @@
 
 import type { ChatEventDto } from "./messages";
 
+/** How much of one task's words a live bubble keeps: the latest, so a task that writes a lot doesn't grow the bubble without end. */
+export const LIVE_TEXT_LIMIT = 4000;
+
 export type LiveItem =
-  | { kind: "text"; text: string }
+  | { kind: "text"; text: string; source?: string }
   | { kind: "tool"; callId: string; tool: string; title: string; status: "running" | "completed" | "failed" };
 
 export interface LiveTurn {
@@ -19,11 +22,13 @@ export function applyEvent(turn: LiveTurn | undefined, event: ChatEventDto): Liv
   switch (event.type) {
     case "text": {
       const last = current.items[current.items.length - 1];
-      // More words continue the last block of text; a tool in between starts a new one.
-      if (last?.kind === "text") {
-        return { ...current, items: [...current.items.slice(0, -1), { kind: "text", text: last.text + event.text }] };
+      // More words continue the last block of text, if they are from the same task; a tool in between, or another task, starts a new one.
+      if (last?.kind === "text" && last.source === event.source) {
+        const text = (last.text + event.text).slice(-LIVE_TEXT_LIMIT);
+        return { ...current, items: [...current.items.slice(0, -1), { ...last, text }] };
       }
-      return { ...current, items: [...current.items, { kind: "text", text: event.text }] };
+      const block: LiveItem = { kind: "text", text: event.text.slice(-LIVE_TEXT_LIMIT), ...(event.source ? { source: event.source } : {}) };
+      return { ...current, items: [...current.items, block] };
     }
     case "tool": {
       const line: LiveItem = { kind: "tool", callId: event.callId, tool: event.tool, title: event.title, status: event.status };

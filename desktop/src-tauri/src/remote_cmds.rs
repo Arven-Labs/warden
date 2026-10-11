@@ -437,7 +437,7 @@ mod tests {
         sink.emit(RemoteEvent::NewToken("tok-1".into()));
         assert_eq!(RemoteIdentities::new(file.clone()).load_or_create("hub-1", "x").unwrap().device_token.as_deref(), Some("tok-1"), "the token is kept");
 
-        sink.emit(RemoteEvent::ChatEvent { conversation_id: "c1".into(), event: ChatEventDto::Text { text: "hi".into() } });
+        sink.emit(RemoteEvent::ChatEvent { conversation_id: "c1".into(), event: ChatEventDto::Text { text: "hi".into(), source: None } });
         assert_eq!(events("chat-event"), vec![json!({ "conversationId": "c1", "event": { "type": "text", "text": "hi" } })], "the shape liveTurn.applyEvent reads");
 
         sink.emit(RemoteEvent::ConversationsChanged { conversation_id: "c1".into() });

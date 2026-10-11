@@ -1325,7 +1325,7 @@ mod tests {
     }
 
     #[test]
-    fn the_window_is_shown_what_a_tool_says_about_its_work_and_not_the_models_words() {
+    fn the_window_is_shown_what_a_tool_and_its_task_say_about_their_work_and_not_the_models_words() {
         use warden_core::code_engine::{CodeEvent, ToolEvent, ToolStatus};
         use warden_core::model::StreamEvent;
         use warden_server_protocol::protocol::ToolStatusDto;
@@ -1337,6 +1337,11 @@ mod tests {
             Some(ChatEventDto::Tool { call_id: "repo:c1".into(), tool: "bash".into(), title: "Repo: cargo test".into(), status: ToolStatusDto::Running })
         );
         assert_eq!(live_event(&from_tool(CodeEvent::Notice("Repo: retrying".into()))), Some(ChatEventDto::Notice { text: "Repo: retrying".into() }));
+        assert_eq!(
+            live_event(&from_tool(CodeEvent::TaskText { source: "Repo".into(), text: "running the tests".into() })),
+            Some(ChatEventDto::Text { text: "running the tests".into(), source: Some("Repo".into()) }),
+            "a task's words are shown, told apart from another task's"
+        );
         assert_eq!(live_event(&from_tool(CodeEvent::Session("ses_1".into()))), None, "the session is not for showing");
         assert_eq!(live_event(&StreamEvent::ContentDelta("the model's own words".into())), None, "they arrive with the answer");
     }

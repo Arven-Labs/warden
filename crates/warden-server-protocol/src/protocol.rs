@@ -71,8 +71,13 @@ impl From<Project> for ProjectDto {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum ChatEventDto {
-    /// More of the answer's text.
-    Text { text: String },
+    /// More of the answer's text. `source` names the task the words are from when several are told at once (a manager's `code_task`s);
+    /// a client keeps the words of one source together. Absent in a code conversation, where there is one task.
+    Text {
+        text: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        source: Option<String>,
+    },
     /// A tool the engine is using. `call_id` is the same for each stage of one call, so a client updates one line.
     Tool { call_id: String, tool: String, title: String, status: ToolStatusDto },
     /// Something the engine said about itself that isn't the answer (a retry, a wait).
@@ -91,7 +96,8 @@ impl ChatEventDto {
     /// What a client is shown of an engine event: `None` for the ones that are the hub's business (the session).
     pub fn from_code(event: CodeEvent) -> Option<Self> {
         Some(match event {
-            CodeEvent::Text(text) => Self::Text { text },
+            CodeEvent::Text(text) => Self::Text { text, source: None },
+            CodeEvent::TaskText { source, text } => Self::Text { text, source: Some(source) },
             CodeEvent::Notice(text) => Self::Notice { text },
             CodeEvent::Session(_) => return None,
             CodeEvent::Tool(tool) => Self::Tool {
@@ -3170,7 +3176,14 @@ mod tests {
         assert_eq!(serde_json::from_str::<ServerMessage>(&json).unwrap(), tool);
         let text = serde_json::to_string(&ServerMessage::ChatEvent { conversation_id: "c".into(), event: ChatEventDto::from_code(CodeEvent::Text("hi".into())).unwrap() }).unwrap();
         assert_eq!(ChatEventDto::from_code(CodeEvent::Session("s".into())), None, "the session is not for showing");
-        assert_eq!(text, r#"{"type":"chatEvent","conversationId":"c","event":{"type":"text","text":"hi"}}"#);
+        assert_eq!(text, r#"{"type":"chatEvent","conversationId":"c","event":{"type":"text","text":"hi"}}"#, "a lone task's words carry no source, as before");
+        // A manager's task says whose words they are; a client that knew nothing of the field still reads the old shape.
+        let said = ServerMessage::ChatEvent { conversation_id: "c".into(), event: ChatEventDto::from_code(CodeEvent::TaskText { source: "Repo [wt a1b2c3]".into(), text: "hi".into() }).unwrap() };
+        let json = serde_json::to_string(&said).unwrap();
+        assert_eq!(json, r#"{"type":"chatEvent","conversationId":"c","event":{"type":"text","text":"hi","source":"Repo [wt a1b2c3]"}}"#);
+        assert_eq!(serde_json::from_str::<ServerMessage>(&json).unwrap(), said);
+        let old = serde_json::from_str::<ServerMessage>(r#"{"type":"chatEvent","conversationId":"c","event":{"type":"text","text":"hi"}}"#).unwrap();
+        assert_eq!(old, ServerMessage::ChatEvent { conversation_id: "c".into(), event: ChatEventDto::Text { text: "hi".into(), source: None } });
         let cancel = ClientMessage::CancelTurn { conversation_id: "c".into() };
         assert_eq!(serde_json::to_string(&cancel).unwrap(), r#"{"type":"cancelTurn","conversationId":"c"}"#);
         let mode = ClientMessage::SetCodeMode { conversation_id: "c".into(), mode: "plan".into() };
