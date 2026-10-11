@@ -110,7 +110,7 @@ impl CodeWorktreeTool {
         }
         let listing = forgotten
             .iter()
-            .map(|entry| format!("- {} (branch {}): untouched for {} days, {} changed files, {} commits", entry.id, entry.branch, days(entry.idle), entry.changed_files, entry.commits))
+            .map(|entry| format!("- {} (branch {}): untouched for {} days, {} changed files, {} ignored files, {} commits", entry.id, entry.branch, days(entry.idle), entry.changed_files, entry.ignored_files, entry.commits))
             .collect::<Vec<_>>()
             .join("\n");
         self.confirmed(project, "discard forgotten worktrees", format!("Throw away {} worktrees, with all their work, that nothing has touched for {older_than} days or more:\n{listing}", forgotten.len())).await?;
@@ -181,7 +181,7 @@ impl Tool for CodeWorktreeTool {
             let forgotten = Duration::from_secs(DEFAULT_STALE_DAYS * DAY.as_secs());
             let listed: Vec<Value> = entries
                 .iter()
-                .map(|e| json!({ "worktree": e.id, "branch": e.branch, "changed_files": e.changed_files, "commits": e.commits, "idle_days": days(e.idle), "stale": e.has_work() && e.idle >= forgotten }))
+                .map(|e| json!({ "worktree": e.id, "branch": e.branch, "changed_files": e.changed_files, "ignored_files": e.ignored_files, "commits": e.commits, "idle_days": days(e.idle), "stale": e.holds_files() && e.idle >= forgotten }))
                 .collect();
             let orphans = worktree::orphan_branches(workdir).await?;
             return Ok(json!({ "worktrees": listed, "orphan_branches": orphans }));
@@ -279,7 +279,7 @@ mod tests {
     async fn looking_asks_nobody_and_changes_nothing() {
         let setup = setup("look").await;
         let listed = setup.tool.call(json!({ "action": "list", "project": "repo" })).await.unwrap();
-        assert_eq!(listed["worktrees"], json!([{ "worktree": setup.id, "branch": format!("warden/{}", setup.id), "changed_files": 1, "commits": 0, "idle_days": 0, "stale": false }]));
+        assert_eq!(listed["worktrees"], json!([{ "worktree": setup.id, "branch": format!("warden/{}", setup.id), "changed_files": 1, "ignored_files": 0, "commits": 0, "idle_days": 0, "stale": false }]));
         assert_eq!(listed["orphan_branches"], json!([]));
         let seen = setup.tool.call(json!({ "action": "diff", "project": "repo", "worktree": setup.id })).await.unwrap();
         assert!(seen["diff"].as_str().unwrap().contains("made.txt") && seen["diff"].as_str().unwrap().contains("+by a task"), "{seen}");

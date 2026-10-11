@@ -141,6 +141,9 @@ pub struct Entry {
     pub branch: String,
     /// Files changed and not committed.
     pub changed_files: usize,
+    /// Files (or folders, like `target/`) the `.gitignore` hides that the task left. Not part of `changed_files`, because a merge doesn't
+    /// bring them, but they are not nothing either: tidying leaves a worktree that holds them.
+    pub ignored_files: usize,
     /// Commits on the branch the project's own branch doesn't have.
     pub commits: usize,
     /// Where a task would work in it (what `code_task` queues on).
@@ -154,12 +157,23 @@ impl Entry {
     pub fn has_work(&self) -> bool {
         self.changed_files > 0 || self.commits > 0
     }
+
+    /// Whether anything of the task is in it at all, work or ignored files: what keeps the tidying and the timer away from it.
+    pub fn holds_files(&self) -> bool {
+        self.has_work() || self.ignored_files > 0
+    }
 }
 
 /// The newest time anything touched the worktree: its folder, the files it has changed, and its last commit if it made some.
-async fn last_touched(repo: &Path, root: &Path, branch: &str, status: &str, has_commits: bool) -> SystemTime {
+async fn last_touched(repo: &Path, root: &Path, branch: &str, status: &str, ignored: &str, has_commits: bool) -> SystemTime {
     let modified = |path: PathBuf| std::fs::metadata(path).and_then(|m| m.modified()).ok();
     let mut newest = modified(root.to_path_buf()).unwrap_or(SystemTime::UNIX_EPOCH);
+    // A build writes into `target/` without touching the worktree's own folder.
+    for path in ignored.lines() {
+        if let Some(time) = modified(root.join(path.trim_end_matches('/'))) {
+            newest = newest.max(time);
+        }
+    }
     for line in status.lines() {
         // `XY path`, or `XY old -> new` for a rename.
         let path = line.get(3..).unwrap_or_default().rsplit(" -> ").next().unwrap_or_default().trim_matches('"');
@@ -196,9 +210,11 @@ pub async fn list(workdir: &Path, now: SystemTime) -> anyhow::Result<Vec<Entry>>
         let root = container.join(&id);
         let status = git(&root, &["status", "--porcelain"]).await.unwrap_or_default();
         let commits = git(&repo, &["log", "--oneline", &format!("HEAD..{branch}")]).await.unwrap_or_default();
-        let touched = last_touched(&repo, &root, &branch, &status, !commits.is_empty()).await;
+        // `--directory` sums a folder like `target/` up in one line.
+        let ignored = git(&root, &["ls-files", "--others", "--ignored", "--exclude-standard", "--directory"]).await.unwrap_or_default();
+        let touched = last_touched(&repo, &root, &branch, &status, &ignored, !commits.is_empty()).await;
         let idle = now.duration_since(touched).unwrap_or_default();
-        entries.push(Entry { path: root.join(&prefix), id, branch, changed_files: status.lines().count(), commits: commits.lines().count(), idle });
+        entries.push(Entry { path: root.join(&prefix), id, branch, changed_files: status.lines().count(), ignored_files: ignored.lines().count(), commits: commits.lines().count(), idle });
     }
     Ok(entries)
 }
@@ -222,7 +238,7 @@ pub async fn sweep_empty(workdir: &Path, grace: Duration, now: SystemTime, busy:
     git(&repo, &["worktree", "prune"]).await?;
     let mut removed = Vec::new();
     for entry in list(workdir, now).await? {
-        if entry.has_work() || entry.idle < grace || busy(&entry.path) {
+        if entry.holds_files() || entry.idle < grace || busy(&entry.path) {
             continue;
         }
         let root = container_of(&repo)?.join(&entry.id);
@@ -238,7 +254,7 @@ pub async fn sweep_empty(workdir: &Path, grace: Duration, now: SystemTime, busy:
 
 /// The worktrees with work that nothing has touched for `older_than`: the ones that look forgotten.
 pub fn stale(entries: &[Entry], older_than: Duration) -> Vec<&Entry> {
-    entries.iter().filter(|entry| entry.has_work() && entry.idle >= older_than).collect()
+    entries.iter().filter(|entry| entry.holds_files() && entry.idle >= older_than).collect()
 }
 
 /// Everything the task changed in `worktree` (its commits and what is not committed yet) against where its branch left the project's
@@ -350,6 +366,35 @@ mod tests {
     }
 
     const DAY: Duration = Duration::from_secs(24 * 60 * 60);
+
+    #[tokio::test]
+    async fn files_the_gitignore_hides_are_not_work_to_merge_but_keep_the_tidying_away() {
+        let (outer, repo) = repository("ignored");
+        std::fs::write(repo.join(".gitignore"), "target/\n").unwrap();
+        run(&repo, &["add", "."]);
+        run(&repo, &["commit", "-q", "-m", "ignore target"]);
+        let built = create(&repo).await.unwrap();
+        std::fs::create_dir_all(built.path.join("target")).unwrap();
+        std::fs::write(built.path.join("target").join("x.o"), "obj").unwrap();
+        std::fs::write(built.path.join("target").join("y.o"), "obj").unwrap();
+        let empty = create(&repo).await.unwrap();
+        let later = SystemTime::now() + 30 * DAY;
+
+        let listed = list(&repo, later).await.unwrap();
+        let of = |id: &str| listed.iter().find(|e| e.id == id).unwrap();
+        assert_eq!((of(&built.id).changed_files, of(&built.id).ignored_files), (0, 1), "the folder is counted once, and is not a change to merge");
+        assert!(!of(&built.id).has_work() && of(&built.id).holds_files());
+        assert!(!of(&empty.id).holds_files());
+
+        // The timer-safe sweep: the empty one goes, the one with a build in it stays however long it sits.
+        let removed = sweep_empty(&repo, Duration::from_secs(60 * 60), later, |_| false).await.unwrap();
+        assert_eq!(removed, std::slice::from_ref(&empty.id));
+        assert!(built.path.join("target").join("x.o").is_file());
+        // And it is not kept forever: past the limit it is offered as forgotten (the person decides).
+        let after = list(&repo, later).await.unwrap();
+        assert_eq!(stale(&after, 10 * DAY).iter().map(|e| e.id.as_str()).collect::<Vec<_>>(), [built.id.as_str()]);
+        std::fs::remove_dir_all(&outer).ok();
+    }
 
     #[tokio::test]
     async fn how_long_a_worktree_has_been_left_alone_follows_the_newest_thing_in_it() {

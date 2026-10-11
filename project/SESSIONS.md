@@ -6,6 +6,13 @@
 
 ---
 
+### 2026-10-11 — Sessão 182 (continuação: P124, a varredura respeita os arquivos ignorados)
+
+- **Pedido do usuário**: "acho que sim" à pergunta de contar os arquivos ignorados pelo `.gitignore`; plano aprovado.
+- **O que mudou**: `worktree.rs` ganhou `Entry.ignored_files` e `holds_files()`; `sweep_empty` e `stale` usam `holds_files()`; a idade também considera o mais novo dos ignorados (um build escreve em `target/` sem tocar a pasta da worktree); `code_worktree` mostra `ignored_files` no `list` e no pedido do `prune`. O `finish` não mudou.
+- **Testes**: 1 novo em `worktree.rs` (só um `target/` ignorado: `changed_files` 0, `ignored_files` 1, a varredura a mantém e remove a vazia, `stale` a oferece); o JSON do `list` ganhou o campo. `warden-core`/`warden-server` e desktop (55) passam; clippy sem aviso novo.
+- **Fica**: uma worktree só com `target/` espera os 14 dias do `prune` e a confirmação da pessoa (pode ocupar disco até lá).
+
 ### 2026-10-11 — Sessão 182 (continuação: P124, varredura das worktrees por temporizador)
 
 - **Pedido do usuário**: a varredura por temporizador; plano aprovado.
