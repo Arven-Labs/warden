@@ -7,6 +7,7 @@
 //! and merge — nothing here merges.
 
 use std::path::{Path, PathBuf};
+use std::time::{Duration, SystemTime};
 
 use anyhow::{anyhow, bail, Context};
 use rand::RngCore;
@@ -137,11 +138,42 @@ pub struct Entry {
     pub changed_files: usize,
     /// Commits on the branch the project's own branch doesn't have.
     pub commits: usize,
+    /// Where a task would work in it (what `code_task` queues on).
+    pub path: PathBuf,
+    /// How long nothing has touched it: since the newest of its last commit, the files changed and the folder itself.
+    pub idle: Duration,
 }
 
-/// The worktrees a project's repository has from tasks (kept because they have work, or because nobody looked yet).
-pub async fn list(workdir: &Path) -> anyhow::Result<Vec<Entry>> {
-    let (repo, _) = locate(workdir).await?;
+impl Entry {
+    /// Whether the task left anything in it: a changed file or a commit.
+    pub fn has_work(&self) -> bool {
+        self.changed_files > 0 || self.commits > 0
+    }
+}
+
+/// The newest time anything touched the worktree: its folder, the files it has changed, and its last commit if it made some.
+async fn last_touched(repo: &Path, root: &Path, branch: &str, status: &str, has_commits: bool) -> SystemTime {
+    let modified = |path: PathBuf| std::fs::metadata(path).and_then(|m| m.modified()).ok();
+    let mut newest = modified(root.to_path_buf()).unwrap_or(SystemTime::UNIX_EPOCH);
+    for line in status.lines() {
+        // `XY path`, or `XY old -> new` for a rename.
+        let path = line.get(3..).unwrap_or_default().rsplit(" -> ").next().unwrap_or_default().trim_matches('"');
+        if let Some(time) = modified(root.join(path)) {
+            newest = newest.max(time);
+        }
+    }
+    if has_commits {
+        if let Some(seconds) = git(repo, &["log", "-1", "--format=%ct", branch]).await.ok().and_then(|text| text.trim().parse::<u64>().ok()) {
+            newest = newest.max(SystemTime::UNIX_EPOCH + Duration::from_secs(seconds));
+        }
+    }
+    newest
+}
+
+/// The worktrees a project's repository has from tasks (kept because they have work, or because nobody looked yet), with how long each
+/// has been left alone as of `now`.
+pub async fn list(workdir: &Path, now: SystemTime) -> anyhow::Result<Vec<Entry>> {
+    let (repo, prefix) = locate(workdir).await?;
     let container = container_of(&repo)?;
     let mut ids: Vec<String> = Vec::new();
     if let Ok(mut dir) = tokio::fs::read_dir(&container).await {
@@ -156,11 +188,52 @@ pub async fn list(workdir: &Path) -> anyhow::Result<Vec<Entry>> {
     let mut entries = Vec::new();
     for id in ids {
         let branch = branch_of(&id);
-        let status = git(&container.join(&id), &["status", "--porcelain"]).await.unwrap_or_default();
+        let root = container.join(&id);
+        let status = git(&root, &["status", "--porcelain"]).await.unwrap_or_default();
         let commits = git(&repo, &["log", "--oneline", &format!("HEAD..{branch}")]).await.unwrap_or_default();
-        entries.push(Entry { id, branch, changed_files: status.lines().count(), commits: commits.lines().count() });
+        let touched = last_touched(&repo, &root, &branch, &status, !commits.is_empty()).await;
+        let idle = now.duration_since(touched).unwrap_or_default();
+        entries.push(Entry { path: root.join(&prefix), id, branch, changed_files: status.lines().count(), commits: commits.lines().count(), idle });
     }
     Ok(entries)
+}
+
+/// Branches of ours (`warden/<id>`) whose worktree folder is gone: whatever was committed on them is still there, but nothing shows it.
+pub async fn orphan_branches(workdir: &Path) -> anyhow::Result<Vec<String>> {
+    let (repo, _) = locate(workdir).await?;
+    let container = container_of(&repo)?;
+    let branches = git(&repo, &["for-each-ref", "--format=%(refname:short)", "refs/heads/warden/"]).await?;
+    Ok(branches.lines().filter(|branch| branch.strip_prefix("warden/").is_some_and(|id| is_id(id) && !container.join(id).is_dir())).map(str::to_string).collect())
+}
+
+/// Tidies what tasks left that holds no work, and says which worktrees it removed. Never touches work:
+/// - git's own record of worktrees whose folder was deleted by hand is dropped (`git worktree prune`);
+/// - a worktree with no changed file and no commit, that nothing has touched for `grace` and no task is working in (`busy`), is removed
+///   with its branch. The grace is for a task that has made its worktree and not yet started in it;
+/// - a branch of ours with no folder is deleted only if it is already merged (`git branch -d` refuses anything else); one with commits
+///   that aren't merged stays, and `orphan_branches` names it.
+pub async fn sweep_empty(workdir: &Path, grace: Duration, now: SystemTime, busy: impl Fn(&Path) -> bool) -> anyhow::Result<Vec<String>> {
+    let (repo, _) = locate(workdir).await?;
+    git(&repo, &["worktree", "prune"]).await?;
+    let mut removed = Vec::new();
+    for entry in list(workdir, now).await? {
+        if entry.has_work() || entry.idle < grace || busy(&entry.path) {
+            continue;
+        }
+        let root = container_of(&repo)?.join(&entry.id);
+        git(&repo, &["worktree", "remove", "--force", &root.to_string_lossy()]).await?;
+        git(&repo, &["branch", "-D", &entry.branch]).await?;
+        removed.push(entry.id);
+    }
+    for branch in orphan_branches(workdir).await? {
+        let _ = git(&repo, &["branch", "-d", &branch]).await;
+    }
+    Ok(removed)
+}
+
+/// The worktrees with work that nothing has touched for `older_than`: the ones that look forgotten.
+pub fn stale(entries: &[Entry], older_than: Duration) -> Vec<&Entry> {
+    entries.iter().filter(|entry| entry.has_work() && entry.idle >= older_than).collect()
 }
 
 /// Everything the task changed in `worktree` (its commits and what is not committed yet) against where its branch left the project's
@@ -266,10 +339,95 @@ mod tests {
         String::from_utf8_lossy(&output.stdout).trim().to_string()
     }
 
+    /// Makes `path` look as if it was last touched `ago` before `now`.
+    fn touched(path: &Path, now: SystemTime, ago: Duration) {
+        std::fs::File::open(path).unwrap().set_modified(now - ago).unwrap();
+    }
+
+    const DAY: Duration = Duration::from_secs(24 * 60 * 60);
+
+    #[tokio::test]
+    async fn how_long_a_worktree_has_been_left_alone_follows_the_newest_thing_in_it() {
+        let (outer, repo) = repository("idle");
+        let now = SystemTime::now() + 30 * DAY;
+        let empty = create(&repo).await.unwrap();
+        let edited = create(&repo).await.unwrap();
+        std::fs::write(edited.path.join("a.txt"), "edited").unwrap();
+        touched(&edited.path.join("a.txt"), now, 2 * DAY);
+        let committed = create(&repo).await.unwrap();
+        std::fs::write(committed.path.join("c.txt"), "c").unwrap();
+        run(&committed.path, &["add", "."]);
+        run(&committed.path, &["commit", "-q", "-m", "add c"]);
+
+        let listed = list(&repo, now).await.unwrap();
+        let idle = |id: &str| listed.iter().find(|e| e.id == id).unwrap().idle;
+        assert!(idle(&empty.id) >= 29 * DAY, "nothing has touched it since it was made: {:?}", idle(&empty.id));
+        assert_eq!(idle(&edited.id).as_secs() / DAY.as_secs(), 2, "the file edited two days ago is the newest thing in it");
+        assert!(idle(&committed.id) >= 29 * DAY && listed.iter().find(|e| e.id == committed.id).unwrap().has_work(), "a commit is work, and its time is when it was made");
+        assert!(!listed.iter().find(|e| e.id == empty.id).unwrap().has_work());
+
+        let forgotten = stale(&listed, 10 * DAY);
+        assert_eq!(forgotten.iter().map(|e| e.id.as_str()).collect::<Vec<_>>().len(), 1, "only work counts as forgotten, and only past the limit");
+        assert_eq!(forgotten[0].id, committed.id);
+        std::fs::remove_dir_all(&outer).ok();
+    }
+
+    #[tokio::test]
+    async fn tidying_removes_only_what_is_empty_old_enough_and_not_in_use() {
+        let (outer, repo) = repository("sweep");
+        let empty = create(&repo).await.unwrap();
+        let busy = create(&repo).await.unwrap();
+        let edited = create(&repo).await.unwrap();
+        std::fs::write(edited.path.join("new.txt"), "work").unwrap();
+        let committed = create(&repo).await.unwrap();
+        std::fs::write(committed.path.join("c.txt"), "c").unwrap();
+        run(&committed.path, &["add", "."]);
+        run(&committed.path, &["commit", "-q", "-m", "add c"]);
+        let hour = Duration::from_secs(60 * 60);
+
+        // Just made: a task may be about to start in it, so nothing goes yet.
+        let soon = SystemTime::now() + Duration::from_secs(10 * 60);
+        assert!(sweep_empty(&repo, hour, soon, |_| false).await.unwrap().is_empty());
+        assert!(empty.path.is_dir());
+
+        // Long after: the empty one that nobody works in goes, with its branch. The busy, the edited and the committed stay.
+        let later = SystemTime::now() + 30 * DAY;
+        let busy_path = busy.path.clone();
+        let removed = sweep_empty(&repo, hour, later, move |path| path == busy_path).await.unwrap();
+        assert_eq!(removed, std::slice::from_ref(&empty.id));
+        assert!(!empty.path.exists() && out(&repo, &["branch", "--list", &empty.branch]).is_empty());
+        for kept in [&busy, &edited, &committed] {
+            assert!(kept.path.is_dir() && !out(&repo, &["branch", "--list", &kept.branch]).is_empty(), "{} stays", kept.id);
+        }
+        std::fs::remove_dir_all(&outer).ok();
+    }
+
+    #[tokio::test]
+    async fn a_folder_deleted_by_hand_is_dropped_from_git_and_its_branch_goes_only_if_nothing_would_be_lost() {
+        let (outer, repo) = repository("orphans");
+        let no_work = create(&repo).await.unwrap();
+        let with_work = create(&repo).await.unwrap();
+        std::fs::write(with_work.path.join("c.txt"), "c").unwrap();
+        run(&with_work.path, &["add", "."]);
+        run(&with_work.path, &["commit", "-q", "-m", "add c"]);
+        std::fs::remove_dir_all(&no_work.path).unwrap();
+        std::fs::remove_dir_all(&with_work.path).unwrap();
+        assert!(out(&repo, &["worktree", "list"]).contains(&no_work.id), "git still has them on its books");
+        assert_eq!(orphan_branches(&repo).await.unwrap().len(), 2);
+
+        sweep_empty(&repo, Duration::ZERO, SystemTime::now(), |_| false).await.unwrap();
+        let books = out(&repo, &["worktree", "list"]);
+        assert!(!books.contains(&no_work.id) && !books.contains(&with_work.id), "the records of folders that are gone are dropped:\n{books}");
+        assert!(out(&repo, &["branch", "--list", &no_work.branch]).is_empty(), "nothing on it, so nothing is lost");
+        assert!(!out(&repo, &["branch", "--list", &with_work.branch]).is_empty(), "its commit is work and stays");
+        assert_eq!(orphan_branches(&repo).await.unwrap(), std::slice::from_ref(&with_work.branch), "and it is said, since nothing else shows it");
+        std::fs::remove_dir_all(&outer).ok();
+    }
+
     #[tokio::test]
     async fn the_diff_shows_what_a_task_made_edited_and_committed_and_a_listing_says_which_worktrees_have_work() {
         let (outer, repo) = repository("diff");
-        assert!(list(&repo).await.unwrap().is_empty());
+        assert!(list(&repo, SystemTime::now()).await.unwrap().is_empty());
         let worktree = create(&repo).await.unwrap();
         assert_eq!(diff(&worktree, 10_000).await.unwrap(), "(no changes)");
 
@@ -286,7 +444,9 @@ mod tests {
         let cut = diff(&worktree, 20).await.unwrap();
         assert!(cut.contains("patch cut at 20 characters") && cut.contains("new.txt"), "the files still all show:\n{cut}");
 
-        assert_eq!(list(&repo).await.unwrap(), [Entry { id: worktree.id.clone(), branch: worktree.branch.clone(), changed_files: 3, commits: 1 }]);
+        let listed = list(&repo, SystemTime::now()).await.unwrap();
+        assert_eq!(listed.iter().map(|e| (e.id.as_str(), e.branch.as_str(), e.changed_files, e.commits)).collect::<Vec<_>>(), [(worktree.id.as_str(), worktree.branch.as_str(), 3, 1)]);
+        assert_eq!(listed[0].path, worktree.path);
         std::fs::remove_dir_all(&outer).ok();
     }
 
@@ -362,7 +522,7 @@ mod tests {
         std::fs::write(worktree.path.join("c.txt"), "work").unwrap();
         discard(&worktree).await.unwrap();
         assert!(!worktree.path.exists() && out(&repo, &["branch", "--list", &worktree.branch]).is_empty());
-        assert!(list(&repo).await.unwrap().is_empty());
+        assert!(list(&repo, SystemTime::now()).await.unwrap().is_empty());
         std::fs::remove_dir_all(&outer).ok();
     }
 

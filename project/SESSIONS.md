@@ -6,6 +6,13 @@
 
 ---
 
+### 2026-10-11 — Sessão 182 (continuação: P124, limpeza das worktrees abandonadas)
+
+- **Pedido do usuário**: planejar a limpeza das worktrees abandonadas; plano aprovado. Princípio: nunca perder trabalho sem a pessoa dizer.
+- **O que mudou**: `worktree.rs` ganhou `Entry.idle`/`path`/`has_work` (idade = o mais novo entre a pasta, os arquivos alterados e o último commit, com o relógio injetado), `sweep_empty` (`git worktree prune`; remove vazia parada há mais que a tolerância e não ocupada; apaga branch órfã só se já mesclada), `orphan_branches` e `stale`; `code_worktree` ganhou `prune` (um pedido com a lista; pula as ocupadas; `older_than_days` validado), e `list` limpa as vazias sozinho e marca `stale`; `code_task` com `isolate` limpa antes de criar. `list` mudou de assinatura (recebe `now`).
+- **Testes**: 3 novos em `worktree.rs` (idade segue o mais novo; só some o vazio, velho e livre; pasta apagada à mão e branch órfã com ou sem trabalho), 3 em `code_worktree` (`list` marca e limpa; `prune` pergunta uma vez, só leva o que passou da idade e aceita limite menor; sem aprovador, ocupada e limite inválido), 1 em `code_task`; `risk.rs` cobre `prune`. Workspace sem falha, clippy limpo (corrigi dois `clone` de slice que ele apontou).
+- **Fica**: a varredura só roda ao listar e ao isolar (sem temporizador); worktrees de projetos removidos; o acúmulo real ao longo de dias nunca foi visto.
+
 ### 2026-10-11 — Sessão 182 (continuação: P124, o texto do opencode ao vivo)
 
 - **Pedido do usuário**: planejar o texto do opencode ao vivo; plano aprovado.

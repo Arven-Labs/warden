@@ -385,7 +385,11 @@ impl Tool for CodeTaskTool {
         }
         let isolated = match reopen {
             Some(existing) => Some(worktree::open(std::path::Path::new(&workdir), existing).await?),
-            None if isolate => Some(worktree::create(std::path::Path::new(&workdir)).await?),
+            None if isolate => {
+                // Before a new one: what earlier tasks left empty doesn't pile up.
+                crate::tool::code_worktree::tidy(std::path::Path::new(&workdir)).await;
+                Some(worktree::create(std::path::Path::new(&workdir)).await?)
+            }
             None => None,
         };
         let (shown_id, shown_name) = match &isolated {
@@ -890,6 +894,22 @@ mod tests {
             assert!(err.to_string().contains(why), "{why}: {err}");
         }
         assert_eq!(editor.folders.lock().unwrap().len(), before, "the engine never ran");
+        std::fs::remove_dir_all(&outer).ok();
+    }
+
+    #[tokio::test]
+    async fn a_new_isolated_task_first_tidies_away_the_empty_worktrees_older_tasks_left() {
+        let (outer, vault) = git_project("tidy-before");
+        let (_editor, tool) = editing_tool(vault);
+        let project = std::path::PathBuf::from(tool.code_projects()[0].workdir.clone().unwrap());
+        let left_behind = worktree::create(&project).await.unwrap();
+        let recent = worktree::create(&project).await.unwrap();
+        let three_days_ago = std::time::SystemTime::now() - std::time::Duration::from_secs(3 * 24 * 60 * 60);
+        std::fs::File::open(&left_behind.path).unwrap().set_modified(three_days_ago).unwrap();
+
+        tool.call(json!({ "project": "repo", "task": "edit a file", "isolate": true })).await.unwrap();
+        assert!(!left_behind.path.exists(), "an empty one from long ago is gone");
+        assert!(recent.path.is_dir(), "one made a moment ago might be about to be used");
         std::fs::remove_dir_all(&outer).ok();
     }
 

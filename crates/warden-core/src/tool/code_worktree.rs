@@ -7,6 +7,7 @@
 
 use std::path::Path;
 use std::sync::Arc;
+use std::time::{Duration, SystemTime};
 
 use async_trait::async_trait;
 use serde_json::{json, Value};
@@ -19,6 +20,26 @@ use crate::worktree::{self, Merged, Worktree};
 
 /// How much of a patch an agent is shown at once; the file list is always whole.
 const DIFF_CHARS: usize = 20_000;
+
+/// How long a worktree with nothing in it is left alone before it is tidied away: a task may have made one and not started in it yet.
+const EMPTY_GRACE: Duration = Duration::from_secs(60 * 60);
+
+/// How long work must have sat untouched to be called forgotten (`list` marks it, `prune` offers it), unless the call says otherwise.
+const DEFAULT_STALE_DAYS: u64 = 14;
+
+const DAY: Duration = Duration::from_secs(24 * 60 * 60);
+
+/// Tidies the empty worktrees and the leftovers of `workdir`'s repository (`worktree::sweep_empty`), where no work can be lost. Best
+/// effort: a listing or a new task doesn't fail because the tidying did.
+pub(crate) async fn tidy(workdir: &Path) {
+    if let Err(err) = worktree::sweep_empty(workdir, EMPTY_GRACE, SystemTime::now(), |path| folder_busy(&path.to_string_lossy())).await {
+        eprintln!("warden: couldn't tidy the worktrees of {}: {err:#}", workdir.display());
+    }
+}
+
+fn days(idle: Duration) -> u64 {
+    idle.as_secs() / DAY.as_secs()
+}
 
 #[derive(Clone)]
 pub struct CodeWorktreeTool {
@@ -46,6 +67,34 @@ impl CodeWorktreeTool {
         }
         Ok(())
     }
+
+    /// Throws away the work that has sat untouched for `older_than_days` (14 by default), after one yes from the person that lists it all.
+    /// A worktree a task is working in is left, and so is anything touched more recently than that.
+    async fn prune(&self, project: &str, workdir: &Path, args: &Value) -> anyhow::Result<Value> {
+        let older_than = match args.get("older_than_days") {
+            None | Some(Value::Null) => DEFAULT_STALE_DAYS,
+            Some(given) => given.as_u64().filter(|days| *days >= 1).ok_or_else(|| anyhow::anyhow!("'older_than_days' must be a whole number of days, at least 1"))?,
+        };
+        tidy(workdir).await;
+        let entries = worktree::list(workdir, SystemTime::now()).await?;
+        let (busy, forgotten): (Vec<_>, Vec<_>) = worktree::stale(&entries, Duration::from_secs(older_than * DAY.as_secs())).into_iter().partition(|entry| folder_busy(&entry.path.to_string_lossy()));
+        let skipped: Vec<&str> = busy.iter().map(|entry| entry.id.as_str()).collect();
+        if forgotten.is_empty() {
+            return Ok(json!({ "pruned": [], "skipped_busy": skipped, "note": format!("no worktree with work has sat untouched for {older_than} days or more") }));
+        }
+        let listing = forgotten
+            .iter()
+            .map(|entry| format!("- {} (branch {}): untouched for {} days, {} changed files, {} commits", entry.id, entry.branch, days(entry.idle), entry.changed_files, entry.commits))
+            .collect::<Vec<_>>()
+            .join("\n");
+        self.confirmed(project, "discard forgotten worktrees", format!("Throw away {} worktrees, with all their work, that nothing has touched for {older_than} days or more:\n{listing}", forgotten.len())).await?;
+        let mut pruned = Vec::new();
+        for entry in forgotten {
+            worktree::discard(&worktree::open(workdir, &entry.id).await?).await?;
+            pruned.push(entry.id.clone());
+        }
+        Ok(json!({ "pruned": pruned, "skipped_busy": skipped }))
+    }
 }
 
 #[async_trait]
@@ -61,17 +110,20 @@ impl Tool for CodeWorktreeTool {
             name: "code_worktree".to_string(),
             description: "Review and integrate the worktrees that isolated code_task runs ('isolate') left, each on its own branch. \
                 'list' shows the project's worktrees and how much work each has; 'diff' shows what a worktree's task changed; 'merge' brings it into \
-                the branch the project's folder has checked out, as a merge commit, and removes the worktree; 'discard' throws it away. 'merge' and \
-                'discard' always ask the person first. A merge that conflicts changes nothing and keeps the worktree: ask for the fix with code_task \
+                the branch the project's folder has checked out, as a merge commit, and removes the worktree; 'discard' throws it away; 'prune' throws away every \
+                worktree whose work has sat untouched for 14 days or more ('older_than_days'), after one yes from the person for the whole list. 'list' \
+                also tidies away, by itself, the worktrees where nothing was changed, and marks the forgotten ones ('stale'). 'merge', 'discard' and \
+                'prune' always ask the person first. A merge that conflicts changes nothing and keeps the worktree: ask for the fix with code_task \
                 (same 'worktree'), then merge again. To ask for changes to a task's work, run code_task again with its 'worktree'."
                 .to_string(),
             parameters: json!({
                 "type": "object",
                 "properties": {
-                    "action": { "type": "string", "enum": ["list", "diff", "merge", "discard"] },
+                    "action": { "type": "string", "enum": ["list", "diff", "merge", "discard", "prune"] },
                     "project": project,
                     "worktree": { "type": "string", "description": "The 'worktree' id a code_task returned (for diff, merge and discard)." },
-                    "title": { "type": "string", "description": "For merge: what the work is, for the commit messages." }
+                    "title": { "type": "string", "description": "For merge: what the work is, for the commit messages." },
+                    "older_than_days": { "type": "integer", "minimum": 1, "description": "For prune: how many days a worktree's work must have sat untouched to be thrown away (14 by default)." }
                 },
                 "required": ["action", "project"]
             }),
@@ -98,12 +150,21 @@ impl Tool for CodeWorktreeTool {
         let workdir = Path::new(&workdir);
 
         if action == "list" {
-            let entries = worktree::list(workdir).await?;
-            let listed: Vec<Value> = entries.iter().map(|e| json!({ "worktree": e.id, "branch": e.branch, "changed_files": e.changed_files, "commits": e.commits })).collect();
-            return Ok(json!({ "worktrees": listed }));
+            tidy(workdir).await;
+            let entries = worktree::list(workdir, SystemTime::now()).await?;
+            let forgotten = Duration::from_secs(DEFAULT_STALE_DAYS * DAY.as_secs());
+            let listed: Vec<Value> = entries
+                .iter()
+                .map(|e| json!({ "worktree": e.id, "branch": e.branch, "changed_files": e.changed_files, "commits": e.commits, "idle_days": days(e.idle), "stale": e.has_work() && e.idle >= forgotten }))
+                .collect();
+            let orphans = worktree::orphan_branches(workdir).await?;
+            return Ok(json!({ "worktrees": listed, "orphan_branches": orphans }));
+        }
+        if action == "prune" {
+            return self.prune(&project.name, workdir, &args).await;
         }
         if !matches!(action, "diff" | "merge" | "discard") {
-            anyhow::bail!("'{action}' is not an action — must be one of: list, diff, merge, discard");
+            anyhow::bail!("'{action}' is not an action — must be one of: list, diff, merge, discard, prune");
         }
         let wanted = args.get("worktree").and_then(Value::as_str).map(str::trim).filter(|w| !w.is_empty()).ok_or_else(|| anyhow::anyhow!("'{action}' needs the 'worktree' id"))?;
         let found: Worktree = worktree::open(workdir, wanted).await?;
@@ -192,7 +253,8 @@ mod tests {
     async fn looking_asks_nobody_and_changes_nothing() {
         let setup = setup("look").await;
         let listed = setup.tool.call(json!({ "action": "list", "project": "repo" })).await.unwrap();
-        assert_eq!(listed["worktrees"], json!([{ "worktree": setup.id, "branch": format!("warden/{}", setup.id), "changed_files": 1, "commits": 0 }]));
+        assert_eq!(listed["worktrees"], json!([{ "worktree": setup.id, "branch": format!("warden/{}", setup.id), "changed_files": 1, "commits": 0, "idle_days": 0, "stale": false }]));
+        assert_eq!(listed["orphan_branches"], json!([]));
         let seen = setup.tool.call(json!({ "action": "diff", "project": "repo", "worktree": setup.id })).await.unwrap();
         assert!(seen["diff"].as_str().unwrap().contains("made.txt") && seen["diff"].as_str().unwrap().contains("+by a task"), "{seen}");
         assert!(!setup.repo.join("made.txt").exists());
@@ -269,6 +331,103 @@ mod tests {
         assert!(says.asked.lock().unwrap().is_empty(), "the person isn't asked about something that can't happen now");
         drop(held);
         assert!(yes.call(json!({ "action": "discard", "project": "repo", "worktree": setup.id })).await.is_ok());
+        std::fs::remove_dir_all(&setup.outer).ok();
+    }
+
+    /// Makes everything the task touched in the worktree look `days` days old: the files and the folder.
+    fn age(made: &Worktree, files: &[&str], days: u64) {
+        let old = SystemTime::now() - Duration::from_secs(days * 24 * 60 * 60);
+        for file in files {
+            std::fs::File::open(made.path.join(file)).unwrap().set_modified(old).unwrap();
+        }
+        std::fs::File::open(&made.path).unwrap().set_modified(old).unwrap();
+    }
+
+    /// A worktree with a file the task made, aged by `days`.
+    async fn worktree_aged(setup: &Setup, file: &str, days: u64) -> Worktree {
+        let made = worktree::create(&setup.repo).await.unwrap();
+        std::fs::write(made.path.join(file), "work").unwrap();
+        age(&made, &[file], days);
+        made
+    }
+
+    #[tokio::test]
+    async fn a_listing_marks_the_forgotten_and_tidies_the_empty_ones_away_by_itself() {
+        let setup = setup("tidy").await;
+        let forgotten = worktree_aged(&setup, "old.txt", 20).await;
+        let empty = worktree::create(&setup.repo).await.unwrap();
+        age(&empty, &[], 3);
+        let fresh_empty = worktree::create(&setup.repo).await.unwrap();
+
+        let listed = setup.tool.call(json!({ "action": "list", "project": "repo" })).await.unwrap();
+        let by_id = |id: &str| listed["worktrees"].as_array().unwrap().iter().find(|w| w["worktree"] == id).cloned();
+        assert_eq!((by_id(&forgotten.id).unwrap()["stale"].clone(), by_id(&forgotten.id).unwrap()["idle_days"].clone()), (json!(true), json!(20)));
+        assert_eq!(by_id(&setup.id).unwrap()["stale"], false, "work from a moment ago is not forgotten");
+        assert!(by_id(&empty.id).is_none() && !empty.path.exists(), "an empty one, long left, is tidied away: nothing was lost");
+        assert!(by_id(&fresh_empty.id).is_some(), "an empty one just made might be about to be used");
+        std::fs::remove_dir_all(&setup.outer).ok();
+    }
+
+    #[tokio::test]
+    async fn pruning_asks_once_with_the_list_and_throws_away_only_what_has_sat_untouched_long_enough() {
+        let setup = setup("prune").await;
+        let old = worktree_aged(&setup, "old.txt", 20).await;
+        let older = worktree_aged(&setup, "older.txt", 40).await;
+        let middle = worktree_aged(&setup, "middle.txt", 8).await;
+
+        // A no: nothing is touched, and the person saw what would go.
+        let (no, says_no) = asked_by(&setup.tool, false);
+        let err = no.call(json!({ "action": "prune", "project": "repo" })).await.unwrap_err();
+        assert!(err.to_string().contains("said no"), "{err}");
+        {
+            let asked = says_no.asked.lock().unwrap();
+            assert_eq!((asked.len(), asked[0].action.as_str()), (1, "discard forgotten worktrees"));
+            let detail = &asked[0].detail;
+            assert!(detail.contains(&old.id) && detail.contains(&older.id) && detail.contains("20 days") && detail.contains("40 days"), "{detail}");
+            assert!(!detail.contains(&middle.id) && !detail.contains(&setup.id), "what is not forgotten isn't offered: {detail}");
+        }
+        assert!(old.path.is_dir() && older.path.is_dir());
+
+        // A yes: the two forgotten go, in one go, and the rest stays.
+        let (yes, says_yes) = asked_by(&setup.tool, true);
+        let done = yes.call(json!({ "action": "prune", "project": "repo" })).await.unwrap();
+        assert_eq!(says_yes.asked.lock().unwrap().len(), 1, "one question for the whole list");
+        let mut pruned: Vec<String> = done["pruned"].as_array().unwrap().iter().map(|id| id.as_str().unwrap().to_string()).collect();
+        pruned.sort();
+        let mut expected = vec![old.id.clone(), older.id.clone()];
+        expected.sort();
+        assert_eq!(pruned, expected);
+        assert!(!old.path.exists() && !older.path.exists() && middle.path.is_dir() && setup.repo.is_dir());
+
+        // A shorter limit reaches the middle one; one that finds nothing doesn't bother the person.
+        let again = yes.call(json!({ "action": "prune", "project": "repo", "older_than_days": 5 })).await.unwrap();
+        assert_eq!(again["pruned"], json!([middle.id]));
+        let (asked_none, says_none) = asked_by(&setup.tool, true);
+        let nothing = asked_none.call(json!({ "action": "prune", "project": "repo", "older_than_days": 90 })).await.unwrap();
+        assert_eq!(nothing["pruned"], json!([]));
+        assert!(says_none.asked.lock().unwrap().is_empty());
+        std::fs::remove_dir_all(&setup.outer).ok();
+    }
+
+    #[tokio::test]
+    async fn pruning_needs_someone_to_ask_leaves_a_worktree_in_use_and_refuses_a_nonsense_limit() {
+        let setup = setup("prune-guards").await;
+        let busy = worktree_aged(&setup, "old.txt", 20).await;
+        let err = setup.tool.call(json!({ "action": "prune", "project": "repo" })).await.unwrap_err();
+        assert!(err.to_string().contains("can't ask"), "{err}");
+        assert!(busy.path.is_dir());
+
+        let (yes, says) = asked_by(&setup.tool, true);
+        for bad in [json!(0), json!(-3), json!("soon"), json!(1.5)] {
+            let err = yes.call(json!({ "action": "prune", "project": "repo", "older_than_days": bad })).await.unwrap_err();
+            assert!(err.to_string().contains("whole number of days"), "{bad}: {err}");
+        }
+        assert!(says.asked.lock().unwrap().is_empty());
+
+        let _working = crate::tool::code_task::hold_folder_for_test(&busy.path.to_string_lossy());
+        let done = yes.call(json!({ "action": "prune", "project": "repo" })).await.unwrap();
+        assert_eq!((done["pruned"].clone(), done["skipped_busy"].clone()), (json!([]), json!([busy.id])), "a task is working in it");
+        assert!(busy.path.is_dir());
         std::fs::remove_dir_all(&setup.outer).ok();
     }
 
