@@ -43,6 +43,10 @@ pub struct MessageOutcome {
     /// Every time this turn's provider failed and a reserve answered instead (P79), once per
     /// switch even if the turn's tool loop hit it on several calls. Empty almost always.
     pub fallbacks: Vec<ProviderFallback>,
+    /// The provider that answered the turn's last call (P126): the reserve when one took over, else the turn's own. `None` for a model
+    /// that carries no id and for a turn that made no model call (a code turn). What `answered_by` stamps, so every channel's usage is
+    /// told under the provider that really answered, without each caller passing it.
+    pub provider_id: Option<String>,
     /// The calls to the caller's own tools (`with_client_tools`, P91) the model made: the turn
     /// stopped there, for the caller to run them and continue with `resume_turn_streaming`. Empty
     /// for every turn without client tools, and when the model answered in text.
@@ -777,6 +781,8 @@ impl Orchestrator {
             let served_model = switched.as_ref().map_or_else(|| self.model.model_id().to_string(), |s| s.model.clone());
             // The provider that answered, for the ledger (P10): in a combo that fell back, the member that took over.
             let served_provider = switched.as_ref().map_or_else(|| self.model.provider_id().to_string(), |s| s.to.clone());
+            // What the outcome reports if this call ends the turn (P126); an id-less model is no provider, not an empty one.
+            let answering_provider = Some(served_provider.clone()).filter(|id| !id.is_empty());
             if let Some(switch) = switched {
                 if !fallbacks.iter().any(|f| f.from == switch.from && f.to == switch.to) {
                     fallbacks.push(switch);
@@ -812,6 +818,7 @@ impl Orchestrator {
                     attachments,
                     generated_files,
                     fallbacks,
+                    provider_id: answering_provider,
                     client_tool_calls,
                     tools_used,
                 });
@@ -2650,6 +2657,7 @@ mod tests {
             // Two calls went through the reserve (the tool call and the answer), one switch reported.
             assert_eq!(outcome.fallbacks.len(), 1);
             assert_eq!((outcome.fallbacks[0].from.as_str(), outcome.fallbacks[0].to.as_str()), ("main", "spare"));
+            assert_eq!(outcome.provider_id.as_deref(), Some("spare"), "P126: the turn says the reserve answered it");
             let by_model = guard.breakdown().by_model;
             assert_eq!(by_model.iter().map(|b| (b.key.as_str(), b.calls)).collect::<Vec<_>>(), vec![("reserve-model", 2)]);
             // P10: and to the provider that answered, not the combo's first member that was down.
@@ -2664,12 +2672,14 @@ mod tests {
             let mut labelled = Orchestrator::new(crate::model::labeled::Labeled::wrap("main", Arc::new(Reserve(AtomicUsize::new(0)))), temp_vault());
             labelled.register_tool(Arc::new(NamedTool("noop")));
             let labelled = labelled.with_spend_guard(guard.clone()).with_spend_context(SpendContext::new("cli"));
-            labelled.handle_message(&[], "go").await.unwrap();
+            let labelled_outcome = labelled.handle_message(&[], "go").await.unwrap();
+            assert_eq!(labelled_outcome.provider_id.as_deref(), Some("main"), "P126: the outcome names the provider the model was labelled with");
 
             let mut unlabelled = Orchestrator::new(Arc::new(Reserve(AtomicUsize::new(0))), temp_vault());
             unlabelled.register_tool(Arc::new(NamedTool("noop")));
             let unlabelled = unlabelled.with_spend_guard(guard.clone()).with_spend_context(SpendContext::new("cli"));
-            unlabelled.handle_message(&[], "go").await.unwrap();
+            let unlabelled_outcome = unlabelled.handle_message(&[], "go").await.unwrap();
+            assert_eq!(unlabelled_outcome.provider_id, None, "a model with no id is no provider, never an empty one");
 
             let by_provider = guard.breakdown().by_provider;
             assert_eq!(by_provider.iter().map(|b| (b.key.as_str(), b.calls)).collect::<Vec<_>>(), vec![("main", 2), ("", 2)]);

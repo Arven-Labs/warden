@@ -744,6 +744,7 @@ function App() {
         attachments?: Attachment[];
         generatedFiles?: string[];
         fallbacks?: ProviderFallback[];
+        providerId?: string;
         alreadySaved?: boolean;
       }>("send_message", {
         history,
@@ -780,6 +781,8 @@ function App() {
         ...(reply.generatedFiles && reply.generatedFiles.length > 0 ? { generatedFiles: reply.generatedFiles } : {}),
         // A reserve answered in place of the conversation's provider (P79) — same convention.
         ...(reply.fallbacks && reply.fallbacks.length > 0 ? { fallbacks: reply.fallbacks } : {}),
+        // The provider that answered (P126), so the usage is told under it whatever the selector said.
+        ...(reply.providerId ? { answeredBy: { providerId: reply.providerId } } : {}),
       });
     } catch (err) {
       setSendError(String(err));
@@ -820,7 +823,7 @@ function App() {
     setThreadError(null);
     setThreadSending(true);
     try {
-      const reply = await invoke<{ content: string; usage?: Usage; attachments?: Attachment[]; generatedFiles?: string[]; fallbacks?: ProviderFallback[] }>("send_message", {
+      const reply = await invoke<{ content: string; usage?: Usage; attachments?: Attachment[]; generatedFiles?: string[]; fallbacks?: ProviderFallback[]; providerId?: string }>("send_message", {
         history,
         content,
         attachments,
@@ -842,6 +845,7 @@ function App() {
           ...(reply.attachments && reply.attachments.length > 0 ? { attachments: reply.attachments } : {}),
           ...(reply.generatedFiles && reply.generatedFiles.length > 0 ? { generatedFiles: reply.generatedFiles } : {}),
           ...(reply.fallbacks && reply.fallbacks.length > 0 ? { fallbacks: reply.fallbacks } : {}),
+          ...(reply.providerId ? { answeredBy: { providerId: reply.providerId } } : {}),
         },
         undefined,
         true,

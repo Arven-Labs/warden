@@ -29,6 +29,8 @@ export interface ChatMessage {
   /** The turn's provider was down and a reserve answered (P79). Shown above the answer, not
    * saved with the conversation. */
   fallbacks?: ProviderFallback[];
+  /** Who answered, as the turn reported it (P126): what the Usage screens count the answer's tokens under. */
+  answeredBy?: { agentId?: string; providerId?: string };
   /** The id the hub gave this message (P125), what a thread is started from. Only a message read from a hub has one. */
   hubId?: string;
 }

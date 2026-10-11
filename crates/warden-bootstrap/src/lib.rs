@@ -1438,8 +1438,9 @@ fn assistant_message(outcome: &MessageOutcome) -> ConversationMessage {
         content: outcome.content.clone(),
         created_at: now_millis(),
         usage: outcome.usage,
-        // The reserve that answered after a fallback (P79) is the provider that ran the call; `append_messages` adds the agent.
-        answered_by: outcome.fallbacks.last().map(|switch| AnsweredBy { agent_id: None, provider_id: Some(switch.to.clone()) }),
+        // The provider that ran the turn's last call (P126): the turn's own, or the reserve that took over after a fallback (P79), whichever
+        // channel ran it. `append_messages` adds the agent.
+        answered_by: outcome.provider_id.clone().map(|provider_id| AnsweredBy { agent_id: None, provider_id: Some(provider_id) }),
         attachments: outcome.attachments.clone(),
         generated_files: outcome.generated_files.clone(),
         tools_used: outcome.tools_used.clone(),
@@ -3152,6 +3153,37 @@ oauth = true
             let told = messages.iter().map(|m| m.content.clone()).collect::<Vec<_>>().join("|");
             Ok(warden_core::model::response_stream(warden_core::model::Response { content: told, tool_calls: Vec::new(), usage: None }))
         }
+    }
+
+    /// Answers "ok" and says it spent tokens, so the turn's answer is one `answered_by` stamps.
+    struct SpendsTokens;
+
+    #[async_trait::async_trait]
+    impl ModelProvider for SpendsTokens {
+        async fn chat_stream(&self, _messages: Vec<Message>, _tools: Vec<warden_core::tool::ToolSpec>) -> anyhow::Result<warden_core::model::ChatStream> {
+            let usage = Some(Usage { prompt_tokens: 3, completion_tokens: 2, total_tokens: 5 });
+            Ok(warden_core::model::response_stream(warden_core::model::Response { content: "ok".into(), tool_calls: Vec::new(), usage }))
+        }
+    }
+
+    /// P126: a channel that never says which provider it uses (the hub's chat, a bot, a task) still has its answer stamped with the one
+    /// that ran the turn, because the turn reports it.
+    #[tokio::test]
+    async fn a_turn_stamps_the_provider_that_answered_whoever_ran_it() {
+        let root = temp_dir("stamp-provider");
+        let dir = root.join("conversations");
+        let vault = Arc::new(Vault::new(root.join("vault")));
+        let labelled = Orchestrator::new(Labeled::wrap("openai", Arc::new(SpendsTokens)), vault.clone());
+        let writer = Some(TurnAgent { id: "writer", persona: "You write." });
+        handle_agent_turn(&labelled, &dir, "c1", "hi", "hello", Vec::new(), writer, None, None).await.unwrap();
+        let stamp = |id: &str| load_conversation(&dir, id).unwrap().unwrap().messages.iter().find(|m| m.role == ChatRole::Assistant).unwrap().answered_by.clone();
+        assert_eq!(stamp("c1"), Some(AnsweredBy { agent_id: Some("writer".into()), provider_id: Some("openai".into()) }));
+
+        // A model that carries no id leaves the provider unsaid, as it was before: the conversation's own selection then decides.
+        let unlabelled = Orchestrator::new(Arc::new(SpendsTokens), vault);
+        handle_agent_turn(&unlabelled, &dir, "c2", "hi", "hello", Vec::new(), writer, None, None).await.unwrap();
+        assert_eq!(stamp("c2"), Some(AnsweredBy { agent_id: Some("writer".into()), provider_id: None }));
+        std::fs::remove_dir_all(&root).ok();
     }
 
     /// How a project's briefing begins (`Project::briefing`): what tells a project turn from an ordinary one.

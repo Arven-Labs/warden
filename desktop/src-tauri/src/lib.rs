@@ -189,6 +189,9 @@ struct SendMessageResult {
     /// The turn's provider failed and a reserve answered (P79) — the chat shows a discreet line
     /// above the answer. Not saved with the conversation.
     fallbacks: Vec<warden_server_protocol::protocol::ProviderFallbackDto>,
+    /// The provider that answered the turn (P126): the window saves it with the answer (`answeredBy`), so the usage is told under it even
+    /// when the selector was left on the default. `None` for a model that carries no id and for a code task.
+    provider_id: Option<String>,
     /// The exchange is already in the conversation on disk (a code project's task saves its own, P103 b), so the
     /// window must not append it again — only reload it.
     already_saved: bool,
@@ -267,7 +270,7 @@ async fn send_message(
                 // The window says its mode with every task, so a mode it shows is the mode that applies.
                 state.code.set_mode(conversation_id, code_mode.as_deref().unwrap_or("manual"));
                 let content = code_cmds::run_turn(app, &state, &base, project, conversation_id, &content, attachments).await?;
-                return Ok(SendMessageResult { content, usage: None, attachments: Vec::new(), generated_files: Vec::new(), fallbacks: Vec::new(), already_saved: true });
+                return Ok(SendMessageResult { content, usage: None, attachments: Vec::new(), generated_files: Vec::new(), fallbacks: Vec::new(), provider_id: None, already_saved: true });
             }
         }
         if projects.get(id).is_ok_and(|p| p.code) {
@@ -296,6 +299,7 @@ async fn send_message(
         attachments: outcome.attachments.into_iter().map(Into::into).collect(),
         generated_files: outcome.generated_files,
         fallbacks: outcome.fallbacks.into_iter().map(Into::into).collect(),
+        provider_id: outcome.provider_id,
         already_saved: false,
     })
 }

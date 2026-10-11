@@ -82,6 +82,7 @@ impl CodeTurn<'_> {
             attachments: Vec::new(),
             generated_files: Vec::new(),
             fallbacks: Vec::new(),
+            provider_id: None,
             client_tool_calls: Vec::new(),
             tools_used: outcome.tools_used,
         })

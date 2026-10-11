@@ -6,6 +6,14 @@
 
 ---
 
+### 2026-10-11 — Sessão 182 (continuação: P126, o provider que respondeu vem do turno)
+
+- **Pedido do usuário**: seguir para o P126 ("provider em todo turno"), planejando antes.
+- **Achado que encurtou o caminho**: o laço do turno já calcula o provider que serviu cada chamada (`served_provider`, para o ledger). Em vez de passar o id por todos os chamadores, `MessageOutcome.provider_id` o leva e `assistant_message()` carimba com ele; todos os canais que montam a mensagem por ali passam a carimbar sem mudança (hub, Telegram, WhatsApp, tarefas, webhooks, `message_agent`, outreach). Id vazio vira `None`; o turno de código fica `None`.
+- **Desktop**: `SendMessageResult.provider_id` (`providerId`) e `ChatMessage.answeredBy`, enviados ao salvar nos dois pontos que montam a resposta (conversa e thread). Antes, com o seletor na opção padrão, o desktop não dizia o provider.
+- **Testes**: núcleo (rótulo `Some("main")`, reserva `Some("spare")`, sem id `None`), bootstrap (`a_turn_stamps_the_provider_that_answered_whoever_ran_it`, pelo `handle_agent_turn` que o hub usa). Workspace em dois blocos 1208 + 329 passam, 0 falham; `tsc` e `npm test` do desktop (101) limpos; clippy sem aviso novo (consertei um meu: uma variável atribuída e nunca lida).
+- **Fica**: um provider por turno (reserva no meio e sub-agentes contam sob o último servido / o do agente raiz); a e2e do hub com modelo que gasta tokens não foi escrita (o `Scripted` do `tests/agents.rs` não informa uso, o caminho é coberto pelo teste do bootstrap); nenhuma tela de Usage vista com dados reais.
+
 ### 2026-10-11 — Sessão 182 (continuação: `persist_grants` e o prazo valem sem reiniciar)
 
 - **Pedido do usuário**: planejar e seguir em código (sem teste manual). Era o item "o prazo e `persist_grants` só mudam ao reiniciar".
