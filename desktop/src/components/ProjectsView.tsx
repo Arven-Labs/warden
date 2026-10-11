@@ -121,22 +121,25 @@ interface ShareAllResult {
 /** `onConversationsMoved` is given on this computer only: the conversations of code projects it can put on the hub (P124). */
 function ProjectsView({ onChanged, onConversationsMoved }: { onChanged: () => void; onConversationsMoved?: () => void }) {
   const [confirmShareAll, setConfirmShareAll] = useState(false);
+  const [confirmTakeBack, setConfirmTakeBack] = useState(false);
   const [sharing, setSharing] = useState(false);
   const [shareResult, setShareResult] = useState<ShareAllResult | null>(null);
   const [shareError, setShareError] = useState<string | null>(null);
 
-  async function handleShareAll() {
+  /** Moves the code conversations to the hub (`toHub`) or back to this computer, all at once. */
+  async function handleMoveAll(toHub: boolean) {
     setSharing(true);
     setShareError(null);
     setShareResult(null);
     try {
-      setShareResult(await invoke<ShareAllResult>("share_all_conversations"));
+      setShareResult(await invoke<ShareAllResult>(toHub ? "share_all_conversations" : "unshare_all_conversations"));
       onConversationsMoved?.();
     } catch (err) {
       setShareError(String(err));
     } finally {
       setSharing(false);
       setConfirmShareAll(false);
+      setConfirmTakeBack(false);
     }
   }
 
@@ -373,27 +376,44 @@ function ProjectsView({ onChanged, onConversationsMoved }: { onChanged: () => vo
         <section className="settings-section">
           <div className="settings-section-header">
             <h3 className="settings-section-title">Code conversations on the hub</h3>
-            {confirmShareAll ? (
+            {confirmShareAll || confirmTakeBack ? (
               <div className="skill-card-actions">
-                <span className="settings-hint">Move every conversation of a code project to the hub? You can take each one back from its own header, not all at once.</span>
-                <button type="button" className="settings-save-btn" onClick={() => void handleShareAll()} disabled={sharing}>
-                  {sharing ? "Sharing…" : "Share all"}
+                <span className="settings-hint">
+                  {confirmShareAll
+                    ? "Move every conversation of a code project to the hub? You can take them back, all at once or one by one from its header."
+                    : "Move every code-project conversation on the hub back to this computer? The phone and the web stop seeing them."}
+                </span>
+                <button type="button" className="settings-save-btn" onClick={() => void handleMoveAll(confirmShareAll)} disabled={sharing}>
+                  {sharing ? "Moving…" : confirmShareAll ? "Share all" : "Take all back"}
                 </button>
-                <button type="button" className="settings-browse-btn" onClick={() => setConfirmShareAll(false)} disabled={sharing}>
+                <button
+                  type="button"
+                  className="settings-browse-btn"
+                  onClick={() => {
+                    setConfirmShareAll(false);
+                    setConfirmTakeBack(false);
+                  }}
+                  disabled={sharing}
+                >
                   Cancel
                 </button>
               </div>
             ) : (
-              <button type="button" className="settings-browse-btn" onClick={() => setConfirmShareAll(true)}>
-                Share all with the hub
-              </button>
+              <div className="skill-card-actions">
+                <button type="button" className="settings-browse-btn" onClick={() => setConfirmShareAll(true)}>
+                  Share all with the hub
+                </button>
+                <button type="button" className="settings-browse-btn" onClick={() => setConfirmTakeBack(true)}>
+                  Take all back
+                </button>
+              </div>
             )}
           </div>
           <p className="settings-hint">Puts the conversations you already have in code projects on the hub, to go on with them from the phone or the web (they see them while the hub is on).</p>
           {shareError && <p className="settings-error-banner">{shareError}</p>}
           {shareResult && (
             <>
-              <p className="settings-hint">{shareResult.moved.length} shared{shareResult.skipped.length > 0 ? `, ${shareResult.skipped.length} left where they were:` : "."}</p>
+              <p className="settings-hint">{shareResult.moved.length} moved{shareResult.skipped.length > 0 ? `, ${shareResult.skipped.length} left where they were:` : "."}</p>
               {shareResult.skipped.length > 0 && (
                 <ul className="settings-hint">
                   {shareResult.skipped.map((s) => (

@@ -109,6 +109,33 @@ pub fn share_all(desktop: &Path, hub: &Path, is_code: &dyn Fn(&str) -> bool, is_
     Ok(result)
 }
 
+/// Takes back to this computer every conversation of a code project that is in the hub's folder, whoever began it (the phone and the
+/// web see them no more). Mirrors `share_all`: one that can't come (a task is running in it here, the computer already has that id) is
+/// left and reported, and the others still come. A conversation of the hub that is not in a code project isn't part of this.
+pub fn unshare_all(desktop: &Path, hub: &Path, is_code: &dyn Fn(&str) -> bool, is_running: &dyn Fn(&str) -> bool) -> anyhow::Result<ShareAll> {
+    let mut result = ShareAll::default();
+    for conversation in list_conversations(hub)?.into_iter().filter(|c| c.project_id.as_deref().is_some_and(is_code)) {
+        if is_running(&conversation.id) {
+            result.skipped.push(Skipped { id: conversation.id, reason: "a task is running in it".to_string() });
+            continue;
+        }
+        match share(desktop, hub, &conversation.id, false, is_code) {
+            Ok(_) => result.moved.push(conversation.id),
+            Err(reason) => result.skipped.push(Skipped { id: conversation.id, reason }),
+        }
+    }
+    Ok(result)
+}
+
+/// Takes back every code-project conversation from the hub (the Projects screen's second button).
+#[tauri::command]
+pub fn unshare_all_conversations(state: State<'_, AppState>) -> Result<ShareAll, String> {
+    let hub = hub_dir().ok_or_else(|| "could not determine the OS config directory".to_string())?;
+    let orchestrator = { state.orchestrator.lock().unwrap().clone() }?;
+    let store = warden_core::project::ProjectStore::new(orchestrator.vault().clone());
+    unshare_all(&desktop_dir()?, &hub, &|project| store.get(project).is_ok_and(|p| p.code), &|id| state.code.is_running(id)).map_err(|e| format!("{e:#}"))
+}
+
 /// Shares every code-project conversation of this computer with the hub (the Projects screen's button).
 #[tauri::command]
 pub fn share_all_conversations(state: State<'_, AppState>) -> Result<ShareAll, String> {
@@ -215,6 +242,48 @@ mod tests {
         // Nothing left to share: an empty result, not an error.
         let again = share_all(&desktop, &hub, &only_code, &|_| true).unwrap();
         assert!(again.moved.is_empty() && again.skipped.len() == 2);
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn taking_all_back_brings_only_the_code_ones_and_reports_what_it_left_and_why() {
+        let (root, desktop, hub) = dirs("back");
+        for (id, project) in [("a", Some("app")), ("b", Some("app")), ("busy", Some("app")), ("clash", Some("app")), ("docs", Some("notes")), ("plain", None)] {
+            save_conversation(&hub, &conversation(id, project, 1)).unwrap();
+        }
+        save_conversation(&desktop, &conversation("clash", Some("app"), 2)).unwrap();
+
+        let done = unshare_all(&desktop, &hub, &only_code, &|id| id == "busy").unwrap();
+        let mut moved = done.moved.clone();
+        moved.sort();
+        assert_eq!(moved, vec!["a", "b"]);
+        let mut left: Vec<(String, bool)> = done.skipped.iter().map(|s| (s.id.clone(), s.reason.contains("running") || s.reason.contains("already exists"))).collect();
+        left.sort();
+        assert_eq!(left, vec![("busy".to_string(), true), ("clash".to_string(), true)]);
+        assert_eq!(load_conversation(&desktop, "a").unwrap().unwrap().engine_session_id.as_deref(), Some("ses_1"));
+        for id in ["busy", "clash", "docs", "plain"] {
+            assert!(load_conversation(&hub, id).unwrap().is_some(), "{id} stays on the hub");
+        }
+        assert!(load_conversation(&hub, "a").unwrap().is_none());
+        // Nothing left to bring: only the two that can't come, not an error.
+        let again = unshare_all(&desktop, &hub, &only_code, &|id| id == "busy").unwrap();
+        assert!(again.moved.is_empty() && again.skipped.len() == 2);
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn sharing_all_and_taking_all_back_leaves_the_conversations_where_they_began() {
+        let (root, desktop, hub) = dirs("roundtrip");
+        for id in ["a", "b"] {
+            save_conversation(&desktop, &conversation(id, Some("app"), 1)).unwrap();
+        }
+        save_conversation(&desktop, &conversation("plain", None, 1)).unwrap();
+        share_all(&desktop, &hub, &only_code, &|_| false).unwrap();
+        assert_eq!(shared_ids(&hub).len(), 2);
+        let back = unshare_all(&desktop, &hub, &only_code, &|_| false).unwrap();
+        assert_eq!((back.moved.len(), back.skipped.len()), (2, 0));
+        assert!(shared_ids(&hub).is_empty());
+        assert_eq!(list_conversations(&desktop).unwrap().len(), 3);
         std::fs::remove_dir_all(&root).ok();
     }
 

@@ -6,6 +6,13 @@
 
 ---
 
+### 2026-10-11 — Sessão 182 (continuação: P124, desfazer em lote do "Share all")
+
+- **Pedido do usuário**: "vamos pelo desfazer em lote"; plano aprovado, com a escolha de trazer toda conversa de projeto de código da pasta do hub (sem registro de quem compartilhou).
+- **O que mudou**: `share_cmds.rs` ganhou `unshare_all` e o comando `unshare_all_conversations` (mesmo `ShareAll { moved, skipped }`); botão "Take all back" ao lado de "Share all with the hub" em `ProjectsView.tsx`, com a mesma confirmação e lista de pulados.
+- **Testes**: 2 novos (só as de código voltam, com a sessão; a que roda e a de id repetido ficam com motivo; ida e volta deixa tudo como estava). Desktop `cargo test --lib` 57 passam; `tsc` e `npm test` (107) limpos; clippy sem aviso novo.
+- **Fica**: a janela e o celular não foram vistos; o desktop não vê um turno do celular numa conversa do hub; o botão traz também as de código que nasceram no hub.
+
 ### 2026-10-11 — Sessão 182 (continuação: P124, o conflito é resolvido dentro da worktree)
 
 - **Pedido do usuário**: "vamos pelo conflito"; plano aprovado.
