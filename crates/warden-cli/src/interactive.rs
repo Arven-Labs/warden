@@ -69,7 +69,8 @@ use warden_core::orchestrator::{MessageOutcome, Orchestrator};
 use warden_core::skill::{self, Skill, SkillStore};
 use warden_core::spend::{now_millis, LimitStatus, Price, SpendGuard, Spent, DEFAULT_EXTEND_STEP, DEFAULT_WARN_AT};
 use warden_core::tool::ssh::test_connection;
-use warden_core::tool::{ApprovalRequest, Approver};
+use warden_core::autonomy::{GrantBook, Grants, RememberingApprover};
+use warden_core::tool::{Answer, ApprovalRequest, Approver};
 
 use crate::commands::{self, Command, ParseOutcome};
 
@@ -779,35 +780,55 @@ async fn read_field(terminal: &mut CliTerminal, title: &str, initial: &str) -> a
 /// `run_turn` (which owns the terminal), and waits for the answer. Anything that goes wrong on the
 /// way — the loop is gone, the reply channel is dropped — is a "no".
 struct ChannelApprover {
-    requests: mpsc::UnboundedSender<(ApprovalRequest, oneshot::Sender<bool>)>,
+    requests: mpsc::UnboundedSender<AskedApproval>,
 }
+
+/// One question for the person: what is asked, what an "always" would cover (`None` when it can't be offered), and where the answer goes.
+type AskedApproval = (ApprovalRequest, Option<String>, oneshot::Sender<Answer>);
 
 #[async_trait::async_trait]
 impl Approver for ChannelApprover {
     async fn approve(&self, request: ApprovalRequest) -> bool {
+        self.ask(request, None).await != Answer::Reject
+    }
+
+    async fn ask(&self, request: ApprovalRequest, always: Option<&str>) -> Answer {
         let (reply, answer) = oneshot::channel();
-        if self.requests.send((request, reply)).is_err() {
-            return false;
+        if self.requests.send((request, always.map(str::to_string), reply)).is_err() {
+            return Answer::Reject;
         }
-        answer.await.unwrap_or(false)
+        answer.await.unwrap_or(Answer::Reject)
     }
 }
 
-/// Shows what the model wants to run and waits for a key: `s`/`y` approves; `n`, Esc, Enter or
-/// Ctrl+C refuses; any other key is ignored so a stray keystroke can't approve anything. Gives up
+/// What a key means in the approval card: `s`/`y` approves once; `a` approves and remembers, but only when an "always" was offered;
+/// `n`, Esc or Enter refuses; any other key is `None` (ignored) so a stray keystroke can't approve anything.
+fn approval_key(code: KeyCode, can_always: bool) -> Option<Answer> {
+    match code {
+        KeyCode::Char('s' | 'S' | 'y' | 'Y') => Some(Answer::Once),
+        KeyCode::Char('a' | 'A') if can_always => Some(Answer::Always),
+        KeyCode::Char('n' | 'N') | KeyCode::Esc | KeyCode::Enter => Some(Answer::Reject),
+        _ => None,
+    }
+}
+
+/// Shows what the model wants to run and waits for a key (`approval_key`); Ctrl+C refuses too. Gives up
 /// (as a "no") if the tool stopped waiting first — its own deadline elapsed and it dropped the reply.
-fn ask_approval(terminal: &mut CliTerminal, request: &ApprovalRequest, reply: &oneshot::Sender<bool>) -> anyhow::Result<bool> {
+fn ask_approval(terminal: &mut CliTerminal, request: &ApprovalRequest, always: Option<&str>, reply: &oneshot::Sender<Answer>) -> anyhow::Result<Answer> {
     // One card row per line of the detail, so a multi-line command or a whole persona stays readable.
     let mut lines = vec![(format!("alvo: {}", request.target), Style::default()), (format!("ação: {}", request.action), Style::default())];
     if let Some(category) = request.category {
         lines.push((format!("categoria: {} (este agente pede aprovação para isso)", category.as_str()), Style::default()));
     }
     lines.extend(request.detail.lines().map(|line| (line.to_string(), Style::default())));
-    lines.push(("aprovar? (s = sim, n = não)".to_string(), dim_style()));
+    match always {
+        Some(covers) => lines.push((format!("aprovar? (s = sim, a = sempre para \"{covers}\" neste agente, n = não)"), dim_style())),
+        None => lines.push(("aprovar? (s = sim, n = não)".to_string(), dim_style())),
+    }
     render_message_card(terminal, "aprovação", Style::default().fg(Color::Rgb(241, 196, 15)), lines)?;
     loop {
         if reply.is_closed() {
-            return Ok(false);
+            return Ok(Answer::Reject);
         }
         terminal.draw(|frame| render_card_preview(frame, PreviewState::AwaitingApproval))?;
         if event::poll(POLL_INTERVAL)? {
@@ -816,12 +837,10 @@ fn ask_approval(terminal: &mut CliTerminal, request: &ApprovalRequest, reply: &o
                     continue;
                 }
                 if key_is_ctrl_c(&key) {
-                    return Ok(false);
+                    return Ok(Answer::Reject);
                 }
-                match key.code {
-                    KeyCode::Char('s' | 'S' | 'y' | 'Y') => return Ok(true),
-                    KeyCode::Char('n' | 'N') | KeyCode::Esc | KeyCode::Enter => return Ok(false),
-                    _ => {}
+                if let Some(answer) = approval_key(key.code, always.is_some()) {
+                    return Ok(answer);
                 }
             }
         }
@@ -842,6 +861,7 @@ async fn run_turn(
     terminal: &mut CliTerminal,
     model_override: Option<Arc<dyn ModelProvider>>,
     system_prompt: Option<&str>,
+    grants: Grants,
 ) -> anyhow::Result<Option<MessageOutcome>> {
     let (tx, mut rx) = mpsc::unbounded_channel::<StreamEvent>();
     let orchestrator = match model_override {
@@ -849,8 +869,9 @@ async fn run_turn(
         None => orchestrator.clone(),
     };
     // Tools that need a human "yes" (`ssh_*` on a host with `require_approval`) ask through here.
-    let (approval_tx, mut approval_rx) = mpsc::unbounded_channel::<(ApprovalRequest, oneshot::Sender<bool>)>();
-    let orchestrator = orchestrator.with_approver(Arc::new(ChannelApprover { requests: approval_tx }));
+    // P122: an "always" to a tool call holds for this agent, so the same kind of action isn't asked again.
+    let (approval_tx, mut approval_rx) = mpsc::unbounded_channel::<AskedApproval>();
+    let orchestrator = orchestrator.with_approver(Arc::new(RememberingApprover::new(Arc::new(ChannelApprover { requests: approval_tx }), grants)));
     let history_owned = history.to_vec();
     let input_owned = input.to_string();
     let system_prompt_owned = system_prompt.map(str::to_string);
@@ -886,9 +907,9 @@ async fn run_turn(
             }
         }
 
-        if let Ok((request, reply)) = approval_rx.try_recv() {
-            let approved = ask_approval(terminal, &request, &reply)?;
-            let _ = reply.send(approved);
+        if let Ok((request, always, reply)) = approval_rx.try_recv() {
+            let answer = ask_approval(terminal, &request, always.as_deref(), &reply)?;
+            let _ = reply.send(answer);
             continue;
         }
 
@@ -1001,6 +1022,22 @@ struct CliSession {
     /// The folder of this computer the session works in (P102), picked with `/folder` before the first message: the
     /// file tools and the shell act there, and the shell asks before every command. Never changed after the first turn.
     workdir: Option<String>,
+    /// What the person said "always" to in this terminal (P122), per agent: kept in `grants/cli.json` beside the config unless
+    /// `persist_grants = false`, and in memory only otherwise.
+    grants: GrantBook,
+}
+
+/// The one conversation the terminal has, as far as the "always" book goes: it keeps no conversations of its own, so an "always"
+/// holds for the agent, whatever the session.
+const CLI_CONVERSATION: &str = "cli";
+
+/// The terminal's book of "always": in a file beside the config (`persist_grants`, `grant_ttl_days`), or in memory when the config says
+/// not to keep them or there is no config path to put a file beside.
+fn cli_grant_book(config_path: Option<&Path>) -> GrantBook {
+    match config_path.and_then(|path| warden_bootstrap::grant_policy_at(path, false)) {
+        Some(policy) => GrantBook::persistent(policy.dir.join("cli.json"), policy.ttl),
+        None => GrantBook::default(),
+    }
 }
 
 /// Uses `warden_bootstrap::resolve_vault_path` (P61) — needed here because `Orchestrator` doesn't
@@ -3146,6 +3183,7 @@ pub async fn run(
     // happens once, before the loop below starts reading any key at all).
     let mut terminal = new_inline_terminal()?;
 
+    let config_path_for_grants = config_path.clone();
     let mut session = CliSession {
         config_path,
         vault_path_override,
@@ -3157,6 +3195,7 @@ pub async fn run(
         tool_names: orchestrator.tools().iter().map(|t| t.spec().name).collect(),
         spend_guard: orchestrator.spend_guard().cloned(),
         workdir: None,
+        grants: cli_grant_book(config_path_for_grants.as_deref()),
     };
 
     loop {
@@ -3222,7 +3261,8 @@ pub async fn run(
             None => scoped,
         };
 
-        match run_turn(&scoped, &history, trimmed, &mut terminal, model_override, system_prompt.as_deref()).await {
+        let grants = session.grants.of(CLI_CONVERSATION, session.agent_id.as_deref());
+        match run_turn(&scoped, &history, trimmed, &mut terminal, model_override, system_prompt.as_deref(), grants).await {
             Ok(Some(outcome)) => {
                 session.turn_count += 1;
                 if let Some(usage) = &outcome.usage {
@@ -3264,6 +3304,74 @@ mod tests {
     }
 
     #[test]
+    fn a_key_in_the_approval_card_says_once_always_or_no_and_a_stray_one_says_nothing() {
+        for yes in ['s', 'S', 'y', 'Y'] {
+            assert_eq!(approval_key(KeyCode::Char(yes), true), Some(Answer::Once));
+        }
+        for no in [KeyCode::Char('n'), KeyCode::Char('N'), KeyCode::Esc, KeyCode::Enter] {
+            assert_eq!(approval_key(no, true), Some(Answer::Reject));
+        }
+        assert_eq!(approval_key(KeyCode::Char('a'), true), Some(Answer::Always));
+        assert_eq!(approval_key(KeyCode::Char('A'), true), Some(Answer::Always));
+        assert_eq!(approval_key(KeyCode::Char('a'), false), None, "no \"always\" was offered, so the key does nothing");
+        assert_eq!(approval_key(KeyCode::Char('x'), true), None);
+        assert_eq!(approval_key(KeyCode::Tab, true), None);
+    }
+
+    #[tokio::test]
+    async fn the_channel_approver_tells_the_person_what_an_always_would_cover_and_hands_back_the_answer() {
+        let (tx, mut rx) = mpsc::unbounded_channel::<AskedApproval>();
+        let approver = ChannelApprover { requests: tx };
+        let asking = tokio::spawn(async move { approver.ask(ApprovalRequest::new("shell", "tool_call", "ls"), Some("shell")).await });
+        let (request, always, reply) = rx.recv().await.unwrap();
+        assert_eq!((request.target.as_str(), always.as_deref()), ("shell", Some("shell")));
+        reply.send(Answer::Always).unwrap();
+        assert_eq!(asking.await.unwrap(), Answer::Always);
+
+        let (tx, rx) = mpsc::unbounded_channel::<AskedApproval>();
+        drop(rx);
+        let gone = ChannelApprover { requests: tx };
+        assert_eq!(gone.ask(ApprovalRequest::new("shell", "tool_call", ""), None).await, Answer::Reject, "nobody to ask is a no");
+        assert!(!gone.approve(ApprovalRequest::new("shell", "tool_call", "")).await);
+    }
+
+    #[tokio::test]
+    async fn an_always_said_in_the_terminal_is_kept_in_a_file_beside_the_config_and_asked_no_more() {
+        let dir = std::env::temp_dir().join(format!("warden-cli-grants-{}", now_millis()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let config = dir.join("config.toml");
+        std::fs::write(&config, "").unwrap();
+
+        let ask = |book: GrantBook, answer: Answer| async move {
+            let (tx, mut rx) = mpsc::unbounded_channel::<AskedApproval>();
+            let approver = RememberingApprover::new(Arc::new(ChannelApprover { requests: tx }), book.of(CLI_CONVERSATION, Some("ana")));
+            let asking = tokio::spawn(async move { approver.ask(ApprovalRequest::new("shell", "tool_call", "ls"), Some("shell")).await });
+            // Answers when asked; when the grant already answers, nothing arrives and `ask` finishes first.
+            let asked = tokio::select! {
+                got = rx.recv() => got.map(|(_, _, reply)| reply.send(answer).unwrap()).is_some(),
+                _ = tokio::time::sleep(std::time::Duration::from_millis(300)) => false,
+            };
+            (asking.await.unwrap(), asked)
+        };
+
+        assert_eq!(ask(cli_grant_book(Some(&config)), Answer::Always).await, (Answer::Always, true));
+        assert!(dir.join("grants").join("cli.json").exists());
+        // A new session (a new book from the same file) is not asked again, and another agent still is.
+        assert_eq!(ask(cli_grant_book(Some(&config)), Answer::Reject).await, (Answer::Always, false));
+        let other = cli_grant_book(Some(&config)).of(CLI_CONVERSATION, Some("bia"));
+        assert!(!other.allows("shell"));
+
+        // `persist_grants = false` keeps it in memory: nothing is written and the next session asks again.
+        let off = dir.join("off.toml");
+        std::fs::write(&off, "persist_grants = false\n").unwrap();
+        assert_eq!(ask(cli_grant_book(Some(&off)), Answer::Always).await, (Answer::Always, true));
+        assert!(!dir.join("grants").join("off.json").exists());
+        assert_eq!(ask(cli_grant_book(Some(&off)), Answer::Reject).await, (Answer::Reject, true));
+        assert_eq!(cli_grant_book(None).list().len(), 0);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
     fn the_autonomy_answer_is_a_level_from_one_to_five() {
         assert_eq!(parse_agent_autonomy(" 3 "), Ok(3));
         assert_eq!(parse_agent_autonomy("5"), Ok(5));
@@ -3300,8 +3408,9 @@ mod tests {
             tool_names: Vec::new(),
             spend_guard: None,
             workdir: None,
+            grants: GrantBook::default(),
         };
-        let tools = |agent: &str| -> Vec<String> {
+        let tools =|agent: &str| -> Vec<String> {
             resolve_turn_context(&session(agent), &orchestrator).unwrap().orchestrator.tools().iter().map(|t| t.spec().name).collect()
         };
         assert!(tools("ana").contains(&"message_agent".to_string()));

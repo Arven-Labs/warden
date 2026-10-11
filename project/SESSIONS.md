@@ -6,6 +6,13 @@
 
 ---
 
+### 2026-10-11 — Sessão 182 (continuação: "sempre" na CLI)
+
+- **Pedido do usuário**: "vamos de 2", o item aberto "a CLI não tem 'sempre'".
+- **O que mudou** (`warden-cli/src/interactive.rs`): `ChannelApprover` implementa `ask` e devolve `Answer` (a fila do turno leva o que o "sempre" cobriria); o cartão de aprovação aceita `a` só quando a pergunta oferece o "sempre" (`approval_key`) e diz para o que vale; `run_turn` embrulha o aprovador num `RememberingApprover` com os `Grants` do agente ativo. `CliSession.grants` é um `GrantBook` em `grants/cli.json` ao lado do `config.toml` (`cli_grant_book`: respeita `persist_grants` e `grant_ttl_days`, e fica em memória sem política ou sem caminho de config). Conversa fixa `"cli"`, porque o terminal não guarda conversas; vale por agente.
+- **Testes**: teclas do cartão (sim, sempre, não, tecla solta, `a` sem "sempre" oferecido), o `ChannelApprover` (entrega o que cobre e devolve a resposta; sem ninguém para perguntar é não), e o ciclo inteiro (diz "sempre", grava o arquivo, outra sessão não pergunta, outro agente pergunta, `persist_grants = false` não grava). `cargo test -p warden-cli` 61 + 7, clippy sem aviso.
+- **Fica**: a CLI não lista nem revoga (apagar o arquivo); o modo com stdin em pipe não tem aprovador; **o cartão com a tecla `a` não foi visto num terminal de verdade** (só os testes), e nenhum modelo real exercitou o fluxo.
+
 ### 2026-10-11 — Sessão 182 (continuação: prazo do "sempre" editável e dito pelo hub)
 
 - **Pedido do usuário**: o padrão fica em 30 dias, mas tem de ser alterável nas configurações; "odeio coisa hardcodada". Era o item aberto "o prazo mostrado nas telas é '30 dias' fixo no texto".
