@@ -30,6 +30,7 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
 use serde::{Deserialize, Serialize};
+use serde_json::json;
 use tauri::{AppHandle, Emitter, State};
 use warden_bootstrap::settings::{
     check_active_provider, check_agents, check_combos, check_providers, config_version, default_models_by_kind, limits_into_config, prices_into_config,
@@ -45,7 +46,7 @@ use warden_bootstrap::{
 use warden_core::model::{Attachment, Message};
 use warden_core::orchestrator::Orchestrator;
 use warden_core::spend::SpendContext;
-use warden_server_protocol::protocol::{LimitSettingsDto, PriceSettingsDto};
+use warden_server_protocol::protocol::{ChatEventDto, LimitSettingsDto, PriceSettingsDto};
 
 /// The file of this computer's own "always" (P122) in the `grants/` folder beside the config.
 const DESKTOP_GRANTS_FILE: &str = "desktop.json";
@@ -288,11 +289,24 @@ async fn send_message(
     // Tools that need a human "yes" (SSH hosts with `require_approval`, `manage_agents`) ask through
     // the window; every other channel has no approver and those actions are refused there.
     // P122: an "always" to a tool call holds for this conversation and agent, so the same kind of action isn't asked again.
+    let live = app.clone();
     let asks = Arc::new(approval::TauriApprover { app, broker: state.approvals.clone() });
     let grants = state.grants.of(conversation_id.as_deref().unwrap_or(""), agent_id.as_deref());
     let orchestrator = orchestrator.with_approver(Arc::new(warden_core::autonomy::RememberingApprover::new(asks, grants)));
-    let outcome =
-        orchestrator.handle_turn(&history, &content, attachments, persona.as_deref()).await.map_err(|e| format!("{e:#}"))?;
+    // P124: what a tool says about its work while it runs (a `code_task` editing and running commands) reaches the window as it happens.
+    // The model's own words still arrive with the answer.
+    let on_live = conversation_id.map(|id| {
+        move |event: &warden_core::model::StreamEvent| {
+            if let Some(event) = live_event(event) {
+                let _ = live.emit("chat-event", json!({ "conversationId": id, "event": event }));
+            }
+        }
+    });
+    let outcome = match on_live {
+        Some(on_event) => orchestrator.handle_turn_streaming(&history, &content, attachments, persona.as_deref(), on_event).await,
+        None => orchestrator.handle_turn(&history, &content, attachments, persona.as_deref()).await,
+    }
+    .map_err(|e| format!("{e:#}"))?;
     Ok(SendMessageResult {
         content: outcome.content,
         usage: outcome.usage,
@@ -302,6 +316,15 @@ async fn send_message(
         provider_id: outcome.provider_id,
         already_saved: false,
     })
+}
+
+/// What the window is shown of a turn while it runs: the rows and notices a tool reports about its own work. Not the model's words, which
+/// arrive with the answer (the hub does the same).
+fn live_event(event: &warden_core::model::StreamEvent) -> Option<ChatEventDto> {
+    match event {
+        warden_core::model::StreamEvent::ToolProgress { event, .. } => ChatEventDto::from_code(event.clone()),
+        _ => None,
+    }
 }
 
 /// Names of every tool the running orchestrator has, for the Settings screen's per-agent tool list
@@ -1299,6 +1322,23 @@ mod tests {
         assert!(!desktop_file.exists(), "and turning it off takes the file away");
         assert_eq!(state.grants.list().len(), 1, "while what was given stays until the app closes");
         std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn the_window_is_shown_what_a_tool_says_about_its_work_and_not_the_models_words() {
+        use warden_core::code_engine::{CodeEvent, ToolEvent, ToolStatus};
+        use warden_core::model::StreamEvent;
+        use warden_server_protocol::protocol::ToolStatusDto;
+
+        let row = ToolEvent { call_id: "repo:c1".into(), tool: "bash".into(), title: "Repo: cargo test".into(), status: ToolStatus::Running };
+        let from_tool = |event| StreamEvent::ToolProgress { tool: "code_task".into(), event };
+        assert_eq!(
+            live_event(&from_tool(CodeEvent::Tool(row))),
+            Some(ChatEventDto::Tool { call_id: "repo:c1".into(), tool: "bash".into(), title: "Repo: cargo test".into(), status: ToolStatusDto::Running })
+        );
+        assert_eq!(live_event(&from_tool(CodeEvent::Notice("Repo: retrying".into()))), Some(ChatEventDto::Notice { text: "Repo: retrying".into() }));
+        assert_eq!(live_event(&from_tool(CodeEvent::Session("ses_1".into()))), None, "the session is not for showing");
+        assert_eq!(live_event(&StreamEvent::ContentDelta("the model's own words".into())), None, "they arrive with the answer");
     }
 
     #[test]

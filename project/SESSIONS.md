@@ -6,6 +6,14 @@
 
 ---
 
+### 2026-10-11 — Sessão 182 (continuação: P124, linhas ao vivo no Chat do desktop)
+
+- **Pedido do usuário**: planejar as linhas ao vivo; plano aprovado, edição na tela.
+- **O que a exploração mostrou**: a tela do desktop já estava pronta (`chat-event` por conversa, `LiveBubble`); faltava só o backend emitir. Por isso a mudança é pequena.
+- **O que mudou**: `live_event` (só `ToolProgress` vira `ChatEventDto`; texto do modelo e sessão não) e o `send_message` usando `handle_turn_streaming` quando há `conversation_id`; no `App.tsx`, o envio em thread limpa a bolha ao vivo da conversa-filha (o painel da thread não a desenha).
+- **Testes**: 1 no desktop (`live_event`). Workspace sem falha, `tsc` limpo, `npm test` 101. Não fiz o teste de ponta a ponta do plano: o `send_message` precisa de um `AppHandle` do Tauri; o caminho `code_task` → `ToolProgress` já tem teste no núcleo e no hub.
+- **Fica**: a bolha numa janela do desktop não foi vista; nenhum opencode real; dois gerenciadores do opencode com o hub embutido ligado.
+
 ### 2026-10-11 — Sessão 182 (continuação: P124, `code_task` no desktop local)
 
 - **Pedido do usuário**: planejar e fazer a `code_task` no desktop local, **com plano antes e edição na tela** (a partir daqui: modo plan nas tarefas e a ferramenta Edit em vez de scripts Python). Plano aprovado.

@@ -855,6 +855,8 @@ function App() {
       setThreadError(String(err));
     } finally {
       setThreadSending(false);
+      // A tool in the thread's turn (a manager's `code_task`) may have reported live; the thread panel doesn't draw it, so it is not kept.
+      setLiveTurns(({ [threadId]: _done, ...rest }) => rest);
     }
   }
 
