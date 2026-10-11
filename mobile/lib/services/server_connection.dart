@@ -557,14 +557,14 @@ class ServerConnection implements ConversationBackend, AgentsBackend, MemberOrgB
 
   /// P122 — what the person said "always" to on this connection.
   @override
-  Future<List<Grant>> listGrants() async => _grantsOf(await _conversationRequest(ListGrantsMessage.new));
+  Future<GrantsView> listGrants() async => _grantsOf(await _conversationRequest(ListGrantsMessage.new));
 
   /// P122 — takes one "always" back, so the agent asks again.
   @override
-  Future<List<Grant>> revokeGrant(Grant grant) async => _grantsOf(await _conversationRequest((id) => RevokeGrantMessage(id, grant)));
+  Future<GrantsView> revokeGrant(Grant grant) async => _grantsOf(await _conversationRequest((id) => RevokeGrantMessage(id, grant)));
 
-  List<Grant> _grantsOf(ServerMessage reply) => switch (reply) {
-        GrantListMessage(:final grants) => grants,
+  GrantsView _grantsOf(ServerMessage reply) => switch (reply) {
+        GrantListMessage(:final grants, :final ttlDays) => GrantsView(grants, ttlDays: ttlDays),
         TaskErrorMessage(:final message) => throw ConversationException(message),
         _ => throw ConversationException('Unexpected reply to the permissions request: $reply'),
       };

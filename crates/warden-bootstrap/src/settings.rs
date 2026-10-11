@@ -334,6 +334,18 @@ pub fn check_outreach(list: Vec<OutreachConfig>, agents: &[AgentConfig]) -> Resu
     Ok(checked)
 }
 
+/// The most days an "always" may be left unused from a settings screen; whoever wants longer edits the file.
+pub const MAX_GRANT_TTL_DAYS: u32 = 365;
+
+/// The days an "always" may go unused, as a screen sends them (P122): 1 to `MAX_GRANT_TTL_DAYS`, or the number the file already has (a
+/// file edited by hand above the ceiling must not stop the rest of the screen from saving).
+pub fn check_grant_ttl_days(days: u32, current: Option<u32>) -> Result<Option<u32>, String> {
+    if current != Some(days) && !(1..=MAX_GRANT_TTL_DAYS).contains(&days) {
+        return Err(format!("the days an \"always\" may go unused must be between 1 and {MAX_GRANT_TTL_DAYS} here (edit config.toml for more)"));
+    }
+    Ok(Some(days))
+}
+
 /// The map of tools to risk categories (P122), trimmed: a tool named, a category that exists, no tool twice.
 pub fn check_tool_categories(list: Vec<crate::risk::ToolCategoryConfig>) -> Result<Vec<crate::risk::ToolCategoryConfig>, String> {
     let mut checked: Vec<crate::risk::ToolCategoryConfig> = Vec::with_capacity(list.len());
@@ -461,6 +473,8 @@ pub fn hub_settings(config: &FileConfig, tool_names: Vec<String>, host_notes: Ve
         model_policies: config.model_policies.iter().map(|p| ModelPolicyDto { id: p.id.clone(), model: p.model.clone(), description: p.description.clone() }).collect(),
         outreach: config.outreach.iter().map(|o| OutreachDto { agent: o.agent.clone(), forward: o.forward.clone() }).collect(),
         tool_categories: config.tool_categories.iter().map(|c| warden_server_protocol::protocol::ToolCategoryDto { tool: c.tool.clone(), category: c.category.as_str().to_string() }).collect(),
+        persist_grants: config.persist_grants != Some(false),
+        grant_ttl_days: Some(crate::grant_ttl_days(config)),
         // P84: members' own agents are theirs — the owner's screen neither shows nor saves them.
         agents: config
             .agents
@@ -695,6 +709,14 @@ pub fn apply_hub_settings(existing: FileConfig, update: HubSettingsUpdate) -> Re
         None => std::mem::take(&mut config.tool_categories),
     };
 
+    // P122: whether an "always" is kept in a file, and for how long. A term that was already in the file passes, whatever it is.
+    if let Some(persist) = update.persist_grants {
+        config.persist_grants = Some(persist);
+    }
+    if let Some(days) = update.grant_ttl_days {
+        config.grant_ttl_days = check_grant_ttl_days(days, config.grant_ttl_days)?;
+    }
+
     config.limits = update.limits.map(limits_into_config).transpose()?;
     config.prices = prices_into_config(update.prices)?;
     config.api_keys.tavily = apply_secret(update.tavily_key, config.api_keys.tavily.take());
@@ -844,6 +866,8 @@ mod tests {
             model_policies: None,
             outreach: None,
             tool_categories: None,
+            persist_grants: None,
+            grant_ttl_days: None,
             bots: None,
             telegram_token: SecretEdit::Keep,
             advanced: None,
@@ -1505,6 +1529,36 @@ mod tests {
             update.tool_categories = Some(bad.clone());
             assert!(apply_hub_settings(with_map(), update).is_err(), "{bad:?}");
         }
+    }
+
+    #[test]
+    fn how_long_an_always_lasts_is_shown_with_its_default_edited_checked_and_kept_when_not_sent() {
+        let config = sample();
+        let shown = hub_settings(&config, Vec::new(), Vec::new());
+        assert_eq!((shown.persist_grants, shown.grant_ttl_days), (true, Some(30)), "a config that says nothing shows the defaults");
+
+        // Not sent: kept (and the file stays without the keys). Sent: written.
+        let kept = apply_hub_settings(sample(), untouched(&config)).unwrap();
+        assert_eq!((kept.persist_grants, kept.grant_ttl_days), (None, None));
+        let mut update = untouched(&config);
+        update.persist_grants = Some(false);
+        update.grant_ttl_days = Some(7);
+        let saved = apply_hub_settings(sample(), update).unwrap();
+        assert_eq!((saved.persist_grants, saved.grant_ttl_days), (Some(false), Some(7)));
+        let shown = hub_settings(&saved, Vec::new(), Vec::new());
+        assert_eq!((shown.persist_grants, shown.grant_ttl_days), (false, Some(7)));
+
+        // Out of range is refused, unless the file already had that number (edited by hand).
+        for bad in [0, MAX_GRANT_TTL_DAYS + 1] {
+            let mut update = untouched(&config);
+            update.grant_ttl_days = Some(bad);
+            assert!(apply_hub_settings(sample(), update).is_err(), "{bad}");
+        }
+        let mut by_hand = sample();
+        by_hand.grant_ttl_days = Some(900);
+        let mut update = untouched(&config);
+        update.grant_ttl_days = Some(900);
+        assert_eq!(apply_hub_settings(by_hand, update).unwrap().grant_ttl_days, Some(900));
     }
 
     #[test]

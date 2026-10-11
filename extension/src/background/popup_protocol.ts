@@ -118,6 +118,8 @@ export interface ActivityResponse {
 export interface GrantsResponse {
   ok: boolean;
   grants: Grant[];
+  /** Days an "always" may go unused before it lapses; absent when the hub keeps none in a file (or predates it). */
+  ttlDays?: number;
   error?: string;
 }
 

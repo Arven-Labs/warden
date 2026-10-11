@@ -18,6 +18,8 @@ const emptySettings: Settings = {
   modelPolicies: [],
   outreach: [],
   toolCategories: [],
+  persistGrants: true,
+  grantTtlDays: 0,
   vaultPath: "",
   generatedPath: "",
   tavilyKey: "",
@@ -1625,6 +1627,8 @@ function SettingsView() {
           model_policies: form.modelPolicies,
           outreach: form.outreach,
           tool_categories: form.toolCategories,
+          persist_grants: form.persistGrants,
+          grant_ttl_days: form.grantTtlDays,
           vault_path: form.vaultPath,
           generated_path: form.generatedPath,
           tavily_key: form.tavilyKey,
@@ -1788,6 +1792,33 @@ function SettingsView() {
               />
             ))}
           </div>
+        </section>
+
+        <section className="settings-section">
+          <h3 className="settings-section-title">Permissions given with "always"</h3>
+          <p className="settings-hint">
+            When you answer "always" to an agent's question, it stops asking for that kind of action in that conversation. Kept in a
+            file, the permission survives a restart and lapses after the days below without being used (each use renews it);
+            otherwise it ends when the app closes. Deleting data, spending money and critical infrastructure never get an "always".
+            Takes effect the next time the app starts.
+          </p>
+          <label className="settings-field settings-checkbox-field">
+            <span className="settings-checkbox-row">
+              <input type="checkbox" checked={form.persistGrants} onChange={(e) => setForm((f) => ({ ...f, persistGrants: e.currentTarget.checked }))} />
+              <span className="settings-label">Keep them in a file</span>
+            </span>
+          </label>
+          <label className="settings-field">
+            <span className="settings-label">Days a permission may go unused before it lapses</span>
+            <input
+              className="settings-input"
+              type="number"
+              min={1}
+              value={form.grantTtlDays || ""}
+              disabled={!form.persistGrants}
+              onChange={(e) => setForm((f) => ({ ...f, grantTtlDays: Math.floor(Number(e.currentTarget.value)) }))}
+            />
+          </label>
         </section>
 
         <SpendingSection

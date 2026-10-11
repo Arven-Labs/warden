@@ -1668,7 +1668,7 @@ async fn handle_connection<S: Transport>(ws: WebSocketStream<S>, peer: SocketAdd
                     let reply_tx = tx.clone();
                     tokio::spawn(async move {
                         let access = SettingsAccess { host: settings.as_deref(), shared: &shared, lock: &lock, auth_key: &auth_key, secure, allow_machine: allow_machine_settings, peer: Some(peer.ip()) };
-                        let _ = reply_tx.send(handle_save_settings(&access, request_id, &pairing_key, &base_version, update).await);
+                        let _ = reply_tx.send(handle_save_settings(&access, request_id, &pairing_key, &base_version, *update).await);
                     });
                 }
                 Ok(ClientMessage::EditAgentOrg { request_id, pairing_key, edit }) => {
@@ -2095,9 +2095,9 @@ pub fn resolve_server_name(explicit: Option<String>) -> String {
 }
 
 /// Every "always" this device gave (P122), as `GrantList`.
-fn grant_list(grants: &warden_core::autonomy::GrantBook, request_id: u64) -> ServerMessage {
-    let grants = grants.list().into_iter().map(|g| warden_server_protocol::protocol::GrantDto { conversation_id: g.conversation, agent_id: g.agent, covers: g.covers, last_used_ms: Some(g.last_used_ms) }).collect();
-    ServerMessage::GrantList { request_id, grants }
+fn grant_list(book: &warden_core::autonomy::GrantBook, request_id: u64) -> ServerMessage {
+    let grants = book.list().into_iter().map(|g| warden_server_protocol::protocol::GrantDto { conversation_id: g.conversation, agent_id: g.agent, covers: g.covers, last_used_ms: Some(g.last_used_ms) }).collect();
+    ServerMessage::GrantList { request_id, grants, ttl_days: book.ttl_days() }
 }
 
 #[cfg(test)]

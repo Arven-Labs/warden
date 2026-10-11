@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import type { ServerConnection } from "../hub/connection";
-import type { ConversationSummary, Grant } from "../hub/messages";
+import type { ConversationSummary, Grant, GrantsView } from "../hub/messages";
 import { agoLabel } from "../hub/agentTasks";
 
 const CATEGORY_LABEL: Record<string, string> = {
@@ -13,16 +13,18 @@ const CATEGORY_LABEL: Record<string, string> = {
   elevated_agent: "Agente com permissão elevada",
 };
 
-/** P122 — o que a pessoa disse "sempre" nesta conexão: uma categoria de risco ou uma ferramenta, por conversa e agente. Vale só até a
- * conexão fechar; aqui dá para ver e tirar um, e o agente volta a perguntar. */
+/** P122 — o que a pessoa disse "sempre" nesta conexão: uma categoria de risco ou uma ferramenta, por conversa e agente. Guardado em arquivo,
+ * vence depois dos dias que o hub tem configurados sem uso; senão vale só até a conexão fechar. Aqui dá para ver e tirar um, e o agente
+ * volta a perguntar. */
 export default function GrantsSection({ conn, conversations }: { conn: ServerConnection | null; conversations: ConversationSummary[] }) {
-  const [grants, setGrants] = useState<Grant[] | null>(null);
+  const [view, setView] = useState<GrantsView | null>(null);
+  const grants = view?.grants ?? null;
   const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     if (!conn) return;
     try {
-      setGrants(await conn.listGrants());
+      setView(await conn.listGrants());
       setError(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -36,7 +38,7 @@ export default function GrantsSection({ conn, conversations }: { conn: ServerCon
   async function revoke(grant: Grant) {
     if (!conn) return;
     try {
-      setGrants(await conn.revokeGrant(grant));
+      setView(await conn.revokeGrant(grant));
       setError(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -49,8 +51,11 @@ export default function GrantsSection({ conn, conversations }: { conn: ServerCon
     <section className="grants-section">
       <h3>Permissões dadas com "sempre"</h3>
       <p className="skills-hint">
-        Valem por conversa e agente. Se o hub guarda em arquivo (o padrão), sobrevivem a um reinício e vencem depois de 30 dias sem uso
-        (cada uso renova); senão, acabam quando a conexão fecha. Tirar uma faz o agente voltar a perguntar.
+        Valem por conversa e agente.{" "}
+        {view?.ttlDays !== undefined
+          ? `Guardadas em arquivo, sobrevivem a um reinício e vencem depois de ${view.ttlDays} ${view.ttlDays === 1 ? "dia" : "dias"} sem uso (cada uso renova).`
+          : "Acabam quando a conexão fecha."}{" "}
+        Tirar uma faz o agente voltar a perguntar.
       </p>
       {error && <p className="error-banner">{error}</p>}
       {grants !== null && grants.length === 0 && <p className="skills-hint">Nenhuma ainda.</p>}

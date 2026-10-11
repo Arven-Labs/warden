@@ -392,6 +392,13 @@ export interface Grant {
   lastUsedMs?: number | null;
 }
 
+/** The "always" given and how long one may go unused before it lapses. `ttlDays` is absent when they end with the app or the connection
+ * (nothing is kept in a file) and from a hub that predates it. */
+export interface GrantsView {
+  grants: Grant[];
+  ttlDays?: number | null;
+}
+
 /** Mirrors `AgentTaskDto` (P123): a task an agent delegated in the background. `group` is shared by the tasks one turn started. */
 export interface AgentTask {
   id: string;
@@ -651,6 +658,10 @@ export interface Settings {
   outreach: OutreachEntry[];
   /** Which risk category a tool belongs to, for the tools Warden has no entry for (P122). */
   toolCategories: ToolCategoryEntry[];
+  /** Whether an "always" is kept in a file and survives a restart (P122). */
+  persistGrants: boolean;
+  /** Days an "always" may go unused before it lapses, as this computer is set (P122). */
+  grantTtlDays: number;
   vaultPath: string;
   /** Where `generate_document` and oversized MCP media (P64/P66) get written — empty string
    * means "unset", resolving at bootstrap time to a sibling of the vault path. */

@@ -470,3 +470,24 @@ async fn an_always_survives_a_reconnect_of_the_same_device_and_is_not_lent_to_an
     assert_eq!(tool_call_asks(&finish_turn_always(&mut other).await), 1, "another device has its own");
     assert!(hub.config_path.with_file_name("grants").is_dir(), "and the files are beside the config");
 }
+
+/// The days an "always" may go unused, as the hub told them with its list of grants.
+async fn term_told(conn: &mut ServerConnection) -> Option<u32> {
+    conn.send(&ClientMessage::ListGrants { request_id: 9 }).await.unwrap();
+    loop {
+        if let ServerMessage::GrantList { ttl_days, .. } = conn.recv().await.unwrap().expect("connection closed") {
+            return ttl_days;
+        }
+    }
+}
+
+#[tokio::test]
+async fn the_list_of_alwayses_tells_how_long_they_last_only_when_the_hub_keeps_them() {
+    let keeping = spin_up_keeping_grants(true).await;
+    let mut conn = ServerConnection::connect(&keeping.url, "web-1", "Browser", "test-key").await.unwrap();
+    assert_eq!(term_told(&mut conn).await, Some(30), "the built-in term, when the config says nothing");
+
+    let forgetting = spin_up().await;
+    let mut conn = ServerConnection::connect(&forgetting.url, "web-1", "Browser", "test-key").await.unwrap();
+    assert_eq!(term_told(&mut conn).await, None, "in memory they end with the connection: no term to tell");
+}

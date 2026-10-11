@@ -22,10 +22,18 @@ abstract interface class AgentsBackend {
   Future<List<ActivityEvent>> listActivity();
 
   /// P122 — what was said "always" to on this connection.
-  Future<List<Grant>> listGrants();
+  Future<GrantsView> listGrants();
 
   /// P122 — takes one back (no pairing key: it only makes the agent more careful); returns what is left.
-  Future<List<Grant>> revokeGrant(Grant grant);
+  Future<GrantsView> revokeGrant(Grant grant);
+}
+
+/// The "always" given and how long one may go unused before it lapses ([ttlDays] is null when the hub keeps none in a file).
+class GrantsView {
+  const GrantsView(this.grants, {this.ttlDays});
+
+  final List<Grant> grants;
+  final int? ttlDays;
 }
 
 /// What a member of the hub (P120) is allowed to do with the organization of the agents, as the owner set it.

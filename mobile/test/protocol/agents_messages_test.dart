@@ -188,6 +188,8 @@ void main() {
         const Grant(conversationId: 'c', covers: 'shell'),
       ]);
       expect((ServerMessage.decode('{"type":"grantList","requestId":4}') as GrantListMessage).grants, isEmpty);
+      expect(msg.ttlDays, isNull, reason: 'a hub that keeps none in a file, or predates the field, tells no term');
+      expect((ServerMessage.decode('{"type":"grantList","requestId":4,"grants":[],"ttlDays":7}') as GrantListMessage).ttlDays, 7);
 
       final withUse = ServerMessage.decode('{"type":"grantList","requestId":5,"grants":[{"conversationId":"c","covers":"shell","lastUsedMs":1700},{"conversationId":"d","covers":"shell"}]}')
           as GrantListMessage;

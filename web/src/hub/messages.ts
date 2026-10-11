@@ -324,6 +324,10 @@ export interface HubSettings {
   outreach?: OutreachEntry[];
   /** Which risk category a tool belongs to, for the tools the hub has no entry for (P122). */
   toolCategories?: ToolCategoryEntry[];
+  /** P122 — se o "sempre" fica guardado em arquivo e sobrevive a um reinício. Ausente num hub antigo. */
+  persistGrants?: boolean;
+  /** P122 — dias que um "sempre" pode ficar sem uso antes de vencer. Ausente num hub antigo, e é isso que esconde a opção na tela. */
+  grantTtlDays?: number;
   agents: AgentSettings[];
   tavilyKey: SecretStatus;
   whisperKey: SecretStatus;
@@ -623,6 +627,13 @@ export interface Grant {
   lastUsedMs?: number;
 }
 
+/** Os "sempre" dados e em quantos dias sem uso um vence. `ttlDays` falta quando o hub não os guarda em arquivo (acabam com a conexão) e
+ * num hub antigo. */
+export interface GrantsView {
+  grants: Grant[];
+  ttlDays?: number;
+}
+
 /** Espelha `AgentTaskDto` (P123): uma tarefa que um agente delegou em segundo plano. `group` é comum às tarefas que um turno começou. */
 export interface AgentTask {
   id: string;
@@ -716,6 +727,10 @@ export interface HubSettingsUpdate {
   outreach?: OutreachEntry[];
   /** Omitted: the map of tools to risk categories stays (P122). */
   toolCategories?: ToolCategoryEntry[];
+  /** Omitted: whether an "always" is kept in a file stays (P122). Read when the hub starts. */
+  persistGrants?: boolean;
+  /** Omitted: the days an "always" may go unused stay (P122); 1 to 365. Read when the hub starts. */
+  grantTtlDays?: number;
   /** Omitted: `[git_sync]` stays as it is. An empty `remoteUrl` turns git sync off. */
   gitSync?: { remoteUrl: string; token: SecretEdit };
   /** Omitted: `[learning]` and the bots' lists stay as they are. */
@@ -974,7 +989,7 @@ export type ServerMessage =
   /** `runsHere`: this hub runs the tasks on schedule. */
   | { type: "taskList"; requestId: number; tasks: TaskInfo[]; runsHere: boolean }
   | { type: "agentTaskList"; requestId: number; tasks: AgentTask[] }
-  | { type: "grantList"; requestId: number; grants: Grant[] }
+  | { type: "grantList"; requestId: number; grants: Grant[]; ttlDays?: number }
   | { type: "activityList"; requestId: number; events: ActivityEvent[] }
   | { type: "taskError"; requestId: number; message: string; authRejected: boolean }
   /** `servesHere`: this hub takes the calls (`/hooks/<id>`). */
@@ -1121,8 +1136,8 @@ export function decode(text: string): ServerMessage {
       return { type: "taskList", requestId: raw.requestId, tasks: raw.tasks.map((t) => ({ ...t, running: t.running ?? false })), runsHere: raw.runsHere };
     }
     case "grantList": {
-      const raw = json as { requestId: number; grants?: Grant[] };
-      return { type: "grantList", requestId: raw.requestId, grants: raw.grants ?? [] };
+      const raw = json as { requestId: number; grants?: Grant[]; ttlDays?: number };
+      return { type: "grantList", requestId: raw.requestId, grants: raw.grants ?? [], ...(raw.ttlDays !== undefined && { ttlDays: raw.ttlDays }) };
     }
     case "agentTaskList": {
       const raw = json as { requestId: number; tasks: AgentTask[] };

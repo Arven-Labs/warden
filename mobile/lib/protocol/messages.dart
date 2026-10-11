@@ -922,6 +922,7 @@ sealed class ServerMessage {
       'grantList' => GrantListMessage(
           json['requestId'] as int,
           ((json['grants'] as List<dynamic>?) ?? const []).map(Grant.fromJson).toList(),
+          ttlDays: (json['ttlDays'] as num?)?.toInt(),
         ),
       'activityList' => ActivityListMessage(
           json['requestId'] as int,
@@ -1315,10 +1316,13 @@ final class AgentTaskListMessage extends ServerMessage {
 
 /// Reply to [ListGrantsMessage] and [RevokeGrantMessage] (P122): every "always" given on this connection.
 final class GrantListMessage extends ServerMessage {
-  const GrantListMessage(this.requestId, this.grants);
+  const GrantListMessage(this.requestId, this.grants, {this.ttlDays});
 
   final int requestId;
   final List<Grant> grants;
+
+  /// Days an "always" may go unused before it lapses. Null when the hub keeps none in a file (they end with the connection) or predates it.
+  final int? ttlDays;
 }
 
 /// Reply to [ListActivityMessage] (P121): the events of the feed, newest first.

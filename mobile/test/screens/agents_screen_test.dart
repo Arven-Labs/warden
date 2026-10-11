@@ -15,6 +15,7 @@ class _FakeBackend implements AgentsBackend {
     List<AgentTask> tasks = const [],
     List<ActivityEvent> events = const [],
     List<Grant> grants = const [],
+    this.ttlDays,
   })  : agents = List.of(agents),
         policies = List.of(policies),
         tasks = List.of(tasks),
@@ -29,6 +30,7 @@ class _FakeBackend implements AgentsBackend {
   List<AgentTask> tasks;
   List<ActivityEvent> events;
   List<Grant> grants;
+  final int? ttlDays;
   final edits = <OrgEdit>[];
   final controls = <String>[];
 
@@ -67,12 +69,12 @@ class _FakeBackend implements AgentsBackend {
   Future<List<ActivityEvent>> listActivity() async => List.of(events);
 
   @override
-  Future<List<Grant>> listGrants() async => List.of(grants);
+  Future<GrantsView> listGrants() async => GrantsView(List.of(grants), ttlDays: ttlDays);
 
   @override
-  Future<List<Grant>> revokeGrant(Grant grant) async {
+  Future<GrantsView> revokeGrant(Grant grant) async {
     grants.remove(grant);
-    return List.of(grants);
+    return GrantsView(List.of(grants), ttlDays: ttlDays);
   }
 
   @override
@@ -344,6 +346,29 @@ void main() {
       expect(backend.grants, [shell]);
       expect(find.text('Delete data'), findsNothing);
       expect(find.text('shell'), findsOneWidget);
+    });
+
+    testWidgets('says how long an "always" lasts as the hub told it, never a number of ours', (tester) async {
+      await _pump(tester, _FakeBackend(ttlDays: 7));
+      await tester.tap(find.byKey(const Key('tab-tasks')));
+      await tester.pumpAndSettle();
+      expect(find.textContaining('lapse after 7 days unused'), findsOneWidget);
+      expect(find.textContaining('30 days'), findsNothing);
+    });
+
+    testWidgets('says "1 day", not "1 days"', (tester) async {
+      await _pump(tester, _FakeBackend(ttlDays: 1));
+      await tester.tap(find.byKey(const Key('tab-tasks')));
+      await tester.pumpAndSettle();
+      expect(find.textContaining('lapse after 1 day unused'), findsOneWidget);
+    });
+
+    testWidgets('says they end with the connection when the hub told no term', (tester) async {
+      await _pump(tester, _FakeBackend());
+      await tester.tap(find.byKey(const Key('tab-tasks')));
+      await tester.pumpAndSettle();
+      expect(find.textContaining('They end when the connection closes.'), findsOneWidget);
+      expect(find.textContaining('lapse after'), findsNothing);
     });
 
     testWidgets('says "None yet." when nothing was allowed with "always"', (tester) async {

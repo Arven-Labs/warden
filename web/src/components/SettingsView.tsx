@@ -68,6 +68,10 @@ interface Draft {
   outreach: OutreachEntry[];
   /** P122 — o mapa de ferramenta para categoria de risco. */
   toolCategories: ToolCategoryEntry[];
+  /** P122 — o "sempre" em arquivo. Um hub antigo não manda os dois campos: a seção some e nada disso é enviado. */
+  grantsSupported: boolean;
+  persistGrants: boolean;
+  grantTtlDays: string;
   agents: Keyed<AgentSettings>[];
   tavilyKey: SecretDraft;
   whisperKey: SecretDraft;
@@ -107,6 +111,9 @@ function toDraft(s: HubSettings): Draft {
     modelPolicies: (s.modelPolicies ?? []).map((p) => keyed({ ...p })),
     outreach: (s.outreach ?? []).map((o) => ({ ...o, forward: [...o.forward] })),
     toolCategories: (s.toolCategories ?? []).map((c) => ({ ...c })),
+    grantsSupported: s.grantTtlDays !== undefined,
+    persistGrants: s.persistGrants ?? true,
+    grantTtlDays: s.grantTtlDays === undefined ? "" : String(s.grantTtlDays),
     agents: s.agents.map((a) => keyed({ ...a, originalId: a.id })),
     tavilyKey: { saved: s.tavilyKey, edit: KEEP },
     whisperKey: { saved: s.whisperKey, edit: KEEP },
@@ -179,6 +186,7 @@ function toUpdate(d: Draft): HubSettingsUpdate {
     modelPolicies: d.modelPolicies.map(strip),
     outreach: d.outreach,
     toolCategories: d.toolCategories,
+    ...(d.grantsSupported && { persistGrants: d.persistGrants, grantTtlDays: Math.floor(Number(d.grantTtlDays)) }),
     agents: d.agents.map(strip),
     tavilyKey: d.tavilyKey.edit,
     whisperKey: d.whisperKey.edit,
@@ -1162,6 +1170,30 @@ export default function SettingsView({ conn }: { conn: ServerConnection | null }
           + Adicionar ferramenta
         </button>
       </Section>
+
+      {draft.grantsSupported && (
+        <Section
+          title='Permissões dadas com "sempre"'
+          hint='Quando você responde "sempre" à pergunta de um agente, ele deixa de perguntar por aquele tipo de ação naquela conversa. Guardada em arquivo, a permissão sobrevive a um reinício e vence depois dos dias abaixo sem uso (cada uso renova); senão, acaba quando a conexão fecha. Apagar dados, gastar dinheiro e infraestrutura crítica nunca ganham um "sempre". Vale a partir da próxima vez que o hub iniciar.'
+        >
+          <div className="settings-checks">
+            <label className="settings-check">
+              <input type="checkbox" checked={draft.persistGrants} onChange={(e) => update((d) => ({ ...d, persistGrants: e.target.checked }))} />
+              Guardar em arquivo
+            </label>
+          </div>
+          <Field label="Dias sem uso até a permissão vencer" hint="De 1 a 365 aqui; para mais, edite o config.toml.">
+            <input
+              type="number"
+              min={1}
+              step={1}
+              value={draft.grantTtlDays}
+              disabled={!draft.persistGrants}
+              onChange={(e) => update((d) => ({ ...d, grantTtlDays: e.target.value }))}
+            />
+          </Field>
+        </Section>
+      )}
 
       <Section title="Limites de gasto" hint="Valem para todos os canais desta máquina. A janela é móvel: “24 h” são as últimas 24 horas, não desde a meia-noite.">
         {settings.limitsDisabledByEnv && <p className="banner settings-note">WARDEN_SPEND_LIMITS=off está definido no ambiente do hub e desliga tudo o que for salvo aqui.</p>}

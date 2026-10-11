@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import type { Grant } from "../types";
+import type { Grant, GrantsView } from "../types";
 import { hubGrants, hubRevokeGrant } from "../lib/hub";
 import { agoLabel } from "../lib/agentTasks";
 
@@ -14,15 +14,17 @@ const CATEGORY_LABEL: Record<string, string> = {
   elevated_agent: "Agent with elevated permission",
 };
 
-/** P122 — what the person said "always" to: a risk category or a tool, per conversation and agent. It holds until the app (or, on a hub,
- * the connection) closes. Taking one back makes the agent ask again; that only makes it more careful, so no pairing key. */
+/** P122 — what the person said "always" to: a risk category or a tool, per conversation and agent. Kept in a file it lapses after the days
+ * the host is set to without use; otherwise it holds until the app (or, on a hub, the connection) closes. Taking one back makes the agent
+ * ask again; that only makes it more careful, so no pairing key. */
 export default function GrantsSection({ remote, titleOf }: { remote: boolean; titleOf: (conversationId: string) => string }) {
-  const [grants, setGrants] = useState<Grant[] | null>(null);
+  const [view, setView] = useState<GrantsView | null>(null);
+  const grants = view?.grants ?? null;
   const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     try {
-      setGrants(remote ? await hubGrants() : await invoke<Grant[]>("list_grants"));
+      setView(remote ? await hubGrants() : await invoke<GrantsView>("list_grants"));
       setError(null);
     } catch (err) {
       setError(String(err));
@@ -35,10 +37,10 @@ export default function GrantsSection({ remote, titleOf }: { remote: boolean; ti
 
   async function revoke(grant: Grant) {
     try {
-      setGrants(
+      setView(
         remote
           ? await hubRevokeGrant(grant)
-          : await invoke<Grant[]>("revoke_grant", { conversationId: grant.conversationId, agentId: grant.agentId ?? null, covers: grant.covers }),
+          : await invoke<GrantsView>("revoke_grant", { conversationId: grant.conversationId, agentId: grant.agentId ?? null, covers: grant.covers }),
       );
       setError(null);
     } catch (err) {
@@ -50,8 +52,11 @@ export default function GrantsSection({ remote, titleOf }: { remote: boolean; ti
     <section className="grants-section">
       <h3 className="settings-title">Permissions given with "always"</h3>
       <p className="settings-hint">
-        They hold per conversation and agent. Kept in a file (the default), they survive a restart and lapse after 30 days unused (each use renews
-        them); otherwise they end when {remote ? "the connection" : "the app"} closes. Taking one back makes the agent ask again.
+        They hold per conversation and agent.{" "}
+        {view?.ttlDays != null
+          ? `Kept in a file, they survive a restart and lapse after ${view.ttlDays} ${view.ttlDays === 1 ? "day" : "days"} unused (each use renews them).`
+          : `They end when ${remote ? "the connection" : "the app"} closes.`}{" "}
+        Taking one back makes the agent ask again.
       </p>
       {error && <p className="usage-error">{error}</p>}
       {grants !== null && grants.length === 0 && <p className="settings-hint">None yet.</p>}

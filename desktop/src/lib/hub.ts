@@ -11,6 +11,7 @@ import type {
   AgentTaskAction,
   ChatMessage,
   Grant,
+  GrantsView,
   ProjectEntry,
   RunMessage,
   SkillEntry,
@@ -218,14 +219,16 @@ export async function hubAgentTasks(): Promise<AgentTask[]> {
 }
 
 /** What was said "always" to on the hub in use (P122), on this connection. */
-export async function hubGrants(): Promise<Grant[]> {
-  return (await ask<{ type: string; grants: Grant[] }>({ type: "listGrants" }, "grantList")).grants;
+export async function hubGrants(): Promise<GrantsView> {
+  const { grants, ttlDays } = await ask<{ type: string; grants: Grant[]; ttlDays?: number }>({ type: "listGrants" }, "grantList");
+  return { grants, ttlDays };
 }
 
 /** Takes one "always" back on the hub in use, so the agent asks again. It only makes the agent more careful, so no pairing key. */
-export async function hubRevokeGrant(grant: Grant): Promise<Grant[]> {
+export async function hubRevokeGrant(grant: Grant): Promise<GrantsView> {
   const { conversationId, agentId, covers } = grant;
-  return (await ask<{ type: string; grants: Grant[] }>({ type: "revokeGrant", conversationId, ...(agentId ? { agentId } : {}), covers }, "grantList")).grants;
+  const { grants, ttlDays } = await ask<{ type: string; grants: Grant[]; ttlDays?: number }>({ type: "revokeGrant", conversationId, ...(agentId ? { agentId } : {}), covers }, "grantList");
+  return { grants, ttlDays };
 }
 
 /** The feed of activity of the hub in use (P121): what happened among the agents, newest first. Read only, so no pairing key. */

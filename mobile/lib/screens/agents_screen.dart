@@ -792,7 +792,7 @@ class AgentTasksTab extends StatefulWidget {
 
 class _AgentTasksTabState extends State<AgentTasksTab> {
   List<AgentTask>? _tasks;
-  List<Grant>? _grants;
+  GrantsView? _grants;
   String? _error;
   Timer? _timer;
 
@@ -841,8 +841,10 @@ class _AgentTasksTabState extends State<AgentTasksTab> {
   }
 
   Widget _grantsSection() {
-    final grants = _grants;
-    if (grants == null) return const SizedBox.shrink();
+    final view = _grants;
+    if (view == null) return const SizedBox.shrink();
+    final grants = view.grants;
+    final ttlDays = view.ttlDays;
     return Column(
       key: const Key('grants-section'),
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -851,8 +853,9 @@ class _AgentTasksTabState extends State<AgentTasksTab> {
         Text('Permissions given with "always"', style: Theme.of(context).textTheme.titleSmall),
         const SizedBox(height: 4),
         Text(
-          'They hold per conversation and agent. Kept in a file (the default), they survive a restart and lapse after 30 days unused (each use '
-          'renews them); otherwise they end when the connection closes. Taking one back makes the agent ask again.',
+          'They hold per conversation and agent. '
+          '${ttlDays != null ? 'Kept in a file, they survive a restart and lapse after $ttlDays ${ttlDays == 1 ? 'day' : 'days'} unused (each use renews them).' : 'They end when the connection closes.'}'
+          ' Taking one back makes the agent ask again.',
           style: Theme.of(context).textTheme.bodySmall,
         ),
         if (grants.isEmpty) const Padding(padding: EdgeInsets.symmetric(vertical: 8), child: Text('None yet.')),

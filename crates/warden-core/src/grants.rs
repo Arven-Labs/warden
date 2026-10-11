@@ -174,6 +174,13 @@ impl GrantBook {
         Self::build(Some(path), ttl, system_now_ms)
     }
 
+    /// Whole days a grant may go unused before it lapses (rounded up), for a book that keeps a file. `None` for one that lives in memory:
+    /// its grants end with the process, so there is no term to tell.
+    pub fn ttl_days(&self) -> Option<u32> {
+        const DAY_MS: u64 = 24 * 60 * 60 * 1000;
+        self.0.path.as_ref().map(|_| u32::try_from(self.0.ttl_ms.div_ceil(DAY_MS)).unwrap_or(u32::MAX))
+    }
+
     pub fn of(&self, conversation: &str, agent: Option<&str>) -> Grants {
         Grants { inner: self.0.clone(), key: key_of(conversation, agent) }
     }
@@ -316,6 +323,14 @@ mod tests {
 
         assert!(reopened.revoke("c1", Some("chief"), "delete_data"));
         assert!(GrantBook::build(Some(path), TTL, clock).list().is_empty(), "a revoke is on disk too");
+    }
+
+    #[test]
+    fn only_a_book_with_a_file_has_a_term_to_tell() {
+        assert_eq!(GrantBook::default().ttl_days(), None, "in memory: it ends with the process");
+        assert_eq!(GrantBook::persistent(file("days"), TTL).ttl_days(), Some(30));
+        assert_eq!(GrantBook::persistent(file("days-7"), Duration::from_secs(7 * 24 * 60 * 60)).ttl_days(), Some(7));
+        assert_eq!(GrantBook::persistent(file("days-part"), Duration::from_secs(36 * 60 * 60)).ttl_days(), Some(2), "a part of a day counts as a whole one");
     }
 
     #[test]

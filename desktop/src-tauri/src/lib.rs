@@ -514,6 +514,10 @@ struct SettingsSnapshot {
     outreach: Vec<OutreachConfig>,
     /// The person's own map of tools to risk categories (P122, `[[tool_categories]]`): `tool` and `category` (`delete_data`...).
     tool_categories: Vec<warden_bootstrap::risk::ToolCategoryConfig>,
+    /// Whether an "always" a person gave (P122) is kept in a file and survives a restart (`persist_grants`; on unless the file says `false`).
+    persist_grants: bool,
+    /// Days an "always" may go unused before it lapses (`grant_ttl_days`), the built-in term when the file says nothing.
+    grant_ttl_days: u32,
     /// SSH servers the AI can run commands on (P47) — see `ssh_cmds::SshHostPayload`.
     ssh_hosts: Vec<ssh_cmds::SshHostPayload>,
     /// The spending limits in `config.toml` (P4). `None` = no `[[limits]]` at all, which means the
@@ -555,6 +559,12 @@ struct SettingsFormPayload {
     /// The map of tools to risk categories (P122). Left out (`null`) keeps the one on disk.
     #[serde(default)]
     tool_categories: Option<Vec<warden_bootstrap::risk::ToolCategoryConfig>>,
+    /// Whether an "always" is kept in a file (P122). Left out (`null`) keeps what the file says. Read when the app starts.
+    #[serde(default)]
+    persist_grants: Option<bool>,
+    /// Days an "always" may go unused (P122), 1 to `MAX_GRANT_TTL_DAYS`. Left out (`null`) keeps what the file says. Read when the app starts.
+    #[serde(default)]
+    grant_ttl_days: Option<u32>,
     ssh_hosts: Vec<ssh_cmds::SshHostPayload>,
     // No `#[serde(default)]` on these two: a form that forgot to send them must fail loudly, not
     // read as "no limits configured" and quietly swap the user's own limits for the safety net.
@@ -567,6 +577,7 @@ fn get_settings() -> Result<SettingsSnapshot, String> {
     let path = default_config_path().ok_or_else(|| "could not determine the OS config directory".to_string())?;
     let version = config_version(&path).map_err(|e| format!("{e:#}"))?;
     let config = load_config_from_path(&path, false).map_err(|e| format!("{e:#}"))?;
+    let grant_ttl_days = warden_bootstrap::grant_ttl_days(&config);
 
     Ok(SettingsSnapshot {
         providers: config
@@ -620,6 +631,8 @@ fn get_settings() -> Result<SettingsSnapshot, String> {
         model_policies: config.model_policies,
         outreach: config.outreach,
         tool_categories: config.tool_categories,
+        persist_grants: config.persist_grants != Some(false),
+        grant_ttl_days,
         ssh_hosts: config.ssh_hosts.into_iter().map(Into::into).collect(),
         limits: config.limits.map(|l| l.into_iter().map(Into::into).collect()),
         default_limits: default_limit_configs().into_iter().map(Into::into).collect(),
@@ -802,9 +815,9 @@ async fn save_settings(state: State<'_, AppState>, payload: SettingsFormPayload)
         webhooks: existing.webhooks,
         outreach,
         tool_categories,
-        // Whether an "always" is kept in a file, and for how long (P122), is set in the config file: carried forward.
-        persist_grants: existing.persist_grants,
-        grant_ttl_days: existing.grant_ttl_days,
+        // Whether an "always" is kept in a file, and for how long (P122): what the form sends, or what the file says when it sends nothing.
+        persist_grants: payload.persist_grants.or(existing.persist_grants),
+        grant_ttl_days: payload.grant_ttl_days.map_or(Ok(existing.grant_ttl_days), |days| warden_bootstrap::settings::check_grant_ttl_days(days, existing.grant_ttl_days))?,
         // Nodes (P93) are edited on the Workspace screen (`node_cmds`), not this form.
         nodes: existing.nodes,
         // People (P84) are managed on the Workspace screen and the hub, not this form.

@@ -1081,6 +1081,13 @@ pub struct HubSettingsDto {
     /// The person's own map of tools to risk categories (P122): the tools Warden has no table entry for.
     #[serde(default)]
     pub tool_categories: Vec<ToolCategoryDto>,
+    /// Whether an "always" a person gave (P122) is kept in a file and survives a restart. A hub that predates it keeps them in memory only.
+    #[serde(default)]
+    pub persist_grants: bool,
+    /// Days an "always" may go unused before it lapses, as the hub resolves it (the built-in one when the file says nothing). Absent from a
+    /// hub that predates the setting, which is also what tells the screen not to offer it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub grant_ttl_days: Option<u32>,
     pub agents: Vec<AgentSettingsDto>,
     pub tavily_key: SecretStatusDto,
     pub whisper_key: SecretStatusDto,
@@ -1337,6 +1344,12 @@ pub struct HubSettingsUpdate {
     /// `None` (or absent) keeps the map of tools to risk categories (P122).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tool_categories: Option<Vec<ToolCategoryDto>>,
+    /// `None` (or absent) keeps whether an "always" is kept in a file (P122). Read at the hub's start.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub persist_grants: Option<bool>,
+    /// `None` (or absent) keeps the days an "always" may go unused (P122); 1 to 365 here. Read at the hub's start.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub grant_ttl_days: Option<u32>,
     /// `None` (or absent) leaves `[learning]` and the bots' lists as they are.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub bots: Option<BotsSettingsDto>,
@@ -1714,7 +1727,8 @@ pub enum ClientMessage {
         request_id: u64,
         pairing_key: String,
         base_version: String,
-        update: HubSettingsUpdate,
+        /// Boxed: it is by far the largest message, and every `ClientMessage` would carry its size.
+        update: Box<HubSettingsUpdate>,
     },
     /// Every device in the hub's pairing registry, answered by `DeviceList` — what
     /// `warden-server devices list` prints, so a hub with no screen can be managed from a browser.
@@ -2435,6 +2449,10 @@ pub enum ServerMessage {
     GrantList {
         request_id: u64,
         grants: Vec<GrantDto>,
+        /// Days a grant may go unused before it lapses, as the host is set (`grant_ttl_days`). Absent when the host keeps no file (the
+        /// grants end with the connection) or predates the field.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        ttl_days: Option<u32>,
     },
     /// Reply to `ListActivity` (P121): the events, newest first.
     ActivityList {
@@ -3004,14 +3022,18 @@ mod tests {
         let json = serde_json::to_string(&revoke).unwrap();
         assert_eq!(json, r#"{"type":"revokeGrant","requestId":2,"conversationId":"c","covers":"delete_data"}"#);
         assert_eq!(serde_json::from_str::<ClientMessage>(&json).unwrap(), revoke);
-        let list = ServerMessage::GrantList { request_id: 2, grants: vec![GrantDto { conversation_id: "c".into(), agent_id: Some("a".into()), covers: "shell".into(), last_used_ms: Some(1700) }] };
+        let list = ServerMessage::GrantList {
+            request_id: 2,
+            grants: vec![GrantDto { conversation_id: "c".into(), agent_id: Some("a".into()), covers: "shell".into(), last_used_ms: Some(1700) }],
+            ttl_days: Some(7),
+        };
         let json = serde_json::to_string(&list).unwrap();
-        assert_eq!(json, r#"{"type":"grantList","requestId":2,"grants":[{"conversationId":"c","agentId":"a","covers":"shell","lastUsedMs":1700}]}"#);
+        assert_eq!(json, r#"{"type":"grantList","requestId":2,"grants":[{"conversationId":"c","agentId":"a","covers":"shell","lastUsedMs":1700}],"ttlDays":7}"#);
         assert_eq!(serde_json::from_str::<ServerMessage>(&json).unwrap(), list);
-        // A hub that predates the field sends none, and that reads as "unknown", not as a failure.
+        // A hub that predates the fields sends none, and that reads as "unknown", not as a failure.
         let old = r#"{"type":"grantList","requestId":2,"grants":[{"conversationId":"c","covers":"shell"}]}"#;
-        let ServerMessage::GrantList { grants, .. } = serde_json::from_str::<ServerMessage>(old).unwrap() else { panic!("not a grant list") };
-        assert_eq!(grants[0].last_used_ms, None);
+        let ServerMessage::GrantList { grants, ttl_days, .. } = serde_json::from_str::<ServerMessage>(old).unwrap() else { panic!("not a grant list") };
+        assert_eq!((grants[0].last_used_ms, ttl_days), (None, None));
     }
 
     #[test]
@@ -3498,6 +3520,8 @@ mod tests {
             model_policies: None,
             outreach: None,
             tool_categories: None,
+            persist_grants: None,
+            grant_ttl_days: None,
             bots: Some(BotsSettingsDto { telegram_allowed_users: vec![42], ..BotsSettingsDto::default() }),
             telegram_token: SecretEdit::Keep,
             advanced: None,
@@ -3535,7 +3559,7 @@ mod tests {
         };
         assert!(HubSettingsUpdate { machine: Some(Box::new(machine(SecretEdit::Set("s".into())))), ..nothing.clone() }.sets_a_secret(), "a new MCP env value is a secret");
         assert!(!HubSettingsUpdate { machine: Some(Box::new(machine(SecretEdit::Keep))), ..nothing.clone() }.sets_a_secret(), "keeping one is not");
-        let save = ClientMessage::SaveSettings { request_id: 1, pairing_key: "k".into(), base_version: "v".into(), update };
+        let save = ClientMessage::SaveSettings { request_id: 1, pairing_key: "k".into(), base_version: "v".into(), update: Box::new(update) };
         let json = serde_json::to_value(&save).unwrap();
         assert_eq!(json["type"], "saveSettings");
         assert_eq!(json["update"]["providers"][0]["originalId"], "main");

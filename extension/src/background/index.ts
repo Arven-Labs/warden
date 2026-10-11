@@ -552,7 +552,8 @@ async function handleRequest(request: PopupRequest): Promise<unknown> {
     case "revokeGrant":
       if (!connection || connection.status.kind !== "connected") return { ok: false, grants: [], error: "not connected" };
       try {
-        return { ok: true, grants: request.type === "listGrants" ? await connection.listGrants() : await connection.revokeGrant(request.grant) };
+        const { grants, ttlDays } = request.type === "listGrants" ? await connection.listGrants() : await connection.revokeGrant(request.grant);
+        return { ok: true, grants, ttlDays };
       } catch (err) {
         return { ok: false, grants: [], error: err instanceof Error ? err.message : String(err) };
       }

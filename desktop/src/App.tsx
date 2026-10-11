@@ -60,6 +60,8 @@ const emptySettings: Settings = {
   modelPolicies: [],
   outreach: [],
   toolCategories: [],
+  persistGrants: true,
+  grantTtlDays: 0,
   vaultPath: "",
   generatedPath: "",
   tavilyKey: "",

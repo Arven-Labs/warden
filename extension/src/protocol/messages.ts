@@ -115,6 +115,13 @@ export interface Grant {
   lastUsedMs?: number;
 }
 
+/** Os "sempre" dados e em quantos dias sem uso um vence. `ttlDays` falta quando o hub não os guarda em arquivo (acabam com a conexão) e
+ * num hub antigo. */
+export interface GrantsView {
+  grants: Grant[];
+  ttlDays?: number;
+}
+
 /** Mirrors `AgentTaskDto` (P123): uma tarefa que um agente delegou em segundo plano. `group` é comum às tarefas que um turno começou. */
 export interface AgentTask {
   id: string;
@@ -276,7 +283,7 @@ export type ServerMessage =
   /** `authRejected`: the pairing key was wrong; nothing was written. */
   | { type: "settingsError"; requestId: number; message: string; authRejected?: boolean }
   | { type: "agentTaskList"; requestId: number; tasks: AgentTask[] }
-  | { type: "grantList"; requestId: number; grants: Grant[] }
+  | { type: "grantList"; requestId: number; grants: Grant[]; ttlDays?: number }
   | { type: "activityList"; requestId: number; events: ActivityEvent[] }
   | { type: "taskError"; requestId: number; message: string; authRejected?: boolean }
   | ({ type: "approvalRequest" } & ApprovalPrompt)

@@ -12,21 +12,44 @@ pub fn list_agent_tasks() -> Vec<AgentTaskDto> {
     warden_bootstrap::resolve_agent_tasks_path(std::env::var("WARDEN_AGENT_TASKS").ok()).map(|path| agent_task_dtos(&path)).unwrap_or_default()
 }
 
-/// What the person said "always" to on this computer (P122), per conversation and agent, until the app closes.
+/// What the screen shows of the "always" of this computer: the grants and, when they are kept in a file, how many days one may go
+/// unused before it lapses (`ttl_days` is absent when they end with the app).
+#[derive(Debug, PartialEq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GrantsView {
+    grants: Vec<GrantDto>,
+    ttl_days: Option<u32>,
+}
+
+/// What the person said "always" to on this computer (P122), per conversation and agent.
 #[tauri::command]
-pub fn list_grants(state: tauri::State<'_, crate::AppState>) -> Vec<GrantDto> {
-    grant_dtos(&state.grants)
+pub fn list_grants(state: tauri::State<'_, crate::AppState>) -> GrantsView {
+    grants_view(&state.grants)
 }
 
 /// Takes one "always" back, so the agent asks again; returns the list that is left. No pairing key: the engine is this app's own.
 #[tauri::command]
-pub fn revoke_grant(state: tauri::State<'_, crate::AppState>, conversation_id: String, agent_id: Option<String>, covers: String) -> Vec<GrantDto> {
+pub fn revoke_grant(state: tauri::State<'_, crate::AppState>, conversation_id: String, agent_id: Option<String>, covers: String) -> GrantsView {
     state.grants.revoke(&conversation_id, agent_id.as_deref(), &covers);
-    grant_dtos(&state.grants)
+    grants_view(&state.grants)
 }
 
-fn grant_dtos(book: &warden_core::autonomy::GrantBook) -> Vec<GrantDto> {
-    book.list().into_iter().map(|g| GrantDto { conversation_id: g.conversation, agent_id: g.agent, covers: g.covers, last_used_ms: Some(g.last_used_ms) }).collect()
+fn grants_view(book: &warden_core::autonomy::GrantBook) -> GrantsView {
+    let grants = book.list().into_iter().map(|g| GrantDto { conversation_id: g.conversation, agent_id: g.agent, covers: g.covers, last_used_ms: Some(g.last_used_ms) }).collect();
+    GrantsView { grants, ttl_days: book.ttl_days() }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_view_tells_the_term_only_for_a_book_with_a_file() {
+        let memory = grants_view(&warden_core::autonomy::GrantBook::default());
+        assert_eq!(serde_json::to_string(&memory).unwrap(), r#"{"grants":[],"ttlDays":null}"#);
+        let kept = grants_view(&warden_core::autonomy::GrantBook::persistent(std::env::temp_dir().join("warden-desktop-grants-view.json"), std::time::Duration::from_secs(7 * 24 * 60 * 60)));
+        assert_eq!(kept.ttl_days, Some(7));
+    }
 }
 
 /// The feed of activity of this computer (P121): the tasks agents delegated, the notes they left each other and the agents one created or

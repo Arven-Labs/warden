@@ -54,6 +54,29 @@ async function confirmMachineAndSave(page) {
   await page.getByText(/✓ Salvo/).waitFor({ timeout: 60_000 });
 }
 
+describe("the days an \"always\" lasts (P122)", () => {
+  test("shows the hub's term, saves a new one to the file and refuses one out of range", { timeout: TIMEOUT }, async () => {
+    await withSettings({}, async ({ hub, page, sent }) => {
+      const days = page.getByLabel(/Dias sem uso até a permissão vencer/);
+      assert.equal(await days.inputValue(), "30", "a config that says nothing shows the built-in term, not an empty field");
+      assert.ok(await page.getByRole("checkbox", { name: /Guardar em arquivo/ }).isChecked());
+
+      await days.fill("7");
+      await page.getByRole("button", { name: "Salvar" }).click();
+      await saveWithKey(page);
+      await page.getByText(/✓ Salvo/).waitFor({ timeout: 60_000 });
+      assert.equal(lastSave(sent).update.grantTtlDays, 7);
+      assert.match(fs.readFileSync(hub.config, "utf8"), /grant_ttl_days = 7/);
+
+      await days.fill("0");
+      await page.getByRole("button", { name: "Salvar" }).click();
+      await saveWithKey(page);
+      await page.getByText(/between 1 and 365/).waitFor({ timeout: 60_000 });
+      assert.match(fs.readFileSync(hub.config, "utf8"), /grant_ttl_days = 7/, "a refused save leaves the file as it was");
+    });
+  });
+});
+
 describe("settings on a hub started with --allow-machine-settings", () => {
   test("a save that touches nothing of the machine sends no machine slice and asks no confirmation", { timeout: TIMEOUT }, async () => {
     await withSettings({ allowMachineSettings: true }, async ({ hub, page, sent }) => {

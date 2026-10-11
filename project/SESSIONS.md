@@ -6,6 +6,15 @@
 
 ---
 
+### 2026-10-11 — Sessão 182 (continuação: prazo do "sempre" editável e dito pelo hub)
+
+- **Pedido do usuário**: o padrão fica em 30 dias, mas tem de ser alterável nas configurações; "odeio coisa hardcodada". Era o item aberto "o prazo mostrado nas telas é '30 dias' fixo no texto".
+- **Texto das telas**: `GrantList` passou a levar `ttlDays` (`GrantBook::ttl_days`, só para um livro com arquivo; ausente quando o "sempre" acaba com a conexão e num hub antigo). Web, desktop, extensão e celular dizem "vencem depois de N dias" com o número do hub, ou "acabam quando a conexão fecha" quando não há prazo. O desktop local devolve o mesmo (`GrantsView`, no lugar da lista pura).
+- **Edição**: `persistGrants` e `grantTtlDays` em `HubSettings` (a vista manda o valor **efetivo**, os 30 inclusive, vindo do `DEFAULT_TTL` do núcleo, para nenhuma tela ter um número seu) e em `HubSettingsUpdate` (omitido mantém). Validação `check_grant_ttl_days`: 1 a 365 pela tela, e um número maior que já estava no arquivo passa. Seção "Permissões dadas com 'sempre'" nas configurações da web (some num hub antigo) e do desktop (campos do `save_settings`). Extensão e celular continuam sem tela de configurações. **Só vale ao reiniciar**, e a tela diz isso.
+- **Conserto no caminho**: os dois campos novos fizeram o clippy acusar `large_enum_variant` no `ClientMessage` (a `SaveSettings` ficou grande); o `update` agora vai numa `Box`, sem mudar o JSON.
+- **Testes**: núcleo (`only_a_book_with_a_file_has_a_term_to_tell`), protocolo (JSON com e sem `ttlDays`), bootstrap (`how_long_an_always_lasts…`: padrão mostrado, edição, fora da faixa recusado, número antigo passa), hub (`the_list_of_alwayses_tells_how_long…`), desktop (`the_view_tells_the_term…`), extensão (77), celular (248: 3 de texto novos, protocolo com e sem o campo), `tsc` da web, do desktop e da extensão. **De ponta a ponta no navegador**: `web/e2e/settings.test.mjs` (hub real e Chromium headless) mostra 30 sem o arquivo dizer nada, grava `grant_ttl_days = 7` no `config.toml` e recusa 0 sem mexer no arquivo; as 5 do arquivo passam.
+- **Fica**: a seção do desktop **não foi vista numa janela** (só `tsc` e `cargo check`); a CLI não tem "sempre"; o prazo só muda ao reiniciar; nenhum modelo real exercitou o fluxo.
+
 ### 2026-10-11 — Sessão 182 (continuação: "sempre" guardado em arquivo)
 
 - **Decisões** (você disse "pode começar" sem responder as três perguntas, então segui as sugestões, e vale corrigir): validade de **30 dias sem uso**, cada uso renova; `critical_infra` e `spend_money` **nunca** viram "sempre"; persistir é o padrão, desligável com `persist_grants = false`.

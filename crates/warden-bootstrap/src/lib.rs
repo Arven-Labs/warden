@@ -1660,8 +1660,13 @@ pub fn grant_policy(config_path: &Path, file: &FileConfig) -> Option<GrantPolicy
     if file.persist_grants == Some(false) {
         return None;
     }
-    let ttl = file.grant_ttl_days.map_or(warden_core::grants::DEFAULT_TTL, |days| std::time::Duration::from_secs(u64::from(days.max(1)) * 24 * 60 * 60));
+    let ttl = std::time::Duration::from_secs(u64::from(grant_ttl_days(file)) * 24 * 60 * 60);
     Some(GrantPolicy { dir: config_path.with_file_name("grants"), ttl })
+}
+
+/// Days an "always" may go unused in `file`'s config: `grant_ttl_days` (at least 1), or the built-in term when it says nothing.
+pub fn grant_ttl_days(file: &FileConfig) -> u32 {
+    file.grant_ttl_days.map_or_else(|| u32::try_from(warden_core::grants::DEFAULT_TTL.as_secs() / (24 * 60 * 60)).unwrap_or(u32::MAX), |days| days.max(1))
 }
 
 /// `grant_policy` for the config file at `config_path`. A config that can't be read means no persistence: a doubtful file never makes an
