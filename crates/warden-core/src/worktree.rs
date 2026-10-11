@@ -282,6 +282,81 @@ pub enum Merged {
     Conflict { files: Vec<String> },
 }
 
+/// How bringing the project's branch into a worktree ended.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Updated {
+    /// The worktree already had everything the project's branch has.
+    UpToDate,
+    /// The project's branch is now in the worktree, as `commit`.
+    Clean { commit: String },
+    /// The two sides changed the same lines. The merge is left under way in the worktree, with the markers in these files, for a task
+    /// to resolve; the project's folder was never touched.
+    Conflict { files: Vec<String> },
+}
+
+/// The files of a merge under way in `worktree` that still carry conflict markers (whether or not git was told they are done).
+async fn unresolved(worktree: &Worktree) -> anyhow::Result<Vec<String>> {
+    // `diff` and `check` stage everything (`add -A`), which makes git call a file with markers resolved, so staged files count too.
+    let mut pending: Vec<String> = git(&worktree.root, &["diff", "--name-only", "--diff-filter=U"]).await?.lines().map(str::to_string).collect();
+    pending.extend(git(&worktree.root, &["diff", "--cached", "--name-only"]).await?.lines().map(str::to_string));
+    pending.sort();
+    pending.dedup();
+    let mut files = Vec::new();
+    for name in &pending {
+        let text = tokio::fs::read(worktree.root.join(name)).await.map(|bytes| String::from_utf8_lossy(&bytes).into_owned()).unwrap_or_default();
+        if text.lines().any(|line| line.starts_with("<<<<<<< ") || line.starts_with(">>>>>>> ")) {
+            files.push(name.clone());
+        }
+    }
+    Ok(files)
+}
+
+/// `unresolved`, for a worktree that is bringing the project's branch in; nothing when it isn't. So a caller can refuse a merge before it
+/// asks anyone.
+pub async fn conflicts_left(worktree: &Worktree) -> anyhow::Result<Vec<String>> {
+    if merging(worktree).await {
+        unresolved(worktree).await
+    } else {
+        Ok(Vec::new())
+    }
+}
+
+async fn merging(worktree: &Worktree) -> bool {
+    git(&worktree.root, &["rev-parse", "-q", "--verify", "MERGE_HEAD"]).await.is_ok()
+}
+
+/// Brings the branch the project's folder has checked out into the worktree, so that whatever clashes with the task's work shows up
+/// there, where the task can fix it, and not in the person's folder. What the task left uncommitted is committed first. A clash leaves
+/// the merge under way in the worktree (`Conflict`); asking again while it is under way just says what is still unresolved.
+pub async fn update(worktree: &Worktree, title: &str) -> anyhow::Result<Updated> {
+    if merging(worktree).await {
+        return Ok(Updated::Conflict { files: unresolved(worktree).await? });
+    }
+    let into = git(&worktree.repo, &["symbolic-ref", "-q", "--short", "HEAD"]).await.map_err(|_| anyhow!("the project's folder has no branch checked out (a detached HEAD), so there is nothing to bring in"))?;
+    git(&worktree.root, &["add", "-A"]).await?;
+    if !git(&worktree.root, &["diff", "--cached", "--name-only"]).await?.is_empty() {
+        git(&worktree.root, &["commit", "-q", "-m", &format!("warden: {title}")]).await.context("committing what the task left (are user.name and user.email set in git?)")?;
+    }
+    let before = git(&worktree.root, &["rev-parse", "HEAD"]).await?;
+    let message = format!("Update {} from {into}", worktree.branch);
+    match git(&worktree.root, &["merge", "--no-ff", "-m", &message, &into]).await {
+        Ok(_) => {
+            let after = git(&worktree.root, &["rev-parse", "HEAD"]).await?;
+            if after == before {
+                return Ok(Updated::UpToDate);
+            }
+            Ok(Updated::Clean { commit: git(&worktree.root, &["rev-parse", "--short", "HEAD"]).await? })
+        }
+        Err(err) => {
+            let files: Vec<String> = git(&worktree.root, &["diff", "--name-only", "--diff-filter=U"]).await.unwrap_or_default().lines().map(str::to_string).collect();
+            if files.is_empty() {
+                return Err(err);
+            }
+            Ok(Updated::Conflict { files })
+        }
+    }
+}
+
 /// Brings the task's work into the branch the project's folder has checked out, as a merge commit that keeps the task's own commits.
 /// What the task left uncommitted is committed on its branch first. Refused, before anything is touched, when the project's folder has
 /// changes of its own that aren't committed (a merge would mix them in) or no branch checked out.
@@ -291,8 +366,15 @@ pub async fn merge(worktree: &Worktree, title: &str) -> anyhow::Result<Merged> {
     if !dirty.is_empty() {
         bail!("the project's folder has changes that aren't committed; commit or stash them first, so the merge doesn't mix them in:\n{dirty}");
     }
+    let files = conflicts_left(worktree).await?;
+    if !files.is_empty() {
+        bail!("the worktree is bringing in the project's branch and these files still have conflict markers: {}. Resolve them first (code_task with this 'worktree')", files.join(", "));
+    }
     git(&worktree.root, &["add", "-A"]).await?;
-    if !git(&worktree.root, &["diff", "--cached", "--name-only"]).await?.is_empty() {
+    if merging(worktree).await {
+        // Concludes the merge `update` left under way.
+        git(&worktree.root, &["commit", "-q", "--no-edit"]).await.context("concluding the merge of the project's branch into the worktree")?;
+    } else if !git(&worktree.root, &["diff", "--cached", "--name-only"]).await?.is_empty() {
         git(&worktree.root, &["commit", "-q", "-m", &format!("warden: {title}")]).await.context("committing what the task left (are user.name and user.email set in git?)")?;
     }
     let message = format!("Merge {}: {title}", worktree.branch);
@@ -536,6 +618,53 @@ mod tests {
         assert_eq!(std::fs::read_to_string(repo.join("a.txt")).unwrap(), "the person's version");
         assert!(worktree.path.join("a.txt").is_file(), "the worktree is kept");
         assert!(!out(&repo, &["branch", "--list", &worktree.branch]).is_empty());
+        std::fs::remove_dir_all(&outer).ok();
+    }
+
+    #[tokio::test]
+    async fn updating_brings_the_projects_branch_into_the_worktree_and_says_when_there_is_nothing_new() {
+        let (outer, repo) = repository("update-clean");
+        let worktree = create(&repo).await.unwrap();
+        std::fs::write(worktree.path.join("c.txt"), "the task's").unwrap();
+        assert_eq!(update(&worktree, "t").await.unwrap(), Updated::UpToDate);
+
+        std::fs::write(repo.join("a.txt"), "the person's").unwrap();
+        run(&repo, &["commit", "-q", "-am", "the person moved on"]);
+        let head = out(&repo, &["rev-parse", "HEAD"]);
+        let Updated::Clean { commit } = update(&worktree, "t").await.unwrap() else { panic!("expected a clean update") };
+        assert!(!commit.is_empty());
+        assert_eq!(std::fs::read_to_string(worktree.path.join("a.txt")).unwrap(), "the person's");
+        assert_eq!(std::fs::read_to_string(worktree.path.join("c.txt")).unwrap(), "the task's", "what the task left is kept");
+        assert_eq!(out(&repo, &["rev-parse", "HEAD"]), head, "the project's folder is untouched");
+        assert_eq!(update(&worktree, "t").await.unwrap(), Updated::UpToDate);
+        assert!(matches!(merge(&worktree, "t").await.unwrap(), Merged::Done { .. }));
+        assert_eq!(std::fs::read_to_string(repo.join("c.txt")).unwrap(), "the task's");
+        std::fs::remove_dir_all(&outer).ok();
+    }
+
+    #[tokio::test]
+    async fn a_conflict_is_brought_into_the_worktree_to_be_resolved_there_and_then_the_merge_goes_through() {
+        let (outer, repo) = repository("update-conflict");
+        let worktree = create(&repo).await.unwrap();
+        std::fs::write(worktree.path.join("a.txt"), "the task's version").unwrap();
+        std::fs::write(repo.join("a.txt"), "the person's version").unwrap();
+        run(&repo, &["commit", "-q", "-am", "the person changed it too"]);
+        let head = out(&repo, &["rev-parse", "HEAD"]);
+
+        assert_eq!(update(&worktree, "t").await.unwrap(), Updated::Conflict { files: vec!["a.txt".to_string()] });
+        assert!(std::fs::read_to_string(worktree.path.join("a.txt")).unwrap().contains("<<<<<<<"), "the markers are in the worktree");
+        assert_eq!(out(&repo, &["rev-parse", "HEAD"]), head);
+        assert!(out(&repo, &["status", "--porcelain"]).is_empty(), "and the project's folder is as it was");
+        assert_eq!(update(&worktree, "t").await.unwrap(), Updated::Conflict { files: vec!["a.txt".to_string()] }, "asking again says what is left");
+        let err = merge(&worktree, "t").await.unwrap_err();
+        assert!(err.to_string().contains("conflict markers") && err.to_string().contains("a.txt"), "{err}");
+        assert_eq!(out(&repo, &["rev-parse", "HEAD"]), head, "refused before touching anything");
+
+        std::fs::write(worktree.path.join("a.txt"), "both versions, joined").unwrap();
+        assert!(matches!(merge(&worktree, "t").await.unwrap(), Merged::Done { .. }));
+        assert_eq!(std::fs::read_to_string(repo.join("a.txt")).unwrap(), "both versions, joined");
+        assert!(out(&repo, &["status", "--porcelain"]).is_empty());
+        assert!(!worktree.path.exists(), "the worktree is gone");
         std::fs::remove_dir_all(&outer).ok();
     }
 

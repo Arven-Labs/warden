@@ -6,6 +6,14 @@
 
 ---
 
+### 2026-10-11 — Sessão 182 (continuação: P124, o conflito é resolvido dentro da worktree)
+
+- **Pedido do usuário**: "vamos pelo conflito"; plano aprovado.
+- **O que mudou**: `worktree::update` (traz a branch do projeto para a worktree; conflito deixa a mesclagem em andamento com marcadores), `conflicts_left` e o `merge` que recusa enquanto restam marcadores e conclui a mesclagem em andamento; ação `update` no `code_worktree` (sem pedir; `risk.rs` sem categoria); o `next` do `merge` conflitante manda usar `update`; o `update` apaga o resultado do último `check`.
+- **Achado no caminho**: `diff` e `check` fazem `add -A`, o que fazia git tratar um arquivo com marcadores como resolvido; a checagem agora olha também os arquivos preparados.
+- **Testes**: 2 em `worktree.rs` (limpo/sem novidade; conflito → marcadores → recusa → resolve → `Done`) e 1 em `code_worktree.rs` (o ciclo pela ferramenta, só o `merge` pergunta). `warden-core` 494 passam, clippy sem aviso novo.
+- **Fica**: nenhum modelo real resolveu um conflito; o `code_task` não é forçado a tirar todos os marcadores (o `merge` recusa se sobrar); squash/rebase.
+
 ### 2026-10-11 — Sessão 182 (continuação: P124, o gerente testa a worktree antes de mesclar)
 
 - **Pedido do usuário**: "vamos pelo 2" (as lacunas do gerente); plano aprovado: pedir a cada comando, e o `merge` só informa.
