@@ -138,6 +138,7 @@ pub struct Server {
     /// The engine that drives a code project's conversations (P103 b). `None`: this hub has none, and those
     /// conversations say so instead of running the ordinary turn with a shell.
     code_engine: Option<Arc<dyn CodeEngine>>,
+    code_turns: CodeTurns,
 }
 
 /// How often an open connection re-reads the pairing registry to notice it was revoked (P36).
@@ -182,12 +183,20 @@ impl Server {
             users_dir: None,
             allow_machine_settings: false,
             code_engine: None,
+            code_turns: CodeTurns::default(),
         })
     }
 
     /// Gives the hub the engine that drives the conversations of code projects (P103 b).
     pub fn with_code_engine(mut self, engine: Arc<dyn CodeEngine>) -> Self {
         self.code_engine = Some(engine);
+        self
+    }
+
+    /// Gives the hub a map of running code turns that someone else holds a copy of (`CodeTurns` is shared by `clone`): the desktop's
+    /// embedded hub does, to know a phone's turn is running in a conversation before it moves that conversation.
+    pub fn with_code_turns(mut self, turns: CodeTurns) -> Self {
+        self.code_turns = turns;
         self
     }
 
@@ -389,7 +398,7 @@ impl Server {
             truthid_logins: Arc::new(TruthIdLogins::default()),
             allow_machine_settings: self.allow_machine_settings,
             code_engine: self.code_engine,
-            code_turns: CodeTurns::default(),
+            code_turns: self.code_turns,
         };
         // P84: conversations are a person's, not a device's — every device's move to the root's,
         // once, before any connection can read them.

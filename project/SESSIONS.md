@@ -6,6 +6,13 @@
 
 ---
 
+### 2026-10-11 — Sessão 182 (continuação: P124, o desktop vê os turnos que o celular roda no hub)
+
+- **Pedido do usuário**: "vamos pelo desfazer dos turnos do celular"; entendi como a lacuna de o desktop não ver turnos vindos do celular (plano aprovado com essa leitura).
+- **O que mudou**: `Server::with_code_turns` (campo `code_turns` no `Server`, que antes nascia no `serve_until`); `CodeState::hub_turns` e `is_running` olhando os dois mapas; o hub embutido recebe `state.code.hub_turns()`. Os botões de mover conversas já usavam `is_running`, então passam a pular/recusar.
+- **Testes**: 2 no desktop (o turno do hub conta como rodando e `end` libera; `unshare_all` pula a conversa que o celular roda). `warden-server` passa; desktop `cargo test --lib` 59; clippy sem aviso novo. Não há teste que prove que o servidor usa o mapa entregue (só a ligação em `server_cmds.rs`).
+- **Fica**: janela e celular não vistos; hub derrubado no meio de um turno pode deixar a entrada até o app reiniciar.
+
 ### 2026-10-11 — Sessão 182 (continuação: P124, desfazer em lote do "Share all")
 
 - **Pedido do usuário**: "vamos pelo desfazer em lote"; plano aprovado, com a escolha de trazer toda conversa de projeto de código da pasta do hub (sem registro de quem compartilhou).

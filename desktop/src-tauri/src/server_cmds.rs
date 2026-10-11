@@ -359,7 +359,9 @@ pub(crate) async fn start_embedded_server_inner(state: &AppState, config: &Embed
         // P78 — voice input from the web UI, with the same Whisper key as the desktop's mic button.
         .with_transcriber(Arc::new(warden_server::chat_input::WhisperTranscriber::new(None)))
         // P103 b — the conversations of code projects are tasks for the opencode, started per project folder.
-        .with_code_engine(code_engine);
+        .with_code_engine(code_engine)
+        // A phone's turn in a conversation is seen by the desktop's own buttons that move conversations.
+        .with_code_turns(state.code.hub_turns());
     if config.web_ui {
         server = server.with_web_ui(Arc::new(warden_server::EmbeddedWebUi));
     }

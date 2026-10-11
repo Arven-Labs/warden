@@ -36,6 +36,8 @@ pub struct CodeState {
     runtime: Arc<OnceCell<Runtime>>,
     /// The tasks running now, to find the session `cancel_turn` stops.
     turns: CodeTurns,
+    /// The tasks running now in the embedded hub, started from another device (the phone, the web); the hub is given this same map.
+    hub_turns: CodeTurns,
     /// How much each conversation asks, changeable while its task runs (`set_code_mode`).
     modes: CodeModes,
     /// Where the engine is for the `code_task` of every orchestrator the desktop builds (`bootstrap_desktop`): filled once by `install_engine`.
@@ -116,9 +118,14 @@ impl CodeState {
         (self.slot.clone(), self.models.clone())
     }
 
-    /// A task of this conversation is running here now.
+    /// The map the embedded hub keeps its running turns in (`Server::with_code_turns`).
+    pub fn hub_turns(&self) -> CodeTurns {
+        self.hub_turns.clone()
+    }
+
+    /// A task of this conversation is running now: one from the Code screen, or one a device started on the embedded hub.
     pub fn is_running(&self, conversation_id: &str) -> bool {
-        self.turns.is_running(conversation_id)
+        self.turns.is_running(conversation_id) || self.hub_turns.is_running(conversation_id)
     }
 
     /// `mode` is a name a window sent (`CodeMode::parse`).
@@ -192,6 +199,37 @@ mod tests {
     use warden_core::tool::ToolSpec;
 
     use super::*;
+
+    #[test]
+    fn a_turn_a_device_runs_on_the_embedded_hub_counts_as_running_for_the_desktop() {
+        let state = CodeState::default();
+        assert!(!state.is_running("c1"));
+        let hub = state.hub_turns();
+        hub.begin("c1", "/repo");
+        assert!(state.is_running("c1"), "the hub's turn is seen through the shared map");
+        assert!(!state.is_running("c2"));
+        hub.end("c1");
+        assert!(!state.is_running("c1"));
+    }
+
+    #[test]
+    fn the_moves_of_conversations_skip_one_a_phone_is_running() {
+        let state = CodeState::default();
+        state.hub_turns().begin("busy", "/repo");
+        let (root, desktop, hub) = {
+            let root = std::env::temp_dir().join(format!("warden-hub-turns-{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
+            let (desktop, hub) = (root.join("desktop"), root.join("hub"));
+            std::fs::create_dir_all(&desktop).unwrap();
+            std::fs::create_dir_all(&hub).unwrap();
+            (root, desktop, hub)
+        };
+        let mut c: warden_bootstrap::Conversation = serde_json::from_str(r#"{"id":"busy","title":"t","messages":[],"createdAt":1,"updatedAt":1}"#).unwrap();
+        c.project_id = Some("app".into());
+        warden_bootstrap::save_conversation(&hub, &c).unwrap();
+        let done = crate::share_cmds::unshare_all(&desktop, &hub, &|_| true, &|id| state.is_running(id)).unwrap();
+        assert!(done.moved.is_empty() && done.skipped.len() == 1 && done.skipped[0].reason.contains("running"));
+        std::fs::remove_dir_all(&root).ok();
+    }
 
     /// A model nobody calls: the tests only look at what the engine is wired to.
     struct NoModel;
