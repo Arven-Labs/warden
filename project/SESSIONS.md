@@ -6,6 +6,13 @@
 
 ---
 
+### 2026-10-11 — Sessão 182 (continuação: P124, um só gerenciador do opencode no desktop)
+
+- **Pedido do usuário**: seguir com o item recomendado; plano aprovado.
+- **O que mudou**: o hub embutido (`server_cmds.rs`) deixou de criar o seu `EngineModels` + `opencode_engine` e passou a usar o `LazyEngine` do desktop (`CodeState::engine()`, instalado por `install_engine`, idempotente). A tela Code, o `code_task` e o chat de código da web dividem um `OpencodeProcesses`; o modelo do opencode segue o orquestrador do desktop, que o `DesktopHubSettings` mantém igual ao do hub.
+- **Testes**: 1 novo em `code_cmds.rs` (instalar de novo mantém o mesmo motor) e uma asserção no teste do hub embutido. `cargo test --lib` do desktop: 51 passam; clippy sem aviso novo.
+- **Fica**: testado com motor simulado, não visto com o opencode real; `stop_embedded_server` não encerra os opencode (a tela Code local os usa); sem trava entre dois processos do Warden na mesma pasta.
+
 ### 2026-10-11 — Sessão 182 (continuação: P124, limpeza das worktrees abandonadas)
 
 - **Pedido do usuário**: planejar a limpeza das worktrees abandonadas; plano aprovado. Princípio: nunca perder trabalho sem a pessoa dizer.

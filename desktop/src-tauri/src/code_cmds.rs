@@ -105,6 +105,12 @@ impl CodeState {
         self.slot.set(engine).ok();
     }
 
+    /// The one engine of this process, for the embedded hub's code conversations: the tela Code, `code_task` and the hub share its
+    /// opencode processes, so a folder never has two. `None` until `install_engine`.
+    pub fn engine(&self) -> Option<Arc<dyn CodeEngine>> {
+        self.slot.get().cloned()
+    }
+
     /// The same slots, for a settings host that builds orchestrators of its own (the embedded hub's).
     pub fn slots(&self) -> (CodeEngineSlot, EngineModelSlot) {
         (self.slot.clone(), self.models.clone())
@@ -215,6 +221,17 @@ mod tests {
         code.install_engine(Arc::new(Mutex::new(Ok(orchestrator()))));
         assert!(slot.get().is_some(), "code_task can find the engine");
         assert!(code.runtime.get().is_none(), "but nothing was started: no door to the model, no opencode");
+    }
+
+    #[test]
+    fn installing_again_keeps_the_one_engine_the_hub_and_the_desktop_share() {
+        let code = CodeState::default();
+        assert!(code.engine().is_none());
+        code.install_engine(Arc::new(Mutex::new(Ok(orchestrator()))));
+        let first = code.engine().unwrap();
+        // The embedded hub installs too (it may start before or after); it must not make a second engine.
+        code.install_engine(Arc::new(Mutex::new(Ok(orchestrator()))));
+        assert!(Arc::ptr_eq(&first, &code.engine().unwrap()));
     }
 
     #[tokio::test]

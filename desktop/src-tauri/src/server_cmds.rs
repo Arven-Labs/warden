@@ -350,14 +350,16 @@ pub(crate) async fn start_embedded_server_inner(state: &AppState, config: &Embed
     };
 
     let shared = SharedOrchestrator::new(orchestrator);
-    // P103 b — the opencode's door to the hub's model, on the loopback.
-    let engine_models = warden_server::engine_models::EngineModels::start(shared.clone(), Default::default()).await?;
+    // P103 b — the hub's code conversations run on the desktop's own engine (one opencode per folder for the whole app);
+    // installing it again is harmless when the desktop already did.
+    state.code.install_engine(state.orchestrator.clone());
+    let code_engine = state.code.engine().ok_or_else(|| anyhow::anyhow!("the code engine is not installed"))?;
     let mut server = warden_server::Server::bind(addr, config.auth_key.clone(), server_name.clone(), shared.clone(), conversations_dir, devices_path)
         .await?
         // P78 — voice input from the web UI, with the same Whisper key as the desktop's mic button.
         .with_transcriber(Arc::new(warden_server::chat_input::WhisperTranscriber::new(None)))
         // P103 b — the conversations of code projects are tasks for the opencode, started per project folder.
-        .with_code_engine(warden_server::code_turns::opencode_engine(&engine_models));
+        .with_code_engine(code_engine);
     if config.web_ui {
         server = server.with_web_ui(Arc::new(warden_server::EmbeddedWebUi));
     }
@@ -467,6 +469,7 @@ mod tests {
             EmbeddedServerConfig { enabled: true, server_name: Some("Test Desktop".to_string()), ..EmbeddedServerConfig::new(0, "test-auth-key-long-enough-for-p83-check") };
 
         let handle = start_embedded_server_inner(&state, &server_config).await.unwrap();
+        assert!(state.code.engine().is_some(), "the hub's code conversations run on the desktop's engine");
         // `bound_addr` reflects the `0.0.0.0` bind host `local_addr()` reports — not a connectable
         // destination on every platform, so dial loopback explicitly with the same assigned port.
         let port = handle.bound_addr.port();
