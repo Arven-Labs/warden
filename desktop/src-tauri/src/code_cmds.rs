@@ -59,7 +59,7 @@ pub async fn run_turn(
         .runtime
         .get_or_try_init(|| async {
             let shared = SharedOrchestrator::new(base.clone());
-            let models = EngineModels::start(shared.clone()).await?;
+            let models = EngineModels::start(shared.clone(), Default::default()).await?;
             Ok::<_, anyhow::Error>(Runtime { shared, engine: opencode_engine(&models) })
         })
         .await

@@ -53,6 +53,7 @@ impl CodeTurn<'_> {
             target: self.project.name.clone(),
             system: Some(self.project.instructions.trim().to_string()).filter(|s| !s.is_empty()),
             mode: self.mode,
+            model: None,
         };
         let outcome = self.engine.run_turn(request, approver, on_event).await?;
 

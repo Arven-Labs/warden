@@ -349,7 +349,7 @@ pub(crate) async fn start_embedded_server_inner(state: &AppState, config: &Embed
 
     let shared = SharedOrchestrator::new(orchestrator);
     // P103 b — the opencode's door to the hub's model, on the loopback.
-    let engine_models = warden_server::engine_models::EngineModels::start(shared.clone()).await?;
+    let engine_models = warden_server::engine_models::EngineModels::start(shared.clone(), Default::default()).await?;
     let mut server = warden_server::Server::bind(addr, config.auth_key.clone(), server_name.clone(), shared.clone(), conversations_dir, devices_path)
         .await?
         // P78 — voice input from the web UI, with the same Whisper key as the desktop's mic button.

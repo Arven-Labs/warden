@@ -6,6 +6,14 @@
 
 ---
 
+### 2026-10-11 — Sessão 182 (continuação: P124, `model` por tarefa)
+
+- **Pedido do usuário**: seguir com o P124 depois de limpar o contexto. Ele **não quis fazer agora** a verificação com opencode e modelo reais (não há opencode nem chave neste ambiente); escolhi o `model` por tarefa e ele aprovou depois de eu dizer o risco.
+- **O que mudou**: a `code_task` oferece o argumento `model` com as mesmas `ModelChoices` da delegação (provedores, combos, políticas, limite por agente via `with_model_choices`); `TurnRequest.model`; o adaptador manda `model: {providerID: "warden", modelID}` no `prompt_async`; a rota do hub (`engine_route`) resolve o id pela configuração atual (`EngineModelSlot`, refeito a cada `bootstrap_hub`) e cai no padrão se o nome é desconhecido ou o modelo não monta; `opencode_config` declara esses ids ao lado de `warden`.
+- **Testes**: `code_task` 1 (schema, escolha, recusa, padrão do agente limitado), adaptador 1, rota do hub 1 (quem responde, nome desconhecido ou quebrado, modelos declarados). Workspace inteiro: 0 falhas.
+- **Não conferido**: o opencode real aceitar o `modelID` do prompt; a lista de modelos dele é lida **quando o servidor sobe** (ocioso 30 min), então um provedor novo só chega no próximo início.
+- **Fica**: tudo do item de verificação real; `code_task` no desktop local (lá `EngineModels::start` recebe um slot vazio); worktrees; revisão como etapa; texto ao vivo.
+
 ### 2026-10-11 — Sessão 182 (continuação: P124, o Chat vê as tarefas de código ao vivo)
 
 - **Pedido do usuário**: "sim pode seguir com eventos ao vivo no chat", com plano antes (aprovado).

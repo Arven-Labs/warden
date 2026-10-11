@@ -616,13 +616,17 @@ struct ServeSettings {
     overrides: Overrides,
     /// Where the hub's code engine goes once it exists, for the `code_task` of every orchestrator built here.
     code_engine: CodeEngineSlot,
+    /// The models a code task may name, refilled by every build so the engine's route follows the settings.
+    engine_models: warden_server::openai_api::EngineModelSlot,
 }
 
 /// What `bootstrap` builds, plus the tools that need the hub (the code engine, which needs the hub's model route).
-async fn bootstrap_hub(config: Option<&str>, overrides: Overrides, code_engine: &CodeEngineSlot) -> anyhow::Result<warden_core::orchestrator::Orchestrator> {
+async fn bootstrap_hub(config: Option<&str>, overrides: Overrides, code_engine: &CodeEngineSlot, engine_models: &warden_server::openai_api::EngineModelSlot) -> anyhow::Result<warden_core::orchestrator::Orchestrator> {
     let mut orchestrator = bootstrap(config, overrides, default_vault_path()).await?;
     // P89 — an agent given `code_task` hands tasks to the engine of a code project; nobody has it until a person lists it.
-    warden_server::code_turns::register_code_task(&mut orchestrator, code_engine);
+    let models = warden_bootstrap::load_config(config).ok().and_then(|config| warden_bootstrap::model_choices(&config));
+    *engine_models.write().unwrap_or_else(|e| e.into_inner()) = models.clone();
+    warden_server::code_turns::register_code_task(&mut orchestrator, code_engine, models);
     Ok(orchestrator)
 }
 
@@ -633,7 +637,7 @@ impl warden_server::SettingsHost for ServeSettings {
     }
 
     async fn build(&self) -> anyhow::Result<warden_core::orchestrator::Orchestrator> {
-        bootstrap_hub(self.explicit_config.as_deref(), self.overrides.clone(), &self.code_engine).await
+        bootstrap_hub(self.explicit_config.as_deref(), self.overrides.clone(), &self.code_engine, &self.engine_models).await
     }
 
     fn notes(&self) -> Vec<String> {
@@ -1189,12 +1193,14 @@ async fn run_serve(args: ServeArgs) -> anyhow::Result<()> {
 
     let overrides = Overrides { provider: args.provider.map(Into::into), model: args.model.clone(), vault_path: args.vault_path.clone(), ..Default::default() };
     let code_engine = CodeEngineSlot::default();
-    let orchestrator = bootstrap_hub(args.config.as_deref(), overrides.clone(), &code_engine).await?;
+    let engine_model_slot = warden_server::openai_api::EngineModelSlot::default();
+    let orchestrator = bootstrap_hub(args.config.as_deref(), overrides.clone(), &code_engine, &engine_model_slot).await?;
     let settings = args.config.as_ref().map(PathBuf::from).or_else(warden_bootstrap::default_config_path).map(|config_path| ServeSettings {
         config_path,
         explicit_config: args.config.clone(),
         overrides,
         code_engine: code_engine.clone(),
+        engine_models: engine_model_slot.clone(),
     });
 
     // P122 — an "always" a device gave is kept in a file of its own beside the config (and lapses unused), unless `persist_grants = false`.
@@ -1211,7 +1217,7 @@ async fn run_serve(args: ServeArgs) -> anyhow::Result<()> {
     let server_name = resolve_server_name(args.server_name.clone());
     let shared = warden_server::SharedOrchestrator::new(orchestrator);
     // P103 b — the opencode's door to the hub's model, on the loopback.
-    let engine_models = warden_server::engine_models::EngineModels::start(shared.clone()).await?;
+    let engine_models = warden_server::engine_models::EngineModels::start(shared.clone(), engine_model_slot).await?;
     let opencode = warden_server::code_turns::opencode_engine(&engine_models);
     // The same engine serves the code projects' conversations and the agents' `code_task`.
     code_engine.set(opencode.clone()).ok();

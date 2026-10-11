@@ -30,6 +30,9 @@ const AUTH_USER: &str = "opencode";
 /// What the engine reports when a task is stopped on purpose: the work done so far is kept, so it isn't a failure.
 const ABORTED: &str = "MessageAbortedError";
 
+/// The provider the hub's models are declared under in the engine's own settings (`engine_models`): a task's `model` is one of its models.
+pub const ENGINE_PROVIDER: &str = "warden";
+
 /// Where a server for a folder is listening.
 #[derive(Debug, Clone)]
 pub struct Endpoint {
@@ -120,8 +123,11 @@ impl Client {
         }
     }
 
-    async fn prompt(&self, session: &str, text: &str, system: Option<&str>) -> anyhow::Result<()> {
+    async fn prompt(&self, session: &str, text: &str, system: Option<&str>, model: Option<&str>) -> anyhow::Result<()> {
         let mut body = json!({"parts": [{"type": "text", "text": text}]});
+        if let Some(model) = model.filter(|m| !m.trim().is_empty()) {
+            body["model"] = json!({"providerID": ENGINE_PROVIDER, "modelID": model});
+        }
         if let Some(system) = system.filter(|s| !s.trim().is_empty()) {
             body["system"] = json!(system);
         }
@@ -259,12 +265,12 @@ impl CodeEngine for OpencodeEngine {
             (system, None) => system.map(str::to_string),
         };
         let system = system_text.as_deref();
-        if let Err(err) = client.prompt(&session, &request.prompt, system).await {
+        if let Err(err) = client.prompt(&session, &request.prompt, system, request.model.as_deref()).await {
             if request.session_id.is_none() || !err.is::<SessionGone>() {
                 return Err(err);
             }
             session = client.create_session(&request.title).await?;
-            client.prompt(&session, &request.prompt, system).await?;
+            client.prompt(&session, &request.prompt, system, request.model.as_deref()).await?;
         }
 
         on_event(CodeEvent::Session(session.clone()));
@@ -434,7 +440,7 @@ mod tests {
 
     /// A task in `mode` that nobody changes.
     fn request_in(session: Option<&str>, mode: CodeMode) -> TurnRequest {
-        TurnRequest { workdir: "/home/me/repo".into(), session_id: session.map(str::to_string), prompt: "fix the bug".into(), title: "Repo".into(), target: "Repo".into(), system: Some("Be brief.".into()), mode: watch::channel(mode).1 }
+        TurnRequest { workdir: "/home/me/repo".into(), session_id: session.map(str::to_string), prompt: "fix the bug".into(), title: "Repo".into(), target: "Repo".into(), system: Some("Be brief.".into()), mode: watch::channel(mode).1, model: None }
     }
 
     struct Says {
@@ -456,6 +462,18 @@ mod tests {
         let mut shown = Vec::new();
         let outcome = tokio::time::timeout(Duration::from_secs(10), engine.run_turn(request, approver, &mut |e| shown.push(e))).await.expect("the task ended");
         (outcome, shown)
+    }
+
+    #[tokio::test]
+    async fn the_model_of_a_task_goes_with_the_prompt_and_none_asked_sends_none() {
+        for (model, expected) in [(None, None), (Some("strong"), Some(json!({"providerID": "warden", "modelID": "strong"})))] {
+            let fake = serve(vec![assistant(), answer("ok"), idle()], vec![]).await;
+            let mut asked = request(None);
+            asked.model = model.map(str::to_string);
+            run(&OpencodeEngine::new(fake.launcher(None)), asked, None).await.0.unwrap();
+            let prompt: Value = serde_json::from_str(&fake.calls("POST", "/session/ses_root/prompt_async")[0]).unwrap();
+            assert_eq!(prompt.get("model").cloned(), expected, "{model:?}");
+        }
     }
 
     #[tokio::test]

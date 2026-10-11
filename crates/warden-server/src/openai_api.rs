@@ -127,6 +127,27 @@ pub(crate) struct EngineRoute {
     pub token: Arc<str>,
     /// A vault with nothing in it: the engine's turns read the hub's model, never the owner's notes.
     pub empty_vault: Arc<Vault>,
+    /// The models a code task may name (`code_task`'s `model`), as the hub's settings stand now.
+    pub models: EngineModelSlot,
+}
+
+/// The hub's models the code engine may be pointed at, held by the hub and refilled whenever its settings are built again.
+pub type EngineModelSlot = Arc<std::sync::RwLock<Option<warden_core::tool::delegate::ModelChoices>>>;
+
+impl EngineRoute {
+    /// The model behind `name`, if the hub offers it to code tasks (the engine names it as `warden/<id>` or just `<id>`).
+    fn model_for(&self, name: &str) -> Option<Arc<dyn warden_core::model::ModelProvider>> {
+        let id = name.strip_prefix("warden/").unwrap_or(name);
+        let held = self.models.read().unwrap_or_else(|e| e.into_inner());
+        let choices = held.as_ref().filter(|c| c.ids.iter().any(|i| i == id))?;
+        match (choices.resolve)(id) {
+            Ok(model) => Some(model),
+            Err(err) => {
+                eprintln!("warden-server: the model '{id}' for a code task can't be built, the hub's default answers instead: {err:#}");
+                None
+            }
+        }
+    }
 }
 
 /// Answers one request on the code engine's model route; the connection is done afterwards.
@@ -160,9 +181,15 @@ async fn engine_route<S: AsyncRead + AsyncWrite + Unpin>(stream: &mut S, head: &
         ("POST", "/v1/chat/completions") => {
             let body = read_body(stream, head).await?;
             let request: Value = serde_json::from_slice(&body).map_err(|e| ApiError::bad_request(format!("the body isn't valid JSON: {e}")))?;
-            // Whatever model the engine names, it gets the hub's own.
+            // A model the hub offers to tasks is the one it gets; whatever else the engine names, it gets the hub's default.
+            let chosen = request.get("model").and_then(Value::as_str).and_then(|name| route.model_for(name));
             complete(stream, &request, DEFAULT_MODEL.to_string(), |_| {
-                let orchestrator = route.orchestrator.current().with_spend_context(SpendContext::new("code").with_user("opencode")).with_allowed_tools(Some(&[])).with_vault(route.empty_vault.clone());
+                let current = route.orchestrator.current();
+                let current = match chosen {
+                    Some(model) => Arc::new(current.with_model(model)),
+                    None => current,
+                };
+                let orchestrator = current.with_spend_context(SpendContext::new("code").with_user("opencode")).with_allowed_tools(Some(&[])).with_vault(route.empty_vault.clone());
                 Ok((orchestrator, None))
             })
             .await

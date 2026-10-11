@@ -15,7 +15,7 @@ use serde_json::json;
 use tokio::net::TcpListener;
 use warden_core::memory::Vault;
 
-use crate::openai_api::{serve_engine, EngineRoute};
+use crate::openai_api::{serve_engine, EngineModelSlot, EngineRoute};
 use crate::settings::SharedOrchestrator;
 use crate::web_ui::{read_request_head, HEAD_TIMEOUT};
 
@@ -24,17 +24,18 @@ pub struct EngineModels {
     /// `http://127.0.0.1:<port>/v1`.
     pub base_url: String,
     pub token: String,
+    models: EngineModelSlot,
 }
 
 impl EngineModels {
     /// Starts listening. The orchestrator is the hub's shared one, so a change in its settings (another provider) reaches
     /// the opencode's next request.
-    pub async fn start(orchestrator: SharedOrchestrator) -> anyhow::Result<Self> {
+    pub async fn start(orchestrator: SharedOrchestrator, models: EngineModelSlot) -> anyhow::Result<Self> {
         let listener = TcpListener::bind("127.0.0.1:0").await?;
         let base_url = format!("http://{}/v1", listener.local_addr()?);
         let token = warden_bootstrap::generate_auth_key();
         let empty_vault = std::env::temp_dir().join(format!("warden-engine-no-notes-{}", std::process::id()));
-        let route = EngineRoute { orchestrator, token: Arc::from(token.as_str()), empty_vault: Arc::new(Vault::new(empty_vault)) };
+        let route = EngineRoute { orchestrator, token: Arc::from(token.as_str()), empty_vault: Arc::new(Vault::new(empty_vault)), models: models.clone() };
         tokio::spawn(async move {
             loop {
                 let Ok((mut stream, _)) = listener.accept().await else { return };
@@ -45,13 +46,22 @@ impl EngineModels {
                 });
             }
         });
-        Ok(Self { base_url, token })
+        Ok(Self { base_url, token, models })
     }
 
     /// The opencode's own settings (`OPENCODE_CONFIG_CONTENT`): the hub's model as its only provider, and for everything
     /// it would otherwise pick for itself — titles included — so nothing the person types goes to a provider they didn't
     /// give it. No sharing, no self-update.
     pub fn opencode_config(&self) -> String {
+        // The hub's models a task may pick (`code_task`'s `model`) are declared beside the default, so the engine accepts them by name.
+        // It reads them when its server starts: a provider added later reaches it with its next start (idle servers are ended).
+        let mut models = serde_json::Map::new();
+        models.insert("warden".into(), json!({ "name": "Warden" }));
+        if let Some(choices) = self.models.read().unwrap_or_else(|e| e.into_inner()).as_ref() {
+            for id in &choices.ids {
+                models.entry(id.clone()).or_insert_with(|| json!({ "name": id }));
+            }
+        }
         json!({
             "$schema": "https://opencode.ai/config.json",
             "autoupdate": false,
@@ -64,7 +74,7 @@ impl EngineModels {
                     "npm": "@ai-sdk/openai-compatible",
                     "name": "Warden",
                     "options": { "baseURL": self.base_url, "apiKey": self.token },
-                    "models": { "warden": { "name": "Warden" } }
+                    "models": models
                 }
             }
         })
@@ -131,7 +141,7 @@ mod tests {
         vault.write("secrets.md", "the owner's secret plans for EDIT").unwrap();
         let mut orchestrator = Orchestrator::new(Arc::new(Spy { seen: Arc::clone(&seen) }), vault.clone());
         orchestrator.register_tool(Arc::new(WriteFileTool::new(vault)));
-        (EngineModels::start(SharedOrchestrator::new(orchestrator)).await.unwrap(), seen, dir)
+        (EngineModels::start(SharedOrchestrator::new(orchestrator), Default::default()).await.unwrap(), seen, dir)
     }
 
     fn ask(text: &str) -> Value {
@@ -167,6 +177,47 @@ mod tests {
         let (status, models_list) = post(&models.base_url, Some(&models.token), "/v1/models", &Value::Null).await;
         assert_eq!((status, models_list["data"][0]["id"].as_str()), (200, Some("warden")));
         assert_eq!(post(&models.base_url, Some(&models.token), "/v1/other", &json!({})).await.0, 404);
+    }
+
+    /// Answers as itself, to tell which model a request reached.
+    struct Named(&'static str);
+    #[async_trait]
+    impl ModelProvider for Named {
+        async fn chat_stream(&self, _: Vec<Message>, _: Vec<ToolSpec>) -> anyhow::Result<ChatStream> {
+            Ok(response_stream(Response { content: format!("answered by {}", self.0), tool_calls: Vec::new(), usage: None }))
+        }
+    }
+
+    #[tokio::test]
+    async fn a_model_the_hub_offers_to_tasks_is_the_one_that_answers_and_any_other_name_gets_the_default() {
+        let seen = Arc::default();
+        let slot = crate::openai_api::EngineModelSlot::default();
+        *slot.write().unwrap() = Some(warden_core::tool::delegate::ModelChoices {
+            ids: vec!["fast".into(), "broken".into()],
+            hints: Vec::new(),
+            default: None,
+            resolve: Arc::new(|id| match id {
+                "fast" => Ok(Arc::new(Named("fast"))),
+                _ => anyhow::bail!("no key for it"),
+            }),
+        });
+        let vault = Arc::new(Vault::new(std::env::temp_dir().join(format!("warden-engine-pick-{}", std::process::id()))));
+        let models = EngineModels::start(SharedOrchestrator::new(Orchestrator::new(Arc::new(Spy { seen }), vault)), slot).await.unwrap();
+
+        let say = |model: &str| {
+            let mut body = ask("hello");
+            body["model"] = json!(model);
+            body
+        };
+        for (named, answer) in [("warden/fast", "answered by fast"), ("fast", "answered by fast"), ("warden/warden", "from the hub's model"), ("warden/ghost", "from the hub's model"), ("warden/broken", "from the hub's model")] {
+            let (status, reply) = post(&models.base_url, Some(&models.token), "/v1/chat/completions", &say(named)).await;
+            assert_eq!((status, reply["choices"][0]["message"]["content"].as_str()), (200, Some(answer)), "{named}");
+        }
+
+        // The engine is told about them, beside the default, when its server starts.
+        let config: Value = serde_json::from_str(&models.opencode_config()).unwrap();
+        let declared: Vec<&str> = config["provider"]["warden"]["models"].as_object().unwrap().keys().map(String::as_str).collect();
+        assert_eq!(declared, ["broken", "fast", "warden"]);
     }
 
     #[tokio::test]

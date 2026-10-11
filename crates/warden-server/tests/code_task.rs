@@ -78,7 +78,7 @@ async fn spin_up(engine: Option<Arc<Scripted>>) -> Hub {
     let offered = Arc::new(Mutex::new(Vec::new()));
     let mut orchestrator = Orchestrator::new(Arc::new(Manager { offered: offered.clone() }), Arc::new(Vault::new(dir.join("vault"))));
     let slot: CodeEngineSlot = Arc::new(OnceLock::new());
-    register_code_task(&mut orchestrator, &slot);
+    register_code_task(&mut orchestrator, &slot, None);
     if let Some(engine) = engine {
         let engine: Arc<dyn CodeEngine> = engine;
         slot.set(engine).ok();
@@ -185,7 +185,7 @@ async fn a_manager_opens_two_code_tasks_in_the_background_and_both_are_on_the_ta
     let mut orchestrator = Orchestrator::new(Arc::new(BackgroundManager), Arc::new(Vault::new(dir.join("vault"))));
     orchestrator.register_tool(Arc::new(warden_core::tool::job_tools::JobsTool::new()));
     let slot: CodeEngineSlot = Arc::new(OnceLock::new());
-    register_code_task(&mut orchestrator, &slot);
+    register_code_task(&mut orchestrator, &slot, None);
     let engine: Arc<dyn CodeEngine> = Arc::new(Instant);
     slot.set(engine).ok();
     let orchestrator = orchestrator.with_parallel_jobs(2).with_task_recorder(Arc::new(warden_bootstrap::agent_tasks::FileTaskRecorder::new(&log)));
@@ -254,7 +254,7 @@ async fn the_chat_sees_each_tasks_tool_rows_live_and_not_the_engines_words() {
     let mut orchestrator = Orchestrator::new(Arc::new(BackgroundManager), Arc::new(Vault::new(dir.join("vault"))));
     orchestrator.register_tool(Arc::new(warden_core::tool::job_tools::JobsTool::new()));
     let slot: CodeEngineSlot = Arc::new(OnceLock::new());
-    register_code_task(&mut orchestrator, &slot);
+    register_code_task(&mut orchestrator, &slot, None);
     let engine: Arc<dyn CodeEngine> = Arc::new(Narrates);
     slot.set(engine).ok();
     let orchestrator = orchestrator.with_parallel_jobs(2);
@@ -340,7 +340,7 @@ async fn a_manager_can_ask_for_a_plan_but_never_for_accept_all() {
     std::fs::create_dir_all(&dir).unwrap();
     let mut orchestrator = Orchestrator::new(Arc::new(ModeAsker), Arc::new(Vault::new(dir.join("vault"))));
     let slot: CodeEngineSlot = Arc::new(OnceLock::new());
-    register_code_task(&mut orchestrator, &slot);
+    register_code_task(&mut orchestrator, &slot, None);
     let probe = Arc::new(ModeProbe::default());
     let engine: Arc<dyn CodeEngine> = probe.clone();
     slot.set(engine).ok();

@@ -363,7 +363,7 @@ mod real {
         std::fs::create_dir_all(&repo).unwrap();
         let orchestrator = Orchestrator::new(Arc::new(Model), Arc::new(Vault::new(dir.join("vault"))));
         let shared = SharedOrchestrator::new(orchestrator);
-        let models = warden_server::engine_models::EngineModels::start(shared.clone()).await.unwrap();
+        let models = warden_server::engine_models::EngineModels::start(shared.clone(), Default::default()).await.unwrap();
         let server = Server::bind("127.0.0.1:0".parse().unwrap(), KEY, "Test Hub", shared, dir.join("conversations"), dir.join("devices.json"))
             .await
             .unwrap()

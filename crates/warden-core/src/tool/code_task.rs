@@ -22,6 +22,7 @@ use crate::code_engine::{CodeEngine, CodeEvent, CodeMode, TurnOutcome, TurnReque
 use crate::jobs::{task_controls, JobBoard, TaskDraft};
 use crate::memory::Vault;
 use crate::project::ProjectStore;
+use crate::tool::delegate::{model_property, ModelChoices};
 use crate::tool::job_tools::{background_property, job_label, start_task_with, wants_background};
 use crate::tool::{Approver, ProgressSink, Tool, ToolSpec};
 
@@ -119,6 +120,8 @@ pub struct CodeTaskTool {
     asks_for_critical: bool,
     /// Where the tool says what its tasks are doing, while the turn that started them is being watched (`with_progress`).
     progress: Option<ProgressSink>,
+    /// The hub's models a task may be given (P123, `with_models`), the way a delegation picks one; none offered means the engine uses the hub's default.
+    models: Option<ModelChoices>,
 }
 
 /// The name a `mode` argument uses (the same ones the clients send).
@@ -139,7 +142,29 @@ fn mode_named(name: &str) -> Option<CodeMode> {
 
 impl CodeTaskTool {
     pub fn new(vault: Arc<Vault>, engine: CodeEngineSlot) -> Self {
-        Self { projects: ProjectStore::new(vault), engine, approver: None, jobs: None, autonomy: Autonomy::Autonomous, asks_for_critical: false, progress: None }
+        Self { projects: ProjectStore::new(vault), engine, approver: None, jobs: None, autonomy: Autonomy::Autonomous, asks_for_critical: false, progress: None, models: None }
+    }
+
+    /// Lets the caller pick the model of each task, from `models`.
+    pub fn with_models(mut self, models: ModelChoices) -> Self {
+        self.models = Some(models);
+        self
+    }
+
+    /// The model a call asked for (or the caller's default), refused when it isn't one of the choices. `None` is the hub's default.
+    fn model_of(&self, args: &Value) -> anyhow::Result<Option<String>> {
+        let asked = args.get("model").and_then(Value::as_str).map(str::trim).filter(|m| !m.is_empty());
+        let Some(choices) = &self.models else {
+            return match asked {
+                Some(_) => anyhow::bail!("this agent can't choose a model for a task — leave out 'model'"),
+                None => Ok(None),
+            };
+        };
+        let Some(wanted) = asked.or(choices.default.as_deref()) else { return Ok(None) };
+        if !choices.ids.iter().any(|id| id == wanted) {
+            anyhow::bail!("unknown model '{wanted}' — choose one of: {}", choices.ids.join(", "));
+        }
+        Ok(Some(wanted.to_string()))
     }
 
     /// The modes an agent may ask for (P124): never `acceptAll` (the shell is no sandbox and that mode asks nothing, so only a person
@@ -194,6 +219,9 @@ impl Tool for CodeTaskTool {
                 'acceptEdits' lets it change files without asking and still asks before commands; 'plan' lets it change nothing and \
                 answers with a plan. Only the modes your autonomy allows are listed."
         });
+        if let Some(models) = &self.models {
+            properties["model"] = model_property(models);
+        }
         let mut background_note = "";
         if self.jobs.is_some() {
             properties["background"] = background_property();
@@ -216,6 +244,10 @@ impl Tool for CodeTaskTool {
                 "required": ["project", "task"]
             }),
         }
+    }
+
+    fn with_model_choices(&self, choices: Option<&ModelChoices>) -> Option<Arc<dyn Tool>> {
+        Some(Arc::new(Self { models: choices.cloned(), ..self.clone() }))
     }
 
     fn with_vault(&self, vault: &Arc<Vault>) -> Option<Arc<dyn Tool>> {
@@ -264,6 +296,7 @@ impl Tool for CodeTaskTool {
                 mode
             }
         };
+        let model = self.model_of(&args)?;
         let Some(approver) = self.approver.clone() else {
             anyhow::bail!("the code engine asks the person before each of its actions, and this channel can't ask (use the desktop app or the web)");
         };
@@ -283,9 +316,10 @@ impl Tool for CodeTaskTool {
             target: project.name.clone(),
             system: Some(project.instructions.trim().to_string()).filter(|s| !s.is_empty()),
             mode,
+            model: model.clone(),
         };
         let reporter = self.progress.clone().map(|sink| Reporter { sink, project_id: project.id.clone(), project_name: project.name.clone() });
-        let draft = TaskDraft { assignee: format!("opencode · {}", project.name), objective: task.to_string(), model: None };
+        let draft = TaskDraft { assignee: format!("opencode · {}", project.name), objective: task.to_string(), model };
         let result_of = |outcome: &TurnOutcome| json!({ "answer": outcome.text, "session_id": outcome.session_id, "tools_used": outcome.tools_used });
 
         if let Some(board) = &self.jobs {
@@ -537,6 +571,45 @@ mod tests {
             tool.call(args).await.unwrap();
             assert_eq!(engine.asked.lock().unwrap().last().unwrap().1, expected);
         }
+    }
+
+    fn choices(default: Option<&str>) -> ModelChoices {
+        ModelChoices {
+            ids: vec!["fast".into(), "strong".into()],
+            hints: vec![("strong".into(), "hard reasoning".into())],
+            default: default.map(str::to_string),
+            resolve: Arc::new(|_| anyhow::bail!("not built in this test")),
+        }
+    }
+
+    #[tokio::test]
+    async fn the_model_asked_for_reaches_the_engine_and_only_one_of_the_choices_is_taken() {
+        let (engine, tool) = at("model-reaches", Autonomy::Autonomous);
+        // Nothing to choose from: no `model` in the schema, and asking for one is refused.
+        assert!(tool.spec().parameters["properties"].get("model").is_none());
+        let err = tool.call(json!({ "project": "repo", "task": "a", "model": "fast" })).await.unwrap_err();
+        assert!(err.to_string().contains("can't choose a model"), "{err}");
+
+        let tool = tool.with_model_choices(Some(&choices(None))).unwrap();
+        let spec = tool.spec();
+        assert_eq!(spec.parameters["properties"]["model"]["enum"], json!(["fast", "strong"]));
+        assert!(spec.parameters["properties"]["model"]["description"].as_str().unwrap().contains("strong: hard reasoning"));
+        for (args, expected) in [
+            (json!({ "project": "repo", "task": "b" }), None),
+            (json!({ "project": "repo", "task": "c", "model": " strong " }), Some("strong")),
+        ] {
+            tool.call(args).await.unwrap();
+            assert_eq!(engine.asked.lock().unwrap().last().unwrap().0.model.as_deref(), expected);
+        }
+        let before = engine.asked.lock().unwrap().len();
+        let err = tool.call(json!({ "project": "repo", "task": "d", "model": "ghost" })).await.unwrap_err();
+        assert!(err.to_string().contains("unknown model 'ghost'") && err.to_string().contains("fast, strong"), "{err}");
+        assert_eq!(engine.asked.lock().unwrap().len(), before, "a refused model never reaches the engine");
+
+        // A person limited the agent to one model: it does every task, whatever is (not) asked.
+        let limited = tool.with_model_choices(Some(&choices(Some("fast")))).unwrap();
+        limited.call(json!({ "project": "repo", "task": "e" })).await.unwrap();
+        assert_eq!(engine.asked.lock().unwrap().last().unwrap().0.model.as_deref(), Some("fast"));
     }
 
     #[tokio::test]

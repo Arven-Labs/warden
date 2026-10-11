@@ -11,6 +11,7 @@ use std::time::Duration;
 use warden_core::code_engine::opencode::OpencodeEngine;
 use warden_core::code_engine::process::OpencodeProcesses;
 use warden_core::code_engine::{CodeEngine, CodeModes};
+use warden_core::tool::delegate::ModelChoices;
 use warden_core::tool::code_task::{CodeEngineSlot, CodeTaskTool};
 
 use crate::engine_models::EngineModels;
@@ -31,9 +32,13 @@ pub fn opencode_engine(models: &EngineModels) -> Arc<dyn CodeEngine> {
 
 /// Gives `orchestrator` the `code_task` tool (P89): an agent that a person listed it for hands tasks to the engine that
 /// `engine` will hold. The hub builds its orchestrator again whenever its settings are saved, so every build goes through
-/// here with the same slot.
-pub fn register_code_task(orchestrator: &mut warden_core::orchestrator::Orchestrator, engine: &CodeEngineSlot) {
-    orchestrator.register_tool(Arc::new(CodeTaskTool::new(orchestrator.vault().clone(), engine.clone())));
+/// here with the same slot. `models` are the ones a task may name (`None` when the hub has no choice to offer).
+pub fn register_code_task(orchestrator: &mut warden_core::orchestrator::Orchestrator, engine: &CodeEngineSlot, models: Option<ModelChoices>) {
+    let tool = CodeTaskTool::new(orchestrator.vault().clone(), engine.clone());
+    orchestrator.register_tool(Arc::new(match models {
+        Some(models) => tool.with_models(models),
+        None => tool,
+    }));
 }
 
 #[derive(Clone, Default)]

@@ -67,6 +67,8 @@ pub struct TurnRequest {
     pub system: Option<String>,
     /// How much to ask the person, now and as they change it during the task.
     pub mode: tokio::sync::watch::Receiver<CodeMode>,
+    /// Which of the hub's models does the task (the id of a provider, combo or policy), when the caller picked one; `None` is the hub's default.
+    pub model: Option<String>,
 }
 
 pub struct TurnOutcome {
