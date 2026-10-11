@@ -103,6 +103,11 @@ struct Hub {
 }
 
 async fn spin_up() -> Hub {
+    spin_up_keeping_grants(false).await
+}
+
+/// `keep_grants`: the hub writes each device's "always" in a folder beside its config (P122), as a real one does by default.
+async fn spin_up_keeping_grants(keep_grants: bool) -> Hub {
     let dir = std::env::temp_dir().join(format!(
         "warden-server-agents-{}",
         std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
@@ -120,7 +125,8 @@ async fn spin_up() -> Hub {
     let server = Server::bind("127.0.0.1:0".parse().unwrap(), "test-key", "Test Hub", Arc::new(orchestrator), dir.join("conversations"), dir.join("devices.json"))
         .await
         .unwrap()
-        .with_settings(Arc::new(TestHost { path: config_path.clone() }));
+        .with_settings(Arc::new(TestHost { path: config_path.clone() }))
+        .with_grants(keep_grants.then(|| warden_bootstrap::grant_policy(&config_path, &config).unwrap()));
     let addr = server.local_addr().unwrap();
     tokio::spawn(server.serve());
     Hub { url: format!("ws://{addr}"), config_path, seen }
@@ -440,4 +446,27 @@ async fn the_alwayses_are_listed_and_taking_one_back_makes_the_agent_ask_again()
     assert!(left.is_empty());
     conn.send(&chat("CREATE a critic", "c1", Some("chief"))).await.unwrap();
     assert_eq!(tool_call_asks(&finish_turn_always(&mut conn).await), 1, "asked again after the revoke");
+}
+
+#[tokio::test]
+async fn an_always_survives_a_reconnect_of_the_same_device_and_is_not_lent_to_another() {
+    use warden_core::autonomy::Category;
+    let hub = spin_up_keeping_grants(true).await;
+    set_autonomy(&hub, "chief", 5);
+    set_approval_required(&hub, "chief", &[Category::ElevatedAgent]);
+    let tool_call_asks = |others: &[ServerMessage]| asked_actions(others).iter().filter(|a| *a == "tool_call").count();
+
+    let mut first = ServerConnection::connect(&hub.url, "web-1", "Browser", "test-key").await.unwrap();
+    first.send(&chat("CREATE a critic", "c1", Some("chief"))).await.unwrap();
+    assert_eq!(tool_call_asks(&finish_turn_always(&mut first).await), 1);
+    drop(first);
+
+    let mut again = ServerConnection::connect(&hub.url, "web-1", "Browser", "test-key").await.unwrap();
+    again.send(&chat("CREATE a critic", "c1", Some("chief"))).await.unwrap();
+    assert_eq!(tool_call_asks(&finish_turn_always(&mut again).await), 0, "the same device, a new connection: not asked again");
+
+    let mut other = ServerConnection::connect(&hub.url, "phone-1", "Phone", "test-key").await.unwrap();
+    other.send(&chat("CREATE a critic", "c1", Some("chief"))).await.unwrap();
+    assert_eq!(tool_call_asks(&finish_turn_always(&mut other).await), 1, "another device has its own");
+    assert!(hub.config_path.with_file_name("grants").is_dir(), "and the files are beside the config");
 }

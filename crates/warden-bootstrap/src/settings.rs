@@ -908,6 +908,17 @@ mod tests {
         assert!(again.bot_hub.is_some());
     }
 
+    /// P122: whether an "always" is kept, and for how long, is set in the config file: a save from a screen never drops it.
+    #[test]
+    fn a_save_keeps_how_the_always_are_kept() {
+        let mut config = sample();
+        config.persist_grants = Some(false);
+        config.grant_ttl_days = Some(7);
+        let update = untouched(&config);
+        let saved = apply_hub_settings(config, update).unwrap();
+        assert_eq!((saved.persist_grants, saved.grant_ttl_days), (Some(false), Some(7)));
+    }
+
     #[test]
     fn bad_bots_settings_are_refused_and_nothing_is_written() {
         let refuse = |edit: fn(&mut BotsSettingsDto)| {

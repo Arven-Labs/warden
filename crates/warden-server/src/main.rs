@@ -1197,6 +1197,9 @@ async fn run_serve(args: ServeArgs) -> anyhow::Result<()> {
         code_engine: code_engine.clone(),
     });
 
+    // P122 — an "always" a device gave is kept in a file of its own beside the config (and lapses unused), unless `persist_grants = false`.
+    let grant_policy = settings.as_ref().and_then(|s| warden_bootstrap::grant_policy_at(&s.config_path, s.explicit_config.is_some()));
+
     // P61 — the vault syncs on its own every few minutes, and the web's Sync screen drives it too.
     let runner = Arc::new(sync_runner(args.config.as_deref(), args.vault_path.clone())?);
 
@@ -1226,6 +1229,8 @@ async fn run_serve(args: ServeArgs) -> anyhow::Result<()> {
         .with_webhooks(webhook_tokens_path()?)
         // P123 — the tasks agents delegate to each other, written by the orchestrator and listed to the devices.
         .with_agent_tasks(warden_bootstrap::resolve_agent_tasks_path(std::env::var("WARDEN_AGENT_TASKS").ok()))
+        // P122 — where each device's "always" live.
+        .with_grants(grant_policy)
         // P119 — whether the web settings may change the shell, MCP servers, SSH hosts, folders and the embedded hub.
         .with_machine_settings(args.allow_machine_settings);
     if args.allow_machine_settings {

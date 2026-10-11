@@ -23,6 +23,7 @@
 
 pub mod activity_list;
 pub mod agent_task_list;
+pub mod grant_registry;
 pub mod api_key_admin;
 pub mod api_keys;
 pub mod approval;

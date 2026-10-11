@@ -560,6 +560,13 @@ pub struct FileConfig {
     /// know (an MCP server's). What an agent's `approval_required` is checked against; see the `risk` module.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub tool_categories: Vec<risk::ToolCategoryConfig>,
+    /// Whether an "always" a person gave (P122) is kept in a file and survives a restart (TOML `persist_grants`). Absent: yes. `false`:
+    /// it lasts only until the connection or the app closes, as before. Read when the hub or the app starts.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub persist_grants: Option<bool>,
+    /// Days an "always" may go unused before it lapses (TOML `grant_ttl_days`; every use renews it). Absent: 30. Read at start.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub grant_ttl_days: Option<u32>,
     /// What agents may do with each node (P93, TOML `[[nodes]]`).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub nodes: Vec<NodeAccessConfig>,
@@ -1639,6 +1646,30 @@ pub fn load_config_from_path(path: &Path, required: bool) -> anyhow::Result<File
     }
 }
 
+/// Where the "always" a person gave (P122) are kept and for how long, when the config lets them outlive the process.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct GrantPolicy {
+    /// A folder beside `config.toml`; the hub keeps one file per device in it, the desktop one file of its own.
+    pub dir: PathBuf,
+    /// How long an "always" may go unused before it lapses.
+    pub ttl: std::time::Duration,
+}
+
+/// The policy of `file` (`persist_grants`, `grant_ttl_days`) for the config at `config_path`; `None` when persisting is turned off.
+pub fn grant_policy(config_path: &Path, file: &FileConfig) -> Option<GrantPolicy> {
+    if file.persist_grants == Some(false) {
+        return None;
+    }
+    let ttl = file.grant_ttl_days.map_or(warden_core::grants::DEFAULT_TTL, |days| std::time::Duration::from_secs(u64::from(days.max(1)) * 24 * 60 * 60));
+    Some(GrantPolicy { dir: config_path.with_file_name("grants"), ttl })
+}
+
+/// `grant_policy` for the config file at `config_path`. A config that can't be read means no persistence: a doubtful file never makes an
+/// agent freer.
+pub fn grant_policy_at(config_path: &Path, required: bool) -> Option<GrantPolicy> {
+    load_config_from_path(config_path, required).ok().and_then(|file| grant_policy(config_path, &file))
+}
+
 /// Env var wins over the config file value — lets you override a saved key for one run
 /// without editing the file.
 pub fn resolve_secret(from_env: Option<String>, from_file: Option<String>) -> Option<String> {
@@ -2319,6 +2350,24 @@ pub fn resolve_agent_tasks_path(from_env: Option<String>) -> Option<PathBuf> {
 mod tests {
     use super::*;
 
+    #[test]
+    fn the_always_are_kept_for_30_days_beside_the_config_unless_the_person_says_otherwise() {
+        let config = Path::new("/etc/warden/config.toml");
+        let policy = grant_policy(config, &FileConfig::default()).unwrap();
+        assert_eq!(policy.dir, Path::new("/etc/warden/grants"));
+        assert_eq!(policy.ttl, std::time::Duration::from_secs(30 * 24 * 60 * 60));
+
+        let two_days: FileConfig = toml::from_str("grant_ttl_days = 2").unwrap();
+        assert_eq!(grant_policy(config, &two_days).unwrap().ttl, std::time::Duration::from_secs(2 * 24 * 60 * 60));
+        let zero_days: FileConfig = toml::from_str("grant_ttl_days = 0").unwrap();
+        assert_eq!(grant_policy(config, &zero_days).unwrap().ttl, std::time::Duration::from_secs(24 * 60 * 60), "never less than a day");
+
+        let off: FileConfig = toml::from_str("persist_grants = false").unwrap();
+        assert_eq!(grant_policy(config, &off), None);
+        let on: FileConfig = toml::from_str("persist_grants = true").unwrap();
+        assert!(grant_policy(config, &on).is_some());
+    }
+
     fn temp_toml_path(name: &str) -> PathBuf {
         std::env::temp_dir().join(format!(
             "warden-bootstrap-config-test-{name}-{}.toml",
@@ -2626,6 +2675,8 @@ oauth = true
                 can_choose_models: true,
             }],
             tool_categories: vec![risk::ToolCategoryConfig { tool: "pay".to_string(), category: warden_core::autonomy::Category::SpendMoney }],
+            persist_grants: Some(false),
+            grant_ttl_days: Some(7),
             combos: vec![ComboConfig { id: "local-first".to_string(), providers: vec!["ollama-local".to_string()] }],
             legacy_fallback_providers: Vec::new(),
             legacy_storage_provider: None,

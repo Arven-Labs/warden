@@ -802,6 +802,9 @@ async fn save_settings(state: State<'_, AppState>, payload: SettingsFormPayload)
         webhooks: existing.webhooks,
         outreach,
         tool_categories,
+        // Whether an "always" is kept in a file, and for how long (P122), is set in the config file: carried forward.
+        persist_grants: existing.persist_grants,
+        grant_ttl_days: existing.grant_ttl_days,
         // Nodes (P93) are edited on the Workspace screen (`node_cmds`), not this form.
         nodes: existing.nodes,
         // People (P84) are managed on the Workspace screen and the hub, not this form.
@@ -1018,6 +1021,8 @@ pub fn run() {
     let orchestrator = tauri::async_runtime::block_on(bootstrap(None, Overrides::default(), desktop_default_vault_path()))
         .map_err(|e| format!("{e:#}"));
     let sync_config_path = default_config_path().unwrap_or_else(|| PathBuf::from("config.toml"));
+    // P122: where this computer keeps the "always" a person gave, or nothing when `persist_grants = false`.
+    let grant_policy = warden_bootstrap::grant_policy_at(&sync_config_path, false);
     // Was hardcoded to `desktop_default_vault_path()` regardless of `config.vault_path` — a bug
     // (P61): the chat `Orchestrator` above already respects a custom vault path via `bootstrap()`,
     // but sync silently kept mirroring `~/Warden/vault` instead. Resolved the same way `bootstrap()`
@@ -1046,7 +1051,11 @@ pub fn run() {
         generated_files_root,
         embedded_server: Mutex::new(None),
         approvals: Arc::new(approval::ApprovalBroker::default()),
-        grants: Default::default(),
+        // P122: this computer's own "always", in a file beside the config unless `persist_grants = false`.
+        grants: match &grant_policy {
+            Some(policy) => warden_core::autonomy::GrantBook::persistent(policy.dir.join("desktop.json"), policy.ttl),
+            None => Default::default(),
+        },
         code: code_cmds::CodeState::default(),
         sync_runner: sync_runner.clone(),
         lending: Mutex::new(None),

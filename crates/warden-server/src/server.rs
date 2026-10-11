@@ -115,6 +115,8 @@ pub struct Server {
     tasks: Option<TaskRunner>,
     /// Where the log of tasks agents delegated to each other lives (P123), for `ListAgentTasks`. `None`: this hub shows none.
     agent_tasks: Option<Arc<PathBuf>>,
+    /// The "always" each device gave (P122): in a file per device, or in memory per connection when the policy is off.
+    grants: Arc<crate::grant_registry::GrantRegistry>,
     task_tick: Duration,
     /// Conversations changed outside any one connection (a task ran): every connection hears it.
     changes: broadcast::Sender<String>,
@@ -167,6 +169,7 @@ impl Server {
             webhook_tokens: None,
             tasks: None,
             agent_tasks: None,
+            grants: Arc::default(),
             task_tick: DEFAULT_TASK_TICK,
             changes: broadcast::channel(64).0,
             org_access_changes: broadcast::channel(16).0,
@@ -224,6 +227,13 @@ impl Server {
     /// `None` shows none. The log is written by the orchestrator's `FileTaskRecorder`; this only reads it.
     pub fn with_agent_tasks(mut self, path: Option<PathBuf>) -> Self {
         self.agent_tasks = path.map(Arc::new);
+        self
+    }
+
+    /// Keeps the "always" a device gave (P122) in a file of its own under `policy.dir`, each lapsing after `policy.ttl` unused. `None`
+    /// (the default) keeps them only until the connection closes.
+    pub fn with_grants(mut self, policy: Option<warden_bootstrap::GrantPolicy>) -> Self {
+        self.grants = Arc::new(crate::grant_registry::GrantRegistry::new(policy));
         self
     }
 
@@ -354,6 +364,7 @@ impl Server {
             webhooks,
             tasks: self.tasks,
             agent_tasks: self.agent_tasks,
+            grant_registry: self.grants,
             changes: self.changes.clone(),
             org_access_changes: self.org_access_changes.clone(),
             nodes: self.nodes.clone(),
@@ -448,6 +459,8 @@ struct ConnectionContext {
     tasks: Option<TaskRunner>,
     /// The log of tasks agents delegated to each other (P123).
     agent_tasks: Option<Arc<PathBuf>>,
+    /// Where each device's "always" live (P122).
+    grant_registry: Arc<crate::grant_registry::GrantRegistry>,
     changes: broadcast::Sender<String>,
     /// A member's access to the organization changed (P120): who, and the new level.
     org_access_changes: broadcast::Sender<(String, String)>,
@@ -827,6 +840,7 @@ async fn handle_connection<S: Transport>(ws: WebSocketStream<S>, peer: SocketAdd
         webhooks,
         tasks,
         agent_tasks,
+        grant_registry,
         changes,
         org_access_changes,
         nodes,
@@ -1107,8 +1121,9 @@ async fn handle_connection<S: Transport>(ws: WebSocketStream<S>, peer: SocketAdd
     let mut orchestrator = ConnectionOrchestrator::new(shared_orchestrator.clone(), tools, tool_channel.clone(), device_id.clone());
     // P46: approvals for this device's turns come back on this connection.
     let approver = WsApprover::new(tx.clone());
-    // P122: what the person said "always" to, per conversation and agent, for as long as this connection lasts.
-    let grants = warden_core::autonomy::GrantBook::default();
+    // P122: what the person said "always" to, per conversation and agent. Kept in this device's file when the config lets it (and then
+    // a reconnect finds it); otherwise only for as long as this connection lasts.
+    let grants = grant_registry.book_for(&device_id);
 
     // P36: `revoke` must also end a connection that's already open — it happens in another
     // process (`warden-server devices revoke`, the desktop's Workspace screen), so the only signal
@@ -2079,6 +2094,12 @@ pub fn resolve_server_name(explicit: Option<String>) -> String {
         .unwrap_or_else(|| "warden-server".to_string())
 }
 
+/// Every "always" this device gave (P122), as `GrantList`.
+fn grant_list(grants: &warden_core::autonomy::GrantBook, request_id: u64) -> ServerMessage {
+    let grants = grants.list().into_iter().map(|g| warden_server_protocol::protocol::GrantDto { conversation_id: g.conversation, agent_id: g.agent, covers: g.covers, last_used_ms: Some(g.last_used_ms) }).collect();
+    ServerMessage::GrantList { request_id, grants }
+}
+
 #[cfg(test)]
 mod name_tests {
     use super::resolve_server_name;
@@ -2087,10 +2108,4 @@ mod name_tests {
     fn explicit_name_wins_over_everything() {
         assert_eq!(resolve_server_name(Some("My Hub".to_string())), "My Hub");
     }
-}
-
-/// Every "always" given on this connection (P122), as `GrantList`.
-fn grant_list(grants: &warden_core::autonomy::GrantBook, request_id: u64) -> ServerMessage {
-    let grants = grants.list().into_iter().map(|g| warden_server_protocol::protocol::GrantDto { conversation_id: g.conversation, agent_id: g.agent, covers: g.covers }).collect();
-    ServerMessage::GrantList { request_id, grants }
 }

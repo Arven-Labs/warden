@@ -26,7 +26,7 @@ pub fn revoke_grant(state: tauri::State<'_, crate::AppState>, conversation_id: S
 }
 
 fn grant_dtos(book: &warden_core::autonomy::GrantBook) -> Vec<GrantDto> {
-    book.list().into_iter().map(|g| GrantDto { conversation_id: g.conversation, agent_id: g.agent, covers: g.covers }).collect()
+    book.list().into_iter().map(|g| GrantDto { conversation_id: g.conversation, agent_id: g.agent, covers: g.covers, last_used_ms: Some(g.last_used_ms) }).collect()
 }
 
 /// The feed of activity of this computer (P121): the tasks agents delegated, the notes they left each other and the agents one created or

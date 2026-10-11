@@ -791,6 +791,9 @@ pub struct GrantDto {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub agent_id: Option<String>,
     pub covers: String,
+    /// When it was given or last saved the agent from asking, in milliseconds since the epoch. Absent from a hub that predates it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_used_ms: Option<u64>,
 }
 
 /// One task an agent delegated in the background (P123), as the screens list it. `state` is `pending`, `running`, `waiting` (its
@@ -3001,10 +3004,14 @@ mod tests {
         let json = serde_json::to_string(&revoke).unwrap();
         assert_eq!(json, r#"{"type":"revokeGrant","requestId":2,"conversationId":"c","covers":"delete_data"}"#);
         assert_eq!(serde_json::from_str::<ClientMessage>(&json).unwrap(), revoke);
-        let list = ServerMessage::GrantList { request_id: 2, grants: vec![GrantDto { conversation_id: "c".into(), agent_id: Some("a".into()), covers: "shell".into() }] };
+        let list = ServerMessage::GrantList { request_id: 2, grants: vec![GrantDto { conversation_id: "c".into(), agent_id: Some("a".into()), covers: "shell".into(), last_used_ms: Some(1700) }] };
         let json = serde_json::to_string(&list).unwrap();
-        assert_eq!(json, r#"{"type":"grantList","requestId":2,"grants":[{"conversationId":"c","agentId":"a","covers":"shell"}]}"#);
+        assert_eq!(json, r#"{"type":"grantList","requestId":2,"grants":[{"conversationId":"c","agentId":"a","covers":"shell","lastUsedMs":1700}]}"#);
         assert_eq!(serde_json::from_str::<ServerMessage>(&json).unwrap(), list);
+        // A hub that predates the field sends none, and that reads as "unknown", not as a failure.
+        let old = r#"{"type":"grantList","requestId":2,"grants":[{"conversationId":"c","covers":"shell"}]}"#;
+        let ServerMessage::GrantList { grants, .. } = serde_json::from_str::<ServerMessage>(old).unwrap() else { panic!("not a grant list") };
+        assert_eq!(grants[0].last_used_ms, None);
     }
 
     #[test]
