@@ -5,8 +5,10 @@
 //! person, always, whatever the agent's autonomy: the tool asks through `with_approver`'s approver itself, and without one (a channel
 //! that can't ask) it refuses. Asking for changes is a `code_task` with the same `worktree` id.
 
+use std::collections::HashMap;
 use std::path::Path;
-use std::sync::Arc;
+use std::process::Stdio;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime};
 
 use async_trait::async_trait;
@@ -15,6 +17,7 @@ use serde_json::{json, Value};
 use crate::memory::Vault;
 use crate::project::ProjectStore;
 use crate::tool::code_task::folder_busy;
+use crate::tool::shell::{platform_shell_command, truncate, APPROVAL_TIMEOUT, DEFAULT_TIMEOUT_MS, MAX_TIMEOUT_MS};
 use crate::tool::{ApprovalRequest, Approver, Tool, ToolSpec};
 use crate::worktree::{self, Merged, Worktree};
 
@@ -67,15 +70,63 @@ fn days(idle: Duration) -> u64 {
     idle.as_secs() / DAY.as_secs()
 }
 
+/// The last `check` of a worktree: what ran, whether it passed, and what the worktree held when it ended (the file list of `diff`), so a
+/// merge can tell the person whether the work changed since.
+#[derive(Clone)]
+struct Checked {
+    command: String,
+    passed: bool,
+    changes: String,
+}
+
 #[derive(Clone)]
 pub struct CodeWorktreeTool {
     projects: ProjectStore,
     approver: Option<Arc<dyn Approver>>,
+    /// Last `check` per worktree id; shared by the copies `with_approver`/`with_vault` make, so a turn's tool sees what an earlier call ran.
+    checks: Arc<Mutex<HashMap<String, Checked>>>,
 }
 
 impl CodeWorktreeTool {
     pub fn new(vault: Arc<Vault>) -> Self {
-        Self { projects: ProjectStore::new(vault), approver: None }
+        Self { projects: ProjectStore::new(vault), approver: None, checks: Arc::default() }
+    }
+
+    /// What the merge ask says about the tests: passed, failed, or not run (or run before the work changed).
+    fn tests_line(&self, id: &str, seen: &str) -> String {
+        match self.checks.lock().unwrap().get(id) {
+            None => "tests: not run".to_string(),
+            Some(last) if last.changes != seen => format!("tests: not run since the work last changed (before that, `{}` {})", last.command, if last.passed { "passed" } else { "failed" }),
+            Some(last) => format!("tests: `{}` {}", last.command, if last.passed { "passed" } else { "failed" }),
+        }
+    }
+
+    /// Runs a command in the worktree after a yes from the person (always, whatever the autonomy) and says how it ended.
+    async fn check(&self, project: &str, found: &Worktree, args: &Value) -> anyhow::Result<Value> {
+        let command = args.get("command").and_then(Value::as_str).map(str::trim).filter(|c| !c.is_empty()).ok_or_else(|| anyhow::anyhow!("'check' needs the 'command' to run (the project's tests, for example)"))?;
+        let Some(approver) = &self.approver else {
+            anyhow::bail!("check runs a command, so it needs a yes from the person, and this channel can't ask (use the desktop app or the web)");
+        };
+        if !tokio::time::timeout(APPROVAL_TIMEOUT, approver.approve(ApprovalRequest::new(project, "run command in worktree", format!("in {}: {command}", found.path.display())))).await.unwrap_or(false) {
+            anyhow::bail!("the person did not approve this command, so it did not run");
+        }
+        let timeout_ms = args.get("timeout_ms").and_then(Value::as_u64).unwrap_or(DEFAULT_TIMEOUT_MS).min(MAX_TIMEOUT_MS);
+        let mut cmd = platform_shell_command(command);
+        cmd.current_dir(&found.path).stdout(Stdio::piped()).stderr(Stdio::piped()).kill_on_drop(true);
+        let child = cmd.spawn().map_err(|e| anyhow::anyhow!("failed to spawn command: {e}"))?;
+        let (exit_code, stdout, stderr, timed_out) = match tokio::time::timeout(Duration::from_millis(timeout_ms), child.wait_with_output()).await {
+            Ok(done) => {
+                let output = done.map_err(|e| anyhow::anyhow!("failed to run command: {e}"))?;
+                (output.status.code(), truncate(&String::from_utf8_lossy(&output.stdout)), truncate(&String::from_utf8_lossy(&output.stderr)), false)
+            }
+            Err(_) => (None, String::new(), String::new(), true),
+        };
+        let passed = exit_code == Some(0);
+        // What the worktree holds after the run, which is what a later merge will be compared with.
+        let after = worktree::diff(found, 0).await?;
+        let changes = after.split("\n\n").next().unwrap_or_default().to_string();
+        self.checks.lock().unwrap().insert(found.id.clone(), Checked { command: command.to_string(), passed, changes });
+        Ok(json!({ "worktree": found.id, "passed": passed, "exit_code": exit_code, "stdout": stdout, "stderr": stderr, "timed_out": timed_out }))
     }
 
     /// The projects that run on the engine, with their folder (the ones `code_task` takes).
@@ -138,16 +189,19 @@ impl Tool for CodeWorktreeTool {
                 'list' shows the project's worktrees and how much work each has; 'diff' shows what a worktree's task changed; 'merge' brings it into \
                 the branch the project's folder has checked out, as a merge commit, and removes the worktree; 'discard' throws it away; 'prune' throws away every \
                 worktree whose work has sat untouched for 14 days or more ('older_than_days'), after one yes from the person for the whole list. 'list' \
-                also tidies away, by itself, the worktrees where nothing was changed, and marks the forgotten ones ('stale'). 'merge', 'discard' and \
-                'prune' always ask the person first. A merge that conflicts changes nothing and keeps the worktree: ask for the fix with code_task \
+                also tidies away, by itself, the worktrees where nothing was changed, and marks the forgotten ones ('stale'). 'check' runs a 'command' \
+                (the project's tests, a build) inside a worktree and says if it passed; run it before 'merge', which tells the person whether the tests \
+                passed. 'check', 'merge', 'discard' and 'prune' always ask the person first. A merge that conflicts changes nothing and keeps the worktree: ask for the fix with code_task \
                 (same 'worktree'), then merge again. To ask for changes to a task's work, run code_task again with its 'worktree'."
                 .to_string(),
             parameters: json!({
                 "type": "object",
                 "properties": {
-                    "action": { "type": "string", "enum": ["list", "diff", "merge", "discard", "prune"] },
+                    "action": { "type": "string", "enum": ["list", "diff", "check", "merge", "discard", "prune"] },
                     "project": project,
-                    "worktree": { "type": "string", "description": "The 'worktree' id a code_task returned (for diff, merge and discard)." },
+                    "worktree": { "type": "string", "description": "The 'worktree' id a code_task returned (for diff, check, merge and discard)." },
+                    "command": { "type": "string", "description": "For check: the shell command to run in the worktree, e.g. the project's test command." },
+                    "timeout_ms": { "type": "integer", "minimum": 1, "description": "For check: how long the command may run (30000 by default, at most 300000)." },
                     "title": { "type": "string", "description": "For merge: what the work is, for the commit messages." },
                     "older_than_days": { "type": "integer", "minimum": 1, "description": "For prune: how many days a worktree's work must have sat untouched to be thrown away (14 by default)." }
                 },
@@ -189,8 +243,8 @@ impl Tool for CodeWorktreeTool {
         if action == "prune" {
             return self.prune(&project.name, workdir, &args).await;
         }
-        if !matches!(action, "diff" | "merge" | "discard") {
-            anyhow::bail!("'{action}' is not an action — must be one of: list, diff, merge, discard, prune");
+        if !matches!(action, "diff" | "check" | "merge" | "discard") {
+            anyhow::bail!("'{action}' is not an action — must be one of: list, diff, check, merge, discard, prune");
         }
         let wanted = args.get("worktree").and_then(Value::as_str).map(str::trim).filter(|w| !w.is_empty()).ok_or_else(|| anyhow::anyhow!("'{action}' needs the 'worktree' id"))?;
         let found: Worktree = worktree::open(workdir, wanted).await?;
@@ -201,17 +255,25 @@ impl Tool for CodeWorktreeTool {
         if folder_busy(&found.path.to_string_lossy()) {
             anyhow::bail!("a task is still working in worktree {wanted}; wait for it to end (or stop it) before this");
         }
+        if action == "check" {
+            return self.check(&project.name, &found, &args).await;
+        }
         let seen = worktree::diff(&found, 0).await?;
         let seen = seen.split("\n\n").next().unwrap_or_default();
         if action == "discard" {
             self.confirmed(&project.name, "discard worktree", format!("Throw away worktree {} (branch {}) and all its work:\n{seen}", found.id, found.branch)).await?;
             worktree::discard(&found).await?;
+            self.checks.lock().unwrap().remove(&found.id);
             return Ok(json!({ "discarded": true, "worktree": found.id }));
         }
         let title = args.get("title").and_then(Value::as_str).map(str::trim).filter(|t| !t.is_empty()).map_or_else(|| format!("work of worktree {}", found.id), str::to_string);
-        self.confirmed(&project.name, "merge worktree", format!("Merge worktree {} (branch {}) into the project's current branch as \"{title}\":\n{seen}", found.id, found.branch)).await?;
+        let tests = self.tests_line(&found.id, seen);
+        self.confirmed(&project.name, "merge worktree", format!("Merge worktree {} (branch {}) into the project's current branch as \"{title}\":\n{seen}\n{tests}", found.id, found.branch)).await?;
         Ok(match worktree::merge(&found, &title).await? {
-            Merged::Done { commit, stat } => json!({ "merged": true, "commit": commit, "changes": stat, "worktree": null }),
+            Merged::Done { commit, stat } => {
+                self.checks.lock().unwrap().remove(&found.id);
+                json!({ "merged": true, "commit": commit, "changes": stat, "worktree": null })
+            }
             Merged::Conflict { files } => json!({
                 "merged": false,
                 "conflicts": files,
@@ -345,13 +407,70 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn a_check_asks_runs_in_the_worktree_and_says_if_it_passed() {
+        let setup = setup("check").await;
+        let args = json!({ "action": "check", "project": "repo", "worktree": setup.id, "command": "ls made.txt" });
+        let err = setup.tool.call(args.clone()).await.unwrap_err();
+        assert!(err.to_string().contains("can't ask"), "{err}");
+        let (no, says_no) = asked_by(&setup.tool, false);
+        assert!(no.call(args.clone()).await.unwrap_err().to_string().contains("did not approve"));
+        assert_eq!(says_no.asked.lock().unwrap()[0].action, "run command in worktree");
+
+        let (yes, says) = asked_by(&setup.tool, true);
+        let ran = yes.call(args).await.unwrap();
+        assert_eq!((ran["passed"].clone(), ran["exit_code"].clone(), ran["timed_out"].clone()), (json!(true), json!(0), json!(false)), "{ran}");
+        assert!(ran["stdout"].as_str().unwrap().contains("made.txt"), "it ran in the worktree: {ran}");
+        assert!(says.asked.lock().unwrap()[0].detail.contains("ls made.txt"));
+        let failed = yes.call(json!({ "action": "check", "project": "repo", "worktree": setup.id, "command": "exit 3" })).await.unwrap();
+        assert_eq!((failed["passed"].clone(), failed["exit_code"].clone()), (json!(false), json!(3)));
+        let slow = yes.call(json!({ "action": "check", "project": "repo", "worktree": setup.id, "command": "sleep 5", "timeout_ms": 50 })).await.unwrap();
+        assert_eq!((slow["passed"].clone(), slow["timed_out"].clone()), (json!(false), json!(true)));
+        assert!(yes.call(json!({ "action": "check", "project": "repo", "worktree": setup.id })).await.unwrap_err().to_string().contains("'command'"));
+        assert!(!setup.repo.join("made.txt").exists(), "nothing reached the project");
+        std::fs::remove_dir_all(&setup.outer).ok();
+    }
+
+    #[tokio::test]
+    async fn the_merge_ask_says_if_the_tests_passed_failed_or_are_out_of_date() {
+        let setup = setup("tests-line").await;
+        let (yes, says) = asked_by(&setup.tool, true);
+        let merge = json!({ "action": "merge", "project": "repo", "worktree": setup.id });
+        let check = |command: &str| json!({ "action": "check", "project": "repo", "worktree": setup.id, "command": command });
+        let made = worktree::open(&setup.repo, &setup.id).await.unwrap();
+        let last_ask = || says.asked.lock().unwrap().iter().rev().find(|a| a.action == "merge worktree").map(|a| a.detail.clone()).unwrap();
+
+        // Merge-asks are answered with a conflict-free no here: use a "no" approver to keep the worktree.
+        let (no, says_no) = asked_by(&setup.tool, false);
+        let detail = |says: &Says| says.asked.lock().unwrap().last().unwrap().detail.clone();
+        no.call(merge.clone()).await.unwrap_err();
+        assert!(detail(&says_no).contains("tests: not run"), "{}", detail(&says_no));
+
+        yes.call(check("true")).await.unwrap();
+        no.call(merge.clone()).await.unwrap_err();
+        assert!(detail(&says_no).contains("tests: `true` passed"), "{}", detail(&says_no));
+
+        yes.call(check("exit 1")).await.unwrap();
+        no.call(merge.clone()).await.unwrap_err();
+        assert!(detail(&says_no).contains("tests: `exit 1` failed"), "{}", detail(&says_no));
+
+        std::fs::write(made.path.join("more.txt"), "later").unwrap();
+        no.call(merge.clone()).await.unwrap_err();
+        assert!(detail(&says_no).contains("not run since the work last changed"), "{}", detail(&says_no));
+
+        yes.call(check("true")).await.unwrap();
+        assert_eq!(yes.call(merge).await.unwrap()["merged"], true);
+        assert!(last_ask().contains("tests: `true` passed"));
+        std::fs::remove_dir_all(&setup.outer).ok();
+    }
+
+    #[tokio::test]
     async fn a_worktree_a_task_is_still_working_in_cannot_be_merged_or_discarded() {
         let setup = setup("busy").await;
         let made = worktree::open(&setup.repo, &setup.id).await.unwrap();
         let held = crate::tool::code_task::hold_folder_for_test(&made.path.to_string_lossy());
         let (yes, says) = asked_by(&setup.tool, true);
-        for action in ["merge", "discard"] {
-            let err = yes.call(json!({ "action": action, "project": "repo", "worktree": setup.id })).await.unwrap_err();
+        for action in ["merge", "discard", "check"] {
+            let err = yes.call(json!({ "action": action, "project": "repo", "worktree": setup.id, "command": "true" })).await.unwrap_err();
             assert!(err.to_string().contains("still working"), "{action}: {err}");
         }
         assert!(says.asked.lock().unwrap().is_empty(), "the person isn't asked about something that can't happen now");
@@ -464,7 +583,7 @@ mod tests {
         for (args, why) in [
             (json!({ "action": "list", "project": "notes" }), "is not a code project"),
             (json!({ "action": "list", "project": "ghost" }), "must be one of: repo"),
-            (json!({ "action": "burn", "project": "repo" }), "must be one of: list, diff, merge, discard"),
+            (json!({ "action": "burn", "project": "repo" }), "must be one of: list, diff, check, merge, discard"),
             (json!({ "action": "merge", "project": "repo" }), "needs the 'worktree' id"),
             (json!({ "action": "diff", "project": "repo", "worktree": "../repo" }), "isn't a worktree id"),
             (json!({ "action": "diff", "project": "repo", "worktree": "abcdef" }), "no worktree 'abcdef'"),

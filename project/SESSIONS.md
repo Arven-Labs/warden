@@ -6,6 +6,13 @@
 
 ---
 
+### 2026-10-11 — Sessão 182 (continuação: P124, o gerente testa a worktree antes de mesclar)
+
+- **Pedido do usuário**: "vamos pelo 2" (as lacunas do gerente); plano aprovado: pedir a cada comando, e o `merge` só informa.
+- **O que mudou**: `code_worktree` ganhou a ação `check` (`command`, `timeout_ms`): pede à pessoa sempre, roda em `Worktree.path` com o `platform_shell_command` do `shell.rs` (agora `pub(crate)`, como `APPROVAL_TIMEOUT`), devolve `passed`, `exit_code`, `stdout`, `stderr`, `timed_out`, recusa worktree ocupada. Guarda o último `check` por worktree (com o resumo do `diff`) e o pedido de `merge` ganha a linha "tests: ...". `risk.rs`: `check` é `CriticalInfra`.
+- **Testes**: 2 novos em `code_worktree.rs` (pede/roda na pasta/falha/tempo/sem comando; a linha do merge nos quatro estados) e `check` no teste da worktree ocupada e no de `risk.rs`. `warden-core` 491 passam; clippy sem aviso novo. Sem teste de ponta a ponta no hub.
+- **Fica**: nenhum modelo real pediu o `check`; conflito resolvido só por `code_task`; squash/rebase.
+
 ### 2026-10-11 — Sessão 182 (continuação: P124, a varredura respeita os arquivos ignorados)
 
 - **Pedido do usuário**: "acho que sim" à pergunta de contar os arquivos ignorados pelo `.gitignore`; plano aprovado.

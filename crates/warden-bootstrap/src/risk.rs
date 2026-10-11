@@ -115,7 +115,7 @@ mod tests {
 
     #[test]
     fn looking_at_a_tasks_worktree_is_free_and_merging_or_discarding_it_is_critical_infrastructure() {
-        for (action, expected) in [("list", None), ("diff", None), ("merge", Some(Category::CriticalInfra)), ("discard", Some(Category::CriticalInfra)), ("prune", Some(Category::CriticalInfra))] {
+        for (action, expected) in [("list", None), ("diff", None), ("merge", Some(Category::CriticalInfra)), ("discard", Some(Category::CriticalInfra)), ("prune", Some(Category::CriticalInfra)), ("check", Some(Category::CriticalInfra))] {
             assert_eq!(builtin_category("code_worktree", &json!({ "action": action })), expected, "{action}");
         }
         assert_eq!(builtin_category("code_worktree", &json!({})), Some(Category::CriticalInfra), "no action named is not assumed harmless");

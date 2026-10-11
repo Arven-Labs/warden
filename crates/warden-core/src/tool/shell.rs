@@ -13,7 +13,7 @@ pub(crate) const DEFAULT_TIMEOUT_MS: u64 = 30_000;
 pub(crate) const MAX_TIMEOUT_MS: u64 = 300_000;
 const MAX_OUTPUT_BYTES: usize = 20_000;
 /// How long a project's shell waits for the person's yes to one command; no answer counts as no (like the SSH hosts').
-const APPROVAL_TIMEOUT: Duration = Duration::from_secs(120);
+pub(crate) const APPROVAL_TIMEOUT: Duration = Duration::from_secs(120);
 
 /// Runs a shell command on the local machine. Deliberately no sandboxing or allowlist — same
 /// trust model the file tools already have (no path scoping either). Gated behind an opt-in
@@ -175,7 +175,7 @@ impl Tool for ShellTool {
     }
 }
 
-fn platform_shell_command(command: &str) -> tokio::process::Command {
+pub(crate) fn platform_shell_command(command: &str) -> tokio::process::Command {
     #[cfg(target_os = "windows")]
     let mut cmd = tokio::process::Command::new("cmd");
     #[cfg(target_os = "windows")]
