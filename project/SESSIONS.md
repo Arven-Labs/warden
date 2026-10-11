@@ -6,6 +6,10 @@
 
 ---
 
+### 2026-10-11 — Sessão 182 (continuação: rótulos)
+
+- **Os dois checkboxes parecidos do cartão do agente** (web e desktop) ganharam rótulos que dizem a diferença: "Permissão: pode usar a ferramenta de mandar mensagem a você" (`canMessageUser`; sem ela o agente nem recebe o `message_user`) e "Ligar as mensagens dele para você" (`[[outreach]]`; só vale com a permissão). Só texto; `tsc` dos dois limpo, nenhum teste dependia dos textos antigos. Não visto numa janela.
+
 ### 2026-10-11 — Sessão 182 (continuação: extensão e celular)
 
 - **Extensão**: `listGrants`/`revokeGrant` na conexão, na ponte com o painel (`popup_protocol.ts`, `index.ts`) e `GrantsSection.tsx` abaixo das tarefas na aba "Tarefas" de Agentes. A conversa aparece pelos 8 primeiros caracteres do id (o painel não tem os títulos nessa tela). **O `tsc` e o build da extensão rodaram pela primeira vez** (`npm ci` instalou o `node_modules`, ignorado pelo git): limpos. `npm test` 77.

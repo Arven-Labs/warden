@@ -862,7 +862,7 @@ export default function SettingsView({ conn }: { conn: ServerConnection | null }
                 </label>
                 <label className="settings-check">
                   <input type="checkbox" checked={a.canMessageUser ?? true} onChange={(e) => patchAgent(a.key, { canMessageUser: e.target.checked })} />
-                  Pode puxar conversa com você, mandando mensagens no canal dele (um agente criado por outro agente começa sem isto)
+                  Permissão: pode usar a ferramenta de mandar mensagem a você (um agente criado por outro agente começa sem isto)
                 </label>
                 <label className="settings-check">
                   <input type="checkbox" checked={a.canChooseModels ?? true} onChange={(e) => patchAgent(a.key, { canChooseModels: e.target.checked })} />
@@ -870,7 +870,7 @@ export default function SettingsView({ conn }: { conn: ServerConnection | null }
                 </label>
                 <label className="settings-check">
                   <input type="checkbox" checked={outreachOn(draft.outreach, a.id)} onChange={(e) => update((d) => ({ ...d, outreach: setOutreach(d.outreach, a.id, e.target.checked) }))} />
-                  Pode iniciar mensagens para você, no canal dele (no máximo 12 por hora)
+                  Ligar as mensagens dele para você, no canal dele (no máximo 12 por hora; só valem com a permissão acima)
                 </label>
                 {outreachOn(draft.outreach, a.id) && (
                   <fieldset className="settings-tools">

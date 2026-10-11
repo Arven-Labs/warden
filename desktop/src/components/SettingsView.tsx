@@ -869,11 +869,11 @@ function AgentCard({
             checked={agent.canMessageUser}
             onChange={(e) => onChange({ ...agent, canMessageUser: e.currentTarget.checked })}
           />
-          <span className="settings-label">Can message you on its own</span>
+          <span className="settings-label">Permission: can use the tool that messages you</span>
         </span>
         <span className="settings-hint">
-          Lets this agent start a message in its own channel (the tool message_user). The switch below says where those
-          messages go; this one says whether it may send any. An agent another agent creates starts with this off.
+          Without it the agent does not get the tool message_user at all. The switch below turns the messages on and says where
+          they go; it only works with this permission. An agent another agent creates starts with this off.
         </span>
       </label>
 
@@ -895,11 +895,11 @@ function AgentCard({
       <label className="settings-field settings-checkbox-field">
         <span className="settings-checkbox-row">
           <input type="checkbox" checked={outreachOn(outreach, agent.id)} onChange={(e) => onOutreach(setOutreach(outreach, agent.id, e.currentTarget.checked))} />
-          <span className="settings-label">Can start messages to you</span>
+          <span className="settings-label">Turn on its messages to you</span>
         </span>
         <span className="settings-hint">
           Lets this agent write to you first, in its own channel (the Agents screen), for an alert, a report or a reminder. It is an
-          ordinary message in its own words, at most 12 an hour.
+          ordinary message in its own words, at most 12 an hour. Needs the permission above.
         </span>
       </label>
       {outreachOn(outreach, agent.id) && (
