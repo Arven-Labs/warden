@@ -6,6 +6,10 @@
 
 ---
 
+### 2026-10-11 — Sessão 182 (continuação: desktop)
+
+- **Desktop**: comandos Tauri `list_grants` e `revoke_grant` (sobre o `GrantBook` local, em `agent_task_cmds.rs`) e, para um hub em uso, `hubGrants`/`hubRevokeGrant` (`ListGrants`/`RevokeGrant` pela conexão `remote_request`). `GrantsSection.tsx` aparece abaixo de "Agent work", local ou hub. `tsc`, `npm test` (101), build e `cargo check` verdes. Sem teste Rust novo: os comandos só repassam o `GrantBook`, já testado no núcleo e no hub. **Não visto numa janela.** Fica: extensão, celular e CLI.
+
 ### 2026-10-11 — Sessão 182
 
 - **Objetivo**: fechar o primeiro item aberto do P122: ver e revogar o que foi permitido com "sempre".

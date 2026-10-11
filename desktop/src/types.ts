@@ -383,6 +383,13 @@ export type AgentTaskState = "pending" | "running" | "waiting" | "paused" | "don
 /** What a person can do to a running task from the screen. */
 export type AgentTaskAction = "pause" | "resume" | "cancel";
 
+/** Mirrors `GrantDto` (P122): an "always" a person gave. `covers` is a risk category (`delete_data`) or a tool name; no `agentId` is the default agent. */
+export interface Grant {
+  conversationId: string;
+  agentId?: string | null;
+  covers: string;
+}
+
 /** Mirrors `AgentTaskDto` (P123): a task an agent delegated in the background. `group` is shared by the tasks one turn started. */
 export interface AgentTask {
   id: string;

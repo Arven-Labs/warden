@@ -11,6 +11,7 @@ import UsageView from "./components/UsageView";
 import OrganizationView from "./components/OrganizationView";
 import ActivityView from "./components/ActivityView";
 import AgentTasksView from "./components/AgentTasksView";
+import GrantsSection from "./components/GrantsSection";
 import SkillsView from "./components/SkillsView";
 import ProjectsView from "./components/ProjectsView";
 import ApprovalModal from "./components/ApprovalModal";
@@ -923,7 +924,12 @@ function App() {
       ) : view === "workspace" ? (
         <WorkspaceView />
       ) : view === "agentWork" ? (
-        <AgentTasksView key={activeHubId ?? "local"} remote={remote} agent={agentWorkFilter} onClearAgent={() => setAgentWorkFilter(null)} />
+        <>
+          <AgentTasksView key={activeHubId ?? "local"} remote={remote} agent={agentWorkFilter} onClearAgent={() => setAgentWorkFilter(null)} />
+          <div className="settings-view">
+            <GrantsSection key={activeHubId ?? "local"} remote={remote} titleOf={(id) => conversations.find((c) => c.id === id)?.title || id} />
+          </div>
+        </>
       ) : view === "activity" ? (
         <ActivityView
           key={activeHubId ?? "local"}

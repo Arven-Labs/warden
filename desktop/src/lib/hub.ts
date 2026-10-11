@@ -10,6 +10,7 @@ import type {
   AgentTask,
   AgentTaskAction,
   ChatMessage,
+  Grant,
   ProjectEntry,
   RunMessage,
   SkillEntry,
@@ -214,6 +215,17 @@ export function hubTasks(askKey: KeyAsker) {
 /** The work agents delegated to each other on the hub in use (P123), newest first. Read only, so no pairing key. */
 export async function hubAgentTasks(): Promise<AgentTask[]> {
   return (await ask<{ type: string; tasks: AgentTask[] }>({ type: "listAgentTasks" }, "agentTaskList")).tasks;
+}
+
+/** What was said "always" to on the hub in use (P122), on this connection. */
+export async function hubGrants(): Promise<Grant[]> {
+  return (await ask<{ type: string; grants: Grant[] }>({ type: "listGrants" }, "grantList")).grants;
+}
+
+/** Takes one "always" back on the hub in use, so the agent asks again. It only makes the agent more careful, so no pairing key. */
+export async function hubRevokeGrant(grant: Grant): Promise<Grant[]> {
+  const { conversationId, agentId, covers } = grant;
+  return (await ask<{ type: string; grants: Grant[] }>({ type: "revokeGrant", conversationId, ...(agentId ? { agentId } : {}), covers }, "grantList")).grants;
 }
 
 /** The feed of activity of the hub in use (P121): what happened among the agents, newest first. Read only, so no pairing key. */

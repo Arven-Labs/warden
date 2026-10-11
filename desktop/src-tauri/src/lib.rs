@@ -1163,6 +1163,8 @@ pub fn run() {
             agent_task_cmds::list_agent_tasks,
             agent_task_cmds::list_activity,
             agent_task_cmds::control_agent_task,
+            agent_task_cmds::list_grants,
+            agent_task_cmds::revoke_grant,
             edit_agent_org,
             task_cmds::list_tasks,
             task_cmds::save_task,

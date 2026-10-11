@@ -4,12 +4,29 @@
 use warden_bootstrap::agent_tasks::TaskControl;
 use warden_server::activity_list::to_dto;
 use warden_server::agent_task_list::agent_task_dtos;
-use warden_server_protocol::protocol::{ActivityEventDto, AgentTaskDto};
+use warden_server_protocol::protocol::{ActivityEventDto, AgentTaskDto, GrantDto};
 
 /// The tasks of this computer, newest first. No log yet is no tasks.
 #[tauri::command]
 pub fn list_agent_tasks() -> Vec<AgentTaskDto> {
     warden_bootstrap::resolve_agent_tasks_path(std::env::var("WARDEN_AGENT_TASKS").ok()).map(|path| agent_task_dtos(&path)).unwrap_or_default()
+}
+
+/// What the person said "always" to on this computer (P122), per conversation and agent, until the app closes.
+#[tauri::command]
+pub fn list_grants(state: tauri::State<'_, crate::AppState>) -> Vec<GrantDto> {
+    grant_dtos(&state.grants)
+}
+
+/// Takes one "always" back, so the agent asks again; returns the list that is left. No pairing key: the engine is this app's own.
+#[tauri::command]
+pub fn revoke_grant(state: tauri::State<'_, crate::AppState>, conversation_id: String, agent_id: Option<String>, covers: String) -> Vec<GrantDto> {
+    state.grants.revoke(&conversation_id, agent_id.as_deref(), &covers);
+    grant_dtos(&state.grants)
+}
+
+fn grant_dtos(book: &warden_core::autonomy::GrantBook) -> Vec<GrantDto> {
+    book.list().into_iter().map(|g| GrantDto { conversation_id: g.conversation, agent_id: g.agent, covers: g.covers }).collect()
 }
 
 /// The feed of activity of this computer (P121): the tasks agents delegated, the notes they left each other and the agents one created or
