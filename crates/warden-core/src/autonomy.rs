@@ -84,6 +84,12 @@ impl Category {
         Category::ElevatedAgent,
     ];
 
+    /// Whether a person may answer "always" to this kind of action. Spending money and changing critical infrastructure are asked
+    /// every time: a mistake there costs too much to be asked once.
+    pub fn can_be_always(self) -> bool {
+        !matches!(self, Category::SpendMoney | Category::CriticalInfra)
+    }
+
     /// The id a config file, the wire and the screens use.
     pub fn as_str(self) -> &'static str {
         match self {
@@ -145,75 +151,18 @@ async fn authorize_within(
         anyhow::bail!("'{}' was not run: {why} and this channel can't ask", call.name);
     };
     let request = ApprovalRequest { target: call.name.clone(), action: TOOL_CALL_ACTION.to_string(), detail: summarize(&call.arguments), category };
-    // What an "always" would cover: the whole kind of action when the call is classified, the tool otherwise.
+    // What an "always" would cover: the whole kind of action when the call is classified, the tool otherwise. None for a kind of action
+    // that is asked every time.
     let covers = category.map_or_else(|| call.name.clone(), |c| c.as_str().to_string());
-    match tokio::time::timeout(timeout, approver.ask(request, Some(&covers))).await {
+    let offer = category.is_none_or(Category::can_be_always).then_some(covers.as_str());
+    match tokio::time::timeout(timeout, approver.ask(request, offer)).await {
         Ok(Answer::Once | Answer::Always) => Ok(()),
         Ok(Answer::Reject) => anyhow::bail!("'{}' was not run: the person said no", call.name),
         Err(_) => anyhow::bail!("'{}' was not run: nobody answered in time", call.name),
     }
 }
 
-/// What a person said "always" to (P122), kept for one conversation and one agent: the ids `authorize` offered, a category (`delete_data`)
-/// or a tool name. In memory only, so it ends with the process; nothing is written to the agent's configuration.
-#[derive(Clone, Default)]
-pub struct Grants(Arc<std::sync::Mutex<std::collections::HashSet<String>>>);
-
-impl Grants {
-    pub fn allows(&self, covers: &str) -> bool {
-        self.0.lock().unwrap_or_else(|e| e.into_inner()).contains(covers)
-    }
-
-    fn remember(&self, covers: &str) {
-        self.0.lock().unwrap_or_else(|e| e.into_inner()).insert(covers.to_string());
-    }
-
-    fn forget(&self, covers: &str) -> bool {
-        self.0.lock().unwrap_or_else(|e| e.into_inner()).remove(covers)
-    }
-
-    fn covers(&self) -> Vec<String> {
-        self.0.lock().unwrap_or_else(|e| e.into_inner()).iter().cloned().collect()
-    }
-}
-
-/// One "always" a person gave: what it covers, for which conversation and agent (`agent` is `None` for the default one).
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Grant {
-    pub conversation: String,
-    pub agent: Option<String>,
-    pub covers: String,
-}
-
-/// The `Grants` of each conversation and agent a host serves, made on first use.
-#[derive(Default)]
-pub struct GrantBook(std::sync::Mutex<std::collections::HashMap<String, Grants>>);
-
-impl GrantBook {
-    pub fn of(&self, conversation: &str, agent: Option<&str>) -> Grants {
-        let key = format!("{conversation}\u{0}{}", agent.unwrap_or_default());
-        self.0.lock().unwrap_or_else(|e| e.into_inner()).entry(key).or_default().clone()
-    }
-
-    /// Everything allowed so far, ordered by conversation, agent and what it covers.
-    pub fn list(&self) -> Vec<Grant> {
-        let book = self.0.lock().unwrap_or_else(|e| e.into_inner());
-        let mut all: Vec<Grant> = book
-            .iter()
-            .flat_map(|(key, grants)| {
-                let (conversation, agent) = key.split_once('\u{0}').unwrap_or((key, ""));
-                grants.covers().into_iter().map(move |covers| Grant { conversation: conversation.to_string(), agent: (!agent.is_empty()).then(|| agent.to_string()), covers })
-            })
-            .collect();
-        all.sort_by(|a, b| (&a.conversation, &a.agent, &a.covers).cmp(&(&b.conversation, &b.agent, &b.covers)));
-        all
-    }
-
-    /// Takes one "always" back, so the next such call asks again. `false` when there was none.
-    pub fn revoke(&self, conversation: &str, agent: Option<&str>, covers: &str) -> bool {
-        self.of(conversation, agent).forget(covers)
-    }
-}
+pub use crate::grants::{Grant, GrantBook, Grants};
 
 /// Wraps whoever asks the person so that an "always" to a tool call (`authorize`'s asks, not another tool's) is a yes the next time without
 /// asking again, as far as `grants` goes. A "no" is never remembered, and neither is a "yes, once".
@@ -312,24 +261,6 @@ mod tests {
         assert_eq!(Autonomy::DEFAULT_LEVEL, Autonomy::Autonomous.level());
     }
 
-    #[test]
-    fn a_grant_is_listed_and_can_be_taken_back() {
-        let book = GrantBook::default();
-        book.of("c1", Some("coder")).remember("delete_data");
-        book.of("c1", None).remember("shell");
-        assert_eq!(
-            book.list(),
-            vec![
-                Grant { conversation: "c1".into(), agent: None, covers: "shell".into() },
-                Grant { conversation: "c1".into(), agent: Some("coder".into()), covers: "delete_data".into() },
-            ]
-        );
-        assert!(book.revoke("c1", Some("coder"), "delete_data"));
-        assert!(!book.revoke("c1", Some("coder"), "delete_data"));
-        assert!(!book.of("c1", Some("coder")).allows("delete_data"));
-        assert_eq!(book.list().len(), 1);
-    }
-
     #[tokio::test]
     async fn level_five_asks_exactly_what_level_four_asks() {
         let approver: Arc<dyn Approver> = Says::new(Answer::Once);
@@ -350,19 +281,30 @@ mod tests {
     async fn the_always_on_offer_covers_the_kind_of_action_when_the_call_is_classified_and_the_tool_otherwise() {
         let says = Says::new(Answer::Once);
         let approver: Arc<dyn Approver> = says.clone();
-        super::authorize(Autonomy::Autonomous, &reads(), &[Category::CriticalInfra], Some(Category::CriticalInfra), Some(&approver), &call("shell")).await.unwrap();
+        super::authorize(Autonomy::Autonomous, &reads(), &[Category::DeleteData], Some(Category::DeleteData), Some(&approver), &call("shell")).await.unwrap();
         authorize(Autonomy::AskFirst, &reads(), Some(&approver), &call("write_file")).await.unwrap();
         let offered: Vec<_> = says.asked.lock().unwrap().iter().map(|(_, always)| always.clone()).collect();
-        assert_eq!(offered, [Some("critical_infra".to_string()), Some("write_file".to_string())]);
+        assert_eq!(offered, [Some("delete_data".to_string()), Some("write_file".to_string())]);
+    }
+
+    #[tokio::test]
+    async fn spending_money_and_critical_infrastructure_are_asked_every_time_with_no_always_on_offer() {
+        for category in [Category::SpendMoney, Category::CriticalInfra] {
+            let says = Says::new(Answer::Once);
+            let approver: Arc<dyn Approver> = says.clone();
+            super::authorize(Autonomy::Autonomous, &[], &[category], Some(category), Some(&approver), &call("shell")).await.unwrap();
+            let offered: Vec<_> = says.asked.lock().unwrap().iter().map(|(_, always)| always.clone()).collect();
+            assert_eq!(offered, [None], "{category:?}");
+        }
     }
 
     #[tokio::test]
     async fn an_always_is_remembered_for_that_conversation_and_agent_and_a_no_or_a_once_is_not() {
         let book = GrantBook::default();
-        let required = [Category::CriticalInfra];
+        let required = [Category::ImportantConfig];
         let ask = |approver: &Arc<dyn Approver>| {
             let approver = approver.clone();
-            async move { super::authorize(Autonomy::Autonomous, &[], &required, Some(Category::CriticalInfra), Some(&approver), &call("shell")).await }
+            async move { super::authorize(Autonomy::Autonomous, &[], &required, Some(Category::ImportantConfig), Some(&approver), &call("shell")).await }
         };
         let wrap = |inner: &Arc<Says>, conversation: &str, agent: Option<&str>| -> Arc<dyn Approver> { Arc::new(RememberingApprover::new(inner.clone(), book.of(conversation, agent))) };
 

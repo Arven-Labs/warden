@@ -1,4 +1,5 @@
 pub mod autonomy;
+pub mod grants;
 pub mod budget;
 pub mod code_engine;
 pub mod jobs;
