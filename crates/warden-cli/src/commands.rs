@@ -18,6 +18,10 @@ pub enum Command {
     Limits,
     /// `/extend <id>` — lets a limit go one step further for the rest of its window.
     Extend(String),
+    /// `/grants` — what was answered "always" in this terminal (P122).
+    GrantsList,
+    /// `/grants revoke <covers> [agent]` — takes one "always" back. `agent` is `None` for the active agent and `Some("")` for the default agent (`padrao`).
+    GrantsRevoke { covers: String, agent: Option<String> },
     LimitsAdd,
     LimitsEdit(String),
     LimitsRemove(String),
@@ -114,6 +118,9 @@ pub fn parse_command(input: &str) -> ParseOutcome {
         ("limits", ["off"]) => Command::LimitsOff,
         ("limits", ["reset"]) => Command::LimitsReset,
         ("extend", [id]) => Command::Extend(id.to_string()),
+        ("grants", []) => Command::GrantsList,
+        ("grants", ["revoke", covers]) => Command::GrantsRevoke { covers: covers.to_string(), agent: None },
+        ("grants", ["revoke", covers, agent]) => Command::GrantsRevoke { covers: covers.to_string(), agent: Some(if *agent == DEFAULT_AGENT_WORD { String::new() } else { agent.to_string() }) },
         ("prices", []) => Command::PricesList,
         ("prices", ["add"]) => Command::PricesAdd,
         ("prices", ["edit", model]) => Command::PricesEdit(model.to_string()),
@@ -194,7 +201,11 @@ pub fn kind_label(kind: Provider) -> &'static str {
     }
 }
 
-const TOP_LEVEL_COMMANDS: &[&str] = &["exit", "quit", "help", "usage", "limits", "extend", "prices", "models", "combos", "agents", "skills", "ssh", "sync"];
+/// What `/grants revoke <covers> padrao` calls the default agent (the one with no id).
+pub const DEFAULT_AGENT_WORD: &str = "padrao";
+
+const GRANTS_SUBCOMMANDS: &[&str] = &["revoke"];
+const TOP_LEVEL_COMMANDS: &[&str] = &["exit", "quit", "help", "usage", "limits", "extend", "grants", "prices", "models", "combos", "agents", "skills", "ssh", "sync"];
 const LIMITS_SUBCOMMANDS: &[&str] = &["add", "edit", "remove", "off", "reset"];
 const PRICES_SUBCOMMANDS: &[&str] = &["add", "edit", "remove"];
 const MODELS_SUBCOMMANDS: &[&str] = &["use", "reset", "add", "edit", "remove"];
@@ -221,6 +232,7 @@ fn current_word(input: &str) -> Option<(&str, Vec<&'static str>)> {
         }
         let subcommands: &[&str] = match head.as_str() {
             "limits" => LIMITS_SUBCOMMANDS,
+            "grants" => GRANTS_SUBCOMMANDS,
             "prices" => PRICES_SUBCOMMANDS,
             "models" => MODELS_SUBCOMMANDS,
             "combos" => COMBOS_SUBCOMMANDS,
@@ -307,6 +319,17 @@ mod tests {
         assert!(matches!(assert_recognized("/extend default-day"), Command::Extend(id) if id == "default-day"));
         assert!(matches!(parse_command("/extend"), ParseOutcome::Unrecognized(_)));
         assert!(matches!(parse_command("/limits now"), ParseOutcome::Unrecognized(_)));
+    }
+
+    #[test]
+    fn grants_lists_and_revokes_by_what_it_covers_for_the_active_agent_or_a_named_one() {
+        assert!(matches!(assert_recognized("/grants"), Command::GrantsList));
+        assert!(matches!(assert_recognized("/grants revoke shell"), Command::GrantsRevoke { covers, agent: None } if covers == "shell"));
+        assert!(matches!(assert_recognized("/grants revoke delete_data ana"), Command::GrantsRevoke { covers, agent: Some(a) } if covers == "delete_data" && a == "ana"));
+        assert!(matches!(assert_recognized("/grants revoke shell padrao"), Command::GrantsRevoke { agent: Some(a), .. } if a.is_empty()));
+        assert!(matches!(parse_command("/grants revoke"), ParseOutcome::Unrecognized(_)));
+        assert!(matches!(parse_command("/grants revoke a b c"), ParseOutcome::Unrecognized(_)));
+        assert!(matches!(parse_command("/grants bogus"), ParseOutcome::Unrecognized(_)));
     }
 
     #[test]

@@ -6,6 +6,13 @@
 
 ---
 
+### 2026-10-11 — Sessão 182 (continuação: `/grants` na CLI)
+
+- **Pedido do usuário**: seguir em código (sem teste manual), planejando antes. Fecha o "a CLI não lista nem revoga" da entrada abaixo.
+- **O que mudou**: `/grants` (lista) e `/grants revoke <o que> [agente]` em `commands.rs` (parse, `padrao` = agente padrão, completação) e `interactive.rs` (`cmd_grants_list`, `cmd_grants_revoke`, `/help`). A lista mostra `<o que> · <agente> · usado há N` e se vence em N dias ou acaba com o terminal. Revoga por nome, não por número, porque a lista pode mudar entre ver e tirar; sem agente vale o ativo.
+- **Testes**: parse e erros (`/grants revoke` sem argumento, três argumentos), `ago_label` (limites de minuto, hora e dia, relógio atrás), `grant_lines` (vazio, de outra conversa, com prazo, em memória), revogação contra um livro em arquivo (só aquele agente perde, segunda vez falha, o arquivo acompanha). `cargo test -p warden-cli` 65 + 7, clippy sem aviso.
+- **Fica**: os cartões de `/grants` **não foram vistos num terminal**; `cmd_grants_revoke` em si (o cartão) não tem teste, só o livro por baixo; o modo com stdin em pipe segue sem aprovador.
+
 ### 2026-10-11 — Sessão 182 (continuação: "sempre" na CLI)
 
 - **Pedido do usuário**: "vamos de 2", o item aberto "a CLI não tem 'sempre'".

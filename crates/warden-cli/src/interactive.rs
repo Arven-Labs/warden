@@ -69,7 +69,7 @@ use warden_core::orchestrator::{MessageOutcome, Orchestrator};
 use warden_core::skill::{self, Skill, SkillStore};
 use warden_core::spend::{now_millis, LimitStatus, Price, SpendGuard, Spent, DEFAULT_EXTEND_STEP, DEFAULT_WARN_AT};
 use warden_core::tool::ssh::test_connection;
-use warden_core::autonomy::{GrantBook, Grants, RememberingApprover};
+use warden_core::autonomy::{Grant, GrantBook, Grants, RememberingApprover};
 use warden_core::tool::{Answer, ApprovalRequest, Approver};
 
 use crate::commands::{self, Command, ParseOutcome};
@@ -1219,6 +1219,8 @@ async fn cmd_help(terminal: &mut CliTerminal) -> anyhow::Result<()> {
         "/limits off — desligar todos os limites de gasto (pede confirmação)",
         "/limits reset — voltar pra rede de segurança padrão, descartando qualquer limite customizado (pede confirmação)",
         "/extend <id> — liberar mais um passo de um limite, até a janela andar",
+        "/grants — o que foi respondido \"sempre\" neste terminal, por agente",
+        "/grants revoke <o que> [agente] — tirar um \"sempre\" (sem agente: o ativo; padrao: o agente padrão)",
         "/prices — listar os preços de modelo cadastrados (usados pros limites em $)",
         "/prices add — cadastrar o preço de um modelo",
         "/prices edit <model> — editar o preço de um modelo",
@@ -1386,6 +1388,58 @@ async fn cmd_extend(terminal: &mut CliTerminal, session: &CliSession, id: String
             error_style(),
             vec![(format!("{err:#} — use /limits pra ver os ids"), Style::default())],
         ),
+    }
+}
+
+/// How long ago something happened, in the same words the web screen uses ("agora", "há N min", "há N h", "há N d").
+fn ago_label(then_ms: u64, now_ms: u64) -> String {
+    let minutes = now_ms.saturating_sub(then_ms) / 60_000;
+    match minutes {
+        0 => "agora".to_string(),
+        1..=59 => format!("há {minutes} min"),
+        60..=1439 => format!("há {} h", minutes / 60),
+        _ => format!("há {} d", minutes / 1440),
+    }
+}
+
+/// The lines `/grants` shows for what was answered "always" in the terminal: one per grant, then what the term is. `None` when there is nothing.
+fn grant_lines(grants: &[Grant], ttl_days: Option<u32>, now_ms: u64) -> Option<Vec<(String, Style)>> {
+    let mine: Vec<&Grant> = grants.iter().filter(|g| g.conversation == CLI_CONVERSATION).collect();
+    if mine.is_empty() {
+        return None;
+    }
+    let mut lines: Vec<(String, Style)> = mine
+        .iter()
+        .map(|g| (format!("{} · {} · usado {}", g.covers, g.agent.as_deref().unwrap_or("agente padrão"), ago_label(g.last_used_ms, now_ms)), Style::default()))
+        .collect();
+    let term = match ttl_days {
+        Some(days) => format!("vencem depois de {days} dias sem uso (cada uso renova)"),
+        None => "acabam quando o terminal fecha".to_string(),
+    };
+    lines.push((term, dim_style()));
+    lines.push(("/grants revoke <o que> [agente] — o agente volta a perguntar (sem agente: o ativo; padrao: o agente padrão)".to_string(), dim_style()));
+    Some(lines)
+}
+
+/// `/grants` — what was answered "always" in this terminal (P122), per agent.
+async fn cmd_grants_list(terminal: &mut CliTerminal, session: &CliSession) -> anyhow::Result<()> {
+    match grant_lines(&session.grants.list(), session.grants.ttl_days(), now_millis()) {
+        Some(lines) => render_message_card(terminal, "permissões", accent_style(), lines),
+        None => render_message_card(terminal, "permissões", accent_style(), vec![("nenhum \"sempre\" dado neste terminal".to_string(), Style::default())]),
+    }
+}
+
+/// `/grants revoke <covers> [agent]` — takes one "always" back, so the agent asks again. Without `agent` it is the active one.
+async fn cmd_grants_revoke(terminal: &mut CliTerminal, session: &CliSession, covers: String, agent: Option<String>) -> anyhow::Result<()> {
+    let agent = match agent {
+        Some(named) => Some(named).filter(|a| !a.is_empty()),
+        None => session.agent_id.clone(),
+    };
+    let who = agent.as_deref().unwrap_or("agente padrão");
+    if session.grants.revoke(CLI_CONVERSATION, agent.as_deref(), &covers) {
+        render_message_card(terminal, "permissões", accent_style(), vec![(format!("'{covers}' retirado de {who}: ele volta a perguntar"), Style::default())])
+    } else {
+        render_message_card(terminal, "erro", error_style(), vec![(format!("nenhum \"sempre\" '{covers}' para {who} — use /grants pra ver a lista"), Style::default())])
     }
 }
 
@@ -3119,6 +3173,8 @@ async fn handle_command(command: Command, terminal: &mut CliTerminal, session: &
         Command::LimitsOff => cmd_limits_off(terminal, session).await,
         Command::LimitsReset => cmd_limits_reset(terminal, session).await,
         Command::Extend(id) => cmd_extend(terminal, session, id).await,
+        Command::GrantsList => cmd_grants_list(terminal, session).await,
+        Command::GrantsRevoke { covers, agent } => cmd_grants_revoke(terminal, session, covers, agent).await,
         Command::PricesList => cmd_prices_list(terminal, session).await,
         Command::PricesAdd => wizard_prices_add(terminal, session).await,
         Command::PricesEdit(model) => wizard_prices_edit(terminal, session, model).await,
@@ -3368,6 +3424,66 @@ mod tests {
         assert!(!dir.join("grants").join("off.json").exists());
         assert_eq!(ask(cli_grant_book(Some(&off)), Answer::Reject).await, (Answer::Reject, true));
         assert_eq!(cli_grant_book(None).list().len(), 0);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn how_long_ago_is_told_in_minutes_hours_and_days() {
+        const MIN: u64 = 60_000;
+        let now = 100 * 24 * 60 * MIN;
+        assert_eq!(ago_label(now, now), "agora");
+        assert_eq!(ago_label(now - 59_000, now), "agora");
+        assert_eq!(ago_label(now - MIN, now), "há 1 min");
+        assert_eq!(ago_label(now - 59 * MIN, now), "há 59 min");
+        assert_eq!(ago_label(now - 60 * MIN, now), "há 1 h");
+        assert_eq!(ago_label(now - 23 * 60 * MIN, now), "há 23 h");
+        assert_eq!(ago_label(now - 24 * 60 * MIN, now), "há 1 d");
+        assert_eq!(ago_label(now - 3 * 24 * 60 * MIN, now), "há 3 d");
+        assert_eq!(ago_label(now + MIN, now), "agora", "a clock that went back never gives a negative");
+    }
+
+    fn grant(agent: Option<&str>, covers: &str, last_used_ms: u64) -> Grant {
+        Grant { conversation: CLI_CONVERSATION.to_string(), agent: agent.map(str::to_string), covers: covers.to_string(), last_used_ms }
+    }
+
+    #[test]
+    fn the_grants_card_lists_each_always_and_says_how_long_it_lasts() {
+        let text = |lines: Vec<(String, Style)>| lines.into_iter().map(|(l, _)| l).collect::<Vec<_>>();
+        assert!(grant_lines(&[], Some(30), 0).is_none(), "nothing given is an empty card");
+        let elsewhere = Grant { conversation: "c1".to_string(), ..grant(None, "shell", 0) };
+        assert!(grant_lines(&[elsewhere], Some(30), 0).is_none(), "another conversation's grant is not the terminal's");
+
+        let now = 5 * 24 * 60 * 60_000;
+        let lines = text(grant_lines(&[grant(None, "shell", now - 3 * 24 * 60 * 60_000), grant(Some("ana"), "delete_data", now)], Some(30), now).unwrap());
+        assert_eq!(lines[0], "shell · agente padrão · usado há 3 d");
+        assert_eq!(lines[1], "delete_data · ana · usado agora");
+        assert_eq!(lines[2], "vencem depois de 30 dias sem uso (cada uso renova)");
+        assert!(lines[3].starts_with("/grants revoke"));
+
+        let in_memory = text(grant_lines(&[grant(None, "shell", now)], None, now).unwrap());
+        assert_eq!(in_memory[1], "acabam quando o terminal fecha");
+    }
+
+    #[tokio::test]
+    async fn revoking_a_grant_takes_it_from_that_agent_only_and_the_file_follows() {
+        let dir = std::env::temp_dir().join(format!("warden-cli-revoke-{}", now_millis()));
+        let file = dir.join("cli.json");
+        let book = GrantBook::persistent(file.clone(), warden_core::grants::DEFAULT_TTL);
+        for agent in [None, Some("ana"), Some("bia")] {
+            let (tx, mut rx) = mpsc::unbounded_channel::<AskedApproval>();
+            let approver = RememberingApprover::new(Arc::new(ChannelApprover { requests: tx }), book.of(CLI_CONVERSATION, agent));
+            let asking = tokio::spawn(async move { approver.ask(ApprovalRequest::new("shell", "tool_call", ""), Some("shell")).await });
+            let (_, _, reply) = rx.recv().await.unwrap();
+            reply.send(Answer::Always).unwrap();
+            assert_eq!(asking.await.unwrap(), Answer::Always);
+        }
+        assert_eq!(book.list().len(), 3);
+
+        assert!(book.revoke(CLI_CONVERSATION, Some("ana"), "shell"));
+        assert!(!book.revoke(CLI_CONVERSATION, Some("ana"), "shell"), "a second time there is nothing to take");
+        let left: Vec<Option<String>> = book.list().into_iter().map(|g| g.agent).collect();
+        assert_eq!(left, vec![None, Some("bia".to_string())]);
+        assert!(std::fs::read_to_string(&file).unwrap().contains("bia") && !std::fs::read_to_string(&file).unwrap().contains("ana"));
         let _ = std::fs::remove_dir_all(&dir);
     }
 
