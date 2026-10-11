@@ -22,7 +22,7 @@ pub use mode::{CodeMode, CodeModes};
 pub use tracker::{PermissionAsk, Signal, Tracker};
 
 /// What the person watching a turn sees, as it happens.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum CodeEvent {
     /// More of the answer's text.
     Text(String),
@@ -35,7 +35,7 @@ pub enum CodeEvent {
     Session(String),
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct ToolEvent {
     /// Stable across the stages of one call, so a client updates a line instead of adding one.
     pub call_id: String,
@@ -45,7 +45,7 @@ pub struct ToolEvent {
     pub status: ToolStatus,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum ToolStatus {
     Running,
     Completed,

@@ -998,7 +998,7 @@ function App() {
           onSendMessage={handleSendMessage}
           isSending={isSending}
           live={activeConversationId === null ? undefined : liveTurns[activeConversationId]}
-          onCancel={handleCancel}
+          onCancel={projects.some((p) => p.id === currentProjectId && p.code) ? handleCancel : undefined}
           codeMode={codeMode}
           onCodeMode={handleCodeMode}
           sendError={sendError}

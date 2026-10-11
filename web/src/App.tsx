@@ -1128,7 +1128,7 @@ export default function App() {
                 entries={entries}
                 pending={activeId in pendingTurns}
                 live={liveTurns[activeId]}
-                onCancel={handleCancel}
+                onCancel={projects.some((p) => p.id === projectId && p.code) ? handleCancel : undefined}
                 disabled={!phase.connected}
                 onSend={handleSend}
                 onTranscribe={handleTranscribe}

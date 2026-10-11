@@ -23,7 +23,7 @@ use crate::jobs::{task_controls, JobBoard, TaskDraft};
 use crate::memory::Vault;
 use crate::project::ProjectStore;
 use crate::tool::job_tools::{background_property, job_label, start_task_with, wants_background};
-use crate::tool::{Approver, Tool, ToolSpec};
+use crate::tool::{Approver, ProgressSink, Tool, ToolSpec};
 
 /// The lock of a folder: whoever works in it holds it. Process-wide rather than per tool, because the hub builds its tools again
 /// whenever its settings are saved and a task already running must still keep the next one out.
@@ -52,8 +52,32 @@ impl Drop for StopOnDrop {
     }
 }
 
+/// Where a task says what it is doing (P124) and under which project, so lines of tasks running side by side can be told apart.
+#[derive(Clone)]
+struct Reporter {
+    sink: ProgressSink,
+    project_id: String,
+    project_name: String,
+}
+
+impl Reporter {
+    /// The tool rows and notices of the engine, marked with the project. Not its text: two tasks in parallel would mix it in one bubble,
+    /// and it arrives in the answer anyway. Not the session either: that is not for showing.
+    fn report(&self, event: CodeEvent) {
+        match event {
+            CodeEvent::Tool(mut tool) => {
+                tool.call_id = format!("{}:{}", self.project_id, tool.call_id);
+                tool.title = format!("{}: {}", self.project_name, tool.title);
+                self.sink.send("code_task", CodeEvent::Tool(tool));
+            }
+            CodeEvent::Notice(text) => self.sink.send("code_task", CodeEvent::Notice(format!("{}: {text}", self.project_name))),
+            CodeEvent::Text(_) | CodeEvent::Session(_) => {}
+        }
+    }
+}
+
 /// Runs `request` in the engine once nobody else is working in its folder, and stops the session if the run is dropped.
-async fn run_in_engine(engine: Arc<dyn CodeEngine>, approver: Arc<dyn Approver>, request: TurnRequest) -> anyhow::Result<TurnOutcome> {
+async fn run_in_engine(engine: Arc<dyn CodeEngine>, approver: Arc<dyn Approver>, request: TurnRequest, reporter: Option<Reporter>) -> anyhow::Result<TurnOutcome> {
     let workdir = request.workdir.clone();
     let _folder = folder_lock(&workdir).lock_owned().await;
     let session = Arc::new(Mutex::new(request.session_id.clone()));
@@ -62,6 +86,8 @@ async fn run_in_engine(engine: Arc<dyn CodeEngine>, approver: Arc<dyn Approver>,
         .run_turn(request, Some(approver), &mut move |event| {
             if let CodeEvent::Session(id) = event {
                 *session.lock().unwrap_or_else(|e| e.into_inner()) = Some(id);
+            } else if let Some(reporter) = &reporter {
+                reporter.report(event);
             }
         })
         .await;
@@ -91,6 +117,8 @@ pub struct CodeTaskTool {
     /// A person asked to be asked about critical-infrastructure actions for this agent (`with_approval_rules`), and `code_task` is
     /// one: the engine's own asks are what they meant to keep, so no mode that answers them for the engine is allowed.
     asks_for_critical: bool,
+    /// Where the tool says what its tasks are doing, while the turn that started them is being watched (`with_progress`).
+    progress: Option<ProgressSink>,
 }
 
 /// The name a `mode` argument uses (the same ones the clients send).
@@ -111,7 +139,7 @@ fn mode_named(name: &str) -> Option<CodeMode> {
 
 impl CodeTaskTool {
     pub fn new(vault: Arc<Vault>, engine: CodeEngineSlot) -> Self {
-        Self { projects: ProjectStore::new(vault), engine, approver: None, jobs: None, autonomy: Autonomy::Autonomous, asks_for_critical: false }
+        Self { projects: ProjectStore::new(vault), engine, approver: None, jobs: None, autonomy: Autonomy::Autonomous, asks_for_critical: false, progress: None }
     }
 
     /// The modes an agent may ask for (P124): never `acceptAll` (the shell is no sandbox and that mode asks nothing, so only a person
@@ -202,6 +230,10 @@ impl Tool for CodeTaskTool {
         Some(Arc::new(Self { jobs: Some(board.clone()), ..self.clone() }))
     }
 
+    fn with_progress(&self, sink: &ProgressSink) -> Option<Arc<dyn Tool>> {
+        Some(Arc::new(Self { progress: Some(sink.clone()), ..self.clone() }))
+    }
+
     fn with_autonomy(&self, level: Autonomy, _read_only: &[String]) -> Option<Arc<dyn Tool>> {
         Some(Arc::new(Self { autonomy: self.autonomy.min(level), ..self.clone() }))
     }
@@ -252,6 +284,7 @@ impl Tool for CodeTaskTool {
             system: Some(project.instructions.trim().to_string()).filter(|s| !s.is_empty()),
             mode,
         };
+        let reporter = self.progress.clone().map(|sink| Reporter { sink, project_id: project.id.clone(), project_name: project.name.clone() });
         let draft = TaskDraft { assignee: format!("opencode · {}", project.name), objective: task.to_string(), model: None };
         let result_of = |outcome: &TurnOutcome| json!({ "answer": outcome.text, "session_id": outcome.session_id, "tools_used": outcome.tools_used });
 
@@ -261,7 +294,7 @@ impl Tool for CodeTaskTool {
             if wants_background(&args) {
                 let label = job_label(&draft.assignee, task);
                 let started = start_task_with(board, label, draft, move |_| async move {
-                    let outcome = run_in_engine(engine, approver, request).await?;
+                    let outcome = run_in_engine(engine, approver, request, reporter).await?;
                     Ok((describe(&outcome), None))
                 });
                 if let Some(recorded) = board.list().last().and_then(|job| job.task.as_ref()) {
@@ -272,14 +305,14 @@ impl Tool for CodeTaskTool {
             // Waited for, but still a task in the log, like the delegations (P123).
             let text = board
                 .run_recorded_as(draft, false, move |_| async move {
-                    let outcome = run_in_engine(engine, approver, request).await?;
+                    let outcome = run_in_engine(engine, approver, request, reporter).await?;
                     Ok((result_of(&outcome).to_string(), None))
                 })
                 .await?;
             return Ok(serde_json::from_str(&text)?);
         }
 
-        let outcome = run_in_engine(engine, approver, request).await?;
+        let outcome = run_in_engine(engine, approver, request, reporter).await?;
         Ok(result_of(&outcome))
     }
 }
@@ -387,6 +420,86 @@ mod tests {
         let result = tool("continues", Some(engine.clone()), true).call(json!({ "project": "repo", "task": "go on", "session_id": "ses_7" })).await.unwrap();
         assert_eq!(result["session_id"], "ses_7");
         assert_eq!(engine.asked.lock().unwrap()[0].0.session_id.as_deref(), Some("ses_7"));
+    }
+
+    // --- Progress (P124) ---
+
+    /// An engine that narrates a task: its session, some text, a command running and then done, and a notice.
+    struct Chatty;
+    #[async_trait]
+    impl CodeEngine for Chatty {
+        async fn run_turn(&self, _: TurnRequest, _: Option<Arc<dyn Approver>>, on_event: &mut (dyn FnMut(CodeEvent) + Send)) -> anyhow::Result<TurnOutcome> {
+            let tool = |status| CodeEvent::Tool(ToolEvent { call_id: "c1".into(), tool: "bash".into(), title: "cargo test".into(), status });
+            on_event(CodeEvent::Session("ses_chat".into()));
+            on_event(CodeEvent::Text("I will run the tests".into()));
+            on_event(tool(ToolStatus::Running));
+            on_event(CodeEvent::Notice("retrying".into()));
+            on_event(tool(ToolStatus::Completed));
+            Ok(TurnOutcome { session_id: "ses_chat".into(), text: "ok".into(), tools_used: vec!["bash".into()] })
+        }
+        async fn abort(&self, _: &str, _: &str) -> anyhow::Result<()> {
+            Ok(())
+        }
+    }
+
+    fn chatty_tool(name: &str, with_sink: bool) -> (Arc<dyn Tool>, tokio::sync::mpsc::UnboundedReceiver<crate::tool::ToolProgress>) {
+        let slot: CodeEngineSlot = Arc::new(OnceLock::new());
+        let engine: Arc<dyn CodeEngine> = Arc::new(Chatty);
+        slot.set(engine).ok();
+        let mut tool = CodeTaskTool::new(with_many_projects(name), slot);
+        tool.approver = Some(Arc::new(Yes));
+        let (sink, receiver) = crate::tool::progress_channel();
+        let tool: Arc<dyn Tool> = if with_sink { tool.with_progress(&sink).unwrap() } else { Arc::new(tool) };
+        (tool, receiver)
+    }
+
+    fn said(receiver: &mut tokio::sync::mpsc::UnboundedReceiver<crate::tool::ToolProgress>) -> Vec<crate::tool::ToolProgress> {
+        std::iter::from_fn(|| receiver.try_recv().ok()).collect()
+    }
+
+    #[tokio::test]
+    async fn a_task_says_its_tools_and_notices_under_its_project_and_not_its_text_or_session() {
+        let (tool, mut receiver) = chatty_tool("says", true);
+        tool.call(json!({ "project": "repo", "task": "test it" })).await.unwrap();
+
+        let said = said(&mut receiver);
+        let tool_row = |status| crate::tool::ToolProgress { tool: "code_task".into(), event: CodeEvent::Tool(ToolEvent { call_id: "repo:c1".into(), tool: "bash".into(), title: "REPO: cargo test".into(), status }) };
+        assert_eq!(said, [tool_row(ToolStatus::Running), crate::tool::ToolProgress { tool: "code_task".into(), event: CodeEvent::Notice("REPO: retrying".into()) }, tool_row(ToolStatus::Completed)]);
+    }
+
+    #[tokio::test]
+    async fn two_tasks_in_different_projects_do_not_share_a_line() {
+        let (tool, mut receiver) = chatty_tool("two-lines", true);
+        tool.call(json!({ "project": "repo", "task": "a" })).await.unwrap();
+        tool.call(json!({ "project": "site", "task": "b" })).await.unwrap();
+        let ids: std::collections::BTreeSet<String> = said(&mut receiver)
+            .into_iter()
+            .filter_map(|p| match p.event {
+                CodeEvent::Tool(t) => Some(t.call_id),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(ids.into_iter().collect::<Vec<_>>(), ["repo:c1", "site:c1"], "the engine's own call id is the same in both");
+    }
+
+    #[tokio::test]
+    async fn without_a_sink_nothing_is_said_and_the_answer_is_the_same() {
+        let (tool, mut receiver) = chatty_tool("quiet", false);
+        let result = tool.call(json!({ "project": "repo", "task": "test it" })).await.unwrap();
+        assert_eq!(result["answer"], "ok");
+        assert!(said(&mut receiver).is_empty());
+    }
+
+    #[tokio::test]
+    async fn a_background_task_says_it_too() {
+        let (tool, mut receiver) = chatty_tool("bg-says", true);
+        let board = crate::jobs::JobBoard::new(2);
+        let tool = tool.with_jobs(&board).unwrap();
+        let started = tool.call(json!({ "project": "site", "task": "test it", "background": true })).await.unwrap();
+        board.wait(started["job_id"].as_str().unwrap()).await;
+        let rows = said(&mut receiver);
+        assert_eq!(rows.len(), 3, "{rows:?}");
+        assert!(rows.iter().all(|p| p.tool == "code_task"));
     }
 
     // --- Mode and autonomy (P124) ---

@@ -11,10 +11,10 @@ import { repliesLabel, type ThreadInfo } from "../hub/threads";
 interface Props {
   entries: ChatEntry[];
   pending: boolean;
-  /** What a code engine has done so far in this conversation's running task (P103 b), shown instead of the dots. */
+  /** What a code engine has done so far in this conversation's running task (P103 b), or the tools of the tasks an agent started (P124), shown instead of the dots. */
   live?: LiveTurn;
-  /** Stops that task. */
-  onCancel: () => void;
+  /** Stops that task. Only a code conversation has one: for any other the live bubble has no stop button. */
+  onCancel?: () => void;
   /** The connection is down — typing is fine, sending isn't. */
   disabled: boolean;
   onSend: (message: string, attachments: Attachment[]) => void;
@@ -100,7 +100,7 @@ function PendingChip({ item, onRemove }: { item: PendingAttachment; onRemove: ()
 const TOOL_MARK = { running: "…", completed: "✓", failed: "✗" } as const;
 
 /** The task a code engine is running: its words and its tools in the order they happened, and the way to stop it. */
-function LiveBubble({ live, onCancel }: { live: LiveTurn; onCancel: () => void }) {
+function LiveBubble({ live, onCancel }: { live: LiveTurn; onCancel?: () => void }) {
   return (
     <li className="bubble bubble--assistant bubble--live" aria-label="Em andamento" aria-live="polite">
       {live.items.map((item, i) =>
@@ -121,9 +121,12 @@ function LiveBubble({ live, onCancel }: { live: LiveTurn; onCancel: () => void }
         ),
       )}
       {live.notice && <p className="live-notice">{live.notice}</p>}
-      <button type="button" className="live-stop" onClick={onCancel}>
-        Parar
-      </button>
+      {/* Only a code conversation has a task of its own to stop; a manager's chat shows its tasks' tools but stopping is not this button's. */}
+      {onCancel && (
+        <button type="button" className="live-stop" onClick={onCancel}>
+          Parar
+        </button>
+      )}
     </li>
   );
 }

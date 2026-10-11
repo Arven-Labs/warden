@@ -163,6 +163,9 @@ pub enum StreamEvent {
     /// The provider this call was meant for failed and another one answered (P79) — emitted
     /// first, by `FallbackProvider`, only when that happened. Carries no content.
     ProviderFallback(ProviderFallback),
+    /// A tool says what it is doing while it runs (P124): today the `code_task` tool's engine, which edits files and runs commands for
+    /// minutes. Emitted by the orchestrator in the turn's own order, between the model's calls; never by a provider.
+    ToolProgress { tool: String, event: crate::code_engine::CodeEvent },
 }
 
 /// A provider's API answered with an HTTP error status. Its `Display` is the message the
@@ -243,6 +246,8 @@ impl ResponseAccumulator {
             StreamEvent::Usage(usage) => self.usage = Some(usage),
             // Who answered is the orchestrator's concern (it sees every event), not the response's.
             StreamEvent::ProviderFallback(_) => {}
+            // A tool's progress is the orchestrator's own event, never part of what a provider answered.
+            StreamEvent::ToolProgress { .. } => {}
         }
     }
 

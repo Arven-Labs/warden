@@ -655,7 +655,23 @@ impl Orchestrator {
         // future is dropped), which cancels the jobs nobody collected.
         // The exception (P123): the turn of a background task, which may start subtasks of its own (see `with_parent_task`).
         let _jobs = if self.charged && self.task_link.is_none() { None } else { turn.attach_jobs() };
-        turn.run_turn(history, next, query, system_prompt, on_event).await
+        // What a tool says about its work while it runs (P124) is read by the root of the turn only: a sub-agent's turn has no one watching.
+        let progress = if self.charged { None } else { turn.attach_progress() };
+        turn.run_turn(history, next, query, system_prompt, on_event, progress).await
+    }
+
+    /// Binds the tools of this turn that report their work (`Tool::with_progress`) to a sink the turn reads while a tool runs. `None`
+    /// when no tool reports anything, so a turn without them has nothing to read.
+    fn attach_progress(&mut self) -> Option<tokio::sync::mpsc::UnboundedReceiver<crate::tool::ToolProgress>> {
+        let (sink, receiver) = crate::tool::progress_channel();
+        let mut bound = false;
+        for tool in &mut self.tools {
+            if let Some(reporting) = tool.with_progress(&sink) {
+                *tool = reporting;
+                bound = true;
+            }
+        }
+        bound.then_some(receiver)
     }
 
     async fn run_turn(
@@ -665,6 +681,7 @@ impl Orchestrator {
         query: &str,
         system_prompt: Option<&str>,
         mut on_event: impl FnMut(&StreamEvent) + Send,
+        mut progress: Option<tokio::sync::mpsc::UnboundedReceiver<crate::tool::ToolProgress>>,
     ) -> anyhow::Result<MessageOutcome> {
         let mut messages = Vec::new();
 
@@ -739,6 +756,8 @@ impl Orchestrator {
         let is_client_tool = |name: &str| client_tools.iter().any(|spec| spec.name == name);
 
         for _ in 0..MAX_TOOL_ITERATIONS {
+            // What a background task said while the model was answering (P124) goes out before the next call starts.
+            drain_progress(&mut progress, &mut on_event);
             // The turn of a task a person paused (P123) waits here, between two calls, until it is resumed.
             if let Some(gate) = &self.pause_gate {
                 gate.until_resumed().await;
@@ -827,7 +846,19 @@ impl Orchestrator {
             messages.push(Message::assistant_tool_calls(response.tool_calls.clone()));
 
             for tool_call in &response.tool_calls {
-                let content = match self.run_tool(tool_call).await {
+                // While the tool runs, what it says about its work goes to the caller as it arrives (P124); after it, whatever it left.
+                let result = {
+                    let call = self.run_tool(tool_call);
+                    tokio::pin!(call);
+                    loop {
+                        tokio::select! {
+                            result = &mut call => break result,
+                            Some(said) = next_progress(&mut progress) => on_event(&StreamEvent::ToolProgress { tool: said.tool, event: said.event }),
+                        }
+                    }
+                };
+                drain_progress(&mut progress, &mut on_event);
+                let content = match result {
                     Ok(value) => {
                         // Only a call that worked counts: a tool that doesn't exist or failed taught nothing.
                         if !tools_used.contains(&tool_call.name) {
@@ -856,6 +887,23 @@ impl Orchestrator {
         let category = self.classifier.as_ref().and_then(|classify| classify(tool_call));
         crate::autonomy::authorize(self.autonomy, &self.read_only_tools, &self.approval_required, category, self.approver.as_ref(), tool_call).await?;
         tool.call(tool_call.arguments.clone()).await
+    }
+}
+
+/// The next thing a tool said about its work, or never when the turn has nothing to read.
+async fn next_progress(progress: &mut Option<tokio::sync::mpsc::UnboundedReceiver<crate::tool::ToolProgress>>) -> Option<crate::tool::ToolProgress> {
+    match progress {
+        Some(receiver) => receiver.recv().await,
+        None => std::future::pending().await,
+    }
+}
+
+/// Hands on what tools said that nobody has read yet, without waiting for more.
+fn drain_progress(progress: &mut Option<tokio::sync::mpsc::UnboundedReceiver<crate::tool::ToolProgress>>, on_event: &mut impl FnMut(&StreamEvent)) {
+    if let Some(receiver) = progress {
+        while let Ok(said) = receiver.try_recv() {
+            on_event(&StreamEvent::ToolProgress { tool: said.tool, event: said.event });
+        }
     }
 }
 
@@ -2309,6 +2357,112 @@ mod tests {
         let result = orchestrator.handle_message(&[], "hi").await.unwrap();
         assert_eq!(result.content, "Hello");
         assert_eq!(result.usage, Some(Usage { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 }));
+    }
+
+    /// A tool that says what it is doing while it runs (P124), the way `code_task` does: two notices, a pause between them, and
+    /// with `late` a third one a moment after it has returned (a background task still working).
+    struct Reports {
+        sink: Option<crate::tool::ProgressSink>,
+        late: bool,
+    }
+
+    #[async_trait]
+    impl Tool for Reports {
+        fn spec(&self) -> ToolSpec {
+            ToolSpec { name: "report".to_string(), description: String::new(), parameters: serde_json::json!({}) }
+        }
+        fn with_progress(&self, sink: &crate::tool::ProgressSink) -> Option<Arc<dyn Tool>> {
+            Some(Arc::new(Reports { sink: Some(sink.clone()), late: self.late }))
+        }
+        async fn call(&self, _args: Value) -> anyhow::Result<Value> {
+            let Some(sink) = self.sink.clone() else { return Ok(serde_json::json!("nobody listens")) };
+            sink.send("report", crate::code_engine::CodeEvent::Notice("first".into()));
+            tokio::task::yield_now().await;
+            sink.send("report", crate::code_engine::CodeEvent::Notice("second".into()));
+            if self.late {
+                tokio::spawn(async move {
+                    tokio::time::sleep(std::time::Duration::from_millis(15)).await;
+                    sink.send("report", crate::code_engine::CodeEvent::Notice("late".into()));
+                });
+            }
+            Ok(serde_json::json!("reported"))
+        }
+    }
+
+    /// Calls `report`, then (with `then_noop`, after a pause that lets a late notice arrive) `noop`, then answers "done".
+    struct ReportsThenAnswers {
+        then_noop: bool,
+    }
+
+    #[async_trait]
+    impl ModelProvider for ReportsThenAnswers {
+        async fn chat_stream(&self, messages: Vec<Message>, _tools: Vec<ToolSpec>) -> anyhow::Result<ChatStream> {
+            let answered = messages.iter().filter(|m| m.role == Role::Tool).count();
+            let call = |name: &str| Ok(response_stream(Response { content: String::new(), tool_calls: vec![ToolCall { id: format!("call-{answered}"), name: name.into(), arguments: serde_json::json!({}), thought_signature: None }], usage: None }));
+            match (answered, self.then_noop) {
+                (0, _) => call("report"),
+                (1, true) => {
+                    tokio::time::sleep(std::time::Duration::from_millis(60)).await;
+                    call("noop")
+                }
+                _ => Ok(response_stream(Response { content: "done".into(), tool_calls: Vec::new(), usage: None })),
+            }
+        }
+    }
+
+    fn notices(events: &[StreamEvent]) -> Vec<String> {
+        events
+            .iter()
+            .filter_map(|e| match e {
+                StreamEvent::ToolProgress { tool, event: crate::code_engine::CodeEvent::Notice(text) } => Some(format!("{tool}:{text}")),
+                _ => None,
+            })
+            .collect()
+    }
+
+    #[tokio::test]
+    async fn what_a_tool_says_while_it_runs_reaches_the_streaming_caller_in_order_before_the_answer() {
+        let mut orchestrator = Orchestrator::new(Arc::new(ReportsThenAnswers { then_noop: false }), temp_vault());
+        orchestrator.register_tool(Arc::new(Reports { sink: None, late: false }));
+        let observed = std::sync::Mutex::new(Vec::new());
+
+        let outcome = orchestrator.handle_turn_streaming(&[], "go", Vec::new(), None, |event| observed.lock().unwrap().push(event.clone())).await.unwrap();
+
+        assert_eq!(outcome.content, "done");
+        let observed = observed.into_inner().unwrap();
+        assert_eq!(notices(&observed), ["report:first", "report:second"]);
+        let last_notice = observed.iter().rposition(|e| matches!(e, StreamEvent::ToolProgress { .. })).unwrap();
+        let answer = observed.iter().position(|e| matches!(e, StreamEvent::ContentDelta(text) if text == "done")).unwrap();
+        assert!(last_notice < answer, "the tool's notices come before the model's answer: {observed:?}");
+    }
+
+    #[tokio::test]
+    async fn a_notice_that_arrives_after_the_tool_returned_is_handed_on_before_the_turn_goes_on() {
+        let mut orchestrator = Orchestrator::new(Arc::new(ReportsThenAnswers { then_noop: true }), temp_vault());
+        orchestrator.register_tool(Arc::new(Reports { sink: None, late: true }));
+        orchestrator.register_tool(Arc::new(NamedTool("noop")));
+        let observed = std::sync::Mutex::new(Vec::new());
+
+        orchestrator.handle_turn_streaming(&[], "go", Vec::new(), None, |event| observed.lock().unwrap().push(event.clone())).await.unwrap();
+
+        let observed = observed.into_inner().unwrap();
+        assert_eq!(notices(&observed), ["report:first", "report:second", "report:late"]);
+        let late = observed.iter().position(|e| matches!(e, StreamEvent::ToolProgress { event: crate::code_engine::CodeEvent::Notice(t), .. } if t == "late")).unwrap();
+        let answer = observed.iter().position(|e| matches!(e, StreamEvent::ContentDelta(text) if text == "done")).unwrap();
+        assert!(late < answer, "{observed:?}");
+    }
+
+    #[tokio::test]
+    async fn a_turn_nobody_streams_runs_the_same_and_a_tool_that_reports_nothing_is_untouched() {
+        let mut orchestrator = Orchestrator::new(Arc::new(ReportsThenAnswers { then_noop: false }), temp_vault());
+        orchestrator.register_tool(Arc::new(Reports { sink: None, late: false }));
+        // The no-op sink of `handle_turn`: the notices go nowhere and the turn is the same.
+        assert_eq!(orchestrator.handle_turn(&[], "go", Vec::new(), None).await.unwrap().content, "done");
+
+        // A tool that does not report is not given a sink (its hook answers `None`).
+        let mut plain = Orchestrator::new(Arc::new(ReportsThenAnswers { then_noop: false }), temp_vault());
+        plain.register_tool(Arc::new(NamedTool("report")));
+        assert_eq!(plain.handle_turn(&[], "go", Vec::new(), None).await.unwrap().content, "done");
     }
 
     struct MidStreamErrorModel;

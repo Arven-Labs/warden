@@ -225,6 +225,77 @@ async fn a_manager_opens_two_code_tasks_in_the_background_and_both_are_on_the_ta
     assert_eq!(tasks[0].group, tasks[1].group, "one turn, one group: the screen shows them with a progress");
 }
 
+/// Narrates every task: its session, some text of its own, and an edit that starts and finishes.
+struct Narrates;
+
+#[async_trait]
+impl CodeEngine for Narrates {
+    async fn run_turn(&self, request: TurnRequest, _: Option<Arc<dyn Approver>>, on_event: &mut (dyn FnMut(CodeEvent) + Send)) -> anyhow::Result<TurnOutcome> {
+        let edit = |status| CodeEvent::Tool(warden_core::code_engine::ToolEvent { call_id: "c1".into(), tool: "edit".into(), title: "src/lib.rs".into(), status });
+        on_event(CodeEvent::Session("ses_n".into()));
+        on_event(CodeEvent::Text("the engine's own words".into()));
+        on_event(edit(warden_core::code_engine::ToolStatus::Running));
+        tokio::task::yield_now().await;
+        on_event(edit(warden_core::code_engine::ToolStatus::Completed));
+        Ok(TurnOutcome { session_id: "ses_n".into(), text: format!("done: {}", request.prompt), tools_used: vec!["edit".into()] })
+    }
+
+    async fn abort(&self, _: &str, _: &str) -> anyhow::Result<()> {
+        Ok(())
+    }
+}
+
+#[tokio::test]
+async fn the_chat_sees_each_tasks_tool_rows_live_and_not_the_engines_words() {
+    use warden_server_protocol::protocol::{ChatEventDto, ToolStatusDto};
+    std::env::set_var(warden_core::memory::embed::OFF_SWITCH, "1");
+    let dir = std::env::temp_dir().join(format!("warden-server-code-live-{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let mut orchestrator = Orchestrator::new(Arc::new(BackgroundManager), Arc::new(Vault::new(dir.join("vault"))));
+    orchestrator.register_tool(Arc::new(warden_core::tool::job_tools::JobsTool::new()));
+    let slot: CodeEngineSlot = Arc::new(OnceLock::new());
+    register_code_task(&mut orchestrator, &slot);
+    let engine: Arc<dyn CodeEngine> = Arc::new(Narrates);
+    slot.set(engine).ok();
+    let orchestrator = orchestrator.with_parallel_jobs(2);
+    let server = Server::bind("127.0.0.1:0".parse().unwrap(), KEY, "Test Hub", Arc::new(orchestrator), dir.join("conversations"), dir.join("devices.json")).await.unwrap().with_users_dir(dir.join("users"));
+    let addr = server.local_addr().unwrap();
+    tokio::spawn(server.serve());
+    let mut me = ServerConnection::connect(&format!("ws://{addr}"), "laptop", "Laptop", KEY).await.unwrap();
+    for (id, name, workdir) in [("repo", "Repo", "/home/me/repo"), ("site", "Site", "/home/me/site")] {
+        let project = ProjectDto { id: id.into(), name: name.into(), description: String::new(), instructions: String::new(), workdir: Some(workdir.into()), code: true };
+        me.send(&ClientMessage::SaveProject { request_id: 1, project, overwrite: false }).await.unwrap();
+        assert!(matches!(next(&mut me).await, ServerMessage::ProjectOk { .. }));
+    }
+
+    ask_for_the_task(&mut me).await;
+    let mut events = Vec::new();
+    loop {
+        match tokio::time::timeout(Duration::from_secs(10), me.recv()).await.expect("no message").unwrap().expect("connection closed") {
+            ServerMessage::ChatEvent { event, .. } => events.push(event),
+            ServerMessage::ChatResponse { content, .. } => {
+                assert!(content.contains("done: add a test") && content.contains("done: fix the footer"), "{content}");
+                break;
+            }
+            ServerMessage::ChatError { message, .. } => panic!("{message}"),
+            _ => {}
+        }
+    }
+
+    let rows: Vec<(String, String, ToolStatusDto)> = events
+        .iter()
+        .filter_map(|e| match e {
+            ChatEventDto::Tool { call_id, title, status, .. } => Some((call_id.clone(), title.clone(), *status)),
+            _ => None,
+        })
+        .collect();
+    for (id, title) in [("repo:c1", "Repo: src/lib.rs"), ("site:c1", "Site: src/lib.rs")] {
+        let mine: Vec<_> = rows.iter().filter(|(call, _, _)| call == id).collect();
+        assert_eq!(mine.iter().map(|(_, t, s)| (t.as_str(), *s)).collect::<Vec<_>>(), [(title, ToolStatusDto::Running), (title, ToolStatusDto::Completed)], "{id}: {rows:?}");
+    }
+    assert!(!events.iter().any(|e| matches!(e, ChatEventDto::Text { .. })), "the engine's words are not streamed: {events:?}");
+}
+
 /// Asks for a plan, then for accept-all, then says what each answered.
 struct ModeAsker;
 

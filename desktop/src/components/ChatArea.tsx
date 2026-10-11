@@ -16,10 +16,10 @@ interface ChatAreaProps {
   activeConversation: Conversation | undefined;
   onSendMessage: (content: string, attachments: Attachment[]) => void;
   isSending: boolean;
-  /** What the code engine is doing in the turn being sent (P103 b); none until it says something. */
+  /** What the code engine is doing in the turn being sent (P103 b), or the tools of the tasks an agent started (P124); none until it says something. */
   live?: LiveTurn;
-  /** Stops that task. */
-  onCancel: () => void;
+  /** Stops that task. Only a code conversation has one: for any other the live bubble has no stop button. */
+  onCancel?: () => void;
   /** How much a code conversation asks before the engine acts (P103 b); the picker shows only in a code project. */
   codeMode: CodeMode;
   onCodeMode: (mode: CodeMode) => void;
@@ -87,7 +87,7 @@ function ThinkingIndicator() {
 const TOOL_MARK = { running: "…", completed: "✓", failed: "✗" } as const;
 
 /** The task a code engine is running: its words and its tools in the order they happened, and the way to stop it. */
-function LiveBubble({ live, onCancel }: { live: LiveTurn; onCancel: () => void }) {
+function LiveBubble({ live, onCancel }: { live: LiveTurn; onCancel?: () => void }) {
   return (
     <div className="message-row message-row--assistant">
       <div className="message-avatar">
@@ -112,9 +112,12 @@ function LiveBubble({ live, onCancel }: { live: LiveTurn; onCancel: () => void }
           ),
         )}
         {live.notice && <p className="live-notice">{live.notice}</p>}
-        <button type="button" className="live-stop" onClick={onCancel}>
-          Stop
-        </button>
+        {/* Only a code conversation has a task of its own to stop; a manager's chat shows its tasks' tools but stopping is not this button's. */}
+        {onCancel && (
+          <button type="button" className="live-stop" onClick={onCancel}>
+            Stop
+          </button>
+        )}
       </div>
     </div>
   );

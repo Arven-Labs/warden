@@ -1347,6 +1347,25 @@ pub async fn handle_agent_turn_in(
     workdir: Option<&str>,
     thread_of: Option<&ThreadParent>,
 ) -> anyhow::Result<MessageOutcome> {
+    handle_agent_turn_in_with(orchestrator, conversations_dir, conversation_id, title_seed, user_input, attachments, agent, project, workdir, thread_of, |_| {}).await
+}
+
+/// `handle_agent_turn_in` that also hands every `StreamEvent` of the turn to `on_event` as it happens (P124: what a tool says about its
+/// work while it runs, which the hub sends to the client watching). Everything else is the same, down to what is saved.
+#[allow(clippy::too_many_arguments)]
+pub async fn handle_agent_turn_in_with(
+    orchestrator: &Orchestrator,
+    conversations_dir: &Path,
+    conversation_id: &str,
+    title_seed: &str,
+    user_input: &str,
+    attachments: Vec<Attachment>,
+    agent: Option<TurnAgent<'_>>,
+    project: Option<&str>,
+    workdir: Option<&str>,
+    thread_of: Option<&ThreadParent>,
+    on_event: impl FnMut(&warden_core::model::StreamEvent) + Send,
+) -> anyhow::Result<MessageOutcome> {
     let existing = load_conversation(conversations_dir, conversation_id)?;
     let existed = existing.is_some();
     // P125: the message this is a thread of, from the file when it exists and from the request when it is being created.
@@ -1405,7 +1424,7 @@ pub async fn handle_agent_turn_in(
     if !existed && project.is_some() && scoped.is_none() {
         anyhow::bail!("there is no project '{}'", project.unwrap_or_default());
     }
-    let outcome = scoped.as_ref().unwrap_or(orchestrator).handle_turn(&history, user_input, attachments.clone(), agent.map(|a| a.persona)).await?;
+    let outcome = scoped.as_ref().unwrap_or(orchestrator).handle_turn_streaming(&history, user_input, attachments.clone(), agent.map(|a| a.persona), on_event).await?;
 
     let user = ConversationMessage {
         id: message_id(),
@@ -3164,6 +3183,25 @@ oauth = true
             let usage = Some(Usage { prompt_tokens: 3, completion_tokens: 2, total_tokens: 5 });
             Ok(warden_core::model::response_stream(warden_core::model::Response { content: "ok".into(), tool_calls: Vec::new(), usage }))
         }
+    }
+
+    /// P124: the turn's events reach the caller that asked for them, and the conversation is saved exactly as the plain call saves it.
+    #[tokio::test]
+    async fn the_streaming_form_hands_the_turns_events_on_and_saves_the_same() {
+        let root = temp_dir("agent-turn-events");
+        let dir = root.join("conversations");
+        let orchestrator = Orchestrator::new(Arc::new(SpendsTokens), Arc::new(Vault::new(root.join("vault"))));
+
+        let seen = std::sync::Mutex::new(Vec::new());
+        let streamed = handle_agent_turn_in_with(&orchestrator, &dir, "s1", "hi", "hello", Vec::new(), None, None, None, None, |event| seen.lock().unwrap().push(event.clone())).await.unwrap();
+        assert!(seen.lock().unwrap().iter().any(|e| matches!(e, warden_core::model::StreamEvent::ContentDelta(text) if text == "ok")), "{:?}", seen.lock().unwrap());
+
+        let plain = handle_agent_turn_in(&orchestrator, &dir, "s2", "hi", "hello", Vec::new(), None, None, None, None).await.unwrap();
+        assert_eq!(streamed.content, plain.content);
+        let (a, b) = (load_conversation(&dir, "s1").unwrap().unwrap(), load_conversation(&dir, "s2").unwrap().unwrap());
+        let shape = |c: &Conversation| c.messages.iter().map(|m| (m.role, m.content.clone(), m.usage, m.answered_by.clone())).collect::<Vec<_>>();
+        assert_eq!(shape(&a), shape(&b));
+        std::fs::remove_dir_all(&root).ok();
     }
 
     /// P126: a channel that never says which provider it uses (the hub's chat, a bot, a task) still has its answer stamped with the one

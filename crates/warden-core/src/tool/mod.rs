@@ -118,6 +118,13 @@ pub trait Tool: Send + Sync {
         None
     }
 
+    /// A copy of this tool that reports what it is doing through `sink` while it runs (P124), or `None` when it reports nothing. Called
+    /// by the orchestrator on the root of a turn that is being streamed, so that a tool that takes minutes (`code_task`) can be seen
+    /// working instead of leaving the person with a spinner. What is sent is only read while that turn runs.
+    fn with_progress(&self, _sink: &ProgressSink) -> Option<Arc<dyn Tool>> {
+        None
+    }
+
     /// Whether the model should be offered this tool right now. The orchestrator leaves a tool
     /// out of the specs it advertises when this is `false` (e.g. an agent with no reachable SSH
     /// host), so it never sees a tool it can't use.
@@ -180,6 +187,30 @@ pub trait Approver: Send + Sync {
             Answer::Reject
         }
     }
+}
+
+/// One thing a tool said about its work (`ProgressSink::send`): which tool, and the engine's event.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ToolProgress {
+    pub tool: String,
+    pub event: crate::code_engine::CodeEvent,
+}
+
+/// Where a tool reports what it is doing while it runs (P124). Cloneable and cheap; sending never waits and never fails the tool: once
+/// the turn that bound it is over nobody reads, and what is sent then is dropped.
+#[derive(Debug, Clone)]
+pub struct ProgressSink(tokio::sync::mpsc::UnboundedSender<ToolProgress>);
+
+impl ProgressSink {
+    pub fn send(&self, tool: &str, event: crate::code_engine::CodeEvent) {
+        let _ = self.0.send(ToolProgress { tool: tool.to_string(), event });
+    }
+}
+
+/// A sink and the end the orchestrator reads it from.
+pub fn progress_channel() -> (ProgressSink, tokio::sync::mpsc::UnboundedReceiver<ToolProgress>) {
+    let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
+    (ProgressSink(tx), rx)
 }
 
 /// What the person answered to an ask that could be remembered.
@@ -278,6 +309,10 @@ impl Tool for NamespacedTool {
         self.inner.with_jobs(board).map(|t| rename_tool(t, self.name.clone()))
     }
 
+    fn with_progress(&self, sink: &ProgressSink) -> Option<Arc<dyn Tool>> {
+        self.inner.with_progress(sink).map(|t| rename_tool(t, self.name.clone()))
+    }
+
     fn is_available(&self) -> bool {
         self.inner.is_available()
     }
@@ -365,6 +400,34 @@ mod tests {
         assert!(renamed.scoped_to_agent(None).is_none());
         assert!(renamed.restricted_to(&[]).is_none());
         assert!(renamed.with_jobs(&JobBoard::new(1)).is_none());
+        assert!(renamed.with_progress(&progress_channel().0).is_none());
         assert_eq!(renamed.spec().name, "srv__bare");
+    }
+
+    #[tokio::test]
+    async fn a_copy_produced_through_with_progress_keeps_the_rename() {
+        struct Reporting(Option<ProgressSink>);
+        #[async_trait]
+        impl Tool for Reporting {
+            fn spec(&self) -> ToolSpec {
+                ToolSpec { name: "reports".to_string(), description: String::new(), parameters: Value::Null }
+            }
+            async fn call(&self, _args: Value) -> anyhow::Result<Value> {
+                if let Some(sink) = &self.0 {
+                    sink.send("reports", crate::code_engine::CodeEvent::Notice("working".into()));
+                }
+                Ok(Value::Null)
+            }
+            fn with_progress(&self, sink: &ProgressSink) -> Option<Arc<dyn Tool>> {
+                Some(Arc::new(Reporting(Some(sink.clone()))))
+            }
+        }
+        let (sink, mut receiver) = progress_channel();
+        let renamed = rename_tool(Arc::new(Reporting(None)), "srv__reports");
+        let bound = renamed.with_progress(&sink).expect("the inner tool reports");
+        // Re-wrapped, so a bound tool is still the renamed one, and the sink got through to the inner tool.
+        assert_eq!(bound.spec().name, "srv__reports");
+        bound.call(Value::Null).await.unwrap();
+        assert_eq!(receiver.try_recv().unwrap().event, crate::code_engine::CodeEvent::Notice("working".into()));
     }
 }

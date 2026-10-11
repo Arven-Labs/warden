@@ -6,6 +6,16 @@
 
 ---
 
+### 2026-10-11 — Sessão 182 (continuação: P124, o Chat vê as tarefas de código ao vivo)
+
+- **Pedido do usuário**: "sim pode seguir com eventos ao vivo no chat", com plano antes (aprovado).
+- **O que a exploração mostrou** (e mudou o tamanho da tarefa): nada levava progresso de uma tool ao cliente, e o **turno normal do hub nem era transmitido** (`handle_turn` com sink vazio); só o turno de código do hub emitia `ChatEvent`. Web e desktop (em modo hub) já desenhavam a bolha ao vivo a partir de `chatEvent`; extensão e celular ignoram.
+- **O que mudou**: `StreamEvent::ToolProgress`, `Tool::with_progress` + `ProgressSink` (repassado pelo `rename_tool`), `attach_progress` em `start_turn` (só na raiz), drenagem em `run_turn` (durante a tool e antes de cada chamada ao modelo), `CodeEvent`/`ToolEvent`/`ToolStatus` serializáveis, `handle_agent_turn_in_with` no bootstrap, o hub transmitindo o turno normal e convertendo `ToolProgress` em `ChatEvent`. A `code_task` manda **só linhas de ferramenta e avisos**, com o projeto no título e `call_id` prefixado; não manda o texto do opencode nem o `Session` (decisão do plano: duas tarefas misturariam o balão).
+- **Cliente (conferido, como o plano pedia)**: `CancelTurn` só acha sessão de código, então a bolha ao vivo mostraria um "Parar" morto num turno de gerente. `onCancel` virou opcional em `ChatView` (web) e `ChatArea` (desktop) e só é passado em conversa de código.
+- **Testes**: orquestrador 3, `code_task` 4, `rename_tool` 1, bootstrap 1, hub de ponta a ponta 1 (`the_chat_sees_each_tasks_tool_rows_live_and_not_the_engines_words`). Workspace em dois blocos, **primeira rodada de cada, saída guardada**: 1231 + 332 passam, 0 falham; clippy sem aviso novo; `tsc` limpo e `npm test` da web (43) e do desktop (101). O intermitente do P128 não apareceu.
+- **Fica**: a bolha ao vivo do turno do gerente **não foi vista numa janela**; `model` por tarefa; `code_task` no desktop local; texto do opencode ao vivo; extensão e celular sem `chatEvent`; worktrees; revisão como etapa; nenhum modelo real nem opencode real.
+- **Deslize meu (de novo)**: chamei `python3` com heredoc vazio duas vezes por reflexo (sem efeito, não editou nada); não era preciso.
+
 ### 2026-10-11 — Sessão 182 (continuação: P124, `mode` por tarefa com teto pela autonomia)
 
 - **Pedido do usuário**: "vamos seguir no 124"; perguntei a fatia e ele escolheu a recomendada (modo por tarefa, limitado pela autonomia), com plano antes.

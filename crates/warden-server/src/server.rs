@@ -1485,7 +1485,17 @@ async fn handle_connection<S: Transport>(ws: WebSocketStream<S>, peer: SocketAdd
                     tokio::spawn(async move {
                         let learn_id = conversation_id.clone();
                         let agent = agent_id.as_deref().zip(persona.as_deref()).map(|(id, persona)| TurnAgent { id, persona });
-                        let reply = match warden_bootstrap::handle_agent_turn_in(
+                        // P124: what a tool says about its work while it runs (a `code_task` editing and running commands) is shown live. The
+                        // model's own words still arrive with the answer, as they always did.
+                        let (events_tx, events_id) = (reply_tx.clone(), conversation_id.clone());
+                        let on_event = move |event: &warden_core::model::StreamEvent| {
+                            if let warden_core::model::StreamEvent::ToolProgress { event, .. } = event {
+                                if let Some(event) = ChatEventDto::from_code(event.clone()) {
+                                    let _ = events_tx.send(ServerMessage::ChatEvent { conversation_id: events_id.clone(), event });
+                                }
+                            }
+                        };
+                        let reply = match warden_bootstrap::handle_agent_turn_in_with(
                             &orchestrator,
                             &conversations_dir,
                             &conversation_id,
@@ -1496,6 +1506,7 @@ async fn handle_connection<S: Transport>(ws: WebSocketStream<S>, peer: SocketAdd
                             project_id.as_deref(),
                             workdir.as_deref(),
                             thread.as_ref(),
+                            on_event,
                         )
                         .await
                         {
