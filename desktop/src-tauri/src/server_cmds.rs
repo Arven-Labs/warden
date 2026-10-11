@@ -57,6 +57,8 @@ pub struct EmbeddedServerHandle {
 struct DesktopHubSettings {
     config_path: PathBuf,
     desktop: Arc<Mutex<Result<Orchestrator, String>>>,
+    /// The desktop's engine and models for `code_task` (P124): the orchestrators this host builds carry the tool too.
+    engine: (warden_core::tool::code_task::CodeEngineSlot, warden_server::openai_api::EngineModelSlot),
 }
 
 #[async_trait::async_trait]
@@ -66,7 +68,7 @@ impl SettingsHost for DesktopHubSettings {
     }
 
     async fn build(&self) -> anyhow::Result<Orchestrator> {
-        warden_bootstrap::bootstrap(None, warden_bootstrap::Overrides::default(), crate::desktop_default_vault_path()).await
+        crate::code_cmds::bootstrap_desktop(&self.engine.0, &self.engine.1).await
     }
 
     fn installed(&self, orchestrator: &Orchestrator) {
@@ -360,7 +362,7 @@ pub(crate) async fn start_embedded_server_inner(state: &AppState, config: &Embed
         server = server.with_web_ui(Arc::new(warden_server::EmbeddedWebUi));
     }
     if let Some(config_path) = default_config_path() {
-        server = server.with_settings(Arc::new(DesktopHubSettings { config_path, desktop: state.orchestrator.clone() }));
+        server = server.with_settings(Arc::new(DesktopHubSettings { config_path, desktop: state.orchestrator.clone(), engine: state.code.slots() }));
         // P84 — members sign in to the embedded hub too, each with their own vault.
         if let Some(users_dir) = warden_bootstrap::users::default_users_dir() {
             server = server.with_users_dir(users_dir);

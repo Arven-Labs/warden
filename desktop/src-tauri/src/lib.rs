@@ -35,7 +35,7 @@ use warden_bootstrap::settings::{
     check_active_provider, check_agents, check_combos, check_providers, config_version, default_models_by_kind, limits_into_config, prices_into_config,
 };
 use warden_bootstrap::{
-    aggregate_usage, bootstrap, build_model_for, default_config_path, scope_to_agent, AgentExtras,
+    aggregate_usage, build_model_for, default_config_path, scope_to_agent, AgentExtras,
     default_conversations_dir, default_limit_configs, env_switches_limits_off, list_conversations as read_conversations, load_config, load_config_from_path,
     oauth_credential_store_path, resolve_generated_path, resolve_vault_path, save_config,
     append_messages, AgentConfig, AppendOptions, ChatRole as SavedRole, ConversationMessage, ApiKeys, ComboConfig, Conversation, FileConfig, GitSyncConfig, McpServerConfig, ModelPolicyConfig, OutreachConfig,
@@ -886,7 +886,8 @@ async fn edit_agent_org(state: State<'_, AppState>, edit: warden_server_protocol
 /// with until it was restarted. A config the orchestrator can't start with leaves the hub on its
 /// current one; the desktop shows the error in its chat.
 async fn reload_orchestrator(state: &AppState) {
-    let new_orchestrator = bootstrap(None, Overrides::default(), desktop_default_vault_path()).await.map_err(|e| format!("{e:#}"));
+    let (engine_slot, engine_models) = state.code.slots();
+    let new_orchestrator = code_cmds::bootstrap_desktop(&engine_slot, &engine_models).await.map_err(|e| format!("{e:#}"));
     if let (Ok(orchestrator), Some(hub)) = (&new_orchestrator, state.embedded_server.lock().unwrap().as_ref()) {
         hub.orchestrator.replace(orchestrator.clone());
     }
@@ -1049,8 +1050,10 @@ fn sync_manifest_path() -> PathBuf {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    let orchestrator = tauri::async_runtime::block_on(bootstrap(None, Overrides::default(), desktop_default_vault_path()))
-        .map_err(|e| format!("{e:#}"));
+    // Made first: the orchestrator's `code_task` looks for the engine in the slots it holds (P124).
+    let code = code_cmds::CodeState::default();
+    let (engine_slot, engine_models) = code.slots();
+    let orchestrator = tauri::async_runtime::block_on(code_cmds::bootstrap_desktop(&engine_slot, &engine_models)).map_err(|e| format!("{e:#}"));
     let sync_config_path = default_config_path().unwrap_or_else(|| PathBuf::from("config.toml"));
     // P122: where this computer keeps the "always" a person gave, or nothing when `persist_grants = false`.
     let grant_policy = warden_bootstrap::grant_policy_at(&sync_config_path, false);
@@ -1087,11 +1090,13 @@ pub fn run() {
             Some(policy) => warden_core::autonomy::GrantBook::persistent(policy.dir.join(DESKTOP_GRANTS_FILE), policy.ttl),
             None => Default::default(),
         },
-        code: code_cmds::CodeState::default(),
+        code,
         sync_runner: sync_runner.clone(),
         lending: Mutex::new(None),
         remote: Mutex::new(None),
     };
+    // The engine goes where `code_task` looks, following the orchestrator the desktop holds; nothing starts until a task asks.
+    app_state.code.install_engine(app_state.orchestrator.clone());
 
     // Fase 9.1 follow-up ("virar o hub desta rede") — a previously-enabled embedded server comes
     // back up on every launch, same always-on-service expectation as Jellyfin/similar self-hosted

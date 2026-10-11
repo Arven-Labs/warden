@@ -6,6 +6,13 @@
 
 ---
 
+### 2026-10-11 — Sessão 182 (continuação: P124, `code_task` no desktop local)
+
+- **Pedido do usuário**: planejar e fazer a `code_task` no desktop local, **com plano antes e edição na tela** (a partir daqui: modo plan nas tarefas e a ferramenta Edit em vez de scripts Python). Plano aprovado.
+- **O que mudou**: `code_cmds.rs` ganhou o `LazyEngine` (entra no slot; cria a rota de modelo e o opencode só na primeira tarefa e segue o orquestrador atual), `runtime_of` (compartilhado com o `run_turn` das conversas de código) e `bootstrap_desktop`, usado no início, em `reload_orchestrator` e no `DesktopHubSettings` do hub embutido; o `EngineModelSlot` do desktop leva o `model` por tarefa para a mesma rota.
+- **Testes**: 3 no desktop (o slot é preenchido sem iniciar nada; settings quebradas recusam a tarefa com o motivo; o runtime nasce na primeira tarefa e segue um orquestrador trocado). Workspace inteiro sem falha.
+- **Fica**: o Chat do desktop sem linhas ao vivo; dois gerenciadores do opencode quando o hub embutido está ligado; `bootstrap_desktop` lê a configuração real do usuário, então não tem teste de unidade; nada visto numa janela nem com opencode real.
+
 ### 2026-10-11 — Sessão 182 (continuação: P124, `model` por tarefa)
 
 - **Pedido do usuário**: seguir com o P124 depois de limpar o contexto. Ele **não quis fazer agora** a verificação com opencode e modelo reais (não há opencode nem chave neste ambiente); escolhi o `model` por tarefa e ele aprovou depois de eu dizer o risco.
