@@ -28,6 +28,11 @@ pub fn builtin_category(name: &str, arguments: &Value) -> Option<Category> {
     let action = arguments.get("action").and_then(Value::as_str).unwrap_or_default();
     match base {
         "shell" | "ssh_exec" | "ssh_upload" | "ssh_download" | "node_shell" | "node_write_file" | "code_task" => Some(Category::CriticalInfra),
+        // Looking at what a task left changes nothing; merging it into the person's folder or throwing it away does.
+        "code_worktree" => match action {
+            "list" | "diff" => None,
+            _ => Some(Category::CriticalInfra),
+        },
         "manage_agents" => match action {
             "list" => None,
             "delete" => Some(Category::DeleteData),
@@ -106,6 +111,14 @@ mod tests {
         for name in ["read_file", "write_file", "use_skill", "list_nodes", "node_read_file", "delegate_task", "message_agent"] {
             assert_eq!(builtin_category(name, &json!({})), None, "{name}");
         }
+    }
+
+    #[test]
+    fn looking_at_a_tasks_worktree_is_free_and_merging_or_discarding_it_is_critical_infrastructure() {
+        for (action, expected) in [("list", None), ("diff", None), ("merge", Some(Category::CriticalInfra)), ("discard", Some(Category::CriticalInfra))] {
+            assert_eq!(builtin_category("code_worktree", &json!({ "action": action })), expected, "{action}");
+        }
+        assert_eq!(builtin_category("code_worktree", &json!({})), Some(Category::CriticalInfra), "no action named is not assumed harmless");
     }
 
     #[test]

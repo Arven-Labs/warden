@@ -34,6 +34,17 @@ fn folder_lock(workdir: &str) -> Arc<tokio::sync::Mutex<()>> {
     LOCKS.get_or_init(Default::default).lock().unwrap_or_else(|e| e.into_inner()).entry(workdir.to_string()).or_default().clone()
 }
 
+/// Whether a task is working in `workdir` right now: what is in that folder can't be merged or thrown away yet.
+pub(crate) fn folder_busy(workdir: &str) -> bool {
+    folder_lock(workdir).try_lock_owned().is_err()
+}
+
+/// A task in `workdir` that never ends until the guard is dropped, for the tests of what must not happen while one runs.
+#[cfg(test)]
+pub(crate) fn hold_folder_for_test(workdir: &str) -> tokio::sync::OwnedMutexGuard<()> {
+    folder_lock(workdir).try_lock_owned().expect("nobody else is working there")
+}
+
 /// Stops the engine's session when the work that started it is dropped before it finished (a person stopped the task, or the turn
 /// that started it ended): the engine is another process, and without this it would go on editing after the task is gone.
 struct StopOnDrop {

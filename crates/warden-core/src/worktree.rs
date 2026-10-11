@@ -128,6 +128,107 @@ pub async fn finish(worktree: &Worktree) -> anyhow::Result<Finished> {
     Ok(Finished { changed: true, summary: lines.join("\n") })
 }
 
+/// One worktree of a project, as a listing shows it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Entry {
+    pub id: String,
+    pub branch: String,
+    /// Files changed and not committed.
+    pub changed_files: usize,
+    /// Commits on the branch the project's own branch doesn't have.
+    pub commits: usize,
+}
+
+/// The worktrees a project's repository has from tasks (kept because they have work, or because nobody looked yet).
+pub async fn list(workdir: &Path) -> anyhow::Result<Vec<Entry>> {
+    let (repo, _) = locate(workdir).await?;
+    let container = container_of(&repo)?;
+    let mut ids: Vec<String> = Vec::new();
+    if let Ok(mut dir) = tokio::fs::read_dir(&container).await {
+        while let Some(entry) = dir.next_entry().await? {
+            let name = entry.file_name().to_string_lossy().into_owned();
+            if is_id(&name) && entry.path().is_dir() {
+                ids.push(name);
+            }
+        }
+    }
+    ids.sort();
+    let mut entries = Vec::new();
+    for id in ids {
+        let branch = branch_of(&id);
+        let status = git(&container.join(&id), &["status", "--porcelain"]).await.unwrap_or_default();
+        let commits = git(&repo, &["log", "--oneline", &format!("HEAD..{branch}")]).await.unwrap_or_default();
+        entries.push(Entry { id, branch, changed_files: status.lines().count(), commits: commits.lines().count() });
+    }
+    Ok(entries)
+}
+
+/// Everything the task changed in `worktree` (its commits and what is not committed yet) against where its branch left the project's
+/// own: the files and the patch, the patch cut at `max_chars`.
+pub async fn diff(worktree: &Worktree, max_chars: usize) -> anyhow::Result<String> {
+    // Staging inside the worktree makes the files the task created show in the diff; it changes nothing the person has.
+    git(&worktree.root, &["add", "-A"]).await?;
+    let base = git(&worktree.repo, &["merge-base", "HEAD", &worktree.branch]).await?;
+    let stat = git(&worktree.root, &["diff", "--cached", "--stat", &base]).await?;
+    let patch = git(&worktree.root, &["diff", "--cached", &base]).await?;
+    if stat.is_empty() && patch.is_empty() {
+        return Ok("(no changes)".to_string());
+    }
+    let shown: String = patch.chars().take(max_chars).collect();
+    let cut = if shown.len() < patch.len() { format!("\n… patch cut at {max_chars} characters; the files above are all of them") } else { String::new() };
+    Ok(format!("{stat}\n\n{shown}{cut}"))
+}
+
+/// How a merge ended.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Merged {
+    /// In the project's branch, as `commit`; the worktree and its branch are gone.
+    Done { commit: String, stat: String },
+    /// The two sides changed the same lines. Nothing was changed in the project's folder, and the worktree is kept to be fixed.
+    Conflict { files: Vec<String> },
+}
+
+/// Brings the task's work into the branch the project's folder has checked out, as a merge commit that keeps the task's own commits.
+/// What the task left uncommitted is committed on its branch first. Refused, before anything is touched, when the project's folder has
+/// changes of its own that aren't committed (a merge would mix them in) or no branch checked out.
+pub async fn merge(worktree: &Worktree, title: &str) -> anyhow::Result<Merged> {
+    git(&worktree.repo, &["symbolic-ref", "-q", "HEAD"]).await.map_err(|_| anyhow!("the project's folder has no branch checked out (a detached HEAD), so there is nothing to merge into"))?;
+    let dirty = git(&worktree.repo, &["status", "--porcelain"]).await?;
+    if !dirty.is_empty() {
+        bail!("the project's folder has changes that aren't committed; commit or stash them first, so the merge doesn't mix them in:\n{dirty}");
+    }
+    git(&worktree.root, &["add", "-A"]).await?;
+    if !git(&worktree.root, &["diff", "--cached", "--name-only"]).await?.is_empty() {
+        git(&worktree.root, &["commit", "-q", "-m", &format!("warden: {title}")]).await.context("committing what the task left (are user.name and user.email set in git?)")?;
+    }
+    let message = format!("Merge {}: {title}", worktree.branch);
+    match git(&worktree.repo, &["merge", "--no-ff", "-m", &message, &worktree.branch]).await {
+        Ok(_) => {
+            let commit = git(&worktree.repo, &["rev-parse", "--short", "HEAD"]).await?;
+            let stat = git(&worktree.repo, &["show", "--stat", "--format=", "HEAD"]).await?;
+            git(&worktree.repo, &["worktree", "remove", "--force", &worktree.root.to_string_lossy()]).await?;
+            git(&worktree.repo, &["branch", "-d", &worktree.branch]).await?;
+            Ok(Merged::Done { commit, stat })
+        }
+        Err(err) => {
+            let files: Vec<String> = git(&worktree.repo, &["diff", "--name-only", "--diff-filter=U"]).await.unwrap_or_default().lines().map(str::to_string).collect();
+            if files.is_empty() {
+                return Err(err);
+            }
+            // Back to what the project's folder was before, whatever the merge left half done.
+            let _ = git(&worktree.repo, &["merge", "--abort"]).await;
+            Ok(Merged::Conflict { files })
+        }
+    }
+}
+
+/// Throws the task's work away: the worktree and its branch, with whatever is in them.
+pub async fn discard(worktree: &Worktree) -> anyhow::Result<()> {
+    git(&worktree.repo, &["worktree", "remove", "--force", &worktree.root.to_string_lossy()]).await?;
+    git(&worktree.repo, &["branch", "-D", &worktree.branch]).await?;
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -149,11 +250,120 @@ mod tests {
         let repo = outer.join("repo");
         std::fs::create_dir_all(repo.join("sub")).unwrap();
         run(&repo, &["init", "-q"]);
+        // Its own identity, so what the module commits doesn't depend on the machine the tests run on.
+        run(&repo, &["config", "user.name", "t"]);
+        run(&repo, &["config", "user.email", "t@t"]);
         std::fs::write(repo.join("a.txt"), "one").unwrap();
         std::fs::write(repo.join("sub").join("b.txt"), "two").unwrap();
         run(&repo, &["add", "."]);
         run(&repo, &["commit", "-q", "-m", "first"]);
         (outer, repo)
+    }
+
+    fn out(dir: &Path, args: &[&str]) -> String {
+        let output = std::process::Command::new("git").arg("-C").arg(dir).args(args).output().unwrap();
+        assert!(output.status.success(), "git {args:?}");
+        String::from_utf8_lossy(&output.stdout).trim().to_string()
+    }
+
+    #[tokio::test]
+    async fn the_diff_shows_what_a_task_made_edited_and_committed_and_a_listing_says_which_worktrees_have_work() {
+        let (outer, repo) = repository("diff");
+        assert!(list(&repo).await.unwrap().is_empty());
+        let worktree = create(&repo).await.unwrap();
+        assert_eq!(diff(&worktree, 10_000).await.unwrap(), "(no changes)");
+
+        std::fs::write(worktree.path.join("a.txt"), "edited").unwrap();
+        std::fs::write(worktree.path.join("new.txt"), "brand new").unwrap();
+        std::fs::write(worktree.path.join("c.txt"), "committed").unwrap();
+        run(&worktree.path, &["add", "c.txt"]);
+        run(&worktree.path, &["commit", "-q", "-m", "add c"]);
+        std::fs::write(worktree.path.join("late.txt"), "made after the commit").unwrap();
+        let shown = diff(&worktree, 10_000).await.unwrap();
+        for wanted in ["a.txt", "new.txt", "c.txt", "late.txt", "+brand new", "+edited"] {
+            assert!(shown.contains(wanted), "{wanted} in\n{shown}");
+        }
+        let cut = diff(&worktree, 20).await.unwrap();
+        assert!(cut.contains("patch cut at 20 characters") && cut.contains("new.txt"), "the files still all show:\n{cut}");
+
+        assert_eq!(list(&repo).await.unwrap(), [Entry { id: worktree.id.clone(), branch: worktree.branch.clone(), changed_files: 3, commits: 1 }]);
+        std::fs::remove_dir_all(&outer).ok();
+    }
+
+    #[tokio::test]
+    async fn a_merge_keeps_the_tasks_commits_commits_what_it_left_and_clears_the_worktree() {
+        let (outer, repo) = repository("merge");
+        let worktree = create(&repo).await.unwrap();
+        std::fs::write(worktree.path.join("c.txt"), "committed").unwrap();
+        run(&worktree.path, &["add", "."]);
+        run(&worktree.path, &["commit", "-q", "-m", "add c"]);
+        std::fs::write(worktree.path.join("late.txt"), "not committed").unwrap();
+
+        let Merged::Done { commit, stat } = merge(&worktree, "add the files").await.unwrap() else { panic!("a merge with no conflict") };
+        assert!(stat.contains("c.txt") && stat.contains("late.txt"), "{stat}");
+        assert_eq!(out(&repo, &["rev-parse", "--short", "HEAD"]), commit);
+        assert_eq!(out(&repo, &["rev-list", "--parents", "-n", "1", "HEAD"]).split_whitespace().count(), 3, "a merge commit: it and its two parents");
+        assert!(out(&repo, &["log", "-1", "--format=%s"]).starts_with("Merge warden/"), "{}", out(&repo, &["log", "-1", "--format=%s"]));
+        assert!(out(&repo, &["log", "--format=%s"]).contains("add c"), "the task's own commit is in the history");
+        assert!(repo.join("c.txt").is_file() && repo.join("late.txt").is_file(), "and the files are in the project's folder");
+        assert!(!worktree.path.exists() && out(&repo, &["branch", "--list", &worktree.branch]).is_empty(), "the worktree and its branch are gone");
+        std::fs::remove_dir_all(&outer).ok();
+    }
+
+    #[tokio::test]
+    async fn a_conflict_leaves_the_projects_folder_as_it_was_and_keeps_the_worktree_to_be_fixed() {
+        let (outer, repo) = repository("conflict");
+        let worktree = create(&repo).await.unwrap();
+        std::fs::write(worktree.path.join("a.txt"), "the task's version").unwrap();
+        std::fs::write(repo.join("a.txt"), "the person's version").unwrap();
+        run(&repo, &["commit", "-q", "-am", "the person changed it too"]);
+        let head = out(&repo, &["rev-parse", "HEAD"]);
+
+        let merged = merge(&worktree, "change a").await.unwrap();
+        assert_eq!(merged, Merged::Conflict { files: vec!["a.txt".to_string()] });
+        assert_eq!(out(&repo, &["rev-parse", "HEAD"]), head, "no merge commit");
+        assert!(out(&repo, &["status", "--porcelain"]).is_empty(), "no half-done merge in the folder");
+        assert_eq!(std::fs::read_to_string(repo.join("a.txt")).unwrap(), "the person's version");
+        assert!(worktree.path.join("a.txt").is_file(), "the worktree is kept");
+        assert!(!out(&repo, &["branch", "--list", &worktree.branch]).is_empty());
+        std::fs::remove_dir_all(&outer).ok();
+    }
+
+    #[tokio::test]
+    async fn a_merge_is_refused_before_anything_is_touched_when_the_folder_is_dirty_has_no_branch_or_git_has_no_name() {
+        let (outer, repo) = repository("refused");
+        let worktree = create(&repo).await.unwrap();
+        std::fs::write(worktree.path.join("c.txt"), "work").unwrap();
+
+        std::fs::write(repo.join("a.txt"), "the person is in the middle of this").unwrap();
+        let err = merge(&worktree, "t").await.unwrap_err();
+        assert!(err.to_string().contains("aren't committed") && err.to_string().contains("a.txt"), "{err}");
+        run(&repo, &["checkout", "-q", "--", "a.txt"]);
+
+        // No name for the commit of what the task left: said, and the worktree is as it was.
+        run(&repo, &["config", "user.name", ""]);
+        let err = merge(&worktree, "t").await.unwrap_err();
+        assert!(format!("{err:#}").contains("user.name"), "{err:#}");
+        run(&repo, &["config", "user.name", "t"]);
+
+        let head = out(&repo, &["rev-parse", "HEAD"]);
+        run(&repo, &["checkout", "-q", "--detach"]);
+        let err = merge(&worktree, "t").await.unwrap_err();
+        assert!(err.to_string().contains("no branch checked out"), "{err}");
+        assert_eq!(out(&repo, &["rev-parse", "HEAD"]), head);
+        assert!(worktree.path.join("c.txt").is_file());
+        std::fs::remove_dir_all(&outer).ok();
+    }
+
+    #[tokio::test]
+    async fn discarding_removes_the_worktree_the_branch_and_the_work() {
+        let (outer, repo) = repository("discard");
+        let worktree = create(&repo).await.unwrap();
+        std::fs::write(worktree.path.join("c.txt"), "work").unwrap();
+        discard(&worktree).await.unwrap();
+        assert!(!worktree.path.exists() && out(&repo, &["branch", "--list", &worktree.branch]).is_empty());
+        assert!(list(&repo).await.unwrap().is_empty());
+        std::fs::remove_dir_all(&outer).ok();
     }
 
     #[tokio::test]

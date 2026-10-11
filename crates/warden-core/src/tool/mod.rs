@@ -8,6 +8,7 @@ use crate::budget::TurnBudget;
 use crate::jobs::JobBoard;
 
 pub mod code_task;
+pub mod code_worktree;
 pub mod delegate;
 pub mod delegate_to_agent;
 pub mod document;

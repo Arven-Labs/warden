@@ -6,6 +6,14 @@
 
 ---
 
+### 2026-10-11 — Sessão 182 (continuação: P124, revisão e integração das worktrees)
+
+- **Pedido do usuário**: "sim" para planejar a revisão e integração. Duas decisões dele: **a pessoa sempre confirma** mesclar e descartar (qualquer autonomia) e a integração é um **commit de mesclagem `--no-ff`**.
+- **O que mudou**: `worktree.rs` ganhou `list`, `diff`, `merge` (recusas antes de tocar em algo; commita o que a tarefa deixou; em conflito aborta o merge e mantém a worktree) e `discard`; tool nova `code_worktree` (`tool/code_worktree.rs`) que pede à pessoa em `merge`/`discard` e recusa enquanto uma tarefa trabalha na worktree (`folder_busy` em `code_task.rs`); registrada junto da `code_task` (`register_code_task`, então hub e desktop); `risk.rs` e `NEVER_FOR_MEMBERS` a conhecem.
+- **Testes**: 5 novos em `worktree.rs` com git real (diff com arquivo novo, editado e commitado e corte do patch; mesclagem com dois pais e worktree limpa; conflito deixa a pasta como estava; recusas por pasta suja, HEAD solto e identidade git vazia; descarte) e 6 em `code_worktree` (olhar não pergunta, o pedido mostra o que entra e um não não muda nada, sem aprovador não roda, conflito, tarefa ainda trabalhando, pedidos inválidos), 1 em `risk.rs`; `people.rs` atualizado. Workspace sem falha, clippy limpo nos arquivos tocados.
+- **Deslize meu**: o primeiro teste de `code_worktree` segurava um `MutexGuard` durante um `await`; o clippy pegou e corrigi.
+- **Fica**: nenhum modelo real nem opencode real conduziu o ciclo; o gerente não roda testes sozinho antes de mesclar; conflito é resolvido só por `code_task`; squash/rebase; limpeza de worktrees abandonadas.
+
 ### 2026-10-11 — Sessão 182 (continuação: P124, worktrees por tarefa)
 
 - **Pedido do usuário**: planejar as worktrees por tarefa; plano aprovado. Duas decisões dele: **sob pedido** (`isolate`), não automático, e o trabalho **fica na branch para revisão**, nada mesclado sozinho.

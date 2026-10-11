@@ -457,10 +457,10 @@ mod tests {
         for ok in ["read_file", "write_file", "use_skill", "manage_skill", "delegate_task", "tavily-search", "generate_document"] {
             assert!(default_member_tool(ok), "{ok}");
         }
-        for no in ["shell", "ssh_exec", "list_nodes", "node_shell", "home-pc__query", "manage_agents", "manage_tasks", "message_agent", "usage_stats", "delegate_to_agent", "code_task", "github__create_issue"] {
+        for no in ["shell", "ssh_exec", "list_nodes", "node_shell", "home-pc__query", "manage_agents", "manage_tasks", "message_agent", "usage_stats", "delegate_to_agent", "code_task", "code_worktree", "github__create_issue"] {
             assert!(!default_member_tool(no), "{no}");
         }
-        for never in ["delegate_to_agent", "message_agent", "manage_agents", "manage_tasks", "usage_stats", "code_task"] {
+        for never in ["delegate_to_agent", "message_agent", "manage_agents", "manage_tasks", "usage_stats", "code_task", "code_worktree"] {
             assert!(NEVER_FOR_MEMBERS.contains(&never), "{never}");
         }
     }

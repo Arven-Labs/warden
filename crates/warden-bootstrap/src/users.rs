@@ -305,8 +305,8 @@ pub fn spaces_for<'a>(spaces: &'a [SpaceConfig], user: &str) -> Vec<(&'a SpaceCo
 /// a way `Orchestrator::with_vault` can't close — other agents' orchestrators and conversations
 /// (`delegate_to_agent`, `message_agent`), the owner's agents and tasks (`manage_agents`,
 /// `manage_tasks`), the whole hub's spending (`usage_stats`), or the owner's code projects and their folders on this
-/// machine (`code_task`).
-pub const NEVER_FOR_MEMBERS: &[&str] = &["delegate_to_agent", "message_agent", "manage_agents", "manage_tasks", "usage_stats", "code_task"];
+/// machine (`code_task`, and `code_worktree`, which merges what a task left into them).
+pub const NEVER_FOR_MEMBERS: &[&str] = &["delegate_to_agent", "message_agent", "manage_agents", "manage_tasks", "usage_stats", "code_task", "code_worktree"];
 
 /// The tools a member has when the owner never set a list: their own vault's files and skills, a
 /// sub-agent (rebound to their vault too), background jobs, their spending, documents, and web

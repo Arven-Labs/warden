@@ -13,6 +13,7 @@ use warden_core::code_engine::process::OpencodeProcesses;
 use warden_core::code_engine::{CodeEngine, CodeModes};
 use warden_core::tool::delegate::ModelChoices;
 use warden_core::tool::code_task::{CodeEngineSlot, CodeTaskTool};
+use warden_core::tool::code_worktree::CodeWorktreeTool;
 
 use crate::engine_models::EngineModels;
 
@@ -39,6 +40,8 @@ pub fn register_code_task(orchestrator: &mut warden_core::orchestrator::Orchestr
         Some(models) => tool.with_models(models),
         None => tool,
     }));
+    // P124 — what an isolated task left is looked at, merged or thrown away with this one.
+    orchestrator.register_tool(Arc::new(CodeWorktreeTool::new(orchestrator.vault().clone())));
 }
 
 #[derive(Clone, Default)]
