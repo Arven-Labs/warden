@@ -6,6 +6,15 @@
 
 ---
 
+### 2026-10-11 — Sessão 182 (continuação: P124, o turno de código não fica preso na lista)
+
+- **Pedido do usuário**: "vamos de 1" (a entrada de `CodeTurns` que sobrava se o hub caísse no meio de um turno).
+- **O que mudou**: `CodeTurns::hold` + `TurnGuard` (solta a entrada no `Drop`); o hub (`server.rs`) e o desktop (`code_cmds.rs`) usam `hold` no lugar de `begin`/`end`.
+- **Testes**: 1 novo em `code_turns` (tarefa abortada e tarefa com pânico liberam a conversa); `code_mode` (6) verde; clippy do servidor limpo; `cargo check` do desktop passa.
+- **Fica**: janela e celular não vistos.
+
+---
+
 ### 2026-10-11 — Sessão 182 (continuação: P124, o desktop vê os turnos que o celular roda no hub)
 
 - **Pedido do usuário**: "vamos pelo desfazer dos turnos do celular"; entendi como a lacuna de o desktop não ver turnos vindos do celular (plano aprovado com essa leitura).

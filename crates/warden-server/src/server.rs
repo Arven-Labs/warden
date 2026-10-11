@@ -1475,7 +1475,7 @@ async fn handle_connection<S: Transport>(ws: WebSocketStream<S>, peer: SocketAdd
                         };
                         let (reply_tx, turns, approver) = (tx.clone(), code_turns.clone(), Arc::new(approver.clone()));
                         tokio::spawn(async move {
-                            turns.begin(&conversation_id, project.workdir.as_deref().unwrap_or_default());
+                            let running = turns.hold(&conversation_id, project.workdir.as_deref().unwrap_or_default());
                             let (events_tx, events_turns, events_id) = (reply_tx.clone(), turns.clone(), conversation_id.clone());
                             let mut on_event = move |event: CodeEvent| match event {
                                 CodeEvent::Session(session) => events_turns.set_session(&events_id, session),
@@ -1489,7 +1489,7 @@ async fn handle_connection<S: Transport>(ws: WebSocketStream<S>, peer: SocketAdd
                             let mode = turns.modes().subscribe(&conversation_id);
                             let turn = CodeTurn { engine: engine.as_ref(), project: &project, conversations_dir: &conversations_dir, conversation_id: &conversation_id, title_seed: &seed, user_input: &message, attachments, mode };
                             let result = turn.run(Some(approver), &mut on_event).await;
-                            turns.end(&conversation_id);
+                            drop(running);
                             let reply = match result {
                                 Ok(outcome) => ServerMessage::ChatResponse { content: outcome.content, usage: None, attachments: Vec::new(), conversation_id: Some(conversation_id), fallbacks: Vec::new() },
                                 Err(err) => ServerMessage::ChatError { message: format!("{err:#}"), conversation_id: Some(conversation_id), spend_limit_id: None },

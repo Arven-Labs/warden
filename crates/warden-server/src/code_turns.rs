@@ -82,6 +82,13 @@ impl CodeTurns {
         self.running.lock().unwrap().remove(conversation_id);
     }
 
+    /// `begin`, but the entry is taken out when the guard drops — also when the task is cancelled or panics mid-turn, which a
+    /// plain `end` after the work would never reach and so would leave the conversation "running" until the app restarts.
+    pub fn hold(&self, conversation_id: &str, workdir: &str) -> TurnGuard {
+        self.begin(conversation_id, workdir);
+        TurnGuard { turns: self.clone(), conversation_id: conversation_id.to_string() }
+    }
+
     /// `(working folder, session)` of the task a conversation is running, if it has got as far as having a session.
     pub fn session_of(&self, conversation_id: &str) -> Option<(String, String)> {
         let running = self.running.lock().unwrap();
@@ -90,9 +97,44 @@ impl CodeTurns {
     }
 }
 
+/// Keeps a conversation in the running map for as long as it lives (`CodeTurns::hold`).
+pub struct TurnGuard {
+    turns: CodeTurns,
+    conversation_id: String,
+}
+
+impl Drop for TurnGuard {
+    fn drop(&mut self) {
+        self.turns.end(&self.conversation_id);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn a_held_turn_is_released_when_its_task_is_cancelled_or_panics() {
+        let turns = CodeTurns::default();
+        let held = turns.clone();
+        let task = tokio::spawn(async move {
+            let _guard = held.hold("c1", "/repo");
+            std::future::pending::<()>().await;
+        });
+        tokio::task::yield_now().await;
+        assert!(turns.is_running("c1"));
+        task.abort();
+        let _ = task.await;
+        assert!(!turns.is_running("c1"), "an aborted task frees the conversation");
+
+        let held = turns.clone();
+        let task = tokio::spawn(async move {
+            let _guard = held.hold("c2", "/repo");
+            panic!("engine blew up");
+        });
+        let _ = task.await;
+        assert!(!turns.is_running("c2"), "a panic frees the conversation");
+    }
 
     #[test]
     fn a_task_can_be_found_once_it_has_a_session_and_not_after_it_ends() {

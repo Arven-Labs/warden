@@ -150,7 +150,7 @@ pub async fn run_turn(
     // Where the conversation is: the hub's folder if it was shared (P124), so the phone and this window go on in the same file.
     let conversations_dir = crate::share_cmds::conversation_dir(conversation_id)?;
     let turns = state.code.turns.clone();
-    turns.begin(conversation_id, project.workdir.as_deref().unwrap_or_default());
+    let running = turns.hold(conversation_id, project.workdir.as_deref().unwrap_or_default());
     let (event_app, event_turns, event_id) = (app.clone(), turns.clone(), conversation_id.to_string());
     let mut on_event = move |event: CodeEvent| match event {
         CodeEvent::Session(session) => event_turns.set_session(&event_id, session),
@@ -173,7 +173,7 @@ pub async fn run_turn(
     };
     let approver = Arc::new(approval::TauriApprover { app, broker: state.approvals.clone() });
     let result = turn.run(Some(approver), &mut on_event).await;
-    turns.end(conversation_id);
+    drop(running);
     result.map(|outcome| outcome.content).map_err(|e| format!("{e:#}"))
 }
 
