@@ -3159,7 +3159,7 @@ O gerente de programação é um agente comum que chama `code_task` (decidido na
   - **Sem protocolo novo**: reusa `ChatEventDto::Tool/Notice`. Uma variante nova quebraria a desserialização do `ServerMessage` inteiro num cliente antigo, e as fixtures não mudam.
   - **Clientes**: web e desktop (em modo hub) já montavam a bolha ao vivo a partir de `chatEvent`, e agora ela aparece também no turno do gerente. Extensão e celular continuam ignorando `chatEvent`. O botão "Parar" da bolha agora só existe numa conversa de código (`onCancel` opcional): `CancelTurn` só acha sessão de código, então num turno de gerente seria um botão que não faz nada.
   - **Limite**: só chega enquanto o turno do gerente roda (incluindo a espera de `jobs result`); se ele responde sem ler as tarefas, elas são canceladas junto, como já era.
-- **Fica**: `model` por tarefa (o opencode só enxerga o modelo do hub), a `code_task` no desktop local, o texto do opencode ao vivo (pediria separar por tarefa), worktrees por tarefa (hoje a fila por pasta evita o conflito, mas não deixa duas tarefas na mesma pasta andarem juntas), extensão e celular não desenham `chatEvent`.
+- **Fica**: `model` por tarefa (o opencode só enxerga o modelo do hub), a `code_task` no desktop local, o texto do opencode ao vivo (pediria separar por tarefa), worktrees por tarefa (feitas depois, ver a Sessão 182 no `SESSIONS.md`: `isolate`), extensão e celular não desenham `chatEvent`.
 
 ## Dólares por provedor, agente e pessoa, por dia, e "Testar chave" (P10, Sessão 124)
 

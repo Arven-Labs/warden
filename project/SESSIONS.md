@@ -6,6 +6,14 @@
 
 ---
 
+### 2026-10-11 — Sessão 182 (continuação: P124, worktrees por tarefa)
+
+- **Pedido do usuário**: planejar as worktrees por tarefa; plano aprovado. Duas decisões dele: **sob pedido** (`isolate`), não automático, e o trabalho **fica na branch para revisão**, nada mesclado sozinho.
+- **O que a exploração mostrou**: o opencode e o `folder_lock` são por caminho, então rodar a tarefa no caminho da worktree já dá o paralelismo; o motor não muda.
+- **O que mudou**: `warden-core/src/worktree.rs` novo (`create`, `open`, `finish`, com `git` de verdade; worktree em `<pai>/.warden-worktrees/<repo>/<id>`, branch `warden/<id>`, id de 6 hex validado); `code_task` ganhou `isolate` e `worktree`, o `run_task` que olha a worktree ao fim (mesmo se a tarefa falhou), `Isolation` no resultado (JSON e texto do `jobs result`) e o id da worktree no título das linhas ao vivo e na lista de tarefas; em segundo plano o `job_id` já devolve o `worktree`.
+- **Testes**: 5 de `worktree.rs` com git real (nasce do último commit fora do repositório, subpasta, recusas, só id nosso abre, some vazia e fica com trabalho ou commit) e 4 da `code_task` (trabalha noutra pasta e guarda só se mudou, volta a uma worktree e recusas antes de o motor rodar, pasta sem git recusada, duas isoladas em segundo plano andam juntas). Workspace sem falha; clippy limpo nos arquivos novos.
+- **Fica**: mesclar/revisar/integrar a branch (a etapa seguinte do gerente) e limpar worktrees antigas com trabalho (hoje `git worktree list` / `remove`); mudanças não commitadas da pasta principal não entram na worktree; cada worktree sobe o seu opencode; nenhum opencode real em duas worktrees foi visto.
+
 ### 2026-10-11 — Sessão 182 (continuação: P124, linhas ao vivo no Chat do desktop)
 
 - **Pedido do usuário**: planejar as linhas ao vivo; plano aprovado, edição na tela.

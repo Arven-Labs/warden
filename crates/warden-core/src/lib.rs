@@ -12,3 +12,4 @@ pub mod speech;
 pub mod spend;
 pub mod tool;
 pub mod transcribe;
+pub mod worktree;

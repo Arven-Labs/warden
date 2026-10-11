@@ -22,6 +22,7 @@ use crate::code_engine::{CodeEngine, CodeEvent, CodeMode, TurnOutcome, TurnReque
 use crate::jobs::{task_controls, JobBoard, TaskDraft};
 use crate::memory::Vault;
 use crate::project::ProjectStore;
+use crate::worktree::{self, Worktree};
 use crate::tool::delegate::{model_property, ModelChoices};
 use crate::tool::job_tools::{background_property, job_label, start_task_with, wants_background};
 use crate::tool::{Approver, ProgressSink, Tool, ToolSpec};
@@ -96,10 +97,57 @@ async fn run_in_engine(engine: Arc<dyn CodeEngine>, approver: Arc<dyn Approver>,
     outcome
 }
 
-/// What a background task's result says: the answer, and the session to continue and the tools it used (a `jobs` result is text).
-fn describe(outcome: &TurnOutcome) -> String {
+/// Where an isolated task's work was left (P124): the worktree it ran in, or the note that there was nothing to keep.
+struct Isolation {
+    id: String,
+    branch: String,
+    path: String,
+    changed: bool,
+    summary: String,
+}
+
+impl Isolation {
+    /// What a result tells besides the answer. A kept worktree is named, to be worked in again or looked at; an empty one is gone.
+    fn fields(&self) -> Value {
+        if self.changed {
+            json!({ "worktree": self.id, "branch": self.branch, "path": self.path, "changes": self.summary })
+        } else {
+            json!({ "worktree": null, "note": "the task changed nothing, so its worktree and branch were removed" })
+        }
+    }
+
+    fn describe(&self) -> String {
+        if self.changed {
+            format!("\nworktree: {} (branch {}, folder {})\n{}", self.id, self.branch, self.path, self.summary)
+        } else {
+            "\nworktree: none kept (the task changed nothing, so its worktree and branch were removed)".to_string()
+        }
+    }
+}
+
+/// Runs the task and, if it had a worktree of its own, looks at what it left there. The worktree is looked at even when the task failed:
+/// a task that fell over half way may have edited files, and an empty one should not be left behind.
+async fn run_task(engine: Arc<dyn CodeEngine>, approver: Arc<dyn Approver>, request: TurnRequest, reporter: Option<Reporter>, isolated: Option<Worktree>) -> anyhow::Result<(TurnOutcome, Option<Isolation>)> {
+    let outcome = run_in_engine(engine, approver, request, reporter).await;
+    let isolation = match isolated {
+        None => None,
+        Some(worktree) => {
+            let left = worktree::finish(&worktree).await;
+            match (&outcome, left) {
+                (Ok(_), Err(err)) => return Err(err.context(format!("looking at the worktree {}", worktree.id))),
+                (_, Ok(left)) => Some(Isolation { id: worktree.id.clone(), branch: worktree.branch.clone(), path: worktree.path.to_string_lossy().into_owned(), changed: left.changed, summary: left.summary }),
+                (Err(_), Err(_)) => None,
+            }
+        }
+    };
+    Ok((outcome?, isolation))
+}
+
+/// What a background task's result says: the answer, the worktree if it had one, and the session to continue and the tools it used (a `jobs` result is text).
+fn describe(outcome: &TurnOutcome, isolation: Option<&Isolation>) -> String {
     let tools = if outcome.tools_used.is_empty() { String::new() } else { format!("\ntools_used: {}", outcome.tools_used.join(", ")) };
-    format!("{}\n\nsession_id: {}{tools}", outcome.text, outcome.session_id)
+    let worktree = isolation.map(Isolation::describe).unwrap_or_default();
+    format!("{}\n\nsession_id: {}{tools}{worktree}", outcome.text, outcome.session_id)
 }
 
 /// Where the engine will be, once there is one: the hub builds its tools before the engine (which needs the hub's model
@@ -222,11 +270,22 @@ impl Tool for CodeTaskTool {
         if let Some(models) = &self.models {
             properties["model"] = model_property(models);
         }
+        properties["isolate"] = json!({
+            "type": "boolean",
+            "description": "Run the task in a git worktree of its own, on its own branch, so it can work at the same time as other tasks on this project \
+                (without it, two tasks on one project run one after the other). The worktree starts from the last commit: what is changed and \
+                not committed in the project's folder is not in it. When the task ends, a worktree where nothing changed is removed; one with \
+                work is kept and the result names its 'worktree', 'branch' and folder. Nothing is merged for you. Needs a git repository."
+        });
+        properties["worktree"] = json!({
+            "type": "string",
+            "description": "The 'worktree' an earlier isolated task returned, to go on working in it (with that task's 'session_id' to continue its session). Leave out 'isolate' then."
+        });
         let mut background_note = "";
         if self.jobs.is_some() {
             properties["background"] = background_property();
-            background_note = " Tasks on different projects can run side by side in the background; two on the same project run one after the other. \
-                 A background task's result (read with 'jobs') ends with the 'session_id' to continue it.";
+            background_note = " Tasks on different projects can run side by side in the background; two on the same project run one after the other, unless they are \
+                 'isolate'd, which gives each its own worktree. A background task's result (read with 'jobs') ends with the 'session_id' to continue it.";
         }
         ToolSpec {
             name: "code_task".to_string(),
@@ -303,7 +362,26 @@ impl Tool for CodeTaskTool {
         let Some(engine) = self.engine.get().cloned() else {
             anyhow::bail!("the code engine isn't available on this machine");
         };
-        let workdir = project.workdir.clone().ok_or_else(|| anyhow::anyhow!("the project '{}' has no working folder", project.name))?;
+        let mut workdir = project.workdir.clone().ok_or_else(|| anyhow::anyhow!("the project '{}' has no working folder", project.name))?;
+        // A worktree of its own (P124): made now, so that a refusal above leaves nothing behind. The task then works in that folder, which
+        // is also the folder it queues on, so isolated tasks run side by side.
+        let reopen = args.get("worktree").and_then(Value::as_str).map(str::trim).filter(|w| !w.is_empty());
+        let isolate = args.get("isolate").and_then(Value::as_bool).unwrap_or(false);
+        if reopen.is_some() && isolate {
+            anyhow::bail!("pass 'isolate' for a new worktree or 'worktree' to go back to one, not both");
+        }
+        let isolated = match reopen {
+            Some(existing) => Some(worktree::open(std::path::Path::new(&workdir), existing).await?),
+            None if isolate => Some(worktree::create(std::path::Path::new(&workdir)).await?),
+            None => None,
+        };
+        let (shown_id, shown_name) = match &isolated {
+            Some(made) => {
+                workdir = made.path.to_string_lossy().into_owned();
+                (format!("{}:{}", project.id, made.id), format!("{} [wt {}]", project.name, made.id))
+            }
+            None => (project.id.clone(), project.name.clone()),
+        };
 
         // The mode is fixed for the task: nobody holds the sender, so nothing can loosen it while the task runs. It is the one asked for,
         // within what this agent's autonomy allows (`Manual` when it asks for none).
@@ -318,19 +396,30 @@ impl Tool for CodeTaskTool {
             mode,
             model: model.clone(),
         };
-        let reporter = self.progress.clone().map(|sink| Reporter { sink, project_id: project.id.clone(), project_name: project.name.clone() });
-        let draft = TaskDraft { assignee: format!("opencode · {}", project.name), objective: task.to_string(), model };
-        let result_of = |outcome: &TurnOutcome| json!({ "answer": outcome.text, "session_id": outcome.session_id, "tools_used": outcome.tools_used });
+        let reporter = self.progress.clone().map(|sink| Reporter { sink, project_id: shown_id, project_name: shown_name.clone() });
+        let draft = TaskDraft { assignee: format!("opencode · {shown_name}"), objective: task.to_string(), model };
+        let result_of = |outcome: &TurnOutcome, isolation: Option<&Isolation>| {
+            let mut result = json!({ "answer": outcome.text, "session_id": outcome.session_id, "tools_used": outcome.tools_used });
+            if let (Some(isolation), Some(fields)) = (isolation, result.as_object_mut()) {
+                fields.extend(isolation.fields().as_object().cloned().unwrap_or_default());
+            }
+            result
+        };
 
         if let Some(board) = &self.jobs {
             // In the background: this returns a job_id at once and the engine works while the agent carries on. The task is on the
             // tasks screen; it can be stopped there, but there is no gate in the engine to pause.
             if wants_background(&args) {
                 let label = job_label(&draft.assignee, task);
-                let started = start_task_with(board, label, draft, move |_| async move {
-                    let outcome = run_in_engine(engine, approver, request, reporter).await?;
-                    Ok((describe(&outcome), None))
+                let named = isolated.as_ref().map(|made| made.id.clone());
+                let mut started = start_task_with(board, label, draft, move |_| async move {
+                    let (outcome, isolation) = run_task(engine, approver, request, reporter, isolated).await?;
+                    Ok((describe(&outcome, isolation.as_ref()), None))
                 });
+                // The worktree is known now, before the task ends, for a task that will be asked to go back to it.
+                if let (Some(named), Some(fields)) = (named, started.as_object_mut()) {
+                    fields.insert("worktree".to_string(), json!(named));
+                }
                 if let Some(recorded) = board.list().last().and_then(|job| job.task.as_ref()) {
                     task_controls().forbid_pause(&recorded.task_id);
                 }
@@ -339,15 +428,15 @@ impl Tool for CodeTaskTool {
             // Waited for, but still a task in the log, like the delegations (P123).
             let text = board
                 .run_recorded_as(draft, false, move |_| async move {
-                    let outcome = run_in_engine(engine, approver, request, reporter).await?;
-                    Ok((result_of(&outcome).to_string(), None))
+                    let (outcome, isolation) = run_task(engine, approver, request, reporter, isolated).await?;
+                    Ok((result_of(&outcome, isolation.as_ref()).to_string(), None))
                 })
                 .await?;
             return Ok(serde_json::from_str(&text)?);
         }
 
-        let outcome = run_in_engine(engine, approver, request, reporter).await?;
-        Ok(result_of(&outcome))
+        let (outcome, isolation) = run_task(engine, approver, request, reporter, isolated).await?;
+        Ok(result_of(&outcome, isolation.as_ref()))
     }
 }
 
@@ -668,6 +757,139 @@ mod tests {
         let careful = orchestrator.with_autonomy(Autonomy::AskFirst, &[]);
         assert_eq!(offered(&careful), json!(["manual", "plan"]));
         assert_eq!(offered(&careful.with_autonomy(Autonomy::Autonomous, &[])), json!(["manual", "plan"]), "and nothing raises it again");
+    }
+
+    // --- Worktrees (P124) ---
+
+    /// A project whose folder is a real git repository with one commit (the worktrees are git's), inside a folder of its own.
+    fn git_project(name: &str) -> (std::path::PathBuf, Arc<Vault>) {
+        let outer = std::env::temp_dir().join(format!("warden-code-task-wt-{name}-{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
+        let repo = outer.join("repo");
+        std::fs::create_dir_all(&repo).unwrap();
+        let git = |args: &[&str]| assert!(std::process::Command::new("git").arg("-C").arg(&repo).args(["-c", "user.name=t", "-c", "user.email=t@t"]).args(args).status().unwrap().success());
+        git(&["init", "-q"]);
+        std::fs::write(repo.join("a.txt"), "one").unwrap();
+        git(&["add", "."]);
+        git(&["commit", "-q", "-m", "first"]);
+        let vault = vault(name);
+        let project = Project { id: "repo".into(), name: "Repo".into(), description: String::new(), instructions: String::new(), workdir: Some(repo.to_string_lossy().into_owned()), code: true };
+        ProjectStore::new(vault.clone()).save(&project).unwrap();
+        (outer, vault)
+    }
+
+    /// An engine that edits a file in the folder it is given when the task says "edit", and writes down the folders it worked in.
+    #[derive(Default)]
+    struct Editor {
+        folders: Mutex<Vec<String>>,
+    }
+    #[async_trait]
+    impl CodeEngine for Editor {
+        async fn run_turn(&self, request: TurnRequest, _: Option<Arc<dyn Approver>>, _: &mut (dyn FnMut(CodeEvent) + Send)) -> anyhow::Result<TurnOutcome> {
+            self.folders.lock().unwrap().push(request.workdir.clone());
+            if request.prompt.contains("edit") {
+                std::fs::write(std::path::Path::new(&request.workdir).join("made.txt"), "by the engine")?;
+            }
+            Ok(TurnOutcome { session_id: "ses_wt".into(), text: "Done.".into(), tools_used: Vec::new() })
+        }
+        async fn abort(&self, _: &str, _: &str) -> anyhow::Result<()> {
+            Ok(())
+        }
+    }
+
+    fn editing_tool(vault: Arc<Vault>) -> (Arc<Editor>, CodeTaskTool) {
+        let editor = Arc::new(Editor::default());
+        let slot: CodeEngineSlot = Arc::new(OnceLock::new());
+        let shared: Arc<dyn CodeEngine> = editor.clone();
+        slot.set(shared).ok();
+        let mut tool = CodeTaskTool::new(vault, slot);
+        tool.approver = Some(Arc::new(Yes));
+        (editor, tool)
+    }
+
+    #[tokio::test]
+    async fn an_isolated_task_works_in_a_worktree_of_its_own_and_keeps_it_only_if_it_changed_something() {
+        let (outer, vault) = git_project("isolate");
+        let (editor, tool) = editing_tool(vault);
+        let project = tool.code_projects()[0].workdir.clone().unwrap();
+
+        // Nothing changed: the worktree is gone, and the answer says so.
+        let idle = tool.call(json!({ "project": "repo", "task": "look around", "isolate": true })).await.unwrap();
+        let folder = editor.folders.lock().unwrap()[0].clone();
+        assert_ne!(folder, project, "the engine worked elsewhere");
+        assert!(folder.contains(".warden-worktrees"), "{folder}");
+        assert_eq!((idle["worktree"].clone(), idle["answer"].clone()), (json!(null), json!("Done.")));
+        assert!(!std::path::Path::new(&folder).exists());
+
+        // Something changed: the worktree and its branch are kept and named.
+        let busy = tool.call(json!({ "project": "repo", "task": "edit a file", "isolate": true })).await.unwrap();
+        let kept = busy["path"].as_str().unwrap();
+        assert!(std::path::Path::new(kept).join("made.txt").is_file());
+        assert_eq!(busy["branch"], format!("warden/{}", busy["worktree"].as_str().unwrap()));
+        assert!(busy["changes"].as_str().unwrap().contains("made.txt"), "{busy}");
+        assert!(!std::path::Path::new(&project).join("made.txt").exists(), "the project's own folder was not touched");
+
+        // A task without `isolate` is as it always was.
+        let plain = tool.call(json!({ "project": "repo", "task": "look around" })).await.unwrap();
+        assert!(plain.get("worktree").is_none(), "{plain}");
+        assert_eq!(editor.folders.lock().unwrap().last().unwrap(), &project);
+        std::fs::remove_dir_all(&outer).ok();
+    }
+
+    #[tokio::test]
+    async fn a_kept_worktree_can_be_gone_back_to_and_a_bad_ask_is_refused_before_the_engine_runs() {
+        let (outer, vault) = git_project("goback");
+        let (editor, tool) = editing_tool(vault);
+        let first = tool.call(json!({ "project": "repo", "task": "edit a file", "isolate": true })).await.unwrap();
+        let id = first["worktree"].as_str().unwrap().to_string();
+
+        let again = tool.call(json!({ "project": "repo", "task": "go on", "worktree": id, "session_id": "ses_wt" })).await.unwrap();
+        assert_eq!(editor.folders.lock().unwrap().last().unwrap(), first["path"].as_str().unwrap(), "the same folder");
+        assert_eq!(again["worktree"], first["worktree"], "and still kept: it still has the work");
+
+        let before = editor.folders.lock().unwrap().len();
+        for (args, why) in [
+            (json!({ "project": "repo", "task": "x", "isolate": true, "worktree": id }), "not both"),
+            (json!({ "project": "repo", "task": "x", "worktree": "../repo" }), "isn't a worktree id"),
+            (json!({ "project": "repo", "task": "x", "worktree": "abcdef" }), "no worktree 'abcdef'"),
+        ] {
+            let err = tool.call(args).await.unwrap_err();
+            assert!(err.to_string().contains(why), "{why}: {err}");
+        }
+        assert_eq!(editor.folders.lock().unwrap().len(), before, "the engine never ran");
+        std::fs::remove_dir_all(&outer).ok();
+    }
+
+    #[tokio::test]
+    async fn a_project_that_is_no_git_repository_cannot_be_isolated() {
+        let (editor, tool) = editing_tool(with_projects("no-git"));
+        let err = tool.call(json!({ "project": "repo", "task": "x", "isolate": true })).await.unwrap_err();
+        assert!(err.to_string().contains("isn't in a git repository"), "{err}");
+        assert!(editor.folders.lock().unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn isolated_tasks_on_one_project_run_side_by_side_where_plain_ones_wait_in_line() {
+        let (outer, vault) = git_project("side-by-side");
+        let engine = Arc::new(Held::default());
+        let slot: CodeEngineSlot = Arc::new(OnceLock::new());
+        let shared: Arc<dyn CodeEngine> = engine.clone();
+        slot.set(shared).ok();
+        let mut tool = CodeTaskTool::new(vault, slot);
+        tool.approver = Some(Arc::new(Yes));
+        let board = crate::jobs::JobBoard::new(4);
+        let tool = tool.with_jobs(&board).unwrap();
+
+        let first = tool.call(json!({ "project": "repo", "task": "one", "background": true, "isolate": true })).await.unwrap();
+        let second = tool.call(json!({ "project": "repo", "task": "two", "background": true, "isolate": true })).await.unwrap();
+        assert_ne!(first["worktree"], second["worktree"], "each has its own, and the call already says which");
+        eventually("both are working at once", || engine.peak.load(std::sync::atomic::Ordering::SeqCst) == 2).await;
+
+        engine.gate.add_permits(2);
+        eventually("both ended", || board.list().iter().all(|job| job.state.is_finished())).await;
+        // The engine of this test changed nothing, so neither worktree is left.
+        let left = std::fs::read_dir(outer.join(".warden-worktrees").join("repo")).map(|dir| dir.count()).unwrap_or(0);
+        assert_eq!(left, 0, "nothing changed, nothing kept");
+        std::fs::remove_dir_all(&outer).ok();
     }
 
     // --- Background (P124) ---
