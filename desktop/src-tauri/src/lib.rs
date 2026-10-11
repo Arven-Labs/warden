@@ -16,6 +16,7 @@ mod remote_cmds;
 mod remote_ipc_test;
 mod recording;
 mod server_cmds;
+mod share_cmds;
 mod skills_cmds;
 mod spend_cmds;
 mod ssh_cmds;
@@ -37,7 +38,7 @@ use warden_bootstrap::settings::{
 };
 use warden_bootstrap::{
     aggregate_usage, build_model_for, default_config_path, scope_to_agent, AgentExtras,
-    default_conversations_dir, default_limit_configs, env_switches_limits_off, list_conversations as read_conversations, load_config, load_config_from_path,
+    default_conversations_dir, default_limit_configs, env_switches_limits_off, load_config, load_config_from_path,
     oauth_credential_store_path, resolve_generated_path, resolve_vault_path, save_config,
     append_messages, AgentConfig, AppendOptions, ChatRole as SavedRole, ConversationMessage, ApiKeys, ComboConfig, Conversation, FileConfig, GitSyncConfig, McpServerConfig, ModelPolicyConfig, OutreachConfig,
     Overrides,
@@ -265,7 +266,7 @@ async fn send_message(
         // Running the ordinary turn with a shell instead is not what the person asked the project for.
         let projects = warden_core::project::ProjectStore::new(orchestrator.vault().clone());
         if let Some(conversation_id) = conversation_id.as_deref() {
-            let dir = default_conversations_dir().ok_or_else(|| "could not determine the OS config directory".to_string())?;
+            let dir = share_cmds::conversation_dir(conversation_id)?;
             let code = warden_bootstrap::code_turn::code_project(&projects, &dir, conversation_id, Some(id)).map_err(|e| format!("{e:#}"))?;
             if let Some(project) = code {
                 // The window says its mode with every task, so a mode it shows is the mode that applies.
@@ -956,7 +957,8 @@ async fn mcp_oauth_disconnect(state: State<'_, AppState>, name: String) -> Resul
 #[tauri::command]
 fn list_conversations() -> Result<Vec<Conversation>, String> {
     let dir = default_conversations_dir().ok_or_else(|| "could not determine the OS config directory".to_string())?;
-    read_conversations(&dir).map_err(|e| format!("{e:#}"))
+    // The ones shared with the hub (P124) are in its folder: they are listed here too.
+    share_cmds::all_conversations(&dir, share_cmds::hub_dir().as_deref()).map_err(|e| format!("{e:#}"))
 }
 
 /// Adds messages to a conversation (creating it on the first one) and returns it as saved (P87).
@@ -980,7 +982,7 @@ async fn append_conversation_messages(
     workdir: Option<String>,
     thread_of: Option<ThreadParent>,
 ) -> Result<Conversation, String> {
-    let dir = default_conversations_dir().ok_or_else(|| "could not determine the OS config directory".to_string())?;
+    let dir = share_cmds::conversation_dir(&conversation_id)?;
     let answered = ends_with_an_answer(&messages);
     // `project_id`, `workdir` and `thread_of` only count when this call creates the conversation (P103, P102, P125): an
     // existing one keeps its own, and a conversation in a project has no folder.
@@ -1017,7 +1019,7 @@ fn move_conversation_in(dir: &std::path::Path, store: &warden_core::project::Pro
 /// said stays in the conversation.
 #[tauri::command]
 fn move_conversation(state: State<'_, AppState>, conversation_id: String, project_id: Option<String>) -> Result<Conversation, String> {
-    let dir = default_conversations_dir().ok_or_else(|| "could not determine the OS config directory".to_string())?;
+    let dir = share_cmds::conversation_dir(&conversation_id)?;
     let orchestrator = { state.orchestrator.lock().unwrap().clone() }?;
     let store = warden_core::project::ProjectStore::new(orchestrator.vault().clone());
     move_conversation_in(&dir, &store, &conversation_id, project_id.as_deref())
@@ -1055,7 +1057,7 @@ fn learn_in_background(state: &State<'_, AppState>, dir: PathBuf, conversation_i
 #[tauri::command]
 fn usage_summary() -> Result<UsageSummary, String> {
     let dir = default_conversations_dir().ok_or_else(|| "could not determine the OS config directory".to_string())?;
-    let conversations = read_conversations(&dir).map_err(|e| format!("{e:#}"))?;
+    let conversations = share_cmds::all_conversations(&dir, share_cmds::hub_dir().as_deref()).map_err(|e| format!("{e:#}"))?;
     Ok(aggregate_usage(&conversations))
 }
 
@@ -1192,6 +1194,8 @@ pub fn run() {
             ssh_cmds::test_ssh_host,
             provider_cmds::test_provider_key,
             move_conversation,
+            share_cmds::share_conversation,
+            share_cmds::shared_conversation_ids,
             projects_cmds::list_projects,
             projects_cmds::save_project,
             projects_cmds::delete_project,

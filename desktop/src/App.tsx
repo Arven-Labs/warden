@@ -125,6 +125,8 @@ function replaceWithSaved(conversations: Conversation[], saved: Conversation): C
 
 function App() {
   const [conversations, setConversations] = useState<Conversation[]>([]);
+  /** The ids of this computer's conversations that are on the hub (P124). */
+  const [sharedIds, setSharedIds] = useState<string[]>([]);
   const [activeConversationId, setActiveConversationId] = useState<string | null>(null);
   const [isSending, setIsSending] = useState(false);
   const [sendError, setSendError] = useState<string | null>(null);
@@ -253,6 +255,7 @@ function App() {
       return invoke<Conversation[]>("list_conversations")
         .then((saved) => {
           setConversations(saved);
+          invoke<string[]>("shared_conversation_ids").then(setSharedIds).catch(() => setSharedIds([]));
           return undefined;
         })
         .catch((err) => {
@@ -441,6 +444,19 @@ function App() {
     try {
       const saved = await invoke<Conversation>("move_conversation", { conversationId: activeConversationId, projectId: projectId || null });
       setConversations((prev) => replaceWithSaved(prev, saved));
+    } catch (err) {
+      setSendError(String(err));
+    }
+  }
+
+  /** Puts the open conversation of a code project on the hub, or takes it back (P124); the phone and the web see it while the hub is on. */
+  async function handleShare(shared: boolean) {
+    if (activeConversationId === null || remote) return;
+    setSendError(null);
+    try {
+      const saved = await invoke<Conversation>("share_conversation", { conversationId: activeConversationId, shared });
+      setConversations((prev) => replaceWithSaved(prev, saved));
+      setSharedIds((prev) => (shared ? [...prev, saved.id] : prev.filter((id) => id !== saved.id)));
     } catch (err) {
       setSendError(String(err));
     }
@@ -1017,6 +1033,8 @@ function App() {
           selectedWorkdir={currentWorkdir}
           onSelectWorkdir={setSelectedWorkdir}
           onMoveProject={(id) => void handleMoveProject(id)}
+          sharedWithHub={activeConversationId !== null && sharedIds.includes(activeConversationId)}
+          onShare={remote ? undefined : (shared) => void handleShare(shared)}
           selectedAgentId={selectedAgentId}
           selectedProviderId={selectedProviderId}
           onSelectAgent={handleSelectAgent}

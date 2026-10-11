@@ -116,6 +116,11 @@ impl CodeState {
         (self.slot.clone(), self.models.clone())
     }
 
+    /// A task of this conversation is running here now.
+    pub fn is_running(&self, conversation_id: &str) -> bool {
+        self.turns.is_running(conversation_id)
+    }
+
     /// `mode` is a name a window sent (`CodeMode::parse`).
     pub fn set_mode(&self, conversation_id: &str, mode: &str) {
         self.modes.set(conversation_id, CodeMode::parse(mode));
@@ -135,7 +140,8 @@ pub async fn run_turn(
 ) -> Result<String, String> {
     let runtime = runtime_of(&state.code.runtime, base, &state.code.models).await.map_err(|e| format!("{e:#}"))?;
 
-    let conversations_dir = warden_bootstrap::default_conversations_dir().ok_or_else(|| "could not determine the OS config directory".to_string())?;
+    // Where the conversation is: the hub's folder if it was shared (P124), so the phone and this window go on in the same file.
+    let conversations_dir = crate::share_cmds::conversation_dir(conversation_id)?;
     let turns = state.code.turns.clone();
     turns.begin(conversation_id, project.workdir.as_deref().unwrap_or_default());
     let (event_app, event_turns, event_id) = (app.clone(), turns.clone(), conversation_id.to_string());

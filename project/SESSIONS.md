@@ -6,6 +6,13 @@
 
 ---
 
+### 2026-10-11 — Sessão 182 (continuação: P124, compartilhar uma conversa de código com o hub)
+
+- **Pedido do usuário**: continuar no celular o que se começa no computador (rede Tailscale). Ele propôs um botão "compartilhar com o hub" no lugar de mudar a pasta de tudo; plano aprovado.
+- **O que mudou**: `desktop/src-tauri/src/share_cmds.rs` (`dir_for`, `conversation_dir`, `all_conversations`, `share`, comandos `share_conversation` e `shared_conversation_ids`); `CodeTurns::is_running` e `CodeState::is_running`; `run_turn`, `code_project`, `append_conversation_messages` e `move_conversation` passam a achar a pasta pela conversa; a lista e o uso juntam as duas pastas; botão em `ChatArea.tsx` e `App.tsx`.
+- **Testes**: 3 novos em `share_cmds.rs` (move com a sessão e volta; recusas sem mudar nada; lista junta sem repetir id). Desktop `cargo test --lib`: 54 passam; `tsc` e `npm test` (107) limpos; clippy sem aviso novo.
+- **Fica**: janela e celular não foram vistos; o desktop não vê um turno do celular na mesma conversa; sem "compartilhar todas".
+
 ### 2026-10-11 — Sessão 182 (continuação: P124, um só gerenciador do opencode no desktop)
 
 - **Pedido do usuário**: seguir com o item recomendado; plano aprovado.

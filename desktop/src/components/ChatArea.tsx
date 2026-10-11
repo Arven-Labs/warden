@@ -36,6 +36,10 @@ interface ChatAreaProps {
   onSelectProject: (projectId: string) => void;
   /** Moves a conversation that has started into a project ("" = out of any). */
   onMoveProject: (projectId: string) => void;
+  /** This computer's conversation in a code project is on the hub (P124): the phone and the web see it. */
+  sharedWithHub?: boolean;
+  /** Shares the conversation with the hub, or stops sharing it. Only given for a conversation of this computer. */
+  onShare?: (shared: boolean) => void;
   /** The folder of this computer the conversation works in (P102), or the one a new conversation will start in; "" = none. */
   selectedWorkdir: string;
   /** Chooses the folder of a conversation that hasn't started ("" = none). After its first message it is fixed. */
@@ -141,6 +145,8 @@ function ChatArea({
   selectedProjectId,
   onSelectProject,
   onMoveProject,
+  sharedWithHub = false,
+  onShare,
   selectedWorkdir,
   onSelectWorkdir,
   selectedAgentId,
@@ -327,6 +333,21 @@ function ChatArea({
             <option value="acceptAll">Accept all (asks nothing)</option>
             <option value="plan">Plan (changes nothing)</option>
           </select>
+        )}
+        {onShare && !remote && hasMessages && projects.some((p) => p.id === selectedProjectId && p.code) && (
+          <button
+            type="button"
+            className="chat-header-select"
+            title={
+              sharedWithHub
+                ? "This conversation is on the hub: the phone and the web can go on with it (they see it while the hub is on). Click to bring it back to this computer only."
+                : "Put this conversation on the hub so you can go on with it from the phone or the web (they see it while the hub is on)."
+            }
+            disabled={isSending}
+            onClick={() => onShare(!sharedWithHub)}
+          >
+            {sharedWithHub ? "On the hub · stop sharing" : "Share with the hub"}
+          </button>
         )}
         {!remote && (
           <select

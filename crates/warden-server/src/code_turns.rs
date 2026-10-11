@@ -67,6 +67,11 @@ impl CodeTurns {
         self.running.lock().unwrap().insert(conversation_id.to_string(), Running { workdir: workdir.to_string(), session: None });
     }
 
+    /// Whether a task of the conversation is running now, with or without a session yet.
+    pub fn is_running(&self, conversation_id: &str) -> bool {
+        self.running.lock().unwrap().contains_key(conversation_id)
+    }
+
     pub fn set_session(&self, conversation_id: &str, session: String) {
         if let Some(running) = self.running.lock().unwrap().get_mut(conversation_id) {
             running.session = Some(session);
