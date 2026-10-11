@@ -3143,6 +3143,18 @@ com `workdir` continua com o `shell` que pede aprovação a cada comando (Sessã
 - **Limites conhecidos**: o consumo do opencode é contado pelo `SpendGuard` do hub (canal `code`, pessoa `opencode`), mas **como isso aparece na tela de Uso não foi conferido**; o "sempre permitir" vale só por conversa e em memória (nada persiste, não há lista para ver ou revogar); sem anexos; sem modo geral (P102); um projeto de código compartilhado entre pessoas não existe; o celular, a extensão e o CLI não o
   conhecem; o gerenciador sobe uma instância por pasta e segura o *lock* do mapa durante a subida (até 30 s), o que atrasa a primeira tarefa de outra pasta nesse intervalo.
 
+### `code_task` em segundo plano, como tarefa registrada (P124, Sessão 182)
+
+O gerente de programação é um agente comum que chama `code_task` (decidido na Sessão 180: o opencode como **ferramenta**, não subagentes de programação do Warden). Com a `JobBoard` do turno (`with_jobs`, o que exige a tool `jobs` e `with_parallel_jobs`) a tool aceita `background: true`, como os delegadores:
+
+- **Em segundo plano**: `start_task_with` com `TaskDraft { assignee: "opencode · <projeto>", objective: <tarefa>, model: None }`; devolve `job_id` na hora. A tarefa entra no `agent_tasks.jsonl` (estado, grupo do turno, progresso) e respeita `max_parallel_jobs` (cada tarefa ocupa uma vaga da board). O resultado lido com `jobs result` é **texto**: a resposta, uma linha `session_id: ...` (para continuar a sessão) e as ferramentas usadas. **Sem tokens** na tela (`usage: None`): o consumo do opencode segue no canal `code` do `SpendGuard`.
+- **Esperando** (sem `background`, mas com board): `run_recorded_as(draft, pausable = false, ..)`; aparece na tela e devolve o **mesmo JSON** de antes (`answer`, `session_id`, `tools_used`). Sem board, nada muda.
+- **Uma tarefa por pasta de cada vez**: `folder_lock(workdir)`, um `Mutex` assíncrono por pasta num `static` do processo (não por instância da tool, porque o hub refaz as tools a cada salvar das configurações). Duas tarefas da mesma pasta dividiriam o processo do opencode e editariam os mesmos arquivos; pastas diferentes rodam lado a lado. Uma tarefa que espera a pasta já ocupa uma vaga da board.
+- **Parar de verdade**: cancelar (botão da tela, ou o fim do turno do gerente com a tarefa ainda aberta) descarta o futuro; `StopOnDrop` chama `engine.abort(workdir, session_id)` com a sessão vista no `CodeEvent::Session`, senão o opencode continuaria editando sem ninguém esperando.
+- **Pausar não existe**: o motor não tem gate para olhar. `Control.pausable` e `TaskControls::forbid_pause` fazem `is_pausable` dar `false` e `pause`/`resume` devolverem `false`, então a tela mostra "parar" sem "pausar" (o `agent_task_list` já deriva isso do registro).
+- **Aprovação**: igual a antes, a pergunta do opencode vai ao `Approver` do turno do gerente (modo `Manual` fixo); sem aprovador a tool recusa, em segundo plano também. O hub continua sendo o único lugar que registra a `code_task` (desktop e CLI não).
+- **Fica**: eventos ao vivo no Chat (a tool segue descartando os eventos), `mode` e `model` por tarefa (o opencode só enxerga o modelo do hub), a `code_task` no desktop, worktrees por tarefa (hoje a fila por pasta evita o conflito, mas não deixa duas tarefas na mesma pasta andarem juntas).
+
 ## Dólares por provedor, agente e pessoa, por dia, e "Testar chave" (P10, Sessão 124)
 
 O P10 pedia UI de consumo, custo por provedor/modelo e gestão de chaves. Boa parte já existia desde o P4; o que faltava:

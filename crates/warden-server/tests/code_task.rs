@@ -140,6 +140,91 @@ async fn the_engines_ask_reaches_the_person_and_the_model_gets_what_the_engine_d
     assert!(hub.offered.lock().unwrap().iter().any(|t| t == "code_task"), "the model was offered the tool");
 }
 
+/// A manager that opens two code tasks in the background (one per project), reads both with `jobs`, and says what came back.
+struct BackgroundManager;
+
+#[async_trait]
+impl ModelProvider for BackgroundManager {
+    async fn chat_stream(&self, messages: Vec<Message>, _: Vec<ToolSpec>) -> anyhow::Result<ChatStream> {
+        let results: Vec<&Message> = messages.iter().filter(|m| m.role == Role::Tool).collect();
+        let calls = |calls: Vec<(&str, serde_json::Value)>| {
+            let tool_calls = calls.into_iter().enumerate().map(|(i, (name, arguments))| ToolCall { id: format!("call-{i}"), name: name.into(), arguments, thought_signature: None }).collect();
+            Ok(response_stream(Response { content: String::new(), tool_calls, usage: None }))
+        };
+        match results.len() {
+            0 => calls(vec![
+                ("code_task", json!({ "project": "repo", "task": "add a test", "background": true })),
+                ("code_task", json!({ "project": "site", "task": "fix the footer", "background": true })),
+            ]),
+            2 => calls(vec![("jobs", json!({ "action": "result", "job_id": "job-1" })), ("jobs", json!({ "action": "result", "job_id": "job-2" }))]),
+            _ => Ok(response_stream(Response { content: results[2..].iter().map(|m| m.content.clone()).collect::<Vec<_>>().join(" || "), tool_calls: Vec::new(), usage: None })),
+        }
+    }
+}
+
+/// Answers at once, with the session of its folder, and never needs the person.
+struct Instant;
+
+#[async_trait]
+impl CodeEngine for Instant {
+    async fn run_turn(&self, request: TurnRequest, _: Option<Arc<dyn Approver>>, _: &mut (dyn FnMut(CodeEvent) + Send)) -> anyhow::Result<TurnOutcome> {
+        Ok(TurnOutcome { session_id: format!("ses_{}", request.workdir.rsplit('/').next().unwrap()), text: format!("done: {}", request.prompt), tools_used: Vec::new() })
+    }
+
+    async fn abort(&self, _: &str, _: &str) -> anyhow::Result<()> {
+        Ok(())
+    }
+}
+
+#[tokio::test]
+async fn a_manager_opens_two_code_tasks_in_the_background_and_both_are_on_the_tasks_screen() {
+    std::env::set_var(warden_core::memory::embed::OFF_SWITCH, "1");
+    let dir = std::env::temp_dir().join(format!("warden-server-code-bg-{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let log = dir.join("agent_tasks.jsonl");
+    let mut orchestrator = Orchestrator::new(Arc::new(BackgroundManager), Arc::new(Vault::new(dir.join("vault"))));
+    orchestrator.register_tool(Arc::new(warden_core::tool::job_tools::JobsTool::new()));
+    let slot: CodeEngineSlot = Arc::new(OnceLock::new());
+    register_code_task(&mut orchestrator, &slot);
+    let engine: Arc<dyn CodeEngine> = Arc::new(Instant);
+    slot.set(engine).ok();
+    let orchestrator = orchestrator.with_parallel_jobs(2).with_task_recorder(Arc::new(warden_bootstrap::agent_tasks::FileTaskRecorder::new(&log)));
+    let server = Server::bind("127.0.0.1:0".parse().unwrap(), KEY, "Test Hub", Arc::new(orchestrator), dir.join("conversations"), dir.join("devices.json"))
+        .await
+        .unwrap()
+        .with_users_dir(dir.join("users"))
+        .with_agent_tasks(Some(log));
+    let addr = server.local_addr().unwrap();
+    tokio::spawn(server.serve());
+    let mut me = ServerConnection::connect(&format!("ws://{addr}"), "laptop", "Laptop", KEY).await.unwrap();
+
+    for (id, name, workdir) in [("repo", "Repo", "/home/me/repo"), ("site", "Site", "/home/me/site")] {
+        let project = ProjectDto { id: id.into(), name: name.into(), description: String::new(), instructions: String::new(), workdir: Some(workdir.into()), code: true };
+        me.send(&ClientMessage::SaveProject { request_id: 1, project, overwrite: false }).await.unwrap();
+        assert!(matches!(next(&mut me).await, ServerMessage::ProjectOk { .. }));
+    }
+
+    ask_for_the_task(&mut me).await;
+    match next(&mut me).await {
+        ServerMessage::ChatResponse { content, .. } => {
+            assert!(content.contains("done: add a test") && content.contains("session_id: ses_repo"), "{content}");
+            assert!(content.contains("done: fix the footer") && content.contains("session_id: ses_site"), "{content}");
+        }
+        other => panic!("{other:?}"),
+    }
+
+    me.send(&ClientMessage::ListAgentTasks { request_id: 7 }).await.unwrap();
+    let tasks = loop {
+        if let ServerMessage::AgentTaskList { tasks, .. } = next(&mut me).await {
+            break tasks;
+        }
+    };
+    let mut assignees: Vec<_> = tasks.iter().map(|t| (t.assignee.as_str(), t.state.as_str())).collect();
+    assignees.sort();
+    assert_eq!(assignees, [("opencode · Repo", "done"), ("opencode · Site", "done")]);
+    assert_eq!(tasks[0].group, tasks[1].group, "one turn, one group: the screen shows them with a progress");
+}
+
 #[tokio::test]
 async fn a_no_from_the_person_reaches_the_engine() {
     let engine = Arc::new(Scripted::default());

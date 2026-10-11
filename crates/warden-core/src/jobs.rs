@@ -157,6 +157,9 @@ struct Control {
     gate: PauseGate,
     stopped: Arc<AtomicBool>,
     recorder: Arc<dyn TaskRecorder>,
+    /// Whether pausing means anything to this task: false for work that never looks at the gate (a code task, P124), which can be
+    /// stopped but not paused.
+    pausable: bool,
 }
 
 /// The background tasks running in this process that a person can pause, resume or stop from a screen (P123). A task of another
@@ -184,10 +187,18 @@ impl TaskControls {
         self.tasks.lock().unwrap_or_else(|e| e.into_inner()).get(id).is_some_and(|c| !c.runner.is_finished())
     }
 
-    /// Whether `id` is going here and can also be paused: every controllable task is, since the turn that runs it looks at its gate
-    /// before each model call (a delegation the caller waits for included).
+    /// Whether `id` is going here and can also be paused: a task whose turn looks at its gate before each model call is (a delegation
+    /// the caller waits for included), but not one `forbid_pause` marked.
     pub fn is_pausable(&self, id: &str) -> bool {
-        self.is_controllable(id)
+        self.tasks.lock().unwrap_or_else(|e| e.into_inner()).get(id).is_some_and(|c| !c.runner.is_finished() && c.pausable)
+    }
+
+    /// Marks `id` as something that can be stopped but not paused (P124): a code task runs inside the engine, which has no gate to
+    /// look at, so a "pause" would only be a button that does nothing. A no-op for an id this process doesn't run.
+    pub fn forbid_pause(&self, id: &str) {
+        if let Some(control) = self.tasks.lock().unwrap_or_else(|e| e.into_inner()).get_mut(id) {
+            control.pausable = false;
+        }
     }
 
     /// `id` and every task below it, as far as this registry knows them.
@@ -230,12 +241,12 @@ impl TaskControls {
     fn set_paused(&self, id: &str, paused: bool) -> bool {
         let affected: Vec<(String, Arc<dyn TaskRecorder>)> = {
             let tasks = self.tasks.lock().unwrap_or_else(|e| e.into_inner());
-            if !tasks.get(id).is_some_and(|c| !c.runner.is_finished()) {
+            if !tasks.get(id).is_some_and(|c| !c.runner.is_finished() && c.pausable) {
                 return false;
             }
             let ids = Self::branch(&tasks, id);
             ids.into_iter()
-                .filter_map(|own| tasks.get(&own).filter(|c| !c.runner.is_finished() && c.gate.is_paused() != paused).map(|c| {
+                .filter_map(|own| tasks.get(&own).filter(|c| !c.runner.is_finished() && c.pausable && c.gate.is_paused() != paused).map(|c| {
                     c.gate.set(paused);
                     (own, c.recorder.clone())
                 }))
@@ -439,7 +450,7 @@ impl JobBoard {
             }
         });
 
-        task_controls().register(&task_id, Control { parent: context.parent.clone(), runner: Runner::Spawned(handle.abort_handle()), gate, stopped, recorder: recorder_for_controls });
+        task_controls().register(&task_id, Control { parent: context.parent.clone(), runner: Runner::Spawned(handle.abort_handle()), gate, stopped, recorder: recorder_for_controls, pausable: true });
 
         let mut jobs = self.jobs.lock().unwrap_or_else(|e| e.into_inner());
         let id = format!("job-{}", jobs.len() + 1);
@@ -454,6 +465,15 @@ impl JobBoard {
     /// `work` is handed the `PauseGate` of the task, which the turn it runs must look at before each model call so a person can
     /// pause it from a screen (without a recorder the gate is never paused). A waited-for task starts no subtasks of its own.
     pub async fn run_recorded<F, W>(&self, draft: TaskDraft, work: W) -> anyhow::Result<String>
+    where
+        W: FnOnce(PauseGate) -> F,
+        F: Future<Output = anyhow::Result<(String, Option<Usage>)>>,
+    {
+        self.run_recorded_as(draft, true, work).await
+    }
+
+    /// `run_recorded`, saying whether the work can be paused at all (`false` for a code task, P124: it can be stopped, not paused).
+    pub async fn run_recorded_as<F, W>(&self, draft: TaskDraft, pausable: bool, work: W) -> anyhow::Result<String>
     where
         W: FnOnce(PauseGate) -> F,
         F: Future<Output = anyhow::Result<(String, Option<Usage>)>>,
@@ -479,6 +499,7 @@ impl JobBoard {
             gate: gate.clone(),
             stopped: stopped.clone(),
             recorder: recorder.clone(),
+            pausable,
         });
         // Declared first, so it is let go last: the task stops being controllable only after its outcome is written.
         let _finish = FinishOnDrop(finished);
@@ -925,6 +946,25 @@ mod tests {
         assert_eq!(recorder.lines().iter().filter(|l| l.starts_with("paused")).count(), 1);
         assert_eq!(recorder.lines().iter().filter(|l| l.starts_with("unpaused")).count(), 1);
         assert!(!task_controls().pause("pause-1"), "a finished task can't be paused");
+    }
+
+    #[tokio::test]
+    async fn a_task_that_forbids_pausing_can_be_stopped_but_not_paused() {
+        let recorder = Prefixed::new("nopause");
+        let board = board_of(&recorder, None);
+        let job = board.spawn_task("code".into(), draft("opencode"), std::future::pending());
+        tokio::time::sleep(Duration::from_millis(30)).await;
+        let task = board.list()[0].task.as_ref().unwrap().task_id.clone();
+        assert!(task_controls().is_pausable(&task), "pausable until it is said it is not");
+
+        task_controls().forbid_pause(&task);
+        assert!(task_controls().is_controllable(&task) && !task_controls().is_pausable(&task));
+        assert!(!task_controls().pause(&task) && !task_controls().resume(&task), "there is nothing to pause");
+        assert!(recorder.lines().iter().all(|l| !l.starts_with("paused")), "and nothing is recorded as paused");
+
+        assert!(task_controls().cancel(&task), "but it can be stopped");
+        board.wait(&job).await;
+        assert!(recorder.lines().iter().any(|l| l.starts_with("stopped")), "{:?}", recorder.lines());
     }
 
     #[tokio::test]

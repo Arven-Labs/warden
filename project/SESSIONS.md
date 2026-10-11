@@ -6,6 +6,15 @@
 
 ---
 
+### 2026-10-11 — Sessão 182 (continuação: P124, `code_task` em segundo plano)
+
+- **Pedido do usuário**: depois de confirmar o P122 ("já tá tudo certo"), "acho que o 124 agora". A pergunta em aberto do P124 (opencode como ferramenta ou subagentes do Warden) **já estava decidida** na Sessão 180 (`VISAO_AGENTES.md`, Parte 3, item 3), e o `PENDING.md` estava desatualizado; corrigi. Perguntei qual fatia fazer e o usuário escolheu a recomendada: `code_task` em segundo plano e como tarefa do P123.
+- **O que mudou** (`warden-core`): `CodeTaskTool` ganhou `jobs`/`with_jobs` e `background`; em segundo plano é `start_task_with` (responsável `opencode · <projeto>`), esperando é `run_recorded_as(.., pausable = false, ..)` com o mesmo JSON de antes; `folder_lock` serializa por pasta (static do processo); `StopOnDrop` chama `engine.abort` na sessão quando a tarefa é descartada; `jobs.rs` ganhou `Control.pausable`, `TaskControls::forbid_pause` e `JobBoard::run_recorded_as`, e `is_pausable`/`pause`/`resume` respeitam. Nada mudou no hub, no protocolo nem nas telas: a lista já deriva `controllable`/`pausable` do registro.
+- **Testes**: `code_task.rs` (13: `background` só com board; devolve `job_id` e o resultado traz o `session_id`; pastas diferentes juntas e a mesma pasta em fila, pico de 2; descartar a tarefa aborta a sessão e uma terminada não é abortada depois; sem aprovador recusa em segundo plano; com board sem `background` o JSON é o de sempre; tarefa gravada aparece como `opencode · REPO`, é parável e não pausável), `jobs.rs` (tarefa sem pausa), hub (`tests/code_task.rs`: o gerente abre duas, lê as duas com `jobs` e a lista de tarefas mostra as duas `done` no mesmo grupo). Workspace em dois blocos: 1133 + 330 passam; clippy sem aviso novo; os testes novos 3 de 3 limpos, e 6 de 6 sob CPU saturada.
+- **Intermitente achado, não meu**: numa rodada completa sob carga, `warden-sync lock::tests::dropping_releases_it` falhou (limpo em 6 rodadas sem carga). Primeiro vi 1 falha numa rodada normal e não consegui saber qual era (a saída foi sobrescrita); só o reproduzi sob carga. Registrado como P128, sem corrigir.
+- **Deslize meu**: na primeira rodada completa vi uma falha e a segui por "tentar de novo até passar" antes de a identificar; só a identifiquei ao rodar sob carga guardando a saída. Daqui para a frente guardo a saída da primeira rodada.
+- **Fica** (também no P124): eventos ao vivo no Chat; `mode`/`model` por tarefa; `code_task` no desktop; worktrees; revisão como etapa; autonomia 1 a 5 ↔ modos do opencode; nenhum opencode real nem modelo real exercitou o fluxo; nada visto numa tela.
+
 ### 2026-10-11 — Sessão 182 (continuação: P126, o provider que respondeu vem do turno)
 
 - **Pedido do usuário**: seguir para o P126 ("provider em todo turno"), planejando antes.
