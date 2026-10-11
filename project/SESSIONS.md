@@ -6,6 +6,12 @@
 
 ---
 
+### 2026-10-11 — Sessão 182 (continuação: extensão e celular)
+
+- **Extensão**: `listGrants`/`revokeGrant` na conexão, na ponte com o painel (`popup_protocol.ts`, `index.ts`) e `GrantsSection.tsx` abaixo das tarefas na aba "Tarefas" de Agentes. A conversa aparece pelos 8 primeiros caracteres do id (o painel não tem os títulos nessa tela). **O `tsc` e o build da extensão rodaram pela primeira vez** (`npm ci` instalou o `node_modules`, ignorado pelo git): limpos. `npm test` 77.
+- **Celular**: `Grant`, `ListGrantsMessage`, `RevokeGrantMessage`, `GrantListMessage` e os dois métodos no `AgentsBackend`/`ServerConnection` (a resposta entra nas duas listas de roteamento por `requestId`), e a seção na aba de tarefas da tela Agents, com os mesmos nomes de categoria. `flutter analyze` limpo, `flutter test` 245 (3 novos: protocolo, lista com revogação, lista vazia).
+- **Não visto numa janela / aparelho.** Fica: a CLI (nem tem "sempre"), persistir o "sempre", e o teste manual com um modelo real.
+
 ### 2026-10-11 — Sessão 182 (continuação: desktop)
 
 - **Desktop**: comandos Tauri `list_grants` e `revoke_grant` (sobre o `GrantBook` local, em `agent_task_cmds.rs`) e, para um hub em uso, `hubGrants`/`hubRevokeGrant` (`ListGrants`/`RevokeGrant` pela conexão `remote_request`). `GrantsSection.tsx` aparece abaixo de "Agent work", local ou hub. `tsc`, `npm test` (101), build e `cargo check` verdes. Sem teste Rust novo: os comandos só repassam o `GrantBook`, já testado no núcleo e no hub. **Não visto numa janela.** Fica: extensão, celular e CLI.

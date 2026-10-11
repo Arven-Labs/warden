@@ -16,6 +16,7 @@ import {
   type ActivityEvent,
   type AgentTask,
   type AgentTaskAction,
+  type Grant,
   type ApprovalPrompt,
   type ClientMessage,
   type ConversationSummary,
@@ -298,6 +299,7 @@ export class ServerConnection {
       case "settings":
       case "settingsSaved":
       case "agentTaskList":
+      case "grantList":
       case "activityList":
       case "skillList":
       case "skillOk":
@@ -381,6 +383,20 @@ export class ServerConnection {
     const reply = await this.request((requestId) => ({ type: "listAgentTasks", requestId }));
     if (reply.type !== "agentTaskList") throw new Error("unexpected reply from the hub");
     return reply.tasks;
+  }
+
+  /** P122 — what the person said "always" to on this connection, per conversation and agent. */
+  async listGrants(): Promise<Grant[]> {
+    const reply = await this.request((requestId) => ({ type: "listGrants", requestId }));
+    if (reply.type !== "grantList") throw new Error("unexpected reply from the hub");
+    return reply.grants;
+  }
+
+  /** P122 — takes one "always" back, so the agent asks again. No pairing key: it only makes the agent more careful. Returns the new list. */
+  async revokeGrant(grant: Grant): Promise<Grant[]> {
+    const reply = await this.request((requestId) => ({ type: "revokeGrant", requestId, conversationId: grant.conversationId, ...(grant.agentId ? { agentId: grant.agentId } : {}), covers: grant.covers }));
+    if (reply.type !== "grantList") throw new Error("unexpected reply from the hub");
+    return reply.grants;
   }
 
   /** P121 — the feed of activity: what happened among the agents, newest first. Read only. */

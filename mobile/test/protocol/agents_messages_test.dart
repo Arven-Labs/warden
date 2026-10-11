@@ -170,6 +170,26 @@ void main() {
       expect(task.finishedAtMs, isNull);
     });
 
+    test('the "always" permissions are asked for, revoked and listed', () {
+      expect(const ListGrantsMessage(1).toJson(), {'type': 'listGrants', 'requestId': 1});
+      expect(
+        const RevokeGrantMessage(2, Grant(conversationId: 'c', covers: 'shell')).toJson(),
+        {'type': 'revokeGrant', 'requestId': 2, 'conversationId': 'c', 'covers': 'shell'},
+        reason: 'no agent id is left out, not sent as null',
+      );
+      expect(
+        const RevokeGrantMessage(3, Grant(conversationId: 'c', agentId: 'chief', covers: 'delete_data')).toJson(),
+        {'type': 'revokeGrant', 'requestId': 3, 'conversationId': 'c', 'agentId': 'chief', 'covers': 'delete_data'},
+      );
+      final msg = ServerMessage.decode('{"type":"grantList","requestId":3,"grants":[{"conversationId":"c","agentId":"chief","covers":"delete_data"},{"conversationId":"c","covers":"shell"}]}')
+          as GrantListMessage;
+      expect(msg.grants, [
+        const Grant(conversationId: 'c', agentId: 'chief', covers: 'delete_data'),
+        const Grant(conversationId: 'c', covers: 'shell'),
+      ]);
+      expect((ServerMessage.decode('{"type":"grantList","requestId":4}') as GrantListMessage).grants, isEmpty);
+    });
+
     test('the feed of activity keeps its events and leaves the optional fields null', () {
       final msg = ServerMessage.decode(jsonEncode({
         'type': 'activityList',

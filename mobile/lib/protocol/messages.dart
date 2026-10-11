@@ -217,6 +217,34 @@ final class ListAgentTasksMessage extends ClientMessage {
   Map<String, dynamic> toJson() => {'type': 'listAgentTasks', 'requestId': requestId};
 }
 
+/// P122 — what the person said "always" to on this connection. Answered by [GrantListMessage].
+final class ListGrantsMessage extends ClientMessage {
+  const ListGrantsMessage(this.requestId);
+
+  final int requestId;
+
+  @override
+  Map<String, dynamic> toJson() => {'type': 'listGrants', 'requestId': requestId};
+}
+
+/// P122 — takes one "always" back, so the agent asks again. No pairing key: it only makes the agent more careful. Answered by the
+/// new [GrantListMessage].
+final class RevokeGrantMessage extends ClientMessage {
+  const RevokeGrantMessage(this.requestId, this.grant);
+
+  final int requestId;
+  final Grant grant;
+
+  @override
+  Map<String, dynamic> toJson() => {
+        'type': 'revokeGrant',
+        'requestId': requestId,
+        'conversationId': grant.conversationId,
+        if (grant.agentId != null) 'agentId': grant.agentId,
+        'covers': grant.covers,
+      };
+}
+
 /// P121 — the feed of activity: what happened among the agents, newest first. Answered by [ActivityListMessage]. Owner only; a
 /// member gets it empty.
 final class ListActivityMessage extends ClientMessage {
@@ -433,6 +461,27 @@ class ModelPolicy {
     final map = json as Map<String, dynamic>;
     return ModelPolicy(id: map['id'] as String, model: map['model'] as String, description: map['description'] as String?);
   }
+}
+
+/// One "always" a person gave (P122). [covers] is a risk category (`delete_data`) or a tool name; no [agentId] is the default
+/// agent. Mirrors `GrantDto`.
+class Grant {
+  const Grant({required this.conversationId, this.agentId, required this.covers});
+
+  final String conversationId;
+  final String? agentId;
+  final String covers;
+
+  static Grant fromJson(dynamic json) {
+    final map = json as Map<String, dynamic>;
+    return Grant(conversationId: map['conversationId'] as String, agentId: map['agentId'] as String?, covers: map['covers'] as String);
+  }
+
+  @override
+  bool operator ==(Object other) => other is Grant && other.conversationId == conversationId && other.agentId == agentId && other.covers == covers;
+
+  @override
+  int get hashCode => Object.hash(conversationId, agentId, covers);
 }
 
 /// One task an agent delegated in the background (P123), as the hub's log has it. [group] is shared by the tasks one turn
@@ -863,6 +912,10 @@ sealed class ServerMessage {
           json['requestId'] as int,
           (json['tasks'] as List<dynamic>).map(AgentTask.fromJson).toList(),
         ),
+      'grantList' => GrantListMessage(
+          json['requestId'] as int,
+          ((json['grants'] as List<dynamic>?) ?? const []).map(Grant.fromJson).toList(),
+        ),
       'activityList' => ActivityListMessage(
           json['requestId'] as int,
           ((json['events'] as List<dynamic>?) ?? const []).map(ActivityEvent.fromJson).toList(),
@@ -1251,6 +1304,14 @@ final class AgentTaskListMessage extends ServerMessage {
 
   final int requestId;
   final List<AgentTask> tasks;
+}
+
+/// Reply to [ListGrantsMessage] and [RevokeGrantMessage] (P122): every "always" given on this connection.
+final class GrantListMessage extends ServerMessage {
+  const GrantListMessage(this.requestId, this.grants);
+
+  final int requestId;
+  final List<Grant> grants;
 }
 
 /// Reply to [ListActivityMessage] (P121): the events of the feed, newest first.

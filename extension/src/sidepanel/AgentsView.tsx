@@ -1,6 +1,7 @@
 import { useState } from "react";
 import ActivityView from "./ActivityView";
 import AgentTasksView from "./AgentTasksView";
+import GrantsSection from "./GrantsSection";
 import OrgView from "./OrgView";
 
 /** P120, P123, P121 — a organização dos agentes, o trabalho que eles passam uns aos outros e o feed do que aconteceu, lado a lado. Um nó da
@@ -47,7 +48,10 @@ export default function AgentsView({
           }}
         />
       ) : part === "tasks" ? (
-        <AgentTasksView agent={taskAgent} onClearAgent={() => setTaskAgent(null)} />
+        <>
+          <AgentTasksView agent={taskAgent} onClearAgent={() => setTaskAgent(null)} />
+          <GrantsSection />
+        </>
       ) : (
         <ActivityView
           onOpen={(to) => {

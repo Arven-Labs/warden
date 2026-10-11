@@ -347,6 +347,7 @@ class ServerConnection implements ConversationBackend, AgentsBackend, MemberOrgB
               SettingsErrorMessage() ||
               AgentOrgListMessage() ||
               AgentTaskListMessage() ||
+              GrantListMessage() ||
               ActivityListMessage() ||
               TaskErrorMessage() ||
               ApprovalRequestMessage() ||
@@ -403,6 +404,7 @@ class ServerConnection implements ConversationBackend, AgentsBackend, MemberOrgB
             SettingsErrorMessage(:final requestId) ||
             AgentOrgListMessage(:final requestId) ||
             AgentTaskListMessage(:final requestId) ||
+            GrantListMessage(:final requestId) ||
             ActivityListMessage(:final requestId) ||
             TaskErrorMessage(:final requestId):
         _pendingConversation.remove(requestId)?.complete(msg);
@@ -552,6 +554,20 @@ class ServerConnection implements ConversationBackend, AgentsBackend, MemberOrgB
       _ => throw ConversationException('Unexpected reply to the task list: $reply'),
     };
   }
+
+  /// P122 — what the person said "always" to on this connection.
+  @override
+  Future<List<Grant>> listGrants() async => _grantsOf(await _conversationRequest(ListGrantsMessage.new));
+
+  /// P122 — takes one "always" back, so the agent asks again.
+  @override
+  Future<List<Grant>> revokeGrant(Grant grant) async => _grantsOf(await _conversationRequest((id) => RevokeGrantMessage(id, grant)));
+
+  List<Grant> _grantsOf(ServerMessage reply) => switch (reply) {
+        GrantListMessage(:final grants) => grants,
+        TaskErrorMessage(:final message) => throw ConversationException(message),
+        _ => throw ConversationException('Unexpected reply to the permissions request: $reply'),
+      };
 
   /// P121 — the feed of activity: what happened among the agents, newest first.
   @override

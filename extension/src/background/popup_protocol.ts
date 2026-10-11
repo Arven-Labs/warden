@@ -7,7 +7,7 @@
 
 import type { ChatEntry, ConnectionStatus } from "./connection";
 import type { DiscoveredHub } from "./discovery";
-import type { ActivityEvent, AgentTask, AgentTaskAction, ApprovalPrompt, ConversationSummary, DirListing, HubAgents, OrgEdit, SkillDto, ThreadParent } from "../protocol/messages";
+import type { ActivityEvent, AgentTask, AgentTaskAction, Grant, ApprovalPrompt, ConversationSummary, DirListing, HubAgents, OrgEdit, SkillDto, ThreadParent } from "../protocol/messages";
 import type { GroupTab } from "./tab_group";
 
 export interface ConnectionSettings {
@@ -47,6 +47,9 @@ export type PopupRequest =
   | { type: "discoverHubs"; port: number }
   /** P123 — the work agents delegated to each other. */
   | { type: "listAgentTasks" }
+  /** P122 — what was said "always" to, and taking one back (no pairing key: it only makes the agent more careful). */
+  | { type: "listGrants" }
+  | { type: "revokeGrant"; grant: Grant }
   /** P121 — the feed of activity. */
   | { type: "listActivity" }
   /** P123 — pauses, resumes or stops a task, with the hub's pairing key (asked every time, never kept). */
@@ -108,6 +111,13 @@ export interface DiscoverHubsResponse {
 export interface ActivityResponse {
   ok: boolean;
   events: ActivityEvent[];
+  error?: string;
+}
+
+/** Reply to `listGrants` and `revokeGrant`. */
+export interface GrantsResponse {
+  ok: boolean;
+  grants: Grant[];
   error?: string;
 }
 

@@ -792,6 +792,7 @@ class AgentTasksTab extends StatefulWidget {
 
 class _AgentTasksTabState extends State<AgentTasksTab> {
   List<AgentTask>? _tasks;
+  List<Grant>? _grants;
   String? _error;
   Timer? _timer;
 
@@ -821,6 +822,49 @@ class _AgentTasksTabState extends State<AgentTasksTab> {
     } catch (e) {
       if (mounted) setState(() => _error = e.toString());
     }
+    try {
+      final grants = await widget.backend.listGrants();
+      if (mounted) setState(() => _grants = grants);
+    } catch (_) {
+      // The permissions are an extra: a hub that predates them just shows none.
+    }
+  }
+
+  /// P122 — takes one "always" back so the agent asks again. It only makes the agent more careful, so no pairing key.
+  Future<void> _revoke(Grant grant) async {
+    try {
+      final grants = await widget.backend.revokeGrant(grant);
+      if (mounted) setState(() => _grants = grants);
+    } catch (e) {
+      if (mounted) setState(() => _error = e.toString());
+    }
+  }
+
+  Widget _grantsSection() {
+    final grants = _grants;
+    if (grants == null) return const SizedBox.shrink();
+    return Column(
+      key: const Key('grants-section'),
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const SizedBox(height: 16),
+        Text('Permissions given with "always"', style: Theme.of(context).textTheme.titleSmall),
+        const SizedBox(height: 4),
+        Text(
+          'They hold per conversation and agent, until this connection closes. Taking one back makes the agent ask again.',
+          style: Theme.of(context).textTheme.bodySmall,
+        ),
+        if (grants.isEmpty) const Padding(padding: EdgeInsets.symmetric(vertical: 8), child: Text('None yet.')),
+        for (final g in grants)
+          ListTile(
+            key: Key('grant-${g.conversationId}-${g.agentId ?? ''}-${g.covers}'),
+            contentPadding: EdgeInsets.zero,
+            title: Text(grantCategoryLabel[g.covers] ?? g.covers),
+            subtitle: Text('${g.agentId ?? 'default agent'} · conversation ${g.conversationId.length > 8 ? g.conversationId.substring(0, 8) : g.conversationId}'),
+            trailing: TextButton(key: Key('revoke-${g.conversationId}-${g.agentId ?? ''}-${g.covers}'), onPressed: () => _revoke(g), child: const Text('Take back')),
+          ),
+      ],
+    );
   }
 
   Future<void> _control(AgentTask task, String action) async {
@@ -948,6 +992,7 @@ class _AgentTasksTabState extends State<AgentTasksTab> {
               child: Text(agent != null ? 'No task involves $agent yet.' : 'Nothing yet. When an agent delegates a task with "background", it shows up here.'),
             ),
           for (final g in groups) ...[_header(g), for (final row in g.rows) _row(row)],
+          _grantsSection(),
         ],
       ),
     );

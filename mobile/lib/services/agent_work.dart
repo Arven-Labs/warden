@@ -20,6 +20,12 @@ abstract interface class AgentsBackend {
 
   /// P121 — the feed of activity, newest first.
   Future<List<ActivityEvent>> listActivity();
+
+  /// P122 — what was said "always" to on this connection.
+  Future<List<Grant>> listGrants();
+
+  /// P122 — takes one back (no pairing key: it only makes the agent more careful); returns what is left.
+  Future<List<Grant>> revokeGrant(Grant grant);
 }
 
 /// What a member of the hub (P120) is allowed to do with the organization of the agents, as the owner set it.
@@ -179,6 +185,17 @@ const taskStateMark = {
 };
 
 const taskActionLabel = {'pause': 'Pause', 'resume': 'Resume', 'cancel': 'Stop'};
+
+/// What a risk category (`Grant.covers`) is called on screen; a tool name is shown as it is.
+const grantCategoryLabel = {
+  'delete_data': 'Delete data',
+  'spend_money': 'Spend money',
+  'critical_infra': 'Critical infrastructure',
+  'external_message': 'External message',
+  'publish_code': 'Publish code',
+  'important_config': 'Important configuration',
+  'elevated_agent': 'Agent with elevated permission',
+};
 
 /// A task as the list shows it: how many levels below the agent of the turn it is (0 for the ones that agent started).
 class TaskRow {

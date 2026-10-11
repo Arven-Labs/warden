@@ -91,6 +91,13 @@ describe("decoding the delegated tasks", () => {
     assert.deepEqual(reply.tasks, [task]);
   });
 
+  test("a grant list keeps the \"always\" permissions as the hub sent them (P122)", () => {
+    const grants = [{ conversationId: "c1", agentId: "chief", covers: "delete_data" }, { conversationId: "c1", covers: "shell" }];
+    const reply = decode(JSON.stringify({ type: "grantList", requestId: 6, grants }));
+    assert.equal(reply.type, "grantList");
+    assert.deepEqual(reply.grants, grants);
+  });
+
   test("a task error says whether the key was the problem", () => {
     const reply = decode(JSON.stringify({ type: "taskError", requestId: 5, message: "not running here", authRejected: false }));
     assert.equal(reply.type, "taskError");

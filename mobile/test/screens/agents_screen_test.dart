@@ -14,10 +14,12 @@ class _FakeBackend implements AgentsBackend {
     this.modelIds = const [],
     List<AgentTask> tasks = const [],
     List<ActivityEvent> events = const [],
+    List<Grant> grants = const [],
   })  : agents = List.of(agents),
         policies = List.of(policies),
         tasks = List.of(tasks),
-        events = List.of(events);
+        events = List.of(events),
+        grants = List.of(grants);
 
   static const pairingKey = 'right-key';
 
@@ -26,6 +28,7 @@ class _FakeBackend implements AgentsBackend {
   final List<String> modelIds;
   List<AgentTask> tasks;
   List<ActivityEvent> events;
+  List<Grant> grants;
   final edits = <OrgEdit>[];
   final controls = <String>[];
 
@@ -62,6 +65,15 @@ class _FakeBackend implements AgentsBackend {
 
   @override
   Future<List<ActivityEvent>> listActivity() async => List.of(events);
+
+  @override
+  Future<List<Grant>> listGrants() async => List.of(grants);
+
+  @override
+  Future<List<Grant>> revokeGrant(Grant grant) async {
+    grants.remove(grant);
+    return List.of(grants);
+  }
 
   @override
   Future<List<AgentTask>> controlAgentTask(String key, String taskId, String action) async {
@@ -311,6 +323,31 @@ void main() {
       expect(find.textContaining('1 of 2 finished (50%)'), findsOneWidget);
       expect(find.byKey(const Key('task-manager')), findsOneWidget);
       expect(find.byKey(const Key('task-helper')), findsOneWidget);
+    });
+
+    testWidgets('lists the "always" permissions and taking one back leaves the rest, without a key', (tester) async {
+      const del = Grant(conversationId: 'conv-1234567890', agentId: 'chief', covers: 'delete_data');
+      const shell = Grant(conversationId: 'conv-1234567890', covers: 'shell');
+      final backend = _FakeBackend(grants: [del, shell]);
+      await _pump(tester, backend);
+      await tester.tap(find.byKey(const Key('tab-tasks')));
+      await tester.pumpAndSettle();
+      expect(find.text('Delete data'), findsOneWidget, reason: 'a category has a name');
+      expect(find.text('shell'), findsOneWidget, reason: 'a tool is shown as it is');
+      expect(find.textContaining('default agent'), findsOneWidget);
+
+      await tester.tap(find.byKey(const Key('revoke-conv-1234567890-chief-delete_data')));
+      await tester.pumpAndSettle();
+      expect(backend.grants, [shell]);
+      expect(find.text('Delete data'), findsNothing);
+      expect(find.text('shell'), findsOneWidget);
+    });
+
+    testWidgets('says "None yet." when nothing was allowed with "always"', (tester) async {
+      await _pump(tester, _FakeBackend());
+      await tester.tap(find.byKey(const Key('tab-tasks')));
+      await tester.pumpAndSettle();
+      expect(find.text('None yet.'), findsOneWidget);
     });
 
     testWidgets('says so when there is nothing yet', (tester) async {

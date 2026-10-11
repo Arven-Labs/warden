@@ -548,6 +548,15 @@ async function handleRequest(request: PopupRequest): Promise<unknown> {
         return { ok: false, tasks: [], error: err instanceof Error ? err.message : String(err), authRejected: err instanceof HubRequestError && err.authRejected };
       }
 
+    case "listGrants":
+    case "revokeGrant":
+      if (!connection || connection.status.kind !== "connected") return { ok: false, grants: [], error: "not connected" };
+      try {
+        return { ok: true, grants: request.type === "listGrants" ? await connection.listGrants() : await connection.revokeGrant(request.grant) };
+      } catch (err) {
+        return { ok: false, grants: [], error: err instanceof Error ? err.message : String(err) };
+      }
+
     case "listActivity":
       if (!connection || connection.status.kind !== "connected") return { ok: false, events: [], error: "not connected" };
       try {

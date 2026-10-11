@@ -106,6 +106,13 @@ export interface ActivityEvent {
   conversationId?: string;
 }
 
+/** Mirrors `GrantDto` (P122): um "sempre" dado numa conversa. `covers` é uma categoria de risco (`delete_data`) ou o nome de uma ferramenta; sem `agentId`, o agente padrão. */
+export interface Grant {
+  conversationId: string;
+  agentId?: string;
+  covers: string;
+}
+
 /** Mirrors `AgentTaskDto` (P123): uma tarefa que um agente delegou em segundo plano. `group` é comum às tarefas que um turno começou. */
 export interface AgentTask {
   id: string;
@@ -205,6 +212,9 @@ export type ClientMessage =
   | { type: "resolveApproval"; approvalId: number; approved: boolean }
   /** P123 — the work agents delegated to each other, answered by `agentTaskList`. */
   | { type: "listAgentTasks"; requestId: number }
+  /** P122 — what the person said "always" to on this connection, answered by `grantList`; `revokeGrant` takes one back and is answered by the new list. */
+  | { type: "listGrants"; requestId: number }
+  | { type: "revokeGrant"; requestId: number; conversationId: string; agentId?: string; covers: string }
   /** P121 — the feed of activity, answered by `activityList`. Owner only; a member gets it empty. */
   | { type: "listActivity"; requestId: number }
   /** P123 — pauses, resumes or stops a task running on the hub (and the subtasks below it). Asks for the pairing key; answered by
@@ -264,6 +274,7 @@ export type ServerMessage =
   /** `authRejected`: the pairing key was wrong; nothing was written. */
   | { type: "settingsError"; requestId: number; message: string; authRejected?: boolean }
   | { type: "agentTaskList"; requestId: number; tasks: AgentTask[] }
+  | { type: "grantList"; requestId: number; grants: Grant[] }
   | { type: "activityList"; requestId: number; events: ActivityEvent[] }
   | { type: "taskError"; requestId: number; message: string; authRejected?: boolean }
   | ({ type: "approvalRequest" } & ApprovalPrompt)
@@ -339,6 +350,7 @@ export function decode(text: string): ServerMessage {
       return { type: "settingsSaved", requestId: raw.requestId, ...hubAgents(raw.settings) };
     }
     case "agentTaskList":
+    case "grantList":
     case "activityList":
     case "taskError":
     case "settingsError":
