@@ -237,6 +237,11 @@ impl Server {
         self
     }
 
+    /// The hub's "always" (P122), for a settings save made outside a connection (the desktop's own screen) to tell how they are kept now.
+    pub fn grant_registry(&self) -> Arc<crate::grant_registry::GrantRegistry> {
+        self.grants.clone()
+    }
+
     /// The runner `with_tasks` set up, for a "run now" from outside a connection (the desktop's
     /// Tasks screen) that must not overlap a scheduled run of the same task.
     pub fn task_runner(&self) -> Option<TaskRunner> {
@@ -1666,9 +1671,10 @@ async fn handle_connection<S: Transport>(ws: WebSocketStream<S>, peer: SocketAdd
                     let lock = settings_lock.clone();
                     let auth_key = auth_key.clone();
                     let reply_tx = tx.clone();
+                    let grant_registry = grant_registry.clone();
                     tokio::spawn(async move {
                         let access = SettingsAccess { host: settings.as_deref(), shared: &shared, lock: &lock, auth_key: &auth_key, secure, allow_machine: allow_machine_settings, peer: Some(peer.ip()) };
-                        let _ = reply_tx.send(handle_save_settings(&access, request_id, &pairing_key, &base_version, *update).await);
+                        let _ = reply_tx.send(handle_save_settings(&access, Some(&grant_registry), request_id, &pairing_key, &base_version, *update).await);
                     });
                 }
                 Ok(ClientMessage::EditAgentOrg { request_id, pairing_key, edit }) => {

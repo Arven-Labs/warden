@@ -27,9 +27,15 @@ fn system_now_ms() -> u64 {
 /// `key` (conversation and agent) to what is covered, each with the last time it was given or used, in milliseconds.
 type Entries = BTreeMap<String, BTreeMap<String, u64>>;
 
-struct Inner {
+/// Where the book is kept and for how long, which `GrantBook::reconfigure` can change while the book is in use.
+struct Keeping {
     path: Option<PathBuf>,
     ttl_ms: u64,
+}
+
+struct Inner {
+    /// Always locked after `entries` when both are needed, never the other way round.
+    keeping: Mutex<Keeping>,
     clock: fn() -> u64,
     entries: Mutex<Entries>,
 }
@@ -39,11 +45,16 @@ impl Inner {
         self.entries.lock().unwrap_or_else(|e| e.into_inner())
     }
 
+    fn keeping(&self) -> MutexGuard<'_, Keeping> {
+        self.keeping.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
     /// Drops what went unused for longer than the term. `true` when something went.
     fn prune(&self, entries: &mut Entries, now: u64) -> bool {
+        let ttl_ms = self.keeping().ttl_ms;
         let before: usize = entries.values().map(BTreeMap::len).sum();
         for covers in entries.values_mut() {
-            covers.retain(|_, last| now.saturating_sub(*last) <= self.ttl_ms);
+            covers.retain(|_, last| now.saturating_sub(*last) <= ttl_ms);
         }
         entries.retain(|_, covers| !covers.is_empty());
         before != entries.values().map(BTreeMap::len).sum::<usize>()
@@ -51,8 +62,8 @@ impl Inner {
 
     /// Writes the file, when there is one. A failure is told on stderr and never stops a turn: the "always" just does not outlive the process.
     fn save(&self, entries: &Entries) {
-        let Some(path) = &self.path else { return };
-        if let Err(err) = write_file(path, entries) {
+        let Some(path) = self.keeping().path.clone() else { return };
+        if let Err(err) = write_file(&path, entries) {
             eprintln!("warden: could not save the permissions given with \"always\" to {}: {err}", path.display());
         }
     }
@@ -161,7 +172,7 @@ impl Default for GrantBook {
 impl GrantBook {
     fn build(path: Option<PathBuf>, ttl: Duration, clock: fn() -> u64) -> Self {
         let mut entries = path.as_deref().map(read_file).unwrap_or_default();
-        let inner = Inner { path, ttl_ms: ttl.as_millis() as u64, clock, entries: Mutex::new(Entries::new()) };
+        let inner = Inner { keeping: Mutex::new(Keeping { path, ttl_ms: ttl.as_millis() as u64 }), clock, entries: Mutex::new(Entries::new()) };
         if inner.prune(&mut entries, clock()) {
             inner.save(&entries);
         }
@@ -178,7 +189,44 @@ impl GrantBook {
     /// its grants end with the process, so there is no term to tell.
     pub fn ttl_days(&self) -> Option<u32> {
         const DAY_MS: u64 = 24 * 60 * 60 * 1000;
-        self.0.path.as_ref().map(|_| u32::try_from(self.0.ttl_ms.div_ceil(DAY_MS)).unwrap_or(u32::MAX))
+        let keeping = self.0.keeping();
+        keeping.path.as_ref().map(|_| u32::try_from(keeping.ttl_ms.div_ceil(DAY_MS)).unwrap_or(u32::MAX))
+    }
+
+    /// Changes how the book is kept while it is in use (`persist_grants` and `grant_ttl_days` saved from a settings screen), and every
+    /// `Grants` taken from it follows. `Some((path, ttl))` keeps it in that file for that term; `None` goes back to memory only.
+    ///
+    /// Turning the file on writes what is in memory over it and never reads it back: a file left from before could bring back an "always"
+    /// the person took back while nothing was being kept, and a doubtful file never makes an agent freer. Turning it off deletes the file,
+    /// so it cannot come back at the next start; what is in memory stays until the process ends. A shorter term drops what it no longer
+    /// covers right away; a longer one does not bring back what already lapsed.
+    pub fn reconfigure(&self, file: Option<(PathBuf, Duration)>) {
+        let now = (self.0.clock)();
+        let mut entries = self.0.lock();
+        let before = {
+            let mut keeping = self.0.keeping();
+            let before = keeping.path.take();
+            match file {
+                Some((path, ttl)) => {
+                    keeping.path = Some(path);
+                    keeping.ttl_ms = ttl.as_millis() as u64;
+                }
+                None => keeping.ttl_ms = DEFAULT_TTL.as_millis() as u64,
+            }
+            before
+        };
+        self.0.prune(&mut entries, now);
+        let after = self.0.keeping().path.clone();
+        if after.is_some() {
+            self.0.save(&entries);
+        }
+        if let Some(old) = before.filter(|old| Some(old) != after.as_ref()) {
+            if let Err(err) = std::fs::remove_file(&old) {
+                if err.kind() != std::io::ErrorKind::NotFound {
+                    eprintln!("warden: could not remove {}: {err}", old.display());
+                }
+            }
+        }
     }
 
     pub fn of(&self, conversation: &str, agent: Option<&str>) -> Grants {
@@ -331,6 +379,70 @@ mod tests {
         assert_eq!(GrantBook::persistent(file("days"), TTL).ttl_days(), Some(30));
         assert_eq!(GrantBook::persistent(file("days-7"), Duration::from_secs(7 * 24 * 60 * 60)).ttl_days(), Some(7));
         assert_eq!(GrantBook::persistent(file("days-part"), Duration::from_secs(36 * 60 * 60)).ttl_days(), Some(2), "a part of a day counts as a whole one");
+    }
+
+    #[test]
+    fn a_shorter_term_applies_at_once_to_every_handle_and_a_longer_one_brings_nothing_back() {
+        let _guard = CLOCK_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        at(0);
+        let path = file("reterm");
+        let book = GrantBook::build(Some(path.clone()), TTL, clock);
+        let handle = book.of("c1", None);
+        handle.remember("shell");
+        at(10);
+        book.of("c2", None).remember("shell");
+        assert_eq!(book.ttl_days(), Some(30));
+
+        book.reconfigure(Some((path.clone(), Duration::from_secs(5 * 24 * 60 * 60))));
+        assert_eq!(book.ttl_days(), Some(5));
+        assert_eq!(book.list().len(), 1, "the one unused for 10 days lapsed under the 5-day term, the one just given did not");
+        assert!(!handle.allows("shell"), "a handle taken before the change sees the new term");
+        assert!(std::fs::read_to_string(&path).unwrap().contains("c2"));
+
+        book.reconfigure(Some((path, TTL)));
+        assert_eq!(book.ttl_days(), Some(30));
+        assert_eq!(book.list().len(), 1, "a longer term does not bring back what lapsed");
+    }
+
+    #[test]
+    fn turning_the_file_on_writes_memory_over_it_without_reading_it_and_turning_it_off_deletes_it() {
+        let _guard = CLOCK_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        at(0);
+        let path = file("toggle");
+        // A file left from before, holding an "always" the person has since taken back.
+        let old = GrantBook::build(Some(path.clone()), TTL, clock);
+        old.of("c1", None).remember("shell");
+        assert!(path.exists());
+
+        let book = GrantBook::build(None, TTL, clock);
+        assert_eq!(book.ttl_days(), None);
+        book.of("c2", None).remember("delete_data");
+
+        book.reconfigure(Some((path.clone(), TTL)));
+        assert_eq!(book.ttl_days(), Some(30));
+        let body = std::fs::read_to_string(&path).unwrap();
+        assert!(body.contains("c2") && !body.contains("c1"), "memory overwrote the old file: {body}");
+        assert_eq!(book.list().len(), 1, "the old file was not merged in");
+        assert!(!GrantBook::build(Some(path.clone()), TTL, clock).of("c1", None).allows("shell"), "and a book opened from it does not have the old one either");
+
+        book.reconfigure(None);
+        assert_eq!(book.ttl_days(), None);
+        assert!(!path.exists(), "off deletes the file, so it cannot come back at the next start");
+        assert!(book.of("c2", None).allows("delete_data"), "what is in memory stays until the process ends");
+
+        book.reconfigure(None);
+        assert!(!path.exists(), "off to off writes nothing");
+    }
+
+    #[test]
+    fn moving_the_file_leaves_nothing_behind() {
+        let _guard = CLOCK_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        at(0);
+        let (first, second) = (file("move-a"), file("move-b"));
+        let book = GrantBook::build(Some(first.clone()), TTL, clock);
+        book.of("c1", None).remember("shell");
+        book.reconfigure(Some((second.clone(), TTL)));
+        assert!(second.exists() && !first.exists());
     }
 
     #[test]

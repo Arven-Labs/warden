@@ -105,7 +105,7 @@ async fn spin_up_hub(dir: &Path) -> (std::net::SocketAddr, PathBuf) {
 }
 
 /// The app's state with only what these commands touch: no engine, the rest a throwaway.
-fn app_state(dir: &Path) -> crate::AppState {
+pub(crate) fn app_state(dir: &Path) -> crate::AppState {
     crate::AppState {
         orchestrator: Arc::new(Mutex::new(Err("not used by this test".to_string()))),
         recording: Mutex::new(None),

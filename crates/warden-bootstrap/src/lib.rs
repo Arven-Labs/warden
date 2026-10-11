@@ -561,10 +561,11 @@ pub struct FileConfig {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub tool_categories: Vec<risk::ToolCategoryConfig>,
     /// Whether an "always" a person gave (P122) is kept in a file and survives a restart (TOML `persist_grants`). Absent: yes. `false`:
-    /// it lasts only until the connection or the app closes, as before. Read when the hub or the app starts.
+    /// it lasts only until the connection or the app closes, as before. A save from a settings screen applies it to the running hub or app at
+    /// once; the terminal reads it when it starts.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub persist_grants: Option<bool>,
-    /// Days an "always" may go unused before it lapses (TOML `grant_ttl_days`; every use renews it). Absent: 30. Read at start.
+    /// Days an "always" may go unused before it lapses (TOML `grant_ttl_days`; every use renews it). Absent: 30. Applied like `persist_grants`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub grant_ttl_days: Option<u32>,
     /// What agents may do with each node (P93, TOML `[[nodes]]`).

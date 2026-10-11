@@ -1800,7 +1800,8 @@ function SettingsView() {
             When you answer "always" to an agent's question, it stops asking for that kind of action in that conversation. Kept in a
             file, the permission survives a restart and lapses after the days below without being used (each use renews it);
             otherwise it ends when the app closes. Deleting data, spending money and critical infrastructure never get an "always".
-            Takes effect the next time the app starts.
+            Takes effect when you save; a connection to the hub that was already open without a file only starts keeping on its next
+            connection. Turning it off deletes the file.
           </p>
           <label className="settings-field settings-checkbox-field">
             <span className="settings-checkbox-row">

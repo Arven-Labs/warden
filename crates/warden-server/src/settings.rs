@@ -194,8 +194,16 @@ pub fn handle_request_settings(access: &SettingsAccess<'_>, request_id: u64) -> 
     }
 }
 
-/// Answers `SaveSettings`.
-pub async fn handle_save_settings(access: &SettingsAccess<'_>, request_id: u64, pairing_key: &str, base_version: &str, update: HubSettingsUpdate) -> ServerMessage {
+/// Answers `SaveSettings`. `grants` is the hub's "always" (P122), told at once how the saved `persist_grants` and `grant_ttl_days` want
+/// them kept; `None` where the hub has none.
+pub async fn handle_save_settings(
+    access: &SettingsAccess<'_>,
+    grants: Option<&crate::grant_registry::GrantRegistry>,
+    request_id: u64,
+    pairing_key: &str,
+    base_version: &str,
+    update: HubSettingsUpdate,
+) -> ServerMessage {
     let Some(host) = access.host else {
         return settings_error(request_id, NO_SETTINGS);
     };
@@ -269,6 +277,9 @@ pub async fn handle_save_settings(access: &SettingsAccess<'_>, request_id: u64, 
     let settings = view(host, &config, &orchestrator, access);
     host.installed(&orchestrator);
     shared.replace(orchestrator);
+    if let Some(grants) = grants {
+        grants.set_policy(warden_bootstrap::grant_policy(&path, &config));
+    }
     match config_version(&path) {
         Ok(version) => ServerMessage::SettingsSaved { request_id, settings, version },
         Err(err) => settings_error(request_id, format!("saved, but reading it back failed: {err:#}")),
@@ -574,14 +585,14 @@ api_key = "sk-ant-original-secret-9999"
 
     async fn save(host: &TestHost, shared: &SharedOrchestrator, secure: bool, key: &str, version: &str, update: HubSettingsUpdate) -> ServerMessage {
         let lock = tokio::sync::Mutex::new(());
-        handle_save_settings(&access(Some(host), shared, &lock, secure), 2, key, version, update).await
+        handle_save_settings(&access(Some(host), shared, &lock, secure), None, 2, key, version, update).await
     }
 
     /// The same, on a hub started with `--allow-machine-settings` (or not).
     async fn save_machine(host: &TestHost, shared: &SharedOrchestrator, allow: bool, secure: bool, key: &str, version: &str, update: HubSettingsUpdate) -> ServerMessage {
         let lock = tokio::sync::Mutex::new(());
         let access = SettingsAccess { allow_machine: allow, ..access(Some(host), shared, &lock, secure) };
-        handle_save_settings(&access, 2, key, version, update).await
+        handle_save_settings(&access, None, 2, key, version, update).await
     }
 
     fn machine_edit(settings: &HubSettingsDto) -> MachineEditDto {
@@ -859,7 +870,7 @@ api_key = "sk-ant-original-secret-9999"
         let reply = handle_request_settings(&none, 3);
         assert!(matches!(reply, ServerMessage::SettingsError { request_id: 3, .. }));
         let settings = hub_settings(&FileConfig::default(), Vec::new(), Vec::new());
-        let reply = handle_save_settings(&none, 4, KEY, "", untouched(&settings)).await;
+        let reply = handle_save_settings(&none, None, 4, KEY, "", untouched(&settings)).await;
         assert!(matches!(reply, ServerMessage::SettingsError { request_id: 4, auth_rejected: false, .. }));
         std::fs::remove_dir_all(&host.dir).unwrap();
     }

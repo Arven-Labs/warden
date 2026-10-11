@@ -47,6 +47,9 @@ use warden_core::orchestrator::Orchestrator;
 use warden_core::spend::SpendContext;
 use warden_server_protocol::protocol::{LimitSettingsDto, PriceSettingsDto};
 
+/// The file of this computer's own "always" (P122) in the `grants/` folder beside the config.
+const DESKTOP_GRANTS_FILE: &str = "desktop.json";
+
 struct AppState {
     /// Shared (`Arc`) with the embedded hub's settings host, which puts the orchestrator a web
     /// settings save builds here too (P78).
@@ -846,8 +849,19 @@ async fn save_settings(state: State<'_, AppState>, payload: SettingsFormPayload)
 
     save_config(&path, &config).map_err(|e| format!("{e:#}"))?;
 
+    apply_grant_policy(&state, &path, &config);
     reload_orchestrator(&state).await;
     Ok(())
+}
+
+/// Tells the "always" of this computer, and of the embedded hub when it runs, how `config` wants them kept (P122: `persist_grants`,
+/// `grant_ttl_days`), so a save from the Settings screen holds at once instead of at the next start.
+fn apply_grant_policy(state: &AppState, config_path: &std::path::Path, config: &FileConfig) {
+    let policy = warden_bootstrap::grant_policy(config_path, config);
+    state.grants.reconfigure(policy.as_ref().map(|p| (p.dir.join(DESKTOP_GRANTS_FILE), p.ttl)));
+    if let Some(hub) = state.embedded_server.lock().unwrap().as_ref() {
+        hub.grants.set_policy(policy);
+    }
 }
 
 /// One change to the organization of the agents from the tree (P120): a position, a new report, a removal. Only the agents (and what lists
@@ -1066,7 +1080,7 @@ pub fn run() {
         approvals: Arc::new(approval::ApprovalBroker::default()),
         // P122: this computer's own "always", in a file beside the config unless `persist_grants = false`.
         grants: match &grant_policy {
-            Some(policy) => warden_core::autonomy::GrantBook::persistent(policy.dir.join("desktop.json"), policy.ttl),
+            Some(policy) => warden_core::autonomy::GrantBook::persistent(policy.dir.join(DESKTOP_GRANTS_FILE), policy.ttl),
             None => Default::default(),
         },
         code: code_cmds::CodeState::default(),
@@ -1237,6 +1251,45 @@ mod tests {
 
     fn said(role: SavedRole) -> ConversationMessage {
         ConversationMessage { id: "m".into(), role, content: "hi".into(), created_at: 1, usage: None, answered_by: None, attachments: Vec::new(), generated_files: Vec::new(), tools_used: Vec::new() }
+    }
+
+    /// A person who answers "always" to everything: the only way a grant is made.
+    struct SaysAlways;
+
+    #[async_trait::async_trait]
+    impl warden_core::tool::Approver for SaysAlways {
+        async fn approve(&self, _request: warden_core::tool::ApprovalRequest) -> bool {
+            true
+        }
+
+        async fn ask(&self, _request: warden_core::tool::ApprovalRequest, _always: Option<&str>) -> warden_core::tool::Answer {
+            warden_core::tool::Answer::Always
+        }
+    }
+
+    #[tokio::test]
+    async fn a_saved_term_and_a_saved_off_hold_for_this_computers_always_at_once() {
+        let dir = std::env::temp_dir().join(format!("warden-desktop-apply-grants-{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
+        let config_path = dir.join("config.toml");
+        let state = crate::remote_ipc_test::app_state(&dir);
+        assert_eq!(state.grants.ttl_days(), None, "the test state starts with its always in memory");
+
+        let seven = FileConfig { grant_ttl_days: Some(7), ..FileConfig::default() };
+        apply_grant_policy(&state, &config_path, &seven);
+        assert_eq!(state.grants.ttl_days(), Some(7), "a saved term reaches the book the chat already holds");
+
+        use warden_core::tool::Approver;
+        let asked = warden_core::tool::ApprovalRequest::new("shell", "tool_call", "");
+        warden_core::autonomy::RememberingApprover::new(Arc::new(SaysAlways), state.grants.of("c1", None)).ask(asked, Some("shell")).await;
+        let desktop_file = dir.join("grants").join(DESKTOP_GRANTS_FILE);
+        assert!(desktop_file.exists());
+
+        let off = FileConfig { persist_grants: Some(false), ..FileConfig::default() };
+        apply_grant_policy(&state, &config_path, &off);
+        assert_eq!(state.grants.ttl_days(), None);
+        assert!(!desktop_file.exists(), "and turning it off takes the file away");
+        assert_eq!(state.grants.list().len(), 1, "while what was given stays until the app closes");
+        std::fs::remove_dir_all(&dir).ok();
     }
 
     #[test]

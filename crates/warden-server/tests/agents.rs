@@ -67,8 +67,10 @@ impl SettingsHost for TestHost {
         self.path.clone()
     }
 
+    /// What a save puts in place (the tests that save settings only look at what the save did to the hub's "always").
     async fn build(&self) -> anyhow::Result<Orchestrator> {
-        anyhow::bail!("not used by these tests")
+        let dir = self.path.parent().unwrap();
+        Ok(Orchestrator::new(Arc::new(Scripted { seen: Arc::new(Mutex::new(Vec::new())) }), Arc::new(Vault::new(dir.join("vault")))))
     }
 }
 
@@ -479,6 +481,89 @@ async fn term_told(conn: &mut ServerConnection) -> Option<u32> {
             return ttl_days;
         }
     }
+}
+
+/// What the device sees of its "always": how many, and the term the hub tells (`None` when they are only in memory).
+async fn alwayses_and_term(conn: &mut ServerConnection) -> (usize, Option<u32>) {
+    conn.send(&ClientMessage::ListGrants { request_id: 9 }).await.unwrap();
+    loop {
+        if let ServerMessage::GrantList { grants, ttl_days, .. } = conn.recv().await.unwrap().expect("connection closed") {
+            return (grants.len(), ttl_days);
+        }
+    }
+}
+
+/// Saves the settings as they are, with only `persist_grants` and `grant_ttl_days` said, from a screen that loaded them just before.
+async fn save_how_the_alwayses_are_kept(conn: &mut ServerConnection, persist_grants: Option<bool>, grant_ttl_days: Option<u32>) {
+    use warden_server_protocol::protocol::{HubSettingsUpdate, ProviderEditDto, SecretEdit};
+    conn.send(&ClientMessage::RequestSettings { request_id: 20 }).await.unwrap();
+    let (settings, version) = loop {
+        if let ServerMessage::Settings { settings, version, .. } = conn.recv().await.unwrap().expect("connection closed") {
+            break (settings, version);
+        }
+    };
+    let update = HubSettingsUpdate {
+        providers: settings
+            .providers
+            .iter()
+            .map(|p| ProviderEditDto { original_id: Some(p.id.clone()), id: p.id.clone(), kind: p.kind.clone(), base_url: p.base_url.clone(), model: p.model.clone(), node: p.node.clone(), api_key: SecretEdit::Keep })
+            .collect(),
+        active_provider: settings.active_provider.clone(),
+        agents: settings.agents.clone(),
+        tavily_key: SecretEdit::Keep,
+        whisper_key: SecretEdit::Keep,
+        limits: settings.limits.clone(),
+        prices: settings.prices.clone(),
+        git_sync: None,
+        combos: None,
+        model_policies: None,
+        outreach: None,
+        tool_categories: None,
+        persist_grants,
+        grant_ttl_days,
+        bots: None,
+        telegram_token: SecretEdit::Keep,
+        advanced: None,
+        machine: None,
+    };
+    conn.send(&ClientMessage::SaveSettings { request_id: 21, pairing_key: "test-key".into(), base_version: version, update: Box::new(update) }).await.unwrap();
+    loop {
+        match conn.recv().await.unwrap().expect("connection closed") {
+            ServerMessage::SettingsSaved { .. } => return,
+            ServerMessage::SettingsError { message, .. } => panic!("the save was refused: {message}"),
+            _ => {}
+        }
+    }
+}
+
+#[tokio::test]
+async fn a_saved_term_and_a_saved_off_reach_the_running_hub_without_a_restart() {
+    use warden_core::autonomy::Category;
+    let hub = spin_up_keeping_grants(true).await;
+    set_autonomy(&hub, "chief", 5);
+    set_approval_required(&hub, "chief", &[Category::ElevatedAgent]);
+    let file_of_the_device = || std::fs::read_dir(hub.config_path.with_file_name("grants")).map(|d| d.count()).unwrap_or(0);
+
+    let mut conn = ServerConnection::connect(&hub.url, "web-1", "Browser", "test-key").await.unwrap();
+    conn.send(&chat("CREATE a critic", "c1", Some("chief"))).await.unwrap();
+    finish_turn_always(&mut conn).await;
+    assert_eq!(alwayses_and_term(&mut conn).await, (1, Some(30)));
+    assert_eq!(file_of_the_device(), 1);
+
+    save_how_the_alwayses_are_kept(&mut conn, None, Some(7)).await;
+    assert_eq!(alwayses_and_term(&mut conn).await, (1, Some(7)), "the same open connection sees the new term");
+    assert!(std::fs::read_to_string(&hub.config_path).unwrap().contains("grant_ttl_days = 7"));
+
+    save_how_the_alwayses_are_kept(&mut conn, Some(false), None).await;
+    assert_eq!(alwayses_and_term(&mut conn).await, (1, None), "off: still held, but only in memory");
+    assert_eq!(file_of_the_device(), 0, "and the file is gone");
+    let mut later = ServerConnection::connect(&hub.url, "web-1", "Browser", "test-key").await.unwrap();
+    assert_eq!(alwayses_and_term(&mut later).await, (0, None), "a connection after that starts empty");
+
+    save_how_the_alwayses_are_kept(&mut conn, Some(true), None).await;
+    let mut kept_again = ServerConnection::connect(&hub.url, "web-1", "Browser", "test-key").await.unwrap();
+    assert_eq!(alwayses_and_term(&mut kept_again).await, (0, Some(7)), "on again: the next connection is kept, with the term the file says");
+    assert_eq!(alwayses_and_term(&mut conn).await.1, None, "the one already open keeps its book in memory");
 }
 
 #[tokio::test]

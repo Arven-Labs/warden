@@ -6,6 +6,16 @@
 
 ---
 
+### 2026-10-11 — Sessão 182 (continuação: `persist_grants` e o prazo valem sem reiniciar)
+
+- **Pedido do usuário**: planejar e seguir em código (sem teste manual). Era o item "o prazo e `persist_grants` só mudam ao reiniciar".
+- **Núcleo** (`grants.rs`): `path` e `ttl_ms` foram para um segundo `Mutex` (`Keeping`, sempre depois das entradas; mudei do plano, que os punha no mesmo `Mutex`, porque tocava todos os pontos de uso sem ganho) e `GrantBook::reconfigure`. Regras: prazo novo vale na hora (encolher poda; aumentar não ressuscita); ligar o arquivo grava a memória por cima e **não lê** um arquivo velho; desligar **apaga** o arquivo e mantém a memória; trocar de arquivo apaga o antigo.
+- **Hub**: `GrantRegistry::set_policy` (política atrás de `Mutex`, no-op se igual, trava livros e depois política como `book_for` para não deixar um livro feito pela regra velha), `handle_save_settings` ganhou o parâmetro `grants` e chama `set_policy(grant_policy(..))` depois de construir o orquestrador, `Server::grant_registry()`.
+- **Desktop**: `apply_grant_policy` no `save_settings` (livro local e o registro do hub embutido, novo campo `EmbeddedServerHandle.grants`); constante `DESKTOP_GRANTS_FILE`. Textos da web e do desktop deixaram de dizer "reiniciar".
+- **Testes**: núcleo (3: prazo vivo, ligar/desligar, trocar de arquivo), registro (2), hub de ponta a ponta (`a_saved_term_and_a_saved_off_reach_the_running_hub_without_a_restart`: salva 7 e a mesma conexão vê 7; desliga e o arquivo some; conexão nova começa vazia; liga e a próxima guarda com 7, a aberta segue em memória), desktop (`apply_grant_policy`). Para isso o `TestHost` do `tests/agents.rs` passou a construir um orquestrador. Workspace em dois blocos: 1207 + 329 passam, 0 falham; `tsc` da web e do desktop limpos; clippy sem aviso novo.
+- **Deslize meu**: uma edição de código (as chamadas de `handle_save_settings` nos testes) saiu por `sed` em vez de `Edit`, de novo contra o seu pedido; o resultado está no diff. Só Edit daqui para a frente.
+- **Fica**: o `set_policy` do hub embutido só é coberto pelos testes do registro (o desktop testa o livro local, não o embutido); uma conexão aberta com livro em memória não passa a gravar ao ligar; a CLI lê ao iniciar (não tem tela de salvar); a e2e do navegador (`web/e2e/settings.test.mjs`) **não foi rodada** nem estendida; nenhuma tela foi vista numa janela.
+
 ### 2026-10-11 — Sessão 182 (continuação: `/grants` na CLI)
 
 - **Pedido do usuário**: seguir em código (sem teste manual), planejando antes. Fecha o "a CLI não lista nem revoga" da entrada abaixo.

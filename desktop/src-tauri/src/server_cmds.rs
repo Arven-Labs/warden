@@ -48,6 +48,8 @@ pub struct EmbeddedServerHandle {
     pub(crate) task_runner: Option<warden_server::scheduler::TaskRunner>,
     /// The nodes connected to it (P93), for the Workspace screen.
     pub(crate) node_registry: warden_server::nodes::NodeRegistry,
+    /// Its devices' "always" (P122): the desktop's own Settings save tells it how they are kept now (`persist_grants`, `grant_ttl_days`).
+    pub(crate) grants: Arc<warden_server::grant_registry::GrantRegistry>,
 }
 
 /// The embedded hub's web settings (P78): the desktop's own config file, built the way the desktop
@@ -386,6 +388,7 @@ pub(crate) async fn start_embedded_server_inner(state: &AppState, config: &Embed
     // P122: the embedded hub keeps its devices' "always" as the standalone hub does.
     server = server.with_grants(warden_bootstrap::default_config_path().and_then(|path| warden_bootstrap::grant_policy_at(&path, false)));
     let task_runner = server.task_runner();
+    let grants = server.grant_registry();
     let node_registry = server.node_registry();
     let bound_addr = server.local_addr()?;
     let secure_url = tls.as_ref().and_then(|tls| tls.secure_url(bound_addr.port()));
@@ -398,7 +401,7 @@ pub(crate) async fn start_embedded_server_inner(state: &AppState, config: &Embed
     tokio::spawn(server.serve_until(async {
         let _ = shutdown_rx.await;
     }));
-    Ok(EmbeddedServerHandle { shutdown_tx, bound_addr, server_name, secure_url, tls_without_host, web_ui: config.web_ui, cert_renewal, orchestrator: shared, task_runner, node_registry })
+    Ok(EmbeddedServerHandle { shutdown_tx, bound_addr, server_name, secure_url, tls_without_host, web_ui: config.web_ui, cert_renewal, orchestrator: shared, task_runner, node_registry, grants })
 }
 
 #[cfg(test)]
@@ -511,6 +514,7 @@ mod tests {
             )),
             task_runner: None,
             node_registry: warden_server::nodes::NodeRegistry::default(),
+            grants: Arc::default(),
         };
         assert_eq!(handle(None, "0.0.0.0:7420", false).base_url().as_deref(), Some("http://localhost:7420"));
         assert_eq!(handle(None, "127.0.0.1:7420", false).base_url().as_deref(), Some("http://127.0.0.1:7420"));

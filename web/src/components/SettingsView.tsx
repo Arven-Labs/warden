@@ -1174,7 +1174,7 @@ export default function SettingsView({ conn }: { conn: ServerConnection | null }
       {draft.grantsSupported && (
         <Section
           title='Permissões dadas com "sempre"'
-          hint='Quando você responde "sempre" à pergunta de um agente, ele deixa de perguntar por aquele tipo de ação naquela conversa. Guardada em arquivo, a permissão sobrevive a um reinício e vence depois dos dias abaixo sem uso (cada uso renova); senão, acaba quando a conexão fecha. Apagar dados, gastar dinheiro e infraestrutura crítica nunca ganham um "sempre". Vale a partir da próxima vez que o hub iniciar.'
+          hint='Quando você responde "sempre" à pergunta de um agente, ele deixa de perguntar por aquele tipo de ação naquela conversa. Guardada em arquivo, a permissão sobrevive a um reinício e vence depois dos dias abaixo sem uso (cada uso renova); senão, acaba quando a conexão fecha. Apagar dados, gastar dinheiro e infraestrutura crítica nunca ganham um "sempre". Vale já ao salvar; uma conexão que já estava aberta sem arquivo só passa a guardar na próxima. Desligar apaga o arquivo.'
         >
           <div className="settings-checks">
             <label className="settings-check">
