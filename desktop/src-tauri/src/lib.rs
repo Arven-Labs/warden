@@ -1196,6 +1196,7 @@ pub fn run() {
             move_conversation,
             share_cmds::share_conversation,
             share_cmds::shared_conversation_ids,
+            share_cmds::share_all_conversations,
             projects_cmds::list_projects,
             projects_cmds::save_project,
             projects_cmds::delete_project,

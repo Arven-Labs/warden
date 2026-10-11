@@ -940,7 +940,7 @@ function App() {
       ) : view === "skills" ? (
         <SkillsView key={activeHubId ?? "local"} remote={remote} agents={settings.agents} providers={settings.providers} activeProvider={settings.activeProvider} />
       ) : view === "projects" ? (
-        <ProjectsView onChanged={loadProjects} />
+        <ProjectsView onChanged={loadProjects} onConversationsMoved={remote ? undefined : () => void loadConversations()} />
       ) : view === "tasks" ? (
         <TasksView key={activeHubId ?? "local"} remote={remote} agents={settings.agents} />
       ) : view === "webhooks" ? (

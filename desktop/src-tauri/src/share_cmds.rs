@@ -76,6 +76,48 @@ pub fn share(desktop: &Path, hub: &Path, id: &str, shared: bool, is_code: &dyn F
     Ok(conversation)
 }
 
+/// What `share_all` did: the ids it moved and the ones it left, each with why.
+#[derive(Debug, Default, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ShareAll {
+    pub moved: Vec<String>,
+    pub skipped: Vec<Skipped>,
+}
+
+#[derive(Debug, PartialEq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Skipped {
+    pub id: String,
+    pub reason: String,
+}
+
+/// Shares every conversation of this computer that is in a code project. One that can't go (a task is running in it, the hub
+/// already has that id) is left where it is and reported, and the others still go; conversations that are not in a code project
+/// aren't part of this at all.
+pub fn share_all(desktop: &Path, hub: &Path, is_code: &dyn Fn(&str) -> bool, is_running: &dyn Fn(&str) -> bool) -> anyhow::Result<ShareAll> {
+    let mut result = ShareAll::default();
+    for conversation in list_conversations(desktop)?.into_iter().filter(|c| c.project_id.as_deref().is_some_and(is_code)) {
+        if is_running(&conversation.id) {
+            result.skipped.push(Skipped { id: conversation.id, reason: "a task is running in it".to_string() });
+            continue;
+        }
+        match share(desktop, hub, &conversation.id, true, is_code) {
+            Ok(_) => result.moved.push(conversation.id),
+            Err(reason) => result.skipped.push(Skipped { id: conversation.id, reason }),
+        }
+    }
+    Ok(result)
+}
+
+/// Shares every code-project conversation of this computer with the hub (the Projects screen's button).
+#[tauri::command]
+pub fn share_all_conversations(state: State<'_, AppState>) -> Result<ShareAll, String> {
+    let hub = hub_dir().ok_or_else(|| "could not determine the OS config directory".to_string())?;
+    let orchestrator = { state.orchestrator.lock().unwrap().clone() }?;
+    let store = warden_core::project::ProjectStore::new(orchestrator.vault().clone());
+    share_all(&desktop_dir()?, &hub, &|project| store.get(project).is_ok_and(|p| p.code), &|id| state.code.is_running(id)).map_err(|e| format!("{e:#}"))
+}
+
 /// Shares conversation `conversation_id` with the hub, or stops sharing it. Refused while a task of it runs here.
 #[tauri::command]
 pub fn share_conversation(state: State<'_, AppState>, conversation_id: String, shared: bool) -> Result<Conversation, String> {
@@ -148,6 +190,31 @@ mod tests {
         assert!(share(&desktop, &hub, "nope", false, &only_code).unwrap_err().contains("shared with the hub"));
         assert!(load_conversation(&desktop, "plain").unwrap().is_some() && load_conversation(&desktop, "docs").unwrap().is_some());
         assert!(load_conversation(&desktop, "c1").unwrap().is_some(), "the one that clashed stays");
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn sharing_all_moves_only_the_code_ones_and_reports_what_it_left_and_why() {
+        let (root, desktop, hub) = dirs("all");
+        for (id, project) in [("plain", None), ("docs", Some("notes")), ("a", Some("app")), ("b", Some("app")), ("busy", Some("app")), ("clash", Some("app"))] {
+            save_conversation(&desktop, &conversation(id, project, 1)).unwrap();
+        }
+        save_conversation(&hub, &conversation("clash", Some("app"), 2)).unwrap();
+
+        let done = share_all(&desktop, &hub, &only_code, &|id| id == "busy").unwrap();
+        let mut moved = done.moved.clone();
+        moved.sort();
+        assert_eq!(moved, vec!["a", "b"]);
+        let mut left: Vec<(String, bool)> = done.skipped.iter().map(|s| (s.id.clone(), s.reason.contains("running") || s.reason.contains("already exists"))).collect();
+        left.sort();
+        assert_eq!(left, vec![("busy".to_string(), true), ("clash".to_string(), true)]);
+        assert_eq!(load_conversation(&hub, "a").unwrap().unwrap().engine_session_id.as_deref(), Some("ses_1"));
+        for id in ["plain", "docs", "busy", "clash"] {
+            assert!(load_conversation(&desktop, id).unwrap().is_some(), "{id} stays");
+        }
+        // Nothing left to share: an empty result, not an error.
+        let again = share_all(&desktop, &hub, &only_code, &|_| true).unwrap();
+        assert!(again.moved.is_empty() && again.skipped.len() == 2);
         std::fs::remove_dir_all(&root).ok();
     }
 

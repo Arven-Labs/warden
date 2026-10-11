@@ -113,7 +113,33 @@ function ProjectFiles({ projectId }: { projectId: string }) {
   );
 }
 
-function ProjectsView({ onChanged }: { onChanged: () => void }) {
+interface ShareAllResult {
+  moved: string[];
+  skipped: { id: string; reason: string }[];
+}
+
+/** `onConversationsMoved` is given on this computer only: the conversations of code projects it can put on the hub (P124). */
+function ProjectsView({ onChanged, onConversationsMoved }: { onChanged: () => void; onConversationsMoved?: () => void }) {
+  const [confirmShareAll, setConfirmShareAll] = useState(false);
+  const [sharing, setSharing] = useState(false);
+  const [shareResult, setShareResult] = useState<ShareAllResult | null>(null);
+  const [shareError, setShareError] = useState<string | null>(null);
+
+  async function handleShareAll() {
+    setSharing(true);
+    setShareError(null);
+    setShareResult(null);
+    try {
+      setShareResult(await invoke<ShareAllResult>("share_all_conversations"));
+      onConversationsMoved?.();
+    } catch (err) {
+      setShareError(String(err));
+    } finally {
+      setSharing(false);
+      setConfirmShareAll(false);
+    }
+  }
+
   const [projects, setProjects] = useState<ProjectEntry[] | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [editor, setEditor] = useState<EditorState | null>(null);
@@ -342,6 +368,45 @@ function ProjectsView({ onChanged }: { onChanged: () => void }) {
           </div>
         )}
       </section>
+
+      {onConversationsMoved && projects?.some((p) => p.code) && (
+        <section className="settings-section">
+          <div className="settings-section-header">
+            <h3 className="settings-section-title">Code conversations on the hub</h3>
+            {confirmShareAll ? (
+              <div className="skill-card-actions">
+                <span className="settings-hint">Move every conversation of a code project to the hub? You can take each one back from its own header, not all at once.</span>
+                <button type="button" className="settings-save-btn" onClick={() => void handleShareAll()} disabled={sharing}>
+                  {sharing ? "Sharing…" : "Share all"}
+                </button>
+                <button type="button" className="settings-browse-btn" onClick={() => setConfirmShareAll(false)} disabled={sharing}>
+                  Cancel
+                </button>
+              </div>
+            ) : (
+              <button type="button" className="settings-browse-btn" onClick={() => setConfirmShareAll(true)}>
+                Share all with the hub
+              </button>
+            )}
+          </div>
+          <p className="settings-hint">Puts the conversations you already have in code projects on the hub, to go on with them from the phone or the web (they see them while the hub is on).</p>
+          {shareError && <p className="settings-error-banner">{shareError}</p>}
+          {shareResult && (
+            <>
+              <p className="settings-hint">{shareResult.moved.length} shared{shareResult.skipped.length > 0 ? `, ${shareResult.skipped.length} left where they were:` : "."}</p>
+              {shareResult.skipped.length > 0 && (
+                <ul className="settings-hint">
+                  {shareResult.skipped.map((s) => (
+                    <li key={s.id}>
+                      <code>{s.id}</code>: {s.reason}
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </>
+          )}
+        </section>
+      )}
     </div>
   );
 }

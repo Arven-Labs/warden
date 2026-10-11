@@ -6,6 +6,13 @@
 
 ---
 
+### 2026-10-11 — Sessão 182 (continuação: P124, compartilhar todas as conversas de código com o hub)
+
+- **Pedido do usuário**: "compartilhar todas as de código"; plano aprovado.
+- **O que mudou**: `share_cmds.rs` ganhou `share_all` e o comando `share_all_conversations` (`ShareAll { moved, skipped }`); botão "Share all with the hub" na tela de Projetos (`ProjectsView.tsx`, só no computador local e quando há projeto de código), com faixa de confirmação, resultado e lista dos pulados; ao terminar recarrega a lista e os selos.
+- **Testes**: 1 novo (move só as de código; pula a que roda e a que já está no hub, com motivo; o resto fica). Desktop `cargo test --lib`: 55 passam; `tsc` e `npm test` (107) limpos; clippy sem aviso novo.
+- **Fica**: janela e celular não vistos; sem desfazer em lote.
+
 ### 2026-10-11 — Sessão 182 (continuação: P124, compartilhar uma conversa de código com o hub)
 
 - **Pedido do usuário**: continuar no celular o que se começa no computador (rede Tailscale). Ele propôs um botão "compartilhar com o hub" no lugar de mudar a pasta de tudo; plano aprovado.
