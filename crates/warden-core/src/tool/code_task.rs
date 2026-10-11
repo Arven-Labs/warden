@@ -17,6 +17,7 @@ use std::sync::{Arc, Mutex, OnceLock};
 use async_trait::async_trait;
 use serde_json::{json, Value};
 
+use crate::autonomy::{Autonomy, Category, Classifier};
 use crate::code_engine::{CodeEngine, CodeEvent, CodeMode, TurnOutcome, TurnRequest};
 use crate::jobs::{task_controls, JobBoard, TaskDraft};
 use crate::memory::Vault;
@@ -78,17 +79,52 @@ fn describe(outcome: &TurnOutcome) -> String {
 /// route), and builds them again whenever its settings are saved, so the tool holds a slot the hub fills once.
 pub type CodeEngineSlot = Arc<OnceLock<Arc<dyn CodeEngine>>>;
 
+#[derive(Clone)]
 pub struct CodeTaskTool {
     projects: ProjectStore,
     engine: CodeEngineSlot,
     approver: Option<Arc<dyn Approver>>,
     /// The turn's background jobs, once bound (`with_jobs`): only then does the tool accept `background` and record its tasks.
     jobs: Option<Arc<JobBoard>>,
+    /// The autonomy of the agent calling (`with_autonomy`, P122): it only goes down, and sets how loose a `mode` the agent may ask for.
+    autonomy: Autonomy,
+    /// A person asked to be asked about critical-infrastructure actions for this agent (`with_approval_rules`), and `code_task` is
+    /// one: the engine's own asks are what they meant to keep, so no mode that answers them for the engine is allowed.
+    asks_for_critical: bool,
+}
+
+/// The name a `mode` argument uses (the same ones the clients send).
+fn mode_name(mode: CodeMode) -> &'static str {
+    match mode {
+        CodeMode::Manual => "manual",
+        CodeMode::AcceptEdits => "acceptEdits",
+        CodeMode::AcceptAll => "acceptAll",
+        CodeMode::Plan => "plan",
+    }
+}
+
+/// Strict, unlike `CodeMode::parse` (which turns an unknown name into `Manual` for a client that sent garbage): an agent that asks for
+/// a mode that doesn't exist is told so.
+fn mode_named(name: &str) -> Option<CodeMode> {
+    [CodeMode::Manual, CodeMode::AcceptEdits, CodeMode::AcceptAll, CodeMode::Plan].into_iter().find(|mode| mode_name(*mode) == name)
 }
 
 impl CodeTaskTool {
     pub fn new(vault: Arc<Vault>, engine: CodeEngineSlot) -> Self {
-        Self { projects: ProjectStore::new(vault), engine, approver: None, jobs: None }
+        Self { projects: ProjectStore::new(vault), engine, approver: None, jobs: None, autonomy: Autonomy::Autonomous, asks_for_critical: false }
+    }
+
+    /// The modes an agent may ask for (P124): never `acceptAll` (the shell is no sandbox and that mode asks nothing, so only a person
+    /// turns it on, from the Code screen); `acceptEdits` only for an agent that acts on its own (4 and 5) and whose person did not ask
+    /// to be asked about critical infrastructure; `plan` and `manual` otherwise. Below level 3 the tool is refused before it runs, so
+    /// `plan`, which changes nothing, is all that is left to offer.
+    fn allowed_modes(&self) -> Vec<CodeMode> {
+        match self.autonomy {
+            Autonomy::AnswerOnly | Autonomy::Suggest => vec![CodeMode::Plan],
+            Autonomy::AskFirst => vec![CodeMode::Manual, CodeMode::Plan],
+            Autonomy::Autonomous | Autonomy::Manager if self.asks_for_critical => vec![CodeMode::Manual, CodeMode::Plan],
+            Autonomy::Autonomous | Autonomy::Manager => vec![CodeMode::Manual, CodeMode::AcceptEdits, CodeMode::Plan],
+        }
     }
 
     /// The projects a task can go to: the ones that run on the engine, with their folder.
@@ -122,6 +158,14 @@ impl Tool for CodeTaskTool {
                 "description": "The session_id a previous code_task returned, to continue that session instead of starting a new one."
             }
         });
+        let allowed = self.allowed_modes();
+        properties["mode"] = json!({
+            "type": "string",
+            "enum": allowed.iter().map(|m| mode_name(*m)).collect::<Vec<_>>(),
+            "description": "How much the engine asks the person before acting: 'manual' asks before every edit and command (the default); \
+                'acceptEdits' lets it change files without asking and still asks before commands; 'plan' lets it change nothing and \
+                answers with a plan. Only the modes your autonomy allows are listed."
+        });
         let mut background_note = "";
         if self.jobs.is_some() {
             properties["background"] = background_property();
@@ -132,8 +176,9 @@ impl Tool for CodeTaskTool {
             name: "code_task".to_string(),
             description: format!(
                 "Hand a programming task to the code engine (the opencode) working in a code project's folder: it reads and edits \
-                 the files and runs commands there, and answers with what it did. The person is asked to approve each of its \
-                 actions, so a refused action did not happen. The engine does NOT see this conversation — the 'task' must be \
+                 the files and runs commands there, and answers with what it did. By default ('manual') the person is asked to \
+                 approve each of its actions, so a refused action did not happen; 'mode' can loosen that as far as your autonomy \
+                 allows. The engine does NOT see this conversation — the 'task' must be \
                  complete and self-contained. To continue the work of an earlier task (same files read, same context), pass the \
                  'session_id' that task returned.{background_note} Code projects:\n{listing}"
             ),
@@ -146,15 +191,23 @@ impl Tool for CodeTaskTool {
     }
 
     fn with_vault(&self, vault: &Arc<Vault>) -> Option<Arc<dyn Tool>> {
-        Some(Arc::new(Self { projects: ProjectStore::new(vault.clone()), engine: self.engine.clone(), approver: self.approver.clone(), jobs: self.jobs.clone() }))
+        Some(Arc::new(Self { projects: ProjectStore::new(vault.clone()), ..self.clone() }))
     }
 
     fn with_approver(&self, approver: Arc<dyn Approver>) -> Option<Arc<dyn Tool>> {
-        Some(Arc::new(Self { projects: self.projects.clone(), engine: self.engine.clone(), approver: Some(approver), jobs: self.jobs.clone() }))
+        Some(Arc::new(Self { approver: Some(approver), ..self.clone() }))
     }
 
     fn with_jobs(&self, board: &Arc<JobBoard>) -> Option<Arc<dyn Tool>> {
-        Some(Arc::new(Self { projects: self.projects.clone(), engine: self.engine.clone(), approver: self.approver.clone(), jobs: Some(board.clone()) }))
+        Some(Arc::new(Self { jobs: Some(board.clone()), ..self.clone() }))
+    }
+
+    fn with_autonomy(&self, level: Autonomy, _read_only: &[String]) -> Option<Arc<dyn Tool>> {
+        Some(Arc::new(Self { autonomy: self.autonomy.min(level), ..self.clone() }))
+    }
+
+    fn with_approval_rules(&self, required: &[Category], _classifier: Option<&Classifier>) -> Option<Arc<dyn Tool>> {
+        Some(Arc::new(Self { asks_for_critical: self.asks_for_critical || required.contains(&Category::CriticalInfra), ..self.clone() }))
     }
 
     async fn call(&self, args: Value) -> anyhow::Result<Value> {
@@ -167,6 +220,18 @@ impl Tool for CodeTaskTool {
             let available = projects.iter().map(|p| p.id.as_str()).collect::<Vec<_>>().join(", ");
             anyhow::anyhow!("'{id}' is not a code project — must be one of: {}", if available.is_empty() { "(none)" } else { &available })
         })?;
+        let requested = match args.get("mode").and_then(Value::as_str).map(str::trim).filter(|m| !m.is_empty()) {
+            None => CodeMode::Manual,
+            Some(name) => {
+                let allowed = self.allowed_modes();
+                let names = allowed.iter().map(|m| mode_name(*m)).collect::<Vec<_>>().join(", ");
+                let mode = mode_named(name).ok_or_else(|| anyhow::anyhow!("'{name}' is not a mode — must be one of: {names}"))?;
+                if !allowed.contains(&mode) {
+                    anyhow::bail!("'{name}' is more than this agent may ask for — must be one of: {names}");
+                }
+                mode
+            }
+        };
         let Some(approver) = self.approver.clone() else {
             anyhow::bail!("the code engine asks the person before each of its actions, and this channel can't ask (use the desktop app or the web)");
         };
@@ -175,8 +240,9 @@ impl Tool for CodeTaskTool {
         };
         let workdir = project.workdir.clone().ok_or_else(|| anyhow::anyhow!("the project '{}' has no working folder", project.name))?;
 
-        // `Manual` for good: nobody holds the sender, so nothing can switch it to "accept all" while the task runs.
-        let (_, mode) = tokio::sync::watch::channel(CodeMode::Manual);
+        // The mode is fixed for the task: nobody holds the sender, so nothing can loosen it while the task runs. It is the one asked for,
+        // within what this agent's autonomy allows (`Manual` when it asks for none).
+        let (_, mode) = tokio::sync::watch::channel(requested);
         let request = TurnRequest {
             workdir,
             session_id,
@@ -323,6 +389,101 @@ mod tests {
         assert_eq!(engine.asked.lock().unwrap()[0].0.session_id.as_deref(), Some("ses_7"));
     }
 
+    // --- Mode and autonomy (P124) ---
+
+    fn at(name: &str, level: Autonomy) -> (Arc<Scripted>, Arc<dyn Tool>) {
+        let engine = Arc::new(Scripted::default());
+        let tool = tool(name, Some(engine.clone()), true).with_autonomy(level, &[]).unwrap();
+        (engine, tool)
+    }
+
+    fn modes_in(tool: &Arc<dyn Tool>) -> Vec<String> {
+        tool.spec().parameters["properties"]["mode"]["enum"].as_array().unwrap().iter().map(|m| m.as_str().unwrap().to_string()).collect()
+    }
+
+    #[test]
+    fn each_autonomy_offers_the_modes_it_may_ask_for_and_never_accept_all() {
+        let offered = |level| modes_in(&at("offers", level).1);
+        assert_eq!(offered(Autonomy::Suggest), ["plan"]);
+        assert_eq!(offered(Autonomy::AskFirst), ["manual", "plan"]);
+        assert_eq!(offered(Autonomy::Autonomous), ["manual", "acceptEdits", "plan"]);
+        assert_eq!(offered(Autonomy::Manager), ["manual", "acceptEdits", "plan"]);
+        // A tool no orchestrator scoped yet is an agent acting on its own: same as 4.
+        assert_eq!(modes_in(&(Arc::new(tool("unscoped", None, true)) as Arc<dyn Tool>)), ["manual", "acceptEdits", "plan"]);
+    }
+
+    #[tokio::test]
+    async fn the_mode_asked_for_reaches_the_engine_and_none_asked_is_manual() {
+        let (engine, tool) = at("mode-reaches", Autonomy::Autonomous);
+        for (args, expected) in [
+            (json!({ "project": "repo", "task": "a" }), CodeMode::Manual),
+            (json!({ "project": "repo", "task": "b", "mode": "acceptEdits" }), CodeMode::AcceptEdits),
+            (json!({ "project": "repo", "task": "c", "mode": "plan" }), CodeMode::Plan),
+            (json!({ "project": "repo", "task": "d", "mode": "  manual " }), CodeMode::Manual),
+        ] {
+            tool.call(args).await.unwrap();
+            assert_eq!(engine.asked.lock().unwrap().last().unwrap().1, expected);
+        }
+    }
+
+    #[tokio::test]
+    async fn a_mode_above_the_agents_ceiling_or_not_a_mode_is_refused_with_what_is_allowed() {
+        let (engine, tool) = at("mode-refused", Autonomy::AskFirst);
+        for (mode, why) in [("acceptEdits", "more than this agent may ask for"), ("acceptAll", "more than this agent may ask for"), ("yolo", "not a mode")] {
+            let err = tool.call(json!({ "project": "repo", "task": "x", "mode": mode })).await.unwrap_err().to_string();
+            assert!(err.contains(why) && err.contains("manual, plan"), "{mode}: {err}");
+        }
+        assert!(engine.asked.lock().unwrap().is_empty(), "nothing reached the engine");
+
+        // Not even at 5: accept-all is a person's to turn on.
+        let (engine, tool) = at("mode-never-all", Autonomy::Manager);
+        let err = tool.call(json!({ "project": "repo", "task": "x", "mode": "acceptAll" })).await.unwrap_err().to_string();
+        assert!(err.contains("more than this agent may ask for"), "{err}");
+        assert!(engine.asked.lock().unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn the_mode_reaches_the_engine_in_the_background_too() {
+        let engine = Arc::new(Held::default());
+        let board = crate::jobs::JobBoard::new(2);
+        let tool = held_tool("bg-mode", &engine, &board);
+        engine.gate.add_permits(1);
+        let started = tool.call(json!({ "project": "repo", "task": "look", "mode": "plan", "background": true })).await.unwrap();
+        board.wait(started["job_id"].as_str().unwrap()).await;
+        assert_eq!(*engine.modes.lock().unwrap(), [CodeMode::Plan]);
+    }
+
+    #[test]
+    fn the_autonomy_only_goes_down_and_a_critical_infrastructure_rule_takes_the_edits_away() {
+        let (_, tool) = at("only-down", Autonomy::AskFirst);
+        let raised = tool.with_autonomy(Autonomy::Autonomous, &[]).unwrap();
+        assert_eq!(modes_in(&raised), ["manual", "plan"], "re-scoped to a higher level, it keeps the lower ceiling");
+
+        let (_, free) = at("critical", Autonomy::Autonomous);
+        assert!(modes_in(&free).contains(&"acceptEdits".to_string()));
+        let asked = free.with_approval_rules(&[Category::DeleteData], None).unwrap();
+        assert!(modes_in(&asked).contains(&"acceptEdits".to_string()), "another kind of rule changes nothing here");
+        let asked = free.with_approval_rules(&[Category::CriticalInfra], None).unwrap();
+        assert_eq!(modes_in(&asked), ["manual", "plan"], "the person asked to be asked: the engine's own asks stay");
+        assert_eq!(modes_in(&asked.with_approval_rules(&[], None).unwrap()), ["manual", "plan"], "and it only ever grows");
+    }
+
+    #[test]
+    fn an_orchestrator_held_to_ask_first_hands_its_code_task_the_lower_ceiling() {
+        let engine: Arc<dyn CodeEngine> = Arc::new(Scripted::default());
+        let slot: CodeEngineSlot = Arc::new(OnceLock::new());
+        slot.set(engine).ok();
+        let mut orchestrator = crate::orchestrator::Orchestrator::new(Arc::new(NoModel), vault("orchestrated"));
+        orchestrator.register_tool(Arc::new(CodeTaskTool::new(with_projects("orchestrated"), slot)));
+        let spec_of = |o: &crate::orchestrator::Orchestrator| o.tools().iter().find(|t| t.spec().name == "code_task").unwrap().spec();
+        let offered = |o: &crate::orchestrator::Orchestrator| spec_of(o).parameters["properties"]["mode"]["enum"].clone();
+
+        assert_eq!(offered(&orchestrator), json!(["manual", "acceptEdits", "plan"]));
+        let careful = orchestrator.with_autonomy(Autonomy::AskFirst, &[]);
+        assert_eq!(offered(&careful), json!(["manual", "plan"]));
+        assert_eq!(offered(&careful.with_autonomy(Autonomy::Autonomous, &[])), json!(["manual", "plan"]), "and nothing raises it again");
+    }
+
     // --- Background (P124) ---
 
     /// Three code projects: `repo` and `twin` share a folder, `site` has its own.
@@ -341,12 +502,22 @@ mod tests {
         running: std::sync::atomic::AtomicUsize,
         peak: std::sync::atomic::AtomicUsize,
         started: Mutex<Vec<String>>,
+        modes: Mutex<Vec<CodeMode>>,
         aborted: Mutex<Vec<(String, String)>>,
     }
     impl Default for Held {
         /// Closed: no task finishes until the test adds a permit.
         fn default() -> Self {
-            Self { gate: tokio::sync::Semaphore::new(0), running: Default::default(), peak: Default::default(), started: Default::default(), aborted: Default::default() }
+            Self { gate: tokio::sync::Semaphore::new(0), running: Default::default(), peak: Default::default(), started: Default::default(), modes: Default::default(), aborted: Default::default() }
+        }
+    }
+
+    /// A model nobody calls: the orchestrator test only looks at the tools it hands out.
+    struct NoModel;
+    #[async_trait]
+    impl crate::model::ModelProvider for NoModel {
+        async fn chat_stream(&self, _: Vec<crate::model::Message>, _: Vec<ToolSpec>) -> anyhow::Result<crate::model::ChatStream> {
+            anyhow::bail!("not used by this test")
         }
     }
     #[async_trait]
@@ -356,6 +527,7 @@ mod tests {
             let session = format!("ses_{}", request.workdir);
             on_event(CodeEvent::Session(session.clone()));
             self.started.lock().unwrap().push(request.prompt.clone());
+            self.modes.lock().unwrap().push(*request.mode.borrow());
             let now = self.running.fetch_add(1, SeqCst) + 1;
             self.peak.fetch_max(now, SeqCst);
             let permit = self.gate.acquire().await.unwrap();

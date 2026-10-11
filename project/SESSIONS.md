@@ -6,6 +6,14 @@
 
 ---
 
+### 2026-10-11 — Sessão 182 (continuação: P124, `mode` por tarefa com teto pela autonomia)
+
+- **Pedido do usuário**: "vamos seguir no 124"; perguntei a fatia e ele escolheu a recomendada (modo por tarefa, limitado pela autonomia), com plano antes.
+- **Achado**: o `Tool` já tinha `with_autonomy(level, read_only)` (chamado por `Orchestrator::with_autonomy` em toda tool, só descendo) e `with_approval_rules`; a `code_task` não os implementava, então nunca soube o nível. Sem mudar orquestrador, `agent_scope`, protocolo nem telas.
+- **O que mudou** (`code_task.rs`, só ele): `#[derive(Clone)]` (as cópias de `with_*` viraram `..self.clone()`), campos `autonomy` e `asks_for_critical`, `allowed_modes()`, argumento `mode` com `enum` do permitido, validação estrita (`mode_named`, não o `CodeMode::parse` que rebaixa nome desconhecido) e o `watch` criado com o modo pedido. Regras: nível 3 `manual`/`plan`; 4 e 5 também `acceptEdits`; **`acceptAll` nunca por um agente**; `CriticalInfra` em `approval_required` tira `acceptEdits`.
+- **Testes**: 6 novos na `code_task` (19 no total) e 1 no hub (`a_manager_can_ask_for_a_plan_but_never_for_accept_all`). Workspace em dois blocos, **primeira rodada de cada, saída guardada**: 1222 + 331 passam, 0 falham; clippy sem aviso novo. O intermitente do P128 não apareceu.
+- **Fica**: `model` por tarefa; eventos ao vivo no Chat; `code_task` no desktop; worktrees; revisão como etapa; o `acceptEdits` do opencode real não foi conferido contra o formato de permissões dele; nenhum modelo real nem opencode real exercitou.
+
 ### 2026-10-11 — Sessão 182 (continuação: P124, `code_task` em segundo plano)
 
 - **Pedido do usuário**: depois de confirmar o P122 ("já tá tudo certo"), "acho que o 124 agora". A pergunta em aberto do P124 (opencode como ferramenta ou subagentes do Warden) **já estava decidida** na Sessão 180 (`VISAO_AGENTES.md`, Parte 3, item 3), e o `PENDING.md` estava desatualizado; corrigi. Perguntei qual fatia fazer e o usuário escolheu a recomendada: `code_task` em segundo plano e como tarefa do P123.

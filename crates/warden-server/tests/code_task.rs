@@ -225,6 +225,71 @@ async fn a_manager_opens_two_code_tasks_in_the_background_and_both_are_on_the_ta
     assert_eq!(tasks[0].group, tasks[1].group, "one turn, one group: the screen shows them with a progress");
 }
 
+/// Asks for a plan, then for accept-all, then says what each answered.
+struct ModeAsker;
+
+#[async_trait]
+impl ModelProvider for ModeAsker {
+    async fn chat_stream(&self, messages: Vec<Message>, _: Vec<ToolSpec>) -> anyhow::Result<ChatStream> {
+        let results: Vec<&Message> = messages.iter().filter(|m| m.role == Role::Tool).collect();
+        let call = |mode: &str| {
+            let call = ToolCall { id: "call-1".into(), name: "code_task".into(), arguments: json!({ "project": "repo", "task": "look around", "mode": mode }), thought_signature: None };
+            Ok(response_stream(Response { content: String::new(), tool_calls: vec![call], usage: None }))
+        };
+        match results.len() {
+            0 => call("plan"),
+            1 => call("acceptAll"),
+            _ => Ok(response_stream(Response { content: results.iter().map(|m| m.content.clone()).collect::<Vec<_>>().join(" || "), tool_calls: Vec::new(), usage: None })),
+        }
+    }
+}
+
+/// Writes down the mode each task arrived in.
+#[derive(Default)]
+struct ModeProbe {
+    modes: Mutex<Vec<CodeMode>>,
+}
+
+#[async_trait]
+impl CodeEngine for ModeProbe {
+    async fn run_turn(&self, request: TurnRequest, _: Option<Arc<dyn Approver>>, _: &mut (dyn FnMut(CodeEvent) + Send)) -> anyhow::Result<TurnOutcome> {
+        self.modes.lock().unwrap().push(*request.mode.borrow());
+        Ok(TurnOutcome { session_id: "ses_p".into(), text: "a plan".into(), tools_used: Vec::new() })
+    }
+
+    async fn abort(&self, _: &str, _: &str) -> anyhow::Result<()> {
+        Ok(())
+    }
+}
+
+#[tokio::test]
+async fn a_manager_can_ask_for_a_plan_but_never_for_accept_all() {
+    std::env::set_var(warden_core::memory::embed::OFF_SWITCH, "1");
+    let dir = std::env::temp_dir().join(format!("warden-server-code-mode-{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let mut orchestrator = Orchestrator::new(Arc::new(ModeAsker), Arc::new(Vault::new(dir.join("vault"))));
+    let slot: CodeEngineSlot = Arc::new(OnceLock::new());
+    register_code_task(&mut orchestrator, &slot);
+    let probe = Arc::new(ModeProbe::default());
+    let engine: Arc<dyn CodeEngine> = probe.clone();
+    slot.set(engine).ok();
+    let server = Server::bind("127.0.0.1:0".parse().unwrap(), KEY, "Test Hub", Arc::new(orchestrator), dir.join("conversations"), dir.join("devices.json")).await.unwrap().with_users_dir(dir.join("users"));
+    let addr = server.local_addr().unwrap();
+    tokio::spawn(server.serve());
+    let mut me = ServerConnection::connect(&format!("ws://{addr}"), "laptop", "Laptop", KEY).await.unwrap();
+    save_code_project(&mut me).await;
+
+    ask_for_the_task(&mut me).await;
+    match next(&mut me).await {
+        ServerMessage::ChatResponse { content, .. } => {
+            assert!(content.contains("a plan"), "the plan came back: {content}");
+            assert!(content.contains("more than this agent may ask for") && content.contains("manual, acceptEdits, plan"), "accept-all was refused with the allowed list: {content}");
+        }
+        other => panic!("{other:?}"),
+    }
+    assert_eq!(*probe.modes.lock().unwrap(), [CodeMode::Plan], "only the plan reached the engine");
+}
+
 #[tokio::test]
 async fn a_no_from_the_person_reaches_the_engine() {
     let engine = Arc::new(Scripted::default());
