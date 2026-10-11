@@ -47,6 +47,7 @@ use crate::remote_tool::{RemoteTool, RemoteToolChannel, DEFAULT_TIMEOUT as REMOT
 use crate::node_tools::NodeToolFactory;
 use crate::nodes::{handle_list_nodes, handle_set_node_access, ConnectedNode, HubNodeModelRouter, ModelChannel, NodeRegistry};
 use crate::scheduler::{scheduler_loop, TaskRunner, DEFAULT_TICK as DEFAULT_TASK_TICK};
+use crate::worktree_sweep::{worktree_sweep_loop, DEFAULT_SWEEP as DEFAULT_WORKTREE_SWEEP};
 use crate::task_admin::{handle_list_tasks, handle_task_change, TaskAccess, TaskChange};
 use crate::sync::{handle_sync_action, handle_sync_status, SyncAccess};
 use crate::settings::{handle_edit_agent_org, handle_list_agent_org, handle_member_edit_agent_org, handle_request_settings, handle_save_settings, is_secure, SettingsAccess, SettingsHost, SharedOrchestrator};
@@ -118,6 +119,8 @@ pub struct Server {
     /// The "always" each device gave (P122): in a file per device, or in memory per connection when the policy is off.
     grants: Arc<crate::grant_registry::GrantRegistry>,
     task_tick: Duration,
+    /// How often the empty worktrees tasks left are tidied (P124); only a hub with a code engine does it.
+    worktree_sweep: Duration,
     /// Conversations changed outside any one connection (a task ran): every connection hears it.
     changes: broadcast::Sender<String>,
     /// The owner changed what a member may do with the organization of the agents (P120): the member's id and the new level. Only that
@@ -171,6 +174,7 @@ impl Server {
             agent_tasks: None,
             grants: Arc::default(),
             task_tick: DEFAULT_TASK_TICK,
+            worktree_sweep: DEFAULT_WORKTREE_SWEEP,
             changes: broadcast::channel(64).0,
             org_access_changes: broadcast::channel(16).0,
             nodes: NodeRegistry::default(),
@@ -257,6 +261,12 @@ impl Server {
     /// Overrides how often the scheduler looks for due tasks — tests use a short one.
     pub fn with_task_tick(mut self, tick: Duration) -> Self {
         self.task_tick = tick;
+        self
+    }
+
+    /// Overrides how often the empty worktrees of tasks are tidied — tests use a short one.
+    pub fn with_worktree_sweep(mut self, every: Duration) -> Self {
+        self.worktree_sweep = every;
         self
     }
 
@@ -413,6 +423,8 @@ impl Server {
             }
             _ => None,
         };
+        // P124: only where tasks can run (a code engine) is there a task that may be working in a worktree, and its lock is this process's.
+        let _worktree_sweep = ctx.code_engine.is_some().then(|| AbortOnDrop(tokio::spawn(worktree_sweep_loop(ctx.orchestrator.clone(), self.worktree_sweep))));
         let _sync_loop = match (&ctx.sync, self.sync_loop) {
             (Some(runner), Some(every)) => Some(AbortOnDrop(tokio::spawn(sync_loop(runner.clone(), every, ctx.settings.clone(), ctx.orchestrator.clone())))),
             _ => None,

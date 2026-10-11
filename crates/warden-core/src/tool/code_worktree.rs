@@ -37,6 +37,32 @@ pub(crate) async fn tidy(workdir: &Path) {
     }
 }
 
+/// Tidies the empty worktrees of every code project's repository (`sweep_empty`), once per repository even when several projects share
+/// it, and says what it removed (`worktree id`s). For the hub's timer: nobody listed or isolated anything, so nobody else would tidy.
+/// Work is never touched, and a repository that can't be tidied (not git any more, a folder gone) is reported and skipped.
+pub async fn tidy_projects(projects: &ProjectStore, now: SystemTime, grace: Duration, busy: &(dyn Fn(&Path) -> bool + Sync)) -> Vec<String> {
+    let mut seen = std::collections::HashSet::new();
+    let mut removed = Vec::new();
+    for project in projects.list().into_iter().filter(|p| p.code) {
+        let Some(workdir) = project.workdir.map(std::path::PathBuf::from) else { continue };
+        // Not a repository (or not there): nothing of ours can be in it.
+        let Ok(repo) = worktree::repository_of(&workdir).await else { continue };
+        if !seen.insert(repo) {
+            continue;
+        }
+        match worktree::sweep_empty(&workdir, grace, now, busy).await {
+            Ok(mut ids) => removed.append(&mut ids),
+            Err(err) => eprintln!("warden: couldn't tidy the worktrees of {}: {err:#}", workdir.display()),
+        }
+    }
+    removed
+}
+
+/// `tidy_projects` as the hub's timer runs it: now, with the usual grace, and a folder a task is working in left alone.
+pub async fn tidy_all(projects: &ProjectStore) -> Vec<String> {
+    tidy_projects(projects, SystemTime::now(), EMPTY_GRACE, &|path| folder_busy(&path.to_string_lossy())).await
+}
+
 fn days(idle: Duration) -> u64 {
     idle.as_secs() / DAY.as_secs()
 }
@@ -448,6 +474,37 @@ mod tests {
         }
         let spec = setup.tool.spec();
         assert_eq!(spec.parameters["properties"]["project"]["enum"], json!(["repo"]));
+        std::fs::remove_dir_all(&setup.outer).ok();
+    }
+
+    #[tokio::test]
+    async fn the_timers_sweep_removes_only_the_empty_forgotten_ones_and_looks_at_each_repository_once() {
+        let setup = setup("sweep").await;
+        let empty = worktree::create(&setup.repo).await.unwrap();
+        // A second project over the same repository, and one that isn't code: neither adds a sweep or a failure.
+        let workdir = Some(setup.repo.to_string_lossy().into_owned());
+        let again = crate::project::Project { id: "again".into(), name: "Again".into(), description: String::new(), instructions: String::new(), workdir, code: true };
+        setup.tool.projects.save(&again).unwrap();
+        let later = SystemTime::now() + 30 * DAY;
+
+        // A task is in the empty one: it stays, and it was asked about once, not once per project.
+        let asked = std::sync::atomic::AtomicUsize::new(0);
+        let kept = tidy_projects(&setup.tool.projects, later, EMPTY_GRACE, &|_| {
+            asked.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            true
+        })
+        .await;
+        assert_eq!((kept, asked.load(std::sync::atomic::Ordering::SeqCst)), (Vec::<String>::new(), 1));
+        assert!(empty.path.is_dir());
+
+        // Too recent: the grace protects a worktree a task has just made.
+        assert!(tidy_projects(&setup.tool.projects, SystemTime::now(), EMPTY_GRACE, &|_| false).await.is_empty());
+        assert!(empty.path.is_dir());
+
+        let removed = tidy_projects(&setup.tool.projects, later, EMPTY_GRACE, &|_| false).await;
+        assert_eq!(removed, vec![empty.id.clone()]);
+        assert!(!empty.path.is_dir());
+        assert!(worktree::open(&setup.repo, &setup.id).await.is_ok(), "the one with work is untouched, however old");
         std::fs::remove_dir_all(&setup.outer).ok();
     }
 }

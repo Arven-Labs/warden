@@ -6,6 +6,13 @@
 
 ---
 
+### 2026-10-11 — Sessão 182 (continuação: P124, varredura das worktrees por temporizador)
+
+- **Pedido do usuário**: a varredura por temporizador; plano aprovado.
+- **O que mudou**: `worktree::repository_of`; `code_worktree::tidy_projects` (um `sweep_empty` por repositório, com o `busy` como `&(dyn Fn + Sync)` para o futuro ser `Send`) e `tidy_all`; `warden-server/src/worktree_sweep.rs` (`worktree_sweep_loop`, `interval_at`, 15 min); `Server::with_worktree_sweep` e o spawn em `serve_until` só com motor de código.
+- **Testes**: 1 em `code_worktree.rs` (só as vazias e velhas; ocupada fica e é perguntada uma vez só para dois projetos no mesmo repositório; recente fica; a com trabalho nunca) e 2 em `tests/worktree_sweep.rs` (com motor a vazia some sozinha e a com trabalho fica; sem motor nada roda). `warden-core` 488 e desktop 55 passam; clippy sem aviso novo nos arquivos tocados.
+- **Fica**: arquivos ignorados pelo `.gitignore` não contam como trabalho; projetos removidos do Warden; o acúmulo real ao longo de dias não foi visto.
+
 ### 2026-10-11 — Sessão 182 (continuação: P124, compartilhar todas as conversas de código com o hub)
 
 - **Pedido do usuário**: "compartilhar todas as de código"; plano aprovado.

@@ -57,6 +57,7 @@ pub mod usage;
 pub mod user_admin;
 pub mod vault;
 pub mod web_ui;
+pub mod worktree_sweep;
 pub mod webhook_admin;
 pub mod webhook_signature;
 pub mod webhook_tokens;

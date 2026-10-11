@@ -69,6 +69,11 @@ async fn locate(workdir: &Path) -> anyhow::Result<(PathBuf, PathBuf)> {
     Ok((PathBuf::from(top), PathBuf::from(prefix)))
 }
 
+/// The top folder of the git repository `workdir` is in, to tell projects that share one apart from those that don't.
+pub async fn repository_of(workdir: &Path) -> anyhow::Result<PathBuf> {
+    Ok(locate(workdir).await?.0)
+}
+
 fn container_of(repo: &Path) -> anyhow::Result<PathBuf> {
     let name = repo.file_name().ok_or_else(|| anyhow!("the repository {} has no folder name", repo.display()))?;
     let parent = repo.parent().ok_or_else(|| anyhow!("the repository {} has no parent folder", repo.display()))?;
