@@ -614,14 +614,16 @@ export type AgentTaskState = "pending" | "running" | "waiting" | "paused" | "don
 /** O que dá para fazer com uma tarefa em andamento, pela tela. */
 export type AgentTaskAction = "pause" | "resume" | "cancel";
 
-/** Espelha `AgentTaskDto` (P123): uma tarefa que um agente delegou em segundo plano. `group` é comum às tarefas que um turno começou. */
-/** P122 — um "sempre" dado numa conversa: `covers` é uma categoria de risco (`delete_data`) ou o nome de uma ferramenta; sem `agentId`, o agente padrão. */
+/** P122 — um "sempre" dado numa conversa: `covers` é uma categoria de risco (`delete_data`) ou o nome de uma ferramenta; sem `agentId`, o agente padrão.
+ * `lastUsedMs`: quando foi dado ou quando livrou o agente de perguntar pela última vez (ausente num hub antigo). */
 export interface Grant {
   conversationId: string;
   agentId?: string;
   covers: string;
+  lastUsedMs?: number;
 }
 
+/** Espelha `AgentTaskDto` (P123): uma tarefa que um agente delegou em segundo plano. `group` é comum às tarefas que um turno começou. */
 export interface AgentTask {
   id: string;
   group: string;

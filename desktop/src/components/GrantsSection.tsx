@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import type { Grant } from "../types";
 import { hubGrants, hubRevokeGrant } from "../lib/hub";
+import { agoLabel } from "../lib/agentTasks";
 
 const CATEGORY_LABEL: Record<string, string> = {
   delete_data: "Delete data",
@@ -48,14 +49,18 @@ export default function GrantsSection({ remote, titleOf }: { remote: boolean; ti
   return (
     <section className="grants-section">
       <h3 className="settings-title">Permissions given with "always"</h3>
-      <p className="settings-hint">They hold per conversation and agent, until {remote ? "this connection" : "the app"} closes. Taking one back makes the agent ask again.</p>
+      <p className="settings-hint">
+        They hold per conversation and agent. Kept in a file (the default), they survive a restart and lapse after 30 days unused (each use renews
+        them); otherwise they end when {remote ? "the connection" : "the app"} closes. Taking one back makes the agent ask again.
+      </p>
       {error && <p className="usage-error">{error}</p>}
       {grants !== null && grants.length === 0 && <p className="settings-hint">None yet.</p>}
       {grants !== null && grants.length > 0 && (
         <ul className="agent-work-list">
           {grants.map((g) => (
             <li key={`${g.conversationId}\u0000${g.agentId ?? ""}\u0000${g.covers}`}>
-              <strong>{CATEGORY_LABEL[g.covers] ?? g.covers}</strong> · {g.agentId ?? "default agent"} · {titleOf(g.conversationId)}{" "}
+              <strong>{CATEGORY_LABEL[g.covers] ?? g.covers}</strong> · {g.agentId ?? "default agent"} · {titleOf(g.conversationId)}
+              {g.lastUsedMs != null && ` · used ${agoLabel(g.lastUsedMs, Date.now())}`}{" "}
               <button type="button" className="settings-browse-btn" onClick={() => void revoke(g)}>
                 Take back
               </button>

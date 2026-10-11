@@ -326,7 +326,8 @@ void main() {
     });
 
     testWidgets('lists the "always" permissions and taking one back leaves the rest, without a key', (tester) async {
-      const del = Grant(conversationId: 'conv-1234567890', agentId: 'chief', covers: 'delete_data');
+      final threeDaysAgo = DateTime.now().millisecondsSinceEpoch - 3 * 24 * 60 * 60 * 1000;
+      final del = Grant(conversationId: 'conv-1234567890', agentId: 'chief', covers: 'delete_data', lastUsedMs: threeDaysAgo);
       const shell = Grant(conversationId: 'conv-1234567890', covers: 'shell');
       final backend = _FakeBackend(grants: [del, shell]);
       await _pump(tester, backend);
@@ -335,6 +336,8 @@ void main() {
       expect(find.text('Delete data'), findsOneWidget, reason: 'a category has a name');
       expect(find.text('shell'), findsOneWidget, reason: 'a tool is shown as it is');
       expect(find.textContaining('default agent'), findsOneWidget);
+      expect(find.textContaining('used 3 d ago'), findsOneWidget, reason: 'the one with a last use says so');
+      expect(find.textContaining(' · used '), findsOneWidget, reason: 'and the one from an old hub says nothing');
 
       await tester.tap(find.byKey(const Key('revoke-conv-1234567890-chief-delete_data')));
       await tester.pumpAndSettle();

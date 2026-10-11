@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import type { ServerConnection } from "../hub/connection";
 import type { ConversationSummary, Grant } from "../hub/messages";
+import { agoLabel } from "../hub/agentTasks";
 
 const CATEGORY_LABEL: Record<string, string> = {
   delete_data: "Apagar dados",
@@ -48,7 +49,8 @@ export default function GrantsSection({ conn, conversations }: { conn: ServerCon
     <section className="grants-section">
       <h3>Permissões dadas com "sempre"</h3>
       <p className="skills-hint">
-        Valem só nesta conexão, por conversa e agente, e acabam quando ela fecha. Tirar uma faz o agente voltar a perguntar.
+        Valem por conversa e agente. Se o hub guarda em arquivo (o padrão), sobrevivem a um reinício e vencem depois de 30 dias sem uso
+        (cada uso renova); senão, acabam quando a conexão fecha. Tirar uma faz o agente voltar a perguntar.
       </p>
       {error && <p className="error-banner">{error}</p>}
       {grants !== null && grants.length === 0 && <p className="skills-hint">Nenhuma ainda.</p>}
@@ -56,7 +58,8 @@ export default function GrantsSection({ conn, conversations }: { conn: ServerCon
         <ul className="agent-work-list">
           {grants.map((g) => (
             <li key={`${g.conversationId}\u0000${g.agentId ?? ""}\u0000${g.covers}`}>
-              <strong>{CATEGORY_LABEL[g.covers] ?? g.covers}</strong> · {g.agentId ?? "agente padrão"} · {titleOf(g.conversationId)}{" "}
+              <strong>{CATEGORY_LABEL[g.covers] ?? g.covers}</strong> · {g.agentId ?? "agente padrão"} · {titleOf(g.conversationId)}
+              {g.lastUsedMs !== undefined && ` · usado ${agoLabel(g.lastUsedMs, Date.now())}`}{" "}
               <button type="button" className="link-button" onClick={() => void revoke(g)}>
                 Tirar
               </button>

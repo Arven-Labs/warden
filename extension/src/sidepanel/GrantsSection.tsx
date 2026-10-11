@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import type { Grant } from "../protocol/messages";
 import type { GrantsResponse } from "../background/popup_protocol";
+import { agoLabel } from "./lib/agentTasks";
 
 const CATEGORY_LABEL: Record<string, string> = {
   delete_data: "Apagar dados",
@@ -34,14 +35,18 @@ export default function GrantsSection() {
   return (
     <section className="grants-section">
       <h3>Permissões dadas com "sempre"</h3>
-      <p className="skills-hint">Valem por conversa e agente, até esta conexão fechar. Tirar uma faz o agente voltar a perguntar.</p>
+      <p className="skills-hint">
+        Valem por conversa e agente. Se o hub guarda em arquivo (o padrão), sobrevivem a um reinício e vencem depois de 30 dias sem uso (cada uso
+        renova); senão, acabam quando a conexão fecha. Tirar uma faz o agente voltar a perguntar.
+      </p>
       {error && <p className="error-banner">{error}</p>}
       {grants !== null && grants.length === 0 && <p className="skills-hint">Nenhuma ainda.</p>}
       {grants !== null && grants.length > 0 && (
         <ul className="agent-work-list">
           {grants.map((g) => (
             <li key={`${g.conversationId}\u0000${g.agentId ?? ""}\u0000${g.covers}`}>
-              <strong>{CATEGORY_LABEL[g.covers] ?? g.covers}</strong> · {g.agentId ?? "agente padrão"} · conversa {g.conversationId.slice(0, 8)}{" "}
+              <strong>{CATEGORY_LABEL[g.covers] ?? g.covers}</strong> · {g.agentId ?? "agente padrão"} · conversa {g.conversationId.slice(0, 8)}
+              {g.lastUsedMs !== undefined && ` · usado ${agoLabel(g.lastUsedMs, Date.now())}`}{" "}
               <button type="button" className="link-button" onClick={() => void chrome.runtime.sendMessage({ type: "revokeGrant", grant: g }).then(apply)}>
                 Tirar
               </button>

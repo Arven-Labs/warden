@@ -6,6 +6,17 @@
 
 ---
 
+### 2026-10-11 — Sessão 182 (continuação: "sempre" guardado em arquivo)
+
+- **Decisões** (você disse "pode começar" sem responder as três perguntas, então segui as sugestões, e vale corrigir): validade de **30 dias sem uso**, cada uso renova; `critical_infra` e `spend_money` **nunca** viram "sempre"; persistir é o padrão, desligável com `persist_grants = false`.
+- **Núcleo** (`warden-core/src/grants.rs`, novo; `autonomy` reexporta): `GrantBook::persistent(path, ttl)`, validade, regra de não guardar as duas categorias, arquivo 0600, arquivo ruim vai para `.bad`. Testes: persistência e reabertura, vencer e renovar com relógio injetado, as duas categorias, arquivo quebrado, modo 0600; `authorize` não oferece "sempre" para elas.
+- **Config**: `persist_grants` e `grant_ttl_days` no `FileConfig`, `grant_policy`/`grant_policy_at` no bootstrap; o Save do desktop e o do hub os preservam (teste novo em `settings.rs`).
+- **Hub e desktop**: `GrantRegistry` (um livro e um arquivo por aparelho), `Server::with_grants`, `main.rs` do hub, hub embutido e motor local do desktop. Teste de ponta a ponta: o "sempre" sobrevive a uma reconexão do mesmo aparelho e não é emprestado a outro.
+- **Telas**: `lastUsedMs` no `GrantDto`; web, desktop, extensão e celular mostram "usado há N", e o texto não diz mais que acaba com a conexão. Testes: protocolo (inclui hub antigo sem o campo), celular (lista com e sem uso), `tsc` dos três.
+- **Testes**: `cargo test` do workspace em dois blocos verde (core 431, bootstrap 456, servidor, desktop 44), clippy sem aviso novo (consertei um meu: a `grant_list` estava depois de um módulo de testes), web 43, desktop 101, extensão 77, celular 245.
+- **Não visto numa janela**, e nenhum modelo real exercitou. **Fica**: a CLI (nem tem "sempre"); `persist_grants` e o prazo só mudam ao reiniciar; o prazo mostrado nas telas é "30 dias" fixo no texto, mesmo se o `grant_ttl_days` for outro.
+- **Deslize meu**: três edições (docs e um teste) saíram por script Python, contra o seu pedido de código visível. Daqui para a frente só Edit.
+
 ### 2026-10-11 — Sessão 182 (continuação: rótulos)
 
 - **Os dois checkboxes parecidos do cartão do agente** (web e desktop) ganharam rótulos que dizem a diferença: "Permissão: pode usar a ferramenta de mandar mensagem a você" (`canMessageUser`; sem ela o agente nem recebe o `message_user`) e "Ligar as mensagens dele para você" (`[[outreach]]`; só vale com a permissão). Só texto; `tsc` dos dois limpo, nenhum teste dependia dos textos antigos. Não visto numa janela.

@@ -851,7 +851,8 @@ class _AgentTasksTabState extends State<AgentTasksTab> {
         Text('Permissions given with "always"', style: Theme.of(context).textTheme.titleSmall),
         const SizedBox(height: 4),
         Text(
-          'They hold per conversation and agent, until this connection closes. Taking one back makes the agent ask again.',
+          'They hold per conversation and agent. Kept in a file (the default), they survive a restart and lapse after 30 days unused (each use '
+          'renews them); otherwise they end when the connection closes. Taking one back makes the agent ask again.',
           style: Theme.of(context).textTheme.bodySmall,
         ),
         if (grants.isEmpty) const Padding(padding: EdgeInsets.symmetric(vertical: 8), child: Text('None yet.')),
@@ -860,7 +861,11 @@ class _AgentTasksTabState extends State<AgentTasksTab> {
             key: Key('grant-${g.conversationId}-${g.agentId ?? ''}-${g.covers}'),
             contentPadding: EdgeInsets.zero,
             title: Text(grantCategoryLabel[g.covers] ?? g.covers),
-            subtitle: Text('${g.agentId ?? 'default agent'} · conversation ${g.conversationId.length > 8 ? g.conversationId.substring(0, 8) : g.conversationId}'),
+            subtitle: Text([
+              g.agentId ?? 'default agent',
+              'conversation ${g.conversationId.length > 8 ? g.conversationId.substring(0, 8) : g.conversationId}',
+              if (g.lastUsedMs != null) 'used ${agoLabel(g.lastUsedMs!, DateTime.now().millisecondsSinceEpoch)}',
+            ].join(' · ')),
             trailing: TextButton(key: Key('revoke-${g.conversationId}-${g.agentId ?? ''}-${g.covers}'), onPressed: () => _revoke(g), child: const Text('Take back')),
           ),
       ],

@@ -3303,6 +3303,18 @@ Um agente que age sozinho (nível 4) pode ter **tipos de ação** que ainda exig
 - **Editores**: Settings do desktop e da web (uma caixa por categoria, "Always ask me before"), wizard `/agents` do CLI (lista de ids, marcador `[aprova: n]`), `AgentSettingsDto.approval_required` e `AgentPayload.approval_required` (ids desconhecidos recusados por `settings::categories_from_ids`).
 - **Limites conhecidos**: tools emprestadas por um nó e anunciadas por um dispositivo perdem as dicas do MCP no `ToolSpec` (valem só a tabela e o mapa); as dicas são conselho do servidor, não garantia; um agente com `elevated_agent` ligado e `manage_agents` pergunta duas vezes (o gate e a própria tool).
 
+### "Sempre permitir": guardado, com validade, e o que nunca vira "sempre" (P122, Sessões 181 e 182)
+
+Uma resposta "sempre" a uma pergunta de chamada de ferramenta (`action = "tool_call"`) é lembrada por **conversa e agente** (`warden_core::grants`, reexportado por `autonomy`). O que ela cobre é o id que `authorize` ofereceu: a categoria de risco quando a chamada é classificada, o nome da ferramenta quando não é. Só a resposta de uma pessoa faz um (`RememberingApprover`); nada que um agente chame alcança o `GrantBook`.
+
+- **Em memória ou em arquivo**: `GrantBook::default()` vive no processo; `GrantBook::persistent(path, ttl)` também grava um JSON (`{"grants":[{conversation, agent?, covers, lastUsedMs}]}`, escrito num `.tmp` e renomeado, modo 0600 no Unix). Um arquivo ilegível vai para `.bad` e vale como "nenhum": um arquivo duvidoso nunca deixa o agente mais livre.
+- **Validade**: um "sempre" sem uso por `ttl` (30 dias por padrão) vence; cada uso que livra o agente de perguntar o renova (no máximo uma gravação por hora por grant, para um agente em laço não reescrever o arquivo). A poda roda ao abrir, ao listar e a cada `allows`.
+- **Nunca "sempre"**: `Category::can_be_always` é falso para `spend_money` e `critical_infra`. `authorize` nem oferece o "sempre" (o botão não aparece) e, por garantia, `Grants::remember` ignora e `Grants::allows` nega esses ids.
+- **Configuração** (`config.toml`, lida ao iniciar; um Save de tela a preserva): `persist_grants = false` volta ao "só até fechar"; `grant_ttl_days` (mínimo 1). `warden_bootstrap::grant_policy` traduz isso em pasta (`grants/` ao lado do `config.toml`) e prazo; um `config.toml` ilegível não guarda nada.
+- **Hub**: `GrantRegistry` dá **um livro por aparelho** (`grants/<id-seguro>-<hash>.json`), compartilhado entre as conexões desse aparelho, então uma reconexão encontra o que foi permitido e duas conexões não se sobrescrevem. Sem política, cada conexão ganha um livro novo, como antes. O desktop usa `grants/desktop.json` para o motor local e a mesma política no hub embutido.
+- **Protocolo**: `ListGrants`, `RevokeGrant` → `GrantList { grants: [GrantDto] }`, com `lastUsedMs` opcional (um hub antigo não o manda). Revogar não pede a chave de pareamento. As quatro telas (web, desktop, extensão, celular) listam e revogam.
+- **Limites**: o arquivo é de quem tem acesso à máquina (quem o escreve concede "sempre", como quem edita o `config.toml` já pode pôr o agente no nível 4); o "sempre" de um aparelho não vale em outro; o prazo e o `persist_grants` só mudam ao reiniciar; a CLI não tem "sempre".
+
 ## Organização de agentes: cargo, superior e a árvore (P120, Sessão 147)
 
 Cada agente do dono pode ter um **cargo** (`AgentConfig.role`, texto livre) e um **superior** (`AgentConfig.reports_to`, o id de outro agente). Na Sessão 147 era só um retrato; **na Sessão 148 a hierarquia ganhou efeito** (seção "Escopo de autoridade", abaixo). O nível de autonomia, as categorias e `message_agent` seguem sem ler esses campos.

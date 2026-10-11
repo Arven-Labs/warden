@@ -188,6 +188,11 @@ void main() {
         const Grant(conversationId: 'c', covers: 'shell'),
       ]);
       expect((ServerMessage.decode('{"type":"grantList","requestId":4}') as GrantListMessage).grants, isEmpty);
+
+      final withUse = ServerMessage.decode('{"type":"grantList","requestId":5,"grants":[{"conversationId":"c","covers":"shell","lastUsedMs":1700},{"conversationId":"d","covers":"shell"}]}')
+          as GrantListMessage;
+      expect(withUse.grants.map((g) => g.lastUsedMs), [1700, null], reason: 'a hub that predates the field sends none');
+      expect(withUse.grants.first, const Grant(conversationId: 'c', covers: 'shell'), reason: 'the last use is not part of what a grant is');
     });
 
     test('the feed of activity keeps its events and leaves the optional fields null', () {

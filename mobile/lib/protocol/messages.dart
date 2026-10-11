@@ -464,17 +464,24 @@ class ModelPolicy {
 }
 
 /// One "always" a person gave (P122). [covers] is a risk category (`delete_data`) or a tool name; no [agentId] is the default
-/// agent. Mirrors `GrantDto`.
+/// agent. [lastUsedMs] is when it was given or last saved the agent from asking (null from a hub that predates it; it is not part of
+/// the identity of a grant). Mirrors `GrantDto`.
 class Grant {
-  const Grant({required this.conversationId, this.agentId, required this.covers});
+  const Grant({required this.conversationId, this.agentId, required this.covers, this.lastUsedMs});
 
   final String conversationId;
   final String? agentId;
   final String covers;
+  final int? lastUsedMs;
 
   static Grant fromJson(dynamic json) {
     final map = json as Map<String, dynamic>;
-    return Grant(conversationId: map['conversationId'] as String, agentId: map['agentId'] as String?, covers: map['covers'] as String);
+    return Grant(
+      conversationId: map['conversationId'] as String,
+      agentId: map['agentId'] as String?,
+      covers: map['covers'] as String,
+      lastUsedMs: (map['lastUsedMs'] as num?)?.toInt(),
+    );
   }
 
   @override
