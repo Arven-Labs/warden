@@ -13,6 +13,7 @@ use warden_core::memory::Vault;
 use warden_core::model::{response_stream, ChatStream, Message, ModelProvider, Response};
 use warden_core::orchestrator::Orchestrator;
 use warden_core::tool::{ApprovalRequest, Approver, ToolSpec};
+use warden_server::code_turns::CodeTurns;
 use warden_server::{ClientMessage, Server, ServerConnection, ServerMessage};
 use warden_server_protocol::protocol::{ChatEventDto, ProjectDto, ToolStatusDto};
 
@@ -75,6 +76,11 @@ struct Hub {
 }
 
 async fn spin_up(engine: Option<Arc<Scripted>>) -> Hub {
+    spin_up_with(engine, None).await
+}
+
+/// Like `spin_up`, but with the map of running turns handed in, the way the desktop's embedded hub does.
+async fn spin_up_with(engine: Option<Arc<Scripted>>, turns: Option<CodeTurns>) -> Hub {
     std::env::set_var(warden_core::memory::embed::OFF_SWITCH, "1");
     static NEXT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
     let n = NEXT.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
@@ -84,6 +90,9 @@ async fn spin_up(engine: Option<Arc<Scripted>>) -> Hub {
     let mut server = Server::bind("127.0.0.1:0".parse().unwrap(), KEY, "Test Hub", Arc::new(orchestrator), dir.join("conversations"), dir.join("devices.json")).await.unwrap().with_users_dir(dir.join("users"));
     if let Some(engine) = engine {
         server = server.with_code_engine(engine);
+    }
+    if let Some(turns) = turns {
+        server = server.with_code_turns(turns);
     }
     let addr = server.local_addr().unwrap();
     tokio::spawn(server.serve());
@@ -199,6 +208,25 @@ async fn a_stop_finds_the_running_task_and_the_work_so_far_is_kept() {
     elsewhere.send(&ClientMessage::Ping { nonce: 7 }).await.unwrap();
     assert!(matches!(elsewhere.recv().await.unwrap(), Some(ServerMessage::Pong { nonce: 7 })));
     assert_eq!(engine.aborted.lock().unwrap().len(), 1);
+}
+
+#[tokio::test]
+async fn the_turns_a_device_runs_show_in_the_map_the_hub_was_given() {
+    let engine = engine();
+    let turns = CodeTurns::default();
+    let hub = spin_up_with(Some(engine.clone()), Some(turns.clone())).await;
+    let mut me = owner(&hub).await;
+    save_project(&mut me, "repo", Some("/home/me/repo"), true).await;
+    assert!(!turns.is_running("c1"));
+
+    say(&mut me, "HANG", Some("repo")).await;
+    assert!(matches!(next(&mut me).await, ServerMessage::ChatEvent { .. }), "the task is running");
+    assert!(turns.is_running("c1"), "the copy the caller kept sees the hub's turn");
+    assert!(!turns.is_running("c2"));
+
+    me.send(&ClientMessage::CancelTurn { conversation_id: "c1".into() }).await.unwrap();
+    assert!(matches!(next(&mut me).await, ServerMessage::ChatResponse { .. }));
+    assert!(!turns.is_running("c1"), "the turn left the map when it ended");
 }
 
 #[tokio::test]
