@@ -6,6 +6,15 @@
 
 ---
 
+### 2026-10-11 — Sessão 182 (continuação: os ~7 s do turno que falha, P121)
+
+- **Pedido do usuário**: "pode seguir, mede os 7 s".
+- **Medido** (hub real do e2e, navegador headless, provedor `openai_compatible` numa porta fechada e o Gemini com chave falsa): 6,5 s entre o `chat` e o `chatError`, igual nos dois (então não é rede nem retry do provedor). Com `XDG_CACHE_HOME` apontando para o cache real (`~/.cache/warden/models`) o mesmo caso levou 0,5 s. Num mesmo hub sem o cache, o 1º turno levou 6,9 s e o 2º e o 3º, ~70 ms.
+- **Causa**: a carga do modelo de embeddings (`fastembed`, `model_cache_dir()` sob o `HOME`) no primeiro turno do processo; o e2e usa um `HOME` novo a cada hub, então paga isso toda vez. É um artefato do teste, não uma lentidão de turno. No produto, a primeira instalação paga o download no 1º turno.
+- **Nada mudou no código**; os scripts de medição foram apagados. **Decisão aberta**: aquecer o modelo em segundo plano na partida do hub (tira o custo do 1º turno do usuário), ou fazer o harness do e2e reaproveitar o cache real (testes mais rápidos, mas dependem da máquina).
+
+---
+
 ### 2026-10-11 — Sessão 182 (continuação: P124, squash e rebase no merge da worktree)
 
 - **Pedido do usuário**: "sim, vamos seguir" (squash e rebase no `code_worktree`).
