@@ -4,7 +4,8 @@
 //!
 //! The pending requests live in `bot_pairing.json` beside the config, read again on every call: the
 //! bots, the CLI and the desktop are separate processes that meet only in these two files, the way
-//! `warden-server`'s device registry does. Nothing here is a secret worth guarding hard: a code only
+//! `warden-server`'s device registry does. Each change is made under an OS lock on a file beside them, so two processes can't
+//! lose each other's write. Nothing here is a secret worth guarding hard: a code only
 //! tells the owner which pending request to approve, and approving is the owner's act.
 
 use std::path::{Path, PathBuf};
@@ -100,6 +101,17 @@ impl BotPairing {
         Self::new(config_path.with_file_name("bot_pairing.json"))
     }
 
+    /// Held while one process reads, changes and writes these files, so two (a bot asking for a code while the CLI approves) can't
+    /// each read the same list and lose the other's change. An OS lock on a file beside them, released when the guard drops. Taken
+    /// only by the public calls that change something, never inside one another: a second lock on the same file through another
+    /// descriptor waits for the first, even in this process.
+    fn locked(&self) -> anyhow::Result<std::fs::File> {
+        let path = self.path.with_extension("lock");
+        let file = std::fs::OpenOptions::new().create(true).truncate(false).write(true).open(&path).with_context(|| format!("opening {}", path.display()))?;
+        file.lock().with_context(|| format!("locking {}", path.display()))?;
+        Ok(file)
+    }
+
     fn read(&self, now: u64) -> anyhow::Result<Vec<PairingRequest>> {
         let text = match std::fs::read_to_string(&self.path) {
             Ok(text) => text,
@@ -125,6 +137,7 @@ impl BotPairing {
 
     /// A code for `sender` on `channel`: the one they already have, or a new one.
     pub fn request(&self, channel: &str, sender: &str, label: &str, now: u64) -> anyhow::Result<Issued> {
+        let _lock = self.locked()?;
         let mut requests = self.read(now)?;
         if requests.iter().any(|r| r.channel == channel && r.sender == sender) {
             return Ok(Issued::Existing);
@@ -145,6 +158,12 @@ impl BotPairing {
 
     /// Drops a request without letting the sender in.
     pub fn deny(&self, code: &str, now: u64) -> anyhow::Result<PairingRequest> {
+        let _lock = self.locked()?;
+        self.drop_request(code, now)
+    }
+
+    /// `deny` for a caller that already holds the lock.
+    fn drop_request(&self, code: &str, now: u64) -> anyhow::Result<PairingRequest> {
         let mut requests = self.read(now)?;
         let wanted = normalize(code);
         let Some(at) = requests.iter().position(|r| r.code == wanted) else { bail!("no pending pairing with code {}: it may have expired", display_code(&wanted)) };
@@ -164,6 +183,7 @@ impl BotPairing {
     /// changed, when there's no such member, no `[bot_hub]`, or the member isn't linked (`bot_hub::link`):
     /// a chat approved as someone the bot can't reach would be a silent dead end.
     pub fn approve_as(&self, code: &str, now: u64, config_path: &Path, member: Option<&str>) -> anyhow::Result<PairingRequest> {
+        let _lock = self.locked()?;
         let requests = self.read(now)?;
         let wanted = normalize(code);
         let Some(request) = requests.iter().find(|r| r.code == wanted).cloned() else { bail!("no pending pairing with code {}: it may have expired", display_code(&wanted)) };
@@ -201,7 +221,7 @@ impl BotPairing {
             other => bail!("unknown channel '{other}'"),
         }
         save_config(config_path, &config)?;
-        self.deny(&wanted, now)?;
+        self.drop_request(&wanted, now)?;
         self.mark_approved(&request, now)?;
         Ok(request)
     }
@@ -244,6 +264,7 @@ impl BotPairing {
     /// The approvals on `channel` the bot hasn't announced, removed as they are handed over (other
     /// channels' and expired ones aside): the bot tells each sender it can write now.
     pub fn take_approved(&self, channel: &str, now: u64) -> anyhow::Result<Vec<Approved>> {
+        let _lock = self.locked()?;
         let approved = self.read_approved(now)?;
         if !approved.iter().any(|a| a.channel == channel) {
             return Ok(Vec::new());
@@ -276,6 +297,21 @@ mod tests {
             Issued::Fresh(code) => code,
             other => panic!("{other:?}"),
         }
+    }
+
+    #[test]
+    fn requests_made_at_the_same_moment_by_separate_handles_are_all_kept() {
+        let (path, _) = setup("");
+        let threads: Vec<_> = (0..MAX_PENDING_PER_CHANNEL)
+            .map(|n| {
+                let path = path.clone();
+                std::thread::spawn(move || BotPairing::beside(&path).request(TELEGRAM, &(1000 + n).to_string(), "", 100).unwrap())
+            })
+            .collect();
+        for thread in threads {
+            assert!(matches!(thread.join().unwrap(), Issued::Fresh(_)));
+        }
+        assert_eq!(BotPairing::beside(&path).list(200).unwrap().len(), MAX_PENDING_PER_CHANNEL, "no request lost to another's write");
     }
 
     #[test]

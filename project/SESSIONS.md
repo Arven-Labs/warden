@@ -6,6 +6,15 @@
 
 ---
 
+### 2026-10-11 — Sessão 182 (continuação: trava de arquivo no pareamento dos bots, P117)
+
+- **Pedido do usuário**: "vamos para o próximo" (sem item escolhido; olhei o que sobrava em código e peguei a corrida do `bot_pairing.json`, anotada no P117).
+- **O que mudou**: `BotPairing::locked` (lock do sistema em `bot_pairing.lock`) nas quatro chamadas que mudam algo; `deny` virou `deny` (com lock) mais `drop_request` (sem), que o `approve_as` usa por já segurar o lock.
+- **Testes**: um novo (dez pedidos simultâneos por handles separados ficam todos). **Sem o lock ele falhou 5 de 5** (pedidos perdidos e erro de arquivo temporário disputado); com o lock passa. `bot_pairing` 12 e a lib do `warden-bootstrap` 461 verdes, clippy limpo.
+- **Fica**: dois processos de verdade (o bot e a CLI) não foram exercitados, só threads com handles separados.
+
+---
+
 ### 2026-10-11 — Sessão 182 (continuação: os ~7 s do turno que falha, P121)
 
 - **Pedido do usuário**: "pode seguir, mede os 7 s".
