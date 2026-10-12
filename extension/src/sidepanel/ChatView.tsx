@@ -12,6 +12,8 @@ interface Props {
   pending: boolean;
   /** P124 — what the engine has done so far in the turn being waited on, shown in place of the dots. */
   live?: LiveTurn;
+  /** P124 — stops the task that turn is running. Only given for a conversation that can have one. */
+  onCancel?: () => void;
   /** P125 — the threads of the open conversation, by the id of the message they hang from. */
   threads: Record<string, ThreadInfo>;
   /** P125 — the open conversation is itself a thread: no thread inside a thread. */
@@ -24,7 +26,7 @@ interface Props {
 const TOOL_MARK = { running: "…", completed: "✓", failed: "✗" } as const;
 
 /** P124 — what the engine is doing in the turn that is going on: its words and tools in the order they happened. */
-function LiveBubble({ live }: { live: LiveTurn }) {
+function LiveBubble({ live, onCancel }: { live: LiveTurn; onCancel?: () => void }) {
   return (
     <li className="chat-entry chat-entry--assistant chat-entry--live" aria-label="Em andamento">
       {live.items.map((item, i) =>
@@ -47,11 +49,16 @@ function LiveBubble({ live }: { live: LiveTurn }) {
         ),
       )}
       {live.notice && <p className="live-notice">{live.notice}</p>}
+      {onCancel && (
+        <button type="button" className="link-button live-stop" onClick={onCancel}>
+          Parar
+        </button>
+      )}
     </li>
   );
 }
 
-export default function ChatView({ serverName, history, pending, live, threads, inThread, onOpenThread, onSend, onDisconnect }: Props) {
+export default function ChatView({ serverName, history, pending, live, onCancel, threads, inThread, onOpenThread, onSend, onDisconnect }: Props) {
   const [draft, setDraft] = useState("");
 
   function handleSubmit(e: React.FormEvent) {
@@ -95,7 +102,7 @@ export default function ChatView({ serverName, history, pending, live, threads, 
             )}
           </li>
         ))}
-        {pending && live && <LiveBubble live={live} />}
+        {pending && live && <LiveBubble live={live} onCancel={onCancel} />}
         {pending && !live && <li className="chat-entry chat-entry--pending">…</li>}
       </ul>
 

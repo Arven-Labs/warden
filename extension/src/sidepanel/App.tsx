@@ -118,6 +118,10 @@ export default function App() {
   }, [watched]);
 
   const pendingChat =conversationState.activeConversationId !== null && conversationState.pendingIds.includes(conversationState.activeConversationId);
+  // P124 — only a code project's conversation has a task to stop, and this panel can't tell a code project from another: any
+  // conversation in a project gets the button. One started here is in none (a chat from the panel names no project).
+  const activeSummary = conversationState.conversations.find((c) => c.id === conversationState.activeConversationId);
+  const canStop = pendingChat && activeSummary?.projectId !== undefined;
 
   return (
     <div className="sidepanel-app">
@@ -232,6 +236,7 @@ export default function App() {
               history={history}
               pending={pendingChat}
               live={conversationState.activeConversationId ? liveTurns[conversationState.activeConversationId] : undefined}
+              onCancel={canStop ? () => void chrome.runtime.sendMessage({ type: "cancelTurn" }) : undefined}
               threads={conversationState.activeConversationId ? threadsOf(conversationState.conversations, conversationState.activeConversationId) : {}}
               inThread={conversationState.threadParent !== null}
               onOpenThread={(messageId) =>

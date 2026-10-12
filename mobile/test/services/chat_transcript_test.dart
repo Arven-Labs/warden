@@ -35,6 +35,12 @@ class FakeBackend implements ConversationBackend {
     sentThreadOf.add(threadOf);
   }
 
+  /// The conversations asked to stop, in order (P124).
+  final cancelled = <String>[];
+
+  @override
+  void cancelTurn(String conversationId) => cancelled.add(conversationId);
+
   /// The thread link each sent turn carried, in order (P125).
   final sentThreadOf = <ThreadParent?>[];
 
@@ -286,6 +292,31 @@ void main() {
     await settle();
     expect(transcript.liveTurn, isNull);
     expect(transcript.entries.last.text, 'done');
+  });
+
+  test('only a pending turn of a conversation in a project can be stopped (P124)', () async {
+    backend.conversations = [
+      const ConversationSummary(id: 'plain', title: 'p', createdAt: 1, updatedAt: 1),
+      const ConversationSummary(id: 'code', title: 'c', createdAt: 1, updatedAt: 1, projectId: 'repo'),
+    ];
+    final transcript = make(last: 'plain');
+    await settle();
+    expect(transcript.canStop, isFalse, reason: 'nothing pending');
+
+    transcript.send('go');
+    expect(transcript.canStop, isFalse, reason: 'a plain conversation already on the hub has no task to stop');
+
+    transcript.open('code');
+    await settle();
+    transcript.send('go');
+    expect(transcript.canStop, isTrue);
+    transcript.stop();
+    expect(backend.cancelled, ['code']);
+
+    transcript.startNew();
+    await settle();
+    transcript.send('first turn');
+    expect(transcript.canStop, isFalse, reason: 'a conversation started here is in no project');
   });
 
   test('blank text and a pending reply are both ignored', () async {

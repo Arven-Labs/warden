@@ -363,6 +363,11 @@ export class ServerConnection {
     );
   }
 
+  /** P124 — asks the hub to stop the code task `conversationId` is running. Harmless for a conversation that isn't running one. */
+  cancelTurn(conversationId: string): void {
+    this.socket.send(encode({ type: "cancelTurn", conversationId }));
+  }
+
   /** P102 — the folders inside `path` on the hub's machine (or a node's), to pick a conversation's working folder. */
   async listDirs(path?: string): Promise<DirListing> {
     const reply = await this.request((requestId) => ({ type: "listDirs", requestId, ...(path ? { path } : {}) }));

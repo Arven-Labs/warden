@@ -440,6 +440,12 @@ async function handleRequest(request: PopupRequest): Promise<unknown> {
       setStatus({ kind: "disconnected" });
       return { ok: true };
 
+    case "cancelTurn": {
+      if (!connection || connection.status.kind !== "connected" || activeConversationId === null) return { ok: false, error: "not connected" };
+      connection.cancelTurn(activeConversationId);
+      return { ok: true };
+    }
+
     case "sendChat": {
       if (!connection || connection.status.kind !== "connected") {
         return { ok: false, error: "not connected" };

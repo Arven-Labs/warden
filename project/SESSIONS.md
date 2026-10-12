@@ -6,6 +6,15 @@
 
 ---
 
+### 2026-10-11 — Sessão 182 (continuação: P124, o botão Parar na extensão e no celular)
+
+- **Pedido do usuário**: "faz o botão Parar".
+- **O que mudou**: `cancelTurn` no protocolo dos dois (extensão: `ServerConnection.cancelTurn` + pedido `cancelTurn` do painel ao background; celular: `CancelTurnMessage`, `ConversationBackend.cancelTurn`, `ChatTranscript.canStop/stop`); `projectId` no resumo de conversa dos dois; botão no balão ao vivo. Regra de quando aparece: turno pendente e conversa dentro de um projeto (os clientes não sabem se é de código; no hub, parar uma que não roda tarefa não faz nada).
+- **Testes**: extensão `tsc` limpo, 84 verdes; celular `flutter analyze` limpo, 253 verdes (novos: `canStop`/`stop` e a codificação do `cancelTurn`). Um primeiro desenho liberava o botão também para conversa nova; o teste mostrou que o resumo local dela já existe sem projeto, e a regra foi simplificada.
+- **Fica**: janela e aparelho não vistos; um chat comum de gerente dentro de um projeto que não é de código mostra um "Parar" que não faz nada.
+
+---
+
 ### 2026-10-11 — Sessão 182 (continuação: P124, a extensão e o celular desenham o chatEvent)
 
 - **Pedido do usuário**: "pode seguir pelo 5".

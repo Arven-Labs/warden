@@ -129,6 +129,10 @@ void main() {
       expect(msg, isA<UnknownServerMessage>());
     });
 
+    test('CancelTurn encodes with the conversation id (P124)', () {
+      expect(const CancelTurnMessage('c1').toJson(), {'type': 'cancelTurn', 'conversationId': 'c1'});
+    });
+
     test('ChatResponse with usage', () {
       final msg = ServerMessage.decode(
         '{"type":"chatResponse","content":"ahoy","usage":{"promptTokens":1,"completionTokens":2,"totalTokens":3}}',

@@ -182,6 +182,17 @@ final class ChatMessage extends ClientMessage {
       };
 }
 
+/// P124 — stops the task a code conversation is running. The work so far is kept and the turn ends with the usual answer;
+/// harmless for a conversation that isn't running one.
+final class CancelTurnMessage extends ClientMessage {
+  const CancelTurnMessage(this.conversationId);
+
+  final String conversationId;
+
+  @override
+  Map<String, dynamic> toJson() => {'type': 'cancelTurn', 'conversationId': conversationId};
+}
+
 /// P102 — asks for the folders inside [path] on the hub's machine; no path starts where the person may
 /// (a member sees only the folders the owner allowed). Answered by [DirListMessage] or [DirErrorMessage]
 /// with the same `requestId`.
@@ -716,6 +727,7 @@ class ConversationSummary {
     required this.createdAt,
     required this.updatedAt,
     this.agentId,
+    this.projectId,
     this.workdir,
     this.parent,
     this.replies = 0,
@@ -728,6 +740,9 @@ class ConversationSummary {
 
   /// The agent this conversation last spoke with (P46/P87), restored when it's opened.
   final String? agentId;
+
+  /// The project (P103) this conversation belongs to; null outside any project.
+  final String? projectId;
 
   /// The folder of the hub's machine this conversation works in (P102), fixed when it began.
   final String? workdir;
@@ -746,6 +761,7 @@ class ConversationSummary {
       createdAt: map['createdAt'] as int,
       updatedAt: map['updatedAt'] as int,
       agentId: map['agentId'] as String?,
+      projectId: map['projectId'] as String?,
       workdir: map['workdir'] as String?,
       parent: map['parent'] == null ? null : ThreadParent.fromJson(map['parent']),
       replies: map['replies'] as int? ?? 0,

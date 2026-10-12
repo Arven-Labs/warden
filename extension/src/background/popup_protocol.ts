@@ -25,6 +25,8 @@ export type PopupRequest =
   | ({ type: "connect" } & ConnectionSettings)
   | { type: "disconnect" }
   | { type: "sendChat"; message: string }
+  /** P124 — stops the code task the open conversation is running. */
+  | { type: "cancelTurn" }
   /** P78 — switches the chat to another of this device's conversations. */
   | { type: "selectConversation"; conversationId: string }
   /** P78 — an empty conversation, created on the hub by its first message. */

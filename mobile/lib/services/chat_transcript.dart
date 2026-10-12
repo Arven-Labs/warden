@@ -49,6 +49,8 @@ ChatEntry _withHubId(ChatEntry entry, String? id) => id != null && entry.id == n
 /// the transcript can be tested without a WebSocket.
 abstract interface class ConversationBackend {
   void sendChat(String message, {String? conversationId, String? agentId, String? workdir, ThreadParent? threadOf});
+  /// P124 — asks the hub to stop the code task [conversationId] is running.
+  void cancelTurn(String conversationId);
   Future<List<String>> listAgentIds();
   Future<DirListMessage> listDirs([String? path]);
   Future<List<HistoryEntry>> fetchHistory({int? limit, String? conversationId});
@@ -120,6 +122,17 @@ class ChatTranscript extends ChangeNotifier {
 
   /// The open conversation's live turn, if the hub has told any of it yet.
   LiveTurn? get liveTurn => _live[_activeId];
+
+  /// Whether the open conversation's pending turn can be stopped (P124). Only a code project's conversation has a task to stop; the
+  /// app can't tell a code project from another, so any conversation in a project is offered it. One started here is in none (a chat
+  /// from the app names no project), so it never is.
+  bool get canStop {
+    if (!waitingForReply) return false;
+    return _conversations.where((c) => c.id == _activeId).firstOrNull?.projectId != null;
+  }
+
+  /// Stops the task the open conversation is running; the turn then ends with the usual answer.
+  void stop() => backend.cancelTurn(_activeId);
 
   /// P87 — the hub's configured agents, and the one the next turn speaks as (null: none). Opening a
   /// conversation restores the agent it last spoke with; a new one keeps the last choice.

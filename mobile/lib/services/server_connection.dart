@@ -472,6 +472,11 @@ class ServerConnection implements ConversationBackend, AgentsBackend, MemberOrgB
     _channel.sink.add(ChatMessage(message, conversationId: conversationId, agentId: agentId, workdir: workdir, threadOf: threadOf).encode());
   }
 
+  @override
+  void cancelTurn(String conversationId) {
+    _channel.sink.add(CancelTurnMessage(conversationId).encode());
+  }
+
   /// P102 — the folders inside [path] on the hub's machine (no path: where the person may start). Throws a
   /// [ConversationException] when the hub refuses (outside what the person may see, not a folder, unreadable).
   @override

@@ -492,7 +492,9 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                   itemBuilder: (context, index) {
                     if (index == entries.length) {
                       final live = widget.transcript.liveTurn;
-                      return live == null ? const _ThinkingIndicator() : _LiveBubble(live: live);
+                      return live == null
+                          ? const _ThinkingIndicator()
+                          : _LiveBubble(live: live, onStop: widget.transcript.canStop ? widget.transcript.stop : null);
                     }
                     final entry = entries[index];
                     final id = entry.id;
@@ -861,9 +863,12 @@ class _DisconnectedBanner extends StatelessWidget {
 
 /// P124 — what the engine is doing in the turn that is going on: its words and tools in the order they happened.
 class _LiveBubble extends StatelessWidget {
-  const _LiveBubble({required this.live});
+  const _LiveBubble({required this.live, this.onStop});
 
   final LiveTurn live;
+
+  /// Stops the task; null for a conversation that has none to stop.
+  final VoidCallback? onStop;
 
   static String _mark(ToolStatus status) => switch (status) {
         ToolStatus.running => '…',
@@ -911,6 +916,7 @@ class _LiveBubble extends StatelessWidget {
                   ),
               },
             if (live.notice != null) Text(live.notice!, style: muted.copyWith(fontStyle: FontStyle.italic)),
+            if (onStop != null) TextButton(onPressed: onStop, child: const Text('Stop')),
           ],
         ),
       ),

@@ -49,6 +49,8 @@ export interface ConversationSummary {
   updatedAt: number;
   /** The agent this conversation last spoke with (P46/P87), restored when it's opened. */
   agentId?: string;
+  /** The project (P103) the conversation belongs to; absent outside any project. */
+  projectId?: string;
   /** The folder the conversation works in (P102): a path of the hub's machine, or `node:<id>:<path>` on a node. */
   workdir?: string;
   /** P125 — set on a thread: the conversation and the message it came from. */
@@ -214,6 +216,8 @@ export type ClientMessage =
   /** `conversationId` (P78) picks one of this device's conversations — a new id starts a new one;
    * omitted, the turn goes to the device's default conversation. */
   | { type: "chat"; message: string; conversationId?: string; agentId?: string; workdir?: string; threadOf?: ThreadParent }
+  /** P124 — stops the task a code conversation is running; the work so far is kept and the turn ends with the usual answer. */
+  | { type: "cancelTurn"; conversationId: string }
   /** P102 — the folders inside `path` on the hub's machine (or a node's, `node:<id>:<path>`); no `path`: where the person starts. Answered by `dirList`/`dirError`. */
   | { type: "listDirs"; requestId: number; path?: string }
   /** P87 — only for the configured agents' ids, as the web's selector does. */
