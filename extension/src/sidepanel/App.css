@@ -381,6 +381,59 @@ button:hover:not(:disabled) {
   color: var(--color-text-muted);
 }
 
+.chat-entry--live {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.live-tool {
+  display: flex;
+  gap: 0.5rem;
+  align-items: baseline;
+  margin: 0;
+  font-size: 0.85rem;
+  color: var(--color-text-muted);
+}
+
+.live-tool-mark {
+  width: 1ch;
+  text-align: center;
+}
+
+.live-tool--completed .live-tool-mark {
+  color: var(--color-accent);
+}
+
+.live-tool--failed .live-tool-mark {
+  color: var(--color-danger);
+}
+
+.live-tool-name {
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.live-tool-title {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+.live-source {
+  margin: 0 0 0.15rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--color-text-muted);
+}
+
+.live-notice {
+  margin: 0;
+  font-size: 0.8rem;
+  font-style: italic;
+  color: var(--color-text-muted);
+}
+
 .chat-composer {
   display: flex;
   gap: 0.4rem;

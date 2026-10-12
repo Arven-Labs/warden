@@ -938,6 +938,10 @@ sealed class ServerMessage {
         ),
       'approvalCancelled' => ApprovalCancelledMessage(json['approvalId'] as int),
       'conversationsChanged' => ConversationsChangedMessage(json['conversationId'] as String),
+      'chatEvent' => switch (ChatEvent.fromJson(json['event'] as Map<String, dynamic>)) {
+          final ChatEvent event => ChatEventMessage(json['conversationId'] as String, event),
+          null => const UnknownServerMessage('chatEvent'),
+        },
       'orgAccessChanged' => OrgAccessChangedMessage(json['access'] as String? ?? ''),
       // A message this app doesn't know yet (a newer hub) is skipped, not a broken connection.
       final String other => UnknownServerMessage(other),
@@ -1363,6 +1367,63 @@ final class ApprovalCancelledMessage extends ServerMessage {
   const ApprovalCancelledMessage(this.approvalId);
 
   final int approvalId;
+}
+
+/// P124 — what a code engine does while a turn runs, mirroring `ChatEventDto`. The turn's end is still a
+/// [ChatResponseMessage] or [ChatErrorMessage].
+sealed class ChatEvent {
+  const ChatEvent();
+
+  /// Null for an event this app doesn't know yet (a newer hub): it is skipped, not a broken connection.
+  static ChatEvent? fromJson(Map<String, dynamic> json) => switch (json['type']) {
+        'text' => ChatEventText(json['text'] as String, source: json['source'] as String?),
+        'tool' => ChatEventTool(
+            callId: json['callId'] as String,
+            tool: json['tool'] as String,
+            title: json['title'] as String,
+            status: switch (json['status']) {
+              'completed' => ToolStatus.completed,
+              'failed' => ToolStatus.failed,
+              _ => ToolStatus.running,
+            },
+          ),
+        'notice' => ChatEventNotice(json['text'] as String),
+        _ => null,
+      };
+}
+
+final class ChatEventText extends ChatEvent {
+  const ChatEventText(this.text, {this.source});
+
+  final String text;
+
+  /// Names the task the words are from when several are told at once (a manager's code tasks).
+  final String? source;
+}
+
+enum ToolStatus { running, completed, failed }
+
+final class ChatEventTool extends ChatEvent {
+  const ChatEventTool({required this.callId, required this.tool, required this.title, required this.status});
+
+  /// The same for each stage of one call, so a client updates one line instead of adding one.
+  final String callId;
+  final String tool;
+  final String title;
+  final ToolStatus status;
+}
+
+final class ChatEventNotice extends ChatEvent {
+  const ChatEventNotice(this.text);
+
+  final String text;
+}
+
+final class ChatEventMessage extends ServerMessage {
+  const ChatEventMessage(this.conversationId, this.event);
+
+  final String conversationId;
+  final ChatEvent event;
 }
 
 /// One of this device's conversations changed outside a chat reply — an agent left a note for

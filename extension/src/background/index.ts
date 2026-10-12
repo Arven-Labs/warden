@@ -18,6 +18,7 @@ import { HubRequestError, ServerConnection, type ChatEntry, type ConnectionStatu
 import { discoverHubs } from "./discovery";
 import type { ConnectionSettings, ConversationState, PopupRequest } from "./popup_protocol";
 import type { ApprovalPrompt, ConversationSummary, ThreadParent } from "../protocol/messages";
+import { applyEvent, type LiveTurn } from "../protocol/liveTurn";
 import { visibleConversations, withMessageIds } from "../protocol/threads";
 import { badgeText, baseline, markSeen, notificationBody, unreadIds, type SeenMap } from "../protocol/unread";
 import { toolSpecs, toolHandlers } from "./tools";
@@ -44,6 +45,8 @@ let activeConversationId: string | null = null;
 /** Turns sent and not answered yet, by conversation id — the hub only saves a turn once it's
  * answered, so this is what puts the question back on screen when switching to that conversation. */
 let pendingTurns: Record<string, string> = {};
+/** P124 — what the engine has done so far in each turn that has not ended, by conversation id; gone when the turn's answer comes. */
+let liveTurns: Record<string, LiveTurn> = {};
 /** P87 — the hub's configured agents and the one the next turn speaks as. */
 let agentIds: string[] = [];
 let agentId: string | null = null;
@@ -97,6 +100,22 @@ function broadcast(message: unknown): void {
 function setStatus(status: ConnectionStatus): void {
   currentStatus = status;
   broadcast({ type: "statusChanged", status });
+}
+
+/** Sets (or, with `null`, drops) a conversation's live turn and tells the panel. */
+function setLiveTurn(conversationId: string, live: LiveTurn | null): void {
+  if (live === null) {
+    if (!(conversationId in liveTurns)) return;
+    delete liveTurns[conversationId];
+  } else {
+    liveTurns[conversationId] = live;
+  }
+  broadcast({ type: "liveTurnChanged", conversationId, live });
+}
+
+/** No turn is going on any more (the connection dropped, or a new one starts): nothing is live. */
+function clearLiveTurns(): void {
+  for (const id of Object.keys(liveTurns)) setLiveTurn(id, null);
 }
 
 function addChatEntry(entry: ChatEntry): void {
@@ -319,7 +338,7 @@ setGroupChangeListener(() => broadcast({ type: "groupChanged" }));
 async function handleRequest(request: PopupRequest): Promise<unknown> {
   switch (request.type) {
     case "getStatus":
-      return { status: currentStatus, history, savedSettings: await getSavedSettings(), approvals, ...conversationState() };
+      return { status: currentStatus, history, savedSettings: await getSavedSettings(), approvals, liveTurns, ...conversationState() };
 
     case "connect": {
       connection?.goodbye();
@@ -349,6 +368,7 @@ async function handleRequest(request: PopupRequest): Promise<unknown> {
       history = [];
       conversations = [];
       pendingTurns = {};
+      clearLiveTurns();
       threadDraft = null;
       channels = {};
       // The marks kept from earlier visits (none on a first run: the first list becomes the baseline).
@@ -363,6 +383,7 @@ async function handleRequest(request: PopupRequest): Promise<unknown> {
         // A dropped connection never hears the answers it was waiting on, nor its approvals.
         if (status.kind !== "connected") {
           pendingTurns = {};
+          clearLiveTurns();
           setApprovals([]);
         }
         setStatus(status);
@@ -379,9 +400,16 @@ async function handleRequest(request: PopupRequest): Promise<unknown> {
         });
         if (conversationId === activeConversationId && !(conversationId in pendingTurns)) void loadHistory(next, conversationId);
       });
+      connection.onChatEvent((event, conversationId) => {
+        // Only a turn this device is waiting on has a live bubble: a late event after the answer would leave one nobody clears.
+        if (conversationId in pendingTurns) setLiveTurn(conversationId, applyEvent(liveTurns[conversationId], event));
+      });
       connection.onChatMessage((entry, conversationId) => {
         const id = conversationId ?? activeConversationId;
-        if (id !== null) delete pendingTurns[id];
+        if (id !== null) {
+          delete pendingTurns[id];
+          setLiveTurn(id, null);
+        }
         if (id === activeConversationId) {
           addChatEntry(entry);
           if (entry.role === "assistant" && id !== null) void attachMessageIds(next, id);

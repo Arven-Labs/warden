@@ -20,6 +20,7 @@ import {
   type GrantsView,
   type ApprovalPrompt,
   type ClientMessage,
+  type ChatEventDto,
   type ConversationSummary,
   type DirListing,
   type HistoryMessage,
@@ -107,6 +108,7 @@ export class ServerConnection {
   private readonly socket: WebSocket;
   private readonly statusListeners = new Set<StatusListener>();
   private readonly chatListeners = new Set<ChatListener>();
+  private readonly chatEventListeners = new Set<(event: ChatEventDto, conversationId: string) => void>();
   private readonly approvalListeners = new Set<ApprovalListener>();
   private readonly changedListeners = new Set<(conversationId: string) => void>();
   private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
@@ -178,6 +180,12 @@ export class ServerConnection {
   onConversationChanged(listener: (conversationId: string) => void): () => void {
     this.changedListeners.add(listener);
     return () => this.changedListeners.delete(listener);
+  }
+
+  /** P124 — what the engine is doing in a turn that has not ended yet. */
+  onChatEvent(listener: (event: ChatEventDto, conversationId: string) => void): () => void {
+    this.chatEventListeners.add(listener);
+    return () => this.chatEventListeners.delete(listener);
   }
 
   onChatMessage(listener: ChatListener): () => void {
@@ -279,6 +287,9 @@ export class ServerConnection {
         break;
       case "chatError":
         for (const listener of this.chatListeners) listener({ role: "error", content: message.message }, message.conversationId);
+        break;
+      case "chatEvent":
+        for (const listener of this.chatEventListeners) listener(message.event, message.conversationId);
         break;
       case "toolCallRequest":
         // Fire-and-forget: each call runs independently, so a slow one (e.g. reading a large

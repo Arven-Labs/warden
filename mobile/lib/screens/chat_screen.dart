@@ -11,6 +11,7 @@ import '../protocol/messages.dart';
 import '../services/agent_work.dart' show orgAccessOf;
 import '../services/chat_notifications.dart';
 import '../services/chat_transcript.dart';
+import '../services/live_turn.dart';
 import '../services/mobile_file_tool.dart';
 import '../services/server_connection.dart';
 import '../services/side_work.dart';
@@ -490,7 +491,8 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                   itemCount: entries.length + (waiting ? 1 : 0),
                   itemBuilder: (context, index) {
                     if (index == entries.length) {
-                      return const _ThinkingIndicator();
+                      final live = widget.transcript.liveTurn;
+                      return live == null ? const _ThinkingIndicator() : _LiveBubble(live: live);
                     }
                     final entry = entries[index];
                     final id = entry.id;
@@ -853,6 +855,65 @@ class _DisconnectedBanner extends StatelessWidget {
       color: Theme.of(context).colorScheme.errorContainer,
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
       child: Text(label, style: TextStyle(color: Theme.of(context).colorScheme.onErrorContainer)),
+    );
+  }
+}
+
+/// P124 — what the engine is doing in the turn that is going on: its words and tools in the order they happened.
+class _LiveBubble extends StatelessWidget {
+  const _LiveBubble({required this.live});
+
+  final LiveTurn live;
+
+  static String _mark(ToolStatus status) => switch (status) {
+        ToolStatus.running => '…',
+        ToolStatus.completed => '✓',
+        ToolStatus.failed => '✗',
+      };
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final muted = TextStyle(fontSize: 13, color: scheme.onSurfaceVariant);
+    return Align(
+      alignment: Alignment.centerLeft,
+      child: Container(
+        margin: const EdgeInsets.symmetric(vertical: 4),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        constraints: BoxConstraints(maxWidth: MediaQuery.of(context).size.width * 0.8),
+        decoration: BoxDecoration(color: scheme.surfaceContainerHighest, borderRadius: BorderRadius.circular(12)),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            for (final item in live.items)
+              switch (item) {
+                // Words of a manager's task say which one, since several can be writing at once.
+                LiveText(:final text, :final source) => Padding(
+                    padding: const EdgeInsets.only(bottom: 4),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        if (source != null) Text(source, style: muted.copyWith(fontSize: 12, fontWeight: FontWeight.w600)),
+                        Text(text, style: TextStyle(color: scheme.onSurface)),
+                      ],
+                    ),
+                  ),
+                LiveTool(:final tool, :final title, :final status) => Padding(
+                    padding: const EdgeInsets.only(bottom: 4),
+                    child: Text.rich(
+                      TextSpan(style: muted, children: [
+                        TextSpan(text: '${_mark(status)} '),
+                        TextSpan(text: tool, style: TextStyle(fontWeight: FontWeight.w600, color: scheme.onSurface)),
+                        TextSpan(text: '  $title', style: const TextStyle(fontFamily: 'monospace')),
+                      ]),
+                    ),
+                  ),
+              },
+            if (live.notice != null) Text(live.notice!, style: muted.copyWith(fontStyle: FontStyle.italic)),
+          ],
+        ),
+      ),
     );
   }
 }

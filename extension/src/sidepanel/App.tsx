@@ -11,6 +11,7 @@ import { agentWork, workButtonLabel } from "./lib/agentWork";
 import ApprovalCard from "./ApprovalCard";
 import type { ApprovalPrompt } from "../protocol/messages";
 import { threadsOf } from "../protocol/threads";
+import type { LiveTurn } from "../protocol/liveTurn";
 import type { ChatEntry, ConnectionStatus } from "../background/connection";
 import type { BackgroundEvent, ConnectionSettings, ConversationState, GetStatusResponse, OkResponse } from "../background/popup_protocol";
 
@@ -40,6 +41,8 @@ export default function App() {
   /** P121 — the conversation of that list that the chat tab is showing, to come back to the list from it. */
   const [workOpen, setWorkOpen] = useState<{ agent: string; id: string } | null>(null);
 
+  const [liveTurns, setLiveTurns] = useState<Record<string, LiveTurn>>({});
+
   useEffect(() => {
     chrome.runtime.sendMessage({ type: "getStatus" }).then((res: GetStatusResponse) => {
       setStatus(res.status);
@@ -48,6 +51,7 @@ export default function App() {
       const { conversations, activeConversationId, pendingIds, agentIds, agentId, workdir, threadParent, channels, unreadChannels } = res;
       setConversationState({ conversations, activeConversationId, pendingIds, agentIds, agentId, workdir, threadParent, channels, unreadChannels });
       setApprovals(res.approvals);
+      setLiveTurns(res.liveTurns ?? {});
     });
 
     function onEvent(event: BackgroundEvent) {
@@ -62,6 +66,11 @@ export default function App() {
         setConversationState({ conversations, activeConversationId, pendingIds, agentIds, agentId, workdir, threadParent, channels, unreadChannels });
       } else if (event.type === "approvalsChanged") {
         setApprovals(event.approvals);
+      } else if (event.type === "liveTurnChanged") {
+        setLiveTurns((current) => {
+          const { [event.conversationId]: _old, ...rest } = current;
+          return event.live === null ? rest : { ...rest, [event.conversationId]: event.live };
+        });
       }
     }
     chrome.runtime.onMessage.addListener(onEvent);
@@ -222,6 +231,7 @@ export default function App() {
               serverName={status.serverName}
               history={history}
               pending={pendingChat}
+              live={conversationState.activeConversationId ? liveTurns[conversationState.activeConversationId] : undefined}
               threads={conversationState.activeConversationId ? threadsOf(conversationState.conversations, conversationState.activeConversationId) : {}}
               inThread={conversationState.threadParent !== null}
               onOpenThread={(messageId) =>

@@ -255,6 +255,15 @@ export function encode(message: ClientMessage): string {
   return JSON.stringify(message);
 }
 
+/** Mirrors `ChatEventDto` (P103 b, P124): what a code engine, or the tasks a manager gave it, does while a turn runs. The
+ * turn's end is still `chatResponse`/`chatError`. */
+export type ChatEventDto =
+  /** `source` names the task the words are from when several are told at once. */
+  | { type: "text"; text: string; source?: string }
+  /** `callId` is the same for each stage of one call, so a client updates one line instead of adding one. */
+  | { type: "tool"; callId: string; tool: string; title: string; status: "running" | "completed" | "failed" }
+  | { type: "notice"; text: string };
+
 export type ServerMessage =
   /** `deviceToken` is present when this Hello paired with the pairing key (P36) — it replaces
    * whatever token this device held for the hub. */
@@ -264,6 +273,7 @@ export type ServerMessage =
   /** `conversationId` (P78) — which conversation this answers; `chat` has no `requestId`. */
   | { type: "chatResponse"; content: string; usage: Usage | null; attachments: Attachment[]; conversationId?: string }
   | { type: "chatError"; message: string; conversationId?: string }
+  | { type: "chatEvent"; conversationId: string; event: ChatEventDto }
   | { type: "toolCallRequest"; callId: number; tool: string; arguments: unknown }
   | { type: "skillList"; requestId: number; skills: SkillDto[] }
   | { type: "skillOk"; requestId: number }
@@ -339,6 +349,7 @@ export function decode(text: string): ServerMessage {
     case "authError":
     case "pong":
     case "chatError":
+    case "chatEvent":
     case "discoverAck":
     case "goodbye":
       return json as ServerMessage;

@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 import '../protocol/messages.dart';
 import 'channel_unread.dart';
 import 'device_id.dart';
+import 'live_turn.dart';
 
 enum EntryRole { user, assistant, error }
 
@@ -113,6 +114,12 @@ class ChatTranscript extends ChangeNotifier {
 
   /// Turns sent and not answered yet, by conversation id.
   final _pending = <String, String>{};
+
+  /// P124 — what the engine has done so far in each turn that has not ended, by conversation id.
+  final _live = <String, LiveTurn>{};
+
+  /// The open conversation's live turn, if the hub has told any of it yet.
+  LiveTurn? get liveTurn => _live[_activeId];
 
   /// P87 — the hub's configured agents, and the one the next turn speaks as (null: none). Opening a
   /// conversation restores the agent it last spoke with; a new one keeps the last choice.
@@ -523,6 +530,14 @@ class ChatTranscript extends ChangeNotifier {
       if (msg.conversationId == _activeId && !_pending.containsKey(_activeId)) unawaited(_loadHistory(_activeId));
       return;
     }
+    if (msg is ChatEventMessage) {
+      // Only a turn this device is waiting on has a live bubble: a late event after the answer would leave one nobody clears.
+      if (_pending.containsKey(msg.conversationId)) {
+        _live[msg.conversationId] = (_live[msg.conversationId] ?? const LiveTurn()).apply(msg.event);
+        notifyListeners();
+      }
+      return;
+    }
     final (entry, conversationId) = switch (msg) {
       ChatResponseMessage(:final content, :final attachments, :final conversationId) =>
         (ChatEntry(EntryRole.assistant, content, attachments: attachments), conversationId),
@@ -532,6 +547,7 @@ class ChatTranscript extends ChangeNotifier {
     if (entry == null) return;
     final id = conversationId ?? _activeId;
     _pending.remove(id);
+    _live.remove(id);
     if (id == _activeId) _entries.add(entry);
     notifyListeners();
     if (id == _activeId && entry.role == EntryRole.assistant) unawaited(_attachMessageIds(id));

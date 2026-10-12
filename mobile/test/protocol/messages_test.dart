@@ -115,6 +115,20 @@ void main() {
       expect((msg as GoodbyeServerMessage).reason, isNull);
     });
 
+    test('a chatEvent carries the tool line of a turn that is running (P124)', () {
+      final msg = ServerMessage.decode(
+        '{"type":"chatEvent","conversationId":"c1","event":{"type":"tool","callId":"k1","tool":"bash","title":"ls","status":"failed"}}',
+      );
+      expect(msg, isA<ChatEventMessage>());
+      final event = (msg as ChatEventMessage).event as ChatEventTool;
+      expect((msg.conversationId, event.callId, event.status), ('c1', 'k1', ToolStatus.failed));
+    });
+
+    test('a chatEvent of a kind this app does not know is skipped, not an error (P124)', () {
+      final msg = ServerMessage.decode('{"type":"chatEvent","conversationId":"c1","event":{"type":"hologram"}}');
+      expect(msg, isA<UnknownServerMessage>());
+    });
+
     test('ChatResponse with usage', () {
       final msg = ServerMessage.decode(
         '{"type":"chatResponse","content":"ahoy","usage":{"promptTokens":1,"completionTokens":2,"totalTokens":3}}',

@@ -6,6 +6,15 @@
 
 ---
 
+### 2026-10-11 — Sessão 182 (continuação: P124, a extensão e o celular desenham o chatEvent)
+
+- **Pedido do usuário**: "pode seguir pelo 5".
+- **O que mudou**: extensão — `ChatEventDto` e `chatEvent` no protocolo, `protocol/liveTurn.ts` (igual ao da web), `onChatEvent` na conexão, `liveTurns` no background (só enquanto o turno está pendente; limpo na resposta e na queda da conexão), evento `liveTurnChanged` e `liveTurns` no `getStatus`, `LiveBubble` no `ChatView`. Celular — `ChatEvent`/`ChatEventMessage` em `messages.dart` (evento desconhecido vira `UnknownServerMessage`), `services/live_turn.dart`, `liveTurn` no `ChatTranscript`, `_LiveBubble` no `chat_screen.dart`.
+- **Testes**: extensão `tsc` limpo e `npm test` 84 verdes (novo `liveTurn.test.mjs`); celular `flutter analyze` sem aviso e `flutter test` 251 verdes (2 de protocolo, 1 do transcript).
+- **Fica**: sem "Parar" nos dois; janela e aparelho não vistos.
+
+---
+
 ### 2026-10-11 — Sessão 182 (continuação: P124, o turno de código não fica preso na lista)
 
 - **Pedido do usuário**: "vamos de 1" (a entrada de `CodeTurns` que sobrava se o hub caísse no meio de um turno).

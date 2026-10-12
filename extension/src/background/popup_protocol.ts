@@ -9,6 +9,7 @@ import type { ChatEntry, ConnectionStatus } from "./connection";
 import type { DiscoveredHub } from "./discovery";
 import type { ActivityEvent, AgentTask, AgentTaskAction, Grant, ApprovalPrompt, ConversationSummary, DirListing, HubAgents, OrgEdit, SkillDto, ThreadParent } from "../protocol/messages";
 import type { GroupTab } from "./tab_group";
+import type { LiveTurn } from "../protocol/liveTurn";
 
 export interface ConnectionSettings {
   host: string;
@@ -90,6 +91,8 @@ export interface GetStatusResponse extends ConversationState {
   status: ConnectionStatus;
   /** P87 — approvals the hub is waiting on, oldest first. */
   approvals: ApprovalPrompt[];
+  /** P124 — the live turns, by conversation id. */
+  liveTurns: Record<string, LiveTurn>;
   history: ChatEntry[];
   savedSettings: Partial<ConnectionSettings>;
 }
@@ -180,10 +183,13 @@ export type HistoryLoadedEvent = { type: "historyLoaded"; history: ChatEntry[] }
 export type ConversationsChangedEvent = { type: "conversationsChanged" } & ConversationState;
 /** P87 — the queue of approvals the hub is waiting on changed. */
 export type ApprovalsChangedEvent = { type: "approvalsChanged"; approvals: ApprovalPrompt[] };
+/** P124 — what the engine has done so far in a turn that has not ended (`null`: the turn is over). */
+export type LiveTurnChangedEvent = { type: "liveTurnChanged"; conversationId: string; live: LiveTurn | null };
 export type BackgroundEvent =
   | StatusChangedEvent
   | ChatMessageEvent
   | GroupChangedEvent
   | HistoryLoadedEvent
   | ConversationsChangedEvent
-  | ApprovalsChangedEvent;
+  | ApprovalsChangedEvent
+  | LiveTurnChangedEvent;

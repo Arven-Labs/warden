@@ -4,6 +4,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:mobile/protocol/messages.dart';
 import 'package:mobile/services/channel_unread.dart';
 import 'package:mobile/services/chat_transcript.dart';
+import 'package:mobile/services/live_turn.dart';
 
 /// The hub, in memory: a list of conversations and each one's history.
 class FakeBackend implements ConversationBackend {
@@ -256,6 +257,35 @@ void main() {
 
     expect(transcript.entries.map((e) => e.text), ['note from ana', 'answer from bia']);
     expect(transcript.conversations.map((c) => c.id), contains('agents-x'));
+  });
+
+  test('the engine\'s work shows live while the turn is pending and is gone with the answer (P124)', () async {
+    final transcript = make();
+    await settle();
+    final id = transcript.activeConversationId;
+
+    replies.add(ChatEventMessage(id, const ChatEventText('early')));
+    await settle();
+    expect(transcript.liveTurn, isNull, reason: 'nothing was asked, so there is nothing to show it in');
+
+    transcript.send('go');
+    replies.add(ChatEventMessage(id, const ChatEventText('Looking ', source: 'Repo')));
+    replies.add(ChatEventMessage(id, const ChatEventText('around', source: 'Repo')));
+    replies.add(ChatEventMessage(id, const ChatEventTool(callId: 'c1', tool: 'bash', title: 'ls', status: ToolStatus.running)));
+    replies.add(ChatEventMessage(id, const ChatEventTool(callId: 'c1', tool: 'bash', title: 'ls', status: ToolStatus.completed)));
+    replies.add(ChatEventMessage(id, const ChatEventNotice('retrying')));
+    await settle();
+
+    final live = transcript.liveTurn!;
+    expect(live.items, hasLength(2), reason: 'the words ran on, the two stages of the call are one line');
+    expect((live.items[0] as LiveText).text, 'Looking around');
+    expect((live.items[1] as LiveTool).status, ToolStatus.completed);
+    expect(live.notice, 'retrying');
+
+    replies.add(ChatResponseMessage('done', null, conversationId: id));
+    await settle();
+    expect(transcript.liveTurn, isNull);
+    expect(transcript.entries.last.text, 'done');
   });
 
   test('blank text and a pending reply are both ignored', () async {

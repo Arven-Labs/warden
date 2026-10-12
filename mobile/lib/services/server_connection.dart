@@ -334,6 +334,7 @@ class ServerConnection implements ConversationBackend, AgentsBackend, MemberOrgB
               GoodbyeServerMessage() ||
               ChatResponseMessage() ||
               ChatErrorMessage() ||
+              ChatEventMessage() ||
               ToolCallRequestMessage() ||
               HistoryServerMessage() ||
               HistoryErrorMessage() ||
@@ -392,6 +393,7 @@ class ServerConnection implements ConversationBackend, AgentsBackend, MemberOrgB
         _setStatus(const Disconnected());
       case ChatResponseMessage():
       case ChatErrorMessage():
+      case ChatEventMessage():
       case ConversationsChangedMessage():
         _chatController.add(msg);
       case OrgAccessChangedMessage(:final access):
