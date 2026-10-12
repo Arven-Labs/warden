@@ -6,6 +6,16 @@
 
 ---
 
+### 2026-10-11 — Sessão 182 (continuação: o fallback da busca por significado, P56)
+
+- **Pedido do usuário**: "vamos para o próximo" (sem item escolhido; peguei o P56, a lacuna de teste mais barata de fechar).
+- **Achado**: `WARDEN_NO_SEMANTIC` ("não carregue nem baixe o modelo") só era checada em `embed::embed`, a busca no histórico. O cofre (`Vault::with_embedder`) ignorava a chave, então os testes que a ligavam ainda carregavam o modelo. Agora o cofre também a respeita e devolve erro, que é o gatilho do fallback.
+- **Teste novo** (`warden-core/tests/semantic_fallback.rs`, binário próprio porque a chave é do processo): com a chave ligada, `search_semantic` falha e um turno do orquestrador ainda injeta o contexto da busca por palavras.
+- **Verificação**: `warden-core` lib 499, `code_task` e `code_mode` do hub verdes, clippy limpo com `--all-targets`.
+- **Fica**: rede bloqueada de verdade e modelo corrompido; só a chave foi usada para provocar a falha.
+
+---
+
 ### 2026-10-11 — Sessão 182 (continuação: trava de arquivo no pareamento dos bots, P117)
 
 - **Pedido do usuário**: "vamos para o próximo" (sem item escolhido; olhei o que sobrava em código e peguei a corrida do `bot_pairing.json`, anotada no P117).

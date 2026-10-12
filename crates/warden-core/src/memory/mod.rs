@@ -553,6 +553,9 @@ impl Vault {
     /// "local" search that needs network, exactly once per machine) and runs `f` against it.
     #[cfg(feature = "semantic-search")]
     fn with_embedder<T>(&self, f: impl FnOnce(&mut TextEmbedding) -> anyhow::Result<T>) -> anyhow::Result<T> {
+        if std::env::var_os(embed::OFF_SWITCH).is_some_and(|v| !v.is_empty()) {
+            anyhow::bail!("search by meaning is turned off ({} is set)", embed::OFF_SWITCH);
+        }
         let mut guard = self.embedder.lock().unwrap();
         if guard.is_none() {
             let model = TextEmbedding::try_new(
