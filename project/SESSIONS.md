@@ -12,6 +12,7 @@
 - **Feito**: `turn_error(err, member)` em `crates/warden-server/src/openai_api.rs`; `complete` ganhou o parâmetro `member` (`key.user.is_some()` na chave, `false` na rota do motor de código). Para o membro: 429, `insufficient_quota`, texto de `member_limit_message` ("Ask whoever runs this Warden to allow more"), código `spend_limit` sem id.
 - **Testes**: `what_a_member_may_use_is_what_the_owner_shares_and_allows` ganhou a chamada HTTP da Ana parada pelo `ana-day`; `people` (31) e `openai_api` (8) verdes, clippy do `warden-server` limpo.
 - **Fica**: nada de código neste item.
+- **Item 2 (corrida de escrita no desktop, P87 4)**: planejado e conferido no código antes de mexer; já estava fechado (`append_conversation_messages` e o `ConversationWriteGuard`). Também estava fechado o seletor de agente do celular e o tratamento de `ApprovalRequest` (P87 2). Só as linhas do `PENDING.md` foram corrigidas, nenhum código.
 
 ---
 
