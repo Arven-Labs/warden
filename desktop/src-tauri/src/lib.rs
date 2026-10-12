@@ -3,6 +3,7 @@ mod bot_cmds;
 mod approval;
 mod code_cmds;
 mod config_paths;
+mod conversation_watch;
 mod git_sync_cmds;
 mod hub_cmds;
 mod lend_cmds;
@@ -1151,6 +1152,8 @@ pub fn run() {
             // minutes instead of requiring a manual click, for as long as the app stays open. See
             // `sync_cmds::spawn_auto_sync`'s own doc comment for what this does and doesn't cover.
             sync_cmds::spawn_auto_sync(app.handle().clone(), sync_runner);
+            // P87 — a conversation another process writes (the CLI leaving a note for an agent) reaches the window too.
+            conversation_watch::spawn(app.handle().clone());
             Ok(())
         })
         .manage(app_state)

@@ -6,6 +6,16 @@
 
 ---
 
+### 2026-10-11 — Sessão 182 (continuação: P87, o desktop avisado de recado deixado pelo CLI)
+
+- **Pedido do usuário**: "pode seguir com o P87" (terceiro item do plano aprovado; decisão dele: verificar a cada 3 s, sem `notify`).
+- **O que mudou**: módulo `desktop/src-tauri/src/conversation_watch.rs` (`Watcher::poll` mais uma thread que roda a cada 3 s, iniciada no `setup`) e `mod conversation_watch` no `lib.rs`.
+- **Desvio do plano, a avisar**: o plano dizia para o app registrar o que ele mesmo grava e não avisar. Não fiz: ao ler o `replaceWithSaved` (`desktop/src/App.tsx`) vi que a tela já trata a cópia salva com segurança (ela vence, mas mantém a mensagem que a tela mostra e o disco ainda não tem), então um aviso a mais só custa uma releitura, e filtrar exigiria mexer em todos os pontos que gravam conversa (envio, aprendizado, projeto, compartilhar, o `message_agent`...). O custo é uma releitura da lista por gravação do próprio app.
+- **Testes**: 3 em `conversation_watch`; `desktop` 62 verdes (inclui o `remote_ipc_test`), clippy limpo. O arquivo de teste não cobre a thread nem o evento chegando à tela.
+- **Fica**: não visto numa janela do Tauri; uma pasta com muitas conversas é varrida a cada 3 s (só `metadata`).
+
+---
+
 ### 2026-10-11 — Sessão 182 (continuação: P47, rotação do log de auditoria do SSH)
 
 - **Pedido do usuário**: "pode seguir com o P47" (segundo item do plano aprovado; decisão dele: 5 MiB por arquivo, 3 antigos).
