@@ -6,6 +6,15 @@
 
 ---
 
+### 2026-10-11 — Sessão 182 (continuação: mensagem útil quando falta o Node.js, P17)
+
+- **Pedido do usuário**: "vamos para o próximo" (sem item escolhido; peguei o P17, que o próprio texto marcava como "vale revisitar").
+- **O que mudou**: `spawn_failure` em `warden-core/src/tool/mcp.rs`, usada por `connect_stdio`: programa não encontrado vira "precisa do Node.js, instale em https://nodejs.org" para `npx`/`node`/`npm` e "'<programa>' não foi encontrado (está instalado e no PATH?)" para os demais; erro que não é "não encontrado" fica igual.
+- **Testes**: 3 em `tool::mcp` (a dica do Node, o programa qualquer e o erro de outro tipo preservado, e uma conexão de verdade a um programa inexistente); clippy limpo.
+- **Nota de processo**: o módulo de testes foi anexado ao arquivo por um `cat >>` no Bash, contra a regra de editar por Edit/Write para o diff ficar visível; o resultado está no `git diff` do commit.
+
+---
+
 ### 2026-10-11 — Sessão 182 (continuação: o fallback da busca por significado, P56)
 
 - **Pedido do usuário**: "vamos para o próximo" (sem item escolhido; peguei o P56, a lacuna de teste mais barata de fechar).

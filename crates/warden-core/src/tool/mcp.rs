@@ -61,7 +61,7 @@ impl McpToolProvider {
             cmd.args(args);
             cmd.envs(env.iter().map(|(k, v)| (k.as_str(), v.as_str())));
         }))
-        .map_err(|err| anyhow::anyhow!("failed to spawn MCP server '{server_name}' ({command}): {err}"))?;
+        .map_err(|err| spawn_failure(&server_name, command, &err))?;
 
         let session = ()
             .serve(transport)
@@ -100,6 +100,20 @@ impl McpToolProvider {
             .map_err(|err| anyhow::anyhow!("failed to initialize MCP server '{server_name}' at {url}: {err}"))?;
 
         Ok(Self { server_name, session: Arc::new(session) })
+    }
+}
+
+/// Why a stdio server's process didn't start. A program that isn't on the PATH says so, and for the Node tools most servers
+/// (and the built-in web search) run through, how to get it — instead of the OS's bare "No such file or directory" (P17).
+fn spawn_failure(server_name: &str, command: &str, err: &std::io::Error) -> anyhow::Error {
+    if err.kind() != std::io::ErrorKind::NotFound {
+        return anyhow::anyhow!("failed to spawn MCP server '{server_name}' ({command}): {err}");
+    }
+    let program = std::path::Path::new(command).file_stem().and_then(|name| name.to_str()).unwrap_or(command);
+    if matches!(program, "npx" | "node" | "npm") {
+        anyhow::anyhow!("MCP server '{server_name}' needs Node.js, and '{command}' is not on the PATH — install it from https://nodejs.org")
+    } else {
+        anyhow::anyhow!("MCP server '{server_name}': '{command}' was not found (is it installed and on the PATH?)")
     }
 }
 
@@ -163,5 +177,36 @@ impl Tool for McpTool {
             })?;
 
         Ok(serde_json::to_value(result)?)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn not_found() -> std::io::Error {
+        std::io::Error::from(std::io::ErrorKind::NotFound)
+    }
+
+    #[test]
+    fn a_missing_node_tool_says_to_install_node() {
+        for command in ["npx", "/usr/bin/node", "npm"] {
+            let message = spawn_failure("search", command, &not_found()).to_string();
+            assert!(message.contains("Node.js") && message.contains("https://nodejs.org") && message.contains(command), "{message}");
+        }
+    }
+
+    #[test]
+    fn any_other_missing_program_is_named_and_other_errors_stay_as_they_were() {
+        let message = spawn_failure("notes", "notes-server", &not_found()).to_string();
+        assert!(message.contains("'notes-server' was not found") && !message.contains("Node.js"), "{message}");
+        let denied = spawn_failure("notes", "notes-server", &std::io::Error::from(std::io::ErrorKind::PermissionDenied)).to_string();
+        assert!(denied.starts_with("failed to spawn MCP server 'notes' (notes-server)"), "{denied}");
+    }
+
+    #[tokio::test]
+    async fn connecting_to_a_program_that_is_not_installed_fails_with_that_message() {
+        let err = McpToolProvider::connect_stdio("ghost", "warden-no-such-program-0123", &[], &[]).await.err().expect("no such program");
+        assert!(err.to_string().contains("was not found"), "{err}");
     }
 }
