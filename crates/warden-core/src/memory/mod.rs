@@ -534,6 +534,21 @@ impl Vault {
             .collect())
     }
 
+    /// Loads the embedding model now instead of at the first search, so a long-lived process (the hub) doesn't make the first turn
+    /// wait for it. Does nothing when searching by meaning is off (`WARDEN_NO_SEMANTIC`) or not built in.
+    #[cfg(feature = "semantic-search")]
+    pub fn warm_up(&self) -> anyhow::Result<()> {
+        if std::env::var_os(embed::OFF_SWITCH).is_some_and(|v| !v.is_empty()) {
+            return Ok(());
+        }
+        self.with_embedder(|_| Ok(()))
+    }
+
+    #[cfg(not(feature = "semantic-search"))]
+    pub fn warm_up(&self) -> anyhow::Result<()> {
+        Ok(())
+    }
+
     /// Lazily loads the local embedding model (downloads it on first-ever use — the one part of
     /// "local" search that needs network, exactly once per machine) and runs `f` against it.
     #[cfg(feature = "semantic-search")]

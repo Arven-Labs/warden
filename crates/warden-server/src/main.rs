@@ -1195,7 +1195,8 @@ async fn run_serve(args: ServeArgs) -> anyhow::Result<()> {
     let code_engine = CodeEngineSlot::default();
     let engine_model_slot = warden_server::openai_api::EngineModelSlot::default();
     let orchestrator = bootstrap_hub(args.config.as_deref(), overrides.clone(), &code_engine, &engine_model_slot).await?;
-    let settings = args.config.as_ref().map(PathBuf::from).or_else(warden_bootstrap::default_config_path).map(|config_path| ServeSettings {
+    warm_embedding_models(orchestrator.vault().clone());
+    let settings =args.config.as_ref().map(PathBuf::from).or_else(warden_bootstrap::default_config_path).map(|config_path| ServeSettings {
         config_path,
         explicit_config: args.config.clone(),
         overrides,
@@ -1287,6 +1288,25 @@ async fn run_serve(args: ServeArgs) -> anyhow::Result<()> {
     }
     eprintln!("warden-server: Warden API (OpenAI-compatible) at {}/v1 — keys: `warden-server api-keys create <name>`", page_url.trim_end_matches('/'));
     server.serve().await
+}
+
+/// Loads the two embedding models (the vault's and the history search's) in the background, so the first turn after the hub
+/// starts doesn't wait for them, nor for the download on a machine that never had them. Failing is only logged: offline with no
+/// model yet, the first search tries again and falls back to words, as it always did.
+fn warm_embedding_models(vault: Arc<warden_core::memory::Vault>) {
+    // Two tasks, not one after the other: they don't share a lock, and a first turn may wait for either.
+    tokio::task::spawn_blocking(move || {
+        if let Err(err) = vault.warm_up() {
+            eprintln!("warden-server: could not load the vault's search model ({err:#}); searching by meaning will try again when it is used");
+        }
+    });
+    tokio::task::spawn_blocking(|| {
+        if std::env::var_os(warden_core::memory::embed::OFF_SWITCH).is_none_or(|v| v.is_empty()) {
+            if let Err(err) = warden_core::memory::embed::warm_up() {
+                eprintln!("warden-server: could not load the history search model ({err:#}); it will try again when it is used");
+            }
+        }
+    });
 }
 
 /// `--tailscale-cert` fetches the cert first (and spawns its daily renewal); `--tls-cert`/

@@ -11,7 +11,11 @@
 - **Pedido do usuário**: "pode seguir, mede os 7 s".
 - **Medido** (hub real do e2e, navegador headless, provedor `openai_compatible` numa porta fechada e o Gemini com chave falsa): 6,5 s entre o `chat` e o `chatError`, igual nos dois (então não é rede nem retry do provedor). Com `XDG_CACHE_HOME` apontando para o cache real (`~/.cache/warden/models`) o mesmo caso levou 0,5 s. Num mesmo hub sem o cache, o 1º turno levou 6,9 s e o 2º e o 3º, ~70 ms.
 - **Causa**: a carga do modelo de embeddings (`fastembed`, `model_cache_dir()` sob o `HOME`) no primeiro turno do processo; o e2e usa um `HOME` novo a cada hub, então paga isso toda vez. É um artefato do teste, não uma lentidão de turno. No produto, a primeira instalação paga o download no 1º turno.
-- **Nada mudou no código**; os scripts de medição foram apagados. **Decisão aberta**: aquecer o modelo em segundo plano na partida do hub (tira o custo do 1º turno do usuário), ou fazer o harness do e2e reaproveitar o cache real (testes mais rápidos, mas dependem da máquina).
+- **Decisão do usuário**: aquecer o modelo na partida do hub (e não reaproveitar o cache real no e2e).
+- **O que mudou**: `Vault::warm_up` e `embed::warm_up` (`warden-core`), e `warm_embedding_models` na partida do `serve` (`warden-server/src/main.rs`): os dois modelos (o do cofre e o da busca no histórico) carregam em tarefas bloqueantes separadas, em segundo plano; `WARDEN_NO_SEMANTIC` pula; falha só imprime uma linha e a próxima busca tenta de novo.
+- **Medido** (hub novo, sem cache): primeiro turno 12 s depois da partida em 0,86 s (antes 6,9 s); logo na partida 7,5 s (espera o resto, como antes). A 1ª versão, com os dois modelos em sequência, ainda deixava 5,9 s aos 12 s: o turno usa os dois, por isso as tarefas são separadas.
+- **Testes**: `clippy` limpo em core e server, `code_task` do hub (6) e `memory` do core (48). Sem teste de unidade do aquecimento (a chave `WARDEN_NO_SEMANTIC` é global ao processo e afetaria testes em paralelo).
+- **Efeito colateral**: quem nunca teve o modelo passa a baixá-lo na partida do hub, mesmo sem usar busca por significado.
 
 ---
 

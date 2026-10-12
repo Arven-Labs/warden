@@ -48,6 +48,12 @@ pub fn embed(_kind: Kind, texts: Vec<String>) -> anyhow::Result<Vec<Vec<f32>>> {
     Ok(guard.as_mut().expect("loaded just above").embed(texts, None)?)
 }
 
+/// Loads the model now (the first `embed` of a process does it), so the first search of the history doesn't wait. An error
+/// (offline with no model yet, or the off switch) is for the caller to log; the first real `embed` will try again.
+pub fn warm_up() -> anyhow::Result<()> {
+    embed(Kind::Query, vec!["warm up".to_string()]).map(|_| ())
+}
+
 #[cfg(not(feature = "semantic-search"))]
 pub fn embed(_kind: Kind, _texts: Vec<String>) -> anyhow::Result<Vec<Vec<f32>>> {
     anyhow::bail!("semantic search isn't built into this binary")
