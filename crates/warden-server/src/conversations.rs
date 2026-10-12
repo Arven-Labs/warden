@@ -92,12 +92,18 @@ pub fn handle_history_request(dirs: &ConversationDirs, request_id: u64, limit: O
 /// Answers a `ListConversations`/`RenameConversation`/`DeleteConversation`, or `None` for any
 /// other message.
 pub fn handle_conversation_request(dirs: &ConversationDirs, message: ClientMessage) -> Option<ServerMessage> {
+    handle_conversation_request_in(dirs, message, |_| false)
+}
+
+/// `handle_conversation_request`, where `is_code_project` says whether a project of the person asking is a code project
+/// the person may run (P124): its conversations are listed as `code`, so a client knows when a task can be stopped.
+pub fn handle_conversation_request_in(dirs: &ConversationDirs, message: ClientMessage, is_code_project: impl Fn(&str) -> bool) -> Option<ServerMessage> {
     let (request_id, result) = match message {
         ClientMessage::ListConversations { request_id } => {
             return Some(match dirs.list() {
                 Ok(conversations) => ServerMessage::ConversationList {
                     request_id,
-                    conversations: conversations.into_iter().map(to_summary).collect(),
+                    conversations: conversations.into_iter().map(|c| to_summary(c, &is_code_project)).collect(),
                 },
                 Err(err) => ServerMessage::ConversationError { request_id, message: format!("{err:#}") },
             });
@@ -159,9 +165,10 @@ fn found(result: anyhow::Result<bool>, id: &str) -> Result<(), String> {
     }
 }
 
-fn to_summary(conversation: Conversation) -> ConversationSummary {
+fn to_summary(conversation: Conversation, is_code_project: &impl Fn(&str) -> bool) -> ConversationSummary {
     // P125: for a thread, what the message it came from shows as its reply counter.
     let replies = if conversation.parent.is_some() { conversation.messages.iter().filter(|m| m.role == ChatRole::User).count() as u32 } else { 0 };
+    let code = conversation.project_id.as_deref().is_some_and(is_code_project);
     ConversationSummary {
         id: conversation.id,
         title: conversation.title,
@@ -169,6 +176,7 @@ fn to_summary(conversation: Conversation) -> ConversationSummary {
         updated_at: conversation.updated_at,
         agent_id: conversation.agent_id,
         project_id: conversation.project_id,
+        code,
         workdir: conversation.workdir,
         parent: conversation.parent.map(|p| ThreadParentDto { conversation_id: p.conversation_id, message_id: p.message_id }),
         replies,

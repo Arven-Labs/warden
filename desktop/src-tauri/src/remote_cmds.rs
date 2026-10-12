@@ -280,7 +280,7 @@ mod tests {
 
         let list = value(ServerMessage::ConversationList {
             request_id: 1,
-            conversations: vec![ConversationSummary { id: "c1".into(), title: "T".into(), created_at: 1, updated_at: 2, agent_id: Some("poet".into()), project_id: None, workdir: None, parent: None, replies: 0 }],
+            conversations: vec![ConversationSummary { id: "c1".into(), title: "T".into(), created_at: 1, updated_at: 2, agent_id: Some("poet".into()), project_id: None, code: false, workdir: None, parent: None, replies: 0 }],
         });
         assert_eq!(list["type"], "conversationList");
         assert_eq!(keys(&list["conversations"][0]), ["agentId", "createdAt", "id", "title", "updatedAt"], "empty optionals are left out: the mapper copes with their absence");
@@ -299,6 +299,7 @@ mod tests {
                 updated_at: 2,
                 agent_id: None,
                 project_id: None,
+                code: false,
                 workdir: None,
                 parent: Some(warden_server_protocol::protocol::ThreadParentDto { conversation_id: "c1".into(), message_id: "170001".into() }),
                 replies: 2,

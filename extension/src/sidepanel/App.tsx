@@ -118,10 +118,9 @@ export default function App() {
   }, [watched]);
 
   const pendingChat =conversationState.activeConversationId !== null && conversationState.pendingIds.includes(conversationState.activeConversationId);
-  // P124 — only a code project's conversation has a task to stop, and this panel can't tell a code project from another: any
-  // conversation in a project gets the button. One started here is in none (a chat from the panel names no project).
+  // P124 — only a code project's conversation has a task to stop, and the hub marks those in the list.
   const activeSummary = conversationState.conversations.find((c) => c.id === conversationState.activeConversationId);
-  const canStop = pendingChat && activeSummary?.projectId !== undefined;
+  const canStop = pendingChat && activeSummary?.code === true;
 
   return (
     <div className="sidepanel-app">

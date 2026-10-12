@@ -175,7 +175,10 @@ async fn a_code_projects_conversation_runs_on_the_engine_with_events_an_approval
 
     me.send(&ClientMessage::ListConversations { request_id: 2 }).await.unwrap();
     match next(&mut me).await {
-        ServerMessage::ConversationList { conversations, .. } => assert_eq!(conversations.iter().find(|c| c.id == "c1").unwrap().project_id.as_deref(), Some("repo")),
+        ServerMessage::ConversationList { conversations, .. } => {
+            let c1 = conversations.iter().find(|c| c.id == "c1").unwrap();
+            assert_eq!((c1.project_id.as_deref(), c1.code), (Some("repo"), true), "a client can tell a task it may stop");
+        }
         other => panic!("{other:?}"),
     }
     me.send(&ClientMessage::RequestHistory { request_id: 3, limit: None, conversation_id: Some("c1".into()) }).await.unwrap();
@@ -282,6 +285,15 @@ async fn a_hub_without_an_engine_says_so_and_a_shell_only_project_keeps_the_ordi
         other => panic!("{other:?}"),
     }
     assert!(engine.asked.lock().unwrap().is_empty());
+    // …and the list says so: in a project, but not one with a task to stop.
+    me.send(&ClientMessage::ListConversations { request_id: 2 }).await.unwrap();
+    match next(&mut me).await {
+        ServerMessage::ConversationList { conversations, .. } => {
+            let c1 = conversations.iter().find(|c| c.id == "c1").unwrap();
+            assert_eq!((c1.project_id.as_deref(), c1.code), (Some("shell-only"), false));
+        }
+        other => panic!("{other:?}"),
+    }
 }
 
 struct MemberHost {

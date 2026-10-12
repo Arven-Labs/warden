@@ -728,6 +728,7 @@ class ConversationSummary {
     required this.updatedAt,
     this.agentId,
     this.projectId,
+    this.code = false,
     this.workdir,
     this.parent,
     this.replies = 0,
@@ -743,6 +744,9 @@ class ConversationSummary {
 
   /// The project (P103) this conversation belongs to; null outside any project.
   final String? projectId;
+
+  /// P124 — the project is a code project: a turn of this conversation is a task for the code engine, which can be stopped.
+  final bool code;
 
   /// The folder of the hub's machine this conversation works in (P102), fixed when it began.
   final String? workdir;
@@ -762,6 +766,7 @@ class ConversationSummary {
       updatedAt: map['updatedAt'] as int,
       agentId: map['agentId'] as String?,
       projectId: map['projectId'] as String?,
+      code: map['code'] as bool? ?? false,
       workdir: map['workdir'] as String?,
       parent: map['parent'] == null ? null : ThreadParent.fromJson(map['parent']),
       replies: map['replies'] as int? ?? 0,

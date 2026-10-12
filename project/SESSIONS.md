@@ -6,6 +6,15 @@
 
 ---
 
+### 2026-10-11 — Sessão 182 (continuação: P124, o campo `code` no resumo da conversa)
+
+- **Pedido do usuário**: "faz o campo de código no resumo".
+- **O que mudou**: `ConversationSummary.code` (protocolo; omitido quando falso, lido como falso se faltar); o hub marca `code` na lista do dono quando o projeto é de código e tem pasta (a mesma regra do `code_task`), nunca para membro (`handle_conversation_request_in`, com `handle_conversation_request` como atalho que não marca); extensão e celular usam `code` em vez de `projectId` para mostrar o "Parar".
+- **Testes**: protocolo (50, com o campo), `code_mode` (6: o projeto de código vem `code: true`, o de pasta só vem `false`), `conversations` (12), clippy limpo, `cargo check --tests` do desktop; extensão 84 e `tsc`; celular 253 e `analyze` limpos (o teste agora cobre conversa de projeto que não é de código).
+- **Fica**: o "Parar" só aparece depois que a lista do hub chega com a conversa (a primeira lista depois de criada); janela e aparelho não vistos; web e desktop ainda decidem pelo projeto e não leem `code`.
+
+---
+
 ### 2026-10-11 — Sessão 182 (continuação: P124, o botão Parar na extensão e no celular)
 
 - **Pedido do usuário**: "faz o botão Parar".

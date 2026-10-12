@@ -123,13 +123,9 @@ class ChatTranscript extends ChangeNotifier {
   /// The open conversation's live turn, if the hub has told any of it yet.
   LiveTurn? get liveTurn => _live[_activeId];
 
-  /// Whether the open conversation's pending turn can be stopped (P124). Only a code project's conversation has a task to stop; the
-  /// app can't tell a code project from another, so any conversation in a project is offered it. One started here is in none (a chat
-  /// from the app names no project), so it never is.
-  bool get canStop {
-    if (!waitingForReply) return false;
-    return _conversations.where((c) => c.id == _activeId).firstOrNull?.projectId != null;
-  }
+  /// Whether the open conversation's pending turn can be stopped (P124): only a code project's conversation has a task to stop, and
+  /// the hub marks those in the list. One started here is in no project, so it never is.
+  bool get canStop => waitingForReply && (_conversations.where((c) => c.id == _activeId).firstOrNull?.code ?? false);
 
   /// Stops the task the open conversation is running; the turn then ends with the usual answer.
   void stop() => backend.cancelTurn(_activeId);

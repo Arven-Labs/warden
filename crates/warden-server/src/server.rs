@@ -30,7 +30,7 @@ use crate::bot_admin::{handle_list_bot_pairings, handle_resolve_bot_pairing};
 use crate::provider_admin::handle_test_provider;
 use crate::chat_input::{handle_transcribe, title_seed, validate_attachments, Transcriber};
 use crate::code_turns::CodeTurns;
-use crate::conversations::{handle_conversation_request, handle_history_request, resolve_conversation_id, ConversationDirs};
+use crate::conversations::{handle_conversation_request_in, handle_history_request, resolve_conversation_id, ConversationDirs};
 use crate::truthid_login::{self, TruthIdLogins};
 use crate::device_registry::{AuthRejection, PairingProof, PairingStatus, PairingStore};
 use crate::people::{member_orchestrator, member_refusal, member_settings_view, migrate_device_conversations, mount_member_spaces, password_gate, tools_for, user_info, MemberSpace, Person, SpaceVaults};
@@ -1865,7 +1865,10 @@ async fn handle_connection<S: Transport>(ws: WebSocketStream<S>, peer: SocketAdd
                 }
                 Ok(message @ (ClientMessage::ListConversations { .. } | ClientMessage::OpenAgentChannel { .. } | ClientMessage::RenameConversation { .. } | ClientMessage::DeleteConversation { .. })) => {
                     // P78 — small file I/O, answered inline like `RequestHistory`.
-                    if let Some(reply) = handle_conversation_request(&conversation_dirs, message) {
+                    // P124 — only the owner runs code tasks, so a member's list marks none.
+                    let store = ProjectStore::new(orchestrator.current().vault().clone());
+                    let is_code = member.is_none();
+                    if let Some(reply) = handle_conversation_request_in(&conversation_dirs, message, |id| is_code && store.get(id).is_ok_and(|p| p.code && p.workdir.is_some())) {
                         let _ = tx.send(reply);
                     }
                 }

@@ -51,6 +51,8 @@ export interface ConversationSummary {
   agentId?: string;
   /** The project (P103) the conversation belongs to; absent outside any project. */
   projectId?: string;
+  /** P124 — set when the project is a code project: a turn of it is a task for the code engine, which can be stopped. */
+  code?: boolean;
   /** The folder the conversation works in (P102): a path of the hub's machine, or `node:<id>:<path>` on a node. */
   workdir?: string;
   /** P125 — set on a thread: the conversation and the message it came from. */

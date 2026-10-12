@@ -151,6 +151,10 @@ fn is_zero(n: &u32) -> bool {
     *n == 0
 }
 
+fn is_false(flag: &bool) -> bool {
+    !*flag
+}
+
 /// One of a device's conversations in a `ConversationList` (P78) — enough for a sidebar; the
 /// messages themselves come from `RequestHistory`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -167,6 +171,10 @@ pub struct ConversationSummary {
     /// outside any project, and for a hub from before projects.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub project_id: Option<String>,
+    /// Set when the conversation's project is a code project (P103 b, P124) and the person may run it: a turn of it is a task for
+    /// the code engine, which a client can stop (`CancelTurn`). Absent for the rest, and for a hub from before it.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub code: bool,
     /// The folder of the hub's machine (P102) this conversation works in. Absent for a conversation in a project
     /// (it has the project's), for one with no folder, and for a hub from before folders.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -2932,7 +2940,7 @@ mod tests {
         assert_eq!(old.id, "", "a hub from before threads sends no id");
         assert!(!serde_json::to_string(&old).unwrap().contains("\"id\""));
 
-        let thread = ConversationSummary { id: "t1".into(), title: "x".into(), created_at: 1, updated_at: 2, agent_id: None, project_id: None, workdir: None, parent: Some(link), replies: 3 };
+        let thread = ConversationSummary { id: "t1".into(), title: "x".into(), created_at: 1, updated_at: 2, agent_id: None, project_id: None, code: false, workdir: None, parent: Some(link), replies: 3 };
         let json = serde_json::to_string(&thread).unwrap();
         assert!(json.contains(r#""parent":{"conversationId":"c1","messageId":"170000"}"#) && json.contains(r#""replies":3"#), "{json}");
         assert_eq!(serde_json::from_str::<ConversationSummary>(&json).unwrap(), thread);
@@ -2987,6 +2995,12 @@ mod tests {
         assert_eq!(summary.project_id, None);
         let grouped = ConversationSummary { project_id: Some("tax".into()), ..summary };
         assert!(serde_json::to_string(&grouped).unwrap().contains(r#""projectId":"tax""#));
+        // P124: `code` comes only when set, and a summary from a hub from before it reads as not code.
+        assert!(!serde_json::to_string(&grouped).unwrap().contains("code"));
+        assert!(!grouped.code);
+        let code = ConversationSummary { code: true, ..grouped };
+        assert!(serde_json::to_string(&code).unwrap().contains(r#""code":true"#));
+        assert!(serde_json::from_str::<ConversationSummary>(r#"{"id":"c","title":"t","createdAt":1,"updatedAt":2,"code":true}"#).unwrap().code);
     }
 
     /// P102: a chat names the folder it starts in, the folder browser has its own messages, and everything from before
@@ -3249,7 +3263,7 @@ mod tests {
             (
                 ServerMessage::ConversationList {
                     request_id: 1,
-                    conversations: vec![ConversationSummary { id: "c1".into(), title: "Trip".into(), created_at: 1, updated_at: 2, agent_id: None, project_id: None, workdir: None, parent: None, replies: 0 }],
+                    conversations: vec![ConversationSummary { id: "c1".into(), title: "Trip".into(), created_at: 1, updated_at: 2, agent_id: None, project_id: None, code: false, workdir: None, parent: None, replies: 0 }],
                 },
                 r#"{"type":"conversationList","requestId":1,"conversations":[{"id":"c1","title":"Trip","createdAt":1,"updatedAt":2}]}"#,
             ),

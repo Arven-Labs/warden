@@ -294,10 +294,11 @@ void main() {
     expect(transcript.entries.last.text, 'done');
   });
 
-  test('only a pending turn of a conversation in a project can be stopped (P124)', () async {
+  test('only a pending turn of a code project\'s conversation can be stopped (P124)', () async {
     backend.conversations = [
       const ConversationSummary(id: 'plain', title: 'p', createdAt: 1, updatedAt: 1),
-      const ConversationSummary(id: 'code', title: 'c', createdAt: 1, updatedAt: 1, projectId: 'repo'),
+      const ConversationSummary(id: 'shell', title: 's', createdAt: 1, updatedAt: 1, projectId: 'notes'),
+      const ConversationSummary(id: 'code', title: 'c', createdAt: 1, updatedAt: 1, projectId: 'repo', code: true),
     ];
     final transcript = make(last: 'plain');
     await settle();
@@ -305,6 +306,11 @@ void main() {
 
     transcript.send('go');
     expect(transcript.canStop, isFalse, reason: 'a plain conversation already on the hub has no task to stop');
+
+    transcript.open('shell');
+    await settle();
+    transcript.send('go');
+    expect(transcript.canStop, isFalse, reason: 'a project that is not a code project has none either');
 
     transcript.open('code');
     await settle();
