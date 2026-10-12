@@ -3,7 +3,7 @@
 
 import assert from "node:assert/strict";
 import { after, before, describe, test } from "node:test";
-import { launchBrowser, signIn, startHub } from "./harness.mjs";
+import { PAIRING_KEY, launchBrowser, signIn, startHub } from "./harness.mjs";
 
 const TIMEOUT = 120_000;
 const HOUR = 3_600_000;
@@ -71,6 +71,106 @@ describe("the Usage screen", () => {
       assert.deepEqual(opened.errors, [], "the page raised no error");
     } finally {
       await context?.close();
+      await hub.stop();
+    }
+  });
+});
+
+/** The owner's page makes `ana` (Pessoas → Adicionar pessoa) and returns her temporary password. */
+async function createAna(page) {
+  await page.getByRole("button", { name: "Pessoas" }).click();
+  await page.getByRole("button", { name: "Adicionar pessoa" }).click();
+  await page.getByLabel("Usuário").fill("ana");
+  await page.getByLabel("Nome", { exact: true }).fill("Ana Souza");
+  await page
+    .locator("form.settings-confirm", { has: page.getByRole("button", { name: "Criar", exact: true }) })
+    .getByLabel("Chave de pareamento do hub")
+    .fill(PAIRING_KEY);
+  await page.getByRole("button", { name: "Criar" }).click();
+  const shown = page.locator(".settings-confirm", { hasText: "Senha provisória de" });
+  await shown.waitFor();
+  const password = (await shown.locator("code").innerText()).trim();
+  await shown.getByRole("button", { name: "Já anotei" }).click();
+  return password;
+}
+
+/** A new page signed in as `ana`, past the forced change of password and the recovery code, if the hub shows one. */
+async function signInAsAna(hub, temporary) {
+  const context = await browser.newContext({ viewport: { width: 1100, height: 1400 } });
+  const page = await context.newPage();
+  const errors = [];
+  page.on("pageerror", (e) => errors.push(e.message));
+  await page.goto(hub.url);
+  await page.getByRole("tab", { name: "Usuário" }).click();
+  await page.getByLabel("Usuário").fill("ana");
+  await page.getByLabel("Senha").fill(temporary);
+  await page.getByRole("button", { name: "Entrar" }).click();
+  await page.getByText("troque a senha provisória por uma sua").waitFor();
+  await page.getByLabel("Senha provisória").fill(temporary);
+  await page.getByLabel("Senha nova", { exact: true }).fill("a-new-password-123");
+  await page.getByLabel("Repita a senha nova").fill("a-new-password-123");
+  await page.getByRole("button", { name: "Trocar senha" }).click();
+  const newConversation = page.getByRole("button", { name: "+ Nova conversa" });
+  const saved = page.getByLabel(/anotei|guardei|salvei/i);
+  await Promise.race([newConversation.waitFor(), saved.waitFor()]);
+  if (await saved.count()) {
+    await saved.check();
+    await page.getByRole("button", { name: /continuar|concluir|pronto/i }).click();
+    await newConversation.waitFor();
+  }
+  return { page, context, errors };
+}
+
+describe("a member's Usage screen (P99)", () => {
+  test("shows only her own spending and limits, and no way to allow more", { timeout: TIMEOUT }, async () => {
+    // The owner spent $2.00 on `main`, Ana $0.50 on `spare`; Ana has a limit of her own and the hub has one that adds up everybody.
+    const extraConfig = [
+      "",
+      "[[limits]]",
+      'id = "ana-day"',
+      'scope = "person"',
+      'target = "ana"',
+      "window_hours = 24",
+      "max_tokens = 1000000",
+      "",
+      "[[limits]]",
+      'id = "hub-day"',
+      "window_hours = 24",
+      "max_tokens = 100000000",
+      "",
+    ].join("\n");
+    const hub = await startHub({ extraConfig, files: { "warden/spend_ledger.jsonl": LEDGER } });
+    const owner = await signIn(browser, hub);
+    let member;
+    try {
+      await owner.page.getByRole("button", { name: "+ Nova conversa" }).waitFor();
+      const temporary = await createAna(owner.page);
+
+      member = await signInAsAna(hub, temporary);
+      const { page } = member;
+      await page.getByRole("button", { name: "Uso", exact: true }).click();
+      await page.getByText(/Gasto recente/).waitFor();
+
+      const body = await page.locator("body").innerText();
+      assert.ok(body.includes("ana-day"), "her own limit is there");
+      assert.ok(!body.includes("hub-day"), "the limit that adds up everyone's spending is not");
+      assert.ok(!/Por device|Por pessoa|Liberar/.test(body), "nothing about devices or other people, and no way to allow more");
+      assert.match(body, /peça a quem administra/, "and it says who to ask");
+
+      const provider = table(page, "Por provedor");
+      assert.match(await provider.getByRole("row", { name: /^spare/ }).innerText(), /US\$\s*0,50/, "her $0.50");
+      assert.equal(await provider.getByRole("row", { name: /^main/ }).count(), 0, "the owner's $2.00 on main is not hers");
+      assert.deepEqual(member.errors, [], "her page raised no error");
+
+      // The owner still sees everything, with the way to allow more still there for a limit that ran out.
+      await owner.page.getByRole("button", { name: "Uso", exact: true }).click();
+      await owner.page.getByText(/Gasto recente/).waitFor();
+      const all = await owner.page.locator("body").innerText();
+      assert.ok(all.includes("ana-day") && all.includes("hub-day") && all.includes("Por device"), "the owner's screen is whole");
+    } finally {
+      assert.deepEqual(owner.errors, [], "the owner's page raised no error");
+      await member?.context.close();
+      await owner.context.close();
       await hub.stop();
     }
   });

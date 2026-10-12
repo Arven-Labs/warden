@@ -19,6 +19,7 @@ import '../services/sync_auto_pull.dart';
 import '../services/vault_paths.dart';
 import '../src/rust/api/sync.dart' as sync_bridge;
 import 'agents_screen.dart';
+import 'usage_screen.dart';
 import 'attachment_kind.dart';
 import 'folder_picker.dart';
 
@@ -278,6 +279,11 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     );
   }
 
+  /// P99 — the usage screen: the owner's report is the whole hub's, a member's holds only theirs.
+  void _openUsage() {
+    Navigator.of(context).push(MaterialPageRoute(builder: (_) => UsageScreen(load: widget.connection.usageSummary)));
+  }
+
   Future<void> _disconnect() async {
     await widget.connection.goodbye('user disconnected');
     if (mounted) Navigator.of(context).pop();
@@ -388,6 +394,13 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
             onPressed: _openAgents,
             icon: const Icon(Icons.account_tree_outlined),
             tooltip: 'Agents',
+          ),
+          // P99 — what the person spent, and the limits that apply to them.
+          IconButton(
+            key: const Key('usage-button'),
+            onPressed: _openUsage,
+            icon: const Icon(Icons.bar_chart_outlined),
+            tooltip: 'Usage',
           ),
           Builder(
             builder: (context) => IconButton(

@@ -128,6 +128,58 @@ pub fn build_usage_report(
     })
 }
 
+/// What `RequestUsage` reports to a workspace member (P99): their own conversations, their own calls in the ledger and the
+/// limits written for them (`person <id>`), and nothing of anyone else's. A global or channel limit adds up what everybody
+/// spent, so showing its meter would show the others' use; the member hears of it only when it stops a turn. No device rows
+/// (a member's devices share one folder), no ledger error, and no size for an extension: they can't allow more.
+/// Fails when the member's data is locked (the hub restarted since they signed in).
+pub fn build_member_usage_report(
+    member_conversations: &Path,
+    guard: Option<&SpendGuard>,
+    person: &str,
+    tz_offset_minutes: i32,
+    now_ms: i64,
+) -> anyhow::Result<UsageReportDto> {
+    let conversations = list_conversations(member_conversations)?;
+    let summary = aggregate_usage(&conversations);
+    let daily = daily_usage(&conversations, USAGE_DAYS, tz_offset_minutes, now_ms)
+        .into_iter()
+        .map(|d| DailyUsageDto { date: d.date, calls: d.calls, tokens: d.tokens })
+        .collect();
+    let own_scope = warden_core::spend::Scope::Person(person.to_string()).to_string();
+    let daily_cost = guard
+        .map(|g| {
+            let since = now_ms.saturating_sub(g.longest_window_hours() as i64 * 3_600_000).max(0) as u64;
+            let own: Vec<_> = g.events_since(since).into_iter().filter(|e| e.person.as_deref() == Some(person)).collect();
+            daily_cost(&own, USAGE_DAYS, tz_offset_minutes, now_ms)
+                .into_iter()
+                .map(|d| DailyCostDto { date: d.date, calls: d.calls, cost_usd: d.cost_usd, unpriced_calls: d.unpriced_calls })
+                .collect()
+        })
+        .unwrap_or_default();
+    let limits = guard
+        .map(|g| {
+            LimitStatusDto::all(g)
+                .into_iter()
+                .filter(|limit| limit.scope == own_scope)
+                .map(|limit| LimitStatusDto { extend_tokens: 0, extend_cost_usd: 0.0, ..limit })
+                .collect()
+        })
+        .unwrap_or_default();
+    Ok(UsageReportDto {
+        total: summary.total,
+        conversation_count: summary.conversation_count,
+        message_count: summary.message_count,
+        by_device: Vec::new(),
+        daily,
+        daily_cost,
+        limits_enabled: guard.is_some(),
+        limits,
+        recent: guard.map(|g| g.breakdown_for_person(person).into()),
+        ledger_error: None,
+    })
+}
+
 /// Answers `RequestUsage`.
 pub fn handle_usage_request(
     conversations_root: &Path,
@@ -139,6 +191,15 @@ pub fn handle_usage_request(
 ) -> ServerMessage {
     let now = warden_core::spend::now_millis() as i64;
     match build_usage_report(conversations_root, tasks_dir, pairing, guard, tz_offset_minutes, now) {
+        Ok(report) => ServerMessage::UsageReport { request_id, report },
+        Err(err) => ServerMessage::UsageError { request_id, message: format!("{err:#}") },
+    }
+}
+
+/// Answers `RequestUsage` for a workspace member: `build_member_usage_report` over their own folder.
+pub fn handle_member_usage_request(member_conversations: &Path, guard: Option<&SpendGuard>, person: &str, request_id: u64, tz_offset_minutes: i32) -> ServerMessage {
+    let now = warden_core::spend::now_millis() as i64;
+    match build_member_usage_report(member_conversations, guard, person, tz_offset_minutes, now) {
         Ok(report) => ServerMessage::UsageReport { request_id, report },
         Err(err) => ServerMessage::UsageError { request_id, message: format!("{err:#}") },
     }

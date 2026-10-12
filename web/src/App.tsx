@@ -890,11 +890,9 @@ export default function App() {
           <button type="button" className={view === "vault" ? "tab tab--active" : "tab"} onClick={() => setView("vault")}>
             Vault
           </button>
-          {isOwner && (
-            <button type="button" className={view === "usage" ? "tab tab--active" : "tab"} onClick={() => setView("usage")}>
-              Uso
-            </button>
-          )}
+          <button type="button" className={view === "usage" ? "tab tab--active" : "tab"} onClick={() => setView("usage")}>
+            Uso
+          </button>
           <button type="button" className={view === "skills" ? "tab tab--active" : "tab"} onClick={() => setView("skills")}>
             Skills
           </button>
@@ -1161,7 +1159,7 @@ export default function App() {
         ) : view === "vault" ? (
           <VaultView conn={conn} />
         ) : view === "usage" ? (
-          <UsageView conn={conn} />
+          <UsageView conn={conn} readOnly={!isOwner} />
         ) : view === "projects" ? (
           <ProjectsView conn={conn} onChanged={setProjects} />
         ) : view === "tasks" ? (

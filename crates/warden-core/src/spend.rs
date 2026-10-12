@@ -573,6 +573,18 @@ impl SpendGuard {
 
     /// Every call the ledger still holds (the longest limit window), by model, channel, provider, agent and person.
     pub fn breakdown(&self) -> SpendBreakdown {
+        self.breakdown_where(|_| true)
+    }
+
+    /// `breakdown` of what one workspace member spent (P84) and nothing of anyone else's: the member's own usage screen. The
+    /// person bucket is left empty, as it would only ever hold them.
+    pub fn breakdown_for_person(&self, person: &str) -> SpendBreakdown {
+        let mut breakdown = self.breakdown_where(|event| event.person.as_deref() == Some(person));
+        breakdown.by_person.clear();
+        breakdown
+    }
+
+    fn breakdown_where(&self, keep: impl Fn(&SpendEvent) -> bool) -> SpendBreakdown {
         let window_hours = self.longest_window_hours();
         let since = (self.clock)().saturating_sub(window_hours as u64 * HOUR_MS);
         let mut by_model: Vec<SpendBucket> = Vec::new();
@@ -592,6 +604,9 @@ impl SpendGuard {
         };
         for entry in self.store.entries_since(since) {
             let Entry::Spend(event) = entry else { continue };
+            if !keep(&event) {
+                continue;
+            }
             bucket(&mut by_model, &event.model, &event);
             bucket(&mut by_channel, &event.channel, &event);
             bucket(&mut by_provider, event.provider.as_deref().unwrap_or(""), &event);
@@ -868,6 +883,29 @@ mod tests {
         let main = b.by_provider.iter().find(|p| p.key == "main").unwrap();
         assert!((main.cost_usd - 3.0).abs() < 1e-9, "{}", main.cost_usd);
         assert_eq!(rows(&b.by_model), [("m", 4, 3_500_100)], "the earlier split is unchanged");
+    }
+
+    /// P99: a member's own breakdown holds their calls and nobody else's, with no person bucket.
+    #[test]
+    fn the_breakdown_of_one_person_holds_only_their_calls() {
+        let prices = vec![Price { model: "m".into(), input_per_mtok: 1.0, output_per_mtok: 0.0 }];
+        let (guard, _) = guard(vec![Limit::new("day", Scope::Global, 24).with_max_tokens(100_000_000)], prices);
+        let ana = SpendContext::new("server").with_person("ana");
+        let api = SpendContext::new("api").with_person("ana");
+        let bruno = SpendContext::new("server").with_person("bruno");
+        guard.record_served(&ana, "m", "main", &usage(1_000_000, 0));
+        guard.record_served(&api, "m", "main", &usage(500_000, 0));
+        guard.record_served(&bruno, "m", "spare", &usage(9_000_000, 0));
+        guard.record(&cli(), "m", &usage(700, 0));
+
+        let b = guard.breakdown_for_person("ana");
+        let rows = |buckets: &[SpendBucket]| buckets.iter().map(|b| (b.key.clone(), b.calls, b.tokens)).collect::<Vec<_>>();
+        assert_eq!(rows(&b.by_model), [("m".to_string(), 2, 1_500_000)]);
+        assert_eq!(rows(&b.by_channel), [("server".to_string(), 1, 1_000_000), ("api".to_string(), 1, 500_000)]);
+        assert_eq!(rows(&b.by_provider), [("main".to_string(), 2, 1_500_000)], "Bruno's provider isn't there");
+        assert!(b.by_person.is_empty());
+        assert_eq!(b.window_hours, guard.breakdown().window_hours);
+        assert!(guard.breakdown_for_person("nobody").by_model.is_empty());
     }
 
     #[test]

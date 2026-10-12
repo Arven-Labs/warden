@@ -349,6 +349,7 @@ class ServerConnection implements ConversationBackend, AgentsBackend, MemberOrgB
               AgentOrgListMessage() ||
               AgentTaskListMessage() ||
               UsageReportMessage() ||
+              UsageErrorMessage() ||
               GrantListMessage() ||
               ActivityListMessage() ||
               TaskErrorMessage() ||
@@ -408,6 +409,7 @@ class ServerConnection implements ConversationBackend, AgentsBackend, MemberOrgB
             AgentOrgListMessage(:final requestId) ||
             AgentTaskListMessage(:final requestId) ||
             UsageReportMessage(:final requestId) ||
+            UsageErrorMessage(:final requestId) ||
             GrantListMessage(:final requestId) ||
             ActivityListMessage(:final requestId) ||
             TaskErrorMessage(:final requestId):
@@ -583,6 +585,16 @@ class ServerConnection implements ConversationBackend, AgentsBackend, MemberOrgB
       // Left out of the line.
     }
     return AgentActivityExtras(spend: spend, conversations: conversations);
+  }
+
+  /// P99 — the person's own usage: tokens, dollars and the limits that apply to them. A member gets a report of only theirs from the hub.
+  Future<UsageSummary> usageSummary() async {
+    final reply = await _conversationRequest((requestId) => RequestUsageMessage(requestId, DateTime.now().timeZoneOffset.inMinutes));
+    return switch (reply) {
+      UsageReportMessage(:final summary?) => summary,
+      UsageErrorMessage(:final message) => throw HubRequestException(message),
+      _ => throw ConversationException('Unexpected reply to the usage report: $reply'),
+    };
   }
 
   /// P122 — what the person said "always" to on this connection.

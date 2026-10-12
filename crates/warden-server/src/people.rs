@@ -175,9 +175,8 @@ pub fn member_refusal(message: &ClientMessage) -> Option<ServerMessage> {
         ClientMessage::RequestSyncStatus { request_id } | ClientMessage::SyncAction { request_id, .. } => {
             ServerMessage::SyncError { request_id: *request_id, message: message_text, auth_rejected: true }
         }
-        ClientMessage::RequestUsage { request_id, .. } | ClientMessage::ExtendLimit { request_id, .. } => {
-            ServerMessage::UsageError { request_id: *request_id, message: message_text }
-        }
+        // `RequestUsage` is not here: a member gets a report of their own (P99), made by the handler. Only the owner extends a limit.
+        ClientMessage::ExtendLimit { request_id, .. } => ServerMessage::UsageError { request_id: *request_id, message: message_text },
         ClientMessage::ListUsers { request_id }
         | ClientMessage::SaveUser { request_id, .. }
         | ClientMessage::ResetPassword { request_id, .. }
@@ -468,7 +467,8 @@ mod tests {
     #[test]
     fn a_member_is_turned_away_from_administration_but_not_from_chatting() {
         assert!(matches!(member_refusal(&ClientMessage::ListDevices { request_id: 1 }), Some(ServerMessage::DeviceError { auth_rejected: true, .. })));
-        assert!(matches!(member_refusal(&ClientMessage::RequestUsage { request_id: 2, tz_offset_minutes: 0 }), Some(ServerMessage::UsageError { .. })));
+        assert!(matches!(member_refusal(&ClientMessage::ExtendLimit { request_id: 2, limit_id: "day".into() }), Some(ServerMessage::UsageError { .. })));
+        assert!(member_refusal(&ClientMessage::RequestUsage { request_id: 2, tz_offset_minutes: 0 }).is_none(), "her own usage is hers to see");
         assert!(member_refusal(&ClientMessage::ListConversations { request_id: 3 }).is_none());
         assert!(member_refusal(&ClientMessage::RequestSettings { request_id: 4 }).is_none());
         // On a provisional password, only changing it goes through.

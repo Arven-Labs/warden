@@ -41,7 +41,7 @@ use crate::user_admin::{
 use crate::devices::{handle_list_devices, handle_set_device_status};
 use crate::projects::handle_project_request;
 use crate::skills::handle_skill_request;
-use crate::usage::{handle_extend_limit, handle_usage_request, member_limit_message, spend_limit_id};
+use crate::usage::{handle_extend_limit, handle_member_usage_request, handle_usage_request, member_limit_message, spend_limit_id};
 use crate::vault::handle_vault_request;
 use crate::remote_tool::{RemoteTool, RemoteToolChannel, DEFAULT_TIMEOUT as REMOTE_TOOL_TIMEOUT};
 use crate::node_tools::NodeToolFactory;
@@ -1666,6 +1666,16 @@ async fn handle_connection<S: Transport>(ws: WebSocketStream<S>, peer: SocketAdd
                     });
                 }
                 Ok(ClientMessage::RequestUsage { request_id, tz_offset_minutes }) => {
+                    // P99: a member's report holds their own folder, their own calls in the ledger and their own limits.
+                    if let Some(member) = &member {
+                        let (folder, person) = (member.conversations.clone(), member.id.clone());
+                        let guard = orchestrator.current().spend_guard().cloned();
+                        let reply_tx = tx.clone();
+                        tokio::task::spawn_blocking(move || {
+                            let _ = reply_tx.send(handle_member_usage_request(&folder, guard.as_deref(), &person, request_id, tz_offset_minutes));
+                        });
+                        continue;
+                    }
                     // P78 — reads every device's conversations, so off the reader loop.
                     let root = conversations_root.clone();
                     let tasks_dir = tasks_dir.clone();

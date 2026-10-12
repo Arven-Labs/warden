@@ -156,6 +156,53 @@ void main() {
       expect(const RequestUsageMessage(7, -180).toJson(), {'type': 'requestUsage', 'requestId': 7, 'tzOffsetMinutes': -180});
     });
 
+    test('a usage report keeps the totals, the days with their dollars and the limits for the usage screen (P99)', () {
+      final msg = ServerMessage.decode(jsonEncode({
+        'type': 'usageReport',
+        'requestId': 8,
+        'report': {
+          'total': {'totalTokens': 1500},
+          'messageCount': 4,
+          'daily': [
+            {'date': '2026-10-11', 'calls': 1, 'tokens': 500},
+            {'date': '2026-10-12', 'calls': 3, 'tokens': 1000},
+          ],
+          'dailyCost': [
+            {'date': '2026-10-12', 'calls': 3, 'costUsd': 0.5, 'unpricedCalls': 0},
+          ],
+          'limitsEnabled': true,
+          'limits': [
+            {
+              'id': 'ana-day',
+              'windowHours': 24,
+              'usedTokens': 200,
+              'maxTokens': 150,
+              'usedCostUsd': 0.0,
+              'maxCostUsd': null,
+              'fraction': 1.33,
+              'warn': true,
+              'exceeded': true,
+            },
+          ],
+          'recent': {'windowHours': 24, 'byAgent': []},
+        },
+      })) as UsageReportMessage;
+      final summary = msg.summary!;
+      expect([summary.totalTokens, summary.calls, summary.windowHours, summary.limitsEnabled], [1500, 4, 24, true]);
+      expect(summary.days.map((d) => [d.date, d.calls, d.tokens, d.costUsd]), [
+        ['2026-10-11', 1, 500, null],
+        ['2026-10-12', 3, 1000, 0.5],
+      ]);
+      expect(summary.costInWindowUsd, 0.5);
+      final limit = summary.limits.single;
+      expect([limit.id, limit.maxTokens, limit.maxCostUsd, limit.exceeded], ['ana-day', 150, null, true]);
+      // A report with nothing in it still decodes, and a refusal has its own message.
+      final empty = (ServerMessage.decode('{"type":"usageReport","requestId":9,"report":{}}') as UsageReportMessage).summary!;
+      expect([empty.totalTokens, empty.days, empty.limits, empty.limitsEnabled], [0, isEmpty, isEmpty, false]);
+      final error = ServerMessage.decode('{"type":"usageError","requestId":10,"message":"your data is locked"}') as UsageErrorMessage;
+      expect([error.requestId, error.message], [10, 'your data is locked']);
+    });
+
     test('a task list keeps what the hub sent', () {
       final msg = ServerMessage.decode(jsonEncode({
         'type': 'agentTaskList',

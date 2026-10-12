@@ -955,6 +955,7 @@ sealed class ServerMessage {
       'usageReport' => UsageReportMessage(
           json['requestId'] as int,
           RecentSpend.fromJson((json['report'] as Map<String, dynamic>?)?['recent']),
+          summary: UsageSummary.fromJson((json['report'] as Map<String, dynamic>?) ?? const {}),
         ),
       'grantList' => GrantListMessage(
           json['requestId'] as int,
@@ -965,6 +966,7 @@ sealed class ServerMessage {
           json['requestId'] as int,
           ((json['events'] as List<dynamic>?) ?? const []).map(ActivityEvent.fromJson).toList(),
         ),
+      'usageError' => UsageErrorMessage(json['requestId'] as int, json['message'] as String),
       'taskError' => TaskErrorMessage(json['requestId'] as int, json['message'] as String, authRejected: json['authRejected'] as bool? ?? false),
       'approvalRequest' => ApprovalRequestMessage(
           json['approvalId'] as int,
@@ -1390,12 +1392,129 @@ class RecentSpend {
   }
 }
 
-/// Reply to [RequestUsageMessage] (P123): the report's recent spending, null when the hub says none.
+/// The hub could not make the usage report (P99): a member's data is locked until they sign in with their password.
+final class UsageErrorMessage extends ServerMessage {
+  const UsageErrorMessage(this.requestId, this.message);
+
+  final int requestId;
+  final String message;
+}
+
+/// Tokens on one day of the usage report (P99): [date] is `YYYY-MM-DD` in the person's day.
+class UsageDay {
+  const UsageDay({required this.date, required this.calls, required this.tokens, this.costUsd});
+
+  final String date;
+  final int calls;
+  final int tokens;
+
+  /// Dollars of the day's priced calls, from the hub's ledger; null on the days the ledger has nothing for.
+  final double? costUsd;
+}
+
+/// A spending limit as the hub measures it (P99): the meter of one ceiling. A member sees only the limits written for them.
+class LimitMeter {
+  const LimitMeter({
+    required this.id,
+    required this.windowHours,
+    required this.usedTokens,
+    required this.usedCostUsd,
+    required this.fraction,
+    required this.warn,
+    required this.exceeded,
+    this.maxTokens,
+    this.maxCostUsd,
+  });
+
+  final String id;
+  final int windowHours;
+  final int usedTokens;
+  final int? maxTokens;
+  final double usedCostUsd;
+  final double? maxCostUsd;
+
+  /// The closer ceiling's share used; 1 or more is exhausted.
+  final double fraction;
+  final bool warn;
+  final bool exceeded;
+}
+
+/// What the usage screen reads from the report (P99): the person's tokens and calls, a series per day with the dollars the ledger
+/// still holds, and the limits that apply to them.
+class UsageSummary {
+  const UsageSummary({
+    required this.totalTokens,
+    required this.calls,
+    required this.days,
+    required this.limitsEnabled,
+    required this.limits,
+    required this.windowHours,
+    required this.costInWindowUsd,
+  });
+
+  final int totalTokens;
+  final int calls;
+
+  /// Oldest first.
+  final List<UsageDay> days;
+  final bool limitsEnabled;
+  final List<LimitMeter> limits;
+
+  /// How far back the ledger reaches (the longest limit), 0 when the hub keeps no ledger.
+  final int windowHours;
+
+  /// Dollars of the priced calls in that window; zero with no ledger.
+  final double costInWindowUsd;
+
+  static UsageSummary fromJson(Map<String, dynamic> report) {
+    final costs = <String, double>{
+      for (final day in (report['dailyCost'] as List<dynamic>? ?? const []))
+        if (day is Map<String, dynamic>) day['date'] as String: (day['costUsd'] as num?)?.toDouble() ?? 0,
+    };
+    final days = [
+      for (final day in (report['daily'] as List<dynamic>? ?? const []))
+        if (day is Map<String, dynamic>)
+          UsageDay(
+            date: day['date'] as String? ?? '',
+            calls: (day['calls'] as num?)?.toInt() ?? 0,
+            tokens: (day['tokens'] as num?)?.toInt() ?? 0,
+            costUsd: costs[day['date']],
+          ),
+    ];
+    return UsageSummary(
+      totalTokens: ((report['total'] as Map<String, dynamic>?)?['totalTokens'] as num?)?.toInt() ?? 0,
+      calls: (report['messageCount'] as num?)?.toInt() ?? 0,
+      days: days,
+      limitsEnabled: report['limitsEnabled'] as bool? ?? false,
+      limits: [
+        for (final limit in (report['limits'] as List<dynamic>? ?? const []))
+          if (limit is Map<String, dynamic>)
+            LimitMeter(
+              id: limit['id'] as String? ?? '',
+              windowHours: (limit['windowHours'] as num?)?.toInt() ?? 0,
+              usedTokens: (limit['usedTokens'] as num?)?.toInt() ?? 0,
+              maxTokens: (limit['maxTokens'] as num?)?.toInt(),
+              usedCostUsd: (limit['usedCostUsd'] as num?)?.toDouble() ?? 0,
+              maxCostUsd: (limit['maxCostUsd'] as num?)?.toDouble(),
+              fraction: (limit['fraction'] as num?)?.toDouble() ?? 0,
+              warn: limit['warn'] as bool? ?? false,
+              exceeded: limit['exceeded'] as bool? ?? false,
+            ),
+      ],
+      windowHours: ((report['recent'] as Map<String, dynamic>?)?['windowHours'] as num?)?.toInt() ?? 0,
+      costInWindowUsd: costs.values.fold(0.0, (sum, cost) => sum + cost),
+    );
+  }
+}
+
+/// Reply to [RequestUsageMessage] (P123): the report's recent spending, null when the hub says none. [summary] is the rest of the report
+/// for the usage screen (P99).
 final class UsageReportMessage extends ServerMessage {
-  const UsageReportMessage(this.requestId, this.recent);
+  const UsageReportMessage(this.requestId, this.recent, {this.summary});
 
   final int requestId;
   final RecentSpend? recent;
+  final UsageSummary? summary;
 }
 
 /// Reply to [ListGrantsMessage] and [RevokeGrantMessage] (P122): every "always" given on this connection.

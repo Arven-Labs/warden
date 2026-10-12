@@ -36,6 +36,8 @@ function scopeLabel(scope: string): string {
       return `canal ${target}`;
     case "user":
       return `usuário ${target}`;
+    case "person":
+      return "você";
     default:
       return scope;
   }
@@ -120,7 +122,7 @@ function DailyChart({ rows: daily, axis, describe, column }: { rows: DayRow[]; a
   );
 }
 
-function LimitCard({ limit, busy, onExtend }: { limit: LimitStatus; busy: boolean; onExtend: () => void }) {
+function LimitCard({ limit, busy, onExtend }: { limit: LimitStatus; busy: boolean; onExtend: (() => void) | null }) {
   const state = limit.exceeded ? "exceeded" : limit.warn ? "warn" : "ok";
   const parts: string[] = [];
   if (limit.maxTokens !== null) parts.push(`${full.format(limit.usedTokens)} de ${full.format(limit.maxTokens)} tokens`);
@@ -162,7 +164,7 @@ function LimitCard({ limit, busy, onExtend }: { limit: LimitStatus; busy: boolea
           </span>
         )}
       </div>
-      {state !== "ok" && extension && (
+      {onExtend && state !== "ok" && extension && (
         <button type="button" className="link-button usage-limit-extend" disabled={busy} onClick={onExtend}>
           {busy ? "Liberando…" : `Liberar ${extension} até o fim da janela`}
         </button>
@@ -202,7 +204,8 @@ function SpendTable({ title, buckets, keyLabel, emptyLabel }: { title: string; b
   );
 }
 
-export default function UsageView({ conn }: { conn: ServerConnection | null }) {
+/** `readOnly` is a workspace member's view of their own use (P99): no way to allow more, and nothing that is about other people or devices. */
+export default function UsageView({ conn, readOnly = false }: { conn: ServerConnection | null; readOnly?: boolean }) {
   const [report, setReport] = useState<UsageReport | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [extending, setExtending] = useState<string | null>(null);
@@ -296,44 +299,50 @@ export default function UsageView({ conn }: { conn: ServerConnection | null }) {
         ) : (
           <ul className="usage-limits">
             {report.limits.map((limit) => (
-              <LimitCard key={limit.id} limit={limit} busy={extending === limit.id || !conn} onExtend={() => void extend(limit.id)} />
+              <LimitCard key={limit.id} limit={limit} busy={extending === limit.id || !conn} onExtend={readOnly ? null : () => void extend(limit.id)} />
             ))}
           </ul>
         )}
+        {readOnly && <p className="skills-hint">Só aparecem os limites que são seus. Para liberar mais, peça a quem administra este Warden.</p>}
       </section>
 
-      <section className="usage-section">
-        <h2 className="usage-heading">Por device</h2>
-        {report.byDevice.length === 0 ? (
-          <p className="skills-hint">Nenhuma conversa ainda.</p>
-        ) : (
-          <ul className="usage-bars">
-            {report.byDevice.map((d) => (
-              <li key={d.deviceId} className="usage-bar-row">
-                <span className="usage-bar-label" title={d.deviceId}>
-                  {d.name ?? d.deviceId}
-                </span>
-                <div className="usage-bar-track">
-                  <div className="usage-bar-fill" style={{ width: `${(d.usage.totalTokens / maxDevice) * 100}%` }} />
-                </div>
-                <span className="usage-bar-value" title={`${full.format(d.usage.totalTokens)} tokens em ${d.conversationCount} conversas`}>
-                  {compact.format(d.usage.totalTokens)}
-                </span>
-              </li>
-            ))}
-          </ul>
-        )}
-      </section>
+      {!readOnly && (
+        <section className="usage-section">
+          <h2 className="usage-heading">Por device</h2>
+          {report.byDevice.length === 0 ? (
+            <p className="skills-hint">Nenhuma conversa ainda.</p>
+          ) : (
+            <ul className="usage-bars">
+              {report.byDevice.map((d) => (
+                <li key={d.deviceId} className="usage-bar-row">
+                  <span className="usage-bar-label" title={d.deviceId}>
+                    {d.name ?? d.deviceId}
+                  </span>
+                  <div className="usage-bar-track">
+                    <div className="usage-bar-fill" style={{ width: `${(d.usage.totalTokens / maxDevice) * 100}%` }} />
+                  </div>
+                  <span className="usage-bar-value" title={`${full.format(d.usage.totalTokens)} tokens em ${d.conversationCount} conversas`}>
+                    {compact.format(d.usage.totalTokens)}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
+      )}
 
       {report.recent && (report.recent.byModel.length > 0 || report.recent.byChannel.length > 0) && (
         <section className="usage-section">
           <h2 className="usage-heading">Gasto recente, últimas {windowLabel(report.recent.windowHours)}</h2>
-          <p className="skills-hint">Do registro de gasto, que só guarda a janela do limite mais longo. Inclui desktop, Telegram e os outros canais desta máquina.</p>
+          <p className="skills-hint">
+            Do registro de gasto, que só guarda a janela do limite mais longo.{" "}
+            {readOnly ? "Só as suas chamadas." : "Inclui desktop, Telegram e os outros canais desta máquina."}
+          </p>
           <SpendTable title="Por modelo" buckets={report.recent.byModel} keyLabel="Modelo" />
           <SpendTable title="Por canal" buckets={report.recent.byChannel} keyLabel="Canal" />
           <SpendTable title="Por provedor" buckets={report.recent.byProvider ?? []} keyLabel="Provedor" emptyLabel="sem provedor registrado" />
           <SpendTable title="Por agente" buckets={report.recent.byAgent ?? []} keyLabel="Agente" emptyLabel="sem agente" />
-          <SpendTable title="Por pessoa" buckets={report.recent.byPerson ?? []} keyLabel="Pessoa" emptyLabel="o dono" />
+          {!readOnly && <SpendTable title="Por pessoa" buckets={report.recent.byPerson ?? []} keyLabel="Pessoa" emptyLabel="o dono" />}
           <p className="skills-hint">
             “Por agente” é o agente com que o turno começou: as chamadas de um sub-agente delegado contam no agente que delegou. “Sem provedor registrado”
             são as chamadas de antes de o provedor passar a ser guardado.

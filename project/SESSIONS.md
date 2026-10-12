@@ -12,6 +12,12 @@
 - **Feito**: `turn_error(err, member)` em `crates/warden-server/src/openai_api.rs`; `complete` ganhou o parâmetro `member` (`key.user.is_some()` na chave, `false` na rota do motor de código). Para o membro: 429, `insufficient_quota`, texto de `member_limit_message` ("Ask whoever runs this Warden to allow more"), código `spend_limit` sem id.
 - **Testes**: `what_a_member_may_use_is_what_the_owner_shares_and_allows` ganhou a chamada HTTP da Ana parada pelo `ana-day`; `people` (31) e `openai_api` (8) verdes, clippy do `warden-server` limpo.
 - **Fica**: nada de código neste item.
+- **P99 (b), o membro vê o próprio uso** (planejado em plan mode; tokens, dólares e limites dele, hub + web + celular): 
+  - **Hub**: `RequestUsage` sai do `member_refusal` (o `ExtendLimit` fica); `build_member_usage_report`/`handle_member_usage_request` em `usage.rs` (pasta do membro, eventos `person == id`, só limites `person <id>`, sem `by_device`, extensão zerada); `SpendGuard::breakdown_for_person` no core (`breakdown` virou `breakdown_where`). Regra de privacidade em `ARCHITECTURE.md`.
+  - **Web**: aba "Uso" para todos, `UsageView readOnly` (sem "Liberar", "Por device" nem "Por pessoa"; `person` vira "você"). **Celular**: `UsageSummary`/`UsageDay`/`LimitMeter` e `UsageErrorMessage` em `messages.dart`, `usageSummary()` na conexão, `usage_screen.dart` e o ícone na barra do chat.
+  - **Testes**: core (1 novo), hub (`a_member_sees_her_own_usage_and_nobody_elses`, o cofre trancado no teste de criptografia, `member_refusal`; `people` 32, `warden-server` inteiro verde, clippy limpo), web 58 e `tsc`/build, celular `flutter analyze` limpo e `flutter test` 265 pelo Docker (decodificação e 3 de widget).
+  - **Tela da web**: `usage.test.mjs` ganhou "a member's Usage screen" (navegador headless contra o `warden-server` real: o dono cria a Ana, ela entra e abre "Uso"; só o limite dela, só o `spare` de US$ 0,50, nada de "Por device", "Por pessoa" ou "Liberar"; o dono ainda vê tudo). Passou, junto do teste de Uso que já existia.
+  - **Fica**: o celular só tem teste de unidade e de widget, não foi visto num aparelho; a extensão e o desktop não mudaram.
 - **Item 2 (corrida de escrita no desktop, P87 4)**: planejado e conferido no código antes de mexer; já estava fechado (`append_conversation_messages` e o `ConversationWriteGuard`). Também estava fechado o seletor de agente do celular e o tratamento de `ApprovalRequest` (P87 2). Só as linhas do `PENDING.md` foram corrigidas, nenhum código.
 
 ---

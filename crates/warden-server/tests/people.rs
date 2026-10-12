@@ -153,7 +153,8 @@ async fn spin_up() -> Hub {
     // P104: built without a folder, like the hub's own orchestrator; the hub points it at whoever is speaking.
     orchestrator.register_tool(Arc::new(warden_bootstrap::history::SearchHistoryTool::new(None)));
     // Fatia 2: Ana may spend 150 tokens a day, on every channel; the owner has no limit.
-    let limits = vec![Limit::new("ana-day", Scope::Person("ana".into()), 24).with_max_tokens(150)];
+    // And a limit on the whole hub, far from reached: it adds up everyone's spending, so a member's usage screen must not show it (P99).
+    let limits = vec![Limit::new("ana-day", Scope::Person("ana".into()), 24).with_max_tokens(150), Limit::new("hub-day", Scope::Global, 24).with_max_tokens(10_000_000)];
     let orchestrator = orchestrator.with_spend_guard(Arc::new(SpendGuard::new(Arc::new(MemoryStore::default()), limits, PriceTable::new(Vec::new()))));
     let server = Server::bind("127.0.0.1:0".parse().unwrap(), KEY, "Test Hub", Arc::new(orchestrator), dir.join("conversations"), dir.join("devices.json"))
         .await
@@ -455,6 +456,52 @@ async fn what_a_member_may_use_is_what_the_owner_shares_and_allows() {
     assert!(body.contains(r#""code":"spend_limit""#), "no limit id for her to extend: {body}");
 }
 
+async fn usage_report(conn: &mut ServerConnection) -> warden_server_protocol::protocol::UsageReportDto {
+    conn.send(&ClientMessage::RequestUsage { request_id: 40, tz_offset_minutes: 0 }).await.unwrap();
+    match reply(conn).await {
+        ServerMessage::UsageReport { report, .. } => report,
+        other => panic!("{other:?}"),
+    }
+}
+
+/// P99: a member sees how much they spent, and nothing of anyone else's: not the owner's calls, not the hub-wide limit, not
+/// the others' totals — and she can't allow more.
+#[tokio::test]
+async fn a_member_sees_her_own_usage_and_nobody_elses() {
+    let hub = spin_up().await;
+    let mut owner = ServerConnection::connect(&hub.url, "laptop", "Laptop", KEY).await.unwrap();
+    let mut ana = ana_ready(&hub).await;
+
+    // The owner spends 100 tokens, Ana 200: the owner's call must not be in her report.
+    assert!(matches!(chat_as(&mut owner, "SPEND", "o1", "helper").await, ServerMessage::ChatResponse { .. }));
+    assert!(matches!(chat_as(&mut ana, "SPEND", "a1", "family").await, ServerMessage::ChatResponse { .. }));
+    assert!(matches!(chat_as(&mut ana, "SPEND", "a2", "family").await, ServerMessage::ChatResponse { .. }));
+
+    let hers = usage_report(&mut ana).await;
+    assert_eq!(hers.total.total_tokens, 200, "only her conversations");
+    assert_eq!(hers.conversation_count, 2);
+    assert!(hers.by_device.is_empty());
+    assert!(hers.ledger_error.is_none());
+    assert!(hers.limits_enabled);
+    assert_eq!(hers.limits.iter().map(|l| l.id.as_str()).collect::<Vec<_>>(), ["ana-day"], "the hub-wide limit adds up everyone's spending");
+    let limit = &hers.limits[0];
+    assert_eq!((limit.used_tokens, limit.max_tokens), (200, Some(150)));
+    assert!(limit.exceeded);
+    assert_eq!((limit.extend_tokens, limit.extend_cost_usd), (0, 0.0), "nothing for her to extend");
+    let recent = hers.recent.expect("the ledger is on");
+    assert_eq!(recent.by_model.iter().map(|b| b.tokens).sum::<u64>(), 200, "the owner's 100 isn't in her ledger view");
+    assert!(recent.by_person.is_empty());
+
+    // She can't allow more; the owner sees everything, both limits included.
+    ana.send(&ClientMessage::ExtendLimit { request_id: 41, limit_id: "ana-day".into() }).await.unwrap();
+    assert!(matches!(reply(&mut ana).await, ServerMessage::UsageError { .. }));
+    let all = usage_report(&mut owner).await;
+    assert_eq!(all.total.total_tokens, 300);
+    assert_eq!(all.limits.len(), 2);
+    assert!(all.limits.iter().any(|l| l.extend_tokens > 0), "the owner's meters still carry the size of an extension");
+    assert!(all.recent.unwrap().by_person.iter().any(|b| b.key == "ana"));
+}
+
 /// A plain HTTP/1.1 request to the hub's Warden API; the status and the body.
 async fn http(url: &str, method: &str, path: &str, key: &str, body: Option<&str>) -> (u16, String) {
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -663,6 +710,9 @@ async fn a_members_data_is_encrypted_on_disk_and_locked_when_the_hub_no_longer_h
     }
     back.send(&ClientMessage::ListConversations { request_id: 1 }).await.unwrap();
     assert!(matches!(reply(&mut back).await, ServerMessage::ConversationError { message, .. } if message.contains("locked")));
+    // P99: her usage is read from her conversations, so it waits for the password too.
+    back.send(&ClientMessage::RequestUsage { request_id: 2, tz_offset_minutes: 0 }).await.unwrap();
+    assert!(matches!(reply(&mut back).await, ServerMessage::UsageError { message, .. } if message.contains("locked")));
     back.send(&ClientMessage::ListVaultFiles { request_id: 2 }).await.unwrap();
     assert!(matches!(reply(&mut back).await, ServerMessage::VaultError { message, .. } if message.contains("locked")));
     assert!(!everything_on_disk(&hub.dir.join("users/ana")).contains("hello") && !hub.dir.join("users/ana/vault/notes").exists(), "nothing plain is written while it's shut");
