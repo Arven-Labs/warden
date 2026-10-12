@@ -443,6 +443,16 @@ async fn what_a_member_may_use_is_what_the_owner_shares_and_allows() {
         other => panic!("{other:?}"),
     }
     assert!(matches!(chat_as(&mut owner, "SPEND", "o2", "helper").await, ServerMessage::ChatResponse { .. }));
+
+    // Her Warden API key is stopped by the same limit and told the same thing (P126 follow-up: no desktop, CLI or Usage tab).
+    ana.send(&ClientMessage::CreateApiKey { request_id: 9, pairing_key: "anas-own-pass".into(), name: "anas-script".into(), agent_id: None }).await.unwrap();
+    let ServerMessage::ApiKeyCreated { key, .. } = reply(&mut ana).await else { panic!() };
+    let request = r#"{"model":"warden","messages":[{"role":"user","content":"SPEND"}]}"#;
+    let (status, body) = http(&hub.url, "POST", "/v1/chat/completions", &key, Some(request)).await;
+    assert_eq!(status, 429, "{body}");
+    assert!(body.contains("ana-day") && body.contains("Ask whoever runs this Warden to allow more"), "{body}");
+    assert!(!body.contains("desktop") && !body.contains("Usage tab"), "{body}");
+    assert!(body.contains(r#""code":"spend_limit""#), "no limit id for her to extend: {body}");
 }
 
 /// A plain HTTP/1.1 request to the hub's Warden API; the status and the body.

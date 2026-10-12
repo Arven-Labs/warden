@@ -2,7 +2,16 @@
 
 > **Nota**: Este log foi criado junto com o projeto. As sessões serão registradas aqui conforme o trabalho avança.
 >
-> Última atualização: 2026-10-11 (Sessão 182)
+> Última atualização: 2026-10-12 (Sessão 183)
+
+---
+
+### 2026-10-12 — Sessão 183 (P114: a mensagem de limite na Warden API do membro)
+
+- **Pedido do usuário**: escolher pendência com código a fazer; depois de eu sugerir P117 e P123 já resolvidos no código, ele pediu para conferir cada linha antes de sugerir (guardado na memória). Escolheu o item 1 da lista: o texto do limite na API do membro.
+- **Feito**: `turn_error(err, member)` em `crates/warden-server/src/openai_api.rs`; `complete` ganhou o parâmetro `member` (`key.user.is_some()` na chave, `false` na rota do motor de código). Para o membro: 429, `insufficient_quota`, texto de `member_limit_message` ("Ask whoever runs this Warden to allow more"), código `spend_limit` sem id.
+- **Testes**: `what_a_member_may_use_is_what_the_owner_shares_and_allows` ganhou a chamada HTTP da Ana parada pelo `ana-day`; `people` (31) e `openai_api` (8) verdes, clippy do `warden-server` limpo.
+- **Fica**: nada de código neste item.
 
 ---
 

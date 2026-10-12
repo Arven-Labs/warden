@@ -38,7 +38,7 @@ use warden_core::tool::ToolSpec;
 use crate::api_keys::{ApiKey, ApiKeyStore};
 use crate::people::{member_orchestrator, mount_member_spaces, tools_for, MemberSpace, SpaceVaults};
 use crate::settings::{keys_match, SettingsHost, SharedOrchestrator, WRONG_KEY_DELAY};
-use crate::usage::spend_limit_id;
+use crate::usage::{member_limit_message, spend_limit_id};
 use crate::web_ui::{write_response, RequestHead};
 
 /// Every route lives under this.
@@ -183,7 +183,7 @@ async fn engine_route<S: AsyncRead + AsyncWrite + Unpin>(stream: &mut S, head: &
             let request: Value = serde_json::from_slice(&body).map_err(|e| ApiError::bad_request(format!("the body isn't valid JSON: {e}")))?;
             // A model the hub offers to tasks is the one it gets; whatever else the engine names, it gets the hub's default.
             let chosen = request.get("model").and_then(Value::as_str).and_then(|name| route.model_for(name));
-            complete(stream, &request, DEFAULT_MODEL.to_string(), |_| {
+            complete(stream, &request, DEFAULT_MODEL.to_string(), false, |_| {
                 let current = route.orchestrator.current();
                 let current = match chosen {
                     Some(model) => Arc::new(current.with_model(model)),
@@ -502,7 +502,13 @@ fn scope_agent(api: &ApiContext, key: &ApiKey, model: &str) -> Result<(Orchestra
     Ok((orchestrator, Some(scoped.persona)))
 }
 
-fn turn_error(err: &anyhow::Error) -> ApiError {
+/// A member can't allow more, so a limit that stops their turn tells them to ask, with no limit id to extend (P84, as in the chat).
+fn turn_error(err: &anyhow::Error, member: bool) -> ApiError {
+    if let Some(message) = member.then(|| member_limit_message(err)).flatten() {
+        let mut api = ApiError::new("429 Too Many Requests", "insufficient_quota", message);
+        api.code = Some("spend_limit".into());
+        return api;
+    }
     match spend_limit_id(err) {
         Some(limit) => {
             let mut api = ApiError::new("429 Too Many Requests", "insufficient_quota", format!("{err:#}"));
@@ -530,7 +536,7 @@ fn completion_id() -> String {
 
 async fn chat_completions<S: AsyncWrite + Unpin>(stream: &mut S, api: &ApiContext, key: &ApiKey, request: &Value) -> Result<(), ApiError> {
     let model = effective_model(key, request.get("model").and_then(Value::as_str))?;
-    complete(stream, request, model, |model| scope_model(api, key, model)).await
+    complete(stream, request, model, key.user.is_some(), |model| scope_model(api, key, model)).await
 }
 
 /// One chat completion, whoever asked: `scope` picks the orchestrator and persona for `model` — the part that differs
@@ -540,6 +546,7 @@ async fn complete<S: AsyncWrite + Unpin>(
     stream: &mut S,
     request: &Value,
     model: String,
+    member: bool,
     scope: impl FnOnce(&str) -> Result<(Orchestrator, Option<String>), ApiError>,
 ) -> Result<(), ApiError> {
     let Turn { history, input, system } = parse_turn(request)?;
@@ -554,7 +561,7 @@ async fn complete<S: AsyncWrite + Unpin>(
     let created = now_secs();
 
     if request.get("stream").and_then(Value::as_bool) != Some(true) {
-        let outcome = run_turn(&orchestrator, &history, input.as_deref(), system_prompt.as_deref(), |_| {}).await.map_err(|e| turn_error(&e))?;
+        let outcome = run_turn(&orchestrator, &history, input.as_deref(), system_prompt.as_deref(), |_| {}).await.map_err(|e| turn_error(&e, member))?;
         let message = if outcome.client_tool_calls.is_empty() {
             json!({ "role": "assistant", "content": outcome.content })
         } else {
@@ -600,10 +607,10 @@ async fn complete<S: AsyncWrite + Unpin>(
     let outcome = turn.await.map_err(|e| ApiError::new("500 Internal Server Error", "server_error", format!("{e}")))?;
     let outcome = match outcome {
         Ok(outcome) => outcome,
-        Err(err) if !started => return Err(turn_error(&err)),
+        Err(err) if !started => return Err(turn_error(&err, member)),
         Err(err) => {
             // Mid-stream: the status is sent already, so the error goes as one more event.
-            let error = turn_error(&err);
+            let error = turn_error(&err, member);
             let body: Value = serde_json::from_slice(&error.body()).unwrap_or_default();
             send_event(stream, &body).await.map_err(io_error)?;
             return finish_event_stream(stream).await.map_err(io_error);
