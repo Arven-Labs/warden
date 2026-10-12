@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import type { AgentInfo, AgentTask, HubAgents, ModelPolicy, OrgEdit } from "../protocol/messages";
-import type { AgentTasksResponse, HubAgentsResponse } from "../background/popup_protocol";
-import { activityLine, activityOf } from "./lib/agentTasks";
+import type { AgentActivityExtrasResponse, AgentTasksResponse, HubAgentsResponse } from "../background/popup_protocol";
+import { activityLine, activityOf, lastConversationOf, spendOf } from "./lib/agentTasks";
 import { addReportEdit, buildOrg, moveEdit, positionEdit, superiorChoices, type OrgNode } from "./lib/org";
 import { delegationCandidates, delegationSummary, limitEdit, limitModels, nextPolicyId, policiesEdit, policiesWith, policiesWithout } from "./lib/modelPolicies";
 import PairingKeyForm from "./PairingKeyForm";
@@ -328,6 +328,8 @@ export default function OrgView({ onOpenChat, onOpenTasks }: { onOpenChat: (id: 
   const [busy, setBusy] = useState(false);
   const [arrastando, setArrastando] = useState<string | null>(null);
   const [tasks, setTasks] = useState<AgentTask[]>([]);
+  // What each agent spent and when it last had a conversation (P123): extras of the line, like the tasks.
+  const [extras, setExtras] = useState<Pick<AgentActivityExtrasResponse, "usage" | "conversations">>({ usage: null, conversations: [] });
 
   function load() {
     chrome.runtime.sendMessage({ type: "listHubAgents" }).then((res: HubAgentsResponse) => {
@@ -341,6 +343,9 @@ export default function OrgView({ onOpenChat, onOpenTasks }: { onOpenChat: (id: 
     // A atividade de cada nó é um extra: sem as tarefas, o cartão só não mostra a linha.
     chrome.runtime.sendMessage({ type: "listAgentTasks" }).then((res: AgentTasksResponse) => {
       if (res.ok) setTasks(res.tasks);
+    });
+    chrome.runtime.sendMessage({ type: "listAgentActivityExtras" }).then((res: AgentActivityExtrasResponse) => {
+      if (res.ok) setExtras({ usage: res.usage, conversations: res.conversations });
     });
   }
 
@@ -397,7 +402,7 @@ export default function OrgView({ onOpenChat, onOpenTasks }: { onOpenChat: (id: 
     arrastando,
     arrastar: setArrastando,
     atividade: (id) => {
-      const activity = activityOf(tasks, id);
+      const activity = activityOf(tasks, id, { spend: spendOf(extras.usage, id), lastConversationMs: lastConversationOf(extras.conversations, id) });
       return activity ? activityLine(activity, Date.now()) : null;
     },
   };

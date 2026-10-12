@@ -7,7 +7,7 @@
 
 import type { ChatEntry, ConnectionStatus } from "./connection";
 import type { DiscoveredHub } from "./discovery";
-import type { ActivityEvent, AgentTask, AgentTaskAction, Grant, ApprovalPrompt, ConversationSummary, DirListing, HubAgents, OrgEdit, SkillDto, ThreadParent } from "../protocol/messages";
+import type { ActivityEvent, AgentTask, AgentTaskAction, Grant, ApprovalPrompt, ConversationSummary, DirListing, HubAgents, OrgEdit, SkillDto, SpendReport, ThreadParent } from "../protocol/messages";
 import type { GroupTab } from "./tab_group";
 import type { LiveTurn } from "../protocol/liveTurn";
 
@@ -50,6 +50,8 @@ export type PopupRequest =
   | { type: "discoverHubs"; port: number }
   /** P123 — the work agents delegated to each other. */
   | { type: "listAgentTasks" }
+  /** P123 — what each agent spent and when it last had a conversation, for the activity line of the organization tree. */
+  | { type: "listAgentActivityExtras" }
   /** P122 — what was said "always" to, and taking one back (no pairing key: it only makes the agent more careful). */
   | { type: "listGrants" }
   | { type: "revokeGrant"; grant: Grant }
@@ -134,6 +136,14 @@ export interface AgentTasksResponse {
   tasks: AgentTask[];
   error?: string;
   authRejected?: boolean;
+}
+
+/** Reply to `listAgentActivityExtras`. Either part may be missing (`usage` is `null` when the hub wouldn't say) without the other failing. */
+export interface AgentActivityExtrasResponse {
+  ok: boolean;
+  usage: SpendReport | null;
+  conversations: { agentId?: string; updatedAt: number; parent?: unknown }[];
+  error?: string;
 }
 
 /** Reply to `listHubAgents` and `editAgentOrg`. `authRejected`: the pairing key was wrong. */

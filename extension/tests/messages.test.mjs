@@ -91,6 +91,14 @@ describe("decoding the delegated tasks", () => {
     assert.deepEqual(reply.tasks, [task]);
   });
 
+  test("a usage report keeps what each agent spent, and an older hub's report without it still decodes (P123)", () => {
+    const report = { recent: { windowHours: 24, byAgent: [{ key: "dev", calls: 3, tokens: 90, costUsd: 0.25, unpricedCalls: 0 }] }, total: {} };
+    const reply = decode(JSON.stringify({ type: "usageReport", requestId: 5, report }));
+    assert.equal(reply.type, "usageReport");
+    assert.deepEqual(reply.report.recent.byAgent, report.recent.byAgent);
+    assert.equal(decode(JSON.stringify({ type: "usageReport", requestId: 6, report: {} })).type, "usageReport");
+  });
+
   test("a grant list keeps the \"always\" permissions as the hub sent them (P122)", () => {
     const grants = [{ conversationId: "c1", agentId: "chief", covers: "delete_data" }, { conversationId: "c1", covers: "shell" }];
     const reply = decode(JSON.stringify({ type: "grantList", requestId: 6, grants, ttlDays: 7 }));

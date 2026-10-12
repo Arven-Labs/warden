@@ -516,6 +516,7 @@ class _OrganizationTabState extends State<OrganizationTab> {
 
   /// The hub's tasks, for the activity line of each node (an extra: without them the card just shows no line).
   List<AgentTask> _tasks = const [];
+  AgentActivityExtras _extras = const AgentActivityExtras();
 
   @override
   void initState() {
@@ -541,11 +542,22 @@ class _OrganizationTabState extends State<OrganizationTab> {
     } catch (_) {
       // The activity is an extra.
     }
+    try {
+      final extras = await widget.backend.activityExtras();
+      if (mounted) setState(() => _extras = extras);
+    } catch (_) {
+      // So are the spending and the last conversation.
+    }
   }
 
-  /// What [agent] has been up to, on one line; null with no task of its own.
+  /// What [agent] has been up to, on one line; null when nothing involves it.
   String? _activity(String agent) {
-    final activity = activityOf(_tasks, agent);
+    final activity = activityOf(
+      _tasks,
+      agent,
+      spend: spendOf(_extras.spend, agent),
+      lastConversationMs: lastConversationOf(_extras.conversations, agent),
+    );
     return activity == null ? null : activityLine(activity, DateTime.now().millisecondsSinceEpoch);
   }
 

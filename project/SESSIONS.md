@@ -6,6 +6,17 @@
 
 ---
 
+### 2026-10-11 — Sessão 182 (continuação: P123, custo e hora da última conversa na atividade; extensão e celular)
+
+- **Pedido do usuário**: o segundo dos dois commits combinados do P123.
+- **Extensão**: `requestUsage`/`usageReport` no protocolo (`SpendReport`, só o que a extensão lê), `Connection.requestUsage`, o pedido do popup `listAgentActivityExtras` (resposta `AgentActivityExtrasResponse`), tratado em `background/index.ts` com `Promise.allSettled` (uso e conversas falham separados), e `OrgView.tsx` mostrando a linha nova. O módulo `sidepanel/lib/agentTasks.ts` é a cópia em português do da web.
+- **Celular**: `RequestUsageMessage`, `UsageReportMessage`, `RecentSpend`/`SpendBucket` em `protocol/messages.dart`; `AgentsBackend.activityExtras` (e `AgentActivityExtras`) com `ServerConnection.activityExtras`; `activityOf` com `spend` e `lastConversationMs`, `spendOf`, `lastConversationOf`, `spendLabel` em `services/agent_work.dart`; `agents_screen.dart` carrega os extras depois das tarefas. `lastActiveMs` passou a poder ser nulo.
+- **Testes**: extensão 92 (7 novos de `agentTasks` mais 1 de decodificação), `tsc` e build (a pasta `dist` que o build deixou foi apagada); celular `flutter analyze` limpo e `flutter test` 261 pelo Docker (7 novos de módulo, 1 de mensagem; o fake da tela ganhou `activityExtras`). O `flutter analyze` achou um aviso de estilo meu (`use_null_aware_elements`), corrigido para `[?lastConversationMs]`.
+- **Tentativa que falhou**: rodar o Flutter local (`~/.local/opt/flutter`) deu `Permission denied` em `mobile/.dart_tool` (da raiz, de execuções antigas no Docker); usei o Docker como a memória do projeto manda e não mexi nas permissões.
+- **Fica**: extensão e celular só com teste de unidade, não vistos numa janela nem num aparelho; a extensão não tem modo de membro, então nada a esconder lá; o celular de membro usa `MemberOrganizationTab` (outra aba, sobre `MemberOrgBackend`), que não chama `activityExtras` nem mostra a linha, então o membro não vê gasto (conferido em `agents_screen.dart`; sem teste que prove a ausência do pedido).
+
+---
+
 ### 2026-10-11 — Sessão 182 (continuação: P123, custo e hora da última conversa na atividade; web e desktop)
 
 - **Pedido do usuário**: "pode seguir com o P123, dois commits" (quarto item do plano aprovado, nos quatro clientes). Este é o primeiro commit: web e desktop. Extensão e celular vêm no segundo.

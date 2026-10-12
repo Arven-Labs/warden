@@ -348,6 +348,7 @@ class ServerConnection implements ConversationBackend, AgentsBackend, MemberOrgB
               SettingsErrorMessage() ||
               AgentOrgListMessage() ||
               AgentTaskListMessage() ||
+              UsageReportMessage() ||
               GrantListMessage() ||
               ActivityListMessage() ||
               TaskErrorMessage() ||
@@ -406,6 +407,7 @@ class ServerConnection implements ConversationBackend, AgentsBackend, MemberOrgB
             SettingsErrorMessage(:final requestId) ||
             AgentOrgListMessage(:final requestId) ||
             AgentTaskListMessage(:final requestId) ||
+            UsageReportMessage(:final requestId) ||
             GrantListMessage(:final requestId) ||
             ActivityListMessage(:final requestId) ||
             TaskErrorMessage(:final requestId):
@@ -560,6 +562,27 @@ class ServerConnection implements ConversationBackend, AgentsBackend, MemberOrgB
       TaskErrorMessage(:final message) => throw ConversationException(message),
       _ => throw ConversationException('Unexpected reply to the task list: $reply'),
     };
+  }
+
+  /// P123 — what each agent spent and when it last had a conversation, for the activity line of the organization tree. Each part is an
+  /// extra of its own: the hub failing to say one still gives the other.
+  @override
+  Future<AgentActivityExtras> activityExtras() async {
+    RecentSpend? spend;
+    try {
+      // The hub splits days by this offset; the report's per-agent spending, which is all the app reads, does not depend on it.
+      final reply = await _conversationRequest((requestId) => RequestUsageMessage(requestId, DateTime.now().timeZoneOffset.inMinutes));
+      if (reply is UsageReportMessage) spend = reply.recent;
+    } catch (_) {
+      // Left out of the line.
+    }
+    var conversations = const <ConversationSummary>[];
+    try {
+      conversations = await listConversations();
+    } catch (_) {
+      // Left out of the line.
+    }
+    return AgentActivityExtras(spend: spend, conversations: conversations);
   }
 
   /// P122 — what the person said "always" to on this connection.

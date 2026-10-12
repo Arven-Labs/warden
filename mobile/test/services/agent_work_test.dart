@@ -107,6 +107,70 @@ void main() {
     });
   });
 
+  group('the activity of an agent besides its tasks (P123)', () {
+    final mine = [
+      _task('dev', 'g', 'done', totalTokens: 100, createdAtMs: 1000, startedAtMs: 1100, finishedAtMs: 5000),
+      _task('dev', 'g', 'running', createdAtMs: 3000, startedAtMs: 3100),
+    ];
+    const now = 5000 + 4 * 60000;
+    const day = AgentSpend(costUsd: 1.2, unpricedCalls: 0, windowHours: 24);
+
+    test('a conversation more recent than any task moves the last activity, and an older one does not', () {
+      expect(activityOf(mine, 'dev', lastConversationMs: 9000)!.lastActiveMs, 9000);
+      expect(activityOf(mine, 'dev', lastConversationMs: 2000)!.lastActiveMs, 5000);
+    });
+
+    test('an agent with no task but a conversation still has a line, and one with nothing at all has none', () {
+      final talked = activityOf(mine, 'writer', lastConversationMs: 5000)!;
+      expect([talked.done, talked.tokens, talked.delegated, talked.lastActiveMs], [0, 0, 0, 5000]);
+      expect(activityLine(talked, now), 'active 4 min ago');
+      expect(activityOf(mine, 'writer'), isNull);
+    });
+
+    test('the spending is said with the window the hub counts, and an agent that spent nothing says nothing of it', () {
+      expect(activityLine(activityOf(mine, 'dev', spend: day)!, now), '1 done, 1 running · 100 tokens · \$1.20 in the last 24 h · active 4 min ago');
+      expect(activityOf(mine, 'dev', spend: const AgentSpend(costUsd: 0, unpricedCalls: 0, windowHours: 24))!.spend, isNull);
+    });
+
+    test('only the spending is enough to show a line, with no time of activity', () {
+      final only = activityOf([], 'writer', spend: const AgentSpend(costUsd: 0.5, unpricedCalls: 0, windowHours: 6))!;
+      expect(only.lastActiveMs, isNull);
+      expect(activityLine(only, now), '\$0.50 in the last 6 h');
+    });
+
+    test('a tiny amount, and calls the price list does not know', () {
+      expect(spendLabel(const AgentSpend(costUsd: 0.004, unpricedCalls: 0, windowHours: 24)), 'under \$0.01 in the last 24 h');
+      expect(spendLabel(const AgentSpend(costUsd: 2, unpricedCalls: 3, windowHours: 24)), '\$2.00 in the last 24 h (and 3 unpriced calls)');
+      expect(spendLabel(const AgentSpend(costUsd: 0, unpricedCalls: 1, windowHours: 24)), '1 unpriced call in the last 24 h');
+    });
+
+    test("the spending of an agent comes from the ledger's by-agent split, with its window; an older hub or no report has none", () {
+      const recent = RecentSpend(windowHours: 12, byAgent: [
+        SpendBucket(key: 'dev', costUsd: 3, unpricedCalls: 1),
+        SpendBucket(key: '', costUsd: 9, unpricedCalls: 0),
+      ]);
+      final spend = spendOf(recent, 'dev')!;
+      expect([spend.costUsd, spend.unpricedCalls, spend.windowHours], [3, 1, 12]);
+      expect(spendOf(recent, 'writer'), isNull);
+      expect(spendOf(null, 'dev'), isNull);
+      expect(spendOf(const RecentSpend(windowHours: 12, byAgent: []), 'dev'), isNull);
+    });
+
+    test('the last conversation of an agent is the newest one that spoke with it, threads left out', () {
+      ConversationSummary conversation(String id, int updatedAt, {String? agentId, ThreadParent? parent}) =>
+          ConversationSummary(id: id, title: id, createdAt: 0, updatedAt: updatedAt, agentId: agentId, parent: parent);
+      final conversations = [
+        conversation('1', 100, agentId: 'dev'),
+        conversation('2', 300, agentId: 'dev'),
+        conversation('3', 900, agentId: 'dev', parent: const ThreadParent(conversationId: '2', messageId: 'm')),
+        conversation('4', 500, agentId: 'writer'),
+        conversation('5', 700),
+      ];
+      expect(lastConversationOf(conversations, 'dev'), 300);
+      expect(lastConversationOf(conversations, 'ghost'), isNull);
+    });
+  });
+
   group('editing a model limit and the policies', () {
     const policies = [ModelPolicy(id: 'fast', model: 'main', description: 'quick'), ModelPolicy(id: 'deep', model: 'spare')];
 

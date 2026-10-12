@@ -582,6 +582,17 @@ async function handleRequest(request: PopupRequest): Promise<unknown> {
         return { ok: false, tasks: [], error: err instanceof Error ? err.message : String(err), authRejected: err instanceof HubRequestError && err.authRejected };
       }
 
+    case "listAgentActivityExtras": {
+      if (!connection || connection.status.kind !== "connected") return { ok: false, usage: null, conversations: [], error: "not connected" };
+      // Each part is an extra of its own: the hub failing to say one still gives the other.
+      const [usage, conversations] = await Promise.allSettled([connection.requestUsage(), connection.listConversations()]);
+      return {
+        ok: usage.status === "fulfilled" || conversations.status === "fulfilled",
+        usage: usage.status === "fulfilled" ? usage.value : null,
+        conversations: conversations.status === "fulfilled" ? conversations.value : [],
+      };
+    }
+
     case "listGrants":
     case "revokeGrant":
       if (!connection || connection.status.kind !== "connected") return { ok: false, grants: [], error: "not connected" };

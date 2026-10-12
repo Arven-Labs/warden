@@ -18,6 +18,10 @@ abstract interface class AgentsBackend {
   Future<List<AgentTask>> listAgentTasks();
   Future<List<AgentTask>> controlAgentTask(String pairingKey, String taskId, String action);
 
+  /// P123 — what each agent spent and the conversations it has had, for the activity line of the organization tree. A part the hub
+  /// can't give comes back empty; the call itself does not fail for it.
+  Future<AgentActivityExtras> activityExtras();
+
   /// P121 — the feed of activity, newest first.
   Future<List<ActivityEvent>> listActivity();
 
@@ -26,6 +30,14 @@ abstract interface class AgentsBackend {
 
   /// P122 — takes one back (no pairing key: it only makes the agent more careful); returns what is left.
   Future<GrantsView> revokeGrant(Grant grant);
+}
+
+/// What the activity line uses besides the tasks (P123): the hub's recent spending (null when it says none) and this device's conversations.
+class AgentActivityExtras {
+  const AgentActivityExtras({this.spend, this.conversations = const []});
+
+  final RecentSpend? spend;
+  final List<ConversationSummary> conversations;
 }
 
 /// The "always" given and how long one may go unused before it lapses ([ttlDays] is null when the hub keeps none in a file).
@@ -335,6 +347,7 @@ class AgentActivity {
     required this.tokens,
     required this.delegated,
     required this.lastActiveMs,
+    this.spend,
   });
 
   /// Tasks it was given, by where they are.
@@ -351,12 +364,28 @@ class AgentActivity {
   /// How many tasks it delegated to others.
   final int delegated;
 
-  /// The last thing that happened to a task of its own (created, started or finished).
-  final int lastActiveMs;
+  /// The last thing that happened: to a task of its own (created, started or finished) or in a conversation with it. Null when only the
+  /// spending is known.
+  final int? lastActiveMs;
+
+  /// What it spent in the ledger's window; null when the hub didn't say or it spent nothing.
+  final AgentSpend? spend;
 }
 
-/// The activity of [agent], or null when no task involves it.
-AgentActivity? activityOf(List<AgentTask> tasks, String agent) {
+/// An agent's spending in the hub's ledger, which only keeps the last [windowHours] (the longest limit).
+class AgentSpend {
+  const AgentSpend({required this.costUsd, required this.unpricedCalls, required this.windowHours});
+
+  final double costUsd;
+
+  /// Calls with no known price: the dollar figure leaves them out.
+  final int unpricedCalls;
+  final int windowHours;
+}
+
+/// The activity of [agent], or null when nothing involves it: no task, no recent conversation, no spending. [spend] and
+/// [lastConversationMs] come from the owner's usage report and conversation list (P123).
+AgentActivity? activityOf(List<AgentTask> tasks, String agent, {AgentSpend? spend, int? lastConversationMs}) {
   final received = [
     for (final t in tasks)
       if (t.assignee == agent) t,
@@ -365,13 +394,15 @@ AgentActivity? activityOf(List<AgentTask> tasks, String agent) {
     for (final t in tasks)
       if (t.owner == agent) t,
   ];
-  if (received.isEmpty && delegated.isEmpty) return null;
+  final counted = spend != null && (spend.costUsd > 0 || spend.unpricedCalls > 0) ? spend : null;
+  if (received.isEmpty && delegated.isEmpty && lastConversationMs == null && counted == null) return null;
   final counts = {for (final s in taskStates) s: 0};
   for (final task in received) {
     final key = counts.containsKey(task.state) ? task.state : 'pending';
     counts[key] = counts[key]! + 1;
   }
   int stamp(AgentTask t) => t.finishedAtMs ?? t.startedAtMs ?? t.createdAtMs;
+  final stamps = [...received, ...delegated].map(stamp).followedBy([?lastConversationMs]);
   return AgentActivity(
     done: counts['done']!,
     failed: counts['failed']!,
@@ -379,8 +410,37 @@ AgentActivity? activityOf(List<AgentTask> tasks, String agent) {
     active: counts['pending']! + counts['running']! + counts['waiting']! + counts['paused']!,
     tokens: received.fold(0, (sum, t) => sum + (t.totalTokens ?? 0)),
     delegated: delegated.length,
-    lastActiveMs: [...received, ...delegated].map(stamp).reduce((a, b) => a > b ? a : b),
+    lastActiveMs: stamps.isEmpty ? null : stamps.reduce((a, b) => a > b ? a : b),
+    spend: counted,
   );
+}
+
+/// [agent]'s spending in the hub's recent spending, or null when the hub doesn't count it (an older hub, or nothing in the window).
+AgentSpend? spendOf(RecentSpend? recent, String agent) {
+  if (recent == null) return null;
+  for (final bucket in recent.byAgent) {
+    if (bucket.key == agent) return AgentSpend(costUsd: bucket.costUsd, unpricedCalls: bucket.unpricedCalls, windowHours: recent.windowHours);
+  }
+  return null;
+}
+
+/// When [agent] last had a conversation (the newest one that spoke with it, threads left out), or null if it never did.
+int? lastConversationOf(List<ConversationSummary> conversations, String agent) {
+  int? newest;
+  for (final c in conversations) {
+    if (c.agentId != agent || c.parent != null) continue;
+    if (newest == null || c.updatedAt > newest) newest = c.updatedAt;
+  }
+  return newest;
+}
+
+/// The spending in a few words: `$1.20 in the last 24 h`, with a note of the calls the figure leaves out.
+String spendLabel(AgentSpend spend) {
+  final window = 'in the last ${spend.windowHours} h';
+  final unpriced = spend.unpricedCalls > 0 ? '${spend.unpricedCalls} unpriced call${spend.unpricedCalls > 1 ? 's' : ''}' : '';
+  if (spend.costUsd <= 0) return '$unpriced $window';
+  final money = spend.costUsd < 0.01 ? 'under \$0.01' : '\$${spend.costUsd.toStringAsFixed(2)}';
+  return unpriced.isEmpty ? '$money $window' : '$money $window (and $unpriced)';
 }
 
 /// How long ago, in a few words: `just now`, `4 min ago`, `2 h ago`, `3 d ago`.
@@ -394,7 +454,7 @@ String agoLabel(int thenMs, int nowMs) {
   return '${hours ~/ 24} d ago';
 }
 
-/// The activity on one line of the tree card: `3 done, 1 failed, 2 running · 12.9k tokens · delegated 5 · active 4 min ago`.
+/// The activity on one line of the tree card: `3 done, 1 failed, 2 running · 12.9k tokens · $1.20 in the last 24 h · delegated 5 · active 4 min ago`.
 String activityLine(AgentActivity a, int nowMs) {
   final parts = [
     if (a.done > 0) '${a.done} done',
@@ -405,8 +465,9 @@ String activityLine(AgentActivity a, int nowMs) {
   return [
     if (parts.isNotEmpty) parts.join(', '),
     if (a.tokens > 0) '${formatTokens(a.tokens)} tokens',
+    if (a.spend != null) spendLabel(a.spend!),
     if (a.delegated > 0) 'delegated ${a.delegated}',
-    'active ${agoLabel(a.lastActiveMs, nowMs)}',
+    if (a.lastActiveMs != null) 'active ${agoLabel(a.lastActiveMs!, nowMs)}',
   ].join(' · ');
 }
 

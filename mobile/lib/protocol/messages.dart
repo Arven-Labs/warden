@@ -228,6 +228,18 @@ final class ListAgentTasksMessage extends ClientMessage {
   Map<String, dynamic> toJson() => {'type': 'listAgentTasks', 'requestId': requestId};
 }
 
+/// P123 — the usage and spending report; the app reads each agent's spending in it. [tzOffsetMinutes] is the offset from UTC of
+/// the person's day (the hub splits days with it). Answered by [UsageReportMessage].
+final class RequestUsageMessage extends ClientMessage {
+  const RequestUsageMessage(this.requestId, this.tzOffsetMinutes);
+
+  final int requestId;
+  final int tzOffsetMinutes;
+
+  @override
+  Map<String, dynamic> toJson() => {'type': 'requestUsage', 'requestId': requestId, 'tzOffsetMinutes': tzOffsetMinutes};
+}
+
 /// P122 — what the person said "always" to on this connection. Answered by [GrantListMessage].
 final class ListGrantsMessage extends ClientMessage {
   const ListGrantsMessage(this.requestId);
@@ -940,6 +952,10 @@ sealed class ServerMessage {
           json['requestId'] as int,
           (json['tasks'] as List<dynamic>).map(AgentTask.fromJson).toList(),
         ),
+      'usageReport' => UsageReportMessage(
+          json['requestId'] as int,
+          RecentSpend.fromJson((json['report'] as Map<String, dynamic>?)?['recent']),
+        ),
       'grantList' => GrantListMessage(
           json['requestId'] as int,
           ((json['grants'] as List<dynamic>?) ?? const []).map(Grant.fromJson).toList(),
@@ -1337,6 +1353,49 @@ final class AgentTaskListMessage extends ServerMessage {
 
   final int requestId;
   final List<AgentTask> tasks;
+}
+
+/// What one agent spent, from the hub's ledger (P123): the dollars of the calls that have a price, and how many calls had none.
+class SpendBucket {
+  const SpendBucket({required this.key, required this.costUsd, required this.unpricedCalls});
+
+  /// The agent's id; empty for calls with no agent chosen.
+  final String key;
+  final double costUsd;
+  final int unpricedCalls;
+}
+
+/// The part of the usage report the app reads (P123): what each agent spent in the last [windowHours], which is all the ledger keeps.
+class RecentSpend {
+  const RecentSpend({required this.windowHours, required this.byAgent});
+
+  final int windowHours;
+  final List<SpendBucket> byAgent;
+
+  /// Null for a hub that sent no `recent` (spending limits off, or an older hub); a hub from before `byAgent` gives an empty split.
+  static RecentSpend? fromJson(dynamic json) {
+    if (json is! Map<String, dynamic>) return null;
+    return RecentSpend(
+      windowHours: (json['windowHours'] as num?)?.toInt() ?? 0,
+      byAgent: [
+        for (final bucket in (json['byAgent'] as List<dynamic>? ?? const []))
+          if (bucket is Map<String, dynamic>)
+            SpendBucket(
+              key: bucket['key'] as String? ?? '',
+              costUsd: (bucket['costUsd'] as num?)?.toDouble() ?? 0,
+              unpricedCalls: (bucket['unpricedCalls'] as num?)?.toInt() ?? 0,
+            ),
+      ],
+    );
+  }
+}
+
+/// Reply to [RequestUsageMessage] (P123): the report's recent spending, null when the hub says none.
+final class UsageReportMessage extends ServerMessage {
+  const UsageReportMessage(this.requestId, this.recent);
+
+  final int requestId;
+  final RecentSpend? recent;
 }
 
 /// Reply to [ListGrantsMessage] and [RevokeGrantMessage] (P122): every "always" given on this connection.

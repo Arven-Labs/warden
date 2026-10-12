@@ -227,6 +227,9 @@ export type ClientMessage =
   | { type: "resolveApproval"; approvalId: number; approved: boolean }
   /** P123 — the work agents delegated to each other, answered by `agentTaskList`. */
   | { type: "listAgentTasks"; requestId: number }
+  /** P123 — the usage and spending report (the extension reads each agent's spending in it), answered by `usageReport`. The hub wants the offset
+   * from UTC of the person's day, in minutes. */
+  | { type: "requestUsage"; requestId: number; tzOffsetMinutes: number }
   /** P122 — what the person said "always" to on this connection, answered by `grantList`; `revokeGrant` takes one back and is answered by the new list. */
   | { type: "listGrants"; requestId: number }
   | { type: "revokeGrant"; requestId: number; conversationId: string; agentId?: string; covers: string }
@@ -270,6 +273,12 @@ export type ChatEventDto =
   | { type: "tool"; callId: string; tool: string; title: string; status: "running" | "completed" | "failed" }
   | { type: "notice"; text: string };
 
+/** P123 — the part of the hub's usage report the extension reads: what each agent spent in the ledger's window. An older hub sends no
+ * `recent`, or none of `byAgent`; an empty `key` is a call with no agent chosen. */
+export interface SpendReport {
+  recent?: { windowHours: number; byAgent?: { key: string; costUsd: number; unpricedCalls: number }[] } | null;
+}
+
 export type ServerMessage =
   /** `deviceToken` is present when this Hello paired with the pairing key (P36) — it replaces
    * whatever token this device held for the hub. */
@@ -299,6 +308,8 @@ export type ServerMessage =
   /** `authRejected`: the pairing key was wrong; nothing was written. */
   | { type: "settingsError"; requestId: number; message: string; authRejected?: boolean }
   | { type: "agentTaskList"; requestId: number; tasks: AgentTask[] }
+  /** Reply to `requestUsage`; only the part the extension reads is typed. */
+  | { type: "usageReport"; requestId: number; report: SpendReport }
   | { type: "grantList"; requestId: number; grants: Grant[]; ttlDays?: number }
   | { type: "activityList"; requestId: number; events: ActivityEvent[] }
   | { type: "taskError"; requestId: number; message: string; authRejected?: boolean }
@@ -376,6 +387,7 @@ export function decode(text: string): ServerMessage {
       return { type: "settingsSaved", requestId: raw.requestId, ...hubAgents(raw.settings) };
     }
     case "agentTaskList":
+    case "usageReport":
     case "grantList":
     case "activityList":
     case "taskError":

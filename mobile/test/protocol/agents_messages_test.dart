@@ -136,6 +136,26 @@ void main() {
       expect((task as TaskErrorMessage).authRejected, isFalse);
     });
 
+    test('a usage report keeps what each agent spent, and a hub that sends no recent spending decodes as none (P123)', () {
+      final msg = ServerMessage.decode(jsonEncode({
+        'type': 'usageReport',
+        'requestId': 5,
+        'report': {
+          'recent': {
+            'windowHours': 24,
+            'byAgent': [
+              {'key': 'dev', 'calls': 3, 'tokens': 90, 'costUsd': 0.25, 'unpricedCalls': 2},
+            ],
+          },
+        },
+      })) as UsageReportMessage;
+      expect(msg.requestId, 5);
+      expect(msg.recent!.windowHours, 24);
+      expect([msg.recent!.byAgent.single.key, msg.recent!.byAgent.single.costUsd, msg.recent!.byAgent.single.unpricedCalls], ['dev', 0.25, 2]);
+      expect((ServerMessage.decode('{"type":"usageReport","requestId":6,"report":{}}') as UsageReportMessage).recent, isNull);
+      expect(const RequestUsageMessage(7, -180).toJson(), {'type': 'requestUsage', 'requestId': 7, 'tzOffsetMinutes': -180});
+    });
+
     test('a task list keeps what the hub sent', () {
       final msg = ServerMessage.decode(jsonEncode({
         'type': 'agentTaskList',

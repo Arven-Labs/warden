@@ -66,6 +66,9 @@ class _FakeBackend implements AgentsBackend {
   Future<List<AgentTask>> listAgentTasks() async => List.of(tasks);
 
   @override
+  Future<AgentActivityExtras> activityExtras() async => const AgentActivityExtras();
+
+  @override
   Future<List<ActivityEvent>> listActivity() async => List.of(events);
 
   @override

@@ -28,6 +28,7 @@ import {
   type OrgEdit,
   type ServerMessage,
   type SkillDto,
+  type SpendReport,
   type ThreadParent,
   type ToolSpec,
 } from "../protocol/messages";
@@ -311,6 +312,7 @@ export class ServerConnection {
       case "settings":
       case "settingsSaved":
       case "agentTaskList":
+      case "usageReport":
       case "grantList":
       case "activityList":
       case "skillList":
@@ -400,6 +402,15 @@ export class ServerConnection {
     const reply = await this.request((requestId) => ({ type: "listAgentTasks", requestId }));
     if (reply.type !== "agentTaskList") throw new Error("unexpected reply from the hub");
     return reply.tasks;
+  }
+
+  /** P123 — what each agent spent in the ledger's window (and the rest of the usage report, which the extension doesn't read). */
+  async requestUsage(): Promise<SpendReport> {
+    // `getTimezoneOffset` is minutes *behind* UTC (180 at UTC−3); the hub wants the offset itself.
+    const tzOffsetMinutes = -new Date().getTimezoneOffset();
+    const reply = await this.request((requestId) => ({ type: "requestUsage", requestId, tzOffsetMinutes }));
+    if (reply.type !== "usageReport") throw new Error("unexpected reply from the hub");
+    return reply.report;
   }
 
   /** P122 — what the person said "always" to on this connection, per conversation and agent. */
