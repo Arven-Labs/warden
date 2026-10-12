@@ -6,6 +6,15 @@
 
 ---
 
+### 2026-10-11 — Sessão 182 (continuação: P47, rotação do log de auditoria do SSH)
+
+- **Pedido do usuário**: "pode seguir com o P47" (segundo item do plano aprovado; decisão dele: 5 MiB por arquivo, 3 antigos).
+- **O que mudou**: `AuditLog` ganhou `max_bytes` e `keep`, `with_rotation`, `rotated(n)` e `rotate_if_full`, chamada em `record` sob o lock que já existia. Não copiei a compactação do feed de mudanças porque ela apaga as linhas antigas, e auditoria não deve perder linhas até o limite.
+- **Testes**: 2 novos em `tool::ssh` (rotação com duas gerações mantidas, ordem e ausência de buracos entre os arquivos, o mais velho sai, modo `0600` do rotado; e um log pequeno nunca gira); `tool::ssh` 34, `node_tools` 2, hub `nodes` 3 e `node_folder` 5, clippy limpo em core e server. Meu primeiro teste falhou por conta de uma conta errada minha (12 linhas cabiam em 3 arquivos); passei para 20.
+- **Fica**: dois processos de verdade girando o mesmo arquivo não foram exercitados; sem UI para ler o log.
+
+---
+
 ### 2026-10-11 — Sessão 182 (continuação: P21, o Telegram responde a mensagem sem texto)
 
 - **Pedido do usuário**: depois de eu ter andado rápido demais, "roda plan e tudo mais". Entrei em modo de planejamento, o usuário escolheu as quatro pontas (P21, P47, P87, P123) e as decisões de cada uma (rotação por tamanho de 5 MiB com 3 antigos; verificação a cada 3 s no desktop; os quatro clientes no P123; ordem P21, P47, P87, P123), e aprovou o plano (`~/.claude/plans/gleaming-painting-clock.md`). Um commit por ponta, parando entre elas.

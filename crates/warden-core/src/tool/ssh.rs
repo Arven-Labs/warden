@@ -456,19 +456,63 @@ impl Approval {
 /// Append-only JSONL record of every SSH action the model attempted, one line per call, including
 /// the ones a human refused. Holds the command/paths and the outcome (exit code, byte count,
 /// error) but never stdout/stderr, which is where a secret would most likely turn up. The command
-/// itself can still contain one, so the file is created `0600`. No rotation yet (P47).
+/// itself can still contain one, so the file is created `0600`. Once it is `AUDIT_MAX_BYTES` big it is
+/// rotated (P47): it becomes `<name>.1` and a new one starts, the older ones moving up to `.AUDIT_KEEP`,
+/// and only what would pass that is dropped.
 pub struct AuditLog {
     path: PathBuf,
     write_lock: Mutex<()>,
+    max_bytes: u64,
+    keep: usize,
 }
+
+/// How big the audit log may get before it is rotated, and how many rotated files stay next to it (`.1` is the newest).
+const AUDIT_MAX_BYTES: u64 = 5 * 1024 * 1024;
+const AUDIT_KEEP: usize = 3;
 
 impl AuditLog {
     pub fn new(path: impl Into<PathBuf>) -> Self {
-        Self { path: path.into(), write_lock: Mutex::new(()) }
+        Self::with_rotation(path, AUDIT_MAX_BYTES, AUDIT_KEEP)
+    }
+
+    /// A log rotated at `max_bytes`, keeping `keep` rotated files (0 keeps none: a full log is just removed).
+    pub fn with_rotation(path: impl Into<PathBuf>, max_bytes: u64, keep: usize) -> Self {
+        Self { path: path.into(), write_lock: Mutex::new(()), max_bytes, keep }
     }
 
     pub fn path(&self) -> &Path {
         &self.path
+    }
+
+    /// The `n`th rotated file: the log's own name with `.n` added.
+    fn rotated(&self, n: usize) -> PathBuf {
+        let mut name = self.path.clone().into_os_string();
+        name.push(format!(".{n}"));
+        PathBuf::from(name)
+    }
+
+    /// Moves a full log aside before the next line goes in. Renames only, so a line a second process appends meanwhile lands in the
+    /// file it already opened (now `.1`) and is not lost; two processes rotating at the same instant can at worst rotate twice.
+    fn rotate_if_full(&self) -> std::io::Result<()> {
+        let size = match std::fs::metadata(&self.path) {
+            Ok(meta) => meta.len(),
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+            Err(err) => return Err(err),
+        };
+        if size < self.max_bytes {
+            return Ok(());
+        }
+        if self.keep == 0 {
+            return std::fs::remove_file(&self.path);
+        }
+        let _ = std::fs::remove_file(self.rotated(self.keep));
+        for n in (1..self.keep).rev() {
+            match std::fs::rename(self.rotated(n), self.rotated(n + 1)) {
+                Err(err) if err.kind() != std::io::ErrorKind::NotFound => return Err(err),
+                _ => {}
+            }
+        }
+        std::fs::rename(&self.path, self.rotated(1))
     }
 
     /// Appends one JSON line. Also used by the hub's node tools (P93) for their own log.
@@ -477,6 +521,10 @@ impl AuditLog {
         let _guard = self.write_lock.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
         if let Some(dir) = self.path.parent().filter(|d| !d.as_os_str().is_empty()) {
             std::fs::create_dir_all(dir)?;
+        }
+        // A rotation that fails must not cost the line: it goes into the current file, which then just stays big.
+        if let Err(err) = self.rotate_if_full() {
+            eprintln!("note: could not rotate the audit log ({}): {err}", self.path.display());
         }
         let mut options = std::fs::OpenOptions::new();
         options.create(true).append(true);
@@ -1307,6 +1355,43 @@ mod tests {
         // Output can hold secrets, so it never goes in the log; the file itself is owner-only.
         assert!(!std::fs::read_to_string(&log).unwrap().contains("SECRET-OUTPUT"));
         assert_eq!(std::fs::metadata(&log).unwrap().permissions().mode() & 0o777, 0o600);
+    }
+
+    /// P47: a full log is moved aside, the older ones move up, and only what passes `keep` is dropped: every line still kept is in
+    /// order and none is missing between the files.
+    #[test]
+    fn a_full_audit_log_is_rotated_and_only_the_oldest_files_are_dropped() {
+        let log_path = temp_dir("audit-rotate").join("audit.jsonl");
+        let log = AuditLog::with_rotation(&log_path, 200, 2);
+        let rotated = |n: usize| PathBuf::from(format!("{}.{n}", log_path.display()));
+        // About four lines to a file, so twenty fill the current one and the two kept, and the first lines have nowhere left to go.
+        for n in 0..20u64 {
+            log.record(&json!({ "n": n, "pad": "x".repeat(40) })).unwrap();
+        }
+
+        assert!(rotated(1).exists() && rotated(2).exists(), "two rotated files are kept");
+        assert!(!rotated(3).exists(), "and no more than that");
+        assert!(std::fs::metadata(&log_path).unwrap().len() < 200 + 80, "the current file started over");
+        let seen: Vec<u64> = [rotated(2), rotated(1), log_path.clone()].iter().flat_map(|p| audit_lines(p)).map(|v| v["n"].as_u64().unwrap()).collect();
+        assert_eq!(seen.last(), Some(&19), "the newest line is in the current file");
+        assert!(seen.windows(2).all(|w| w[1] == w[0] + 1), "in order, nothing missing between the files: {seen:?}");
+        assert!(!seen.contains(&0), "the oldest lines were dropped: {seen:?}");
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            assert_eq!(std::fs::metadata(rotated(1)).unwrap().permissions().mode() & 0o777, 0o600, "a rotated file is as private as the log");
+        }
+    }
+
+    #[test]
+    fn a_log_under_the_limit_is_never_rotated() {
+        let log_path = temp_dir("audit-small").join("audit.jsonl");
+        let log = AuditLog::new(&log_path);
+        for n in 0..5u64 {
+            log.record(&json!({ "n": n })).unwrap();
+        }
+        assert_eq!(audit_lines(&log_path).len(), 5);
+        assert!(!PathBuf::from(format!("{}.1", log_path.display())).exists());
     }
 
     #[tokio::test]
