@@ -37,6 +37,10 @@ pub struct SyncManifest {
     pub manifest_counter: u64,
     /// Relative vault path -> sha256 hex of its content, as of the last successful push/pull.
     pub vault_files: HashMap<String, String>,
+    /// File name (`<server>.json`) -> sha256 hex of the MCP OAuth login saved under that name, as of the last successful
+    /// push/pull (P54). Absent in a manifest from before they were synced.
+    #[serde(default)]
+    pub oauth_files: HashMap<String, String>,
     pub config_present: bool,
     pub config_hash: Option<String>,
 }

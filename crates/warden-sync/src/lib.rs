@@ -20,6 +20,7 @@ pub mod diff;
 pub mod git;
 pub mod lock;
 pub mod manifest;
+pub mod oauth;
 pub mod pairing;
 pub mod paths;
 pub mod pull;
@@ -58,11 +59,20 @@ pub struct SyncEngine {
     secrets_path: PathBuf,
     manifest_path: PathBuf,
     arweave: ArweaveClient,
+    /// Where the MCP OAuth logins live (P54); `None` leaves them out of both directions.
+    oauth_dir: Option<PathBuf>,
 }
 
 impl SyncEngine {
     pub fn new(vault_root: PathBuf, config_path: PathBuf, secrets_path: PathBuf, manifest_path: PathBuf) -> Self {
-        Self { vault: Vault::new(vault_root), config_path, secrets_path, manifest_path, arweave: ArweaveClient::new_default() }
+        Self { vault: Vault::new(vault_root), config_path, secrets_path, manifest_path, arweave: ArweaveClient::new_default(), oauth_dir: None }
+    }
+
+    /// Syncs the MCP OAuth logins in `dir` (one `<server>.json` each) along with the vault and `config.toml`, so a paired device
+    /// arrives already connected. Off by default, so tests never touch the real config folder.
+    pub fn with_oauth_dir(mut self, dir: PathBuf) -> Self {
+        self.oauth_dir = Some(dir);
+        self
     }
 
     /// Points this engine at a different Arweave gateway — used by tests to target a local fake
@@ -119,7 +129,7 @@ impl SyncEngine {
     pub fn begin_push(&self) -> anyhow::Result<Option<push::BeginPushResult>> {
         let secrets = self.load_secrets()?;
         let manifest = manifest::load_manifest(&self.manifest_path)?;
-        push::begin_push(&self.vault, &self.config_path, &secrets, &manifest)
+        push::begin_push_with_oauth(&self.vault, &self.config_path, self.oauth_dir.as_deref(), &secrets, &manifest)
     }
 
     /// Step 2 of Send: waits for the TruthID phone to pin the bundle, then persists the updated
@@ -151,7 +161,8 @@ impl SyncEngine {
         let _one_sync_at_a_time = self.sync_lock().await?;
         let secrets = self.load_secrets()?;
         let manifest = manifest::load_manifest(&self.manifest_path)?;
-        let (outcome, new_manifest) = pull::pull(&self.arweave, &self.vault, &self.config_path, &secrets, manifest).await?;
+        let (outcome, new_manifest) =
+            pull::pull_with_oauth(&self.arweave, &self.vault, &self.config_path, self.oauth_dir.as_deref(), &secrets, manifest).await?;
         manifest::save_manifest(&self.manifest_path, &new_manifest)?;
         Ok(outcome)
     }

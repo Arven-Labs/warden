@@ -933,7 +933,12 @@ pub fn oauth_credential_store_path(server_name: &str) -> PathBuf {
         .chars()
         .map(|c| if c.is_ascii_alphanumeric() || c == '_' || c == '-' { c } else { '_' })
         .collect();
-    dirs::config_dir().unwrap_or_else(std::env::temp_dir).join("warden").join("mcp_oauth").join(format!("{sanitized}.json"))
+    oauth_credentials_dir().join(format!("{sanitized}.json"))
+}
+
+/// The folder every `oauth_credential_store_path` file lives in, and what the sync carries between devices (P54).
+pub fn oauth_credentials_dir() -> PathBuf {
+    dirs::config_dir().unwrap_or_else(std::env::temp_dir).join("warden").join("mcp_oauth")
 }
 
 /// Chat message roles as persisted to disk — mirrors the frontend's `ChatRole`

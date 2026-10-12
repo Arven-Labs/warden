@@ -32,6 +32,7 @@ use warden_core::memory::Vault;
 use crate::bundle::{self, ConfigChange};
 use crate::diff;
 use crate::manifest::{self, SyncDirection, SyncSecrets};
+use crate::oauth;
 use crate::syncignore::SyncIgnore;
 
 const BUNDLE_FILE_NAME: &str = "bundle.enc";
@@ -42,6 +43,8 @@ pub struct GitPushOutcome {
     pub commit_sha: String,
     pub files_changed: usize,
     pub config_changed: bool,
+    /// MCP OAuth logins sent, new, changed or deleted (P54).
+    pub oauth_files: usize,
 }
 
 #[derive(Debug)]
@@ -52,12 +55,14 @@ pub struct GitPullOutcome {
     /// Entries some replayed commit carried but this device's own `.syncignore` (P75) excluded.
     pub files_ignored: usize,
     pub config_updated: bool,
+    /// MCP OAuth logins written or removed (P54).
+    pub oauth_files: usize,
     pub warnings: Vec<String>,
 }
 
 impl GitPullOutcome {
     fn up_to_date(warning: &str) -> Self {
-        Self { commits_applied: 0, files_written: 0, files_deleted: 0, files_ignored: 0, config_updated: false, warnings: vec![warning.to_string()] }
+        Self { commits_applied: 0, files_written: 0, files_deleted: 0, files_ignored: 0, config_updated: false, oauth_files: 0, warnings: vec![warning.to_string()] }
     }
 }
 
@@ -73,6 +78,8 @@ pub struct GitSyncEngine {
     /// bare repo, same "hermetic against the real protocol" spirit as `fake_arweave_gateway.rs`.
     remote_url: String,
     token: String,
+    /// Where the MCP OAuth logins live (P54); `None` leaves them out of both directions.
+    oauth_dir: Option<PathBuf>,
 }
 
 impl GitSyncEngine {
@@ -85,7 +92,14 @@ impl GitSyncEngine {
         remote_url: String,
         token: String,
     ) -> Self {
-        Self { vault: Vault::new(vault_root), config_path, secrets_path, manifest_path, local_repo_path, remote_url, token }
+        Self { vault: Vault::new(vault_root), config_path, secrets_path, manifest_path, local_repo_path, remote_url, token, oauth_dir: None }
+    }
+
+    /// Syncs the MCP OAuth logins in `dir` (one `<server>.json` each) along with the vault and `config.toml`. Off by default, so
+    /// tests never touch the real config folder.
+    pub fn with_oauth_dir(mut self, dir: PathBuf) -> Self {
+        self.oauth_dir = Some(dir);
+        self
     }
 
     fn load_secrets(&self) -> anyhow::Result<SyncSecrets> {
@@ -106,7 +120,8 @@ impl GitSyncEngine {
         let diff = diff::diff_vault(&self.vault, &manifest)?;
         let config_bytes = std::fs::read(&self.config_path).ok();
         let config_changed = diff::config_changed(config_bytes.as_deref(), &manifest);
-        if diff.is_empty() && !config_changed {
+        let oauth_diff = oauth::diff_oauth(self.oauth_dir.as_deref(), &manifest)?;
+        if diff.is_empty() && !config_changed && oauth_diff.is_empty() {
             return Ok(None);
         }
 
@@ -120,7 +135,8 @@ impl GitSyncEngine {
         };
 
         let next_counter = manifest.manifest_counter + 1;
-        let bundle = bundle::build_bundle(&self.vault, config_change, &diff, next_counter, &secrets.device_id)?;
+        let mut bundle = bundle::build_bundle(&self.vault, config_change, &diff, next_counter, &secrets.device_id)?;
+        oauth::attach(&mut bundle, self.oauth_dir.as_deref(), &oauth_diff)?;
         let encrypted = bundle::encrypt_bundle(&bundle, &secrets.vault_key)?;
 
         ensure_local_repo(&self.local_repo_path, &self.remote_url)?;
@@ -152,6 +168,7 @@ impl GitSyncEngine {
             commit_sha,
             files_changed: bundle.vault_files.len() + bundle.deleted_vault_files.len(),
             config_changed: bundle.config_toml.is_some() || bundle.config_deleted,
+            oauth_files: bundle.oauth_files.len() + bundle.deleted_oauth_files.len(),
         };
         Ok(Some(outcome))
     }
@@ -190,6 +207,7 @@ impl GitSyncEngine {
         let mut files_deleted = 0;
         let mut files_ignored = 0;
         let mut config_updated = false;
+        let mut oauth_files = 0;
         let mut warnings = Vec::new();
 
         for sha in &shas_to_replay {
@@ -213,7 +231,10 @@ impl GitSyncEngine {
                 }
             }
 
+            warnings.extend(oauth::overwrite_warnings(&decoded, self.oauth_dir.as_deref(), &current_manifest));
+
             let report = bundle::apply_bundle(&decoded, &self.vault, &self.config_path)?;
+            oauth_files += oauth::apply(&decoded, self.oauth_dir.as_deref())?;
             files_written += report.files_written;
             files_deleted += report.files_deleted;
             files_ignored += report.files_ignored;
@@ -223,7 +244,7 @@ impl GitSyncEngine {
 
         manifest::save_manifest(&self.manifest_path, &current_manifest)?;
         let outcome =
-            GitPullOutcome { commits_applied: shas_to_replay.len(), files_written, files_deleted, files_ignored, config_updated, warnings };
+            GitPullOutcome { commits_applied: shas_to_replay.len(), files_written, files_deleted, files_ignored, config_updated, oauth_files, warnings };
         Ok(outcome)
     }
 }
@@ -487,6 +508,63 @@ mod tests {
         assert_eq!(outcome.files_written, 2);
         assert_eq!(device_b.vault.read("a.md").unwrap(), "one");
         assert_eq!(device_b.vault.read("b.md").unwrap(), "two");
+    }
+
+    /// P54: a login saved on one device reaches a fresh one, a change to it alone is enough to push, and removing it removes it
+    /// there too; a login edited here since the last sync is warned about before the pull overwrites it.
+    #[tokio::test]
+    async fn the_mcp_oauth_logins_follow_between_devices() {
+        let remote = bare_remote("oauth");
+        let vault_key = [9u8; 32];
+        let logins = |suffix: &str| temp_dir(&format!("oauth-{suffix}"));
+
+        let (a_dir, b_dir) = (logins("a"), logins("b"));
+        let device_a = paired_engine(&remote, "oauth-a", vault_key, "device-a").with_oauth_dir(a_dir.clone());
+        let device_b = paired_engine(&remote, "oauth-b", vault_key, "device-b").with_oauth_dir(b_dir.clone());
+
+        // Only a login to send: that alone is a change.
+        std::fs::create_dir_all(&a_dir).unwrap();
+        std::fs::write(a_dir.join("slack.json"), "t1").unwrap();
+        let pushed = device_a.push().await.unwrap().expect("a login is a change");
+        assert_eq!((pushed.oauth_files, pushed.files_changed, pushed.config_changed), (1, 0, false));
+        assert!(device_a.push().await.unwrap().is_none(), "nothing more to send");
+
+        let pulled = device_b.pull().await.unwrap();
+        assert_eq!(pulled.oauth_files, 1);
+        assert_eq!(std::fs::read_to_string(b_dir.join("slack.json")).unwrap(), "t1");
+        assert!(pulled.warnings.is_empty());
+
+        // A renews the token; B edits the same login meanwhile, so the pull overwrites it with a warning.
+        std::fs::write(a_dir.join("slack.json"), "t2").unwrap();
+        device_a.push().await.unwrap().unwrap();
+        std::fs::write(b_dir.join("slack.json"), "edited on b").unwrap();
+        let pulled = device_b.pull().await.unwrap();
+        assert_eq!(std::fs::read_to_string(b_dir.join("slack.json")).unwrap(), "t2");
+        assert_eq!(pulled.warnings, ["mudança local no login MCP slack foi sobrescrita pelo pull"]);
+
+        // A disconnects the server: it goes from B too.
+        std::fs::remove_file(a_dir.join("slack.json")).unwrap();
+        let pushed = device_a.push().await.unwrap().unwrap();
+        assert_eq!(pushed.oauth_files, 1);
+        device_b.pull().await.unwrap();
+        assert!(!b_dir.join("slack.json").exists());
+    }
+
+    /// A device with no login folder neither sends the other's logins nor loses any: the engine without `with_oauth_dir`.
+    #[tokio::test]
+    async fn an_engine_without_a_login_folder_leaves_the_logins_alone() {
+        let remote = bare_remote("oauth-off");
+        let vault_key = [9u8; 32];
+        let a_dir = temp_dir("oauth-off-a");
+        let device_a = paired_engine(&remote, "oauth-off-a", vault_key, "device-a").with_oauth_dir(a_dir.clone());
+        std::fs::create_dir_all(&a_dir).unwrap();
+        std::fs::write(a_dir.join("slack.json"), "t1").unwrap();
+        device_a.push().await.unwrap().unwrap();
+
+        let device_b = paired_engine(&remote, "oauth-off-b", vault_key, "device-b");
+        let pulled = device_b.pull().await.unwrap();
+        assert_eq!(pulled.oauth_files, 0, "no folder, no write");
+        assert!(device_b.push().await.unwrap().is_none(), "and nothing counted as deleted");
     }
 
     #[tokio::test]

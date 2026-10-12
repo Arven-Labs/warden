@@ -6,6 +6,7 @@ use crate::arweave::ArweaveClient;
 use crate::bundle;
 use crate::diff::sha256_hex;
 use crate::manifest::{SyncDirection, SyncManifest, SyncSecrets};
+use crate::oauth;
 use crate::syncignore::SyncIgnore;
 
 #[derive(Debug)]
@@ -17,12 +18,14 @@ pub struct PullOutcome {
     /// never written, never deleted.
     pub files_ignored: usize,
     pub config_updated: bool,
+    /// MCP OAuth logins written or removed (P54).
+    pub oauth_files: usize,
     pub warnings: Vec<String>,
 }
 
 impl PullOutcome {
     fn up_to_date(tx_id: Option<String>, warning: &str) -> Self {
-        Self { tx_id, files_written: 0, files_deleted: 0, files_ignored: 0, config_updated: false, warnings: vec![warning.to_string()] }
+        Self { tx_id, files_written: 0, files_deleted: 0, files_ignored: 0, config_updated: false, oauth_files: 0, warnings: vec![warning.to_string()] }
     }
 }
 
@@ -33,6 +36,18 @@ pub async fn pull(
     arweave: &ArweaveClient,
     vault: &Vault,
     config_path: &Path,
+    secrets: &SyncSecrets,
+    manifest: SyncManifest,
+) -> anyhow::Result<(PullOutcome, SyncManifest)> {
+    pull_with_oauth(arweave, vault, config_path, None, secrets, manifest).await
+}
+
+/// `pull` that also writes the MCP OAuth logins of the snapshot into `oauth_dir` (P54).
+pub async fn pull_with_oauth(
+    arweave: &ArweaveClient,
+    vault: &Vault,
+    config_path: &Path,
+    oauth_dir: Option<&Path>,
     secrets: &SyncSecrets,
     manifest: SyncManifest,
 ) -> anyhow::Result<(PullOutcome, SyncManifest)> {
@@ -79,7 +94,10 @@ pub async fn pull(
         }
     }
 
+    warnings.extend(oauth::overwrite_warnings(&decoded_bundle, oauth_dir, &manifest));
+
     let report = bundle::apply_bundle(&decoded_bundle, vault, config_path)?;
+    let oauth_files = oauth::apply(&decoded_bundle, oauth_dir)?;
     let new_manifest = bundle::fold_into_manifest(manifest, &decoded_bundle, tx_id.clone(), SyncDirection::Pull)?;
 
     let outcome = PullOutcome {
@@ -88,6 +106,7 @@ pub async fn pull(
         files_deleted: report.files_deleted,
         files_ignored: report.files_ignored,
         config_updated: report.config_updated,
+        oauth_files,
         warnings,
     };
     Ok((outcome, new_manifest))

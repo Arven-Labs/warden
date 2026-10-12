@@ -7,6 +7,7 @@ use crate::arweave::ArweaveClient;
 use crate::bundle::{self, ConfigChange, SyncBundle};
 use crate::diff;
 use crate::manifest::{SyncDirection, SyncManifest, SyncSecrets};
+use crate::oauth;
 
 /// Everything needed to render a QR (`pending.qr_payload_json()`) *before* blocking on the
 /// phone — the caller shows the QR, then awaits `run_push`.
@@ -21,6 +22,8 @@ pub struct PushOutcome {
     pub tx_id: String,
     pub files_changed: usize,
     pub config_changed: bool,
+    /// MCP OAuth logins sent, new, changed or deleted (P54).
+    pub oauth_files: usize,
 }
 
 /// Computes the diff, builds and encrypts the bundle, and starts a `PendingPin` session.
@@ -32,11 +35,23 @@ pub fn begin_push(
     secrets: &SyncSecrets,
     manifest: &SyncManifest,
 ) -> anyhow::Result<Option<BeginPushResult>> {
+    begin_push_with_oauth(vault, config_path, None, secrets, manifest)
+}
+
+/// `begin_push` that also carries the MCP OAuth logins in `oauth_dir` (P54): one that is new, changed or gone is a change too.
+pub fn begin_push_with_oauth(
+    vault: &Vault,
+    config_path: &Path,
+    oauth_dir: Option<&Path>,
+    secrets: &SyncSecrets,
+    manifest: &SyncManifest,
+) -> anyhow::Result<Option<BeginPushResult>> {
     let diff = diff::diff_vault(vault, manifest)?;
     let config_bytes = std::fs::read(config_path).ok();
     let config_changed = diff::config_changed(config_bytes.as_deref(), manifest);
+    let oauth_diff = oauth::diff_oauth(oauth_dir, manifest)?;
 
-    if diff.is_empty() && !config_changed {
+    if diff.is_empty() && !config_changed && oauth_diff.is_empty() {
         return Ok(None);
     }
 
@@ -50,7 +65,8 @@ pub fn begin_push(
     };
 
     let next_counter = manifest.manifest_counter + 1;
-    let bundle = bundle::build_bundle(vault, config_change, &diff, next_counter, &secrets.device_id)?;
+    let mut bundle = bundle::build_bundle(vault, config_change, &diff, next_counter, &secrets.device_id)?;
+    oauth::attach(&mut bundle, oauth_dir, &oauth_diff)?;
     let encrypted_bundle = bundle::encrypt_bundle(&bundle, &secrets.vault_key)?;
     let pending = PendingPin::begin_with_default_timeout("Warden")?;
 
@@ -94,6 +110,7 @@ pub async fn run_push_with_hosts(
         tx_id: new_manifest.last_tx_id.clone().unwrap_or_default(),
         files_changed: bundle.vault_files.len() + bundle.deleted_vault_files.len(),
         config_changed: bundle.config_toml.is_some() || bundle.config_deleted,
+        oauth_files: bundle.oauth_files.len() + bundle.deleted_oauth_files.len(),
     };
     Ok((outcome, new_manifest))
 }
@@ -169,6 +186,8 @@ mod tests {
             deleted_vault_files: vec!["old.md".to_string()],
             config_toml: Some(BASE64.encode(b"vault_path = \"vault\"")),
             config_deleted: false,
+            oauth_files: Default::default(),
+            deleted_oauth_files: Vec::new(),
         }
     }
 

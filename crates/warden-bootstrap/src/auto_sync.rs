@@ -144,6 +144,7 @@ impl SyncRunner {
 
     fn arweave_engine(&self) -> SyncEngine {
         SyncEngine::new(self.vault_path.clone(), self.config_path.clone(), self.secrets_path.clone(), self.manifest_path.clone())
+            .with_oauth_dir(crate::oauth_credentials_dir())
     }
 
     fn git_config(&self) -> anyhow::Result<Option<crate::GitSyncConfig>> {
@@ -181,7 +182,8 @@ impl SyncRunner {
                     self.git_repo_path.clone(),
                     git.remote_url,
                     git.token,
-                );
+                )
+                .with_oauth_dir(crate::oauth_credentials_dir());
                 match engine.pull().await {
                     Ok(o) => {
                         if o.files_written > 0 || o.files_deleted > 0 || o.config_updated {

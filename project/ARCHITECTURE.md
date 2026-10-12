@@ -3414,3 +3414,13 @@ O `RequestUsage` deixou de ser recusado a um membro (`member_refusal`); o `Exten
 - **Limites**: só os de escopo `person <id>`. Um limite global ou de canal soma o gasto de todos, então mostrar o medidor dele mostraria o uso dos outros; o membro só ouve dele quando ele para um turno ("peça a quem administra").
 - **Sem** linha por aparelho (os aparelhos dele dividem uma pasta), sem `ledgerError`, com `extendTokens`/`extendCostUsd` zerados.
 - **Telas**: web, aba "Uso" para todos, com `UsageView readOnly` (sem "Liberar", sem "Por device", sem "Por pessoa"); celular, `UsageScreen` (ícone na barra do chat, também para o dono), que lê `UsageReportMessage.summary`. Desktop não tem modo de membro e a extensão só entra com a chave do dono, então nada mudou ali.
+
+## As credenciais OAuth de MCP no sync (P54, Sessão 183)
+
+O sync (Arweave e git) leva, além do cofre e do `config.toml`, os logins OAuth dos servidores MCP (`<config>/warden/mcp_oauth/<servidor>.json`). Decisão do usuário: **sempre**, sem opção para ligar, porque o pacote já é cifrado no cliente com a chave do cofre e já carrega as chaves de API do `config.toml`: um token de terceiros não é uma categoria nova de risco. Desenho:
+- **Sub-manifesto**: `SyncManifest.oauth_files` (nome do arquivo → sha256) faz o papel de `vault_files`; `SyncBundle.oauth_files` (base64) e `deleted_oauth_files` levam o que mudou. Os campos novos têm `#[serde(default)]`, então um pacote ou manifesto antigo decodifica e um aparelho antigo ignora o que não conhece; `schema_version` segue 1.
+- **Sem mexer nas assinaturas** de `build_bundle`, `apply_bundle` e `diff_vault`: o módulo `oauth.rs` entra por `diff_oauth` → `attach` no envio e `overwrite_warnings` → `apply` no pull, e `begin_push_with_oauth`/`pull_with_oauth` são as variantes das funções que já existiam.
+- **O engine decide**: `SyncEngine` e `GitSyncEngine` só levam o diretório se receberem `with_oauth_dir` (padrão `None`); sem ele, o diff é vazio e o que o manifesto conhece **nunca** conta como apagado. Assim os testes não leem o `~/.config` de verdade e o celular, que não tem cliente MCP, fica de fora.
+- **Segurança do pull**: só nomes `[A-Za-z0-9_-]+\.json` (o que `oauth_credential_store_path` gera) são escritos ou removidos, então um pacote não escreve fora da pasta; o arquivo escrito fica `0600`.
+- **Conflito**: o último a enviar vence, como no cofre; o pull avisa quando um login mudou aqui desde o último sync e vai ser sobrescrito.
+- **Não cobre**: o contador de pendências (`SyncStatus` é espelhado no celular pelo flutter_rust_bridge); reconectar sozinho um MCP já aberto com o login que o pull trouxe.

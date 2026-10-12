@@ -50,6 +50,12 @@ pub struct SyncBundle {
     /// base64 of `config.toml`'s raw bytes, if it changed this push.
     pub config_toml: Option<String>,
     pub config_deleted: bool,
+    /// MCP OAuth login file name (`<server>.json`) -> base64 of its bytes, for the ones that changed this push (P54). Left out of a
+    /// bundle from before they were synced, and ignored by a device that predates them.
+    #[serde(default)]
+    pub oauth_files: HashMap<String, String>,
+    #[serde(default)]
+    pub deleted_oauth_files: Vec<String>,
 }
 
 pub struct ApplyReport {
@@ -93,6 +99,9 @@ pub fn build_bundle(
         deleted_vault_files,
         config_toml,
         config_deleted,
+        // The logins are added by `oauth::attach`, which the engines call when they have a directory for them.
+        oauth_files: HashMap::new(),
+        deleted_oauth_files: Vec::new(),
     })
 }
 
@@ -181,6 +190,13 @@ pub fn fold_into_manifest(
     }
     for path in &bundle.deleted_vault_files {
         manifest.vault_files.remove(path);
+    }
+    for (name, encoded) in &bundle.oauth_files {
+        let bytes = BASE64.decode(encoded.as_bytes())?;
+        manifest.oauth_files.insert(name.clone(), sha256_hex(&bytes));
+    }
+    for name in &bundle.deleted_oauth_files {
+        manifest.oauth_files.remove(name);
     }
     if let Some(encoded) = &bundle.config_toml {
         let bytes = BASE64.decode(encoded.as_bytes())?;
@@ -274,6 +290,45 @@ mod tests {
         assert_eq!(std::fs::read_to_string(&config_path).unwrap(), "vault_path = \"vault\"");
     }
 
+    /// P54: a bundle from before the logins were synced has no such fields, and still decodes.
+    #[test]
+    fn a_bundle_from_before_the_oauth_logins_still_decodes() {
+        let old = r#"{"schema_version":1,"manifest_counter":2,"created_at_ms":0,"device_id":"a","vault_files":{},"deleted_vault_files":[],"config_toml":null,"config_deleted":false}"#;
+        let bundle: SyncBundle = serde_json::from_str(old).unwrap();
+        assert!(bundle.oauth_files.is_empty() && bundle.deleted_oauth_files.is_empty());
+        let manifest_without = r#"{"version":1,"owner_address":null,"last_tx_id":null,"last_sync_direction":null,"last_synced_at_ms":null,"manifest_counter":0,"vault_files":{},"config_present":false,"config_hash":null}"#;
+        assert!(serde_json::from_str::<SyncManifest>(manifest_without).unwrap().oauth_files.is_empty());
+    }
+
+    #[test]
+    fn the_oauth_logins_ride_the_encrypted_bundle_and_the_manifest_follows_them() {
+        let source = temp_vault("oauth-source");
+        let from = source.root().join("logins-from");
+        std::fs::create_dir_all(&from).unwrap();
+        std::fs::write(from.join("slack.json"), r#"{"access_token":"t1"}"#).unwrap();
+
+        let mut manifest = SyncManifest::default();
+        manifest.oauth_files.insert("gone.json".to_string(), crate::diff::sha256_hex(b"old"));
+        let diff = diff_vault(&source, &manifest).unwrap();
+        let oauth_diff = crate::oauth::diff_oauth(Some(&from), &manifest).unwrap();
+        let mut bundle = build_bundle(&source, None, &diff, 1, "device-a").unwrap();
+        crate::oauth::attach(&mut bundle, Some(&from), &oauth_diff).unwrap();
+
+        let vault_key = [5u8; 32];
+        let decrypted = decrypt_bundle(&encrypt_bundle(&bundle, &vault_key).unwrap(), &vault_key).unwrap();
+        assert_eq!(decrypted.oauth_files.keys().collect::<Vec<_>>(), ["slack.json"]);
+        assert_eq!(decrypted.deleted_oauth_files, ["gone.json"]);
+
+        let to = temp_vault("oauth-dest").root().join("logins-to");
+        assert_eq!(crate::oauth::apply(&decrypted, Some(&to)).unwrap(), 1, "one written, the other was never there");
+        assert_eq!(std::fs::read_to_string(to.join("slack.json")).unwrap(), r#"{"access_token":"t1"}"#);
+
+        let folded = fold_into_manifest(manifest, &decrypted, "tx".to_string(), SyncDirection::Pull).unwrap();
+        assert_eq!(folded.oauth_files.get("slack.json"), Some(&crate::diff::sha256_hex(br#"{"access_token":"t1"}"#)));
+        assert!(!folded.oauth_files.contains_key("gone.json"));
+        assert!(crate::oauth::diff_oauth(Some(&to), &folded).unwrap().is_empty(), "after the fold, nothing is left to send");
+    }
+
     #[test]
     fn apply_bundle_skips_entries_matching_the_destination_syncignore() {
         let bundle = SyncBundle {
@@ -285,6 +340,8 @@ mod tests {
             deleted_vault_files: vec!["private/old.md".to_string()],
             config_toml: None,
             config_deleted: false,
+            oauth_files: HashMap::new(),
+            deleted_oauth_files: Vec::new(),
         };
 
         let dest = temp_vault("ignored-dest");

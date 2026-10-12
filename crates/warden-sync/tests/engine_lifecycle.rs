@@ -27,6 +27,8 @@ const TX_ID: &str = "tx-1";
 struct TestDevice {
     engine: SyncEngine,
     vault_root: PathBuf,
+    /// Where this install keeps its MCP OAuth logins (P54).
+    oauth_dir: PathBuf,
 }
 
 fn make_device(name: &str, arweave: ArweaveClient) -> TestDevice {
@@ -42,7 +44,8 @@ fn make_device(name: &str, arweave: ArweaveClient) -> TestDevice {
         base.join("sync_manifest.json"),
     )
     .with_arweave_client(arweave);
-    TestDevice { engine, vault_root }
+    let oauth_dir = base.join("mcp_oauth");
+    TestDevice { engine: engine.with_oauth_dir(oauth_dir.clone()), vault_root, oauth_dir }
 }
 
 fn fake_arweave_client(base_url: &str) -> ArweaveClient {
@@ -128,6 +131,9 @@ async fn a_pushes_b_pairs_and_pulls_and_ends_up_with_a_matching_vault() {
     device_a.engine.init_fresh().unwrap();
     std::fs::create_dir_all(&device_a.vault_root).unwrap();
     std::fs::write(device_a.vault_root.join("todo.md"), "buy milk").unwrap();
+    // A is connected to an MCP server by OAuth (P54); the login must reach B, which has never seen the server.
+    std::fs::create_dir_all(&device_a.oauth_dir).unwrap();
+    std::fs::write(device_a.oauth_dir.join("slack.json"), r#"{"access_token":"t1","refresh_token":"r1"}"#).unwrap();
 
     let begin = device_a.engine.begin_push().unwrap().unwrap();
     let qr: serde_json::Value = serde_json::from_str(&begin.pending.qr_payload_json().unwrap()).unwrap();
@@ -137,6 +143,7 @@ async fn a_pushes_b_pairs_and_pulls_and_ends_up_with_a_matching_vault() {
 
     let push_outcome = device_a.engine.finish_push_with_hosts(begin, vec![Ipv4Addr::LOCALHOST]).await.unwrap();
     assert_eq!(push_outcome.tx_id, TX_ID);
+    assert_eq!(push_outcome.oauth_files, 1);
 
     let status_a = device_a.engine.status().unwrap();
     assert_eq!(status_a.owner_address.as_deref(), Some(OWNER_ADDRESS));
@@ -158,4 +165,9 @@ async fn a_pushes_b_pairs_and_pulls_and_ends_up_with_a_matching_vault() {
     assert_eq!(pull_outcome.tx_id.as_deref(), Some(TX_ID));
 
     assert_eq!(std::fs::read_to_string(device_b.vault_root.join("todo.md")).unwrap(), "buy milk");
+
+    // And B arrives already connected to the server.
+    assert_eq!(pull_outcome.oauth_files, 1);
+    assert_eq!(std::fs::read_to_string(device_b.oauth_dir.join("slack.json")).unwrap(), r#"{"access_token":"t1","refresh_token":"r1"}"#);
+    assert!(pull_outcome.warnings.is_empty(), "{:?}", pull_outcome.warnings);
 }

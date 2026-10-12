@@ -1101,7 +1101,8 @@ pub fn run() {
         .map(|config| resolve_generated_path(&config, &sync_vault_path))
         .unwrap_or_else(|_| sync_vault_path.parent().unwrap_or(std::path::Path::new(".")).join("generated"));
     let sync_runner = Arc::new(warden_bootstrap::auto_sync::SyncRunner::with_default_paths(sync_vault_path.clone(), sync_config_path.clone()));
-    let sync = warden_sync::SyncEngine::new(sync_vault_path, sync_config_path, sync_secrets_path(), sync_manifest_path());
+    let sync = warden_sync::SyncEngine::new(sync_vault_path, sync_config_path, sync_secrets_path(), sync_manifest_path())
+        .with_oauth_dir(warden_bootstrap::oauth_credentials_dir());
 
     let app_state = AppState {
         orchestrator: Arc::new(Mutex::new(orchestrator)),

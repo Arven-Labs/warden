@@ -32,7 +32,8 @@ fn build_engine_from_fresh_config() -> Result<GitSyncEngine, String> {
     let secrets_path = warden_sync::paths::default_sync_secrets_path().unwrap_or_else(|| PathBuf::from("sync_secrets.json"));
     let manifest_path = warden_sync::paths::default_sync_manifest_path().unwrap_or_else(|| PathBuf::from("sync_manifest.json"));
     let git_repo_path = warden_sync::paths::default_git_sync_repo_path().unwrap_or_else(|| PathBuf::from("git-sync-repo"));
-    Ok(GitSyncEngine::new(vault_path, config_path, secrets_path, manifest_path, git_repo_path, git_sync.remote_url, git_sync.token))
+    Ok(GitSyncEngine::new(vault_path, config_path, secrets_path, manifest_path, git_repo_path, git_sync.remote_url, git_sync.token)
+        .with_oauth_dir(warden_bootstrap::oauth_credentials_dir()))
 }
 
 #[derive(Serialize)]
@@ -92,7 +93,7 @@ mod tests {
     // Locks in the exact camelCase JSON shape `desktop/src/types.ts` expects.
     #[test]
     fn git_push_result_payload_serializes_as_camel_case() {
-        let outcome = GitPushOutcome { commit_sha: "abc123".to_string(), files_changed: 2, config_changed: true };
+        let outcome = GitPushOutcome { commit_sha: "abc123".to_string(), files_changed: 2, config_changed: true, oauth_files: 0 };
         assert_eq!(
             serde_json::to_string(&GitPushResultPayload::from(outcome)).unwrap(),
             r#"{"commitSha":"abc123","filesChanged":2,"configChanged":true}"#
@@ -107,6 +108,7 @@ mod tests {
             files_deleted: 1,
             files_ignored: 1,
             config_updated: false,
+            oauth_files: 0,
             warnings: vec!["a".to_string()],
         };
         assert_eq!(

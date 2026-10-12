@@ -1057,7 +1057,7 @@ fn make_sync_engine(session: &CliSession) -> anyhow::Result<warden_sync::SyncEng
     let config_path = session.config_path.clone().unwrap_or_else(|| PathBuf::from("config.toml"));
     let secrets_path = warden_sync::paths::default_sync_secrets_path().unwrap_or_else(|| PathBuf::from("sync_secrets.json"));
     let manifest_path = warden_sync::paths::default_sync_manifest_path().unwrap_or_else(|| PathBuf::from("sync_manifest.json"));
-    Ok(warden_sync::SyncEngine::new(vault_path, config_path, secrets_path, manifest_path))
+    Ok(warden_sync::SyncEngine::new(vault_path, config_path, secrets_path, manifest_path).with_oauth_dir(warden_bootstrap::oauth_credentials_dir()))
 }
 
 /// Builds a `GitSyncEngine` (P63) — same vault/secrets/manifest paths `make_sync_engine` uses
@@ -1075,7 +1075,8 @@ fn make_git_sync_engine(session: &CliSession) -> anyhow::Result<warden_sync::Git
     let secrets_path = warden_sync::paths::default_sync_secrets_path().unwrap_or_else(|| PathBuf::from("sync_secrets.json"));
     let manifest_path = warden_sync::paths::default_sync_manifest_path().unwrap_or_else(|| PathBuf::from("sync_manifest.json"));
     let git_repo_path = warden_sync::paths::default_git_sync_repo_path().unwrap_or_else(|| PathBuf::from("git-sync-repo"));
-    Ok(warden_sync::GitSyncEngine::new(vault_path, config_path, secrets_path, manifest_path, git_repo_path, git_sync.remote_url, git_sync.token))
+    Ok(warden_sync::GitSyncEngine::new(vault_path, config_path, secrets_path, manifest_path, git_repo_path, git_sync.remote_url, git_sync.token)
+        .with_oauth_dir(warden_bootstrap::oauth_credentials_dir()))
 }
 
 /// Reads `config.toml` fresh — never cached across turns/commands (see `CliSession`'s doc
