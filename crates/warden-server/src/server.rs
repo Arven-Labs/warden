@@ -753,7 +753,7 @@ impl Drop for AbortOnDrop {
 async fn sync_loop(runner: Arc<SyncRunner>, every: Duration, settings: Option<Arc<dyn SettingsHost>>, shared: SharedOrchestrator) {
     runner
         .run_loop(every, |report| {
-            let reload = report.config_updated();
+            let reload = report.needs_reload();
             let (settings, shared) = (settings.clone(), shared.clone());
             async move {
                 if reload {

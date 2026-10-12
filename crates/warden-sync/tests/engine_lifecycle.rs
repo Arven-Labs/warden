@@ -135,6 +135,9 @@ async fn a_pushes_b_pairs_and_pulls_and_ends_up_with_a_matching_vault() {
     std::fs::create_dir_all(&device_a.oauth_dir).unwrap();
     std::fs::write(device_a.oauth_dir.join("slack.json"), r#"{"access_token":"t1","refresh_token":"r1"}"#).unwrap();
 
+    // The login waiting to go out is a pending change, same as a note (P54).
+    assert_eq!(device_a.engine.status().unwrap().pending_oauth_changes, 1);
+
     let begin = device_a.engine.begin_push().unwrap().unwrap();
     let qr: serde_json::Value = serde_json::from_str(&begin.pending.qr_payload_json().unwrap()).unwrap();
     let requester_pub_hex = qr["ephemeralPubKey"].as_str().unwrap().to_string();
@@ -147,6 +150,15 @@ async fn a_pushes_b_pairs_and_pulls_and_ends_up_with_a_matching_vault() {
 
     let status_a = device_a.engine.status().unwrap();
     assert_eq!(status_a.owner_address.as_deref(), Some(OWNER_ADDRESS));
+    assert_eq!(status_a.pending_oauth_changes, 0);
+
+    // A login that changes or disappears after the push counts again.
+    std::fs::write(device_a.oauth_dir.join("slack.json"), r#"{"access_token":"t2","refresh_token":"r2"}"#).unwrap();
+    assert_eq!(device_a.engine.status().unwrap().pending_oauth_changes, 1);
+    std::fs::remove_file(device_a.oauth_dir.join("slack.json")).unwrap();
+    assert_eq!(device_a.engine.status().unwrap().pending_oauth_changes, 1);
+    std::fs::write(device_a.oauth_dir.join("slack.json"), r#"{"access_token":"t1","refresh_token":"r1"}"#).unwrap();
+    assert_eq!(device_a.engine.status().unwrap().pending_oauth_changes, 0);
 
     // B pairs with A — learns the vault key + owner address, no TruthID/Arweave involved.
     let device_b = make_device("b", fake_arweave_client(&gateway_url));
@@ -168,6 +180,8 @@ async fn a_pushes_b_pairs_and_pulls_and_ends_up_with_a_matching_vault() {
 
     // And B arrives already connected to the server.
     assert_eq!(pull_outcome.oauth_files, 1);
+    assert_eq!(pull_outcome.oauth_logins, ["slack.json"]);
     assert_eq!(std::fs::read_to_string(device_b.oauth_dir.join("slack.json")).unwrap(), r#"{"access_token":"t1","refresh_token":"r1"}"#);
     assert!(pull_outcome.warnings.is_empty(), "{:?}", pull_outcome.warnings);
+    assert_eq!(device_b.engine.status().unwrap().pending_oauth_changes, 0);
 }

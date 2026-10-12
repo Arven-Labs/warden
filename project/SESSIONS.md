@@ -2,7 +2,27 @@
 
 > **Nota**: Este log foi criado junto com o projeto. As sessões serão registradas aqui conforme o trabalho avança.
 >
-> Última atualização: 2026-10-12 (Sessão 183)
+> Última atualização: 2026-10-12 (Sessão 185)
+
+---
+
+### 2026-10-12 — Sessão 185 (P54: um pull que traz só um login OAuth de MCP faz o hub e o desktop recarregarem)
+
+- **Pedido do usuário**: seguir com o item 2 da lista; planejado em plan mode. No meio, o disco (`/home`) chegou a 100% e derrubou uma rodada de testes; o usuário pediu para resolver isso primeiro.
+- **Achado**: o rmcp já relê o token do arquivo a cada requisição, então token trocado funciona. Faltava reconectar o servidor sem login no `bootstrap()` e o de `client_id` diferente, e um pull só com logins dava `pulled = None`, então nenhum host recarregava.
+- **Feito**: `oauth::apply` devolve os nomes tocados; `PullOutcome` e `GitPullOutcome` ganham `oauth_logins`; `PulledSummary.oauth_logins` e `SyncReport::needs_reload()` (config ou login); hub (`server.rs`, `sync.rs`) e desktop (`sync_cmds.rs`) usam `needs_reload()` no lugar de `config_updated()`.
+- **Testes**: `oauth.rs` (nomes devolvidos), `git.rs` e `engine_lifecycle.rs` (o pull traz `slack.json`, inclusive removido), `auto_sync.rs` (`a_round_that_only_brought_a_login_still_asks_for_a_reload`); `warden-sync`, `warden-bootstrap`, `warden-server` verdes, clippy limpo, testes de sync do desktop.
+- **Disco**: `target/debug/incremental` (23 GB, cache) apagado; `CARGO_INCREMENTAL=0` nas rodadas seguintes. `/home` fechou em 92%; o `target/debug/deps` tem 32 GB e o Docker tem 28 GB de volumes reclamáveis, não mexidos.
+- **Fica**: ver a linha do P54 no `PENDING.md`.
+
+---
+
+### 2026-10-12 — Sessão 184 (P54: o contador de pendências do sync conta os logins OAuth)
+
+- **Pedido do usuário**: seguir com o item 1 da lista (contador de pendências do P54); planejado em plan mode.
+- **Feito**: `SyncStatus.pending_oauth_changes` calculado em `SyncEngine::status()` com `oauth::diff_oauth`; repassado por `SyncState` (`auto_sync.rs`), `SyncStatusDto` (`#[serde(default)]`, hub antigo lê 0) e `status_dto`. Telas: web (`SyncView`, "e N login(s) de MCP", e "Nada esperando" considera o campo), desktop (payload, `types.ts`, `SyncView`), CLI (`cmd_sync_status`) e `warden-server sync`. Celular fora: o bridge não liga a pasta OAuth, então seria sempre 0.
+- **Testes**: `engine_lifecycle.rs` (login novo conta 1, 0 após o envio, mudar/apagar conta de novo, voltar ao igual zera, o aparelho que puxou fica em 0); protocolo (JSON com o campo e DTO antigo sem ele); `warden-sync`, `warden-bootstrap` (469), `warden-server`, clippy limpo, `cargo check` do desktop, `tsc` e testes da web (62) e do desktop (118).
+- **Fica**: o item do P54 de o MCP já conectado reler o login que um pull trouxe.
 
 ---
 

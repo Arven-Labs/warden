@@ -591,9 +591,10 @@ async fn run_sync_command(args: SyncArgs) -> anyhow::Result<()> {
         println!("git remote: {remote}");
     }
     println!(
-        "pending: {} file(s){}",
+        "pending: {} file(s){}{}",
         state.pending_vault_changes,
-        if state.pending_config_changed { " + config.toml" } else { "" }
+        if state.pending_config_changed { " + config.toml" } else { "" },
+        if state.pending_oauth_changes > 0 { format!(" + {} MCP login(s)", state.pending_oauth_changes) } else { String::new() }
     );
     match state.last_synced_at_ms {
         Some(ms) => {

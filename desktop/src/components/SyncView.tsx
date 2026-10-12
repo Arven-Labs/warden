@@ -31,6 +31,7 @@ function StatusCard({ status }: { status: SyncStatus }) {
           <span className="sync-status-label">Pendências</span>
           <span className="sync-status-value">
             {status.pendingVaultChanges} arquivo(s){status.pendingConfigChanged ? " + config.toml" : ""}
+            {status.pendingOauthChanges > 0 ? ` + ${status.pendingOauthChanges} login(s) de MCP` : ""}
           </span>
         </div>
         <div className="sync-status-item">

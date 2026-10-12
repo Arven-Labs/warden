@@ -77,11 +77,12 @@ pub fn attach(bundle: &mut SyncBundle, dir: Option<&Path>, diff: &OauthDiff) -> 
     Ok(())
 }
 
-/// Writes the logins of a decrypted bundle into `dir` and removes the ones it deletes; the count is files written plus removed.
+/// Writes the logins of a decrypted bundle into `dir` and removes the ones it deletes; returns the file names written plus removed
+/// (sorted), so a host can tell which MCP servers need to reconnect.
 /// With no directory, or for a name that is not a login file, nothing is touched.
-pub fn apply(bundle: &SyncBundle, dir: Option<&Path>) -> anyhow::Result<usize> {
-    let Some(dir) = dir else { return Ok(0) };
-    let mut count = 0;
+pub fn apply(bundle: &SyncBundle, dir: Option<&Path>) -> anyhow::Result<Vec<String>> {
+    let Some(dir) = dir else { return Ok(Vec::new()) };
+    let mut touched = Vec::new();
     for (name, encoded) in &bundle.oauth_files {
         if !is_login_file_name(name) {
             continue;
@@ -94,19 +95,20 @@ pub fn apply(bundle: &SyncBundle, dir: Option<&Path>) -> anyhow::Result<usize> {
             use std::os::unix::fs::PermissionsExt;
             std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600))?;
         }
-        count += 1;
+        touched.push(name.clone());
     }
     for name in &bundle.deleted_oauth_files {
         if !is_login_file_name(name) {
             continue;
         }
         match std::fs::remove_file(dir.join(name)) {
-            Ok(()) => count += 1,
+            Ok(()) => touched.push(name.clone()),
             Err(err) if err.kind() == std::io::ErrorKind::NotFound => {}
             Err(err) => return Err(err.into()),
         }
     }
-    Ok(count)
+    touched.sort();
+    Ok(touched)
 }
 
 /// Warnings for the logins `bundle` is about to overwrite or remove although they changed here since the last sync, like the
@@ -207,11 +209,11 @@ mod tests {
 
         let to = temp_dir("to");
         std::fs::write(to.join("old.json"), "x").unwrap();
-        assert_eq!(apply(&bundle, Some(&to)).unwrap(), 2);
+        assert_eq!(apply(&bundle, Some(&to)).unwrap(), ["old.json", "slack.json"]);
         assert_eq!(std::fs::read_to_string(to.join("slack.json")).unwrap(), r#"{"token":"t1"}"#);
         assert!(!to.join("old.json").exists());
         // Removing what is already gone is no error and no count.
-        assert_eq!(apply(&bundle, Some(&to)).unwrap(), 1);
+        assert_eq!(apply(&bundle, Some(&to)).unwrap(), ["slack.json"]);
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
@@ -229,7 +231,7 @@ mod tests {
         bundle.oauth_files.insert("notes.txt".into(), BASE64.encode("evil"));
         bundle.deleted_oauth_files.push("../warden-sync-oauth-test-outside.json".into());
 
-        assert_eq!(apply(&bundle, Some(&dir)).unwrap(), 0);
+        assert!(apply(&bundle, Some(&dir)).unwrap().is_empty());
         assert_eq!(std::fs::read_to_string(&outside).unwrap(), "keep");
         assert!(!dir.join("notes.txt").exists());
         std::fs::remove_file(outside).unwrap();
@@ -239,7 +241,7 @@ mod tests {
     fn without_a_directory_a_bundle_s_logins_are_left_alone() {
         let mut bundle = empty_bundle();
         bundle.oauth_files.insert("slack.json".into(), BASE64.encode("t"));
-        assert_eq!(apply(&bundle, None).unwrap(), 0);
+        assert!(apply(&bundle, None).unwrap().is_empty());
         let mut other = empty_bundle();
         attach(&mut other, None, &OauthDiff { changed: vec!["slack.json".into()], deleted: Vec::new() }).unwrap();
         assert!(other.oauth_files.is_empty());

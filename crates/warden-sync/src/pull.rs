@@ -20,12 +20,14 @@ pub struct PullOutcome {
     pub config_updated: bool,
     /// MCP OAuth logins written or removed (P54).
     pub oauth_files: usize,
+    /// File names of those logins (`<server>.json`), so a host can reconnect the MCP servers they belong to.
+    pub oauth_logins: Vec<String>,
     pub warnings: Vec<String>,
 }
 
 impl PullOutcome {
     fn up_to_date(tx_id: Option<String>, warning: &str) -> Self {
-        Self { tx_id, files_written: 0, files_deleted: 0, files_ignored: 0, config_updated: false, oauth_files: 0, warnings: vec![warning.to_string()] }
+        Self { tx_id, files_written: 0, files_deleted: 0, files_ignored: 0, config_updated: false, oauth_files: 0, oauth_logins: Vec::new(), warnings: vec![warning.to_string()] }
     }
 }
 
@@ -97,7 +99,7 @@ pub async fn pull_with_oauth(
     warnings.extend(oauth::overwrite_warnings(&decoded_bundle, oauth_dir, &manifest));
 
     let report = bundle::apply_bundle(&decoded_bundle, vault, config_path)?;
-    let oauth_files = oauth::apply(&decoded_bundle, oauth_dir)?;
+    let oauth_logins = oauth::apply(&decoded_bundle, oauth_dir)?;
     let new_manifest = bundle::fold_into_manifest(manifest, &decoded_bundle, tx_id.clone(), SyncDirection::Pull)?;
 
     let outcome = PullOutcome {
@@ -106,7 +108,8 @@ pub async fn pull_with_oauth(
         files_deleted: report.files_deleted,
         files_ignored: report.files_ignored,
         config_updated: report.config_updated,
-        oauth_files,
+        oauth_files: oauth_logins.len(),
+        oauth_logins,
         warnings,
     };
     Ok((outcome, new_manifest))

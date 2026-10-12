@@ -3008,9 +3008,10 @@ async fn cmd_sync_status(terminal: &mut CliTerminal, session: &CliSession) -> an
         ),
         (
             format!(
-                "pendências: {} arquivo(s){}",
+                "pendências: {} arquivo(s){}{}",
                 status.pending_vault_changes,
-                if status.pending_config_changed { " + config.toml" } else { "" }
+                if status.pending_config_changed { " + config.toml" } else { "" },
+                if status.pending_oauth_changes > 0 { format!(" + {} login(s) de MCP", status.pending_oauth_changes) } else { String::new() }
             ),
             Style::default(),
         ),

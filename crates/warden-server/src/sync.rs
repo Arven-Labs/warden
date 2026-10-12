@@ -38,6 +38,7 @@ fn status_dto(state: SyncState) -> SyncStatusDto {
         last_synced_at_ms: state.last_synced_at_ms,
         pending_vault_changes: state.pending_vault_changes,
         pending_config_changed: state.pending_config_changed,
+        pending_oauth_changes: state.pending_oauth_changes,
         last_round: state.last_round.as_ref().map(round_dto),
         hosting_until_ms: state.hosting_until_ms,
         last_pairing: state.last_pairing.map(|PairingResult { at_ms, error }| SyncPairingDto { at_ms, error }),
@@ -88,7 +89,7 @@ pub async fn handle_sync_action(access: &SyncAccess<'_>, request_id: u64, pairin
     let result = match action {
         SyncActionDto::SyncNow => {
             let report = runner.run_once().await;
-            if report.config_updated() {
+            if report.needs_reload() {
                 reload_orchestrator(access.settings, access.shared).await;
             }
             Ok(())

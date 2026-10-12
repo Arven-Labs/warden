@@ -24,6 +24,7 @@ pub struct SyncStatusPayload {
     last_synced_at_ms: Option<i64>,
     pending_vault_changes: usize,
     pending_config_changed: bool,
+    pending_oauth_changes: usize,
     syncignore_pattern_count: usize,
 }
 
@@ -37,6 +38,7 @@ impl From<SyncStatus> for SyncStatusPayload {
             last_synced_at_ms: s.last_synced_at_ms,
             pending_vault_changes: s.pending_vault_changes,
             pending_config_changed: s.pending_config_changed,
+            pending_oauth_changes: s.pending_oauth_changes,
             syncignore_pattern_count: s.syncignore_pattern_count,
         }
     }
@@ -217,7 +219,7 @@ pub fn spawn_auto_sync(app: AppHandle, runner: Arc<SyncRunner>) {
         if let Some(pushed) = &report.pushed {
             let _ = app.emit("auto-sync-pushed", AutoSyncPushedPayload::from(pushed));
         }
-        let reload = report.config_updated().then(|| app.clone());
+        let reload = report.needs_reload().then(|| app.clone());
         async move {
             if let Some(app) = reload {
                 crate::reload_orchestrator(&app.state::<AppState>()).await;
@@ -234,7 +236,7 @@ mod tests {
     // themselves are tested in `warden_bootstrap::auto_sync`.
     #[test]
     fn auto_sync_payloads_serialize_as_camel_case() {
-        let pulled = PulledSummary { tx_id: Some("tx-1".to_string()), files_written: 2, files_deleted: 1, config_updated: true };
+        let pulled = PulledSummary { tx_id: Some("tx-1".to_string()), files_written: 2, files_deleted: 1, config_updated: true, oauth_logins: Vec::new() };
         assert_eq!(
             serde_json::to_string(&AutoSyncPulledPayload::from(&pulled)).unwrap(),
             r#"{"txId":"tx-1","filesWritten":2,"filesDeleted":1,"configUpdated":true}"#

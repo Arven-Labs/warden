@@ -797,6 +797,8 @@ export interface SyncStatus {
   lastSyncedAtMs?: number;
   pendingVaultChanges: number;
   pendingConfigChanged: boolean;
+  /** MCP OAuth logins waiting to go out; a hub that predates this leaves it out. */
+  pendingOauthChanges?: number;
   lastRound?: SyncRound;
   /** Until when the hub is showing a pairing code (P88). The code itself only comes back to `pairHost`. */
   hostingUntilMs?: number;

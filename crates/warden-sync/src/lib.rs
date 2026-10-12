@@ -48,6 +48,8 @@ pub struct SyncStatus {
     pub last_synced_at_ms: Option<i64>,
     pub pending_vault_changes: usize,
     pub pending_config_changed: bool,
+    /// MCP OAuth logins (P54) that are new, changed or gone since the last sync — 0 when the engine has no `oauth_dir`.
+    pub pending_oauth_changes: usize,
     /// How many patterns are active in `.syncignore` (P75) — 0 when the file doesn't exist. Just
     /// a count, not the patterns themselves; nothing here is secret, but there's no reader for it.
     pub syncignore_pattern_count: usize,
@@ -102,12 +104,17 @@ impl SyncEngine {
         let secrets = manifest::load_secrets(&self.secrets_path)?;
         let manifest = manifest::load_manifest(&self.manifest_path)?;
 
-        let (pending_vault_changes, pending_config_changed) = if secrets.is_some() {
+        let (pending_vault_changes, pending_config_changed, pending_oauth_changes) = if secrets.is_some() {
             let diff = diff::diff_vault(&self.vault, &manifest)?;
             let config_bytes = std::fs::read(&self.config_path).ok();
-            (diff.added_or_modified.len() + diff.deleted.len(), diff::config_changed(config_bytes.as_deref(), &manifest))
+            let oauth = oauth::diff_oauth(self.oauth_dir.as_deref(), &manifest)?;
+            (
+                diff.added_or_modified.len() + diff.deleted.len(),
+                diff::config_changed(config_bytes.as_deref(), &manifest),
+                oauth.changed.len() + oauth.deleted.len(),
+            )
         } else {
-            (0, false)
+            (0, false, 0)
         };
 
         Ok(SyncStatus {
@@ -118,6 +125,7 @@ impl SyncEngine {
             last_synced_at_ms: manifest.last_synced_at_ms,
             pending_vault_changes,
             pending_config_changed,
+            pending_oauth_changes,
             syncignore_pattern_count: syncignore::SyncIgnore::load(&self.vault)?.pattern_count(),
         })
     }

@@ -320,7 +320,7 @@ mod tests {
         assert_eq!(decrypted.deleted_oauth_files, ["gone.json"]);
 
         let to = temp_vault("oauth-dest").root().join("logins-to");
-        assert_eq!(crate::oauth::apply(&decrypted, Some(&to)).unwrap(), 1, "one written, the other was never there");
+        assert_eq!(crate::oauth::apply(&decrypted, Some(&to)).unwrap().len(), 1, "one written, the other was never there");
         assert_eq!(std::fs::read_to_string(to.join("slack.json")).unwrap(), r#"{"access_token":"t1"}"#);
 
         let folded = fold_into_manifest(manifest, &decrypted, "tx".to_string(), SyncDirection::Pull).unwrap();

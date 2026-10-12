@@ -177,9 +177,11 @@ export default function SyncView({ conn }: { conn: ServerConnection | null }) {
           )}
           {status.backend !== "notSetUp" && (
             <p className="skills-item-description">
-              {status.pendingVaultChanges === 0 && !status.pendingConfigChanged
+              {status.pendingVaultChanges === 0 && !status.pendingConfigChanged && !status.pendingOauthChanges
                 ? "Nada esperando para sair."
-                : `Esperando para sair: ${status.pendingVaultChanges} arquivo(s)${status.pendingConfigChanged ? " e as configurações" : ""}.`}{" "}
+                : `Esperando para sair: ${status.pendingVaultChanges} arquivo(s)${status.pendingConfigChanged ? " e as configurações" : ""}${
+                    status.pendingOauthChanges ? ` e ${status.pendingOauthChanges} login(s) de MCP` : ""
+                  }.`}{" "}
               {status.lastSyncedAtMs ? `Última sincronização: ${dateFormatter.format(new Date(status.lastSyncedAtMs))}.` : "Nunca sincronizou."}
             </p>
           )}

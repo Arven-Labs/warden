@@ -566,6 +566,7 @@ export interface SyncStatus {
   lastSyncedAtMs: number | null;
   pendingVaultChanges: number;
   pendingConfigChanged: boolean;
+  pendingOauthChanges: number;
   /** How many patterns are active in `.syncignore` (P75) at the vault root — 0 when it doesn't exist. */
   syncignorePatternCount: number;
 }

@@ -43,6 +43,8 @@ pub struct PulledSummary {
     pub files_written: usize,
     pub files_deleted: usize,
     pub config_updated: bool,
+    /// MCP OAuth login files (`<server>.json`) the pull wrote or removed (P54).
+    pub oauth_logins: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -68,6 +70,13 @@ impl SyncReport {
     pub fn config_updated(&self) -> bool {
         self.pulled.as_ref().is_some_and(|p| p.config_updated)
     }
+
+    /// Whether whoever built an orchestrator before this round should rebuild it: a new `config.toml`, or an MCP OAuth login
+    /// that arrived. A server with no login when the orchestrator was built was never connected, and one whose login came
+    /// from another device may have a different client id than the one the live connection holds.
+    pub fn needs_reload(&self) -> bool {
+        self.pulled.as_ref().is_some_and(|p| p.config_updated || !p.oauth_logins.is_empty())
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -78,6 +87,7 @@ pub struct SyncState {
     pub last_synced_at_ms: Option<i64>,
     pub pending_vault_changes: usize,
     pub pending_config_changed: bool,
+    pub pending_oauth_changes: usize,
     /// The most recent round this process ran, if any.
     pub last_round: Option<SyncReport>,
     /// Until when this device is showing a pairing code. The code itself is never part of the
@@ -186,12 +196,13 @@ impl SyncRunner {
                 .with_oauth_dir(crate::oauth_credentials_dir());
                 match engine.pull().await {
                     Ok(o) => {
-                        if o.files_written > 0 || o.files_deleted > 0 || o.config_updated {
+                        if o.files_written > 0 || o.files_deleted > 0 || o.config_updated || !o.oauth_logins.is_empty() {
                             report.pulled = Some(PulledSummary {
                                 tx_id: None,
                                 files_written: o.files_written,
                                 files_deleted: o.files_deleted,
                                 config_updated: o.config_updated,
+                                oauth_logins: o.oauth_logins,
                             });
                         }
                     }
@@ -223,12 +234,13 @@ impl SyncRunner {
                 }
                 match self.arweave_engine().pull().await {
                     Ok(o) => {
-                        if o.files_written > 0 || o.files_deleted > 0 || o.config_updated {
+                        if o.files_written > 0 || o.files_deleted > 0 || o.config_updated || !o.oauth_logins.is_empty() {
                             report.pulled = Some(PulledSummary {
                                 tx_id: o.tx_id,
                                 files_written: o.files_written,
                                 files_deleted: o.files_deleted,
                                 config_updated: o.config_updated,
+                                oauth_logins: o.oauth_logins,
                             });
                         }
                     }
@@ -273,6 +285,7 @@ impl SyncRunner {
             last_synced_at_ms: status.last_synced_at_ms,
             pending_vault_changes: status.pending_vault_changes,
             pending_config_changed: status.pending_config_changed,
+            pending_oauth_changes: status.pending_oauth_changes,
             last_round: self.last.lock().unwrap().clone(),
             hosting_until_ms: self.active_hosting().map(|h| h.expires_at_ms),
             last_pairing: self.hosting.lock().unwrap().last.clone(),
@@ -367,6 +380,26 @@ mod tests {
         ));
         std::fs::create_dir_all(&dir).unwrap();
         dir
+    }
+
+    #[test]
+    fn a_round_that_only_brought_a_login_still_asks_for_a_reload() {
+        let round = |pulled: Option<PulledSummary>| SyncReport { at_ms: 1, backend: SyncBackend::Git, pulled, pushed: None, error: None };
+        let summary = |config_updated: bool, logins: &[&str]| {
+            Some(PulledSummary {
+                tx_id: None,
+                files_written: 0,
+                files_deleted: 0,
+                config_updated,
+                oauth_logins: logins.iter().map(|name| name.to_string()).collect(),
+            })
+        };
+        assert!(!round(None).needs_reload());
+        assert!(!round(summary(false, &[])).needs_reload());
+        assert!(round(summary(true, &[])).needs_reload());
+        let only_a_login = round(summary(false, &["slack.json"]));
+        assert!(only_a_login.needs_reload());
+        assert!(!only_a_login.config_updated(), "the config did not change; only the login did");
     }
 
     fn bare_remote(dir: &std::path::Path) -> PathBuf {

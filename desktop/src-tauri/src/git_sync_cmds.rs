@@ -109,6 +109,7 @@ mod tests {
             files_ignored: 1,
             config_updated: false,
             oauth_files: 0,
+            oauth_logins: Vec::new(),
             warnings: vec!["a".to_string()],
         };
         assert_eq!(

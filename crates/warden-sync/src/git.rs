@@ -57,12 +57,14 @@ pub struct GitPullOutcome {
     pub config_updated: bool,
     /// MCP OAuth logins written or removed (P54).
     pub oauth_files: usize,
+    /// File names of those logins (`<server>.json`), once each, so a host can reconnect the MCP servers they belong to.
+    pub oauth_logins: Vec<String>,
     pub warnings: Vec<String>,
 }
 
 impl GitPullOutcome {
     fn up_to_date(warning: &str) -> Self {
-        Self { commits_applied: 0, files_written: 0, files_deleted: 0, files_ignored: 0, config_updated: false, oauth_files: 0, warnings: vec![warning.to_string()] }
+        Self { commits_applied: 0, files_written: 0, files_deleted: 0, files_ignored: 0, config_updated: false, oauth_files: 0, oauth_logins: Vec::new(), warnings: vec![warning.to_string()] }
     }
 }
 
@@ -208,6 +210,7 @@ impl GitSyncEngine {
         let mut files_ignored = 0;
         let mut config_updated = false;
         let mut oauth_files = 0;
+        let mut oauth_logins: Vec<String> = Vec::new();
         let mut warnings = Vec::new();
 
         for sha in &shas_to_replay {
@@ -234,7 +237,13 @@ impl GitSyncEngine {
             warnings.extend(oauth::overwrite_warnings(&decoded, self.oauth_dir.as_deref(), &current_manifest));
 
             let report = bundle::apply_bundle(&decoded, &self.vault, &self.config_path)?;
-            oauth_files += oauth::apply(&decoded, self.oauth_dir.as_deref())?;
+            let touched = oauth::apply(&decoded, self.oauth_dir.as_deref())?;
+            oauth_files += touched.len();
+            for name in touched {
+                if !oauth_logins.contains(&name) {
+                    oauth_logins.push(name);
+                }
+            }
             files_written += report.files_written;
             files_deleted += report.files_deleted;
             files_ignored += report.files_ignored;
@@ -244,7 +253,7 @@ impl GitSyncEngine {
 
         manifest::save_manifest(&self.manifest_path, &current_manifest)?;
         let outcome =
-            GitPullOutcome { commits_applied: shas_to_replay.len(), files_written, files_deleted, files_ignored, config_updated, oauth_files, warnings };
+            GitPullOutcome { commits_applied: shas_to_replay.len(), files_written, files_deleted, files_ignored, config_updated, oauth_files, oauth_logins, warnings };
         Ok(outcome)
     }
 }
@@ -531,6 +540,7 @@ mod tests {
 
         let pulled = device_b.pull().await.unwrap();
         assert_eq!(pulled.oauth_files, 1);
+        assert_eq!(pulled.oauth_logins, ["slack.json"], "a host reconnects the server this login belongs to");
         assert_eq!(std::fs::read_to_string(b_dir.join("slack.json")).unwrap(), "t1");
         assert!(pulled.warnings.is_empty());
 
@@ -546,7 +556,8 @@ mod tests {
         std::fs::remove_file(a_dir.join("slack.json")).unwrap();
         let pushed = device_a.push().await.unwrap().unwrap();
         assert_eq!(pushed.oauth_files, 1);
-        device_b.pull().await.unwrap();
+        let pulled = device_b.pull().await.unwrap();
+        assert_eq!(pulled.oauth_logins, ["slack.json"], "a removed login counts too");
         assert!(!b_dir.join("slack.json").exists());
     }
 

@@ -1060,6 +1060,9 @@ pub struct SyncStatusDto {
     pub last_synced_at_ms: Option<i64>,
     pub pending_vault_changes: usize,
     pub pending_config_changed: bool,
+    /// MCP OAuth logins waiting to go out (P54); a hub that predates this leaves it out, so it reads as 0.
+    #[serde(default)]
+    pub pending_oauth_changes: usize,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub last_round: Option<SyncRoundDto>,
     /// Until when the hub is showing a pairing code (P88). The code only goes back in the reply
@@ -3906,6 +3909,7 @@ mod tests {
                 last_synced_at_ms: None,
                 pending_vault_changes: 2,
                 pending_config_changed: false,
+                pending_oauth_changes: 1,
                 last_round: Some(SyncRoundDto { at_ms: 9, pulled: None, pushed: Some(SyncPushedDto { commit_sha: "abc".into(), files_changed: 2 }), error: None }),
                 hosting_until_ms: None,
                 last_pairing: None,
@@ -3921,9 +3925,14 @@ mod tests {
                 "gitRemote": "https://git.example/v.git",
                 "pendingVaultChanges": 2,
                 "pendingConfigChanged": false,
+                "pendingOauthChanges": 1,
                 "lastRound": { "atMs": 9, "pushed": { "commitSha": "abc", "filesChanged": 2 } }
             })
         );
+
+        let old: SyncStatusDto =
+            serde_json::from_str(r#"{"backend":"arweave","pendingVaultChanges":3,"pendingConfigChanged":true}"#).unwrap();
+        assert_eq!(old.pending_oauth_changes, 0);
 
         let error: ServerMessage = serde_json::from_str(r#"{"type":"syncError","requestId":5,"message":"m","authRejected":true}"#).unwrap();
         assert_eq!(error, ServerMessage::SyncError { request_id: 5, message: "m".into(), auth_rejected: true });
@@ -3946,6 +3955,7 @@ mod tests {
                 last_synced_at_ms: None,
                 pending_vault_changes: 0,
                 pending_config_changed: false,
+                pending_oauth_changes: 0,
                 last_round: None,
                 hosting_until_ms: Some(300_000),
                 last_pairing: Some(SyncPairingDto { at_ms: 5, error: Some("cancelled".into()) }),
