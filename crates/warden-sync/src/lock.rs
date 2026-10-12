@@ -93,7 +93,9 @@ mod tests {
     async fn dropping_releases_it() {
         let path = temp_lock("drop");
         drop(SyncLock::acquire(&path).await.unwrap());
-        SyncLock::acquire_with_timeout(&path, Duration::ZERO).await.unwrap();
+        // Not `Duration::ZERO`: `holds_across_processes` forks in another test thread, and a child forked while this
+        // descriptor was open keeps the lock (same open file description) until it execs, which under load is late (P128).
+        SyncLock::acquire_with_timeout(&path, Duration::from_secs(10)).await.unwrap();
     }
 
     const CHILD_LOCK: &str = "WARDEN_SYNC_LOCK_CHILD";
