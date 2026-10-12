@@ -511,6 +511,7 @@ pub fn hub_settings(config: &FileConfig, tool_names: Vec<String>, host_notes: Ve
         prices: config.prices.iter().cloned().map(Into::into).collect(),
         default_models: default_models_by_kind(),
         tool_names,
+        member_models: Vec::new(),
         git_sync: GitSyncSettingsDto {
             remote_url: config.git_sync.as_ref().map(|g| g.remote_url.clone()).unwrap_or_default(),
             token: secret_status(config.git_sync.as_ref().map(|g| g.token.as_str()).filter(|t| !t.is_empty())),
@@ -673,7 +674,10 @@ pub fn apply_hub_settings(existing: FileConfig, update: HubSettingsUpdate) -> Re
     let kept: HashSet<String> = renames.iter().map(|(original, _)| original.clone()).chain(agents.iter().map(|a| a.id.trim().to_string())).collect();
     // P84: the members' own agents aren't on this screen; they're kept as they are, and a name they
     // hold can't be taken by one of the owner's.
-    let member_agents: Vec<AgentConfig> = config.agents.iter().filter(|a| a.owner.is_some()).cloned().collect();
+    let mut member_agents: Vec<AgentConfig> = config.agents.iter().filter(|a| a.owner.is_some()).cloned().collect();
+    // P100: a model this save removes leaves the members' lists, and their agents that used it go back to the default model, so the
+    // check below can't fail on an agent the owner never sees.
+    crate::users::forget_vanished_models(&mut config.users, &mut member_agents, &|id| is_model(id, &providers, &combos));
     // `check_agents` refuses a repeated name, so an agent of the owner's can't take one of theirs.
     // P120: whoever reported to a renamed agent follows its new name, before the hierarchy is checked.
     let mut agents: Vec<AgentConfig> = agents;
@@ -978,6 +982,24 @@ mod tests {
 
     /// P84: the owner's screen neither shows nor loses the members' own agents, and shares are kept
     /// to members that exist.
+    /// P100: the owner removes a model a member's agent runs on. The save goes through (the owner never sees that agent), the model leaves
+    /// the member's list and the agent goes back to the hub's default.
+    #[test]
+    fn removing_a_model_a_member_uses_does_not_block_the_save() {
+        let mut config = sample();
+        crate::users::add_user(&mut config, "ana", "Ana", "temporary-1").unwrap();
+        crate::users::set_user_models(&mut config, "ana", vec!["spare".into(), "main".into()]).unwrap();
+        config.agents.push(AgentConfig { owner: Some("ana".into()), provider_id: Some("spare".into()), ..agent("anas-helper") });
+
+        let mut update = untouched(&config);
+        update.providers.retain(|p| p.id != "spare");
+        let saved = apply_hub_settings(config, update).unwrap();
+
+        assert_eq!(saved.users[0].models, ["main"], "the model left her list");
+        let hers = saved.agents.iter().find(|a| a.id == "anas-helper").unwrap();
+        assert_eq!(hers.provider_id, None, "her agent runs on the default now");
+    }
+
     #[test]
     fn a_save_keeps_the_members_own_agents_and_cleans_the_shares() {
         let mut config = sample();

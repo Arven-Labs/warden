@@ -1076,6 +1076,11 @@ export class ServerConnection {
     return this.userRequest((requestId) => ({ type: "setUserWorkdirs", requestId, pairingKey, id, workdirs, nodeWorkdirs }));
   }
 
+  /** P100: the providers and combos a member may give their own agents (an empty list takes them all away). */
+  async setUserModels(pairingKey: string, id: string, models: string[]): Promise<UserList> {
+    return this.userRequest((requestId) => ({ type: "setUserModels", requestId, pairingKey, id, models }));
+  }
+
   /** P115: the model the assistant's learning uses for a member (`null`: the workspace's). */
   async setUserLearningProvider(pairingKey: string, id: string, provider: string | null): Promise<UserList> {
     return this.userRequest((requestId) => ({ type: "setUserLearningProvider", requestId, pairingKey, id, provider }));

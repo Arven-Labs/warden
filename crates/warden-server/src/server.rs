@@ -1359,6 +1359,9 @@ async fn handle_connection<S: Transport>(ws: WebSocketStream<S>, peer: SocketAdd
                     let node_workdirs = node_workdirs.into_iter().map(|f| warden_bootstrap::users::NodeFolder { node: f.node, path: f.path }).collect();
                     spawn_user_change(&settings, &devices_path, &api_keys, &settings_lock, &auth_key, &data_dirs, &tx, request_id, pairing_key, UserChange::SetWorkdirs { id, workdirs, node_workdirs });
                 }
+                Ok(ClientMessage::SetUserModels { request_id, pairing_key, id, models }) => {
+                    spawn_user_change(&settings, &devices_path, &api_keys, &settings_lock, &auth_key, &data_dirs, &tx, request_id, pairing_key, UserChange::SetModels { id, models });
+                }
                 Ok(ClientMessage::SetUserLearningProvider { request_id, pairing_key, id, provider }) => {
                     spawn_user_change(&settings, &devices_path, &api_keys, &settings_lock, &auth_key, &data_dirs, &tx, request_id, pairing_key, UserChange::SetLearningProvider { id, provider });
                 }

@@ -6,7 +6,7 @@
 //! No pairing key is asked: this is the owner's own machine, like the rest of its settings.
 
 use serde::Serialize;
-use warden_bootstrap::users::{add_user, create_invite, unlink_truthid, generate_temp_password, remove_space, remove_user, rename_user, reset_password, save_space, set_user_tools, set_user_workdirs, NodeFolder, SpaceConfig};
+use warden_bootstrap::users::{add_user, create_invite, unlink_truthid, generate_temp_password, remove_space, remove_user, rename_user, reset_password, save_space, set_user_models, set_user_tools, set_user_workdirs, NodeFolder, SpaceConfig};
 use warden_bootstrap::{load_config_from_path, save_config};
 use warden_server::people::user_info;
 use warden_server::PairingStore;
@@ -61,6 +61,12 @@ pub fn rename_person(id: String, name: String) -> Result<PeoplePayload, String> 
 #[tauri::command]
 pub fn set_person_tools(id: String, tools: Option<Vec<String>>) -> Result<PeoplePayload, String> {
     change(|config| set_user_tools(config, &id, tools).map(|()| None))
+}
+
+/// P100: the providers and combos a member may give their own agents. Empty takes them all away.
+#[tauri::command]
+pub fn set_person_models(id: String, models: Vec<String>) -> Result<PeoplePayload, String> {
+    change(|config| set_user_models(config, &id, models).map(|()| None))
 }
 
 /// P102: the folders a member may pick as a working folder, on this machine and on nodes. Empty lists take them all away.

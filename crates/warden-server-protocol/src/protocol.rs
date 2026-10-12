@@ -618,6 +618,9 @@ pub struct UserInfoDto {
     /// P102 fatia 2: the same on nodes.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub node_workdirs: Vec<NodeFolderDto>,
+    /// P100: the providers and combos (by id) the owner released for their own agents; empty is only the hub's default model.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub models: Vec<String>,
 }
 
 /// A folder on a node a member may work in (P102 fatia 2): `path` is relative to the folder the node lends.
@@ -1145,6 +1148,10 @@ pub struct HubSettingsDto {
     pub default_models: std::collections::BTreeMap<String, String>,
     /// Every tool the hub's orchestrator has, for an agent's allowed-tools list.
     pub tool_names: Vec<String>,
+    /// P100: only on a member's screen: the providers and combos (by id) the owner released for their own agents. The owner's own
+    /// screen lists every provider and combo, so it is empty there.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub member_models: Vec<String>,
     pub git_sync: GitSyncSettingsDto,
     /// Learning and the bots' allow-lists (P118).
     #[serde(default)]
@@ -2071,6 +2078,15 @@ pub enum ClientMessage {
         id: String,
         #[serde(default)]
         tools: Option<Vec<String>>,
+    },
+    /// P100: the providers and combos (by id) a member may give their own agents; empty takes them all away (their agents go back to
+    /// the hub's default model). Answered by `UserList`, or `UserError` for an id the hub does not have.
+    SetUserModels {
+        request_id: u64,
+        pairing_key: String,
+        id: String,
+        #[serde(default)]
+        models: Vec<String>,
     },
     /// P102: the folders a member may pick as a working folder, on the hub's machine and on nodes; empty lists take them
     /// all away. Answered by `UserList`, or `UserError` for a path that isn't valid.
@@ -3510,6 +3526,20 @@ mod tests {
         let json = serde_json::to_value(&answer).unwrap();
         assert_eq!(json, serde_json::json!({ "type": "providerTest", "requestId": 6, "ok": false, "kind": "rejected", "message": "Gemini rejected the key." }));
         assert_eq!(serde_json::from_value::<ServerMessage>(json).unwrap(), answer);
+    }
+
+    #[test]
+    fn the_models_released_to_a_member_travel_both_ways() {
+        let ask = ClientMessage::SetUserModels { request_id: 3, pairing_key: "k".into(), id: "ana".into(), models: vec!["cheap".into(), "any".into()] };
+        let json = serde_json::to_string(&ask).unwrap();
+        assert_eq!(json, r#"{"type":"setUserModels","requestId":3,"pairingKey":"k","id":"ana","models":["cheap","any"]}"#);
+        assert_eq!(serde_json::from_str::<ClientMessage>(&json).unwrap(), ask);
+        // A request with no list at all means none released.
+        let none: ClientMessage = serde_json::from_str(r#"{"type":"setUserModels","requestId":4,"pairingKey":"k","id":"ana"}"#).unwrap();
+        assert!(matches!(none, ClientMessage::SetUserModels { models, .. } if models.is_empty()));
+        // The member's list rides on the user and, on a member's own screen, on the settings; both stay out of the JSON when empty.
+        let user: UserInfoDto = serde_json::from_str(r#"{"id":"ana","name":"Ana","role":"member"}"#).unwrap();
+        assert!(user.models.is_empty() && !serde_json::to_string(&user).unwrap().contains("models"));
     }
 
     #[test]

@@ -2582,6 +2582,16 @@ outros. A parte A já era a política `private`.
 - **Fora desta parte**: Shamir literal; o celular (não mostra o código nem o aviso, P109); botão de restaurar
   membro removido na web; aprovação de mais de uma pessoa; e um grupo de membros com chave própria.
 
+### O modelo dos agentes próprios de um membro (P100, Sessão 183)
+
+Um modelo é a chave e o dinheiro do dono, então o membro só dá a um agente próprio um modelo que o dono **liberou para ele**:
+- **Lista por membro** (escolha do usuário): `UserConfig.models` (ids de provedor ou combo; vazia não escreve nada no arquivo). Vazia é só o modelo padrão do hub, como era. O dono marca na aba Pessoas ("Modelos", com a chave de pareamento); a mensagem é `SetUserModels` e a resposta, `UserList`.
+- **O hub recusa, não só a tela**: `save_member_agent` aceitava qualquer provedor que existisse, então um `SaveOwnAgent` à mão usava o modelo que quisesse. Agora um id fora da lista dá erro com o nome do modelo (não é descartado calado), e o mesmo vale para um modelo que o dono tirou depois.
+- **Tirar um modelo conserta os agentes**: `set_user_models` manda de volta ao padrão os agentes do membro que usavam o que saiu da lista, e o salvamento do dono (`forget_vanished_models`, antes de `check_agents`) tira da lista de cada membro o que deixou de existir e limpa os agentes dele. Sem isso, remover um provedor que um membro usa faria o salvamento do **dono** falhar por um agente que ele nunca vê.
+- **A tela do membro**: a visão de configurações dele ganhou `member_models` (lido a cada pedido, então uma mudança do dono vale sem reconectar) e devolve o `provider_id` real dos agentes **dele** (antes vinha vazio, e editar um agente apagaria o modelo). O seletor "Modelo" só aparece se há algo liberado (ou o agente já tem um).
+- **Decisão sobre a persona**: o dono **continua sem ver** a persona dos agentes dos membros, só o nome (escolha do usuário; é a promessa de privacidade do desenho). Os agentes que o dono **compartilha** com o membro seguem o modelo que o dono definiu.
+- **Fora**: tela de pessoas no desktop (existe o comando `set_person_models`, sem tela), celular e extensão (não editam agentes de membro).
+
 ## Tarefas agendadas (P92, desenho da Sessão 108)
 
 Conversa de desenho com o usuário. Hoje não existe agendador: os jobs (P46) vivem na memória de um turno. A ideia

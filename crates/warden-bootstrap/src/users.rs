@@ -142,6 +142,10 @@ pub struct UserConfig {
     /// Whether this member sees and changes the workspace's organization of agents (P120). Only the owner sets it.
     #[serde(default, skip_serializing_if = "OrgAccess::is_none")]
     pub org_access: OrgAccess,
+    /// The providers and combos (by id) the member may give their own agents (P100). Empty (the default) is only the hub's
+    /// default model: a model is the owner's key and money, so a member gets none the owner didn't name.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub models: Vec<String>,
 }
 
 /// A folder on a node a member may work in (`[[users]] node_workdirs`).
@@ -411,6 +415,7 @@ pub fn add_user(config: &mut FileConfig, id: &str, name: &str, temp_password: &s
         workdirs: Vec::new(),
         node_workdirs: Vec::new(),
         org_access: OrgAccess::None,
+        models: Vec::new(),
     };
     let mut users = config.users.clone();
     anyhow::ensure!(!users.iter().any(|u| u.id == user.id), "there's already a user named '{}'", user.id);
@@ -870,6 +875,44 @@ pub fn set_user_learning_provider(config: &mut FileConfig, id: &str, provider: O
     Ok(())
 }
 
+/// Whether `id` names a provider or a combo of the hub.
+fn is_hub_model(config: &FileConfig, id: &str) -> bool {
+    config.providers.iter().any(|p| p.id == id) || config.combos.iter().any(|c| c.id == id)
+}
+
+/// The owner picks which providers and combos a member may give their own agents (P100). Each has to exist; repeats and blanks go.
+/// An agent of the member's that used one now left out goes back to the hub's default model, so what runs is always what was allowed.
+pub fn set_user_models(config: &mut FileConfig, id: &str, models: Vec<String>) -> anyhow::Result<()> {
+    let mut cleaned: Vec<String> = Vec::new();
+    for model in models.into_iter().map(|m| m.trim().to_string()).filter(|m| !m.is_empty()) {
+        anyhow::ensure!(is_hub_model(config, &model), "no model or combo named '{model}'");
+        if !cleaned.contains(&model) {
+            cleaned.push(model);
+        }
+    }
+    find_mut(config, id)?.models = cleaned.clone();
+    for agent in config.agents.iter_mut().filter(|a| a.owner.as_deref() == Some(id)) {
+        if agent.provider_id.as_ref().is_some_and(|p| !cleaned.contains(p)) {
+            agent.provider_id = None;
+        }
+    }
+    Ok(())
+}
+
+/// After the owner's save left the hub with these providers and combos: a member's list loses what no longer exists, and an agent of
+/// theirs that pointed at it (or at anything outside the list) goes back to the default model. Without this a removed model would
+/// make the owner's own save fail on the member's agent (P100).
+pub fn forget_vanished_models(users: &mut [UserConfig], agents: &mut [AgentConfig], exists: &dyn Fn(&str) -> bool) {
+    for user in users.iter_mut() {
+        user.models.retain(|m| exists(m));
+        for agent in agents.iter_mut().filter(|a| a.owner.as_deref() == Some(user.id.as_str())) {
+            if agent.provider_id.as_ref().is_some_and(|p| !user.models.contains(p)) {
+                agent.provider_id = None;
+            }
+        }
+    }
+}
+
 /// A member creates (`original_id` = `None`) or edits one of their own agents. Whatever it says, it
 /// stays theirs, unshared and without any `can_*` power; its tools are cut to what the member has
 /// (`available`: the hub's tools), and its model is the hub's default unless it names a model the
@@ -877,6 +920,12 @@ pub fn set_user_learning_provider(config: &mut FileConfig, id: &str, provider: O
 pub fn save_member_agent(config: &mut FileConfig, owner: &str, original_id: Option<&str>, agent: AgentConfig, available: &[String]) -> anyhow::Result<()> {
     let user = config.users.iter().find(|u| u.id == owner).ok_or_else(|| anyhow::anyhow!("no user named '{owner}'"))?;
     let allowed = member_tools(user, available);
+    // P100: a model is the owner's key and money, so it has to be one the owner released to this member. Said out loud rather than
+    // dropped, so a stale screen or a hand-made request hears why the agent did not get it.
+    let provider_id = agent.provider_id.as_deref().map(str::trim).filter(|p| !p.is_empty()).map(str::to_string);
+    if let Some(model) = &provider_id {
+        anyhow::ensure!(user.models.contains(model) && is_hub_model(config, model), "the owner has not given you the model '{model}'");
+    }
     let id = agent.id.trim().to_string();
     anyhow::ensure!(!id.is_empty(), "every agent needs a name");
     anyhow::ensure!(!agent.persona.trim().is_empty(), "describe the agent in its persona");
@@ -885,7 +934,7 @@ pub fn save_member_agent(config: &mut FileConfig, owner: &str, original_id: Opti
     let checked = AgentConfig {
         id: id.clone(),
         persona: agent.persona.trim().to_string(),
-        provider_id: agent.provider_id.filter(|p| config.providers.iter().any(|x| &x.id == p) || config.combos.iter().any(|c| &c.id == p)),
+        provider_id,
         can_delegate_to_agents: false,
         can_manage_agents: false,
         can_message_agents: false,
@@ -1473,6 +1522,61 @@ mod tests {
         set_user_learning_provider(&mut config, "ana", Some("cheap".into())).unwrap();
         set_user_learning_provider(&mut config, "ana", None).unwrap();
         assert_eq!(config.users[0].learning_provider, None);
+    }
+
+    fn models_config() -> FileConfig {
+        let provider = |id: &str| crate::ProviderConfig { id: id.to_string(), kind: crate::Provider::Gemini, api_key: None, base_url: None, model: None, node: None };
+        let mut config = FileConfig {
+            providers: vec![provider("cheap"), provider("strong")],
+            combos: vec![crate::ComboConfig { id: "any".into(), providers: vec!["cheap".into()] }],
+            ..FileConfig::default()
+        };
+        add_user(&mut config, "ana", "Ana", "temporary-1").unwrap();
+        add_user(&mut config, "bruno", "Bruno", "temporary-2").unwrap();
+        config
+    }
+
+    #[test]
+    fn the_owner_lists_the_models_a_member_may_give_their_agents_and_a_model_left_out_goes_back_to_the_default() {
+        let hub: Vec<String> = Vec::new();
+        let mut config = models_config();
+        assert!(config.users[0].models.is_empty() && !toml::to_string(&config).unwrap().contains("models"), "nothing written until the owner names one");
+
+        set_user_models(&mut config, "ana", vec![" cheap ".into(), "any".into(), "cheap".into(), "  ".into()]).unwrap();
+        assert_eq!(config.users[0].models, ["cheap", "any"], "trimmed, without repeats, a combo counts");
+        assert!(set_user_models(&mut config, "ana", vec!["ghost".into()]).is_err());
+        assert!(set_user_models(&mut config, "nobody", vec!["cheap".into()]).is_err());
+        assert_eq!(config.users[0].models, ["cheap", "any"], "a refusal changes nothing");
+        let text = toml::to_string(&config).unwrap();
+        assert_eq!(toml::from_str::<FileConfig>(&text).unwrap().users[0].models, ["cheap", "any"], "{text}");
+
+        // Her agent can name a model from her list, and nothing else.
+        save_member_agent(&mut config, "ana", None, AgentConfig { provider_id: Some("cheap".into()), ..agent("cook", None, &[]) }, &hub).unwrap();
+        assert_eq!(config.agents[0].provider_id.as_deref(), Some("cheap"));
+        let err = save_member_agent(&mut config, "ana", Some("cook"), AgentConfig { provider_id: Some("strong".into()), ..agent("cook", None, &[]) }, &hub).unwrap_err();
+        assert!(err.to_string().contains("has not given you the model 'strong'"), "{err}");
+        let err = save_member_agent(&mut config, "bruno", None, AgentConfig { provider_id: Some("cheap".into()), ..agent("stew", None, &[]) }, &hub).unwrap_err();
+        assert!(err.to_string().contains("'cheap'"), "Bruno has no list, so no model: {err}");
+        save_member_agent(&mut config, "bruno", None, agent("stew", None, &[]), &hub).unwrap();
+        assert_eq!(config.agents.iter().find(|a| a.id == "stew").unwrap().provider_id, None, "no model named is the hub's default");
+
+        // The owner takes the model back: her agent follows to the default, and the other one is untouched.
+        set_user_models(&mut config, "ana", vec!["any".into()]).unwrap();
+        assert_eq!(config.agents.iter().find(|a| a.id == "cook").unwrap().provider_id, None);
+    }
+
+    #[test]
+    fn a_model_the_owner_removes_leaves_the_members_lists_and_agents() {
+        let hub: Vec<String> = Vec::new();
+        let mut config = models_config();
+        set_user_models(&mut config, "ana", vec!["cheap".into(), "strong".into()]).unwrap();
+        save_member_agent(&mut config, "ana", None, AgentConfig { provider_id: Some("strong".into()), ..agent("cook", None, &[]) }, &hub).unwrap();
+
+        // The hub is left with `cheap` only.
+        let mut agents: Vec<AgentConfig> = config.agents.clone();
+        forget_vanished_models(&mut config.users, &mut agents, &|id| id == "cheap");
+        assert_eq!(config.users[0].models, ["cheap"]);
+        assert_eq!(agents[0].provider_id, None, "the agent that used `strong` goes back to the default");
     }
 
     #[test]

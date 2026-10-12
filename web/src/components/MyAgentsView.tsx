@@ -13,6 +13,8 @@ interface Draft {
   persona: string;
   /** `null`: every tool they have. */
   allowedTools: string[] | null;
+  /** A model the owner released to them (P100); empty is the hub's default. */
+  providerId: string;
 }
 
 function message(err: unknown): string {
@@ -23,7 +25,7 @@ function toAgent(draft: Draft): AgentSettings {
   return {
     id: draft.id.trim(),
     persona: draft.persona,
-    providerId: "",
+    providerId: draft.providerId,
     canDelegateToAgents: false,
     canManageAgents: false,
     canMessageAgents: false,
@@ -42,14 +44,17 @@ function toAgent(draft: Draft): AgentSettings {
 export default function MyAgentsView({ conn, onChanged }: { conn: ServerConnection | null; onChanged: () => void }) {
   const [agents, setAgents] = useState<AgentSettings[] | null>(null);
   const [tools, setTools] = useState<string[]>([]);
+  /** The models the owner released to this person for their agents (P100). */
+  const [models, setModels] = useState<string[]>([]);
   const [draft, setDraft] = useState<Draft | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
-  const apply = useCallback((settings: { agents: AgentSettings[]; toolNames: string[] }) => {
+  const apply = useCallback((settings: { agents: AgentSettings[]; toolNames: string[]; memberModels?: string[] }) => {
     setAgents(settings.agents);
     setTools(settings.toolNames);
+    setModels(settings.memberModels ?? []);
   }, []);
 
   useEffect(() => {
@@ -96,7 +101,7 @@ export default function MyAgentsView({ conn, onChanged }: { conn: ServerConnecti
     <div className="skills-view">
       <div className="skills-header">
         <h2>Agentes</h2>
-        <button type="button" className="primary-button" disabled={!conn || draft !== null} onClick={() => setDraft({ id: "", persona: "", allowedTools: null })}>
+        <button type="button" className="primary-button" disabled={!conn || draft !== null} onClick={() => setDraft({ id: "", persona: "", allowedTools: null, providerId: "" })}>
           Criar agente
         </button>
       </div>
@@ -122,6 +127,21 @@ export default function MyAgentsView({ conn, onChanged }: { conn: ServerConnecti
             Persona
             <textarea rows={6} value={draft.persona} onChange={(e) => setDraft({ ...draft, persona: e.target.value })} placeholder="Quem ele é, no que é bom e como deve se comportar." />
           </label>
+          {/* Only when the owner released models to them (P100); one the owner took back stays listed so saving doesn't swap it silently. */}
+          {(models.length > 0 || draft.providerId !== "") && (
+            <label>
+              Modelo
+              <select value={draft.providerId} onChange={(e) => setDraft({ ...draft, providerId: e.target.value })}>
+                <option value="">Padrão do hub</option>
+                {draft.providerId !== "" && !models.includes(draft.providerId) && <option value={draft.providerId}>{draft.providerId} (não está mais liberado)</option>}
+                {models.map((id) => (
+                  <option key={id} value={id}>
+                    {id}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
           <label className="settings-check">
             <input type="checkbox" checked={draft.allowedTools !== null} onChange={(e) => setDraft({ ...draft, allowedTools: e.target.checked ? [] : null })} />
             Limitar as ferramentas
@@ -166,7 +186,10 @@ export default function MyAgentsView({ conn, onChanged }: { conn: ServerConnecti
                     <span className="skills-item-name">{agent.id}</span>
                   </div>
                   <p className="skills-item-description">{agent.persona}</p>
-                  <p className="skills-hint">{agent.allowedTools === null ? "Todas as suas ferramentas" : `Só: ${agent.allowedTools.join(", ") || "nenhuma"}`}</p>
+                  <p className="skills-hint">
+                    {agent.allowedTools === null ? "Todas as suas ferramentas" : `Só: ${agent.allowedTools.join(", ") || "nenhuma"}`}
+                    {agent.providerId !== "" && ` · modelo ${agent.providerId}`}
+                  </p>
                   {confirmDelete === agent.id ? (
                     <div className="skills-actions">
                       <button type="button" className="primary-button skills-danger" disabled={busy} onClick={() => void remove(agent.id)}>
@@ -182,7 +205,7 @@ export default function MyAgentsView({ conn, onChanged }: { conn: ServerConnecti
                         type="button"
                         className="link-button"
                         disabled={draft !== null}
-                        onClick={() => setDraft({ originalId: agent.id, id: agent.id, persona: agent.persona, allowedTools: agent.allowedTools })}
+                        onClick={() => setDraft({ originalId: agent.id, id: agent.id, persona: agent.persona, allowedTools: agent.allowedTools, providerId: agent.providerId })}
                       >
                         Editar
                       </button>

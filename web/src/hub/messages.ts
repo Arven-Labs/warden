@@ -358,6 +358,8 @@ export interface HubSettings {
   prices: PriceSettings[];
   defaultModels: Record<string, string>;
   toolNames: string[];
+  /** P100 — só na tela de um membro: os provedores e combos (por id) que o dono liberou para os agentes próprios dele. */
+  memberModels?: string[];
   /** `[git_sync]` (P61): `remoteUrl` empty = no git sync; the token is never sent. */
   gitSync: { remoteUrl: string; token: SecretStatus };
   /** `[learning]` and the bots' allow-lists (P118). */
@@ -553,6 +555,8 @@ export interface UserInfo {
   learningOptOut?: boolean;
   /** P115 — the provider or combo the owner chose for learning from their conversations; absent: the workspace's. */
   learningProvider?: string;
+  /** P100 — os provedores e combos (por id) que o dono liberou para os agentes próprios dele; ausente: só o modelo padrão do hub. */
+  models?: string[];
   /** P120 — what the owner lets them do with the organization of the agents: "view" or "edit"; absent: none. */
   orgAccess?: string;
   /** Only in `helloAck`: the workspace has learning on at all, so the member's switch means something. */
@@ -931,6 +935,8 @@ export type ClientMessage =
   | { type: "setUserTools"; requestId: number; pairingKey: string; id: string; tools: string[] | null }
   /** P102 — the folders a member may pick as a working folder; empty lists take them all away. Answered by `userList`. */
   | { type: "setUserWorkdirs"; requestId: number; pairingKey: string; id: string; workdirs: string[]; nodeWorkdirs: NodeFolder[] }
+  /** P100 — os provedores e combos que um membro pode dar aos agentes próprios; lista vazia tira todos. Respondido por `userList`. */
+  | { type: "setUserModels"; requestId: number; pairingKey: string; id: string; models: string[] }
   | { type: "setUserLearningProvider"; requestId: number; pairingKey: string; id: string; provider: string | null }
   /** A member's own agents, answered by `settings` (their view) or `settingsError`. */
   | { type: "saveOwnAgent"; requestId: number; originalId?: string; agent: AgentSettings }

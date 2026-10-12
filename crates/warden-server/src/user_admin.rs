@@ -11,7 +11,7 @@ use warden_bootstrap::member_crypto::{self, MemberKey};
 use warden_bootstrap::recovery::RecoveryPolicy;
 use warden_bootstrap::users::{
     ack_recovery_notices, add_user, create_invite, redeem_invite, unlink_truthid, TruthIdLink, change_password_with, enable_encryption, generate_temp_password, open_key, recover_member, regenerate_recovery_code, remove_space, remove_user, rename_user,
-    reset_password, restore_user, save_space, set_learning_opt_out, set_recovery_policy, set_user_learning_provider, set_user_org_access, set_user_tools, set_user_workdirs, spaces_for, sync_recovery_policy, user_conversations_dir, workspace_policy, NodeFolder, PasswordChange, SpaceConfig,
+    reset_password, restore_user, save_space, set_learning_opt_out, set_recovery_policy, set_user_learning_provider, set_user_models, set_user_org_access, set_user_tools, set_user_workdirs, spaces_for, sync_recovery_policy, user_conversations_dir, workspace_policy, NodeFolder, PasswordChange, SpaceConfig,
 };
 use warden_bootstrap::{load_config_from_path, save_config};
 use warden_server_protocol::protocol::{RemovedUserDto, SpaceDto};
@@ -63,6 +63,8 @@ pub enum UserChange {
     SetWorkdirs { id: String, workdirs: Vec<String>, node_workdirs: Vec<NodeFolder> },
     /// P120: what they do with the organization of the agents (`none`, `view` or `edit`).
     SetOrgAccess { id: String, access: String },
+    /// P100: the providers and combos they may give their own agents.
+    SetModels { id: String, models: Vec<String> },
     /// Fatia 4: brings back a removed member whose encrypted data was kept.
     Restore { id: String },
     /// Fatia 5: an invite to link a TruthID, shown once.
@@ -120,6 +122,7 @@ pub async fn handle_user_change(
             UserChange::SetLearningProvider { id, provider } => set_user_learning_provider(&mut config, &id, provider)?,
             UserChange::SetWorkdirs { id, workdirs, node_workdirs } => set_user_workdirs(&mut config, &id, workdirs, node_workdirs)?,
             UserChange::SetOrgAccess { id, access } => set_user_org_access(&mut config, &id, &access)?,
+            UserChange::SetModels { id, models } => set_user_models(&mut config, &id, models)?,
             UserChange::Restore { id } => restore_user(&mut config, &id)?,
             UserChange::Invite { id } => invite = Some(create_invite(&mut config, &id, unix_now())?),
             UserChange::UnlinkTruthId { id } => unlink_truthid(&mut config, &id)?,

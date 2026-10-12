@@ -1681,6 +1681,85 @@ async fn the_owner_approves_a_pairing_request_as_a_member_of_the_workspace() {
 
 /// P115: the owner picks the model the assistant learns with for a member — a model the hub has, with
 /// the pairing key — and the pick lands in `config.toml` and in what the owner sees.
+/// P100: the owner releases models to a member; she gives one to her own agent, a model she was not given is refused even asked by
+/// hand, and taking the model back sends her agent to the hub's default.
+#[tokio::test]
+async fn a_member_gives_her_agents_only_the_models_the_owner_released() {
+    let hub = spin_up().await;
+    let config_path = hub.dir.join("config.toml");
+    let mut config = warden_bootstrap::load_config_from_path(&config_path, false).unwrap();
+    for id in ["cheap", "strong"] {
+        config.providers.push(warden_bootstrap::ProviderConfig { id: id.into(), kind: warden_bootstrap::Provider::Gemini, api_key: None, base_url: None, model: None, node: None });
+    }
+    save_config(&config_path, &config).unwrap();
+    let mut owner = ServerConnection::connect(&hub.url, "laptop", "Laptop", KEY).await.unwrap();
+    let mut ana = ana_ready(&hub).await;
+    let release = |request_id, key: &str, models: &[&str]| ClientMessage::SetUserModels { request_id, pairing_key: key.into(), id: "ana".into(), models: models.iter().map(|m| m.to_string()).collect() };
+    let her_models = |settings: &ServerMessage| match settings {
+        ServerMessage::Settings { settings, .. } => settings.member_models.clone(),
+        other => panic!("{other:?}"),
+    };
+    let own = |provider: &str| warden_server_protocol::protocol::AgentSettingsDto {
+        original_id: None,
+        id: "cook".into(),
+        persona: "You cook.".into(),
+        provider_id: provider.into(),
+        can_delegate_to_agents: false,
+        can_manage_agents: false,
+        can_message_agents: false,
+        can_manage_tasks: false,
+        allowed_tools: None,
+        autonomy: 4,
+        approval_required: Vec::new(),
+        role: None,
+        reports_to: None,
+        shared_with: Vec::new(),
+        owner: None,
+        delegation_models: Vec::new(),
+        can_start_tasks: true,
+        can_create_workers: true,
+        can_message_user: true,
+        can_choose_models: true,
+    };
+
+    // Only the owner releases, with the pairing key, and only models the hub has.
+    ana.send(&release(2, KEY, &["cheap"])).await.unwrap();
+    assert!(matches!(reply(&mut ana).await, ServerMessage::UserError { auth_rejected: true, .. }), "a member can't release models to herself");
+    owner.send(&release(3, "wrong", &["cheap"])).await.unwrap();
+    assert!(matches!(reply(&mut owner).await, ServerMessage::UserError { auth_rejected: true, .. }));
+    owner.send(&release(4, KEY, &["ghost"])).await.unwrap();
+    assert!(matches!(reply(&mut owner).await, ServerMessage::UserError { auth_rejected: false, .. }));
+    ana.send(&ClientMessage::RequestSettings { request_id: 5 }).await.unwrap();
+    assert!(her_models(&reply(&mut ana).await).is_empty(), "nothing released yet: only the hub's default");
+    ana.send(&ClientMessage::SaveOwnAgent { request_id: 6, original_id: None, agent: own("cheap") }).await.unwrap();
+    assert!(matches!(reply(&mut ana).await, ServerMessage::SettingsError { message, .. } if message.contains("has not given you the model 'cheap'")));
+
+    owner.send(&release(7, KEY, &["cheap"])).await.unwrap();
+    match reply(&mut owner).await {
+        ServerMessage::UserList { users, .. } => assert_eq!(users[0].models, ["cheap"]),
+        other => panic!("{other:?}"),
+    }
+    ana.send(&ClientMessage::RequestSettings { request_id: 8 }).await.unwrap();
+    assert_eq!(her_models(&reply(&mut ana).await), ["cheap"], "read at each request, so no reconnecting");
+
+    // The released model works, and her screen gets it back so saving the agent again keeps it; the other is refused.
+    ana.send(&ClientMessage::SaveOwnAgent { request_id: 9, original_id: None, agent: own("cheap") }).await.unwrap();
+    match reply(&mut ana).await {
+        ServerMessage::Settings { settings, .. } => assert_eq!(settings.agents.iter().find(|a| a.id == "cook").map(|a| a.provider_id.as_str()), Some("cheap")),
+        other => panic!("{other:?}"),
+    }
+    ana.send(&ClientMessage::SaveOwnAgent { request_id: 10, original_id: Some("cook".into()), agent: own("strong") }).await.unwrap();
+    assert!(matches!(reply(&mut ana).await, ServerMessage::SettingsError { message, .. } if message.contains("'strong'")));
+    let config = warden_bootstrap::load_config_from_path(&config_path, false).unwrap();
+    assert_eq!(config.agents.iter().find(|a| a.id == "cook").unwrap().provider_id.as_deref(), Some("cheap"), "a refusal changes nothing");
+
+    // The owner takes it back: her agent runs on the default again.
+    owner.send(&release(11, KEY, &[])).await.unwrap();
+    assert!(matches!(reply(&mut owner).await, ServerMessage::UserList { .. }));
+    let config = warden_bootstrap::load_config_from_path(&config_path, false).unwrap();
+    assert_eq!(config.agents.iter().find(|a| a.id == "cook").unwrap().provider_id, None);
+}
+
 #[tokio::test]
 async fn the_owner_picks_the_learning_model_of_a_member() {
     let hub = spin_up().await;

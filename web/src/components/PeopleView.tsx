@@ -21,6 +21,8 @@ type Asking =
   | { kind: "tools"; user: UserInfo; tools: string[] | null }
   /** P115: `""` is the workspace's own model. */
   | { kind: "learning"; user: UserInfo; provider: string }
+  /** P100: the providers and combos they may give their own agents; none is only the hub's default model. */
+  | { kind: "models"; user: UserInfo; models: string[] }
   /** P120: what they do with the organization of the agents. */
   | { kind: "orgAccess"; user: UserInfo; access: OrgAccess }
   /** P102: the folders they may work in, one per line — of the hub's machine, and on nodes as `<node id>:<path>`. */
@@ -44,6 +46,12 @@ const lines = (text: string): string[] => text.split("\n").map((l) => l.trim()).
 function foldersLabel(user: UserInfo): string {
   const count = (user.workdirs?.length ?? 0) + (user.nodeWorkdirs?.length ?? 0);
   return count === 0 ? "sem pastas de trabalho" : `${count} pasta${count === 1 ? "" : "s"} de trabalho liberada${count === 1 ? "" : "s"}`;
+}
+
+/** The button that opens the models a person may give their agents, with how many are released. */
+function modelsLabel(user: UserInfo): string {
+  const count = user.models?.length ?? 0;
+  return count === 0 ? "Modelos (só o padrão)" : `Modelos (${count} liberado${count === 1 ? "" : "s"})`;
 }
 
 /** Mirrors `warden_bootstrap::users::default_member_tool`: what a member has when you never chose. */
@@ -141,6 +149,8 @@ export default function PeopleView({ conn }: { conn: ServerConnection | null }) 
                 ? await conn.setUserTools(pairingKey, asking.user.id, asking.tools)
                 : asking.kind === "learning"
                   ? await conn.setUserLearningProvider(pairingKey, asking.user.id, asking.provider || null)
+                : asking.kind === "models"
+                  ? await conn.setUserModels(pairingKey, asking.user.id, asking.models)
                 : asking.kind === "orgAccess"
                   ? await conn.setUserOrgAccess(pairingKey, asking.user.id, asking.access)
                 : asking.kind === "folders"
@@ -372,6 +382,28 @@ export default function PeopleView({ conn }: { conn: ServerConnection | null }) 
                       <span className="field-hint">O gasto conta no canal “learning”. Vale só se o aprendizado estiver ligado e a pessoa não tiver optado por sair.</span>
                     </label>,
                   )}
+                {mine?.kind === "models" &&
+                  keyForm(
+                    "Salvar modelos",
+                    false,
+                    <fieldset className="settings-tools">
+                      <legend>Modelos que {user.name} pode dar aos agentes próprios</legend>
+                      {modelIds.length === 0 && <span className="field-hint">O hub ainda não tem nenhum provedor.</span>}
+                      {modelIds.map((id) => (
+                        <label key={id} className="settings-check">
+                          <input
+                            type="checkbox"
+                            checked={mine.models.includes(id)}
+                            onChange={(e) => setAsking({ ...mine, models: e.target.checked ? [...mine.models, id] : mine.models.filter((m) => m !== id) })}
+                          />
+                          <code>{id}</code>
+                        </label>
+                      ))}
+                      <span className="field-hint">
+                        Sem nenhum marcado, os agentes de {user.name} usam só o modelo padrão do hub. Cada modelo usa a chave que é sua, e o gasto conta no limite da pessoa. Tirar um modelo manda os agentes que o usavam de volta ao padrão.
+                      </span>
+                    </fieldset>,
+                  )}
                 {mine?.kind === "orgAccess" &&
                   keyForm(
                     "Salvar acesso",
@@ -421,6 +453,9 @@ export default function PeopleView({ conn }: { conn: ServerConnection | null }) 
                       }
                     >
                       Pastas de trabalho
+                    </button>
+                    <button type="button" className="link-button" disabled={!conn || asking !== null} onClick={() => setAsking({ kind: "models", user, models: user.models ?? [] })}>
+                      {modelsLabel(user)}
                     </button>
                     <button type="button" className="link-button" disabled={!conn || asking !== null} onClick={() => setAsking({ kind: "learning", user, provider: user.learningProvider ?? "" })}>
                       Modelo do aprendizado

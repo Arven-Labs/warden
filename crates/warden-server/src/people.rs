@@ -37,7 +37,7 @@ impl MemberSpace {
     /// The same member with their vault opened again from the folder's current state — after their
     /// data key was created or opened (a connection's first vault was plain, or locked).
     pub fn reopened(&self, users_dir: &Path, conversations_root: &Path) -> Self {
-        let user = UserConfig { id: self.id.clone(), name: self.name.clone(), role: UserRole::Member, password_hash: String::new(), must_change_password: false, tools: None, key: None, key_needs_recovery: false, recoveries: Vec::new(), truthid: None, invite: None, learning_opt_out: false, learning_provider: None, workdirs: Vec::new(), node_workdirs: Vec::new(), org_access: Default::default() };
+        let user = UserConfig { id: self.id.clone(), name: self.name.clone(), role: UserRole::Member, password_hash: String::new(), must_change_password: false, tools: None, key: None, key_needs_recovery: false, recoveries: Vec::new(), truthid: None, invite: None, learning_opt_out: false, learning_provider: None, workdirs: Vec::new(), node_workdirs: Vec::new(), org_access: Default::default(), models: Vec::new() };
         Self::new(&user, users_dir, conversations_root)
     }
 
@@ -116,6 +116,7 @@ pub fn user_info(user: &UserConfig, agents: &[AgentConfig], workspace_policy: Re
         invite_open: user.invite.as_ref().is_some_and(|invite| invite.expires_at > unix_now()),
         workdirs: user.workdirs.clone(),
         node_workdirs: user.node_workdirs.iter().map(|f| warden_server_protocol::protocol::NodeFolderDto { node: f.node.clone(), path: f.path.clone() }).collect(),
+        models: user.models.clone(),
     }
 }
 
@@ -184,6 +185,7 @@ pub fn member_refusal(message: &ClientMessage) -> Option<ServerMessage> {
         | ClientMessage::SetUserTools { request_id, .. }
         | ClientMessage::SetUserLearningProvider { request_id, .. }
         | ClientMessage::SetUserWorkdirs { request_id, .. }
+        | ClientMessage::SetUserModels { request_id, .. }
         | ClientMessage::SetUserOrgAccess { request_id, .. }
         | ClientMessage::ListBotPairings { request_id }
         | ClientMessage::ResolveBotPairing { request_id, .. }
@@ -274,6 +276,8 @@ pub fn member_settings_view(message: ServerMessage, config: &FileConfig, member:
             settings.advanced = Default::default();
             settings.machine = Default::default();
             settings.tool_names = tools;
+            // P100: the models the owner released to them, for the picker of their own agents.
+            settings.member_models = config.users.iter().find(|u| u.id == member).map(|u| u.models.clone()).unwrap_or_default();
             settings.agents = member_agents_view(config, member);
             ServerMessage::Settings { request_id, settings, version, secrets_writable: false }
         }
@@ -293,7 +297,8 @@ pub fn member_agents_view(config: &FileConfig, member: &str) -> Vec<AgentSetting
                 original_id: None,
                 id: a.id.clone(),
                 persona: if mine { a.persona.clone() } else { String::new() },
-                provider_id: String::new(),
+                // Their own agent shows its model, so saving it again does not clear it (P100); the owner's shared ones keep it private.
+                provider_id: if mine { a.provider_id.clone().unwrap_or_default() } else { String::new() },
                 can_delegate_to_agents: false,
                 can_manage_agents: false,
                 can_message_agents: false,
