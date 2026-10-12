@@ -273,6 +273,37 @@ pub async fn diff(worktree: &Worktree, max_chars: usize) -> anyhow::Result<Strin
     Ok(format!("{stat}\n\n{shown}{cut}"))
 }
 
+/// How the task's work enters the project's branch.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Strategy {
+    /// A merge commit that keeps the task's own commits (`--no-ff`).
+    #[default]
+    Merge,
+    /// One commit with all of the task's changes; its own commits are not kept.
+    Squash,
+    /// The task's commits are replayed on top of the project's branch, which then moves forward to them: a straight history, no merge commit.
+    Rebase,
+}
+
+impl Strategy {
+    pub fn parse(name: &str) -> anyhow::Result<Self> {
+        match name {
+            "merge" => Ok(Self::Merge),
+            "squash" => Ok(Self::Squash),
+            "rebase" => Ok(Self::Rebase),
+            other => bail!("'{other}' is not a strategy — must be one of: merge, squash, rebase"),
+        }
+    }
+
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Merge => "merge",
+            Self::Squash => "squash",
+            Self::Rebase => "rebase",
+        }
+    }
+}
+
 /// How a merge ended.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Merged {
@@ -361,6 +392,13 @@ pub async fn update(worktree: &Worktree, title: &str) -> anyhow::Result<Updated>
 /// What the task left uncommitted is committed on its branch first. Refused, before anything is touched, when the project's folder has
 /// changes of its own that aren't committed (a merge would mix them in) or no branch checked out.
 pub async fn merge(worktree: &Worktree, title: &str) -> anyhow::Result<Merged> {
+    merge_with(worktree, title, Strategy::Merge).await
+}
+
+/// `merge`, with the way the work enters the branch chosen: `Squash` makes one commit titled `title`; `Rebase` keeps the task's commits as
+/// they are, replayed on the branch's tip. A clash changes nothing in the project's folder either way (a rebase is undone in the worktree),
+/// and the worktree is kept.
+pub async fn merge_with(worktree: &Worktree, title: &str, strategy: Strategy) -> anyhow::Result<Merged> {
     git(&worktree.repo, &["symbolic-ref", "-q", "HEAD"]).await.map_err(|_| anyhow!("the project's folder has no branch checked out (a detached HEAD), so there is nothing to merge into"))?;
     let dirty = git(&worktree.repo, &["status", "--porcelain"]).await?;
     if !dirty.is_empty() {
@@ -376,6 +414,11 @@ pub async fn merge(worktree: &Worktree, title: &str) -> anyhow::Result<Merged> {
         git(&worktree.root, &["commit", "-q", "--no-edit"]).await.context("concluding the merge of the project's branch into the worktree")?;
     } else if !git(&worktree.root, &["diff", "--cached", "--name-only"]).await?.is_empty() {
         git(&worktree.root, &["commit", "-q", "-m", &format!("warden: {title}")]).await.context("committing what the task left (are user.name and user.email set in git?)")?;
+    }
+    match strategy {
+        Strategy::Merge => {}
+        Strategy::Squash => return squash(worktree, title).await,
+        Strategy::Rebase => return rebase(worktree).await,
     }
     let message = format!("Merge {}: {title}", worktree.branch);
     match git(&worktree.repo, &["merge", "--no-ff", "-m", &message, &worktree.branch]).await {
@@ -396,6 +439,59 @@ pub async fn merge(worktree: &Worktree, title: &str) -> anyhow::Result<Merged> {
             Ok(Merged::Conflict { files })
         }
     }
+}
+
+/// The files git lists as unmerged in `dir`.
+async fn unmerged(dir: &Path) -> Vec<String> {
+    git(dir, &["diff", "--name-only", "--diff-filter=U"]).await.unwrap_or_default().lines().map(str::to_string).collect()
+}
+
+/// After the work is in the project's branch: the worktree and its branch go. `force` is for a branch git can't see as merged (a squash).
+async fn remove_after_merge(worktree: &Worktree, force: bool) -> anyhow::Result<()> {
+    git(&worktree.repo, &["worktree", "remove", "--force", &worktree.root.to_string_lossy()]).await?;
+    git(&worktree.repo, &["branch", if force { "-D" } else { "-d" }, &worktree.branch]).await?;
+    Ok(())
+}
+
+/// One commit, titled `title`, with everything the task changed. The project's folder was clean when this started, so a clash is undone
+/// with a hard reset to where it was.
+async fn squash(worktree: &Worktree, title: &str) -> anyhow::Result<Merged> {
+    if let Err(err) = git(&worktree.repo, &["merge", "--squash", &worktree.branch]).await {
+        let files = unmerged(&worktree.repo).await;
+        let _ = git(&worktree.repo, &["reset", "--hard", "HEAD"]).await;
+        if files.is_empty() {
+            return Err(err);
+        }
+        return Ok(Merged::Conflict { files });
+    }
+    if git(&worktree.repo, &["diff", "--cached", "--name-only"]).await?.is_empty() {
+        bail!("the task's work changes nothing in the project's branch, so there is no commit to make (discard the worktree instead)");
+    }
+    git(&worktree.repo, &["commit", "-q", "-m", title]).await.context("committing the squashed work (are user.name and user.email set in git?)")?;
+    let commit = git(&worktree.repo, &["rev-parse", "--short", "HEAD"]).await?;
+    let stat = git(&worktree.repo, &["show", "--stat", "--format=", "HEAD"]).await?;
+    remove_after_merge(worktree, true).await?;
+    Ok(Merged::Done { commit, stat })
+}
+
+/// The task's commits replayed on the project's branch (in the worktree, where a clash is undone with `rebase --abort`), then the branch moves
+/// forward to them. A history with merge commits (one `update` made) is flattened.
+async fn rebase(worktree: &Worktree) -> anyhow::Result<Merged> {
+    let onto = git(&worktree.repo, &["symbolic-ref", "-q", "--short", "HEAD"]).await?;
+    let before = git(&worktree.repo, &["rev-parse", "HEAD"]).await?;
+    if let Err(err) = git(&worktree.root, &["rebase", &onto]).await {
+        let files = unmerged(&worktree.root).await;
+        let _ = git(&worktree.root, &["rebase", "--abort"]).await;
+        if files.is_empty() {
+            return Err(err);
+        }
+        return Ok(Merged::Conflict { files });
+    }
+    git(&worktree.repo, &["merge", "--ff-only", &worktree.branch]).await?;
+    let commit = git(&worktree.repo, &["rev-parse", "--short", "HEAD"]).await?;
+    let stat = git(&worktree.repo, &["diff", "--stat", &before, "HEAD"]).await?;
+    remove_after_merge(worktree, false).await?;
+    Ok(Merged::Done { commit, stat })
 }
 
 /// Throws the task's work away: the worktree and its branch, with whatever is in them.
@@ -580,6 +676,87 @@ mod tests {
         assert_eq!(listed.iter().map(|e| (e.id.as_str(), e.branch.as_str(), e.changed_files, e.commits)).collect::<Vec<_>>(), [(worktree.id.as_str(), worktree.branch.as_str(), 3, 1)]);
         assert_eq!(listed[0].path, worktree.path);
         std::fs::remove_dir_all(&outer).ok();
+    }
+
+    /// Two commits and an uncommitted file in a worktree.
+    fn task_work(worktree: &Worktree) {
+        std::fs::write(worktree.path.join("c.txt"), "committed").unwrap();
+        run(&worktree.path, &["add", "."]);
+        run(&worktree.path, &["commit", "-q", "-m", "add c"]);
+        std::fs::write(worktree.path.join("d.txt"), "second").unwrap();
+        run(&worktree.path, &["add", "."]);
+        run(&worktree.path, &["commit", "-q", "-m", "add d"]);
+        std::fs::write(worktree.path.join("late.txt"), "not committed").unwrap();
+    }
+
+    #[tokio::test]
+    async fn a_squash_makes_one_commit_with_the_title_and_drops_the_tasks_own_commits() {
+        let (outer, repo) = repository("squash");
+        let worktree = create(&repo).await.unwrap();
+        task_work(&worktree);
+        let before = out(&repo, &["rev-list", "--count", "HEAD"]).parse::<u32>().unwrap();
+
+        let Merged::Done { commit, stat } = merge_with(&worktree, "add the files", Strategy::Squash).await.unwrap() else { panic!("no conflict") };
+        assert!(stat.contains("c.txt") && stat.contains("d.txt") && stat.contains("late.txt"), "{stat}");
+        assert_eq!(out(&repo, &["rev-parse", "--short", "HEAD"]), commit);
+        assert_eq!(out(&repo, &["log", "-1", "--format=%s"]), "add the files");
+        assert_eq!(out(&repo, &["rev-list", "--count", "HEAD"]).parse::<u32>().unwrap(), before + 1, "one commit, not three");
+        assert_eq!(out(&repo, &["rev-list", "--parents", "-n", "1", "HEAD"]).split_whitespace().count(), 2, "an ordinary commit, not a merge");
+        assert!(!out(&repo, &["log", "--format=%s"]).contains("add c"));
+        assert!(repo.join("c.txt").is_file() && repo.join("late.txt").is_file());
+        assert!(!worktree.path.exists() && out(&repo, &["branch", "--list", &worktree.branch]).is_empty(), "the worktree and its branch are gone, though git never saw it merged");
+        std::fs::remove_dir_all(&outer).ok();
+    }
+
+    #[tokio::test]
+    async fn a_rebase_keeps_the_tasks_commits_on_a_straight_line_on_top_of_what_the_project_got_meanwhile() {
+        let (outer, repo) = repository("rebase");
+        let worktree = create(&repo).await.unwrap();
+        task_work(&worktree);
+        std::fs::write(repo.join("meanwhile.txt"), "someone else").unwrap();
+        run(&repo, &["add", "."]);
+        run(&repo, &["commit", "-q", "-m", "meanwhile"]);
+
+        let Merged::Done { stat, .. } = merge_with(&worktree, "ignored for a rebase", Strategy::Rebase).await.unwrap() else { panic!("no conflict") };
+        assert!(stat.contains("c.txt") && stat.contains("late.txt"), "{stat}");
+        let log = out(&repo, &["log", "--format=%s"]);
+        let lines: Vec<&str> = log.lines().collect();
+        assert_eq!(&lines[..4], ["warden: ignored for a rebase", "add d", "add c", "meanwhile"], "{log}");
+        assert_eq!(out(&repo, &["rev-list", "--merges", "--count", "HEAD"]), "0", "no merge commit");
+        assert!(repo.join("meanwhile.txt").is_file() && repo.join("c.txt").is_file() && repo.join("late.txt").is_file());
+        assert!(!worktree.path.exists() && out(&repo, &["branch", "--list", &worktree.branch]).is_empty());
+        std::fs::remove_dir_all(&outer).ok();
+    }
+
+    #[tokio::test]
+    async fn a_squash_or_rebase_that_clashes_changes_nothing_in_the_project_and_keeps_the_worktree() {
+        for strategy in [Strategy::Squash, Strategy::Rebase] {
+            let (outer, repo) = repository(strategy.name());
+            let worktree = create(&repo).await.unwrap();
+            std::fs::write(worktree.path.join("a.txt"), "the task's version").unwrap();
+            run(&worktree.path, &["add", "."]);
+            run(&worktree.path, &["commit", "-q", "-m", "task a"]);
+            std::fs::write(repo.join("a.txt"), "the person's version").unwrap();
+            run(&repo, &["add", "."]);
+            run(&repo, &["commit", "-q", "-m", "person a"]);
+            let head = out(&repo, &["rev-parse", "HEAD"]);
+
+            let merged = merge_with(&worktree, "t", strategy).await.unwrap();
+            assert_eq!(merged, Merged::Conflict { files: vec!["a.txt".to_string()] }, "{}", strategy.name());
+            assert_eq!(out(&repo, &["rev-parse", "HEAD"]), head, "{}: the project's branch did not move", strategy.name());
+            assert_eq!(out(&repo, &["status", "--porcelain"]), "", "{}: and its folder is clean", strategy.name());
+            assert_eq!(std::fs::read_to_string(repo.join("a.txt")).unwrap(), "the person's version");
+            assert_eq!(out(&worktree.path, &["status", "--porcelain"]), "", "{}: the rebase was undone, the worktree is as it was", strategy.name());
+            assert!(worktree.path.exists() && !out(&repo, &["branch", "--list", &worktree.branch]).is_empty());
+            std::fs::remove_dir_all(&outer).ok();
+        }
+    }
+
+    #[test]
+    fn a_strategy_is_read_by_name_and_anything_else_is_refused() {
+        assert_eq!(Strategy::parse("squash").unwrap(), Strategy::Squash);
+        assert_eq!(Strategy::default(), Strategy::Merge);
+        assert!(Strategy::parse("octopus").unwrap_err().to_string().contains("merge, squash, rebase"));
     }
 
     #[tokio::test]

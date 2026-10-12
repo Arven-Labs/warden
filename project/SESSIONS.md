@@ -6,6 +6,16 @@
 
 ---
 
+### 2026-10-11 — Sessão 182 (continuação: P124, squash e rebase no merge da worktree)
+
+- **Pedido do usuário**: "sim, vamos seguir" (squash e rebase no `code_worktree`).
+- **O que mudou**: `worktree::Strategy` (`Merge`, `Squash`, `Rebase`) e `merge_with` (o `merge` antigo é o atalho com `Merge`); `squash` e `rebase` internos com `remove_after_merge`; a tool `code_worktree` ganhou `strategy` no `merge`, lido antes de perguntar, e a pergunta à pessoa diz como o trabalho entra.
+- **Testes** (`warden-core`, 37 em `worktree`): squash (um commit, sem merge, branch apagada), rebase (linha reta sobre o que o projeto ganhou, commits guardados), choque nos dois (nada muda na pasta, worktree intacta), nome da estratégia, e na tool a pergunta com a estratégia e a recusa de nome inválido sem perguntar; clippy do core limpo; `code_task` do hub (6) verde.
+- **Disco**: a partição `/home` chegou a 100% e a compilação falhou; apaguei `target/debug/incremental` (20 GB, regenerável) e passei a rodar com `CARGO_INCREMENTAL=0`; ficou em 90%.
+- **Fica**: nenhum modelo real conduziu o ciclo; web e desktop não têm tela para escolher a estratégia (só o agente escolhe).
+
+---
+
 ### 2026-10-11 — Sessão 182 (continuação: P124, o campo `code` no resumo da conversa)
 
 - **Pedido do usuário**: "faz o campo de código no resumo".

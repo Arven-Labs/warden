@@ -19,7 +19,7 @@ use crate::project::ProjectStore;
 use crate::tool::code_task::folder_busy;
 use crate::tool::shell::{platform_shell_command, truncate, APPROVAL_TIMEOUT, DEFAULT_TIMEOUT_MS, MAX_TIMEOUT_MS};
 use crate::tool::{ApprovalRequest, Approver, Tool, ToolSpec};
-use crate::worktree::{self, Merged, Updated, Worktree};
+use crate::worktree::{self, Merged, Strategy, Updated, Worktree};
 
 /// How much of a patch an agent is shown at once; the file list is always whole.
 const DIFF_CHARS: usize = 20_000;
@@ -187,7 +187,7 @@ impl Tool for CodeWorktreeTool {
             name: "code_worktree".to_string(),
             description: "Review and integrate the worktrees that isolated code_task runs ('isolate') left, each on its own branch. \
                 'list' shows the project's worktrees and how much work each has; 'diff' shows what a worktree's task changed; 'merge' brings it into \
-                the branch the project's folder has checked out, as a merge commit, and removes the worktree; 'discard' throws it away; 'prune' throws away every \
+                the branch the project's folder has checked out and removes the worktree (as a merge commit by default; 'strategy' can be \"squash\" for one commit or \"rebase\" for a straight history); 'discard' throws it away; 'prune' throws away every \
                 worktree whose work has sat untouched for 14 days or more ('older_than_days'), after one yes from the person for the whole list. 'list' \
                 also tidies away, by itself, the worktrees where nothing was changed, and marks the forgotten ones ('stale'). 'update' brings the project's current branch into a worktree (a clash shows up there, as conflict markers in the files, and never in the person's folder; \
                 fix those files with code_task, same 'worktree', then merge) and asks nobody. 'check' runs a 'command' \
@@ -204,6 +204,7 @@ impl Tool for CodeWorktreeTool {
                     "command": { "type": "string", "description": "For check: the shell command to run in the worktree, e.g. the project's test command." },
                     "timeout_ms": { "type": "integer", "minimum": 1, "description": "For check: how long the command may run (30000 by default, at most 300000)." },
                     "title": { "type": "string", "description": "For merge: what the work is, for the commit messages." },
+                    "strategy": { "type": "string", "enum": ["merge", "squash", "rebase"], "description": "For merge: how the work enters the branch. 'merge' (default) is a merge commit that keeps the task's commits; 'squash' is one commit titled 'title'; 'rebase' replays the task's commits on the branch's tip, with no merge commit." },
                     "older_than_days": { "type": "integer", "minimum": 1, "description": "For prune: how many days a worktree's work must have sat untouched to be thrown away (14 by default)." }
                 },
                 "required": ["action", "project"]
@@ -274,6 +275,11 @@ impl Tool for CodeWorktreeTool {
                 }),
             });
         }
+        // Read before anything is asked or touched, so a name that is no strategy costs nobody a yes.
+        let strategy = match args.get("strategy").and_then(Value::as_str).map(str::trim).filter(|s| !s.is_empty()) {
+            Some(name) if action == "merge" => Strategy::parse(name)?,
+            _ => Strategy::default(),
+        };
         let seen = worktree::diff(&found, 0).await?;
         let seen = seen.split("\n\n").next().unwrap_or_default();
         if action == "discard" {
@@ -288,8 +294,13 @@ impl Tool for CodeWorktreeTool {
             anyhow::bail!("worktree {wanted} is bringing in the project's branch and these files still have conflict markers: {}. Resolve them first (code_task with this 'worktree'); nothing was asked or changed.", left.join(", "));
         }
         let tests = self.tests_line(&found.id, seen);
-        self.confirmed(&project.name, "merge worktree", format!("Merge worktree {} (branch {}) into the project's current branch as \"{title}\":\n{seen}\n{tests}", found.id, found.branch)).await?;
-        Ok(match worktree::merge(&found, &title).await? {
+        let how = match strategy {
+            Strategy::Merge => format!("as a merge commit \"{title}\""),
+            Strategy::Squash => format!("squashed into one commit \"{title}\" (the task's own commits are not kept)"),
+            Strategy::Rebase => "rebased onto it: the task's commits are replayed on its tip, with no merge commit".to_string(),
+        };
+        self.confirmed(&project.name, "merge worktree", format!("Merge worktree {} (branch {}) into the project's current branch, {how}:\n{seen}\n{tests}", found.id, found.branch)).await?;
+        Ok(match worktree::merge_with(&found, &title, strategy).await? {
             Merged::Done { commit, stat } => {
                 self.checks.lock().unwrap().remove(&found.id);
                 json!({ "merged": true, "commit": commit, "changes": stat, "worktree": null })
@@ -298,7 +309,8 @@ impl Tool for CodeWorktreeTool {
                 "merged": false,
                 "conflicts": files,
                 "worktree": found.id,
-                "next": "Nothing was changed in the project's folder and the worktree is kept. Bring the project's current branch into the worktree with this tool's 'update' (the clash is then in the worktree), fix the files with code_task (same 'worktree'), then merge again."
+                "next": format!("Nothing was changed in the project's folder and the worktree is kept. Bring the project's current branch into the worktree with this tool's 'update' (the clash is then in the worktree), fix the files with code_task (same 'worktree'), then merge again.{}",
+                    if strategy == Strategy::Rebase { " A rebase replays each commit and can clash again after that fix: merge with strategy 'squash' or 'merge' instead." } else { "" })
             }),
         })
     }
@@ -389,6 +401,25 @@ mod tests {
         assert_eq!(says_yes.asked.lock().unwrap().len(), 1);
         assert!(setup.repo.join("made.txt").is_file());
         assert_eq!(setup.tool.call(json!({ "action": "list", "project": "repo" })).await.unwrap()["worktrees"], json!([]), "the worktree is gone");
+        std::fs::remove_dir_all(&setup.outer).ok();
+    }
+
+    #[tokio::test]
+    async fn the_strategy_is_in_the_ask_decides_how_the_work_comes_in_and_a_wrong_name_asks_nobody() {
+        let setup = setup("strategy").await;
+        let (yes, says) = asked_by(&setup.tool, true);
+        let merge = |strategy: &str| json!({ "action": "merge", "project": "repo", "worktree": setup.id, "title": "add made", "strategy": strategy });
+
+        let err = yes.call(merge("octopus")).await.unwrap_err();
+        assert!(err.to_string().contains("merge, squash, rebase"), "{err}");
+        assert!(says.asked.lock().unwrap().is_empty(), "nobody was asked about a strategy that doesn't exist");
+
+        let squashed = yes.call(merge("squash")).await.unwrap();
+        assert_eq!(squashed["merged"], true);
+        let detail = says.asked.lock().unwrap()[0].detail.clone();
+        assert!(detail.contains("squashed into one commit \"add made\""), "the person is told how: {detail}");
+        let subject = std::process::Command::new("git").arg("-C").arg(&setup.repo).args(["log", "-1", "--format=%s"]).output().unwrap();
+        assert_eq!(String::from_utf8_lossy(&subject.stdout).trim(), "add made");
         std::fs::remove_dir_all(&setup.outer).ok();
     }
 
