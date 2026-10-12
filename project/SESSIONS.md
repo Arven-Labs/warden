@@ -6,6 +6,15 @@
 
 ---
 
+### 2026-10-11 — Sessão 182 (continuação: P21, o Telegram responde a mensagem sem texto)
+
+- **Pedido do usuário**: depois de eu ter andado rápido demais, "roda plan e tudo mais". Entrei em modo de planejamento, o usuário escolheu as quatro pontas (P21, P47, P87, P123) e as decisões de cada uma (rotação por tamanho de 5 MiB com 3 antigos; verificação a cada 3 s no desktop; os quatro clientes no P123; ordem P21, P47, P87, P123), e aprovou o plano (`~/.claude/plans/gleaming-painting-clock.md`). Um commit por ponta, parando entre elas.
+- **O que mudou**: `MEDIA_REPLY` e o ramo sem texto de `process_updates` (`warden-telegram/src/telegram.rs`), que antes só fazia `continue`.
+- **Teste**: um novo (pessoa liberada com mídia recebe o aviso uma vez, estranho e grupo nada, sem chamada ao modelo, sem conversa gravada); `warden-telegram` 27 + 4 verdes, clippy limpo. Um erro meu no teste (ids fora de ordem) foi corrigido.
+- **Fica**: chat mapeado a membro com mídia não tem teste próprio; nada visto com um bot real.
+
+---
+
 ### 2026-10-11 — Sessão 182 (continuação: mensagem útil quando falta o Node.js, P17)
 
 - **Pedido do usuário**: "vamos para o próximo" (sem item escolhido; peguei o P17, que o próprio texto marcava como "vale revisitar").

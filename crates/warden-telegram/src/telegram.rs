@@ -25,6 +25,9 @@ const RETRY_DELAY: Duration = Duration::from_secs(5);
 const HELP_TEXT: &str =
     "Hi! I'm Warden, your personal AI agent. Just send me a message and I'll reply. /help shows this message again.";
 
+/// What a message with no text (media) is answered with: the same line the WhatsApp bot uses.
+const MEDIA_REPLY: &str = "Sorry, I can only read text messages for now.";
+
 #[derive(Debug, Clone, Deserialize)]
 pub struct Update {
     pub update_id: i64,
@@ -398,7 +401,14 @@ async fn process_updates(
                 continue;
             }
         }
-        let Some(text) = message.text.clone() else { continue };
+        // A photo, a voice note, a document: told once that only text is read, as the WhatsApp bot does (P21). Nothing is kept and no
+        // model is called; a chat that speaks as a member gets the same line, since the hub only takes text.
+        let Some(text) = message.text.clone() else {
+            if let Err(err) = api.send_message(message.chat.id, MEDIA_REPLY).await {
+                eprintln!("failed to send the text-only notice to chat {}: {err:#}", message.chat.id);
+            }
+            continue;
+        };
         // A chat the owner mapped to a member (P117) is answered by the hub as that member, not by the
         // owner's orchestrator: only the greeting stays here, it says nothing about anyone's data.
         let member = message.from.as_ref().and_then(|s| s.id).and_then(|id| access.settings.member_for(id)).map(str::to_owned);
@@ -607,6 +617,37 @@ mod tests {
         process_updates(&api, &orchestrator, &conversations_dir, None, &mut access, vec![text_update(6, 42, "hello")], &mut offset).await;
         assert_eq!(api.sent.lock().unwrap().len(), 1, "the listed person is answered");
         assert_eq!(calls.load(Ordering::SeqCst), 1);
+    }
+
+    /// P21: a photo, a voice note or a document (no `text`) from a listed person is told the bot reads text only, and nothing else
+    /// happens: no model call, no conversation kept. A stranger and a group still get no answer at all.
+    #[tokio::test]
+    async fn a_message_without_text_is_told_so_and_a_stranger_is_still_ignored() {
+        let calls = std::sync::Arc::new(AtomicUsize::new(0));
+        let vault = std::sync::Arc::new(warden_core::memory::Vault::new(std::env::temp_dir().join(format!("warden-telegram-media-vault-{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()))));
+        let orchestrator = Orchestrator::new(std::sync::Arc::new(CountingModel(calls.clone())), vault);
+        let conversations_dir = temp_conversations_dir();
+        let media = |update_id: i64, chat_id: i64| {
+            let mut update = text_update(update_id, chat_id, "");
+            if let Some(message) = update.message.as_mut() {
+                message.text = None;
+            }
+            update
+        };
+        let mut group = media(2, 99);
+        if let Some(message) = group.message.as_mut() {
+            message.chat = Chat { id: -1001, kind: "supergroup".to_string() };
+            message.from = Some(Sender { id: Some(42), username: None, first_name: None });
+        }
+        let api = ScriptedTelegramApi::new(Vec::new());
+        let mut access = access_for(&[42]);
+        let mut offset = None;
+        process_updates(&api, &orchestrator, &conversations_dir, None, &mut access, vec![media(1, 7), group, media(3, 42)], &mut offset).await;
+
+        assert_eq!(offset, Some(4), "every update is consumed");
+        assert_eq!(*api.sent.lock().unwrap(), vec![(42, MEDIA_REPLY.to_string())], "only the listed person is told, once");
+        assert_eq!(calls.load(Ordering::SeqCst), 0, "no model call");
+        assert!(warden_bootstrap::load_conversation(&conversations_dir, "42").unwrap().is_none(), "no conversation kept");
     }
 
     /// An empty list is nobody, and a message with no sender or no chat kind never passes.
