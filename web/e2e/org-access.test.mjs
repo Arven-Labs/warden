@@ -106,6 +106,7 @@ describe("the organization for a member", () => {
       assert.equal(await viewer.page.getByRole("button", { name: "Remover", exact: true }).count(), 0);
       assert.equal(await viewer.page.getByRole("button", { name: "Conversar", exact: true }).count(), 0, "her chat is not with the owner's agents from here");
       assert.equal(await viewer.page.locator(".org-badge").count(), 0, "what an agent can do is not part of what she sees");
+      assert.ok(!viewer.sent.some((s) => s.includes('"requestUsage"')), "the owner's spending is not asked for on her behalf (P123)");
 
       // `edit`.
       await giveAccess(owner.page, "Vê e edita");
@@ -122,6 +123,7 @@ describe("the organization for a member", () => {
       await editor.page.getByRole("button", { name: "Salvar", exact: true }).click();
       await editor.page.locator(".org-role", { hasText: "Operações" }).waitFor();
       assert.equal(await editor.page.getByLabel("Chave de pareamento do hub").count(), 0, "no pairing key is asked of her");
+      assert.ok(!editor.sent.some((s) => s.includes('"requestUsage"')), "nor when she may edit (P123)");
 
       const frame = editor.sent.map((s) => JSON.parse(s)).find((m) => m.type === "editAgentOrg");
       assert.ok(frame, "the page sent the edit");

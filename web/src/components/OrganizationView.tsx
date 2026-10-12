@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { SettingsError, type ServerConnection } from "../hub/connection";
-import type { AgentSettings, AgentTask } from "../hub/messages";
-import { activityLine, activityOf } from "../hub/agentTasks";
+import type { AgentSettings, AgentTask, ConversationSummary, UsageReport } from "../hub/messages";
+import { activityLine, activityOf, lastConversationOf, spendOf } from "../hub/agentTasks";
 import { approvalCategoryLabel } from "../hub/approvalCategories";
 import { addReportEdit, buildOrg, moveEdit, positionEdit, superiorChoices, type OrgAccess, type OrgAgent, type OrgEdit, type OrgNode } from "../hub/org";
 
@@ -250,6 +250,9 @@ export default function OrganizationView({
   const [busy, setBusy] = useState(false);
   const [arrastando, setArrastando] = useState<string | null>(null);
   const [tasks, setTasks] = useState<AgentTask[]>([]);
+  // Só o dono: o gasto de cada agente e as conversas que ele já teve (P123). Um membro não os pede nem os vê.
+  const [usage, setUsage] = useState<UsageReport | null>(null);
+  const [conversations, setConversations] = useState<ConversationSummary[]>([]);
 
   const load = useCallback(async () => {
     if (!conn) return;
@@ -268,6 +271,16 @@ export default function OrganizationView({
     // A atividade de cada nó é um extra: sem as tarefas, o cartão só não mostra a linha.
     try {
       setTasks(await conn.listAgentTasks());
+    } catch {
+      /* ignorado */
+    }
+    try {
+      setUsage(await conn.requestUsage());
+    } catch {
+      /* ignorado */
+    }
+    try {
+      setConversations(await conn.listConversations());
     } catch {
       /* ignorado */
     }
@@ -347,7 +360,7 @@ export default function OrganizationView({
     arrastando,
     arrastar: setArrastando,
     atividade: (id) => {
-      const activity = activityOf(tasks, id);
+      const activity = activityOf(tasks, id, { spend: spendOf(usage, id), lastConversationMs: lastConversationOf(conversations, id) });
       return activity ? activityLine(activity, Date.now()) : null;
     },
   };

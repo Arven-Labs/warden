@@ -6,6 +6,15 @@
 
 ---
 
+### 2026-10-11 — Sessão 182 (continuação: P123, custo e hora da última conversa na atividade; web e desktop)
+
+- **Pedido do usuário**: "pode seguir com o P123, dois commits" (quarto item do plano aprovado, nos quatro clientes). Este é o primeiro commit: web e desktop. Extensão e celular vêm no segundo.
+- **O que mudou**: `activityOf(tasks, agent, extras)` aceita o gasto e a hora da última conversa; `spendOf` lê o gasto do `recent.byAgent` do relatório; `lastConversationOf` acha a conversa mais recente do agente (sem threads); `spendLabel` diz o gasto; `AgentActivity.lastActiveMs` pode ser `null` quando só o gasto é conhecido, e `spend` só existe quando há valor. A tela da Organização (web e desktop) pede o relatório de uso e as conversas só para o dono.
+- **Testes**: web `tests/agentTasks.test.mjs` novo (9), desktop 7 novos em `agentTasks.test.mjs` (114 no total), `tsc` limpo nos dois, build da web, e2e `org` e `org-access` (4) com duas asserções novas de que um membro nunca manda `requestUsage`. Um teste meu falhou por usar a assinatura do helper errada (`task(id, state)` em vez de `task(id, group, state)`) e foi corrigido.
+- **Fica**: extensão e celular (próximo commit); nada visto numa janela; `requestUsage` lê todas as conversas do hub a cada abertura da tela da Organização (a tela de Uso já faz o mesmo).
+
+---
+
 ### 2026-10-11 — Sessão 182 (continuação: P87, o desktop avisado de recado deixado pelo CLI)
 
 - **Pedido do usuário**: "pode seguir com o P87" (terceiro item do plano aprovado; decisão dele: verificar a cada 3 s, sem `notify`).

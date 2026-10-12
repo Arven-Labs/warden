@@ -1,9 +1,9 @@
 import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import type { AgentEntry, AgentTask } from "../types";
-import { activityLine, activityOf } from "../lib/agentTasks";
+import type { AgentEntry, AgentTask, SpendStatus } from "../types";
+import { activityLine, activityOf, lastConversationOf, spendOf } from "../lib/agentTasks";
 import { approvalCategoryLabel } from "../lib/approvalCategories";
-import { hubAgentTasks, hubEditAgentOrg, hubEditAgentOrgAsMember, hubListAgentOrg } from "../lib/hub";
+import { hubAgentTasks, hubEditAgentOrg, hubEditAgentOrgAsMember, hubListAgentOrg, hubListConversations, hubUsage } from "../lib/hub";
 import { addReportEdit, buildOrg, moveEdit, positionEdit, superiorChoices, type OrgAccess, type OrgAgent, type OrgEdit, type OrgNode } from "../lib/org";
 import { KeyCancelled, usePairingKey } from "./PairingKeyDialog";
 
@@ -258,6 +258,9 @@ function OrganizationView({
   const [error, setError] = useState<string | null>(null);
   const [dragging, setDragging] = useState<string | null>(null);
   const [tasks, setTasks] = useState<AgentTask[]>([]);
+  // The owner's only (P123): what each agent spent and the conversations it has had. A member asks for neither and sees neither.
+  const [spend, setSpend] = useState<SpendStatus | null>(null);
+  const [conversations, setConversations] = useState<{ agentId?: string; updatedAt: number; parent?: unknown }[]>([]);
   const { askKey, dialog } = usePairingKey();
 
   // A member's tree is the owner's, read from the hub as the access they were given allows.
@@ -286,11 +289,28 @@ function OrganizationView({
     };
   }, [remote, member, ownerAgents]);
 
+  // Also extras of the line: without them it just has less to say.
+  useEffect(() => {
+    if (member) return;
+    let alive = true;
+    (remote ? hubUsage().spend() : invoke<SpendStatus>("spend_status")).then(
+      (loaded) => alive && setSpend(loaded),
+      () => {},
+    );
+    (remote ? hubListConversations() : invoke<{ agentId?: string; updatedAt: number; parent?: unknown }[]>("list_conversations")).then(
+      (loaded) => alive && setConversations(loaded),
+      () => {},
+    );
+    return () => {
+      alive = false;
+    };
+  }, [remote, member, ownerAgents]);
+
   const editing: Editing = {
     dragging,
     drag: setDragging,
     activity: (id) => {
-      const activity = activityOf(tasks, id);
+      const activity = activityOf(tasks, id, { spend: spendOf(spend, id), lastConversationMs: lastConversationOf(conversations, id) });
       return activity ? activityLine(activity, Date.now()) : null;
     },
     onOpenChat,

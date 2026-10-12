@@ -138,18 +138,37 @@ export interface AgentActivity {
   tokens: number;
   /** How many tasks it delegated to others. */
   delegated: number;
-  /** The last thing that happened to a task of its own (created, started or finished). */
-  lastActiveMs: number;
+  /** The last thing that happened: to a task of its own (created, started or finished) or in a conversation with it. `null` when only the spend is known. */
+  lastActiveMs: number | null;
+  /** What it spent in the ledger's window. Only there when the owner supplies it; never for a member. */
+  spend?: AgentSpend;
 }
 
-/** The activity of `agent`, or `null` when no task involves it. */
-export function activityOf(tasks: AgentTask[], agent: string): AgentActivity | null {
+/** An agent's spending in the ledger, which only keeps the last `windowHours` (the longest limit). */
+export interface AgentSpend {
+  costUsd: number;
+  /** Calls with no known price: the dollar figure leaves them out. */
+  unpricedCalls: number;
+  windowHours: number;
+}
+
+/** What the activity uses besides the tasks (P123): the agent's spending and its most recent conversation. */
+export interface ActivityExtras {
+  spend?: AgentSpend;
+  lastConversationMs?: number;
+}
+
+/** The activity of `agent`, or `null` when nothing involves it: no task, no recent conversation, no spending. */
+export function activityOf(tasks: AgentTask[], agent: string, extras: ActivityExtras = {}): AgentActivity | null {
   const received = tasks.filter((t) => t.assignee === agent);
   const delegated = tasks.filter((t) => t.owner === agent);
-  if (received.length === 0 && delegated.length === 0) return null;
+  const spend = extras.spend && (extras.spend.costUsd > 0 || extras.spend.unpricedCalls > 0) ? extras.spend : undefined;
+  if (received.length === 0 && delegated.length === 0 && extras.lastConversationMs === undefined && !spend) return null;
   const counts = emptyCounts();
   for (const task of received) counts[task.state in counts ? task.state : "pending"] += 1;
   const stamp = (t: AgentTask) => t.finishedAtMs ?? t.startedAtMs ?? t.createdAtMs;
+  const stamps = [...received, ...delegated].map(stamp);
+  if (extras.lastConversationMs !== undefined) stamps.push(extras.lastConversationMs);
   return {
     done: counts.done,
     failed: counts.failed,
@@ -157,8 +176,25 @@ export function activityOf(tasks: AgentTask[], agent: string): AgentActivity | n
     active: counts.pending + counts.running + counts.waiting + counts.paused,
     tokens: received.reduce((sum, t) => sum + (t.totalTokens ?? 0), 0),
     delegated: delegated.length,
-    lastActiveMs: Math.max(...[...received, ...delegated].map(stamp)),
+    lastActiveMs: stamps.length > 0 ? Math.max(...stamps) : null,
+    ...(spend && { spend }),
   };
+}
+
+/** `agent`'s spending in the hub's usage report, or `undefined` when the hub doesn't count it (an older hub, or no spending in the window). */
+export function spendOf(
+  report: { recent?: { windowHours: number; byAgent?: { key: string; costUsd: number; unpricedCalls: number }[] } | null } | null,
+  agent: string,
+): AgentSpend | undefined {
+  const bucket = report?.recent?.byAgent?.find((b) => b.key === agent);
+  if (!bucket || !report?.recent) return undefined;
+  return { costUsd: bucket.costUsd, unpricedCalls: bucket.unpricedCalls, windowHours: report.recent.windowHours };
+}
+
+/** When `agent` last had a conversation (the newest one that spoke with it, threads left out), or `undefined` if it never did. */
+export function lastConversationOf(conversations: { agentId?: string | null; updatedAt: number; parent?: unknown }[], agent: string): number | undefined {
+  const times = conversations.filter((c) => c.agentId === agent && !c.parent).map((c) => c.updatedAt);
+  return times.length > 0 ? Math.max(...times) : undefined;
 }
 
 /** How long ago, in a few words: `just now`, `4 min ago`, `2 h ago`, `3 d ago`. */
@@ -171,7 +207,17 @@ export function agoLabel(thenMs: number, nowMs: number): string {
   return `${Math.floor(hours / 24)} d ago`;
 }
 
-/** The activity on one line of the tree card: `3 done, 1 failed, 2 running · 12.9K tokens · delegated 5 · active 4 min ago`. */
+/** The spending in a few words: `$1.20 in the last 24 h`, with a note of the calls the figure leaves out. */
+export function spendLabel(spend: AgentSpend): string {
+  const window = `in the last ${spend.windowHours} h`;
+  const unpriced = spend.unpricedCalls > 0 ? `${spend.unpricedCalls} unpriced call${spend.unpricedCalls > 1 ? "s" : ""}` : "";
+  if (spend.costUsd <= 0) return `${unpriced} ${window}`;
+  const dollars = (n: number) => new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(n);
+  const money = spend.costUsd < 0.01 ? `under ${dollars(0.01)}` : dollars(spend.costUsd);
+  return unpriced ? `${money} ${window} (and ${unpriced})` : `${money} ${window}`;
+}
+
+/** The activity on one line of the tree card: `3 done, 1 failed, 2 running · 12.9K tokens · $1.20 in the last 24 h · delegated 5 · active 4 min ago`. */
 export function activityLine(a: AgentActivity, nowMs: number): string {
   const parts = [
     a.done > 0 && `${a.done} done`,
@@ -181,8 +227,9 @@ export function activityLine(a: AgentActivity, nowMs: number): string {
   ].filter(Boolean);
   const line = [parts.join(", ")];
   if (a.tokens > 0) line.push(`${formatTokens(a.tokens)} tokens`);
+  if (a.spend) line.push(spendLabel(a.spend));
   if (a.delegated > 0) line.push(`delegated ${a.delegated}`);
-  line.push(`active ${agoLabel(a.lastActiveMs, nowMs)}`);
+  if (a.lastActiveMs !== null) line.push(`active ${agoLabel(a.lastActiveMs, nowMs)}`);
   return line.filter(Boolean).join(" · ");
 }
 
