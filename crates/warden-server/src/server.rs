@@ -116,6 +116,8 @@ pub struct Server {
     tasks: Option<TaskRunner>,
     /// Where the log of tasks agents delegated to each other lives (P123), for `ListAgentTasks`. `None`: this hub shows none.
     agent_tasks: Option<Arc<PathBuf>>,
+    /// The log of the calls the SSH tools made (P47), for `ListSshAudit`. `None`: this hub shows none.
+    ssh_audit: Option<Arc<PathBuf>>,
     /// The "always" each device gave (P122): in a file per device, or in memory per connection when the policy is off.
     grants: Arc<crate::grant_registry::GrantRegistry>,
     task_tick: Duration,
@@ -173,6 +175,7 @@ impl Server {
             webhook_tokens: None,
             tasks: None,
             agent_tasks: None,
+            ssh_audit: warden_bootstrap::default_ssh_audit_log_path().map(Arc::new),
             grants: Arc::default(),
             task_tick: DEFAULT_TASK_TICK,
             worktree_sweep: DEFAULT_WORKTREE_SWEEP,
@@ -240,6 +243,13 @@ impl Server {
     /// `None` shows none. The log is written by the orchestrator's `FileTaskRecorder`; this only reads it.
     pub fn with_agent_tasks(mut self, path: Option<PathBuf>) -> Self {
         self.agent_tasks = path.map(Arc::new);
+        self
+    }
+
+    /// Shows the calls of the SSH tools (P47) from the log at `path` instead of the default file, to the owner who asks (`ListSshAudit`);
+    /// `None` shows none. Tests keep it in their temp dir.
+    pub fn with_ssh_audit(mut self, path: Option<PathBuf>) -> Self {
+        self.ssh_audit = path.map(Arc::new);
         self
     }
 
@@ -388,6 +398,7 @@ impl Server {
             webhooks,
             tasks: self.tasks,
             agent_tasks: self.agent_tasks,
+            ssh_audit: self.ssh_audit,
             grant_registry: self.grants,
             changes: self.changes.clone(),
             org_access_changes: self.org_access_changes.clone(),
@@ -485,6 +496,8 @@ struct ConnectionContext {
     tasks: Option<TaskRunner>,
     /// The log of tasks agents delegated to each other (P123).
     agent_tasks: Option<Arc<PathBuf>>,
+    /// The log of the SSH tools' calls (P47).
+    ssh_audit: Option<Arc<PathBuf>>,
     /// Where each device's "always" live (P122).
     grant_registry: Arc<crate::grant_registry::GrantRegistry>,
     changes: broadcast::Sender<String>,
@@ -866,6 +879,7 @@ async fn handle_connection<S: Transport>(ws: WebSocketStream<S>, peer: SocketAdd
         webhooks,
         tasks,
         agent_tasks,
+        ssh_audit,
         grant_registry,
         changes,
         org_access_changes,
@@ -1809,6 +1823,13 @@ async fn handle_connection<S: Transport>(ws: WebSocketStream<S>, peer: SocketAdd
                     let dirs: Vec<&Path> = std::iter::once(conversation_dirs.device.as_path()).chain(conversation_dirs.tasks.as_deref()).collect();
                     let config_path = settings.as_deref().map(|host| host.config_path());
                     let _ = tx.send(crate::activity_list::handle_list_activity(agent_tasks.as_deref().map(|p| p.as_path()), config_path.as_deref(), &dirs, member.is_none(), request_id));
+                }
+                Ok(ClientMessage::ListSshAudit { request_id }) => {
+                    // P47 — reads a file that can be large, so off the reader loop.
+                    let (path, is_owner, reply_tx) = (ssh_audit.clone(), member.is_none(), tx.clone());
+                    tokio::task::spawn_blocking(move || {
+                        let _ = reply_tx.send(crate::ssh_audit_list::handle_list_ssh_audit(path.as_deref().map(|p| p.as_path()), is_owner, request_id));
+                    });
                 }
                 Ok(ClientMessage::ControlAgentTask { request_id, pairing_key, task_id, action }) => {
                     let (log, auth_key, is_owner, reply_tx) = (agent_tasks.clone(), auth_key.clone(), member.is_none(), tx.clone());

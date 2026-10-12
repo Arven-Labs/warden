@@ -22,6 +22,7 @@
 //! store is a thin, stateless-between-calls wrapper over a JSON file instead of anything cached.
 
 pub mod activity_list;
+pub mod ssh_audit_list;
 pub mod agent_task_list;
 pub mod grant_registry;
 pub mod api_key_admin;

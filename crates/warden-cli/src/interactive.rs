@@ -1256,6 +1256,7 @@ async fn cmd_help(terminal: &mut CliTerminal) -> anyhow::Result<()> {
         "/ssh remove <id> — remover um servidor (pede confirmação)",
         "/ssh on <id> | off <id> — liberar ou bloquear o servidor pra IA",
         "/ssh test <id> — testar a conexão (a chave do servidor precisa já estar no known_hosts)",
+        "/ssh log [n] — as últimas n chamadas das tools de SSH (padrão 20): quem pediu, se foi aprovada e como terminou",
         "/sync — status da sincronização (pendências, último push/pull)",
         "/sync push — enviar mudanças locais (mostra QR pro TruthID escanear)",
         "/sync pull — buscar a versão mais recente",
@@ -2592,6 +2593,19 @@ async fn cmd_ssh_list(terminal: &mut CliTerminal, session: &CliSession) -> anyho
     render_message_card(terminal, "ssh", accent_style(), lines)
 }
 
+/// `/ssh log [n]` (P47): the last `count` calls of the SSH tools, newest first, one line each. The log never holds the output of a command.
+fn cmd_ssh_log(terminal: &mut CliTerminal, count: usize) -> anyhow::Result<()> {
+    let Some(path) = warden_bootstrap::default_ssh_audit_log_path() else {
+        return render_message_card(terminal, "ssh", dim_style(), vec![("não achei a pasta de configuração deste computador".to_string(), dim_style())]);
+    };
+    let entries = warden_bootstrap::ssh_audit::read_ssh_audit(&path, count);
+    if entries.is_empty() {
+        return render_message_card(terminal, "ssh", dim_style(), vec![("nenhuma chamada registrada ainda".to_string(), dim_style())]);
+    }
+    let lines = entries.iter().map(|entry| (entry.summary_line(), if entry.approval == "denied" || entry.approval == "unavailable" { error_style() } else { Style::default() })).collect();
+    render_message_card(terminal, "ssh log", accent_style(), lines)
+}
+
 fn ssh_cancelled(terminal: &mut CliTerminal, what: &str) -> anyhow::Result<()> {
     render_message_card(terminal, "ssh", dim_style(), vec![(format!("{what} cancelada"), dim_style())])
 }
@@ -3210,6 +3224,7 @@ async fn handle_command(command: Command, terminal: &mut CliTerminal, session: &
         Command::SshRemove(id) => cmd_ssh_remove(terminal, session, id).await,
         Command::SshEnable(id, enabled) => cmd_ssh_enable(terminal, session, id, enabled).await,
         Command::SshTest(id) => cmd_ssh_test(terminal, session, id).await,
+        Command::SshLog(count) => cmd_ssh_log(terminal, count),
         Command::SyncStatus => cmd_sync_status(terminal, session).await,
         Command::SyncPush => cmd_sync_push(terminal, session).await,
         Command::SyncPull => cmd_sync_pull(terminal, session).await,

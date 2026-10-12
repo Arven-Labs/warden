@@ -161,6 +161,7 @@ async fn spin_up() -> Hub {
         .unwrap()
         .with_settings(Arc::new(TestHost { path: config_path }))
         .with_users_dir(dir.join("users"))
+        .with_ssh_audit(Some(dir.join("ssh_audit.jsonl")))
         .with_tasks(tasks, false)
         .with_revocation_check_interval(Duration::from_millis(50))
         .with_api(dir.join("api_keys.json"))
@@ -500,6 +501,28 @@ async fn a_member_sees_her_own_usage_and_nobody_elses() {
     assert_eq!(all.limits.len(), 2);
     assert!(all.limits.iter().any(|l| l.extend_tokens > 0), "the owner's meters still carry the size of an extension");
     assert!(all.recent.unwrap().by_person.iter().any(|b| b.key == "ana"));
+}
+
+/// P47: the log of the SSH tools holds the commands agents ran, which may hold a secret, so it is the owner's; a member is listed nothing.
+#[tokio::test]
+async fn a_member_is_not_shown_the_ssh_audit_log() {
+    let hub = spin_up().await;
+    warden_core::tool::ssh::AuditLog::new(hub.dir.join("ssh_audit.jsonl"))
+        .record(&serde_json::json!({ "ts": 1000, "host_id": "prod", "agent": "ops", "action": "exec", "approval": "approved", "command": "mysql -p'secret'", "outcome": { "exit_code": 0 } }))
+        .unwrap();
+    let mut owner = ServerConnection::connect(&hub.url, "laptop", "Laptop", KEY).await.unwrap();
+    let mut ana = ana_ready(&hub).await;
+
+    owner.send(&ClientMessage::ListSshAudit { request_id: 50 }).await.unwrap();
+    match reply(&mut owner).await {
+        ServerMessage::SshAuditList { entries, .. } => assert_eq!(entries.iter().map(|e| e.command.as_deref()).collect::<Vec<_>>(), [Some("mysql -p'secret'")]),
+        other => panic!("{other:?}"),
+    }
+    ana.send(&ClientMessage::ListSshAudit { request_id: 51 }).await.unwrap();
+    match reply(&mut ana).await {
+        ServerMessage::SshAuditList { entries, .. } => assert!(entries.is_empty(), "{entries:?}"),
+        other => panic!("{other:?}"),
+    }
 }
 
 /// A plain HTTP/1.1 request to the hub's Warden API; the status and the body.

@@ -1,4 +1,6 @@
+import type { ServerConnection } from "../hub/connection";
 import type { MachineSettings } from "../hub/messages";
+import SshAuditLog from "./SshAuditLog";
 import { newEntry, newMcp, newSsh, type McpDraft, type McpEntryDraft, type MachineDraft, type SshDraft } from "./machineDraft";
 import { Field, SecretField, Section } from "./settingsParts";
 
@@ -12,6 +14,8 @@ interface Props {
   agentIds: string[];
   secretsWritable: boolean;
   error: string | null;
+  /** The hub's connection, for the SSH usage log. */
+  conn: ServerConnection | null;
   onChange: (change: (m: MachineDraft) => MachineDraft) => void;
 }
 
@@ -148,7 +152,7 @@ function SshCard({ host, agentIds, onChange, onRemove }: { host: SshDraft; agent
   );
 }
 
-export default function MachineSection({ draft, settings, agentIds, secretsWritable, error, onChange }: Props) {
+export default function MachineSection({ draft, settings, agentIds, secretsWritable, error, conn, onChange }: Props) {
   const writable = settings.writable;
   const set = (change: Partial<MachineDraft>) => onChange((m) => ({ ...m, ...change }));
   const patchMcp = (key: number, change: Partial<McpDraft>) => onChange((m) => ({ ...m, mcp: m.mcp.map((s) => (s.key === key ? { ...s, ...change } : s)) }));
@@ -251,6 +255,8 @@ export default function MachineSection({ draft, settings, agentIds, secretsWrita
           </>
         )}
       </fieldset>
+      {/* Outside the fieldset on purpose: reading the log is not changing the machine, so it works while the settings are locked. */}
+      <SshAuditLog conn={conn} />
     </Section>
   );
 }

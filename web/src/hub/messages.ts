@@ -264,6 +264,25 @@ export interface ModelPolicy {
   description?: string;
 }
 
+/** P47 — uma chamada das tools de SSH como o log de auditoria a guardou: o servidor, o agente que pediu, o que foi pedido, se uma pessoa
+ * aprovou (`not_required`, `approved`, `denied`, `unavailable`) e como terminou. Nunca a saída de um comando. */
+export interface SshAuditEntry {
+  atMs: number;
+  hostId: string;
+  agent?: string;
+  /** `exec`, `upload` ou `download`. */
+  action: string;
+  approval: string;
+  command?: string;
+  localPath?: string;
+  remotePath?: string;
+  overwrite: boolean;
+  exitCode?: number;
+  timedOut: boolean;
+  bytes?: number;
+  error?: string;
+}
+
 /** P121 — algo que aconteceu entre os agentes, no feed de atividade. `kind`: `delegated`, `started`, `done`, `failed`, `cancelled` (as
  * tarefas, com `taskId`), `note`, `reply` (agentes escrevendo uns aos outros) ou `messaged_user` (o agente escrevendo primeiro para a
  * pessoa); os três últimos trazem a `conversationId`. `actor` vazio é o assistente que atende sem agente escolhido. */
@@ -860,6 +879,8 @@ export type ClientMessage =
   | { type: "revokeGrant"; requestId: number; conversationId: string; agentId?: string; covers: string }
   /** P121 — o feed de atividade, respondido por `activityList`. Só o dono; o membro recebe a lista vazia. */
   | { type: "listActivity"; requestId: number }
+  /** P47 — as chamadas das tools de SSH neste hub, respondido por `sshAuditList`. Só o dono; o membro recebe a lista vazia. */
+  | { type: "listSshAudit"; requestId: number }
   /** Pausa, retoma ou para (`pause`, `resume`, `cancel`) uma tarefa que roda no hub, com as subtarefas. Dono; pede a chave de pareamento. */
   | { type: "controlAgentTask"; requestId: number; pairingKey: string; taskId: string; action: AgentTaskAction }
   /** P120 — uma mudança na organização dos agentes, pela árvore. O dono pede a chave de pareamento e é respondido como um salvar
@@ -992,6 +1013,7 @@ export type ServerMessage =
   | { type: "agentTaskList"; requestId: number; tasks: AgentTask[] }
   | { type: "grantList"; requestId: number; grants: Grant[]; ttlDays?: number }
   | { type: "activityList"; requestId: number; events: ActivityEvent[] }
+  | { type: "sshAuditList"; requestId: number; entries: SshAuditEntry[] }
   | { type: "taskError"; requestId: number; message: string; authRejected: boolean }
   /** `servesHere`: this hub takes the calls (`/hooks/<id>`). */
   | { type: "webhookList"; requestId: number; webhooks: WebhookInfo[]; servesHere: boolean }
@@ -1147,6 +1169,10 @@ export function decode(text: string): ServerMessage {
     case "activityList": {
       const raw = json as { requestId: number; events: ActivityEvent[] };
       return { type: "activityList", requestId: raw.requestId, events: raw.events ?? [] };
+    }
+    case "sshAuditList": {
+      const raw = json as { requestId: number; entries?: SshAuditEntry[] };
+      return { type: "sshAuditList", requestId: raw.requestId, entries: raw.entries ?? [] };
     }
     case "webhookList": {
       const raw = json as { requestId: number; webhooks: WebhookInfo[]; servesHere?: boolean };

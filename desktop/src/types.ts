@@ -253,6 +253,25 @@ export interface GitSyncConfig {
   token: string;
 }
 
+/** What `list_ssh_audit` returns (P47): one call of the SSH tools as the audit log kept it — the server, the agent that asked, what was
+ * asked, whether a person approved (`not_required`, `approved`, `denied`, `unavailable`) and how it ended. Never a command's output. */
+export interface SshAuditEntry {
+  atMs: number;
+  hostId: string;
+  agent?: string;
+  /** `exec`, `upload` or `download`. */
+  action: string;
+  approval: string;
+  command?: string;
+  localPath?: string;
+  remotePath?: string;
+  overwrite: boolean;
+  exitCode?: number;
+  timedOut: boolean;
+  bytes?: number;
+  error?: string;
+}
+
 /** What `git_sync_push` returns — `null` when nothing local needed sending. */
 export interface GitPushResult {
   commitSha: string;

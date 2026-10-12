@@ -1196,6 +1196,7 @@ pub fn run() {
             vault_cmds::delete_vault_note,
             vault_cmds::search_vault,
             ssh_cmds::test_ssh_host,
+            ssh_cmds::list_ssh_audit,
             provider_cmds::test_provider_key,
             move_conversation,
             share_cmds::share_conversation,

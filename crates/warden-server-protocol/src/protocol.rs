@@ -924,6 +924,36 @@ pub struct ActivityEventDto {
     pub conversation_id: Option<String>,
 }
 
+/// One call of an SSH tool as the audit log kept it (P47): the host, the agent that asked, what was asked, whether a person approved and how
+/// it ended. Never the output of a command. `approval` is `not_required`, `approved`, `denied` or `unavailable`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SshAuditEntryDto {
+    pub at_ms: u64,
+    pub host_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent: Option<String>,
+    /// `exec`, `upload` or `download`.
+    pub action: String,
+    pub approval: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub command: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub local_path: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub remote_path: Option<String>,
+    #[serde(default)]
+    pub overwrite: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub exit_code: Option<i64>,
+    #[serde(default)]
+    pub timed_out: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bytes: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+}
+
 /// One agent a person allowed to start messages (P121, `[[outreach]]`): it gets `message_user`, and `forward` names the external channels
 /// (`telegram`, `whatsapp`) its messages also go to.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -1824,6 +1854,11 @@ pub enum ClientMessage {
     ListActivity {
         request_id: u64,
     },
+    /// The calls the SSH tools made on this hub (P47), newest first, answered by `SshAuditList`. Read only and the owner's: the log holds
+    /// the commands, which may hold a secret, so a member is refused.
+    ListSshAudit {
+        request_id: u64,
+    },
     /// Pauses, resumes or stops (`action`: `pause`, `resume` or `cancel`) a task agents delegated (P123) that is running on this
     /// hub; the subtasks below it follow. Owner only and asks for the pairing key, like any change. Answered by the updated
     /// `AgentTaskList`, or by `TaskError` (a task that isn't running here, or a wrong key).
@@ -2472,6 +2507,11 @@ pub enum ServerMessage {
     ActivityList {
         request_id: u64,
         events: Vec<ActivityEventDto>,
+    },
+    /// Reply to `ListSshAudit` (P47): the calls of the SSH tools, newest first.
+    SshAuditList {
+        request_id: u64,
+        entries: Vec<SshAuditEntryDto>,
     },
     /// A task request failed. `auth_rejected`: the pairing key was wrong; nothing changed.
     TaskError {
@@ -3470,6 +3510,37 @@ mod tests {
         let json = serde_json::to_value(&answer).unwrap();
         assert_eq!(json, serde_json::json!({ "type": "providerTest", "requestId": 6, "ok": false, "kind": "rejected", "message": "Gemini rejected the key." }));
         assert_eq!(serde_json::from_value::<ServerMessage>(json).unwrap(), answer);
+    }
+
+    #[test]
+    fn the_ssh_audit_is_asked_for_and_listed() {
+        let ask = ClientMessage::ListSshAudit { request_id: 4 };
+        let json = serde_json::to_string(&ask).unwrap();
+        assert_eq!(json, r#"{"type":"listSshAudit","requestId":4}"#);
+        assert_eq!(serde_json::from_str::<ClientMessage>(&json).unwrap(), ask);
+
+        let exec = SshAuditEntryDto {
+            at_ms: 7,
+            host_id: "prod".into(),
+            agent: Some("ops".into()),
+            action: "exec".into(),
+            approval: "approved".into(),
+            command: Some("uptime".into()),
+            local_path: None,
+            remote_path: None,
+            overwrite: false,
+            exit_code: Some(0),
+            timed_out: false,
+            bytes: None,
+            error: None,
+        };
+        let reply = ServerMessage::SshAuditList { request_id: 4, entries: vec![exec] };
+        let json = serde_json::to_string(&reply).unwrap();
+        assert_eq!(
+            json,
+            r#"{"type":"sshAuditList","requestId":4,"entries":[{"atMs":7,"hostId":"prod","agent":"ops","action":"exec","approval":"approved","command":"uptime","overwrite":false,"exitCode":0,"timedOut":false}]}"#
+        );
+        assert_eq!(serde_json::from_str::<ServerMessage>(&json).unwrap(), reply);
     }
 
     #[test]

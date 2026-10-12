@@ -1120,6 +1120,13 @@ mesmo escopo por agente, mesma aprovação, mesmo log. Decisões confirmadas com
   `run_turn` (dono do terminal) recebe o pedido por um `mpsc` + `oneshot`; no desktop é um evento Tauri e um
   comando (`resolve_approval`, ex-`resolve_ssh_approval`). Telegram/WhatsApp precisariam de botão inline ou resposta em mensagem, e não
   deu para testar contra os serviços reais.
+- **Ler o log de auditoria (Sessão 183)**: um leitor só, `warden_bootstrap::ssh_audit::read_ssh_audit`, junta o `ssh_audit.jsonl` e os
+  `.1` a `.3` (os que existirem), da linha mais nova à mais antiga, até `SSH_AUDIT_LIMIT` (100), e **pula a linha que não é JSON** (um log
+  cortado por uma queda não derruba a tela). Devolve campos estruturados (`command`, `local_path`, `remote_path`, `exit_code`, `bytes`,
+  `error`...) e cada tela escreve as palavras no seu idioma (web em português, desktop em inglês); só o CLI usa a linha pronta do leitor
+  (`summary_line`). É só do dono: o log guarda o comando (que pode ter um segredo) e nunca a saída, então no hub `ListSshAudit` devolve lista
+  vazia a um membro (como o feed de atividade) e `Server::with_ssh_audit` troca o arquivo nos testes. As telas carregam **ao abrir**, porque
+  o log pode chegar a ~20 MB com as rotações. O desktop mostra o log **deste computador** mesmo quando usa um hub.
 
 ## Agentes criam agentes: `manage_agents` (P46, Sessão 80)
 

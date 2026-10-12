@@ -5,6 +5,7 @@ import { isMcpServerHttp } from "../types";
 import type { AgentEntry, Combo, GitSyncConfig, McpServer, ModelPolicy, OutreachEntry, ProviderEntry, ProviderKind, Settings, SshHostEntry, ToolCategoryEntry } from "../types";
 import ApiKeysSection from "./ApiKeysSection";
 import BotsSection from "./BotsSection";
+import SshAuditLog from "./SshAuditLog";
 import SpendingSection, { validateSpending } from "./SpendingSection";
 import { APPROVAL_CATEGORIES } from "../lib/approvalCategories";
 import { descendantsOf, removeFromOrg, renameInReports } from "../lib/org";
@@ -1851,6 +1852,7 @@ function SettingsView() {
               <SshHostCard key={i} host={h} agents={form.agents} onChange={(next) => updateSshHost(i, next)} onDelete={() => deleteSshHost(i)} />
             ))}
           </div>
+          <SshAuditLog />
         </section>
 
         <section className="settings-section">

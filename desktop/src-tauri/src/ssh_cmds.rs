@@ -79,6 +79,14 @@ pub async fn test_ssh_host(host: SshHostPayload) -> Result<SshTestResult, String
     Ok(SshTestResult { ok: outcome.ok, message: outcome.message })
 }
 
+/// The calls the SSH tools made on this computer (`ssh_audit.jsonl`, rotated files included), newest first, for the "Usage log" of the
+/// SSH section. Read only; it never holds the output of a command, but the commands themselves can hold a secret.
+#[tauri::command]
+pub fn list_ssh_audit() -> Vec<warden_server_protocol::protocol::SshAuditEntryDto> {
+    let Some(path) = warden_bootstrap::default_ssh_audit_log_path() else { return Vec::new() };
+    warden_bootstrap::ssh_audit::read_ssh_audit(&path, warden_bootstrap::ssh_audit::SSH_AUDIT_LIMIT).into_iter().map(warden_server::ssh_audit_list::to_dto).collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

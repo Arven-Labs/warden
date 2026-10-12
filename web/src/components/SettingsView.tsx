@@ -1326,6 +1326,7 @@ export default function SettingsView({ conn }: { conn: ServerConnection | null }
         agentIds={agentIds}
         secretsWritable={secretsWritable}
         error={machineProblem}
+        conn={conn}
         onChange={(change) => update((d) => ({ ...d, machine: change(d.machine) }))}
       />
 

@@ -32,6 +32,7 @@ import {
   type NodeInfo,
   type NodeFolder,
   type ActivityEvent,
+  type SshAuditEntry,
   type AgentTask,
   type Grant,
   type GrantsView,
@@ -569,6 +570,7 @@ export class ServerConnection {
       case "agentTaskList":
       case "grantList":
       case "activityList":
+      case "sshAuditList":
       case "webhookList":
       case "webhookCreated":
       case "nodeList":
@@ -915,6 +917,13 @@ export class ServerConnection {
     const reply = await this.request((requestId) => ({ type: "listActivity", requestId }));
     if (reply.type !== "activityList") throw new Error("resposta inesperada do hub");
     return reply.events;
+  }
+
+  /** O registro de uso do SSH (P47): as últimas chamadas das tools de SSH neste hub, da mais nova à mais antiga. Só leitura, só o dono. */
+  async listSshAudit(): Promise<SshAuditEntry[]> {
+    const reply = await this.request((requestId) => ({ type: "listSshAudit", requestId }));
+    if (reply.type !== "sshAuditList") throw new Error("resposta inesperada do hub");
+    return reply.entries;
   }
 
   /** Pausa, retoma ou para uma tarefa delegada que roda no hub (P123), com as subtarefas abaixo dela. Pede a chave de pareamento; rejeita

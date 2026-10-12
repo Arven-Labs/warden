@@ -1955,6 +1955,46 @@ body {
   overflow-wrap: anywhere;
 }
 
+/* The SSH usage log in Settings (P47): seven text columns, scrolling sideways in a narrow window. */
+.ssh-audit {
+  margin-top: 0.75rem;
+}
+
+.ssh-audit summary {
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.ssh-audit-scroll {
+  overflow-x: auto;
+}
+
+.ssh-audit-table th,
+.ssh-audit-table td {
+  text-align: left;
+  vertical-align: top;
+}
+
+.ssh-audit-table th:first-child,
+.ssh-audit-table td:first-child {
+  white-space: nowrap;
+}
+
+.ssh-audit-detail {
+  min-width: 14rem;
+  overflow-wrap: anywhere;
+  font-family: ui-monospace, monospace;
+}
+
+.ssh-audit-refused td {
+  color: var(--color-text-muted);
+}
+
+.ssh-audit-refused td:nth-child(5) {
+  color: #b3261e;
+  font-weight: 600;
+}
+
 /* Spending limits on the Usage screen (P78): the meter's fill carries severity, the track is a
    lighter step of the same color. */
 .spend-limit-list {

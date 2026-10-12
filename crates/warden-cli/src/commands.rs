@@ -3,6 +3,10 @@
 
 use warden_bootstrap::Provider;
 
+/// How many calls `/ssh log` shows without a number, and the most it shows (what the screens read too).
+const SSH_LOG_DEFAULT: usize = 20;
+const SSH_LOG_MAX: usize = warden_bootstrap::ssh_audit::SSH_AUDIT_LIMIT;
+
 /// One recognized slash-command, already split into its typed arguments.
 pub enum Command {
     Exit,
@@ -70,6 +74,8 @@ pub enum Command {
     /// `/ssh on <id>` / `/ssh off <id>` — flips the master switch that lets the AI use a host.
     SshEnable(String, bool),
     SshTest(String),
+    /// `/ssh log [n]` — the last `n` calls the SSH tools made (P47), read from `ssh_audit.jsonl`.
+    SshLog(usize),
     SyncStatus,
     SyncPush,
     SyncPull,
@@ -164,6 +170,8 @@ pub fn parse_command(input: &str) -> ParseOutcome {
         ("ssh", ["on", id]) => Command::SshEnable(id.to_string(), true),
         ("ssh", ["off", id]) => Command::SshEnable(id.to_string(), false),
         ("ssh", ["test", id]) => Command::SshTest(id.to_string()),
+        ("ssh", ["log"]) => Command::SshLog(SSH_LOG_DEFAULT),
+        ("ssh", ["log", count]) if count.parse::<usize>().is_ok_and(|n| n > 0) => Command::SshLog(count.parse::<usize>().unwrap_or(SSH_LOG_DEFAULT).min(SSH_LOG_MAX)),
         ("sync", []) => Command::SyncStatus,
         ("sync", ["push"]) => Command::SyncPush,
         ("sync", ["pull"]) => Command::SyncPull,
@@ -301,6 +309,11 @@ mod tests {
         assert!(matches!(assert_recognized("/ssh on vps"), Command::SshEnable(id, true) if id == "vps"));
         assert!(matches!(assert_recognized("/ssh off vps"), Command::SshEnable(id, false) if id == "vps"));
         assert!(matches!(assert_recognized("/ssh test vps"), Command::SshTest(id) if id == "vps"));
+        assert!(matches!(assert_recognized("/ssh log"), Command::SshLog(20)));
+        assert!(matches!(assert_recognized("/ssh log 5"), Command::SshLog(5)));
+        assert!(matches!(assert_recognized("/ssh log 5000"), Command::SshLog(100)), "never more than the screens show");
+        assert!(matches!(parse_command("/ssh log 0"), ParseOutcome::Unrecognized(_)));
+        assert!(matches!(parse_command("/ssh log many"), ParseOutcome::Unrecognized(_)));
         assert!(matches!(parse_command("/ssh on"), ParseOutcome::Unrecognized(_)));
         assert!(matches!(parse_command("/ssh bogus vps"), ParseOutcome::Unrecognized(_)));
     }
