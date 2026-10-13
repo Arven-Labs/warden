@@ -15,9 +15,11 @@
 //! the conversations themselves hold. Attribution is per message since P126: `append_messages` stamps each
 //! answer that spent tokens with `ConversationMessage.answered_by` (the turn's agent, and the provider when the
 //! turn says it: the desktop's selection or the reserve that answered after a fallback), and the breakdown reads
-//! that. Without it — messages saved before P126, and the provider of channels that don't track one — the
-//! conversation's `agent_id`/`provider_id` apply, which are only the *last* selection of the whole conversation
-//! (a conversation that switched partway has those messages counted under whichever is selected now).
+//! that. A message that more than one agent or provider answered (a reserve that took over partway, sub-agents on another model)
+//! also carries its usage told per pair in `answered_by.slices`, and each slice is counted under its own. Without a stamp —
+//! messages saved before P126, and the provider of channels that don't track one — the conversation's `agent_id`/`provider_id`
+//! apply, which are only the *last* selection of the whole conversation (a conversation that switched partway has those
+//! messages counted under whichever is selected now).
 
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -75,13 +77,33 @@ pub fn aggregate_usage(conversations: &[Conversation]) -> UsageSummary {
             };
             let provider = message.answered_by.as_ref().and_then(|by| by.provider_id.clone()).or_else(|| conversation.provider_id.clone());
 
-            let agent_bucket = by_agent.entry(agent.clone()).or_insert_with(|| UsageByKey { key: agent, ..Default::default() });
-            agent_bucket.message_count += 1;
-            agent_bucket.usage += usage;
+            // A message more than one agent or provider answered says how much each spent (its slices); what a slice leaves out falls
+            // back to the message's own agent and provider. Without slices, the whole usage is one piece.
+            let slices = message.answered_by.as_ref().map(|by| by.slices.as_slice()).unwrap_or_default();
+            let pieces: Vec<(Option<String>, Option<String>, Usage)> = if slices.is_empty() {
+                vec![(agent, provider, *usage)]
+            } else {
+                slices.iter().map(|s| (s.agent_id.clone().or_else(|| agent.clone()), s.provider_id.clone().or_else(|| provider.clone()), s.usage)).collect()
+            };
 
-            let provider_bucket = by_provider.entry(provider.clone()).or_insert_with(|| UsageByKey { key: provider, ..Default::default() });
-            provider_bucket.message_count += 1;
-            provider_bucket.usage += usage;
+            // A message counts once in each bucket it touched, however many of its pieces landed there.
+            let mut touched_agents: Vec<&Option<String>> = Vec::new();
+            let mut touched_providers: Vec<&Option<String>> = Vec::new();
+            for (agent, provider, usage) in &pieces {
+                let agent_bucket = by_agent.entry(agent.clone()).or_insert_with(|| UsageByKey { key: agent.clone(), ..Default::default() });
+                agent_bucket.usage += usage;
+                if !touched_agents.contains(&agent) {
+                    touched_agents.push(agent);
+                    agent_bucket.message_count += 1;
+                }
+
+                let provider_bucket = by_provider.entry(provider.clone()).or_insert_with(|| UsageByKey { key: provider.clone(), ..Default::default() });
+                provider_bucket.usage += usage;
+                if !touched_providers.contains(&provider) {
+                    touched_providers.push(provider);
+                    provider_bucket.message_count += 1;
+                }
+            }
         }
     }
 
@@ -211,6 +233,7 @@ impl Tool for UsageStatsTool {
 mod tests {
     use super::*;
     use crate::ChatRole;
+    use warden_core::budget::UsageSlice;
 
     fn message(usage: Option<Usage>) -> crate::ConversationMessage {
         crate::ConversationMessage { id: "m".to_string(), role: ChatRole::Assistant, content: String::new(), created_at: 0, usage, answered_by: None, attachments: Vec::new(), generated_files: Vec::new(), tools_used: Vec::new() }
@@ -238,7 +261,7 @@ mod tests {
 
     fn answered(by_agent: Option<&str>, by_provider: Option<&str>, n: u32) -> crate::ConversationMessage {
         crate::ConversationMessage {
-            answered_by: Some(crate::AnsweredBy { agent_id: by_agent.map(str::to_string), provider_id: by_provider.map(str::to_string) }),
+            answered_by: Some(crate::AnsweredBy { agent_id: by_agent.map(str::to_string), provider_id: by_provider.map(str::to_string), slices: Vec::new() }),
             ..message(tokens(n))
         }
     }
@@ -275,6 +298,54 @@ mod tests {
     fn a_provider_the_turn_did_not_say_is_the_conversations() {
         let summary = aggregate_usage(&[conversation(Some("a"), Some("p2"), vec![answered(Some("a"), None, 6)])]);
         assert_eq!(totals(&summary.by_provider), [(Some("p2"), 6)]);
+    }
+
+    /// A message with its usage told per agent and provider, as `assistant_message` stamps a turn more than one answered.
+    fn sliced(stamp_agent: Option<&str>, stamp_provider: Option<&str>, slices: &[(Option<&str>, Option<&str>, u32)]) -> crate::ConversationMessage {
+        let slices: Vec<UsageSlice> = slices
+            .iter()
+            .map(|(agent, provider, n)| UsageSlice {
+                agent_id: agent.map(str::to_string),
+                provider_id: provider.map(str::to_string),
+                usage: Usage { prompt_tokens: *n, completion_tokens: 0, total_tokens: *n },
+            })
+            .collect();
+        let total: u32 = slices.iter().map(|s| s.usage.total_tokens).sum();
+        crate::ConversationMessage {
+            answered_by: Some(crate::AnsweredBy { agent_id: stamp_agent.map(str::to_string), provider_id: stamp_provider.map(str::to_string), slices }),
+            ..message(tokens(total))
+        }
+    }
+
+    #[test]
+    fn a_message_two_providers_answered_counts_under_each_and_the_total_is_unchanged() {
+        // Called the main provider, then the reserve took over: stamped with the last one, sliced with both.
+        let summary = aggregate_usage(&[conversation(Some("a"), Some("main"), vec![sliced(Some("a"), Some("spare"), &[(Some("a"), Some("main"), 5), (Some("a"), Some("spare"), 11)])])]);
+        assert_eq!(totals(&summary.by_provider), [(Some("main"), 5), (Some("spare"), 11)]);
+        assert_eq!(totals(&summary.by_agent), [(Some("a"), 16)]);
+        assert_eq!(summary.total.total_tokens, 16);
+        assert_eq!(summary.message_count, 1, "still one model answer");
+        let counts = |buckets: &[UsageByKey]| buckets.iter().map(|b| b.message_count).collect::<Vec<_>>();
+        assert_eq!(counts(&summary.by_agent), [1], "one message is one message in the agent it all belongs to");
+        assert_eq!(counts(&summary.by_provider), [1, 1]);
+    }
+
+    #[test]
+    fn a_sub_agents_slice_is_counted_under_its_own_agent_and_provider() {
+        let summary = aggregate_usage(&[conversation(
+            Some("boss"),
+            Some("main"),
+            vec![sliced(Some("boss"), Some("main"), &[(Some("boss"), Some("main"), 35), (Some("helper"), Some("cheap"), 10)])],
+        )]);
+        assert_eq!(totals(&summary.by_agent), [(Some("boss"), 35), (Some("helper"), 10)]);
+        assert_eq!(totals(&summary.by_provider), [(Some("cheap"), 10), (Some("main"), 35)]);
+    }
+
+    #[test]
+    fn what_a_slice_leaves_out_is_the_messages_own_agent_and_provider() {
+        let summary = aggregate_usage(&[conversation(Some("conv"), Some("conv-provider"), vec![sliced(Some("a"), Some("p"), &[(None, None, 4), (Some("x"), None, 6)])])]);
+        assert_eq!(totals(&summary.by_agent), [(Some("a"), 4), (Some("x"), 6)]);
+        assert_eq!(totals(&summary.by_provider), [(Some("p"), 10)]);
     }
 
     #[test]

@@ -1,9 +1,35 @@
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Arc, Mutex};
 
+use serde::{Deserialize, Serialize};
+
 use crate::model::Usage;
 use crate::spend::{meter_notice, LimitStatus, SpendContext, SpendGuard};
 use crate::tool::{ApprovalRequest, Approver};
+
+/// The tokens one agent spent through one provider within a turn (P126). A turn that fell back to a reserve partway, or whose
+/// sub-agents run another model, is more than one slice; they always add up to the turn's `usage`. `None` in a field means the
+/// call did not say: an agent that was not picked, or a model that carries no provider id.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UsageSlice {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub provider_id: Option<String>,
+    pub usage: Usage,
+}
+
+impl UsageSlice {
+    /// Adds `usage` to the slice for `(agent_id, provider_id)` in `slices`, opening it the first time that pair is seen. The order
+    /// is the order the pairs first appeared.
+    pub fn add(slices: &mut Vec<UsageSlice>, agent_id: Option<&str>, provider_id: Option<&str>, usage: &Usage) {
+        match slices.iter_mut().find(|s| s.agent_id.as_deref() == agent_id && s.provider_id.as_deref() == provider_id) {
+            Some(slice) => slice.usage += usage,
+            None => slices.push(UsageSlice { agent_id: agent_id.map(str::to_string), provider_id: provider_id.map(str::to_string), usage: *usage }),
+        }
+    }
+}
 
 /// What one turn is allowed to spend on sub-agents (P46/P60), shared by the whole tree of
 /// orchestrators a turn spawns (`delegate_task`, `delegate_to_agent`, and whatever those delegate
@@ -24,6 +50,8 @@ pub struct TurnBudget {
     max_calls: Option<u32>,
     calls: AtomicU32,
     usage: Mutex<Option<Usage>>,
+    /// The same tokens as `usage`, told per agent and provider (P126).
+    slices: Mutex<Vec<UsageSlice>>,
     spend: Option<SpendTurn>,
 }
 
@@ -35,7 +63,7 @@ impl TurnBudget {
     /// A budget with an optional sub-agent call cap (`None` = uncapped) and the turn's spending
     /// limits, when there are any.
     pub fn for_turn(max_calls: Option<u32>, spend: Option<SpendTurn>) -> Arc<Self> {
-        Arc::new(Self { max_calls, calls: AtomicU32::new(0), usage: Mutex::new(None), spend })
+        Arc::new(Self { max_calls, calls: AtomicU32::new(0), usage: Mutex::new(None), slices: Mutex::new(Vec::new()), spend })
     }
 
     /// Counts one sub-agent model call, or says why it can't be made. The refused call is not
@@ -55,11 +83,18 @@ impl TurnBudget {
         }
     }
 
-    /// Adds one sub-agent call's reported usage. A provider that reports none adds nothing.
-    pub fn record(&self, usage: Option<&Usage>) {
+    /// Adds one sub-agent call's reported usage, under the agent and provider that made it (P126). A provider that reports none
+    /// adds nothing.
+    pub fn record(&self, agent_id: Option<&str>, provider_id: Option<&str>, usage: Option<&Usage>) {
         if let Some(usage) = usage {
             *self.usage.lock().unwrap().get_or_insert_with(Usage::default) += usage;
+            UsageSlice::add(&mut self.slices.lock().unwrap(), agent_id, provider_id, usage);
         }
+    }
+
+    /// What `usage()` holds, told per agent and provider; empty when no sub-agent reported any.
+    pub fn slices(&self) -> Vec<UsageSlice> {
+        self.slices.lock().unwrap().clone()
     }
 
     /// Sub-agent model calls made so far.
@@ -200,11 +235,44 @@ mod tests {
     fn records_usage_only_when_reported() {
         let budget = TurnBudget::new(5);
         assert_eq!(budget.usage(), None);
-        budget.record(None);
+        budget.record(None, None, None);
         assert_eq!(budget.usage(), None);
-        budget.record(Some(&Usage { prompt_tokens: 3, completion_tokens: 2, total_tokens: 5 }));
-        budget.record(Some(&Usage { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 }));
+        assert!(budget.slices().is_empty());
+        budget.record(None, None, Some(&Usage { prompt_tokens: 3, completion_tokens: 2, total_tokens: 5 }));
+        budget.record(None, None, Some(&Usage { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 }));
         assert_eq!(budget.usage(), Some(Usage { prompt_tokens: 4, completion_tokens: 3, total_tokens: 7 }));
+    }
+
+    #[test]
+    fn usage_is_told_per_agent_and_provider_and_adds_up_to_the_total() {
+        let budget = TurnBudget::new(9);
+        let usage = |prompt, completion| Usage { prompt_tokens: prompt, completion_tokens: completion, total_tokens: prompt + completion };
+        budget.record(Some("poet"), Some("main"), Some(&usage(3, 2)));
+        budget.record(Some("poet"), Some("spare"), Some(&usage(10, 1)));
+        budget.record(Some("poet"), Some("main"), Some(&usage(1, 1)));
+        budget.record(None, None, Some(&usage(2, 2)));
+
+        let slices = budget.slices();
+        let key = |s: &UsageSlice| (s.agent_id.clone(), s.provider_id.clone());
+        assert_eq!(
+            slices.iter().map(key).collect::<Vec<_>>(),
+            vec![(Some("poet".into()), Some("main".into())), (Some("poet".into()), Some("spare".into())), (None, None)],
+            "one slice per pair, in the order the pairs first appeared"
+        );
+        assert_eq!(slices[0].usage, usage(4, 3));
+        let mut sum = Usage::default();
+        for slice in &slices {
+            sum += &slice.usage;
+        }
+        assert_eq!(Some(sum), budget.usage(), "the slices always add up to the total");
+    }
+
+    #[test]
+    fn a_slice_without_an_agent_or_a_provider_leaves_them_out_of_the_json() {
+        let slice = UsageSlice { agent_id: None, provider_id: Some("main".into()), usage: Usage { prompt_tokens: 1, completion_tokens: 2, total_tokens: 3 } };
+        let json = serde_json::to_string(&slice).unwrap();
+        assert_eq!(json, r#"{"providerId":"main","usage":{"promptTokens":1,"completionTokens":2,"totalTokens":3}}"#);
+        assert_eq!(serde_json::from_str::<UsageSlice>(&json).unwrap(), slice);
     }
 
     mod gate {

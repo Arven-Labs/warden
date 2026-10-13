@@ -6,7 +6,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use serde_json::Value;
 
 use crate::autonomy::{Autonomy, Category, Classifier};
-use crate::budget::{SpendTurn, TurnBudget};
+use crate::budget::{SpendTurn, TurnBudget, UsageSlice};
 use crate::jobs::{JobBoard, JobsGuard, PauseGate, TaskContext, TaskLink, TaskRecorder};
 use crate::memory::Vault;
 use crate::model::{Attachment, Message, ModelProvider, ProviderFallback, Role, StreamEvent, ToolCall, Usage};
@@ -30,6 +30,10 @@ const MAX_TOOL_ITERATIONS: usize = 8;
 pub struct MessageOutcome {
     pub content: String,
     pub usage: Option<Usage>,
+    /// `usage` told per agent and provider (P126): the turn's own calls, one slice per provider that answered them (a reserve that
+    /// took over partway is a second slice), and the sub-agents' under the agent and provider that ran them. They add up to `usage`.
+    /// Empty when no call reported usage.
+    pub usage_slices: Vec<UsageSlice>,
     /// Media (image/audio/video) extracted from an MCP tool's `CallToolResult` content blocks
     /// during this turn (P64 frente 2) — never round-tripped back into the model's own context
     /// (that would re-inflate every subsequent turn with base64), only surfaced here for the
@@ -740,6 +744,7 @@ impl Orchestrator {
 
         let mut usage = Usage::default();
         let mut has_usage = false;
+        let mut usage_slices: Vec<UsageSlice> = Vec::new();
         let mut attachments: Vec<Attachment> = Vec::new();
         let mut generated_files: Vec<String> = Vec::new();
         let mut fallbacks: Vec<ProviderFallback> = Vec::new();
@@ -809,7 +814,7 @@ impl Orchestrator {
             }
 
             if let Some(budget) = sub_agent_budget {
-                budget.record(response.usage.as_ref());
+                budget.record(self.agent_id.as_deref(), answering_provider.as_deref(), response.usage.as_ref());
             }
             if let (Some(spend), Some(u)) = (spend, response.usage.as_ref()) {
                 spend.record(&served_model, &served_provider, u);
@@ -819,6 +824,7 @@ impl Orchestrator {
                 usage.completion_tokens += u.completion_tokens;
                 usage.total_tokens += u.total_tokens;
                 has_usage = true;
+                UsageSlice::add(&mut usage_slices, self.agent_id.as_deref(), answering_provider.as_deref(), &u);
             }
 
             // A call to one of the caller's tools ends the turn with those calls. Our own tools
@@ -827,13 +833,19 @@ impl Orchestrator {
             let client_tool_calls: Vec<ToolCall> = response.tool_calls.iter().filter(|call| is_client_tool(&call.name)).cloned().collect();
             if response.tool_calls.is_empty() || !client_tool_calls.is_empty() {
                 // The turn's root also reports what its sub-agents used (P18).
-                if let Some(sub_agents) = self.budget.as_ref().filter(|_| !self.charged).and_then(|b| b.usage()) {
-                    usage += &sub_agents;
-                    has_usage = true;
+                if let Some(budget) = self.budget.as_ref().filter(|_| !self.charged) {
+                    if let Some(sub_agents) = budget.usage() {
+                        usage += &sub_agents;
+                        has_usage = true;
+                    }
+                    for slice in budget.slices() {
+                        UsageSlice::add(&mut usage_slices, slice.agent_id.as_deref(), slice.provider_id.as_deref(), &slice.usage);
+                    }
                 }
                 return Ok(MessageOutcome {
                     content: response.content,
                     usage: has_usage.then_some(usage),
+                    usage_slices,
                     attachments,
                     generated_files,
                     fallbacks,
@@ -2817,6 +2829,76 @@ mod tests {
             // P10: and to the provider that answered, not the combo's first member that was down.
             let by_provider = guard.breakdown().by_provider;
             assert_eq!(by_provider.iter().map(|b| (b.key.as_str(), b.calls)).collect::<Vec<_>>(), vec![("spare", 2)]);
+        }
+
+        /// Answers the first call with a `noop` tool call, then is down for good (a 503 on every later call).
+        struct DownAfterOne(AtomicUsize);
+
+        #[async_trait]
+        impl ModelProvider for DownAfterOne {
+            fn model_id(&self) -> &str {
+                "flaky-model"
+            }
+
+            async fn chat_stream(&self, _messages: Vec<Message>, _tools: Vec<ToolSpec>) -> anyhow::Result<ChatStream> {
+                if self.0.fetch_add(1, Ordering::SeqCst) > 0 {
+                    return Err(crate::model::ProviderHttpError { provider: "Test", status: 503, reason: "503 Service Unavailable".into(), body: String::new() }.into());
+                }
+                let call = ToolCall { id: "c".into(), name: "noop".into(), arguments: json!({}), thought_signature: None };
+                Ok(response_stream(Response { content: String::new(), tool_calls: vec![call], usage: Some(Usage { prompt_tokens: 3, completion_tokens: 2, total_tokens: 5 }) }))
+            }
+        }
+
+        /// Answers at once with 10 + 1 tokens.
+        struct Answers;
+
+        #[async_trait]
+        impl ModelProvider for Answers {
+            fn model_id(&self) -> &str {
+                "answers-model"
+            }
+
+            async fn chat_stream(&self, _messages: Vec<Message>, _tools: Vec<ToolSpec>) -> anyhow::Result<ChatStream> {
+                Ok(response_stream(Response { content: "done".into(), tool_calls: Vec::new(), usage: Some(Usage { prompt_tokens: 10, completion_tokens: 1, total_tokens: 11 }) }))
+            }
+        }
+
+        /// P126: a turn whose first call the main provider answered and whose second the reserve did tells its tokens under each, not all
+        /// under the last one; and the slices add up to the turn's usage.
+        #[tokio::test]
+        async fn a_turn_that_switched_to_the_reserve_partway_tells_its_tokens_under_each_provider() {
+            let model = crate::model::FallbackProvider::new(vec![
+                ("main".to_string(), Arc::new(DownAfterOne(AtomicUsize::new(0))) as Arc<dyn ModelProvider>),
+                ("spare".to_string(), Arc::new(Answers) as Arc<dyn ModelProvider>),
+            ]);
+            let mut root = Orchestrator::new(Arc::new(model), temp_vault());
+            root.register_tool(Arc::new(NamedTool("noop")));
+
+            let outcome = root.handle_message(&[], "go").await.unwrap();
+
+            assert_eq!(outcome.provider_id.as_deref(), Some("spare"), "the last call is still what the outcome names");
+            let slices = outcome.usage_slices.iter().map(|s| (s.provider_id.as_deref(), s.usage.total_tokens)).collect::<Vec<_>>();
+            assert_eq!(slices, vec![(Some("main"), 5), (Some("spare"), 11)]);
+            assert_eq!(outcome.usage, Some(Usage { prompt_tokens: 13, completion_tokens: 3, total_tokens: 16 }));
+        }
+
+        #[tokio::test]
+        async fn a_turn_with_one_provider_has_one_slice_and_no_usage_has_none() {
+            let labelled = Orchestrator::new(crate::model::labeled::Labeled::wrap("main", Arc::new(Answers)), temp_vault()).with_agent(Some("poet".into()));
+            let outcome = labelled.handle_message(&[], "go").await.unwrap();
+            assert_eq!(outcome.usage_slices.len(), 1);
+            assert_eq!((outcome.usage_slices[0].agent_id.as_deref(), outcome.usage_slices[0].provider_id.as_deref()), (Some("poet"), Some("main")));
+            assert_eq!(Some(outcome.usage_slices[0].usage), outcome.usage);
+
+            struct Silent;
+            #[async_trait]
+            impl ModelProvider for Silent {
+                async fn chat_stream(&self, _messages: Vec<Message>, _tools: Vec<ToolSpec>) -> anyhow::Result<ChatStream> {
+                    Ok(response_stream(Response { content: "hi".into(), tool_calls: Vec::new(), usage: None }))
+                }
+            }
+            let outcome = Orchestrator::new(Arc::new(Silent), temp_vault()).handle_message(&[], "go").await.unwrap();
+            assert!(outcome.usage_slices.is_empty() && outcome.usage.is_none());
         }
 
         /// P10: a call is booked to the provider the model was labelled with; one nobody labelled has no provider.

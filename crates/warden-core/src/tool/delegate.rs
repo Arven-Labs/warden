@@ -361,6 +361,52 @@ mod tests {
         assert_eq!(*log.0.lock().unwrap(), ["created reviewer model=strong", "finished true"]);
     }
 
+    /// P126: what a sub-agent spent is told under the agent and the provider that ran it, apart from the turn's own agent and provider,
+    /// and the slices still add up to the turn's usage.
+    #[tokio::test]
+    async fn a_sub_agents_tokens_are_told_under_its_own_agent_and_provider() {
+        use crate::model::labeled::Labeled;
+        use crate::model::Usage;
+
+        struct Delegates(AtomicUsize);
+
+        #[async_trait]
+        impl ModelProvider for Delegates {
+            async fn chat_stream(&self, _messages: Vec<Message>, _tools: Vec<ToolSpec>) -> anyhow::Result<ChatStream> {
+                let response = match self.0.fetch_add(1, Ordering::SeqCst) {
+                    0 => Response {
+                        content: String::new(),
+                        tool_calls: vec![ToolCall { id: "1".into(), name: "delegate_task".into(), arguments: json!({ "task": "look it up" }), thought_signature: None }],
+                        usage: Some(Usage { prompt_tokens: 10, completion_tokens: 2, total_tokens: 12 }),
+                    },
+                    _ => Response { content: "done".into(), tool_calls: Vec::new(), usage: Some(Usage { prompt_tokens: 20, completion_tokens: 3, total_tokens: 23 }) },
+                };
+                Ok(response_stream(response))
+            }
+        }
+
+        struct Helper;
+
+        #[async_trait]
+        impl ModelProvider for Helper {
+            async fn chat_stream(&self, _messages: Vec<Message>, _tools: Vec<ToolSpec>) -> anyhow::Result<ChatStream> {
+                Ok(response_stream(Response { content: "found".into(), tool_calls: Vec::new(), usage: Some(Usage { prompt_tokens: 5, completion_tokens: 5, total_tokens: 10 }) }))
+            }
+        }
+
+        let vault = temp_vault();
+        let sub_agent = Orchestrator::new(Labeled::wrap("cheap", Arc::new(Helper)), vault.clone()).with_agent(Some("helper".into()));
+        let mut root = Orchestrator::new(Labeled::wrap("main", Arc::new(Delegates(AtomicUsize::new(0)))), vault).with_agent(Some("boss".into()));
+        root.register_tool(Arc::new(DelegateTool::new(sub_agent)));
+
+        // A turn gets a budget (which is what carries the sub-agents' usage back) once a delegation limit is set.
+        let outcome = root.with_delegation_limit(5).handle_message(&[], "go").await.unwrap();
+
+        let slices = outcome.usage_slices.iter().map(|s| (s.agent_id.as_deref(), s.provider_id.as_deref(), s.usage.total_tokens)).collect::<Vec<_>>();
+        assert_eq!(slices, vec![(Some("boss"), Some("main"), 35), (Some("helper"), Some("cheap"), 10)]);
+        assert_eq!(outcome.usage, Some(Usage { prompt_tokens: 35, completion_tokens: 10, total_tokens: 45 }));
+    }
+
     /// Proves P46's core claim end-to-end: a chain of orchestrators three deep (root → level-1 →
     /// leaf), each wrapping the next via `DelegateTool`, actually lets a sub-agent delegate
     /// further — not just the root. Scripted purely by call order since all three orchestrators

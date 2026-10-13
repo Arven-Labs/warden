@@ -80,6 +80,7 @@ impl CodeTurn<'_> {
         Ok(MessageOutcome {
             content: outcome.text,
             usage: None,
+            usage_slices: Vec::new(),
             attachments: Vec::new(),
             generated_files: Vec::new(),
             fallbacks: Vec::new(),

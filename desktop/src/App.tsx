@@ -51,7 +51,8 @@ import { agentWork as sideWorkOf, workButtonLabel } from "./lib/agentWork";
 import ThreadPanel, { LocalThreadPanel } from "./components/ThreadPanel";
 import { parseNodeFolder, type NodeInfo } from "./lib/workdir";
 import { orgAccessOf, type OrgAccess } from "./lib/org";
-import type { Attachment, ChatMessage, CodeMode, Conversation, ProjectEntry, ProviderFallback, SavedHub, Settings, Usage } from "./types";
+import { answeredByOf } from "./lib/answeredBy";
+import type { Attachment, ChatMessage, CodeMode, Conversation, ProjectEntry, ProviderFallback, SavedHub, Settings, Usage, UsageSlice } from "./types";
 
 const emptySettings: Settings = {
   providers: [],
@@ -761,6 +762,7 @@ function App() {
         generatedFiles?: string[];
         fallbacks?: ProviderFallback[];
         providerId?: string;
+        usageSlices?: UsageSlice[];
         alreadySaved?: boolean;
       }>("send_message", {
         history,
@@ -797,8 +799,8 @@ function App() {
         ...(reply.generatedFiles && reply.generatedFiles.length > 0 ? { generatedFiles: reply.generatedFiles } : {}),
         // A reserve answered in place of the conversation's provider (P79) — same convention.
         ...(reply.fallbacks && reply.fallbacks.length > 0 ? { fallbacks: reply.fallbacks } : {}),
-        // The provider that answered (P126), so the usage is told under it whatever the selector said.
-        ...(reply.providerId ? { answeredBy: { providerId: reply.providerId } } : {}),
+        // The provider that answered (P126), so the usage is told under it whatever the selector said, and per provider when two answered.
+        ...answeredByOf(reply),
       });
     } catch (err) {
       setSendError(String(err));
@@ -839,7 +841,7 @@ function App() {
     setThreadError(null);
     setThreadSending(true);
     try {
-      const reply = await invoke<{ content: string; usage?: Usage; attachments?: Attachment[]; generatedFiles?: string[]; fallbacks?: ProviderFallback[]; providerId?: string }>("send_message", {
+      const reply = await invoke<{ content: string; usage?: Usage; attachments?: Attachment[]; generatedFiles?: string[]; fallbacks?: ProviderFallback[]; providerId?: string; usageSlices?: UsageSlice[] }>("send_message", {
         history,
         content,
         attachments,
@@ -861,7 +863,7 @@ function App() {
           ...(reply.attachments && reply.attachments.length > 0 ? { attachments: reply.attachments } : {}),
           ...(reply.generatedFiles && reply.generatedFiles.length > 0 ? { generatedFiles: reply.generatedFiles } : {}),
           ...(reply.fallbacks && reply.fallbacks.length > 0 ? { fallbacks: reply.fallbacks } : {}),
-          ...(reply.providerId ? { answeredBy: { providerId: reply.providerId } } : {}),
+          ...answeredByOf(reply),
         },
         undefined,
         true,

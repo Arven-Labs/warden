@@ -9,6 +9,13 @@ export interface Usage {
   totalTokens: number;
 }
 
+/** The tokens one agent spent through one provider within a turn (P126), mirroring `warden_core::budget::UsageSlice`. */
+export interface UsageSlice {
+  agentId?: string;
+  providerId?: string;
+  usage: Usage;
+}
+
 /** An inline image attached to a user message (P28) — base64 with no `data:...;base64,`
  * prefix, mirrors `warden_core::model::Attachment` field for field. */
 export interface Attachment {
@@ -30,7 +37,7 @@ export interface ChatMessage {
    * saved with the conversation. */
   fallbacks?: ProviderFallback[];
   /** Who answered, as the turn reported it (P126): what the Usage screens count the answer's tokens under. */
-  answeredBy?: { agentId?: string; providerId?: string };
+  answeredBy?: { agentId?: string; providerId?: string; slices?: UsageSlice[] };
   /** The id the hub gave this message (P125), what a thread is started from. Only a message read from a hub has one. */
   hubId?: string;
 }

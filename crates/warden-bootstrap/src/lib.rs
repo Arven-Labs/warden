@@ -10,6 +10,7 @@ use std::sync::Arc;
 
 use anyhow::Context;
 use serde::{Deserialize, Serialize};
+use warden_core::budget::UsageSlice;
 use warden_core::memory::Vault;
 use warden_core::model::anthropic::AnthropicProvider;
 use warden_core::model::gemini::GeminiProvider;
@@ -961,6 +962,11 @@ pub struct AnsweredBy {
     pub agent_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub provider_id: Option<String>,
+    /// The message's `usage` told per agent and provider, when more than one answered it: a reserve that took over partway, or
+    /// sub-agents running another model. Empty (and not written) when one pair ran every call, the usual case; the usage is then
+    /// counted under `agent_id`/`provider_id` above.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub slices: Vec<UsageSlice>,
 }
 
 #[derive(Deserialize, Serialize, Clone, Debug, PartialEq)]
@@ -1456,6 +1462,16 @@ pub async fn handle_agent_turn_in_with(
     Ok(outcome)
 }
 
+/// What a turn says about who answered it: the provider of its last call, and its usage told per agent and provider when more than
+/// one ran it (P126). `None` when it says nothing, so the conversation's own selection applies.
+fn stamp_of(outcome: &MessageOutcome) -> Option<AnsweredBy> {
+    let slices = if outcome.usage_slices.len() > 1 { outcome.usage_slices.clone() } else { Vec::new() };
+    if outcome.provider_id.is_none() && slices.is_empty() {
+        return None;
+    }
+    Some(AnsweredBy { agent_id: None, provider_id: outcome.provider_id.clone(), slices })
+}
+
 fn assistant_message(outcome: &MessageOutcome) -> ConversationMessage {
     ConversationMessage {
         id: message_id(),
@@ -1465,7 +1481,7 @@ fn assistant_message(outcome: &MessageOutcome) -> ConversationMessage {
         usage: outcome.usage,
         // The provider that ran the turn's last call (P126): the turn's own, or the reserve that took over after a fallback (P79), whichever
         // channel ran it. `append_messages` adds the agent.
-        answered_by: outcome.provider_id.clone().map(|provider_id| AnsweredBy { agent_id: None, provider_id: Some(provider_id) }),
+        answered_by: stamp_of(outcome),
         attachments: outcome.attachments.clone(),
         generated_files: outcome.generated_files.clone(),
         tools_used: outcome.tools_used.clone(),
@@ -2979,7 +2995,7 @@ oauth = true
             tools_used: Vec::new(),
         };
         let options = AppendOptions { title_seed: "t", agent_id: Some("writer"), provider_id: Some(Some("openai")), create: true, ..Default::default() };
-        let reserve = AnsweredBy { agent_id: None, provider_id: Some("gemini".into()) };
+        let reserve = AnsweredBy { agent_id: None, provider_id: Some("gemini".into()), slices: Vec::new() };
         let saved = append_messages(
             &dir,
             "c1",
@@ -2994,14 +3010,14 @@ oauth = true
         .unwrap()
         .unwrap();
         let by = |id: &str| saved.messages.iter().find(|m| m.id == id).unwrap().answered_by.clone();
-        assert_eq!(by("answer"), Some(AnsweredBy { agent_id: Some("writer".into()), provider_id: Some("openai".into()) }));
-        assert_eq!(by("by-reserve"), Some(AnsweredBy { agent_id: Some("writer".into()), provider_id: Some("gemini".into()) }), "the reserve that answered wins over the selection");
+        assert_eq!(by("answer"), Some(AnsweredBy { agent_id: Some("writer".into()), provider_id: Some("openai".into()), slices: Vec::new() }));
+        assert_eq!(by("by-reserve"), Some(AnsweredBy { agent_id: Some("writer".into()), provider_id: Some("gemini".into()), slices: Vec::new() }), "the reserve that answered wins over the selection");
         assert_eq!((by("question"), by("error-note")), (None, None), "no tokens, nothing to attribute");
 
         // A channel that tracks no provider (the hub's turn) stamps the agent alone, and the stamp survives the file.
         let options = AppendOptions { agent_id: Some("poet"), ..Default::default() };
         let saved = append_messages(&dir, "c1", options, vec![message("later", ChatRole::Assistant, spent, None)]).unwrap().unwrap();
-        assert_eq!(saved.messages.last().unwrap().answered_by, Some(AnsweredBy { agent_id: Some("poet".into()), provider_id: None }));
+        assert_eq!(saved.messages.last().unwrap().answered_by, Some(AnsweredBy { agent_id: Some("poet".into()), provider_id: None, slices: Vec::new() }));
         assert_eq!(load_conversation(&dir, "c1").unwrap(), Some(saved));
         std::fs::remove_dir_all(&dir).ok();
     }
@@ -3221,13 +3237,55 @@ oauth = true
         let writer = Some(TurnAgent { id: "writer", persona: "You write." });
         handle_agent_turn(&labelled, &dir, "c1", "hi", "hello", Vec::new(), writer, None, None).await.unwrap();
         let stamp = |id: &str| load_conversation(&dir, id).unwrap().unwrap().messages.iter().find(|m| m.role == ChatRole::Assistant).unwrap().answered_by.clone();
-        assert_eq!(stamp("c1"), Some(AnsweredBy { agent_id: Some("writer".into()), provider_id: Some("openai".into()) }));
+        assert_eq!(stamp("c1"), Some(AnsweredBy { agent_id: Some("writer".into()), provider_id: Some("openai".into()), slices: Vec::new() }));
 
         // A model that carries no id leaves the provider unsaid, as it was before: the conversation's own selection then decides.
         let unlabelled = Orchestrator::new(Arc::new(SpendsTokens), vault);
         handle_agent_turn(&unlabelled, &dir, "c2", "hi", "hello", Vec::new(), writer, None, None).await.unwrap();
-        assert_eq!(stamp("c2"), Some(AnsweredBy { agent_id: Some("writer".into()), provider_id: None }));
+        assert_eq!(stamp("c2"), Some(AnsweredBy { agent_id: Some("writer".into()), provider_id: None, slices: Vec::new() }));
         std::fs::remove_dir_all(&root).ok();
+    }
+
+    /// P126: a turn more than one agent or provider answered is stamped with its usage told per pair, a turn one pair ran is not (the
+    /// stamp alone says it), and the slices survive being saved and loaded.
+    #[test]
+    fn a_turn_answered_by_two_providers_keeps_its_usage_told_per_provider() {
+        let slice = |provider: &str, n: u32| UsageSlice {
+            agent_id: Some("writer".into()),
+            provider_id: Some(provider.into()),
+            usage: Usage { prompt_tokens: n, completion_tokens: 0, total_tokens: n },
+        };
+        let outcome = |provider: Option<&str>, usage_slices: Vec<UsageSlice>| MessageOutcome {
+            content: "ok".into(),
+            usage: Some(Usage { prompt_tokens: 16, completion_tokens: 0, total_tokens: 16 }),
+            usage_slices,
+            attachments: Vec::new(),
+            generated_files: Vec::new(),
+            fallbacks: Vec::new(),
+            provider_id: provider.map(str::to_string),
+            client_tool_calls: Vec::new(),
+            tools_used: Vec::new(),
+        };
+
+        let one = assistant_message(&outcome(Some("main"), vec![slice("main", 16)]));
+        assert_eq!(one.answered_by, Some(AnsweredBy { agent_id: None, provider_id: Some("main".into()), slices: Vec::new() }));
+        assert_eq!(assistant_message(&outcome(None, Vec::new())).answered_by, None, "a turn that says nothing leaves the stamp to the conversation");
+
+        let two = assistant_message(&outcome(Some("spare"), vec![slice("main", 5), slice("spare", 11)]));
+        let stamped = two.answered_by.clone().unwrap();
+        assert_eq!(stamped.provider_id.as_deref(), Some("spare"), "the last call's provider is still the stamp");
+        assert_eq!(stamped.slices.len(), 2);
+
+        let dir = temp_dir("slices-roundtrip");
+        let options = AppendOptions { create: true, agent_id: Some("writer"), ..Default::default() };
+        append_messages(&dir, "c1", options, vec![two]).unwrap();
+        let saved = load_conversation(&dir, "c1").unwrap().unwrap();
+        let by = saved.messages[0].answered_by.clone().unwrap();
+        assert_eq!(by.slices, stamped.slices, "saved and loaded the same");
+        assert_eq!(by.agent_id.as_deref(), Some("writer"), "append_messages still adds the agent");
+        let json = std::fs::read_to_string(dir.join("c1.json")).unwrap();
+        assert!(json.contains("\"slices\""), "{json}");
+        std::fs::remove_dir_all(&dir).ok();
     }
 
     /// How a project's briefing begins (`Project::briefing`): what tells a project turn from an ordinary one.

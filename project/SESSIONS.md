@@ -2,9 +2,17 @@
 
 > **Nota**: Este log foi criado junto com o projeto. As sessões serão registradas aqui conforme o trabalho avança.
 >
-> Última atualização: 2026-10-12 (Sessão 188)
+> Última atualização: 2026-10-13 (Sessão 189)
 
 ---
+
+### 2026-10-13 — Sessão 189 (P126: o uso por agente e por provider conta cada chamada sob quem a fez)
+
+- **Pedido do usuário**: registrar o que faltava (P130) e seguir com outra pendência, "126 se não envolve teste manual"; planejado em plan mode. No meio, o disco encheu ("sem espaço em disco").
+- **Feito**: `UsageSlice` e as fatias no `TurnBudget` (`record(agent, provider, usage)`); o laço do turno soma a fatia `(agente, provider que respondeu)` de cada chamada e o raiz junta as dos sub-agentes em `MessageOutcome.usage_slices`; `AnsweredBy.slices` gravado só com mais de uma fatia; `aggregate_usage` reparte cada fatia no balde dela; desktop: `SendMessageResult.usage_slices`, `lib/answeredBy.ts`, `types.ts`.
+- **Testes**: core (`budget.rs` 2 novos, orquestrador 2, `delegate.rs` 1: sub-agente com agente e provider próprios), bootstrap (carimbo e ida e volta no disco, 3 do agregador; 474 verdes), desktop 121 verdes, `tsc` limpo, `cargo check` do desktop. `warden-core` inteiro verde sozinho (510); numa rodada junto com a compilação do `warden-server` 9 testes de `timeout` (opencode e `a_job_nobody_collects`) estouraram sob carga e passaram sozinhos, mesma classe do P127/P128.
+- **Disco**: `/home` chegou a 100% (729 MB livres, `target/debug/deps` com 53 GB). Parei as rodadas e, com a escolha do usuário ("limpar só artefatos velhos"), apaguei de `target/debug/deps` só as versões antigas de cada artefato (a mais nova por nome e extensão fica; script `sweep_stale.py` no scratchpad): 42 GB, `/home` em 78%. Os volumes do Docker (28 GB recuperáveis) não foram tocados.
+- **Fica**: ver a linha do P126 no `PENDING.md`.
 
 ### 2026-10-12 — Sessão 188 (P54: a CLI recarrega o orquestrador depois de um pull)
 
