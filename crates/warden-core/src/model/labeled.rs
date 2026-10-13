@@ -12,12 +12,19 @@ use super::{ChatStream, Message, ModelProvider, Response, ToolSpec};
 /// `inner` under the id `id` (a `[[providers]]` id): everything is passed on, only `provider_id` is added.
 pub struct Labeled {
     id: String,
+    /// The combo (P90) this single member was picked as: a combo with one usable member is that member, but its calls still count under the combo.
+    combo: Option<String>,
     inner: Arc<dyn ModelProvider>,
 }
 
 impl Labeled {
     pub fn wrap(id: impl Into<String>, inner: Arc<dyn ModelProvider>) -> Arc<dyn ModelProvider> {
-        Arc::new(Self { id: id.into(), inner })
+        Arc::new(Self { id: id.into(), combo: None, inner })
+    }
+
+    /// `wrap` for the only usable member of the combo `combo`.
+    pub fn wrap_in_combo(combo: impl Into<String>, id: impl Into<String>, inner: Arc<dyn ModelProvider>) -> Arc<dyn ModelProvider> {
+        Arc::new(Self { id: id.into(), combo: Some(combo.into()), inner })
     }
 }
 
@@ -34,7 +41,11 @@ impl ModelProvider for Labeled {
     /// A node's model is scoped to the agent asking (P93): the scoped copy keeps the label, or the ledger would
     /// lose it for every call made on behalf of an agent.
     fn for_agent(&self, agent: Option<&str>) -> Option<Arc<dyn ModelProvider>> {
-        self.inner.for_agent(agent).map(|scoped| Labeled::wrap(self.id.clone(), scoped))
+        self.inner.for_agent(agent).map(|scoped| Arc::new(Self { id: self.id.clone(), combo: self.combo.clone(), inner: scoped }) as Arc<dyn ModelProvider>)
+    }
+
+    fn combo_id(&self) -> Option<&str> {
+        self.combo.as_deref()
     }
 
     async fn check_key(&self) -> KeyCheck {

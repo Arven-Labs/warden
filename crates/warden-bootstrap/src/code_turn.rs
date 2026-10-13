@@ -57,18 +57,23 @@ impl CodeTurn<'_> {
         };
         let outcome = self.engine.run_turn(request, approver, on_event).await?;
 
-        let message = |role, content: String, tools_used: Vec<String>| ConversationMessage {
+        // What the engine says the task spent (P126), on the answer. The turn says no provider (the engine's is not one of the Warden's) and
+        // no agent: `append_messages` stamps it as an answer with none, and the usage then counts it under "no agent".
+        let message = |role, content: String, tools_used: Vec<String>, usage| ConversationMessage {
             id: message_id(),
             role,
             content,
             created_at: now_millis(),
-            usage: None,
+            usage,
             answered_by: None,
             attachments: Vec::new(),
             generated_files: Vec::new(),
             tools_used,
         };
-        let messages = vec![message(ChatRole::User, self.user_input.to_string(), Vec::new()), message(ChatRole::Assistant, outcome.text.clone(), outcome.tools_used.clone())];
+        let messages = vec![
+            message(ChatRole::User, self.user_input.to_string(), Vec::new(), None),
+            message(ChatRole::Assistant, outcome.text.clone(), outcome.tools_used.clone(), outcome.usage),
+        ];
         let options = AppendOptions {
             title_seed: self.title_seed,
             project_id: existing.is_none().then_some(self.project.id.as_str()),
@@ -79,12 +84,13 @@ impl CodeTurn<'_> {
         append_messages(self.conversations_dir, self.conversation_id, options, messages)?;
         Ok(MessageOutcome {
             content: outcome.text,
-            usage: None,
+            usage: outcome.usage,
             usage_slices: Vec::new(),
             attachments: Vec::new(),
             generated_files: Vec::new(),
             fallbacks: Vec::new(),
             provider_id: None,
+            combo_id: None,
             client_tool_calls: Vec::new(),
             tools_used: outcome.tools_used,
         })
@@ -127,7 +133,12 @@ mod tests {
             anyhow::ensure!(!self.fails, "the engine failed");
             on_event(CodeEvent::Tool(ToolEvent { call_id: "c1".into(), tool: "edit".into(), title: "src/lib.rs".into(), status: ToolStatus::Completed }));
             on_event(CodeEvent::Text("Done.".into()));
-            Ok(TurnOutcome { session_id: "ses_1".into(), text: "Done.".into(), tools_used: vec!["edit".into()] })
+            Ok(TurnOutcome {
+                session_id: "ses_1".into(),
+                text: "Done.".into(),
+                tools_used: vec!["edit".into()],
+                usage: Some(warden_core::model::Usage { prompt_tokens: 12, completion_tokens: 3, total_tokens: 15 }),
+            })
         }
         async fn abort(&self, _: &str, _: &str) -> anyhow::Result<()> {
             Ok(())
@@ -184,6 +195,26 @@ mod tests {
         assert_eq!(asked[1].session_id.as_deref(), Some("ses_1"));
         assert_eq!((asked[0].workdir.as_str(), asked[0].system.as_deref(), asked[0].target.as_str()), ("/home/me/repo", Some("Use tabs."), "Repo"));
         assert_eq!(load_conversation(&conversations, "c1").unwrap().unwrap().messages.len(), 4);
+    }
+
+    /// P126: what the engine says the task spent is on the answer, in the outcome and in the saved conversation, so it reaches the usage
+    /// screens; the user's own message carries none, and it is an answer with no agent and no provider (the engine's is not one of the Warden's).
+    #[tokio::test]
+    async fn what_the_engine_says_the_task_spent_is_kept_on_the_answer() {
+        let (store, conversations) = (projects("usage"), dir("usage-conversations"));
+        let project = store.get("repo").unwrap();
+
+        let outcome = turn(&engine(false), &project, &conversations, "add a test").run(None, &mut |_| {}).await.unwrap();
+
+        let spent = warden_core::model::Usage { prompt_tokens: 12, completion_tokens: 3, total_tokens: 15 };
+        assert_eq!(outcome.usage, Some(spent));
+        let saved = load_conversation(&conversations, "c1").unwrap().unwrap();
+        assert_eq!((saved.messages[0].usage, saved.messages[1].usage), (None, Some(spent)));
+        assert_eq!(saved.messages[1].answered_by, Some(crate::AnsweredBy::default()), "an answer with no agent and no provider");
+        let summary = crate::usage::aggregate_usage(&[saved]);
+        assert_eq!((summary.message_count, summary.total.total_tokens), (1, 15), "it is counted on the usage screens");
+        assert_eq!((summary.by_agent.len(), summary.by_agent[0].key.clone()), (1, None), "under no agent, which is true: the engine did the work");
+        assert!(summary.by_combo.is_empty());
     }
 
     #[tokio::test]

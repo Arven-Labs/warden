@@ -48,7 +48,7 @@ impl CodeEngine for Scripted {
         on_event(tool(ToolStatus::Running));
         if hang {
             self.stop.notified().await;
-            return Ok(TurnOutcome { session_id: "ses_1".into(), text: "stopped half way".into(), tools_used: vec!["bash".into()] });
+            return Ok(TurnOutcome { session_id: "ses_1".into(), text: "stopped half way".into(), tools_used: vec!["bash".into()], usage: None });
         }
         let allowed = match approver {
             Some(approver) => approver.approve(ApprovalRequest::new("Repo", "bash", "cargo test")).await,
@@ -57,7 +57,7 @@ impl CodeEngine for Scripted {
         self.approvals.lock().unwrap().push(allowed);
         on_event(tool(if allowed { ToolStatus::Completed } else { ToolStatus::Failed }));
         on_event(CodeEvent::Text("done".into()));
-        Ok(TurnOutcome { session_id: "ses_1".into(), text: "done".into(), tools_used: vec!["bash".into()] })
+        Ok(TurnOutcome { session_id: "ses_1".into(), text: "done".into(), tools_used: vec!["bash".into()], usage: None })
     }
 
     async fn abort(&self, workdir: &str, session_id: &str) -> anyhow::Result<()> {

@@ -962,6 +962,10 @@ pub struct AnsweredBy {
     pub agent_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub provider_id: Option<String>,
+    /// The combo (P90) the turn's model was picked as, when it was one (P126): the usage screens group the message's tokens under it as
+    /// well as under the member that answered. Absent for a provider picked by itself and on messages saved before combos were told.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub combo_id: Option<String>,
     /// The message's `usage` told per agent and provider, when more than one answered it: a reserve that took over partway, or
     /// sub-agents running another model. Empty (and not written) when one pair ran every call, the usual case; the usage is then
     /// counted under `agent_id`/`provider_id` above.
@@ -1466,10 +1470,10 @@ pub async fn handle_agent_turn_in_with(
 /// one ran it (P126). `None` when it says nothing, so the conversation's own selection applies.
 fn stamp_of(outcome: &MessageOutcome) -> Option<AnsweredBy> {
     let slices = if outcome.usage_slices.len() > 1 { outcome.usage_slices.clone() } else { Vec::new() };
-    if outcome.provider_id.is_none() && slices.is_empty() {
+    if outcome.provider_id.is_none() && outcome.combo_id.is_none() && slices.is_empty() {
         return None;
     }
-    Some(AnsweredBy { agent_id: None, provider_id: outcome.provider_id.clone(), slices })
+    Some(AnsweredBy { agent_id: None, provider_id: outcome.provider_id.clone(), combo_id: outcome.combo_id.clone(), slices })
 }
 
 fn assistant_message(outcome: &MessageOutcome) -> ConversationMessage {
@@ -1964,9 +1968,9 @@ pub fn build_model_for(config: &FileConfig, id: &str, model_override: Option<Str
         0 => anyhow::bail!("none of combo '{id}'s providers can be used ({})", combo.providers.join(", ")),
         1 => {
             let (member, provider) = chain.remove(0);
-            Ok(Labeled::wrap(member, provider))
+            Ok(Labeled::wrap_in_combo(id, member, provider))
         }
-        _ => Ok(Arc::new(FallbackProvider::new(chain))),
+        _ => Ok(Arc::new(FallbackProvider::new(chain).in_combo(id))),
     }
 }
 
@@ -2995,7 +2999,7 @@ oauth = true
             tools_used: Vec::new(),
         };
         let options = AppendOptions { title_seed: "t", agent_id: Some("writer"), provider_id: Some(Some("openai")), create: true, ..Default::default() };
-        let reserve = AnsweredBy { agent_id: None, provider_id: Some("gemini".into()), slices: Vec::new() };
+        let reserve = AnsweredBy { agent_id: None, provider_id: Some("gemini".into()), ..Default::default() };
         let saved = append_messages(
             &dir,
             "c1",
@@ -3010,14 +3014,14 @@ oauth = true
         .unwrap()
         .unwrap();
         let by = |id: &str| saved.messages.iter().find(|m| m.id == id).unwrap().answered_by.clone();
-        assert_eq!(by("answer"), Some(AnsweredBy { agent_id: Some("writer".into()), provider_id: Some("openai".into()), slices: Vec::new() }));
-        assert_eq!(by("by-reserve"), Some(AnsweredBy { agent_id: Some("writer".into()), provider_id: Some("gemini".into()), slices: Vec::new() }), "the reserve that answered wins over the selection");
+        assert_eq!(by("answer"), Some(AnsweredBy { agent_id: Some("writer".into()), provider_id: Some("openai".into()), ..Default::default() }));
+        assert_eq!(by("by-reserve"), Some(AnsweredBy { agent_id: Some("writer".into()), provider_id: Some("gemini".into()), ..Default::default() }), "the reserve that answered wins over the selection");
         assert_eq!((by("question"), by("error-note")), (None, None), "no tokens, nothing to attribute");
 
         // A channel that tracks no provider (the hub's turn) stamps the agent alone, and the stamp survives the file.
         let options = AppendOptions { agent_id: Some("poet"), ..Default::default() };
         let saved = append_messages(&dir, "c1", options, vec![message("later", ChatRole::Assistant, spent, None)]).unwrap().unwrap();
-        assert_eq!(saved.messages.last().unwrap().answered_by, Some(AnsweredBy { agent_id: Some("poet".into()), provider_id: None, slices: Vec::new() }));
+        assert_eq!(saved.messages.last().unwrap().answered_by, Some(AnsweredBy { agent_id: Some("poet".into()), ..Default::default() }));
         assert_eq!(load_conversation(&dir, "c1").unwrap(), Some(saved));
         std::fs::remove_dir_all(&dir).ok();
     }
@@ -3237,12 +3241,12 @@ oauth = true
         let writer = Some(TurnAgent { id: "writer", persona: "You write." });
         handle_agent_turn(&labelled, &dir, "c1", "hi", "hello", Vec::new(), writer, None, None).await.unwrap();
         let stamp = |id: &str| load_conversation(&dir, id).unwrap().unwrap().messages.iter().find(|m| m.role == ChatRole::Assistant).unwrap().answered_by.clone();
-        assert_eq!(stamp("c1"), Some(AnsweredBy { agent_id: Some("writer".into()), provider_id: Some("openai".into()), slices: Vec::new() }));
+        assert_eq!(stamp("c1"), Some(AnsweredBy { agent_id: Some("writer".into()), provider_id: Some("openai".into()), ..Default::default() }));
 
         // A model that carries no id leaves the provider unsaid, as it was before: the conversation's own selection then decides.
         let unlabelled = Orchestrator::new(Arc::new(SpendsTokens), vault);
         handle_agent_turn(&unlabelled, &dir, "c2", "hi", "hello", Vec::new(), writer, None, None).await.unwrap();
-        assert_eq!(stamp("c2"), Some(AnsweredBy { agent_id: Some("writer".into()), provider_id: None, slices: Vec::new() }));
+        assert_eq!(stamp("c2"), Some(AnsweredBy { agent_id: Some("writer".into()), ..Default::default() }));
         std::fs::remove_dir_all(&root).ok();
     }
 
@@ -3253,6 +3257,7 @@ oauth = true
         let slice = |provider: &str, n: u32| UsageSlice {
             agent_id: Some("writer".into()),
             provider_id: Some(provider.into()),
+            combo_id: None,
             usage: Usage { prompt_tokens: n, completion_tokens: 0, total_tokens: n },
         };
         let outcome = |provider: Option<&str>, usage_slices: Vec<UsageSlice>| MessageOutcome {
@@ -3263,13 +3268,27 @@ oauth = true
             generated_files: Vec::new(),
             fallbacks: Vec::new(),
             provider_id: provider.map(str::to_string),
+            combo_id: None,
             client_tool_calls: Vec::new(),
             tools_used: Vec::new(),
         };
 
         let one = assistant_message(&outcome(Some("main"), vec![slice("main", 16)]));
-        assert_eq!(one.answered_by, Some(AnsweredBy { agent_id: None, provider_id: Some("main".into()), slices: Vec::new() }));
+        assert_eq!(one.answered_by, Some(AnsweredBy { provider_id: Some("main".into()), ..Default::default() }));
         assert_eq!(assistant_message(&outcome(None, Vec::new())).answered_by, None, "a turn that says nothing leaves the stamp to the conversation");
+
+        // P126: a turn through a combo is stamped with it, even when the provider is not known; and it survives the file.
+        let through = |combo: &str| MessageOutcome { combo_id: Some(combo.into()), ..outcome(None, Vec::new()) };
+        assert_eq!(assistant_message(&through("fast")).answered_by, Some(AnsweredBy { combo_id: Some("fast".into()), ..Default::default() }));
+        let dir = temp_dir("combo-roundtrip");
+        let options = AppendOptions { create: true, agent_id: Some("writer"), ..Default::default() };
+        let mut by_combo = outcome(Some("spare"), vec![slice("spare", 16)]);
+        by_combo.combo_id = Some("fast".into());
+        append_messages(&dir, "c0", options, vec![assistant_message(&by_combo)]).unwrap();
+        let saved = load_conversation(&dir, "c0").unwrap().unwrap();
+        assert_eq!(saved.messages[0].answered_by.as_ref().and_then(|by| by.combo_id.as_deref()), Some("fast"));
+        assert!(std::fs::read_to_string(dir.join("c0.json")).unwrap().contains("\"comboId\""));
+        std::fs::remove_dir_all(&dir).ok();
 
         let two = assistant_message(&outcome(Some("spare"), vec![slice("main", 5), slice("spare", 11)]));
         let stamped = two.answered_by.clone().unwrap();
@@ -3807,6 +3826,12 @@ oauth = true
         assert_eq!(build_model_for(&config, "main", None).unwrap().provider_id(), "main");
         assert_eq!(build_model_for(&config, "fast", None).unwrap().provider_id(), "spare", "the first member answers unless a fallback says otherwise");
         assert_eq!(build_model_for(&config, "lonely", None).unwrap().provider_id(), "spare", "the one member that could be built, not the combo's name");
+
+        // P126: the combo's own name is kept apart, for the usage to group by: with several members, with the one that could be built, and
+        // never for a provider picked by itself.
+        assert_eq!(build_model_for(&config, "fast", None).unwrap().combo_id(), Some("fast"));
+        assert_eq!(build_model_for(&config, "lonely", None).unwrap().combo_id(), Some("lonely"));
+        assert_eq!(build_model_for(&config, "main", None).unwrap().combo_id(), None);
 
         let legacy = FileConfig { provider: Some(Provider::Openai), api_keys: ApiKeys { openai: Some("k".into()), ..Default::default() }, ..Default::default() };
         assert_eq!(resolve_model_provider(&legacy, &Overrides::default()).unwrap().provider_id(), "openai");

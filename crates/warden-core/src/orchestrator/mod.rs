@@ -51,6 +51,9 @@ pub struct MessageOutcome {
     /// that carries no id and for a turn that made no model call (a code turn). What `answered_by` stamps, so every channel's usage is
     /// told under the provider that really answered, without each caller passing it.
     pub provider_id: Option<String>,
+    /// The combo (P90) the turn's model was picked as, when it was one (P126): what the usage groups the turn's own calls under, whichever
+    /// member answered. `None` for a provider picked by itself and for a turn with no model call.
+    pub combo_id: Option<String>,
     /// The calls to the caller's own tools (`with_client_tools`, P91) the model made: the turn
     /// stopped there, for the caller to run them and continue with `resume_turn_streaming`. Empty
     /// for every turn without client tools, and when the model answered in text.
@@ -807,6 +810,8 @@ impl Orchestrator {
             let served_provider = switched.as_ref().map_or_else(|| self.model.provider_id().to_string(), |s| s.to.clone());
             // What the outcome reports if this call ends the turn (P126); an id-less model is no provider, not an empty one.
             let answering_provider = Some(served_provider.clone()).filter(|id| !id.is_empty());
+            // The combo the model was picked as (P126), the same for every call of the turn whoever answered.
+            let answering_combo = self.model.combo_id().map(str::to_string);
             if let Some(switch) = switched {
                 if !fallbacks.iter().any(|f| f.from == switch.from && f.to == switch.to) {
                     fallbacks.push(switch);
@@ -814,7 +819,7 @@ impl Orchestrator {
             }
 
             if let Some(budget) = sub_agent_budget {
-                budget.record(self.agent_id.as_deref(), answering_provider.as_deref(), response.usage.as_ref());
+                budget.record_in_combo(self.agent_id.as_deref(), answering_provider.as_deref(), answering_combo.as_deref(), response.usage.as_ref());
             }
             if let (Some(spend), Some(u)) = (spend, response.usage.as_ref()) {
                 spend.record(&served_model, &served_provider, u);
@@ -824,7 +829,7 @@ impl Orchestrator {
                 usage.completion_tokens += u.completion_tokens;
                 usage.total_tokens += u.total_tokens;
                 has_usage = true;
-                UsageSlice::add(&mut usage_slices, self.agent_id.as_deref(), answering_provider.as_deref(), &u);
+                UsageSlice::add_in_combo(&mut usage_slices, self.agent_id.as_deref(), answering_provider.as_deref(), answering_combo.as_deref(), &u);
             }
 
             // A call to one of the caller's tools ends the turn with those calls. Our own tools
@@ -839,7 +844,7 @@ impl Orchestrator {
                         has_usage = true;
                     }
                     for slice in budget.slices() {
-                        UsageSlice::add(&mut usage_slices, slice.agent_id.as_deref(), slice.provider_id.as_deref(), &slice.usage);
+                        UsageSlice::add_in_combo(&mut usage_slices, slice.agent_id.as_deref(), slice.provider_id.as_deref(), slice.combo_id.as_deref(), &slice.usage);
                     }
                 }
                 return Ok(MessageOutcome {
@@ -850,6 +855,7 @@ impl Orchestrator {
                     generated_files,
                     fallbacks,
                     provider_id: answering_provider,
+                    combo_id: answering_combo,
                     client_tool_calls,
                     tools_used,
                 });
@@ -2880,6 +2886,37 @@ mod tests {
             let slices = outcome.usage_slices.iter().map(|s| (s.provider_id.as_deref(), s.usage.total_tokens)).collect::<Vec<_>>();
             assert_eq!(slices, vec![(Some("main"), 5), (Some("spare"), 11)]);
             assert_eq!(outcome.usage, Some(Usage { prompt_tokens: 13, completion_tokens: 3, total_tokens: 16 }));
+        }
+
+        /// P126: a turn through a combo tells the combo on its outcome and on every slice, whichever member answered; a provider picked by itself
+        /// has none, and neither does the sub-agent of a combo (its own model decides).
+        #[tokio::test]
+        async fn a_turn_through_a_combo_tells_the_combo_whichever_member_answered() {
+            let model = crate::model::FallbackProvider::new(vec![
+                ("main".to_string(), Arc::new(DownAfterOne(AtomicUsize::new(0))) as Arc<dyn ModelProvider>),
+                ("spare".to_string(), Arc::new(Answers) as Arc<dyn ModelProvider>),
+            ])
+            .in_combo("fast");
+            let mut root = Orchestrator::new(Arc::new(model), temp_vault());
+            root.register_tool(Arc::new(NamedTool("noop")));
+
+            let outcome = root.handle_message(&[], "go").await.unwrap();
+
+            assert_eq!(outcome.combo_id.as_deref(), Some("fast"));
+            let slices = outcome.usage_slices.iter().map(|s| (s.provider_id.as_deref(), s.combo_id.as_deref(), s.usage.total_tokens)).collect::<Vec<_>>();
+            assert_eq!(slices, vec![(Some("main"), Some("fast"), 5), (Some("spare"), Some("fast"), 11)], "the reserve that took over is still the combo's");
+
+            // A combo with one usable member is that member, and still the combo.
+            let single = Orchestrator::new(crate::model::labeled::Labeled::wrap_in_combo("solo", "main", Arc::new(Answers)), temp_vault());
+            let outcome = single.handle_message(&[], "go").await.unwrap();
+            assert_eq!((outcome.provider_id.as_deref(), outcome.combo_id.as_deref()), (Some("main"), Some("solo")));
+            assert_eq!(outcome.usage_slices[0].combo_id.as_deref(), Some("solo"));
+
+            // A provider picked by itself has no combo.
+            let plain = Orchestrator::new(crate::model::labeled::Labeled::wrap("main", Arc::new(Answers)), temp_vault());
+            let outcome = plain.handle_message(&[], "go").await.unwrap();
+            assert_eq!(outcome.combo_id, None);
+            assert_eq!(outcome.usage_slices[0].combo_id, None);
         }
 
         #[tokio::test]

@@ -762,6 +762,7 @@ function App() {
         generatedFiles?: string[];
         fallbacks?: ProviderFallback[];
         providerId?: string;
+        comboId?: string;
         usageSlices?: UsageSlice[];
         alreadySaved?: boolean;
       }>("send_message", {
@@ -841,7 +842,7 @@ function App() {
     setThreadError(null);
     setThreadSending(true);
     try {
-      const reply = await invoke<{ content: string; usage?: Usage; attachments?: Attachment[]; generatedFiles?: string[]; fallbacks?: ProviderFallback[]; providerId?: string; usageSlices?: UsageSlice[] }>("send_message", {
+      const reply = await invoke<{ content: string; usage?: Usage; attachments?: Attachment[]; generatedFiles?: string[]; fallbacks?: ProviderFallback[]; providerId?: string; comboId?: string; usageSlices?: UsageSlice[] }>("send_message", {
         history,
         content,
         attachments,

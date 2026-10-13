@@ -32,13 +32,21 @@ pub struct ProviderFallback {
 /// The turn's provider first, then the reserves — each with the id the user knows it by.
 pub struct FallbackProvider {
     providers: Vec<(String, Arc<dyn ModelProvider>)>,
+    /// The id of the combo (P90) this chain is, when it was built as one.
+    combo: Option<String>,
 }
 
 impl FallbackProvider {
     /// `providers` must not be empty; the first is the one the turn is meant for.
     pub fn new(providers: Vec<(String, Arc<dyn ModelProvider>)>) -> Self {
         assert!(!providers.is_empty(), "FallbackProvider needs at least one provider");
-        Self { providers }
+        Self { providers, combo: None }
+    }
+
+    /// This chain as the combo `id`, so the usage can be grouped under it (P126).
+    pub fn in_combo(mut self, id: impl Into<String>) -> Self {
+        self.combo = Some(id.into());
+        self
     }
 }
 
@@ -88,6 +96,10 @@ impl ModelProvider for FallbackProvider {
         &self.providers[0].0
     }
 
+    fn combo_id(&self) -> Option<&str> {
+        self.combo.as_deref()
+    }
+
     /// Passes the agent on to every provider in the chain (P93: a node's model in a combo).
     fn for_agent(&self, agent: Option<&str>) -> Option<Arc<dyn ModelProvider>> {
         let mut changed = false;
@@ -100,7 +112,7 @@ impl ModelProvider for FallbackProvider {
                 (id.clone(), scoped.unwrap_or_else(|| provider.clone()))
             })
             .collect();
-        changed.then(|| Arc::new(Self { providers }) as Arc<dyn ModelProvider>)
+        changed.then(|| Arc::new(Self { providers, combo: self.combo.clone() }) as Arc<dyn ModelProvider>)
     }
 
     async fn chat_stream(&self, messages: Vec<Message>, tools: Vec<ToolSpec>) -> anyhow::Result<ChatStream> {

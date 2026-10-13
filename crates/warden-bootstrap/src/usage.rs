@@ -51,6 +51,10 @@ pub struct UsageSummary {
     pub total: Usage,
     pub by_agent: Vec<UsageByKey>,
     pub by_provider: Vec<UsageByKey>,
+    /// What went through a combo (P90), grouped by the combo whichever member answered (P126). Only the calls made through one: there is
+    /// no bucket for the rest, which `by_provider` already tells.
+    #[serde(default)]
+    pub by_combo: Vec<UsageByKey>,
 }
 
 /// Sums every `ConversationMessage.usage` across `conversations` — only assistant messages ever
@@ -62,6 +66,7 @@ pub fn aggregate_usage(conversations: &[Conversation]) -> UsageSummary {
     let mut summary = UsageSummary { conversation_count: conversations.len(), ..Default::default() };
     let mut by_agent: HashMap<Option<String>, UsageByKey> = HashMap::new();
     let mut by_provider: HashMap<Option<String>, UsageByKey> = HashMap::new();
+    let mut by_combo: HashMap<String, UsageByKey> = HashMap::new();
 
     for conversation in conversations {
         for message in &conversation.messages {
@@ -80,16 +85,31 @@ pub fn aggregate_usage(conversations: &[Conversation]) -> UsageSummary {
             // A message more than one agent or provider answered says how much each spent (its slices); what a slice leaves out falls
             // back to the message's own agent and provider. Without slices, the whole usage is one piece.
             let slices = message.answered_by.as_ref().map(|by| by.slices.as_slice()).unwrap_or_default();
-            let pieces: Vec<(Option<String>, Option<String>, Usage)> = if slices.is_empty() {
-                vec![(agent, provider, *usage)]
+            // The combo each piece went through: the stamp's for the whole usage, or each slice's own (a sub-agent that was not picked as a
+            // combo does not inherit the message's).
+            let stamped_combo = message.answered_by.as_ref().and_then(|by| by.combo_id.clone());
+            // (agent, provider, combo, usage)
+            type Piece = (Option<String>, Option<String>, Option<String>, Usage);
+            let pieces: Vec<Piece> = if slices.is_empty() {
+                vec![(agent, provider, stamped_combo, *usage)]
             } else {
-                slices.iter().map(|s| (s.agent_id.clone().or_else(|| agent.clone()), s.provider_id.clone().or_else(|| provider.clone()), s.usage)).collect()
+                slices.iter().map(|s| (s.agent_id.clone().or_else(|| agent.clone()), s.provider_id.clone().or_else(|| provider.clone()), s.combo_id.clone(), s.usage)).collect()
             };
 
             // A message counts once in each bucket it touched, however many of its pieces landed there.
             let mut touched_agents: Vec<&Option<String>> = Vec::new();
             let mut touched_providers: Vec<&Option<String>> = Vec::new();
-            for (agent, provider, usage) in &pieces {
+            let mut touched_combos: Vec<&String> = Vec::new();
+            for (agent, provider, combo, usage) in &pieces {
+                if let Some(combo) = combo {
+                    let combo_bucket = by_combo.entry(combo.clone()).or_insert_with(|| UsageByKey { key: Some(combo.clone()), ..Default::default() });
+                    combo_bucket.usage += usage;
+                    if !touched_combos.contains(&combo) {
+                        touched_combos.push(combo);
+                        combo_bucket.message_count += 1;
+                    }
+                }
+
                 let agent_bucket = by_agent.entry(agent.clone()).or_insert_with(|| UsageByKey { key: agent.clone(), ..Default::default() });
                 agent_bucket.usage += usage;
                 if !touched_agents.contains(&agent) {
@@ -111,6 +131,8 @@ pub fn aggregate_usage(conversations: &[Conversation]) -> UsageSummary {
     summary.by_agent.sort_by_key(|b| std::cmp::Reverse(b.usage.total_tokens));
     summary.by_provider = by_provider.into_values().collect();
     summary.by_provider.sort_by_key(|b| std::cmp::Reverse(b.usage.total_tokens));
+    summary.by_combo = by_combo.into_values().collect();
+    summary.by_combo.sort_by_key(|b| std::cmp::Reverse(b.usage.total_tokens));
 
     summary
 }
@@ -261,7 +283,7 @@ mod tests {
 
     fn answered(by_agent: Option<&str>, by_provider: Option<&str>, n: u32) -> crate::ConversationMessage {
         crate::ConversationMessage {
-            answered_by: Some(crate::AnsweredBy { agent_id: by_agent.map(str::to_string), provider_id: by_provider.map(str::to_string), slices: Vec::new() }),
+            answered_by: Some(crate::AnsweredBy { agent_id: by_agent.map(str::to_string), provider_id: by_provider.map(str::to_string), ..Default::default() }),
             ..message(tokens(n))
         }
     }
@@ -307,12 +329,13 @@ mod tests {
             .map(|(agent, provider, n)| UsageSlice {
                 agent_id: agent.map(str::to_string),
                 provider_id: provider.map(str::to_string),
+                combo_id: None,
                 usage: Usage { prompt_tokens: *n, completion_tokens: 0, total_tokens: *n },
             })
             .collect();
         let total: u32 = slices.iter().map(|s| s.usage.total_tokens).sum();
         crate::ConversationMessage {
-            answered_by: Some(crate::AnsweredBy { agent_id: stamp_agent.map(str::to_string), provider_id: stamp_provider.map(str::to_string), slices }),
+            answered_by: Some(crate::AnsweredBy { agent_id: stamp_agent.map(str::to_string), provider_id: stamp_provider.map(str::to_string), combo_id: None, slices }),
             ..message(tokens(total))
         }
     }
@@ -339,6 +362,57 @@ mod tests {
         )]);
         assert_eq!(totals(&summary.by_agent), [(Some("boss"), 35), (Some("helper"), 10)]);
         assert_eq!(totals(&summary.by_provider), [(Some("cheap"), 10), (Some("main"), 35)]);
+    }
+
+    /// A message stamped with the combo it went through (P126), whichever member answered.
+    fn through_combo(combo: &str, provider: &str, n: u32) -> crate::ConversationMessage {
+        crate::ConversationMessage {
+            answered_by: Some(crate::AnsweredBy { provider_id: Some(provider.into()), combo_id: Some(combo.into()), ..Default::default() }),
+            ..message(tokens(n))
+        }
+    }
+
+    #[test]
+    fn a_combo_is_a_bucket_over_its_members_and_what_went_through_none_has_no_bucket() {
+        let summary = aggregate_usage(&[conversation(
+            None,
+            None,
+            vec![through_combo("fast", "main", 5), through_combo("fast", "spare", 11), through_combo("deep", "main", 2), answered(None, Some("main"), 7), message(tokens(3))],
+        )]);
+
+        assert_eq!(totals(&summary.by_combo), [(Some("deep"), 2), (Some("fast"), 16)], "only what went through a combo");
+        assert_eq!(summary.by_combo.iter().map(|b| (b.key.as_deref(), b.message_count)).collect::<Vec<_>>(), [(Some("fast"), 2), (Some("deep"), 1)], "largest first");
+        assert_eq!(totals(&summary.by_provider), [(None, 3), (Some("main"), 14), (Some("spare"), 11)], "the members keep their share, as before");
+        assert_eq!(summary.total.total_tokens, 28);
+    }
+
+    #[test]
+    fn a_sliced_message_counts_a_combo_only_where_the_slice_says_it() {
+        let slice = |agent: &str, provider: &str, combo: Option<&str>, n: u32| UsageSlice {
+            agent_id: Some(agent.into()),
+            provider_id: Some(provider.into()),
+            combo_id: combo.map(str::to_string),
+            usage: Usage { prompt_tokens: n, completion_tokens: 0, total_tokens: n },
+        };
+        let slices = vec![slice("boss", "main", Some("fast"), 20), slice("boss", "spare", Some("fast"), 15), slice("helper", "cheap", None, 10)];
+        let sliced = crate::ConversationMessage {
+            answered_by: Some(crate::AnsweredBy { agent_id: Some("boss".into()), provider_id: Some("main".into()), combo_id: Some("fast".into()), slices }),
+            ..message(tokens(45))
+        };
+
+        let summary = aggregate_usage(&[conversation(Some("boss"), None, vec![sliced])]);
+
+        assert_eq!(totals(&summary.by_combo), [(Some("fast"), 35)], "the sub-agent's 10 tokens did not inherit the message's combo");
+        assert_eq!(summary.by_combo[0].message_count, 1, "one message, however many pieces landed in the combo");
+        assert_eq!(summary.total.total_tokens, 45);
+    }
+
+    #[test]
+    fn a_message_saved_before_combos_were_told_reads_back_without_one() {
+        let json = r#"{"providerId":"main","slices":[{"providerId":"main","usage":{"promptTokens":1,"completionTokens":0,"totalTokens":1}}]}"#;
+        let by: crate::AnsweredBy = serde_json::from_str(json).unwrap();
+        assert_eq!((by.combo_id.clone(), by.slices[0].combo_id.clone()), (None, None));
+        assert!(!serde_json::to_string(&by).unwrap().contains("comboId"), "nothing is written for no combo");
     }
 
     #[test]

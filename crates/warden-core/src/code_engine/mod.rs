@@ -11,6 +11,7 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 
+use crate::model::Usage;
 use crate::tool::Approver;
 
 pub mod mode;
@@ -81,6 +82,9 @@ pub struct TurnOutcome {
     pub text: String,
     /// The distinct tools it used, in order of first use.
     pub tools_used: Vec<String>,
+    /// What the task spent, as the engine reports it (P126), the engine's own sub-agents included. `None` when it reported nothing: its
+    /// own provider is not one of the Warden's, so this is only a count of tokens, with no provider or agent to put it under.
+    pub usage: Option<Usage>,
 }
 
 #[async_trait]

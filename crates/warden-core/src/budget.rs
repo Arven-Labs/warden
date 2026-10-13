@@ -17,6 +17,10 @@ pub struct UsageSlice {
     pub agent_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub provider_id: Option<String>,
+    /// The combo (P90) the calls were made through, when the model was picked as one: the usage screens group a combo's calls under it,
+    /// whichever member answered. `None` for a model picked by itself, and for what was saved before combos were told.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub combo_id: Option<String>,
     pub usage: Usage,
 }
 
@@ -24,9 +28,20 @@ impl UsageSlice {
     /// Adds `usage` to the slice for `(agent_id, provider_id)` in `slices`, opening it the first time that pair is seen. The order
     /// is the order the pairs first appeared.
     pub fn add(slices: &mut Vec<UsageSlice>, agent_id: Option<&str>, provider_id: Option<&str>, usage: &Usage) {
-        match slices.iter_mut().find(|s| s.agent_id.as_deref() == agent_id && s.provider_id.as_deref() == provider_id) {
+        Self::add_in_combo(slices, agent_id, provider_id, None, usage);
+    }
+
+    /// `add` for the trio `(agent_id, provider_id, combo_id)`: the same provider reached through a combo and by itself are two slices.
+    pub fn add_in_combo(slices: &mut Vec<UsageSlice>, agent_id: Option<&str>, provider_id: Option<&str>, combo_id: Option<&str>, usage: &Usage) {
+        let same = |s: &&mut UsageSlice| s.agent_id.as_deref() == agent_id && s.provider_id.as_deref() == provider_id && s.combo_id.as_deref() == combo_id;
+        match slices.iter_mut().find(|s| same(s)) {
             Some(slice) => slice.usage += usage,
-            None => slices.push(UsageSlice { agent_id: agent_id.map(str::to_string), provider_id: provider_id.map(str::to_string), usage: *usage }),
+            None => slices.push(UsageSlice {
+                agent_id: agent_id.map(str::to_string),
+                provider_id: provider_id.map(str::to_string),
+                combo_id: combo_id.map(str::to_string),
+                usage: *usage,
+            }),
         }
     }
 }
@@ -86,9 +101,14 @@ impl TurnBudget {
     /// Adds one sub-agent call's reported usage, under the agent and provider that made it (P126). A provider that reports none
     /// adds nothing.
     pub fn record(&self, agent_id: Option<&str>, provider_id: Option<&str>, usage: Option<&Usage>) {
+        self.record_in_combo(agent_id, provider_id, None, usage);
+    }
+
+    /// `record` for a call made through the combo `combo_id` (P126).
+    pub fn record_in_combo(&self, agent_id: Option<&str>, provider_id: Option<&str>, combo_id: Option<&str>, usage: Option<&Usage>) {
         if let Some(usage) = usage {
             *self.usage.lock().unwrap().get_or_insert_with(Usage::default) += usage;
-            UsageSlice::add(&mut self.slices.lock().unwrap(), agent_id, provider_id, usage);
+            UsageSlice::add_in_combo(&mut self.slices.lock().unwrap(), agent_id, provider_id, combo_id, usage);
         }
     }
 
@@ -269,10 +289,31 @@ mod tests {
 
     #[test]
     fn a_slice_without_an_agent_or_a_provider_leaves_them_out_of_the_json() {
-        let slice = UsageSlice { agent_id: None, provider_id: Some("main".into()), usage: Usage { prompt_tokens: 1, completion_tokens: 2, total_tokens: 3 } };
+        let slice = UsageSlice { agent_id: None, provider_id: Some("main".into()), combo_id: None, usage: Usage { prompt_tokens: 1, completion_tokens: 2, total_tokens: 3 } };
         let json = serde_json::to_string(&slice).unwrap();
         assert_eq!(json, r#"{"providerId":"main","usage":{"promptTokens":1,"completionTokens":2,"totalTokens":3}}"#);
         assert_eq!(serde_json::from_str::<UsageSlice>(&json).unwrap(), slice);
+
+        // The combo is written only when there is one, and a slice saved before combos were told reads back without it.
+        let in_combo = UsageSlice { combo_id: Some("fast".into()), ..slice.clone() };
+        let json = serde_json::to_string(&in_combo).unwrap();
+        assert!(json.contains(r#""comboId":"fast""#), "{json}");
+        assert_eq!(serde_json::from_str::<UsageSlice>(&json).unwrap(), in_combo);
+    }
+
+    #[test]
+    fn the_same_provider_reached_through_a_combo_and_by_itself_are_two_slices() {
+        let budget = TurnBudget::new(9);
+        let usage = |n| Usage { prompt_tokens: n, completion_tokens: 0, total_tokens: n };
+        budget.record_in_combo(Some("a"), Some("main"), Some("fast"), Some(&usage(3)));
+        budget.record_in_combo(Some("a"), Some("main"), Some("fast"), Some(&usage(4)));
+        budget.record_in_combo(Some("a"), Some("spare"), Some("fast"), Some(&usage(5)));
+        budget.record(Some("a"), Some("main"), Some(&usage(6)));
+
+        let slices = budget.slices();
+        let seen: Vec<(Option<&str>, Option<&str>, u32)> = slices.iter().map(|s| (s.provider_id.as_deref(), s.combo_id.as_deref(), s.usage.total_tokens)).collect();
+        assert_eq!(seen, [(Some("main"), Some("fast"), 7), (Some("spare"), Some("fast"), 5), (Some("main"), None, 6)]);
+        assert_eq!(budget.usage().unwrap().total_tokens, 18, "the slices always add up to the total");
     }
 
     mod gate {

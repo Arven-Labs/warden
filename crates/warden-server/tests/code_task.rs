@@ -55,7 +55,7 @@ impl CodeEngine for Scripted {
         };
         self.approvals.lock().unwrap().push(allowed);
         let text = if allowed { "tests added" } else { "the person refused" };
-        Ok(TurnOutcome { session_id: "ses_9".into(), text: text.into(), tools_used: vec!["bash".into()] })
+        Ok(TurnOutcome { session_id: "ses_9".into(), text: text.into(), tools_used: vec!["bash".into()], usage: None })
     }
 
     async fn abort(&self, _: &str, _: &str) -> anyhow::Result<()> {
@@ -168,7 +168,7 @@ struct Instant;
 #[async_trait]
 impl CodeEngine for Instant {
     async fn run_turn(&self, request: TurnRequest, _: Option<Arc<dyn Approver>>, _: &mut (dyn FnMut(CodeEvent) + Send)) -> anyhow::Result<TurnOutcome> {
-        Ok(TurnOutcome { session_id: format!("ses_{}", request.workdir.rsplit('/').next().unwrap()), text: format!("done: {}", request.prompt), tools_used: Vec::new() })
+        Ok(TurnOutcome { session_id: format!("ses_{}", request.workdir.rsplit('/').next().unwrap()), text: format!("done: {}", request.prompt), tools_used: Vec::new(), usage: None })
     }
 
     async fn abort(&self, _: &str, _: &str) -> anyhow::Result<()> {
@@ -237,7 +237,7 @@ impl CodeEngine for Narrates {
         on_event(edit(warden_core::code_engine::ToolStatus::Running));
         tokio::task::yield_now().await;
         on_event(edit(warden_core::code_engine::ToolStatus::Completed));
-        Ok(TurnOutcome { session_id: "ses_n".into(), text: format!("done: {}", request.prompt), tools_used: vec!["edit".into()] })
+        Ok(TurnOutcome { session_id: "ses_n".into(), text: format!("done: {}", request.prompt), tools_used: vec!["edit".into()], usage: None })
     }
 
     async fn abort(&self, _: &str, _: &str) -> anyhow::Result<()> {
@@ -335,7 +335,7 @@ struct ModeProbe {
 impl CodeEngine for ModeProbe {
     async fn run_turn(&self, request: TurnRequest, _: Option<Arc<dyn Approver>>, _: &mut (dyn FnMut(CodeEvent) + Send)) -> anyhow::Result<TurnOutcome> {
         self.modes.lock().unwrap().push(*request.mode.borrow());
-        Ok(TurnOutcome { session_id: "ses_p".into(), text: "a plan".into(), tools_used: Vec::new() })
+        Ok(TurnOutcome { session_id: "ses_p".into(), text: "a plan".into(), tools_used: Vec::new(), usage: None })
     }
 
     async fn abort(&self, _: &str, _: &str) -> anyhow::Result<()> {

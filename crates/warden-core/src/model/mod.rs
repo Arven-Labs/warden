@@ -335,6 +335,12 @@ pub trait ModelProvider: Send + Sync {
         ""
     }
 
+    /// The id of the combo (P90) this model was picked as, when it is one — what the usage screens group a combo's calls under, whichever
+    /// member answered (P126). `None` for a provider picked by itself.
+    fn combo_id(&self) -> Option<&str> {
+        None
+    }
+
     /// Checks the key against the provider without spending a conversation (P10): a model-list request, answered
     /// only to a key the provider accepts. A provider with no key to check (a node's model, a combo) says so, which
     /// is the default. It never goes through an `Orchestrator`, so it books nothing in the spend ledger.

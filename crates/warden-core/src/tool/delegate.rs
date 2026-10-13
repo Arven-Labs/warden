@@ -396,14 +396,15 @@ mod tests {
 
         let vault = temp_vault();
         let sub_agent = Orchestrator::new(Labeled::wrap("cheap", Arc::new(Helper)), vault.clone()).with_agent(Some("helper".into()));
-        let mut root = Orchestrator::new(Labeled::wrap("main", Arc::new(Delegates(AtomicUsize::new(0)))), vault).with_agent(Some("boss".into()));
+        // The root was picked as a combo and the sub-agent as a provider of its own: the sub-agent's slice does not inherit the combo.
+        let mut root = Orchestrator::new(Labeled::wrap_in_combo("fast", "main", Arc::new(Delegates(AtomicUsize::new(0)))), vault).with_agent(Some("boss".into()));
         root.register_tool(Arc::new(DelegateTool::new(sub_agent)));
 
         // A turn gets a budget (which is what carries the sub-agents' usage back) once a delegation limit is set.
         let outcome = root.with_delegation_limit(5).handle_message(&[], "go").await.unwrap();
 
-        let slices = outcome.usage_slices.iter().map(|s| (s.agent_id.as_deref(), s.provider_id.as_deref(), s.usage.total_tokens)).collect::<Vec<_>>();
-        assert_eq!(slices, vec![(Some("boss"), Some("main"), 35), (Some("helper"), Some("cheap"), 10)]);
+        let slices = outcome.usage_slices.iter().map(|s| (s.agent_id.as_deref(), s.provider_id.as_deref(), s.combo_id.as_deref(), s.usage.total_tokens)).collect::<Vec<_>>();
+        assert_eq!(slices, vec![(Some("boss"), Some("main"), Some("fast"), 35), (Some("helper"), Some("cheap"), None, 10)]);
         assert_eq!(outcome.usage, Some(Usage { prompt_tokens: 35, completion_tokens: 10, total_tokens: 45 }));
     }
 

@@ -492,7 +492,7 @@ mod tests {
             let mode = *request.mode.borrow();
             let session = request.session_id.clone().unwrap_or_else(|| "ses_new".to_string());
             self.asked.lock().unwrap().push((request, mode, approver.is_some()));
-            Ok(TurnOutcome { session_id: session, text: "Done.".into(), tools_used: vec!["edit".into()] })
+            Ok(TurnOutcome { session_id: session, text: "Done.".into(), tools_used: vec!["edit".into()], usage: None })
         }
         async fn abort(&self, _: &str, _: &str) -> anyhow::Result<()> {
             Ok(())
@@ -575,7 +575,7 @@ mod tests {
             on_event(tool(ToolStatus::Running));
             on_event(CodeEvent::Notice("retrying".into()));
             on_event(tool(ToolStatus::Completed));
-            Ok(TurnOutcome { session_id: "ses_chat".into(), text: "ok".into(), tools_used: vec!["bash".into()] })
+            Ok(TurnOutcome { session_id: "ses_chat".into(), text: "ok".into(), tools_used: vec!["bash".into()], usage: None })
         }
         async fn abort(&self, _: &str, _: &str) -> anyhow::Result<()> {
             Ok(())
@@ -827,7 +827,7 @@ mod tests {
             if request.prompt.contains("edit") {
                 std::fs::write(std::path::Path::new(&request.workdir).join("made.txt"), "by the engine")?;
             }
-            Ok(TurnOutcome { session_id: "ses_wt".into(), text: "Done.".into(), tools_used: Vec::new() })
+            Ok(TurnOutcome { session_id: "ses_wt".into(), text: "Done.".into(), tools_used: Vec::new(), usage: None })
         }
         async fn abort(&self, _: &str, _: &str) -> anyhow::Result<()> {
             Ok(())
@@ -995,7 +995,7 @@ mod tests {
             let permit = self.gate.acquire().await.unwrap();
             permit.forget();
             self.running.fetch_sub(1, SeqCst);
-            Ok(TurnOutcome { session_id: session, text: format!("did {}", request.prompt), tools_used: vec!["edit".into()] })
+            Ok(TurnOutcome { session_id: session, text: format!("did {}", request.prompt), tools_used: vec!["edit".into()], usage: None })
         }
         async fn abort(&self, workdir: &str, session_id: &str) -> anyhow::Result<()> {
             self.aborted.lock().unwrap().push((workdir.to_string(), session_id.to_string()));

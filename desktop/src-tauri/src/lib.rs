@@ -195,6 +195,9 @@ struct SendMessageResult {
     /// The provider that answered the turn (P126): the window saves it with the answer (`answeredBy`), so the usage is told under it even
     /// when the selector was left on the default. `None` for a model that carries no id and for a code task.
     provider_id: Option<String>,
+    /// The combo (P90) the turn's model was picked as (P126), saved in `answeredBy.comboId` so the usage groups the answer under it too.
+    /// `None` for a provider picked by itself and for a code task.
+    combo_id: Option<String>,
     /// The turn's usage told per agent and provider (P126), only when more than one pair ran it (a reserve took over partway, or
     /// sub-agents ran another model): the window saves it in `answeredBy.slices`. Empty otherwise.
     usage_slices: Vec<warden_core::budget::UsageSlice>,
@@ -276,7 +279,7 @@ async fn send_message(
                 // The window says its mode with every task, so a mode it shows is the mode that applies.
                 state.code.set_mode(conversation_id, code_mode.as_deref().unwrap_or("manual"));
                 let content = code_cmds::run_turn(app, &state, &base, project, conversation_id, &content, attachments).await?;
-                return Ok(SendMessageResult { content, usage: None, attachments: Vec::new(), generated_files: Vec::new(), fallbacks: Vec::new(), provider_id: None, usage_slices: Vec::new(), already_saved: true });
+                return Ok(SendMessageResult { content, usage: None, attachments: Vec::new(), generated_files: Vec::new(), fallbacks: Vec::new(), provider_id: None, combo_id: None, usage_slices: Vec::new(), already_saved: true });
             }
         }
         if projects.get(id).is_ok_and(|p| p.code) {
@@ -319,6 +322,7 @@ async fn send_message(
         generated_files: outcome.generated_files,
         fallbacks: outcome.fallbacks.into_iter().map(Into::into).collect(),
         provider_id: outcome.provider_id,
+        combo_id: outcome.combo_id,
         usage_slices: if outcome.usage_slices.len() > 1 { outcome.usage_slices } else { Vec::new() },
         already_saved: false,
     })

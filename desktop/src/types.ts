@@ -13,6 +13,8 @@ export interface Usage {
 export interface UsageSlice {
   agentId?: string;
   providerId?: string;
+  /** The combo (P90) the calls were made through, when the model was picked as one. */
+  comboId?: string;
   usage: Usage;
 }
 
@@ -37,7 +39,7 @@ export interface ChatMessage {
    * saved with the conversation. */
   fallbacks?: ProviderFallback[];
   /** Who answered, as the turn reported it (P126): what the Usage screens count the answer's tokens under. */
-  answeredBy?: { agentId?: string; providerId?: string; slices?: UsageSlice[] };
+  answeredBy?: { agentId?: string; providerId?: string; comboId?: string; slices?: UsageSlice[] };
   /** The id the hub gave this message (P125), what a thread is started from. Only a message read from a hub has one. */
   hubId?: string;
 }
@@ -314,6 +316,8 @@ export interface UsageSummary {
   total: Usage;
   byAgent: UsageByKey[];
   byProvider: UsageByKey[];
+  /** What went through a combo (P126), grouped by the combo whichever member answered. Absent from a hub that does not tell it. */
+  byCombo?: UsageByKey[];
 }
 
 /** Mirrors `warden_server_protocol::protocol::LimitStatusDto` — the same shape the web UI gets. */

@@ -284,8 +284,8 @@ impl CodeEngine for OpencodeEngine {
                         let allowed = self.decide(&session, &ask, &request.target, approver.as_ref(), &mut mode).await;
                         client.answer(&ask.id, allowed).await?;
                     }
-                    Signal::Idle => return Ok(TurnOutcome { session_id: session, text: tracker.text(), tools_used: tracker.tools_used().to_vec() }),
-                    Signal::Failed(reason) if reason == ABORTED => return Ok(TurnOutcome { session_id: session, text: tracker.text(), tools_used: tracker.tools_used().to_vec() }),
+                    Signal::Idle => return Ok(TurnOutcome { session_id: session, text: tracker.text(), tools_used: tracker.tools_used().to_vec(), usage: tracker.usage() }),
+                    Signal::Failed(reason) if reason == ABORTED => return Ok(TurnOutcome { session_id: session, text: tracker.text(), tools_used: tracker.tools_used().to_vec(), usage: tracker.usage() }),
                     Signal::Failed(reason) => bail!("the opencode failed: {reason}"),
                 }
             }
@@ -462,6 +462,20 @@ mod tests {
         let mut shown = Vec::new();
         let outcome = tokio::time::timeout(Duration::from_secs(10), engine.run_turn(request, approver, &mut |e| shown.push(e))).await.expect("the task ended");
         (outcome, shown)
+    }
+
+    /// P126: the tokens the engine puts on its assistant messages (sent again as they grow) are what the task spent; a stream that gives
+    /// none leaves the usage empty, as before.
+    #[tokio::test]
+    async fn what_the_engine_reports_on_its_messages_is_what_the_task_spent() {
+        let tokens = |input: u64, output: u64| event("message.updated", json!({"info": {"id": "msg_a", "role": "assistant", "sessionID": S, "tokens": {"input": input, "output": output, "reasoning": 0, "cache": {"read": 500, "write": 0}}}}));
+        let fake = serve(vec![assistant(), tokens(40, 2), answer("ok"), tokens(40, 18), idle()], vec![]).await;
+        let outcome = run(&OpencodeEngine::new(fake.launcher(None)), request(None), None).await.0.unwrap();
+        let usage = outcome.usage.expect("the engine reported tokens");
+        assert_eq!((usage.prompt_tokens, usage.completion_tokens, usage.total_tokens), (40, 18, 58), "the last report, not the sum of the reports");
+
+        let fake = serve(vec![assistant(), answer("ok"), idle()], vec![]).await;
+        assert_eq!(run(&OpencodeEngine::new(fake.launcher(None)), request(None), None).await.0.unwrap().usage, None);
     }
 
     #[tokio::test]

@@ -16,6 +16,7 @@ use std::collections::{HashMap, HashSet};
 use serde_json::Value;
 
 use super::{CodeEvent, ToolEvent, ToolStatus};
+use crate::model::Usage;
 
 /// An action the engine wants the person's yes for before it does it.
 #[derive(Debug, Clone, PartialEq)]
@@ -57,6 +58,20 @@ pub struct Tracker {
     /// The last (status, title) shown for each tool call, so an unchanged update says nothing.
     tools: HashMap<String, (ToolStatus, String)>,
     tools_used: Vec<String>,
+    /// What each assistant message of the family reports it spent (P126), by message id: its latest `tokens`.
+    spent: HashMap<String, Usage>,
+}
+
+/// The tokens the engine reports on an assistant message: `input` is the prompt, `output` and `reasoning` the answer. The cache's reads
+/// and writes (`cache.read`, `cache.write`) are not counted: they are the same prompt served from memory, and the other providers' usage
+/// does not count them either. `None` when the message carries no `tokens` object, so a different shape means no usage and never a wrong one.
+fn tokens_of(tokens: &Value) -> Option<Usage> {
+    if !tokens.is_object() {
+        return None;
+    }
+    let count = |key: &str| tokens[key].as_u64().map_or(0, |n| u32::try_from(n).unwrap_or(u32::MAX));
+    let (prompt, completion) = (count("input"), count("output").saturating_add(count("reasoning")));
+    Some(Usage { prompt_tokens: prompt, completion_tokens: completion, total_tokens: prompt.saturating_add(completion) })
 }
 
 impl Tracker {
@@ -69,7 +84,20 @@ impl Tracker {
             order: Vec::new(),
             tools: HashMap::new(),
             tools_used: Vec::new(),
+            spent: HashMap::new(),
         }
+    }
+
+    /// What the whole task spent, the sub-agents' sessions included: the sum of the last report of each assistant message. `None` when
+    /// nothing was reported (or only zeros), so the turn then says nothing about usage, as before.
+    pub fn usage(&self) -> Option<Usage> {
+        let mut total = Usage::default();
+        for spent in self.spent.values() {
+            total.prompt_tokens = total.prompt_tokens.saturating_add(spent.prompt_tokens);
+            total.completion_tokens = total.completion_tokens.saturating_add(spent.completion_tokens);
+            total.total_tokens = total.total_tokens.saturating_add(spent.total_tokens);
+        }
+        (total.total_tokens > 0).then_some(total)
     }
 
     /// The assistant's text so far, its parts apart by a blank line.
@@ -100,6 +128,10 @@ impl Tracker {
                 let info = &props["info"];
                 if self.in_family(info["sessionID"].as_str()) && info["role"].as_str() == Some("assistant") {
                     if let Some(id) = info["id"].as_str() {
+                        // The message is sent again each time its totals grow; the last one is what it spent (P126).
+                        if let Some(spent) = tokens_of(&info["tokens"]) {
+                            self.spent.insert(id.to_string(), spent);
+                        }
                         if self.assistant.insert(id.to_string()) {
                             // Its parts may have arrived first; they are shown now.
                             let held: Vec<String> = self.order.iter().filter(|p| self.texts[*p].message == id).cloned().collect();
@@ -238,6 +270,49 @@ mod tests {
     }
     fn texts(signals: &[Signal]) -> Vec<&str> {
         signals.iter().filter_map(|s| if let Signal::Event(CodeEvent::Text(t)) = s { Some(t.as_str()) } else { None }).collect()
+    }
+
+    /// An assistant message as the engine sends it again each time its totals grow.
+    fn spent(id: &str, session: &str, tokens: Value) -> Value {
+        json!({"type": "message.updated", "properties": {"info": {"id": id, "role": "assistant", "sessionID": session, "tokens": tokens}}})
+    }
+
+    #[test]
+    fn the_task_spent_the_last_report_of_each_assistant_message_added_up() {
+        let mut t = Tracker::new(S);
+        assert_eq!(t.usage(), None, "nothing reported yet");
+        t.feed(&msg("msg_u", "user"));
+        t.feed(&spent("msg_a", S, json!({"input": 0, "output": 0, "reasoning": 0, "cache": {"read": 0, "write": 0}})));
+        assert_eq!(t.usage(), None, "only zeros so far");
+        t.feed(&spent("msg_a", S, json!({"input": 100, "output": 10, "reasoning": 5, "cache": {"read": 900, "write": 50}})));
+        t.feed(&spent("msg_a", S, json!({"input": 120, "output": 30, "reasoning": 5, "cache": {"read": 900, "write": 50}})));
+        t.feed(&spent("msg_b", S, json!({"input": 200, "output": 20, "reasoning": 0, "cache": {"read": 0, "write": 0}})));
+
+        let usage = t.usage().unwrap();
+        // The earlier report of `msg_a` is replaced, not added; the cache is not counted; the reasoning is part of the answer.
+        assert_eq!((usage.prompt_tokens, usage.completion_tokens, usage.total_tokens), (320, 55, 375));
+    }
+
+    #[test]
+    fn a_sub_agents_messages_count_and_a_stranger_sessions_do_not() {
+        let mut t = Tracker::new(S);
+        t.feed(&json!({"type": "session.created", "properties": {"info": {"id": "ses_child", "parentID": S}}}));
+        t.feed(&spent("msg_a", S, json!({"input": 10, "output": 5, "reasoning": 0})));
+        t.feed(&spent("msg_c", "ses_child", json!({"input": 20, "output": 5, "reasoning": 0})));
+        t.feed(&spent("msg_x", "ses_other", json!({"input": 9999, "output": 9999, "reasoning": 0})));
+        assert_eq!(t.usage().unwrap().total_tokens, 40);
+    }
+
+    #[test]
+    fn a_message_without_a_tokens_object_or_the_users_reports_nothing() {
+        let mut t = Tracker::new(S);
+        t.feed(&msg("msg_a", "assistant"));
+        t.feed(&json!({"type": "message.updated", "properties": {"info": {"id": "msg_u", "role": "user", "sessionID": S, "tokens": {"input": 50, "output": 50}}}}));
+        t.feed(&spent("msg_n", S, json!("lots")));
+        assert_eq!(t.usage(), None);
+        // A count too big for the counter is capped, not wrapped around.
+        t.feed(&spent("msg_big", S, json!({"input": u64::MAX, "output": 1})));
+        assert_eq!(t.usage().unwrap().prompt_tokens, u32::MAX);
     }
 
     #[test]

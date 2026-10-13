@@ -294,6 +294,7 @@ function UsageView({ remote = false }: { remote?: boolean }) {
 
       <UsageBreakdown title="By agent" entries={summary.byAgent} emptyKeyLabel="No agent" />
       <UsageBreakdown title="By provider" entries={summary.byProvider} emptyKeyLabel="Default provider" />
+      <UsageBreakdown title="By combo" entries={summary.byCombo ?? []} emptyKeyLabel="No combo" />
     </div>
   );
 }

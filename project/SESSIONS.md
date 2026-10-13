@@ -2,9 +2,17 @@
 
 > **Nota**: Este log foi criado junto com o projeto. As sessões serão registradas aqui conforme o trabalho avança.
 >
-> Última atualização: 2026-10-13 (Sessão 191)
+> Última atualização: 2026-10-13 (Sessão 192)
 
 ---
+
+### 2026-10-13 — Sessão 192 (P126: o combo como balde de uso, e o uso do turno de código)
+
+- **Pedido do usuário**: "vamos de 126 mas vai cuidando com o espaço em disco"; planejado em plan mode. Ao ler o "Fica", vi que o "combo conta sob o primeiro membro" já estava certo para o provider; o usuário escolheu, entre as opções, o turno de código **e** um balde por combo.
+- **Feito**: o combo ganha nome (`ModelProvider::combo_id`, `FallbackProvider::in_combo`, `Labeled::wrap_in_combo`) e viaja em `UsageSlice`, `MessageOutcome` e `AnsweredBy`; `UsageSummary.by_combo`; desktop com "By combo" na tela Usage. O `Tracker` do opencode soma os `info.tokens` das mensagens do assistente e o `CodeTurn` grava o uso na resposta.
+- **Testes**: core 516, bootstrap 482, desktop 122, `tsc`, `cargo check` do server, da CLI e do desktop, clippy limpo. `UsageSlice.combo_id` e `TurnOutcome.usage` quebraram vários literais de teste (server e bootstrap), todos ajustados.
+- **Disco**: `/home` ficou em 81% do começo ao fim (35 GB livres, depois 34); `CARGO_INCREMENTAL=0`, só `-p` por crate, sem rodar o workspace nem o `warden-server` completo, não precisou de nenhuma limpeza.
+- **Fica**: o formato de `info.tokens` do opencode real (P129), dólares por combo, "By combo" fora do desktop. Linha do P126 atualizada.
 
 ### 2026-10-13 — Sessão 191 (P120: um gerente substitui um subordinado)
 
