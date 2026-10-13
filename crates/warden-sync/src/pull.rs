@@ -26,6 +26,12 @@ pub struct PullOutcome {
 }
 
 impl PullOutcome {
+    /// Whether whoever built an orchestrator before this pull should rebuild it: a new `config.toml`, or an MCP OAuth login
+    /// that arrived (P54). Same rule as `SyncReport::needs_reload` in `warden-bootstrap`, for the pulls a person starts by hand.
+    pub fn needs_reload(&self) -> bool {
+        self.config_updated || !self.oauth_logins.is_empty()
+    }
+
     fn up_to_date(tx_id: Option<String>, warning: &str) -> Self {
         Self { tx_id, files_written: 0, files_deleted: 0, files_ignored: 0, config_updated: false, oauth_files: 0, oauth_logins: Vec::new(), warnings: vec![warning.to_string()] }
     }
@@ -121,6 +127,19 @@ mod tests {
     use axum::extract::Path as AxumPath;
     use axum::routing::{get, post};
     use axum::Router;
+
+    #[test]
+    fn a_pull_needs_a_reload_for_a_new_config_or_a_login_and_for_nothing_else() {
+        let mut outcome = PullOutcome::up_to_date(None, "nothing new");
+        assert!(!outcome.needs_reload());
+        outcome.files_written = 3;
+        assert!(!outcome.needs_reload(), "notes alone do not change what the orchestrator holds");
+        outcome.config_updated = true;
+        assert!(outcome.needs_reload());
+        outcome.config_updated = false;
+        outcome.oauth_logins = vec!["slack.json".to_string()];
+        assert!(outcome.needs_reload(), "a login alone is enough");
+    }
 
     fn temp_vault(suffix: &str) -> Vault {
         let dir = std::env::temp_dir().join(format!(

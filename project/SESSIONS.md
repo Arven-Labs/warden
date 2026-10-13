@@ -2,9 +2,16 @@
 
 > **Nota**: Este log foi criado junto com o projeto. As sessões serão registradas aqui conforme o trabalho avança.
 >
-> Última atualização: 2026-10-12 (Sessão 185)
+> Última atualização: 2026-10-12 (Sessão 186)
 
 ---
+
+### 2026-10-12 — Sessão 186 (P54: os pulls manuais recarregam no desktop e avisam na CLI)
+
+- **Pedido do usuário**: seguir com o item 1 da lista (pulls manuais do P54); planejado em plan mode.
+- **Feito**: `needs_reload()` em `PullOutcome` (`pull.rs`) e `GitPullOutcome` (`git.rs`), a mesma regra do `SyncReport`. Desktop: `sync_pull` e `git_sync_pull` (que ganhou `State<AppState>`) chamam `reload_orchestrator` quando o pull traz config ou login. CLI: `/sync pull` e `/sync git pull` ganham a linha de `pull_reload_note` (vale a partir da próxima vez que o Warden for iniciado), porque o `Orchestrator` da sessão é emprestado e não dá para refazer.
+- **Testes**: um por outcome em `warden-sync` e `a_pull_that_brought_a_config_or_a_login_says_it_waits_for_the_next_start` na CLI; `warden-sync` (67) e `warden-cli` verdes, clippy limpo, `cargo check` do desktop. `CARGO_INCREMENTAL=0`; `/home` em 93%.
+- **Fica**: recarga ao vivo na CLI; a recarga do desktop depende de `AppHandle` e só tem `cargo check`; o teste de login sobrescrito em `warden-core/tests/mcp_oauth.rs`.
 
 ### 2026-10-12 — Sessão 185 (P54: um pull que traz só um login OAuth de MCP faz o hub e o desktop recarregarem)
 

@@ -121,6 +121,10 @@ pub struct PullResultPayload {
 #[tauri::command]
 pub async fn sync_pull(state: State<'_, AppState>) -> Result<PullResultPayload, String> {
     let outcome = state.sync.pull().await.map_err(|e| format!("{e:#}"))?;
+    // The same rebuild the automatic round does: a new `config.toml` or a login that arrived is only seen by a new orchestrator.
+    if outcome.needs_reload() {
+        crate::reload_orchestrator(&state).await;
+    }
     Ok(PullResultPayload {
         tx_id: outcome.tx_id,
         files_written: outcome.files_written,

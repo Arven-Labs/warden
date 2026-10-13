@@ -63,6 +63,12 @@ pub struct GitPullOutcome {
 }
 
 impl GitPullOutcome {
+    /// Whether whoever built an orchestrator before this pull should rebuild it: a new `config.toml`, or an MCP OAuth login
+    /// that arrived (P54). Same rule as `SyncReport::needs_reload` in `warden-bootstrap`, for the pulls a person starts by hand.
+    pub fn needs_reload(&self) -> bool {
+        self.config_updated || !self.oauth_logins.is_empty()
+    }
+
     fn up_to_date(warning: &str) -> Self {
         Self { commits_applied: 0, files_written: 0, files_deleted: 0, files_ignored: 0, config_updated: false, oauth_files: 0, oauth_logins: Vec::new(), warnings: vec![warning.to_string()] }
     }
@@ -387,6 +393,19 @@ fn run_git_bytes(dir: &Path, args: &[&str]) -> anyhow::Result<Vec<u8>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_git_pull_needs_a_reload_for_a_new_config_or_a_login_and_for_nothing_else() {
+        let mut outcome = GitPullOutcome::up_to_date("nothing new");
+        assert!(!outcome.needs_reload());
+        outcome.files_written = 3;
+        assert!(!outcome.needs_reload(), "notes alone do not change what the orchestrator holds");
+        outcome.config_updated = true;
+        assert!(outcome.needs_reload());
+        outcome.config_updated = false;
+        outcome.oauth_logins = vec!["slack.json".to_string()];
+        assert!(outcome.needs_reload(), "a login alone is enough");
+    }
 
     fn temp_dir(name: &str) -> PathBuf {
         std::env::temp_dir().join(format!(

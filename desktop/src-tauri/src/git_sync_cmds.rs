@@ -1,15 +1,19 @@
 //! Tauri commands backing the "Sync" screen's Git section (P63/P71) — manual push/pull of the
 //! vault + `config.toml` via a self-hosted/remote git repo, the fully-automatable alternative to
 //! the Arweave/TruthID backend in `sync_cmds.rs` (that one always blocks push on a real phone
-//! approval, by design — this one doesn't, see `warden_bootstrap::auto_sync`). Stateless, same
-//! precedent as `workspace_cmds.rs`: no `AppState` needed, every command reads `config.toml` fresh
-//! and builds its own `GitSyncEngine` per call.
+//! approval, by design — this one doesn't, see `warden_bootstrap::auto_sync`). Same precedent as
+//! `workspace_cmds.rs`: every command reads `config.toml` fresh and builds its own `GitSyncEngine`
+//! per call. `AppState` is only touched by a pull that brought a new config or an MCP login, to
+//! rebuild the orchestrator (P54).
 
 use std::path::PathBuf;
 
 use serde::Serialize;
+use tauri::State;
 use warden_bootstrap::{default_config_path, load_config_from_path, resolve_vault_path, Overrides};
 use warden_sync::{GitPullOutcome, GitPushOutcome, GitSyncEngine};
+
+use crate::AppState;
 
 fn fresh_config() -> Result<(PathBuf, warden_bootstrap::FileConfig), String> {
     let path = default_config_path().ok_or_else(|| "could not determine the OS config directory".to_string())?;
@@ -81,9 +85,14 @@ pub async fn git_sync_push() -> Result<Option<GitPushResultPayload>, String> {
 }
 
 #[tauri::command]
-pub async fn git_sync_pull() -> Result<GitPullResultPayload, String> {
+pub async fn git_sync_pull(state: State<'_, AppState>) -> Result<GitPullResultPayload, String> {
     let engine = build_engine_from_fresh_config()?;
-    engine.pull().await.map(Into::into).map_err(|e| format!("{e:#}"))
+    let outcome = engine.pull().await.map_err(|e| format!("{e:#}"))?;
+    // The same rebuild the automatic round does: a new `config.toml` or a login that arrived is only seen by a new orchestrator.
+    if outcome.needs_reload() {
+        crate::reload_orchestrator(&state).await;
+    }
+    Ok(outcome.into())
 }
 
 #[cfg(test)]

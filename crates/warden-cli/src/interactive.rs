@@ -3063,10 +3063,18 @@ async fn cmd_sync_pull(terminal: &mut CliTerminal, session: &CliSession) -> anyh
         ),
         Style::default(),
     )];
+    lines.extend(pull_reload_note(outcome.needs_reload()).map(|note| (note, Style::default())));
     for warning in &outcome.warnings {
         lines.push((warning.clone(), Style::default()));
     }
     render_message_card(terminal, "sync", accent_style(), lines)
+}
+
+/// What a manual pull tells the person when it brought a new `config.toml` or an MCP login (P54). The terminal's
+/// `Orchestrator` is built once in `main` and borrowed for the whole session, so unlike the desktop it cannot be rebuilt
+/// here: the news is only seen after the next start.
+fn pull_reload_note(needs_reload: bool) -> Option<String> {
+    needs_reload.then(|| format!("config e logins de MCP novos {CONFIG_RESTART_NOTE}"))
 }
 
 /// `/sync pair` (no args) — shows a code and blocks until another device joins with it, or the
@@ -3135,6 +3143,7 @@ async fn cmd_sync_git_pull(terminal: &mut CliTerminal, session: &CliSession) -> 
         ),
         Style::default(),
     )];
+    lines.extend(pull_reload_note(outcome.needs_reload()).map(|note| (note, Style::default())));
     for warning in &outcome.warnings {
         lines.push((warning.clone(), Style::default()));
     }
@@ -3366,6 +3375,13 @@ pub async fn run(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_pull_that_brought_a_config_or_a_login_says_it_waits_for_the_next_start() {
+        assert_eq!(pull_reload_note(false), None);
+        let note = pull_reload_note(true).expect("a note when something arrived");
+        assert!(note.contains(CONFIG_RESTART_NOTE), "{note}");
+    }
 
     #[test]
     fn the_approval_categories_answer_is_a_list_of_known_ids() {
