@@ -124,6 +124,27 @@ pub async fn spin_up_server_with_revocation_check(provider: MockProvider, interv
     (addr, devices_path)
 }
 
+/// Same as `spin_up_server_with_devices_path`, with the pairing key allowed to change while the hub runs (P36 c): the file it
+/// reads sits beside the registry, at the path this also hands back. The key it starts with is `test-key`.
+pub async fn spin_up_server_with_pairing_key_file(provider: MockProvider) -> (std::net::SocketAddr, std::path::PathBuf, std::path::PathBuf) {
+    let temp_dir = std::env::temp_dir().join(format!(
+        "warden-server-test-{}",
+        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+    ));
+    let vault = Arc::new(Vault::new(temp_dir.join("vault")));
+    let orchestrator = Orchestrator::new(Arc::new(provider), vault);
+    let devices_path = temp_dir.join("devices.json");
+    let key_file = warden_server::pairing_key::pairing_key_path_beside(&devices_path);
+
+    let server = Server::bind("127.0.0.1:0".parse().unwrap(), "test-key", "Test Hub", Arc::new(orchestrator), temp_dir.join("conversations"), devices_path.clone())
+        .await
+        .unwrap()
+        .with_pairing_key_file(key_file.clone());
+    let addr = server.local_addr().unwrap();
+    tokio::spawn(server.serve());
+    (addr, devices_path, key_file)
+}
+
 /// Same as `spin_up_server`, but the shared `Orchestrator` already has `base_tool` registered —
 /// needed by any test that exercises P42 (a connecting client's `Hello.tools` colliding with a
 /// tool the server already has, not with another client's — each connection gets its own clone of

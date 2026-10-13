@@ -34,6 +34,7 @@ pub mod code_turns;
 pub mod conversations;
 pub mod device_registry;
 pub mod openai_api;
+pub mod pairing_key;
 pub mod people;
 pub mod provider_admin;
 pub mod projects;
@@ -65,6 +66,7 @@ pub mod webhook_tokens;
 pub mod webhooks;
 
 pub use device_registry::{AuthRejection, HelloOutcome, PairedDevice, PairingStatus, PairingStore};
+pub use pairing_key::PairingKey;
 pub use remote_tool::{RemoteTool, RemoteToolChannel};
 pub use server::{resolve_server_name, Server};
 pub use settings::{SettingsHost, SharedOrchestrator};

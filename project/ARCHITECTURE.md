@@ -3441,3 +3441,13 @@ O sync (Arweave e git) leva, além do cofre e do `config.toml`, os logins OAuth 
 - **Segurança do pull**: só nomes `[A-Za-z0-9_-]+\.json` (o que `oauth_credential_store_path` gera) são escritos ou removidos, então um pacote não escreve fora da pasta; o arquivo escrito fica `0600`.
 - **Conflito**: o último a enviar vence, como no cofre; o pull avisa quando um login mudou aqui desde o último sync e vai ser sobrescrito.
 - **Não cobre**: o contador de pendências (`SyncStatus` é espelhado no celular pelo flutter_rust_bridge); reconectar sozinho um MCP já aberto com o login que o pull trouxe.
+
+## A chave de pareamento troca com o hub no ar (P36 c, Sessão 193)
+
+Revogar um aparelho por `device_id` não impede o mesmo aparelho de parear de novo com um id novo (o id é do cliente, o hub não sabe que são o mesmo), e a mesma chave é a credencial de administração do hub. Como era um parâmetro de partida, trocá-la pedia reiniciar. Decisão do usuário: ela passa a poder morar num arquivo.
+- **`PairingKey`** (`warden-server/src/pairing_key.rs`): a chave de partida (`--auth-key`, `WARDEN_SERVER_AUTH_KEY`) mais um arquivo opcional, `pairing_key`, ao lado do `devices.json`. Quando o arquivo existe e tem uma chave forte (`is_strong_auth_key`), **ele vence** a de partida; vazio, fraco, ilegível ou ausente, vale a de partida (o hub nunca fica sem chave nem com uma adivinhável). Apagar o arquivo volta à de partida.
+- **Relido a cada uso, sem cache por data**: o arquivo tem 65 bytes e é lido uma vez por mensagem; um cache por data de modificação perderia duas trocas dentro de um mesmo tique do relógio do sistema de arquivos.
+- **Vale para conexões abertas**: `handle_connection` lê a chave no `Hello` e de novo no topo de cada volta do laço de mensagens, sombreando `auth_key`; os ~100 usos abaixo (`keys_match(pairing_key, auth_key)` nos 19 módulos de administração) não mudaram. Uma chave velha deixa de abrir a administração na mensagem seguinte, mesmo numa conexão que já estava aberta.
+- **Aparelhos com token seguem valendo** (como já era ao girar a chave reiniciando); só quem ainda não pareou precisa da chave nova.
+- **CLI**: `warden-server devices rotate-key` (gera, grava com `0600` por arquivo temporário e `rename`, imprime uma vez) e `devices revoke <id> --rotate-key`. Rodam em outro processo, como `devices approve`; o `serve` em execução vê o arquivo na próxima vez. O `serve` avisa na partida quando a chave vem do arquivo.
+- **Fora**: o hub embutido do desktop não usa o arquivo (a chave dele é a do config); nenhuma tela gira a chave; quem tem a chave nova é quem o operador deixou ter, e o hub continua sem saber qual aparelho é qual.

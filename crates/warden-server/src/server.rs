@@ -33,6 +33,7 @@ use crate::code_turns::CodeTurns;
 use crate::conversations::{handle_conversation_request_in, handle_history_request, resolve_conversation_id, ConversationDirs};
 use crate::truthid_login::{self, TruthIdLogins};
 use crate::device_registry::{AuthRejection, PairingProof, PairingStatus, PairingStore};
+use crate::pairing_key::PairingKey;
 use crate::people::{member_orchestrator, member_refusal, member_settings_view, migrate_device_conversations, mount_member_spaces, password_gate, tools_for, user_info, MemberSpace, Person, SpaceVaults};
 use crate::user_admin::{
     handle_redeem_invite, handle_accept_recovery_policy, handle_ack_recovery_notices, handle_set_learning, handle_change_password, handle_list_spaces, handle_list_users, handle_regenerate_recovery_code, handle_set_recovery_policy,
@@ -92,7 +93,7 @@ type DeviceRegistry = Arc<Mutex<HashMap<String, RemoteToolChannel>>>;
 /// connection to a specific other one (no client uses it today — see `lib.rs`).
 pub struct Server {
     listener: TcpListener,
-    auth_key: Arc<str>,
+    auth_key: PairingKey,
     server_name: Arc<str>,
     orchestrator: SharedOrchestrator,
     conversations_dir: Arc<PathBuf>,
@@ -158,7 +159,7 @@ impl Server {
         let listener = TcpListener::bind(addr).await?;
         Ok(Self {
             listener,
-            auth_key: auth_key.into(),
+            auth_key: PairingKey::new(auth_key),
             server_name: server_name.into(),
             orchestrator: orchestrator.into(),
             conversations_dir: Arc::new(conversations_dir),
@@ -293,6 +294,14 @@ impl Server {
     /// OpenAI-compatible, for anyone holding a key from `api_keys_path` (see `api_keys.rs`).
     pub fn with_api(mut self, api_keys_path: PathBuf) -> Self {
         self.api_keys = Some(Arc::new(api_keys_path));
+        self
+    }
+
+    /// Lets the pairing key change while the hub runs (P36 c): the file at `path` wins over the key `bind` was given whenever it holds a
+    /// usable one, and is read again each time the key is needed (`Hello`, and every request of an open connection), so
+    /// `warden-server devices rotate-key` holds from the next use with no restart. Devices that already hold a token are not affected.
+    pub fn with_pairing_key_file(mut self, path: PathBuf) -> Self {
+        self.auth_key = self.auth_key.with_file(path);
         self
     }
 
@@ -475,7 +484,7 @@ impl Server {
 /// `handle_connection` takes one argument instead of cloning/threading each field by hand.
 #[derive(Clone)]
 struct ConnectionContext {
-    auth_key: Arc<str>,
+    auth_key: PairingKey,
     server_name: Arc<str>,
     orchestrator: SharedOrchestrator,
     conversations_dir: Arc<PathBuf>,
@@ -863,7 +872,7 @@ fn discover_ack(ctx: &ConnectionContext) -> ServerMessage {
 async fn handle_connection<S: Transport>(ws: WebSocketStream<S>, peer: SocketAddr, secure: bool, ctx: ConnectionContext) -> anyhow::Result<()> {
     let discover_reply = discover_ack(&ctx);
     let ConnectionContext {
-        auth_key,
+        auth_key: pairing_key,
         server_name,
         orchestrator: shared_orchestrator,
         conversations_dir,
@@ -938,6 +947,7 @@ async fn handle_connection<S: Transport>(ws: WebSocketStream<S>, peer: SocketAdd
     // P36: the shared key only pairs; a paired device authenticates with its own token. The
     // pairing status itself (Pending/Approved) stays silent here — a `Pending` device still gets a
     // normal `HelloAck` and can chat; only `CallDeviceTool` checks for `Approved` (Fase 9.3).
+    let auth_key = pairing_key.current();
     let pairing_key_ok = !provided_key.is_empty() && provided_key.as_str() == auth_key.as_ref();
     // P84: the members, read fresh — a member added or removed a moment ago counts.
     let mut members = match settings.as_deref() {
@@ -1183,6 +1193,9 @@ async fn handle_connection<S: Transport>(ws: WebSocketStream<S>, peer: SocketAdd
             }
         };
         let Some(frame) = frame else { break };
+        // The pairing key can be changed while this connection is open (P36 c): each message is held to the key of the moment, so an
+        // old one stops opening the administration the very next time it is sent.
+        let auth_key = pairing_key.current();
         // A read error (the peer vanished without closing, e.g. a node that lost power) ends the
         // connection like a close does: the cleanup after the loop must still run, or calls waiting
         // on this device would sit out their whole timeout.

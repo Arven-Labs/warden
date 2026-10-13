@@ -2,9 +2,18 @@
 
 > **Nota**: Este log foi criado junto com o projeto. As sessões serão registradas aqui conforme o trabalho avança.
 >
-> Última atualização: 2026-10-13 (Sessão 192)
+> Última atualização: 2026-10-13 (Sessão 193)
 
 ---
+
+### 2026-10-13 — Sessão 193 (P36 c: a chave de pareamento troca com o hub no ar)
+
+- **Pedido do usuário**: auditar o `PENDING.md` antes de sugerir o próximo item (eu tinha errado três vezes: P125, P123 e a política de modelos já estavam feitos) e, do que sobrou, "P36 (c)"; depois, entre as opções, "chave em arquivo, troca ao vivo". Planejado em plan mode. Eu havia chamado o item de pequeno; não era (a chave é também a credencial de administração, ~114 usos de `auth_key` em 19 arquivos), e o usuário escolheu seguir assim mesmo.
+- **Feito**: `PairingKey` (`warden-server/src/pairing_key.rs`: a chave de partida mais um arquivo `pairing_key` que a vence quando tem uma chave forte, relido a cada uso); `Server` e `ConnectionContext` guardam um `PairingKey`, e `handle_connection` lê a chave no `Hello` e no topo de cada volta do laço (sombreando `auth_key`, então os ~100 usos abaixo não mudaram); `devices rotate-key` e `devices revoke <id> --rotate-key`; o `serve` avisa quando a chave vem do arquivo. Desvio do plano: sem cache por data do arquivo (perderia duas trocas no mesmo tique do relógio), lê os 65 bytes a cada uso.
+- **Testes**: 6 de unidade, 5 contra um hub real (`tests/pairing_key.rs`) e 3 com o binário real (`tests/rotate_key_cli.rs`, `XDG_CONFIG_HOME`, só Linux); `warden-server --lib` 162 e os testes `people`, `org_edit`, `handshake` e `device_routing` verdes, clippy limpo, `cargo check` do desktop. Sem rodar a suíte inteira do pacote (P127).
+- **Disco**: `/home` foi de 81% a 82% (33 GB livres), sem limpeza; `CARGO_INCREMENTAL=0`, só `-p warden-server`.
+- **Processo**: acrescentei a seção de `ARCHITECTURE.md` com um heredoc do Bash, contra a regra de editar por Edit/Write para o diff ficar visível; o conteúdo está no diff do git, e o resto foi por Edit.
+- **Fica**: o hub embutido do desktop não usa o arquivo; nenhuma tela gira a chave; o hub não sabe qual aparelho é qual.
 
 ### 2026-10-13 — Sessão 192 (P126: o combo como balde de uso, e o uso do turno de código)
 

@@ -424,8 +424,18 @@ enum DevicesAction {
     Approve { device_id: String },
     /// Revoke a device — its token stops working (so does re-pairing under the same id), and a
     /// running `serve` closes its open connection within a few seconds. To also keep it from
-    /// pairing again under a *new* id, rotate the pairing key (`--auth-key`) and restart.
-    Revoke { device_id: String },
+    /// pairing again under a *new* id, change the pairing key too: pass `--rotate-key` (or run
+    /// `devices rotate-key`), no restart needed.
+    Revoke {
+        device_id: String,
+        /// Also change the pairing key, as `devices rotate-key` does, and print the new one.
+        #[arg(long)]
+        rotate_key: bool,
+    },
+    /// Change the pairing key — new devices need the new one to pair, and an old key stops opening the hub's
+    /// administration. A running `serve` takes it on the next use, with no restart; devices that already
+    /// hold a token keep working. The new key is written beside the device registry and printed once.
+    RotateKey,
 }
 
 #[derive(Subcommand, Debug)]
@@ -674,11 +684,30 @@ fn run_devices_command(action: DevicesAction) -> anyhow::Result<()> {
             store.approve(&device_id)?;
             println!("device '{device_id}' approved — it can now be used as a CallDeviceTool caller or target");
         }
-        DevicesAction::Revoke { device_id } => {
+        DevicesAction::Revoke { device_id, rotate_key } => {
             store.revoke(&device_id)?;
             println!("device '{device_id}' revoked — its token no longer works and a running server closes its connection shortly");
+            if rotate_key {
+                rotate_pairing_key()?;
+            } else {
+                println!("it can still pair again under a new id with the current pairing key — `devices rotate-key` changes it");
+            }
         }
+        DevicesAction::RotateKey => rotate_pairing_key()?,
     }
+    Ok(())
+}
+
+/// Where the pairing key can be changed while the hub runs: beside the device registry (P36 c).
+fn pairing_key_path() -> anyhow::Result<PathBuf> {
+    Ok(warden_server::pairing_key::pairing_key_path_beside(&devices_path()?))
+}
+
+fn rotate_pairing_key() -> anyhow::Result<()> {
+    let path = pairing_key_path()?;
+    let key = warden_server::pairing_key::rotate_at(&path)?;
+    println!("new pairing key (shown once, also saved in {}):\n{key}", path.display());
+    println!("a running server takes it on its next use, with no restart; devices that already hold a token keep working, and new ones need this key");
     Ok(())
 }
 
@@ -1223,8 +1252,14 @@ async fn run_serve(args: ServeArgs) -> anyhow::Result<()> {
     let opencode = warden_server::code_turns::opencode_engine(&engine_models);
     // The same engine serves the code projects' conversations and the agents' `code_task`.
     code_engine.set(opencode.clone()).ok();
+    // P36 c: a key in this file (`devices rotate-key`) wins over the one given above while the hub runs.
+    let key_file = pairing_key_path()?;
+    if warden_server::PairingKey::new(auth_key.as_str()).with_file(key_file.clone()).from_file() {
+        println!("pairing key: taken from {} (changed with `devices rotate-key`), not from --auth-key", key_file.display());
+    }
     let mut server = Server::bind(args.listen, auth_key, server_name.clone(), shared, conversations_dir, devices_path()?)
         .await?
+        .with_pairing_key_file(key_file)
         // P78 — voice input from the web UI, with the Whisper key from the same config file.
         .with_transcriber(Arc::new(WhisperTranscriber::new(args.config.as_ref().map(PathBuf::from))))
         .with_sync(runner, Some(AUTO_SYNC_INTERVAL))
