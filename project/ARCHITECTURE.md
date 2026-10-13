@@ -3451,3 +3451,12 @@ Revogar um aparelho por `device_id` não impede o mesmo aparelho de parear de no
 - **Aparelhos com token seguem valendo** (como já era ao girar a chave reiniciando); só quem ainda não pareou precisa da chave nova.
 - **CLI**: `warden-server devices rotate-key` (gera, grava com `0600` por arquivo temporário e `rename`, imprime uma vez) e `devices revoke <id> --rotate-key`. Rodam em outro processo, como `devices approve`; o `serve` em execução vê o arquivo na próxima vez. O `serve` avisa na partida quando a chave vem do arquivo.
 - **Fora**: o hub embutido do desktop não usa o arquivo (a chave dele é a do config); nenhuma tela gira a chave; quem tem a chave nova é quem o operador deixou ter, e o hub continua sem saber qual aparelho é qual.
+
+## Convite de uso único para parear um aparelho (P36, Sessão 194)
+
+Girar a chave fecha a porta para todos; faltava deixar um aparelho entrar sem a chave compartilhada, para que um revogado não tenha por onde voltar com um id novo. Decisão do usuário: convite de uso único (não uma chave criptográfica por aparelho, que mexeria nos 4 clientes e ainda precisaria de convite).
+- **`devices invite --name X [--ttl-minutes N]`** (padrão 15) grava só o SHA-256 do código em `devices.json` (`RegistryFile.invites`, com `serde(default)`: arquivo antigo lê) e imprime o código uma vez. `devices invites` lista os que esperam e `devices uninvite <nome>` cancela; pedir outro com o mesmo nome substitui o anterior.
+- **Sem mudar o protocolo**: o código vai no `Hello.auth_key`. No `handle_connection`, o que não é a chave de pareamento nem credencial de membro vira `PairingProof::Invite`; o registro decide e um código errado, vencido ou já usado é `InvalidCredentials`, igual a uma chave errada.
+- **Só é gasto quando de fato pareia**: `authenticate_as` checa revogado e token antes; quem volta com o token, ou o revogado, não queima o convite. O aparelho nasce do root (`user: None`) e guarda `invite_name` para o `devices list` dizer para quem foi (`list` também mostra dono e há quanto tempo).
+- **Não abre a administração**: as comparações `keys_match(pairing_key, auth_key)` seguem só com a chave de pareamento.
+- **Fora**: desligar a chave global, tela que cria convite ou gira a chave, o hub embutido do desktop lendo o arquivo `pairing_key`.

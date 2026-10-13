@@ -59,12 +59,27 @@ pub struct PairedDevice {
     /// the root's — every device paired with the pairing key, and every one from before P84.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub user: Option<String>,
+    /// P36: the label of the invite this device paired with, so `devices list` shows who it was for.
+    /// `None` for a device that paired with the pairing key or a member's password.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub invite_name: Option<String>,
+}
+
+/// A one-use code that pairs one device (P36), made with `devices invite`. Only its hash is stored (the key of
+/// `RegistryFile.invites`), like a device token's.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Invite {
+    pub name: String,
+    pub created_ms: i64,
+    pub expires_ms: i64,
 }
 
 /// What a `Hello` proved besides a token (P84).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PairingProof {
     Nothing,
+    /// The code of an invite (P36), as the device sent it: the device is the root's, and the invite is used up.
+    Invite(String),
     /// The hub's pairing key: the device is the root's.
     PairingKey,
     /// A member's password, already checked: the device is theirs.
@@ -109,6 +124,9 @@ fn hash_token(token: &str) -> String {
 struct RegistryFile {
     #[serde(default)]
     devices: HashMap<String, PairedDevice>,
+    /// Invites not used yet, by the hash of their code (P36).
+    #[serde(default)]
+    invites: HashMap<String, Invite>,
 }
 
 fn now_millis() -> i64 {
@@ -191,6 +209,16 @@ impl PairingStore {
         }
 
         let now = now_millis();
+        // P36: an invite is used up only when it really pairs a device — never by one that came back with its
+        // token, and never by a revoked one (turned away above).
+        let mut used_invite = None;
+        if let (false, PairingProof::Invite(code)) = (token_ok, &proof) {
+            file.invites.retain(|_, invite| invite.expires_ms > now);
+            match file.invites.remove(&hash_token(code)) {
+                Some(invite) => used_invite = Some(invite.name),
+                None => return Ok(Err(AuthRejection::InvalidCredentials)),
+            }
+        }
         let issued_token = (!token_ok).then(warden_bootstrap::generate_auth_key);
         let device = file.devices.entry(device_id.to_string()).or_insert_with(|| PairedDevice {
             device_name: device_name.to_string(),
@@ -199,6 +227,7 @@ impl PairingStore {
             last_seen_ms: now,
             token_hash: None,
             user: None,
+            invite_name: None,
         });
         device.device_name = device_name.to_string();
         device.last_seen_ms = now;
@@ -211,6 +240,7 @@ impl PairingStore {
                 PairingProof::Member(user) => Some(user),
                 _ => None,
             };
+            device.invite_name = used_invite;
         }
         let (status, user) = (device.status, device.user.clone());
         save(&self.path, &file)?;
@@ -249,6 +279,39 @@ impl PairingStore {
         }
         save(&self.path, &file)?;
         Ok(revoked)
+    }
+
+    /// Makes a one-use invite called `name` that pairs a device for `ttl` (P36) and returns its code, which is
+    /// not kept anywhere (only its hash is): the caller shows it once. Another invite with the same name is replaced,
+    /// so a lost code is cancelled by asking for a new one.
+    pub fn create_invite(&self, name: &str, ttl: std::time::Duration) -> anyhow::Result<String> {
+        let mut file = load(&self.path)?;
+        let now = now_millis();
+        file.invites.retain(|_, invite| invite.expires_ms > now && invite.name != name);
+        let code = warden_bootstrap::generate_auth_key();
+        file.invites.insert(hash_token(&code), Invite { name: name.to_string(), created_ms: now, expires_ms: now + ttl.as_millis() as i64 });
+        save(&self.path, &file)?;
+        Ok(code)
+    }
+
+    /// The invites not used or expired yet, by name.
+    pub fn list_invites(&self) -> anyhow::Result<Vec<Invite>> {
+        let now = now_millis();
+        let mut invites: Vec<_> = load(&self.path)?.invites.into_values().filter(|invite| invite.expires_ms > now).collect();
+        invites.sort_by(|a, b| a.name.cmp(&b.name));
+        Ok(invites)
+    }
+
+    /// Cancels the unused invite called `name`; whether there was one.
+    pub fn cancel_invite(&self, name: &str) -> anyhow::Result<bool> {
+        let mut file = load(&self.path)?;
+        let before = file.invites.len();
+        file.invites.retain(|_, invite| invite.name != name);
+        let cancelled = file.invites.len() != before;
+        if cancelled {
+            save(&self.path, &file)?;
+        }
+        Ok(cancelled)
     }
 
     pub fn list(&self) -> anyhow::Result<Vec<(String, PairedDevice)>> {
@@ -423,5 +486,73 @@ mod tests {
         assert_eq!(store.status("phone").unwrap(), Some(PairingStatus::Revoked));
         assert_eq!(store.status("laptop").unwrap(), Some(PairingStatus::Pending), "the root's device stays");
         assert!(matches!(store.authenticate_as("phone", "x", Some(&token), PairingProof::Nothing).unwrap(), Err(AuthRejection::Revoked)));
+    }
+
+    const HOUR: std::time::Duration = std::time::Duration::from_secs(3600);
+
+    fn pair_with_invite(store: &PairingStore, device_id: &str, code: &str) -> Result<HelloOutcome, AuthRejection> {
+        store.authenticate_as(device_id, device_id, None, PairingProof::Invite(code.to_string())).unwrap()
+    }
+
+    /// P36: an invite pairs one device as the root's, remembers who it was for, and is gone after.
+    #[test]
+    fn an_invite_pairs_one_device_once() {
+        let store = PairingStore::new(temp_path());
+        let code = store.create_invite("Ana's phone", HOUR).unwrap();
+        let paired = pair_with_invite(&store, "phone", &code).unwrap();
+        assert_eq!((paired.status, paired.user), (PairingStatus::Pending, None));
+        assert!(paired.issued_token.is_some());
+        let device = store.list().unwrap().into_iter().find(|(id, _)| id == "phone").unwrap().1;
+        assert_eq!(device.invite_name.as_deref(), Some("Ana's phone"));
+
+        assert!(matches!(pair_with_invite(&store, "tablet", &code), Err(AuthRejection::InvalidCredentials)), "used up");
+        assert!(store.list_invites().unwrap().is_empty());
+    }
+
+    #[test]
+    fn an_expired_or_unknown_invite_pairs_nothing() {
+        let store = PairingStore::new(temp_path());
+        let code = store.create_invite("late", std::time::Duration::ZERO).unwrap();
+        assert!(matches!(pair_with_invite(&store, "phone", &code), Err(AuthRejection::InvalidCredentials)));
+        assert!(matches!(pair_with_invite(&store, "phone", "not-an-invite"), Err(AuthRejection::InvalidCredentials)));
+        assert_eq!(store.status("phone").unwrap(), None, "a refused Hello records nothing");
+    }
+
+    /// A device that comes back with its token, or a revoked one, must not burn an invite meant for someone else.
+    #[test]
+    fn an_invite_is_used_only_by_a_device_that_really_pairs() {
+        let store = PairingStore::new(temp_path());
+        let token = pair(&store, "laptop", "Laptop").issued_token.unwrap();
+        pair(&store, "gone", "Gone");
+        store.revoke("gone").unwrap();
+
+        let code = store.create_invite("new", HOUR).unwrap();
+        let back = store.authenticate_as("laptop", "Laptop", Some(&token), PairingProof::Invite(code.clone())).unwrap().unwrap();
+        assert_eq!(back.issued_token, None);
+        assert!(matches!(pair_with_invite(&store, "gone", &code), Err(AuthRejection::Revoked)));
+        assert_eq!(store.list_invites().unwrap().len(), 1, "still there");
+        pair_with_invite(&store, "fresh", &code).unwrap();
+    }
+
+    #[test]
+    fn invites_can_be_replaced_and_cancelled_by_name() {
+        let store = PairingStore::new(temp_path());
+        let first = store.create_invite("phone", HOUR).unwrap();
+        let second = store.create_invite("phone", HOUR).unwrap();
+        assert_eq!(store.list_invites().unwrap().len(), 1);
+        assert!(matches!(pair_with_invite(&store, "a", &first), Err(AuthRejection::InvalidCredentials)), "replaced");
+        assert!(store.cancel_invite("phone").unwrap());
+        assert!(!store.cancel_invite("phone").unwrap());
+        assert!(matches!(pair_with_invite(&store, "a", &second), Err(AuthRejection::InvalidCredentials)), "cancelled");
+    }
+
+    /// A registry written before invites existed still reads.
+    #[test]
+    fn a_registry_without_invites_reads() {
+        let path = temp_path();
+        std::fs::write(&path, r#"{"devices":{"old":{"device_name":"Old","status":"approved","first_seen_ms":1,"last_seen_ms":2}}}"#).unwrap();
+        let store = PairingStore::new(path);
+        assert_eq!(store.status("old").unwrap(), Some(PairingStatus::Approved));
+        assert!(store.list_invites().unwrap().is_empty());
     }
 }

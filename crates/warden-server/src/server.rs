@@ -984,6 +984,9 @@ async fn handle_connection<S: Transport>(ws: WebSocketStream<S>, peer: SocketAdd
             }
         },
         None if pairing_key_ok => PairingProof::PairingKey,
+        // P36: not the pairing key, so maybe an invite's code; the registry decides, and a wrong one is turned away
+        // there like any wrong key.
+        None if !provided_key.is_empty() => PairingProof::Invite(provided_key.clone()),
         None => PairingProof::Nothing,
         }
     };

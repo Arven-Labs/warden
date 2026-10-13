@@ -436,6 +436,20 @@ enum DevicesAction {
     /// administration. A running `serve` takes it on the next use, with no restart; devices that already
     /// hold a token keep working. The new key is written beside the device registry and printed once.
     RotateKey,
+    /// Make a one-use code that pairs one device without the pairing key. It is shown once and expires, so a device
+    /// that was revoked cannot come back under a new id with it.
+    Invite {
+        /// Who it is for; shown by `devices list` once the device has paired.
+        #[arg(long)]
+        name: String,
+        /// How long the code works.
+        #[arg(long, default_value_t = 15)]
+        ttl_minutes: u64,
+    },
+    /// List the invites not used or expired yet.
+    Invites,
+    /// Cancel an unused invite by its name.
+    Uninvite { name: String },
 }
 
 #[derive(Subcommand, Debug)]
@@ -677,7 +691,37 @@ fn run_devices_command(action: DevicesAction) -> anyhow::Result<()> {
                 return Ok(());
             }
             for (device_id, device) in devices {
-                println!("{device_id}\t{}\t{}\tfirst seen {}\tlast seen {}", device.device_name, device.status, device.first_seen_ms, device.last_seen_ms);
+                let owner = device.user.as_deref().map(|user| format!("member {user}")).unwrap_or_else(|| "root".into());
+                let via = device.invite_name.as_deref().map(|name| format!("invite '{name}'")).unwrap_or_default();
+                println!(
+                    "{device_id}\t{}\t{}\t{owner}\t{via}\tfirst seen {}\tlast seen {}",
+                    device.device_name,
+                    device.status,
+                    ago(device.first_seen_ms),
+                    ago(device.last_seen_ms)
+                );
+            }
+        }
+        DevicesAction::Invite { name, ttl_minutes } => {
+            anyhow::ensure!(ttl_minutes > 0, "--ttl-minutes must be at least 1");
+            let code = store.create_invite(&name, std::time::Duration::from_secs(ttl_minutes * 60))?;
+            println!("invite '{name}' (works once, for {ttl_minutes} minutes; shown once):\n{code}");
+            println!("the device puts it where it would put the pairing key; a running server takes it with no restart");
+        }
+        DevicesAction::Invites => {
+            let invites = store.list_invites()?;
+            if invites.is_empty() {
+                println!("no invites waiting");
+            }
+            for invite in invites {
+                println!("{}\texpires in {}", invite.name, until(invite.expires_ms));
+            }
+        }
+        DevicesAction::Uninvite { name } => {
+            if store.cancel_invite(&name)? {
+                println!("invite '{name}' cancelled");
+            } else {
+                println!("no unused invite called '{name}'");
             }
         }
         DevicesAction::Approve { device_id } => {
@@ -696,6 +740,27 @@ fn run_devices_command(action: DevicesAction) -> anyhow::Result<()> {
         DevicesAction::RotateKey => rotate_pairing_key()?,
     }
     Ok(())
+}
+
+fn now_ms() -> i64 {
+    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_millis() as i64
+}
+
+fn span(ms: i64) -> String {
+    match ms.max(0) / 1000 {
+        s if s < 60 => format!("{s}s"),
+        s if s < 3600 => format!("{}m", s / 60),
+        s if s < 86_400 => format!("{}h", s / 3600),
+        s => format!("{}d", s / 86_400),
+    }
+}
+
+fn ago(ms: i64) -> String {
+    format!("{} ago", span(now_ms() - ms))
+}
+
+fn until(ms: i64) -> String {
+    span(ms - now_ms())
 }
 
 /// Where the pairing key can be changed while the hub runs: beside the device registry (P36 c).

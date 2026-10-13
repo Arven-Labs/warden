@@ -6,6 +6,16 @@
 
 ---
 
+### 2026-10-13 — Sessão 194 (P36: convite de uso único para parear um aparelho)
+
+- **Pedido do usuário**: "vamos de p36"; planejado em plan mode. A exploração mostrou que o token e o revoke por aparelho já existiam (Sessão 94); o que faltava era um aparelho revogado não voltar com id novo. Entre convite de uso único, chave criptográfica por aparelho e só acabamentos, o usuário escolheu o convite.
+- **Feito**: `RegistryFile.invites` (hash do código, nome, validade), `PairingProof::Invite`, `PairedDevice.invite_name`, `PairingStore::{create_invite, list_invites, cancel_invite}`; `handle_connection` trata um `auth_key` que não é a chave como convite; CLI `devices invite --name --ttl-minutes`, `invites`, `uninvite`, e `devices list` com dono, convite e "há quanto tempo". O convite só é gasto quando o aparelho de fato pareia e não abre a administração.
+- **Testes**: 5 de unidade novos em `device_registry`, 4 contra um hub real (`tests/invite.rs`) e 3 com o binário real (`tests/invite_cli.rs`); `warden-server --lib` 167, os testes `pairing_key`, `rotate_key_cli`, `handshake` e `device_routing` verdes, clippy limpo. Sem a suíte inteira do pacote (P127).
+- **Disco**: `/home` foi de 65% a 67% (59 GB livres) com o `target/` recompilado só para o `warden-server`; `CARGO_INCREMENTAL=0`.
+- **Fica**: nenhuma tela cria convite ou gira a chave; a chave global ainda pareia; o hub embutido do desktop não lê o arquivo `pairing_key`.
+
+---
+
 ### 2026-10-13 — Sessão 193 (P36 c: a chave de pareamento troca com o hub no ar)
 
 - **Pedido do usuário**: auditar o `PENDING.md` antes de sugerir o próximo item (eu tinha errado três vezes: P125, P123 e a política de modelos já estavam feitos) e, do que sobrou, "P36 (c)"; depois, entre as opções, "chave em arquivo, troca ao vivo". Planejado em plan mode. Eu havia chamado o item de pequeno; não era (a chave é também a credencial de administração, ~114 usos de `auth_key` em 19 arquivos), e o usuário escolheu seguir assim mesmo.
