@@ -13,8 +13,9 @@
 //! HTTP client, landing on the module's own local callback listener exactly as production does.
 
 use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
 
-use axum::extract::{Query, Request};
+use axum::extract::{Query, Request, State};
 use axum::http::{header, StatusCode};
 use axum::middleware::{self, Next};
 use axum::response::{IntoResponse, Redirect, Response};
@@ -36,6 +37,7 @@ const CLIENT_ID: &str = "test-oauth-client";
 const AUTH_CODE: &str = "test-authorization-code";
 const ACCESS_TOKEN: &str = "test-access-token";
 const REFRESH_TOKEN: &str = "test-refresh-token";
+const ROTATED_TOKEN: &str = "test-rotated-access-token";
 
 #[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
 struct EchoRequest {
@@ -70,9 +72,10 @@ impl ServerHandler for EchoServer {
 
 /// Stands in for a real server's auth check on the resource itself — proves the token this test
 /// drives all the way through discovery/DCR/PKCE exchange is what actually unlocks the MCP call,
-/// not just accepted and ignored.
-async fn require_bearer_token(req: Request, next: Next) -> Response {
-    let expected = format!("Bearer {ACCESS_TOKEN}");
+/// not just accepted and ignored. The token it accepts is whatever `accepted` holds right now, so a test can rotate it
+/// under a client that is already connected.
+async fn require_bearer_token(State(accepted): State<Arc<Mutex<String>>>, req: Request, next: Next) -> Response {
+    let expected = format!("Bearer {}", accepted.lock().unwrap());
     let authorized = req.headers().get(header::AUTHORIZATION).and_then(|v| v.to_str().ok()) == Some(expected.as_str());
     if authorized {
         next.run(req).await
@@ -171,6 +174,11 @@ async fn token_handler(Form(params): Form<HashMap<String, String>>) -> impl Into
 /// real local port. Returns the MCP endpoint URL plus a handle that shuts the server down when
 /// cancelled.
 async fn spawn_server() -> (String, CancellationToken, tokio::task::JoinHandle<()>) {
+    spawn_server_accepting(Arc::new(Mutex::new(ACCESS_TOKEN.to_string()))).await
+}
+
+/// `spawn_server`, with the bearer token the MCP endpoint accepts held in `accepted`, which the caller can change later.
+async fn spawn_server_accepting(accepted: Arc<Mutex<String>>) -> (String, CancellationToken, tokio::task::JoinHandle<()>) {
     let ct = CancellationToken::new();
 
     let service: StreamableHttpService<EchoServer, LocalSessionManager> = StreamableHttpService::new(
@@ -179,7 +187,7 @@ async fn spawn_server() -> (String, CancellationToken, tokio::task::JoinHandle<(
         StreamableHttpServerConfig::default().with_cancellation_token(ct.child_token()),
     );
 
-    let mcp_route = Router::new().nest_service("/mcp", service).layer(middleware::from_fn(require_bearer_token));
+    let mcp_route = Router::new().nest_service("/mcp", service).layer(middleware::from_fn_with_state(accepted, require_bearer_token));
 
     let router = Router::new()
         .route("/.well-known/oauth-protected-resource", get(resource_metadata_handler))
@@ -243,6 +251,51 @@ async fn authorizes_persists_and_connects_to_a_real_oauth_mcp_server() {
     let result = tools[0].call(json!({ "text": "hello over oauth" })).await.expect("call the real MCP tool over OAuth");
     let result_str = result.to_string();
     assert!(result_str.contains("hello over oauth"), "unexpected result: {result_str}");
+
+    let _ = tokio::fs::remove_file(&credential_store_path).await;
+    ct.cancel();
+    let _ = handle.await;
+}
+
+/// P54: a pull that brings another device's login overwrites `<server>.json` under an MCP client that is already
+/// connected. `warden-bootstrap` only rebuilds the orchestrator for a server that never connected or whose client id
+/// changed, so for the rest this is what makes the new token count: the client reads the file again on every request.
+#[tokio::test]
+async fn a_login_overwritten_on_disk_is_used_by_a_client_already_connected() {
+    let accepted = Arc::new(Mutex::new(ACCESS_TOKEN.to_string()));
+    let (url, ct, handle) = spawn_server_accepting(accepted.clone()).await;
+    let credential_store_path = std::env::temp_dir().join(format!(
+        "warden-mcp-oauth-test-overwritten-{}.json",
+        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+    ));
+    let _ = tokio::fs::remove_file(&credential_store_path).await;
+
+    authorize_interactively("oauth-echo-server", &url, &credential_store_path, |auth_url: &str| {
+        let auth_url = auth_url.to_string();
+        tokio::spawn(async move {
+            let _ = reqwest::get(&auth_url).await;
+        });
+    })
+    .await
+    .expect("interactive OAuth authorization against a real (test) server");
+
+    let provider = connect_http_oauth("oauth-echo-server", &url, &credential_store_path).await.expect("headless connect");
+    let tools = provider.tools().await.expect("list tools");
+    let echo = &tools[0];
+    echo.call(json!({ "text": "before" })).await.expect("the login on disk works");
+
+    // The server moves to another token, as if the login had been renewed on the other device: the one the client holds
+    // on disk is no longer good, which proves the call below can only pass by reading the new file.
+    *accepted.lock().unwrap() = ROTATED_TOKEN.to_string();
+    assert!(echo.call(json!({ "text": "stale" })).await.is_err(), "the old token must be refused once the server rotated it");
+
+    // What a pull does: the same file, now with the other device's token.
+    let mut login: serde_json::Value = serde_json::from_slice(&tokio::fs::read(&credential_store_path).await.unwrap()).unwrap();
+    login["token_response"]["access_token"] = json!(ROTATED_TOKEN);
+    tokio::fs::write(&credential_store_path, serde_json::to_vec_pretty(&login).unwrap()).await.unwrap();
+
+    let result = echo.call(json!({ "text": "after" })).await.expect("the client already connected uses the login the pull wrote");
+    assert!(result.to_string().contains("after"), "unexpected result: {result}");
 
     let _ = tokio::fs::remove_file(&credential_store_path).await;
     ct.cancel();

@@ -2,9 +2,17 @@
 
 > **Nota**: Este log foi criado junto com o projeto. As sessões serão registradas aqui conforme o trabalho avança.
 >
-> Última atualização: 2026-10-12 (Sessão 186)
+> Última atualização: 2026-10-12 (Sessão 187)
 
 ---
+
+### 2026-10-12 — Sessão 187 (P54: teste do login sobrescrito sob um cliente MCP vivo)
+
+- **Pedido do usuário**: commitar a Sessão 186 (`6a8bbb4`) e seguir com o item 2; planejado em plan mode.
+- **Achado**: `rmcp-3.1.4` `get_access_token` faz `credential_store.load()` a cada chamada e o `FileCredentialStore` lê o arquivo, então o que a Sessão 185 afirmou está certo; faltava o teste.
+- **Feito**: só teste, nenhum código de produção. Em `warden-core/tests/mcp_oauth.rs`, o servidor aceita o token de um `Arc<Mutex<String>>` (`spawn_server_accepting`; `spawn_server` segue igual) e o teste novo conecta, troca o token do servidor, confere que o velho é recusado, sobrescreve o JSON como um pull e confere que o mesmo cliente passa a usar o novo.
+- **Testes**: `mcp_oauth` (3) verde, clippy do `warden-core` limpo.
+- **Fica** no P54: recarga ao vivo na CLI, a recarga do desktop só tem `cargo check`, e nunca verificado com um servidor OAuth real em dois aparelhos.
 
 ### 2026-10-12 — Sessão 186 (P54: os pulls manuais recarregam no desktop e avisam na CLI)
 
