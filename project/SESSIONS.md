@@ -6,6 +6,16 @@
 
 ---
 
+### 2026-10-13 — Sessão 195 (P36: o hub embutido do desktop lê `pairing_key`)
+
+- **Pedido do usuário**: "vamos de 2 e depois o 1" (hub embutido lendo o arquivo, depois a tela de convite e rotação); planejado em plan mode, dois commits. Este é o primeiro.
+- **Feito**: `start_embedded_server_at` (caminho do registro como parâmetro), `.with_pairing_key_file`, aviso quando a chave vem do arquivo, `get_embedded_server_config` mostra a chave efetiva. O teste existente passou a usar um registro temporário (`test_state` extraído).
+- **Erro meu da Sessão 194**: o literal de `PairedDevice` em `workspace_cmds.rs` (teste do desktop) não tinha `invite_name`; eu só tinha rodado os testes do `warden-server`, então o desktop não compilava os testes. Corrigido; daqui em diante `cargo test -p desktop --lib` entra junto sempre que a struct de um crate de base muda.
+- **Testes**: novo `the_embedded_hub_takes_the_pairing_key_from_the_file_beside_the_registry` (a chave do config deixa de parear, a do arquivo pareia, e uma segunda rotação vale sem reiniciar); `desktop --lib` 63 verdes, clippy limpo.
+- **Disco**: `/home` em 70% (55 GB livres) depois de recompilar o desktop.
+
+---
+
 ### 2026-10-13 — Sessão 194 (P36: convite de uso único para parear um aparelho)
 
 - **Pedido do usuário**: "vamos de p36"; planejado em plan mode. A exploração mostrou que o token e o revoke por aparelho já existiam (Sessão 94); o que faltava era um aparelho revogado não voltar com id novo. Entre convite de uso único, chave criptográfica por aparelho e só acabamentos, o usuário escolheu o convite.

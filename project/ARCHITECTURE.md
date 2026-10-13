@@ -3459,4 +3459,7 @@ Girar a chave fecha a porta para todos; faltava deixar um aparelho entrar sem a 
 - **Sem mudar o protocolo**: o código vai no `Hello.auth_key`. No `handle_connection`, o que não é a chave de pareamento nem credencial de membro vira `PairingProof::Invite`; o registro decide e um código errado, vencido ou já usado é `InvalidCredentials`, igual a uma chave errada.
 - **Só é gasto quando de fato pareia**: `authenticate_as` checa revogado e token antes; quem volta com o token, ou o revogado, não queima o convite. O aparelho nasce do root (`user: None`) e guarda `invite_name` para o `devices list` dizer para quem foi (`list` também mostra dono e há quanto tempo).
 - **Não abre a administração**: as comparações `keys_match(pairing_key, auth_key)` seguem só com a chave de pareamento.
-- **Fora**: desligar a chave global, tela que cria convite ou gira a chave, o hub embutido do desktop lendo o arquivo `pairing_key`.
+- **Fora**: desligar a chave global, tela que cria convite ou gira a chave.
+
+### O hub embutido do desktop lê o arquivo `pairing_key` (Sessão 195)
+`start_embedded_server_inner` agora delega a `start_embedded_server_at(state, config, devices_path)` (o caminho do registro vira parâmetro só para o teste não tocar o da pessoa) e encadeia `.with_pairing_key_file(...)`, então `devices rotate-key` vale também para o hub do desktop, com o mesmo aviso do `serve`. `get_embedded_server_config` devolve a chave que o hub de fato usa (`pairing_key_at(config, devices_path).current()`), para o formulário não mostrar a do config depois de uma rotação. A chave salva no `config.toml` segue sendo a de partida; o arquivo a vence quando tem uma chave forte.

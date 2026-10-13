@@ -236,7 +236,12 @@ fn config_path() -> Result<std::path::PathBuf, String> {
 pub fn get_embedded_server_config() -> Result<Option<EmbeddedServerConfigPayload>, String> {
     let path = config_path()?;
     let config = load_config_from_path(&path, false).map_err(|e| format!("{e:#}"))?;
-    Ok(config.embedded_server.map(Into::into))
+    let mut payload: Option<EmbeddedServerConfigPayload> = config.embedded_server.map(Into::into);
+    // P36: show the key the hub really holds, so a rotation made elsewhere doesn't leave the form (and what is copied from it) stale.
+    if let (Some(payload), Some(devices_path)) = (payload.as_mut(), default_server_devices_path()) {
+        payload.auth_key = pairing_key_at(&payload.auth_key, &devices_path).current().to_string();
+    }
+    Ok(payload)
 }
 
 /// A fresh random secret for the "Auth key" field — never hand-typed, see `generate_auth_key`'s
@@ -327,12 +332,27 @@ pub fn embedded_server_status(state: State<'_, AppState>) -> EmbeddedServerStatu
 /// builds and spawns the real `warden_server::Server`, wired to `serve_until` so the returned
 /// handle's `shutdown_tx` actually stops it and frees the port later.
 pub(crate) async fn start_embedded_server_inner(state: &AppState, config: &EmbeddedServerConfig) -> anyhow::Result<EmbeddedServerHandle> {
+    let devices_path = default_server_devices_path().ok_or_else(|| anyhow::anyhow!("could not determine the OS config directory"))?;
+    start_embedded_server_at(state, config, devices_path).await
+}
+
+/// The pairing key the hub holds right now (P36): the one in the config, unless the `pairing_key` file beside the device
+/// registry (made by `devices rotate-key` or the Devices screen) holds a strong one, which wins — the same rule as `warden-server serve`.
+fn pairing_key_at(config_key: &str, devices_path: &std::path::Path) -> warden_server::PairingKey {
+    warden_server::PairingKey::new(config_key).with_file(warden_server::pairing_key::pairing_key_path_beside(devices_path))
+}
+
+/// `start_embedded_server_inner` with the device registry's place given, so a test keeps off the person's own.
+async fn start_embedded_server_at(state: &AppState, config: &EmbeddedServerConfig, devices_path: std::path::PathBuf) -> anyhow::Result<EmbeddedServerHandle> {
     // P83 — also catches a short key saved before this check existed, on start and on auto-start;
     // the rest catches a config.toml edited by hand into something the form wouldn't save.
     check_embedded_server_config(config).map_err(|message| anyhow::anyhow!(message))?;
     let orchestrator = state.orchestrator.lock().unwrap().clone().map_err(|e| anyhow::anyhow!(e))?;
     let conversations_dir = default_server_conversations_dir().ok_or_else(|| anyhow::anyhow!("could not determine the OS config directory"))?;
-    let devices_path = default_server_devices_path().ok_or_else(|| anyhow::anyhow!("could not determine the OS config directory"))?;
+    let key_file = warden_server::pairing_key::pairing_key_path_beside(&devices_path);
+    if pairing_key_at(&config.auth_key, &devices_path).from_file() {
+        eprintln!("desktop: pairing key taken from {} (changed with devices rotate-key or the Devices screen), not from the config", key_file.display());
+    }
     let server_name = warden_server::resolve_server_name(config.server_name.clone());
     let addr = listen_addr(config)?;
 
@@ -356,6 +376,8 @@ pub(crate) async fn start_embedded_server_inner(state: &AppState, config: &Embed
     let code_engine = state.code.engine().ok_or_else(|| anyhow::anyhow!("the code engine is not installed"))?;
     let mut server = warden_server::Server::bind(addr, config.auth_key.clone(), server_name.clone(), shared.clone(), conversations_dir, devices_path)
         .await?
+        // P36 — a key changed while the hub runs counts for it too, like `warden-server serve`.
+        .with_pairing_key_file(key_file)
         // P78 — voice input from the web UI, with the same Whisper key as the desktop's mic button.
         .with_transcriber(Arc::new(warden_server::chat_input::WhisperTranscriber::new(None)))
         // P103 b — the conversations of code projects are tasks for the opencode, started per project folder.
@@ -426,51 +448,13 @@ mod tests {
             "desktop-embedded-server-test-{}",
             std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
         ));
-        let config_path = temp_dir.join("config.toml");
-        warden_bootstrap::save_config(
-            &config_path,
-            &warden_bootstrap::FileConfig {
-                api_keys: warden_bootstrap::ApiKeys { gemini: Some("fake-key-for-test".to_string()), ..Default::default() },
-                ..Default::default()
-            },
-        )
-        .unwrap();
-
-        let orchestrator = warden_bootstrap::bootstrap(
-            Some(config_path.to_str().unwrap()),
-            warden_bootstrap::Overrides { provider: Some(warden_bootstrap::Provider::Gemini), ..Default::default() },
-            temp_dir.join("vault"),
-        )
-        .await
-        .unwrap();
-
-        let sync = warden_sync::SyncEngine::new(temp_dir.join("vault"), config_path, temp_dir.join("secrets.json"), temp_dir.join("manifest.json"));
-
-        let state = crate::AppState {
-            orchestrator: Arc::new(std::sync::Mutex::new(Ok(orchestrator))),
-            recording: std::sync::Mutex::new(None),
-            sync,
-            pending_push: std::sync::Mutex::new(None),
-            generated_files_root: temp_dir.join("generated"),
-            embedded_server: std::sync::Mutex::new(None),
-            approvals: std::sync::Arc::new(crate::approval::ApprovalBroker::default()),
-            grants: Default::default(),
-            code: crate::code_cmds::CodeState::default(),
-            sync_runner: Arc::new(warden_bootstrap::auto_sync::SyncRunner::new(
-                temp_dir.join("vault"),
-                temp_dir.join("config.toml"),
-                temp_dir.join("secrets.json"),
-                temp_dir.join("manifest.json"),
-                temp_dir.join("git-sync-repo"),
-            )),
-            lending: std::sync::Mutex::new(None),
-            remote: std::sync::Mutex::new(None),
-        };
+        let state = test_state(&temp_dir).await;
 
         let server_config =
             EmbeddedServerConfig { enabled: true, server_name: Some("Test Desktop".to_string()), ..EmbeddedServerConfig::new(0, "test-auth-key-long-enough-for-p83-check") };
 
-        let handle = start_embedded_server_inner(&state, &server_config).await.unwrap();
+        // The registry is the test's own, so a `pairing_key` file of the person's never changes the key under test.
+        let handle = start_embedded_server_at(&state, &server_config, temp_dir.join("devices.json")).await.unwrap();
         assert!(state.code.engine().is_some(), "the hub's code conversations run on the desktop's engine");
         // `bound_addr` reflects the `0.0.0.0` bind host `local_addr()` reports — not a connectable
         // destination on every platform, so dial loopback explicitly with the same assigned port.
@@ -500,6 +484,79 @@ mod tests {
             assert!(answer.starts_with("HTTP/1.1 401"), "{answer}");
             assert!(answer.contains("invalid_token"), "{answer}");
         }
+
+        handle.stop();
+    }
+
+    /// A real `AppState` over a throwaway config directory — see the test above for what is real in it.
+    async fn test_state(temp_dir: &std::path::Path) -> crate::AppState {
+        let config_path = temp_dir.join("config.toml");
+        warden_bootstrap::save_config(
+            &config_path,
+            &warden_bootstrap::FileConfig {
+                api_keys: warden_bootstrap::ApiKeys { gemini: Some("fake-key-for-test".to_string()), ..Default::default() },
+                ..Default::default()
+            },
+        )
+        .unwrap();
+
+        let orchestrator = warden_bootstrap::bootstrap(
+            Some(config_path.to_str().unwrap()),
+            warden_bootstrap::Overrides { provider: Some(warden_bootstrap::Provider::Gemini), ..Default::default() },
+            temp_dir.join("vault"),
+        )
+        .await
+        .unwrap();
+
+        let sync = warden_sync::SyncEngine::new(temp_dir.join("vault"), config_path, temp_dir.join("secrets.json"), temp_dir.join("manifest.json"));
+
+        crate::AppState {
+            orchestrator: Arc::new(std::sync::Mutex::new(Ok(orchestrator))),
+            recording: std::sync::Mutex::new(None),
+            sync,
+            pending_push: std::sync::Mutex::new(None),
+            generated_files_root: temp_dir.join("generated"),
+            embedded_server: std::sync::Mutex::new(None),
+            approvals: std::sync::Arc::new(crate::approval::ApprovalBroker::default()),
+            grants: Default::default(),
+            code: crate::code_cmds::CodeState::default(),
+            sync_runner: Arc::new(warden_bootstrap::auto_sync::SyncRunner::new(
+                temp_dir.join("vault"),
+                temp_dir.join("config.toml"),
+                temp_dir.join("secrets.json"),
+                temp_dir.join("manifest.json"),
+                temp_dir.join("git-sync-repo"),
+            )),
+            lending: std::sync::Mutex::new(None),
+            remote: std::sync::Mutex::new(None),
+        }
+    }
+
+    /// P36: a `pairing_key` file beside the device registry wins over the config's key for the embedded hub, and the form shows it.
+    #[tokio::test]
+    async fn the_embedded_hub_takes_the_pairing_key_from_the_file_beside_the_registry() {
+        let temp_dir = std::env::temp_dir().join(format!(
+            "desktop-embedded-key-file-test-{}",
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+        ));
+        let state = test_state(&temp_dir).await;
+        let devices_path = temp_dir.join("devices.json");
+        let config_key = "test-auth-key-long-enough-for-p83-check";
+        let file_key = warden_server::pairing_key::rotate_at(&warden_server::pairing_key::pairing_key_path_beside(&devices_path)).unwrap();
+        let server_config = EmbeddedServerConfig { enabled: true, ..EmbeddedServerConfig::new(0, config_key) };
+
+        let handle = start_embedded_server_at(&state, &server_config, devices_path.clone()).await.unwrap();
+        let url = format!("ws://127.0.0.1:{}", handle.bound_addr.port());
+
+        let err = warden_server::ServerConnection::connect(&url, "dev-1", "Test Client", config_key).await.err().expect("the config's key no longer pairs").to_string();
+        assert!(err.contains("authentication rejected"), "{err}");
+        warden_server::ServerConnection::connect(&url, "dev-2", "Test Client", &file_key).await.expect("the file's key pairs");
+        assert_eq!(pairing_key_at(config_key, &devices_path).current().as_ref(), file_key);
+
+        // Rotated again while it runs: the next Hello needs the newest.
+        let newest = warden_server::pairing_key::rotate_at(&warden_server::pairing_key::pairing_key_path_beside(&devices_path)).unwrap();
+        assert!(warden_server::ServerConnection::connect(&url, "dev-3", "Test Client", &file_key).await.is_err());
+        warden_server::ServerConnection::connect(&url, "dev-3", "Test Client", &newest).await.expect("the newest pairs, with no restart");
 
         handle.stop();
     }
