@@ -41,13 +41,14 @@ fn rotate_key_prints_a_new_strong_key_and_saves_it_beside_the_registry() {
 fn revoking_with_rotate_key_does_both_and_revoking_alone_says_the_door_is_still_open() {
     let home = config_home("revoke");
     let registry = PairingStore::new(home.join("warden").join("devices.json"));
-    for id in ["phone", "laptop"] {
-        registry.authenticate(id, id, None, true).unwrap().unwrap();
-    }
+    registry.authenticate("phone", "phone", None, true).unwrap().unwrap();
+    // The pairing key pairs only a hub's first device (P36), so the second one comes in with an invite.
+    let code = registry.create_invite("laptop", std::time::Duration::from_secs(60)).unwrap();
+    registry.authenticate_as("laptop", "laptop", None, warden_server::PairingProof::Invite(code)).unwrap().unwrap();
 
     let (ok, stdout, stderr) = run(&home, &["devices", "revoke", "phone"]);
     assert!(ok, "{stderr}");
-    assert!(stdout.contains("can still pair again under a new id"), "{stdout}");
+    assert!(stdout.contains("still administers the hub"), "{stdout}");
     assert!(!home.join("warden").join("pairing_key").exists(), "revoking alone changes no key");
 
     let (ok, stdout, stderr) = run(&home, &["devices", "revoke", "laptop", "--rotate-key"]);

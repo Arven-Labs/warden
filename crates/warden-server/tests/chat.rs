@@ -221,7 +221,8 @@ async fn a_down_provider_hands_the_turn_to_a_reserve_and_the_reply_says_so() {
     let orchestrator = warden_core::orchestrator::Orchestrator::new(Arc::new(model), Arc::new(warden_core::memory::Vault::new(dir.join("vault"))));
     let server = warden_server::Server::bind("127.0.0.1:0".parse().unwrap(), "test-key", "Test Hub", Arc::new(orchestrator), dir.join("conversations"), dir.join("devices.json"))
         .await
-        .unwrap();
+        .unwrap()
+        .with_open_key_pairing();
     let addr = server.local_addr().unwrap();
     tokio::spawn(server.serve());
 

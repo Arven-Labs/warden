@@ -31,13 +31,24 @@ async fn reply(conn: &mut ServerConnection) -> ServerMessage {
 #[tokio::test]
 async fn after_a_rotation_the_old_key_pairs_no_one_and_the_new_one_does() {
     let (addr, _, key_file) = spin_up_server_with_pairing_key_file(MockProvider::replying("unused")).await;
-    pair(addr, "dev-a", "test-key").await.expect("the start-up key works until it is changed");
-
     let new_key = rotate_at(&key_file).unwrap();
 
-    let err = pair(addr, "dev-b", "test-key").await.err().expect("the old key is turned away").to_string();
+    let err = pair(addr, "dev-a", "test-key").await.err().expect("the old key is turned away").to_string();
     assert!(err.contains("authentication rejected"), "{err}");
-    pair(addr, "dev-b", &new_key).await.expect("the new key pairs, with no restart");
+    pair(addr, "dev-a", &new_key).await.expect("the new key pairs the hub's first device, with no restart");
+}
+
+/// P36: the key is only for the hub's first device; everyone after it needs an invite, however the key was never changed.
+#[tokio::test]
+async fn the_pairing_key_pairs_only_the_first_device() {
+    let (addr, devices, _) = spin_up_server_with_pairing_key_file(MockProvider::replying("unused")).await;
+    pair(addr, "dev-a", "test-key").await.expect("the first device pairs with the key");
+
+    let err = pair(addr, "dev-b", "test-key").await.err().expect("the second one does not").to_string();
+    assert!(err.contains("authentication rejected"), "{err}");
+
+    let code = PairingStore::new(&devices).create_invite("dev-b", Duration::from_secs(60)).unwrap();
+    pair(addr, "dev-b", &code).await.expect("an invite does");
 }
 
 #[tokio::test]
@@ -64,22 +75,23 @@ async fn a_revoked_device_cannot_come_back_under_a_new_id_with_the_key_it_knew()
     drop(first);
     PairingStore::new(&devices).revoke("dev-a").unwrap();
 
-    // Revoking alone does not shut the door: the same device pairs as someone new with the key it knows.
-    pair(addr, "dev-a-again", "test-key").await.expect("revoking by id alone leaves the key working");
+    // Revoking the only device does not reopen the key for a new id…
+    let err = pair(addr, "dev-a-again", "test-key").await.err().expect("the key pairs the first device only").to_string();
+    assert!(err.contains("authentication rejected"), "{err}");
 
     rotate_at(&key_file).unwrap();
 
+    // …and its own id stays revoked after a rotation too.
     let err = ServerConnection::handshake(&url(addr), "dev-a", "dev-a", "", Some(token), Vec::new()).await.err().expect("still revoked").to_string();
     assert!(err.contains("revoked"), "{err}");
-    let err = pair(addr, "dev-a-third", "test-key").await.err().expect("the key it knew no longer pairs").to_string();
-    assert!(err.contains("authentication rejected"), "{err}");
 }
 
 #[tokio::test]
 async fn an_open_connection_is_held_to_the_key_of_the_moment_for_the_administration() {
     let (addr, devices, key_file) = spin_up_server_with_pairing_key_file(MockProvider::replying("unused")).await;
-    pair(addr, "dev-a", "test-key").await.unwrap();
     let (mut owner, _) = pair(addr, "owner", "test-key").await.unwrap();
+    let code = PairingStore::new(&devices).create_invite("dev-a", Duration::from_secs(60)).unwrap();
+    pair(addr, "dev-a", &code).await.unwrap();
     let set = |key: &str, request_id: u64| ClientMessage::SetDeviceStatus { request_id, pairing_key: key.to_string(), device_id: "dev-a".into(), action: DeviceAction::Approve };
 
     owner.send(&set("test-key", 1)).await.unwrap();

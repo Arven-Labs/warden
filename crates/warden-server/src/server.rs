@@ -305,7 +305,15 @@ impl Server {
         self
     }
 
-    /// Serves incoming webhooks (P105) on this same port: `POST /hooks/<id>` with a token from `tokens_path` (see
+    /// For test hubs only (`#[doc(hidden)]`): the pairing key keeps pairing every new device instead of just the first one. Tests
+    /// of the rule itself don't call this.
+    #[doc(hidden)]
+    pub fn with_open_key_pairing(mut self) -> Self {
+        self.auth_key = self.auth_key.with_open_pairing();
+        self
+    }
+
+    /// Serves incoming webhooks (P105) on this same port:`POST /hooks/<id>` with a token from `tokens_path` (see
     /// `webhook_tokens.rs`) runs the `[[webhooks]]` entry of that id, read from the settings file on every call, so it
     /// needs `with_settings` and `with_tasks` too (the conversations go next to the tasks' ones). Without them the route
     /// answers 404.
@@ -948,7 +956,7 @@ async fn handle_connection<S: Transport>(ws: WebSocketStream<S>, peer: SocketAdd
     // pairing status itself (Pending/Approved) stays silent here — a `Pending` device still gets a
     // normal `HelloAck` and can chat; only `CallDeviceTool` checks for `Approved` (Fase 9.3).
     let auth_key = pairing_key.current();
-    let pairing_key_ok = !provided_key.is_empty() && provided_key.as_str() == auth_key.as_ref();
+    let pairing_key_ok = crate::settings::keys_match(&provided_key, auth_key.as_ref());
     // P84: the members, read fresh — a member added or removed a moment ago counts.
     let mut members = match settings.as_deref() {
         Some(host) => load_config_from_path(&host.config_path(), false).map(|c| c.users).unwrap_or_default(),
@@ -996,7 +1004,7 @@ async fn handle_connection<S: Transport>(ws: WebSocketStream<S>, peer: SocketAdd
         PairingProof::Member(id) => Some(id.clone()),
         _ => None,
     };
-    let store = PairingStore::new(devices_path.as_ref().clone());
+    let store = PairingStore::new(devices_path.as_ref().clone()).with_open_key_pairing(pairing_key.open_pairing());
     let (issued_token, owner) = match store.authenticate_as(&device_id, &device_name, device_token.as_deref(), proof) {
         Ok(Ok(outcome)) => (outcome.issued_token, outcome.user),
         Ok(Err(rejection)) => {

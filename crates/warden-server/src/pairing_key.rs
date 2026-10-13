@@ -26,12 +26,25 @@ pub fn pairing_key_path_beside(devices_path: &Path) -> PathBuf {
 pub struct PairingKey {
     initial: Arc<str>,
     file: Option<Arc<PathBuf>>,
+    /// Test fixtures only: the key pairs any number of devices, not just the first (see `with_open_pairing`).
+    open_pairing: bool,
 }
 
 impl PairingKey {
     /// A key that never changes: the start-up one.
     pub fn new(initial: impl Into<Arc<str>>) -> Self {
-        Self { initial: initial.into(), file: None }
+        Self { initial: initial.into(), file: None, open_pairing: false }
+    }
+
+    /// For test hubs, which pair many devices with one key: the key keeps pairing after the first device, as it did before P36
+    /// closed that. Never set by `warden-server`'s own binary.
+    pub fn with_open_pairing(mut self) -> Self {
+        self.open_pairing = true;
+        self
+    }
+
+    pub(crate) fn open_pairing(&self) -> bool {
+        self.open_pairing
     }
 
     /// The same key, but the file at `path` wins over it when it holds a usable one.

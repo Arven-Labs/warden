@@ -118,6 +118,7 @@ pub async fn spin_up_server_with_revocation_check(provider: MockProvider, interv
     let server = Server::bind("127.0.0.1:0".parse().unwrap(), "test-key", "Test Hub", Arc::new(orchestrator), temp_dir.join("conversations"), devices_path.clone())
         .await
         .unwrap()
+        .with_open_key_pairing()
         .with_revocation_check_interval(interval);
     let addr = server.local_addr().unwrap();
     tokio::spawn(server.serve());
@@ -167,7 +168,8 @@ pub async fn spin_up_server_with_base_tool(provider: MockProvider, base_tool: Ar
         temp_dir.join("devices.json"),
     )
     .await
-    .unwrap();
+    .unwrap()
+    .with_open_key_pairing();
     let addr = server.local_addr().unwrap();
     tokio::spawn(server.serve());
     addr
@@ -192,6 +194,7 @@ pub async fn spin_up_tls_server(provider: MockProvider, tls: warden_server::HubT
     )
     .await
     .unwrap()
+    .with_open_key_pairing()
     .with_tls(tls);
     let addr = server.local_addr().unwrap();
     tokio::spawn(server.serve());
@@ -217,7 +220,8 @@ pub async fn spin_up_server_with_shutdown(provider: MockProvider) -> (std::net::
         temp_dir.join("devices.json"),
     )
     .await
-    .unwrap();
+    .unwrap()
+    .with_open_key_pairing();
     let addr = server.local_addr().unwrap();
     let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel();
     tokio::spawn(server.serve_until(async {

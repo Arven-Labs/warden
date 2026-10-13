@@ -139,7 +139,8 @@ mod tests {
         let _ = std::fs::remove_file(&path);
         let store = PairingStore::new(&path);
         store.authenticate("phone", "Phone", None, true).unwrap().unwrap();
-        store.authenticate("web-1", "Browser", None, true).unwrap().unwrap();
+        let code = store.create_invite("web", std::time::Duration::from_secs(60)).unwrap();
+        store.authenticate_as("web-1", "Browser", None, crate::device_registry::PairingProof::Invite(code)).unwrap().unwrap();
         (store, path)
     }
 

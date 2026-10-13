@@ -83,7 +83,8 @@ async fn spin_up(engine: Option<Arc<Scripted>>) -> Hub {
         let engine: Arc<dyn CodeEngine> = engine;
         slot.set(engine).ok();
     }
-    let server = Server::bind("127.0.0.1:0".parse().unwrap(), KEY, "Test Hub", Arc::new(orchestrator), dir.join("conversations"), dir.join("devices.json")).await.unwrap().with_users_dir(dir.join("users"));
+    let server = Server::bind("127.0.0.1:0".parse().unwrap(), KEY, "Test Hub", Arc::new(orchestrator), dir.join("conversations"), dir.join("devices.json")).await.unwrap()
+        .with_open_key_pairing().with_users_dir(dir.join("users"));
     let addr = server.local_addr().unwrap();
     tokio::spawn(server.serve());
     Hub { url: format!("ws://{addr}"), offered }
@@ -192,6 +193,7 @@ async fn a_manager_opens_two_code_tasks_in_the_background_and_both_are_on_the_ta
     let server = Server::bind("127.0.0.1:0".parse().unwrap(), KEY, "Test Hub", Arc::new(orchestrator), dir.join("conversations"), dir.join("devices.json"))
         .await
         .unwrap()
+        .with_open_key_pairing()
         .with_users_dir(dir.join("users"))
         .with_agent_tasks(Some(log));
     let addr = server.local_addr().unwrap();
@@ -258,7 +260,8 @@ async fn the_chat_sees_each_tasks_tool_rows_and_words_live_told_apart() {
     let engine: Arc<dyn CodeEngine> = Arc::new(Narrates);
     slot.set(engine).ok();
     let orchestrator = orchestrator.with_parallel_jobs(2);
-    let server = Server::bind("127.0.0.1:0".parse().unwrap(), KEY, "Test Hub", Arc::new(orchestrator), dir.join("conversations"), dir.join("devices.json")).await.unwrap().with_users_dir(dir.join("users"));
+    let server = Server::bind("127.0.0.1:0".parse().unwrap(), KEY, "Test Hub", Arc::new(orchestrator), dir.join("conversations"), dir.join("devices.json")).await.unwrap()
+        .with_open_key_pairing().with_users_dir(dir.join("users"));
     let addr = server.local_addr().unwrap();
     tokio::spawn(server.serve());
     let mut me = ServerConnection::connect(&format!("ws://{addr}"), "laptop", "Laptop", KEY).await.unwrap();
@@ -354,7 +357,8 @@ async fn a_manager_can_ask_for_a_plan_but_never_for_accept_all() {
     let probe = Arc::new(ModeProbe::default());
     let engine: Arc<dyn CodeEngine> = probe.clone();
     slot.set(engine).ok();
-    let server = Server::bind("127.0.0.1:0".parse().unwrap(), KEY, "Test Hub", Arc::new(orchestrator), dir.join("conversations"), dir.join("devices.json")).await.unwrap().with_users_dir(dir.join("users"));
+    let server = Server::bind("127.0.0.1:0".parse().unwrap(), KEY, "Test Hub", Arc::new(orchestrator), dir.join("conversations"), dir.join("devices.json")).await.unwrap()
+        .with_open_key_pairing().with_users_dir(dir.join("users"));
     let addr = server.local_addr().unwrap();
     tokio::spawn(server.serve());
     let mut me = ServerConnection::connect(&format!("ws://{addr}"), "laptop", "Laptop", KEY).await.unwrap();

@@ -98,6 +98,7 @@ async fn the_web_sets_up_the_hub_and_its_notes_reach_another_device() {
     let server = Server::bind("127.0.0.1:0".parse().unwrap(), "test-key", "Test Hub", Arc::new(orchestrator(&dir)), dir.join("conversations"), dir.join("devices.json"))
         .await
         .unwrap()
+        .with_open_key_pairing()
         .with_sync(hub_runner, None);
     let addr = server.local_addr().unwrap();
     tokio::spawn(server.serve());
@@ -138,6 +139,7 @@ async fn a_device_joins_the_group_through_a_code_the_hub_shows() {
     let server = Server::bind("127.0.0.1:0".parse().unwrap(), "test-key", "Test Hub", Arc::new(orchestrator(&dir)), dir.join("conversations"), dir.join("devices.json"))
         .await
         .unwrap()
+        .with_open_key_pairing()
         .with_sync(Arc::clone(&hub_runner), None);
     let addr = server.local_addr().unwrap();
     tokio::spawn(server.serve());
@@ -183,6 +185,7 @@ async fn the_hub_loop_pulls_a_new_config_and_reloads() {
     let server = Server::bind("127.0.0.1:0".parse().unwrap(), "test-key", "Test Hub", Arc::new(orchestrator(&dir)), dir.join("conversations"), dir.join("devices.json"))
         .await
         .unwrap()
+        .with_open_key_pairing()
         .with_settings(Arc::new(CountingHost { dir: dir.clone(), builds: builds.clone() }))
         .with_sync(hub_runner, Some(Duration::from_millis(200)));
     tokio::spawn(server.serve());

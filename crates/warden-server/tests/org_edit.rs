@@ -80,6 +80,7 @@ async fn spin_up_with(config: FileConfig) -> (String, PathBuf, Arc<AtomicUsize>)
     let server = Server::bind("127.0.0.1:0".parse().unwrap(), "test-key", "Test Hub", Arc::new(orchestrator), dir.join("conversations"), dir.join("devices.json"))
         .await
         .unwrap()
+        .with_open_key_pairing()
         .with_settings(Arc::new(Host { path: path.clone(), dir, builds: builds.clone() }));
     let addr = server.local_addr().unwrap();
     tokio::spawn(server.serve());

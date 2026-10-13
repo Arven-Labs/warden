@@ -553,10 +553,12 @@ mod tests {
         warden_server::ServerConnection::connect(&url, "dev-2", "Test Client", &file_key).await.expect("the file's key pairs");
         assert_eq!(pairing_key_at(config_key, &devices_path).current().as_ref(), file_key);
 
-        // Rotated again while it runs: the next Hello needs the newest.
+        // Rotated again while it runs: the running hub reads the newest (the key itself pairs only the first device, so
+        // the second one comes in with an invite — P36).
         let newest = warden_server::pairing_key::rotate_at(&warden_server::pairing_key::pairing_key_path_beside(&devices_path)).unwrap();
-        assert!(warden_server::ServerConnection::connect(&url, "dev-3", "Test Client", &file_key).await.is_err());
-        warden_server::ServerConnection::connect(&url, "dev-3", "Test Client", &newest).await.expect("the newest pairs, with no restart");
+        assert_eq!(pairing_key_at(config_key, &devices_path).current().as_ref(), newest);
+        let code = warden_server::PairingStore::new(devices_path.clone()).create_invite("dev-3", std::time::Duration::from_secs(60)).unwrap();
+        warden_server::ServerConnection::connect(&url, "dev-3", "Test Client", &code).await.expect("an invite pairs the second device");
 
         handle.stop();
     }

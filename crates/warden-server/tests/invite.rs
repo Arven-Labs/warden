@@ -117,7 +117,8 @@ async fn the_pairing_key_rotated_over_the_protocol_counts_at_once() {
     let ServerMessage::PairingKeyRotated { new_key, .. } = reply(&mut admin).await else { panic!("not rotated") };
 
     assert!(pair(addr, "dev-b", "test-key").await.is_err(), "the old key pairs no one");
-    pair(addr, "dev-b", &new_key).await.expect("the new one does");
+    admin.send(&ClientMessage::CreateDeviceInvite { request_id: 4, pairing_key: new_key.clone(), name: "x".into(), ttl_minutes: 15 }).await.unwrap();
+    assert!(matches!(reply(&mut admin).await, ServerMessage::DeviceInvite { .. }), "the new one opens the administration");
     admin.send(&ClientMessage::RotatePairingKey { request_id: 3, pairing_key: "test-key".into() }).await.unwrap();
     assert!(matches!(reply(&mut admin).await, ServerMessage::DeviceError { auth_rejected: true, .. }), "the old key no longer opens the administration");
 }

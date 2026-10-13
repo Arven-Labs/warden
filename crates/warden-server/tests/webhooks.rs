@@ -142,6 +142,7 @@ async fn hub_with(limits: Vec<Limit>, webhooks_on: bool) -> Hub {
     let mut server = Server::bind("127.0.0.1:0".parse().unwrap(), KEY, "Test Hub", Arc::new(orchestrator), dir.join("conversations"), dir.join("devices.json"))
         .await
         .unwrap()
+        .with_open_key_pairing()
         .with_settings(Arc::new(Host { path: config_path.clone() }))
         .with_web_ui(Arc::new(web))
         .with_tasks(store.clone(), false);

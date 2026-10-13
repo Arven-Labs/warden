@@ -157,6 +157,7 @@ async fn spin_up(run_tasks: bool) -> Hub {
     let server = Server::bind("127.0.0.1:0".parse().unwrap(), "test-key", "Test Hub", Arc::new(orchestrator), dir.join("conversations"), dir.join("devices.json"))
         .await
         .unwrap()
+        .with_open_key_pairing()
         .with_settings(Arc::new(TestHost { path: config_path.clone() }))
         .with_tasks(store.clone(), run_tasks)
         .with_task_tick(Duration::from_millis(50));

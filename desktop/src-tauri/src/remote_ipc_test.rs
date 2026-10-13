@@ -96,6 +96,7 @@ async fn spin_up_hub(dir: &Path) -> (std::net::SocketAddr, PathBuf) {
     let server = Server::bind("127.0.0.1:0".parse().unwrap(), KEY, "Test Hub", Arc::new(orchestrator), dir.join("hub-conversations"), dir.join("hub-devices.json"))
         .await
         .unwrap()
+        .with_open_key_pairing()
         .with_settings(Arc::new(TestHost { path: config_path.clone() }))
         .with_tasks(warden_bootstrap::tasks::TaskStore::new(dir.join("hub-tasks")), false)
         .with_webhooks(dir.join("hub-webhook-tokens.json"));

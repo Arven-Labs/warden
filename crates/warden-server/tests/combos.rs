@@ -106,6 +106,7 @@ async fn an_agent_on_a_combo_gets_the_next_provider_when_the_first_is_down() {
     let server = Server::bind("127.0.0.1:0".parse().unwrap(), "test-key", "Test Hub", Arc::new(orchestrator), dir.join("conversations"), dir.join("devices.json"))
         .await
         .unwrap()
+        .with_open_key_pairing()
         .with_settings(Arc::new(TestHost { path: config_path }));
     let addr = server.local_addr().unwrap();
     tokio::spawn(server.serve());

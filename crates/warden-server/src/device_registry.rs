@@ -110,7 +110,7 @@ impl std::fmt::Display for AuthRejection {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             AuthRejection::Revoked => write!(f, "device revoked"),
-            AuthRejection::InvalidCredentials => write!(f, "invalid auth key"),
+            AuthRejection::InvalidCredentials => write!(f, "invalid auth key or invite (the pairing key only pairs the first device — ask for an invite)"),
         }
     }
 }
@@ -153,11 +153,18 @@ fn save(path: &Path, file: &RegistryFile) -> anyhow::Result<()> {
 /// state beyond the path itself.
 pub struct PairingStore {
     path: PathBuf,
+    /// Test hubs only: the pairing key pairs more than the first device (`PairingKey::with_open_pairing`).
+    open_key: bool,
 }
 
 impl PairingStore {
     pub fn new(path: impl Into<PathBuf>) -> Self {
-        Self { path: path.into() }
+        Self { path: path.into(), open_key: false }
+    }
+
+    pub(crate) fn with_open_key_pairing(mut self, open: bool) -> Self {
+        self.open_key = open;
+        self
     }
 
     /// Decides a `Hello` (P36) and records the device — the shared auth key is only a *pairing*
@@ -205,6 +212,11 @@ impl PairingStore {
             _ => false,
         };
         if !token_ok && proof == PairingProof::Nothing {
+            return Ok(Err(AuthRejection::InvalidCredentials));
+        }
+        // P36: the shared key pairs only the very first device of a hub; after that a new device (or one that
+        // lost its token) needs an invite. A revoked device still counts, so revoking everyone doesn't reopen it.
+        if !token_ok && proof == PairingProof::PairingKey && !file.devices.is_empty() && !self.open_key {
             return Ok(Err(AuthRejection::InvalidCredentials));
         }
 
@@ -332,9 +344,32 @@ mod tests {
         ))
     }
 
-    /// A first `Hello` with the right pairing key and no token.
+    /// A first `Hello` with no token: the pairing key for the hub's very first device, an invite for the rest (P36).
     fn pair(store: &PairingStore, device_id: &str, device_name: &str) -> HelloOutcome {
-        store.authenticate(device_id, device_name, None, true).unwrap().unwrap()
+        if store.list().unwrap().is_empty() {
+            return store.authenticate(device_id, device_name, None, true).unwrap().unwrap();
+        }
+        let code = store.create_invite("test", std::time::Duration::from_secs(60)).unwrap();
+        store.authenticate_as(device_id, device_name, None, PairingProof::Invite(code)).unwrap().unwrap()
+    }
+
+    #[test]
+    fn the_pairing_key_pairs_only_the_first_device() {
+        let store = PairingStore::new(temp_path());
+        pair(&store, "dev-a", "A");
+        assert!(matches!(store.authenticate("dev-b", "B", None, true).unwrap(), Err(AuthRejection::InvalidCredentials)));
+        // A device that lost its token is no exception, and a token keeps working with the key beside it.
+        assert!(matches!(store.authenticate("dev-a", "A", None, true).unwrap(), Err(AuthRejection::InvalidCredentials)));
+        let token = pair(&store, "dev-c", "C").issued_token.unwrap();
+        assert!(store.authenticate("dev-c", "C", Some(&token), true).unwrap().is_ok());
+    }
+
+    #[test]
+    fn revoking_the_only_device_does_not_reopen_the_key() {
+        let store = PairingStore::new(temp_path());
+        pair(&store, "dev-a", "A");
+        store.revoke("dev-a").unwrap();
+        assert!(matches!(store.authenticate("dev-b", "B", None, true).unwrap(), Err(AuthRejection::InvalidCredentials)));
     }
 
     #[test]
@@ -479,7 +514,8 @@ mod tests {
         assert_eq!((again.user.as_deref(), again.issued_token), (Some("ana"), None));
         assert!(matches!(store.authenticate_as("tablet", "x", None, PairingProof::Nothing).unwrap(), Err(AuthRejection::InvalidCredentials)));
 
-        let root = store.authenticate_as("laptop", "Laptop", None, PairingProof::PairingKey).unwrap().unwrap();
+        let code = store.create_invite("laptop", std::time::Duration::from_secs(60)).unwrap();
+        let root = store.authenticate_as("laptop", "Laptop", None, PairingProof::Invite(code)).unwrap().unwrap();
         assert_eq!(root.user, None);
         store.authenticate_as("tablet", "Ana's tablet", None, PairingProof::Member("ana".into())).unwrap().unwrap();
         assert_eq!(store.revoke_user_devices("ana").unwrap(), 2);

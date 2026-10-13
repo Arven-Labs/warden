@@ -89,6 +89,7 @@ async fn spin_up() -> Hub {
     let server = Server::bind("127.0.0.1:0".parse().unwrap(), KEY, "Test Hub", Arc::new(orchestrator), dir.join("conversations"), dir.join("devices.json"))
         .await
         .unwrap()
+        .with_open_key_pairing()
         .with_settings(Arc::new(Host { path: path.clone(), dir: dir.clone(), builds: builds.clone() }))
         .with_users_dir(dir.join("users"));
     let addr = server.local_addr().unwrap();

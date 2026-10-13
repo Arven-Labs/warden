@@ -47,6 +47,7 @@ async fn spin_up(dir: &std::path::Path, log: Option<PathBuf>) -> String {
     let server = Server::bind("127.0.0.1:0".parse().unwrap(), "test-key", "Test Hub", Arc::new(orchestrator), dir.join("conversations"), dir.join("devices.json"))
         .await
         .unwrap()
+        .with_open_key_pairing()
         .with_agent_tasks(log)
         .with_settings(Arc::new(Settings(dir.join("config.toml"))));
     let addr = server.local_addr().unwrap();

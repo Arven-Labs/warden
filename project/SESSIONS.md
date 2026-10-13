@@ -6,6 +6,16 @@
 
 ---
 
+### 2026-10-13 — Sessão 196 (P36: a chave global só pareia o primeiro aparelho)
+
+- **Pedido do usuário**: "vamos de 1" (fechar o P36, começando pelo furo da chave global); planejado em plan mode. Entre chave que nunca pareia, ligável e "só com o registro vazio", o usuário escolheu a última.
+- **Feito**: `authenticate_as` recusa `PairingKey` sem token válido quando o registro tem algum aparelho (revogado conta); `server.rs` compara a chave com `keys_match`; mensagem de erro, `devices revoke` e `serve` explicam a regra. Ver a seção de `ARCHITECTURE.md`.
+- **Decisão no meio (do usuário)**: ~30 testes de integração em 14 arquivos quebraram porque pareiam vários aparelhos com `"test-key"` (~150 pontos). Em vez de reescrever tudo para convite, o usuário escolheu um gancho só de teste, `Server::with_open_key_pairing()`; custa uma flag `#[doc(hidden)]` no código de produção que só os testes ligam.
+- **Testes**: 2 de unidade novos em `device_registry` (só o primeiro; revogar o único não reabre) e o `pair()` dos testes passou a usar convite a partir do segundo; `pairing_key.rs` reescrito (um teste novo, `the_pairing_key_pairs_only_the_first_device`), `invite.rs`, `rotate_key_cli.rs`, `devices.rs` e o teste do hub embutido do desktop ajustados. `warden-server` inteiro (lib + todos os testes de integração) verde, `desktop --lib` 64, clippy de `warden-server` e `desktop` limpo. Dois travamentos do toolchain (link do `cc` e SIGSEGV do rustc) passaram rodando de novo.
+- **Fica**: telas de convite no celular e na extensão; textos dos clientes ainda dizem "chave"; QR do desktop; lista de convites fora do desktop; o web/mobile/extensão/CLI não rodaram (nenhum código deles mudou).
+
+---
+
 ### 2026-10-13 — Sessão 195 (P36: o hub embutido do desktop lê `pairing_key`)
 
 - **Pedido do usuário**: "vamos de 2 e depois o 1" (hub embutido lendo o arquivo, depois a tela de convite e rotação); planejado em plan mode, dois commits. Este é o primeiro.

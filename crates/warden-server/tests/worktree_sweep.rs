@@ -64,6 +64,7 @@ async fn hub(name: &str, with_engine: bool) -> (PathBuf, PathBuf, PathBuf) {
     let mut server = Server::bind("127.0.0.1:0".parse().unwrap(), "test-key", "Test Hub", Arc::new(orchestrator), outer.join("conversations"), outer.join("devices.json"))
         .await
         .unwrap()
+        .with_open_key_pairing()
         .with_worktree_sweep(Duration::from_millis(100));
     if with_engine {
         server = server.with_code_engine(Arc::new(Idle));

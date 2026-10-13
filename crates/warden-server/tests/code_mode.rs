@@ -87,7 +87,8 @@ async fn spin_up_with(engine: Option<Arc<Scripted>>, turns: Option<CodeTurns>) -
     let dir = std::env::temp_dir().join(format!("warden-server-code-{}-{n}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
     std::fs::create_dir_all(&dir).unwrap();
     let orchestrator = Orchestrator::new(Arc::new(Plain), Arc::new(Vault::new(dir.join("vault"))));
-    let mut server = Server::bind("127.0.0.1:0".parse().unwrap(), KEY, "Test Hub", Arc::new(orchestrator), dir.join("conversations"), dir.join("devices.json")).await.unwrap().with_users_dir(dir.join("users"));
+    let mut server = Server::bind("127.0.0.1:0".parse().unwrap(), KEY, "Test Hub", Arc::new(orchestrator), dir.join("conversations"), dir.join("devices.json")).await.unwrap()
+        .with_open_key_pairing().with_users_dir(dir.join("users"));
     if let Some(engine) = engine {
         server = server.with_code_engine(engine);
     }
@@ -326,6 +327,7 @@ async fn a_member_can_neither_change_the_mode_nor_stop_a_task_that_is_not_theirs
     let server = Server::bind("127.0.0.1:0".parse().unwrap(), KEY, "Test Hub", Arc::new(orchestrator), dir.join("conversations"), dir.join("devices.json"))
         .await
         .unwrap()
+        .with_open_key_pairing()
         .with_users_dir(dir.join("users"))
         .with_settings(Arc::new(MemberHost { path: config_path }))
         .with_code_engine(engine.clone());
@@ -407,6 +409,7 @@ mod real {
         let server = Server::bind("127.0.0.1:0".parse().unwrap(), KEY, "Test Hub", shared, dir.join("conversations"), dir.join("devices.json"))
             .await
             .unwrap()
+        .with_open_key_pairing()
             .with_code_engine(warden_server::code_turns::opencode_engine(&models));
         let addr = server.local_addr().unwrap();
         tokio::spawn(server.serve());

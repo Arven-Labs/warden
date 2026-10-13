@@ -734,7 +734,7 @@ fn run_devices_command(action: DevicesAction) -> anyhow::Result<()> {
             if rotate_key {
                 rotate_pairing_key()?;
             } else {
-                println!("it can still pair again under a new id with the current pairing key — `devices rotate-key` changes it");
+                println!("it cannot pair again without a new invite (the pairing key only pairs a hub's first device), but whoever knows the pairing key still administers the hub — `devices rotate-key` changes it");
             }
         }
         DevicesAction::RotateKey => rotate_pairing_key()?,
@@ -1322,6 +1322,7 @@ async fn run_serve(args: ServeArgs) -> anyhow::Result<()> {
     if warden_server::PairingKey::new(auth_key.as_str()).with_file(key_file.clone()).from_file() {
         println!("pairing key: taken from {} (changed with `devices rotate-key`), not from --auth-key", key_file.display());
     }
+    println!("pairing: the pairing key pairs only this hub's first device; every other device needs an invite (`warden-server devices invite`)");
     let mut server = Server::bind(args.listen, auth_key, server_name.clone(), shared, conversations_dir, devices_path()?)
         .await?
         .with_pairing_key_file(key_file)

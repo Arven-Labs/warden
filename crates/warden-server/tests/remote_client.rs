@@ -114,6 +114,7 @@ async fn spin_up() -> Hub {
     let server = Server::bind("127.0.0.1:0".parse().unwrap(), KEY, "Test Hub", Arc::new(orchestrator), dir.join("conversations"), devices_path.clone())
         .await
         .unwrap()
+        .with_open_key_pairing()
         .with_revocation_check_interval(Duration::from_millis(100))
         .with_users_dir(dir.join("users"))
         .with_settings(Arc::new(TestHost { path: config_path.clone() }));
