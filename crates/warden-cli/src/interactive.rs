@@ -1025,6 +1025,35 @@ struct CliSession {
     /// What the person said "always" to in this terminal (P122), per agent: kept in `grants/cli.json` beside the config unless
     /// `persist_grants = false`, and in memory only otherwise.
     grants: GrantBook,
+    /// Set by a command that changed what the orchestrator was built from (a pull that brought a new `config.toml` or an
+    /// MCP login, P54); the loop rebuilds the orchestrator once the command is done (`reload_if_requested`).
+    reload_requested: bool,
+}
+
+impl CliSession {
+    /// Takes from `orchestrator` what the commands read off it: its tool names and its spending ledger. Called when the
+    /// session opens and again whenever the orchestrator is rebuilt.
+    fn refresh_from(&mut self, orchestrator: &Orchestrator) {
+        self.tool_names = orchestrator.tools().iter().map(|t| t.spec().name).collect();
+        self.spend_guard = orchestrator.spend_guard().cloned();
+    }
+}
+
+/// Rebuilds the orchestrator when a command asked for it (`CliSession::reload_requested`), so a `config.toml` or an MCP
+/// login a pull brought is seen at once instead of at the next start. `None` when nothing was asked. If the rebuild fails
+/// the orchestrator the session had stays as it was, and the request is cleared so the failure is reported once.
+async fn reload_if_requested<F, Fut>(session: &mut CliSession, orchestrator: &mut Orchestrator, rebuild: &F) -> Option<anyhow::Result<()>>
+where
+    F: Fn() -> Fut,
+    Fut: std::future::Future<Output = anyhow::Result<Orchestrator>>,
+{
+    if !std::mem::take(&mut session.reload_requested) {
+        return None;
+    }
+    Some(rebuild().await.map(|rebuilt| {
+        session.refresh_from(&rebuilt);
+        *orchestrator = rebuilt;
+    }))
 }
 
 /// The one conversation the terminal has, as far as the "always" book goes: it keeps no conversations of its own, so an "always"
@@ -3050,9 +3079,10 @@ async fn cmd_sync_push(terminal: &mut CliTerminal, session: &CliSession) -> anyh
     )
 }
 
-async fn cmd_sync_pull(terminal: &mut CliTerminal, session: &CliSession) -> anyhow::Result<()> {
+async fn cmd_sync_pull(terminal: &mut CliTerminal, session: &mut CliSession) -> anyhow::Result<()> {
     let engine = make_sync_engine(session)?;
     let outcome = engine.pull().await?;
+    session.reload_requested |= outcome.needs_reload();
     let mut lines = vec![(
         format!(
             "pull concluído — {} escrito(s), {} removido(s){}{}",
@@ -3070,11 +3100,10 @@ async fn cmd_sync_pull(terminal: &mut CliTerminal, session: &CliSession) -> anyh
     render_message_card(terminal, "sync", accent_style(), lines)
 }
 
-/// What a manual pull tells the person when it brought a new `config.toml` or an MCP login (P54). The terminal's
-/// `Orchestrator` is built once in `main` and borrowed for the whole session, so unlike the desktop it cannot be rebuilt
-/// here: the news is only seen after the next start.
+/// What a manual pull tells the person when it brought a new `config.toml` or an MCP login (P54): the loop rebuilds the
+/// orchestrator right after the command (`reload_if_requested`) and says how that went.
 fn pull_reload_note(needs_reload: bool) -> Option<String> {
-    needs_reload.then(|| format!("config e logins de MCP novos {CONFIG_RESTART_NOTE}"))
+    needs_reload.then(|| "config ou logins de MCP novos — recarregando o Warden…".to_string())
 }
 
 /// `/sync pair` (no args) — shows a code and blocks until another device joins with it, or the
@@ -3129,9 +3158,10 @@ async fn cmd_sync_git_push(terminal: &mut CliTerminal, session: &CliSession) -> 
     )
 }
 
-async fn cmd_sync_git_pull(terminal: &mut CliTerminal, session: &CliSession) -> anyhow::Result<()> {
+async fn cmd_sync_git_pull(terminal: &mut CliTerminal, session: &mut CliSession) -> anyhow::Result<()> {
     let engine = make_git_sync_engine(session)?;
     let outcome = engine.pull().await?;
+    session.reload_requested |= outcome.needs_reload();
     let mut lines = vec![(
         format!(
             "pull concluído — {} commit(s), {} escrito(s), {} removido(s){}{}",
@@ -3245,12 +3275,19 @@ async fn handle_command(command: Command, terminal: &mut CliTerminal, session: &
     }
 }
 
-pub async fn run(
-    orchestrator: &Orchestrator,
+/// `rebuild` builds the orchestrator again from the same command-line arguments the session started with (P54): a pull that
+/// brings a new `config.toml` or an MCP login asks for it, and the next turn already uses the new one.
+pub async fn run<F, Fut>(
+    mut orchestrator: Orchestrator,
     history_path: Option<&Path>,
     config_path: Option<PathBuf>,
     vault_path_override: Option<String>,
-) -> anyhow::Result<()> {
+    rebuild: F,
+) -> anyhow::Result<()>
+where
+    F: Fn() -> Fut,
+    Fut: std::future::Future<Output = anyhow::Result<Orchestrator>>,
+{
     let mut line_history = history_path.map(load_history).unwrap_or_default();
     let mut history: Vec<Message> = Vec::new();
 
@@ -3274,11 +3311,13 @@ pub async fn run(
         usage_total: Usage::default(),
         turn_count: 0,
         started_at: now_millis(),
-        tool_names: orchestrator.tools().iter().map(|t| t.spec().name).collect(),
-        spend_guard: orchestrator.spend_guard().cloned(),
+        tool_names: Vec::new(),
+        spend_guard: None,
         workdir: None,
         grants: cli_grant_book(config_path_for_grants.as_deref()),
+        reload_requested: false,
     };
+    session.refresh_from(&orchestrator);
 
     loop {
         let input = match read_line(&mut line_history, &mut terminal).await? {
@@ -3306,6 +3345,16 @@ pub async fn run(
                 if let Err(err) = handle_command(command, &mut terminal, &mut session).await {
                     render_message_card(&mut terminal, "erro", error_style(), vec![(format!("{err:#}"), Style::default())])?;
                 }
+                match reload_if_requested(&mut session, &mut orchestrator, &rebuild).await {
+                    None => {}
+                    Some(Ok(())) => render_message_card(&mut terminal, "sync", accent_style(), vec![("Warden recarregado com a config e os logins novos".to_string(), Style::default())])?,
+                    Some(Err(err)) => render_message_card(
+                        &mut terminal,
+                        "erro",
+                        error_style(),
+                        vec![(format!("não consegui recarregar o Warden: {err:#} — ele segue com a config de antes"), Style::default())],
+                    )?,
+                }
                 continue;
             }
             ParseOutcome::Unrecognized(raw) => {
@@ -3322,7 +3371,7 @@ pub async fn run(
         insert_card(&mut terminal, vec![("você".to_string(), dim_style)], dim_style, plain_body_rows(trimmed), None)?;
         terminal.insert_before(1, |_buf| {})?;
 
-        let TurnContext { model_override, system_prompt, orchestrator: scoped } = match resolve_turn_context(&session, orchestrator) {
+        let TurnContext { model_override, system_prompt, orchestrator: scoped } = match resolve_turn_context(&session, &orchestrator) {
             Ok(resolved) => resolved,
             Err(err) => {
                 render_message_card(&mut terminal, "erro", error_style(), vec![(format!("{err:#}"), Style::default())])?;
@@ -3377,10 +3426,96 @@ mod tests {
     use super::*;
 
     #[test]
-    fn a_pull_that_brought_a_config_or_a_login_says_it_waits_for_the_next_start() {
+    fn a_pull_that_brought_a_config_or_a_login_says_the_warden_is_reloading() {
         assert_eq!(pull_reload_note(false), None);
         let note = pull_reload_note(true).expect("a note when something arrived");
-        assert!(note.contains(CONFIG_RESTART_NOTE), "{note}");
+        assert!(note.contains("recarregando"), "{note}");
+    }
+
+    /// An orchestrator whose only tool is called `name`, so a test can tell which one the session holds.
+    fn orchestrator_with_tool(name: &'static str) -> Orchestrator {
+        struct Named(&'static str);
+
+        #[async_trait::async_trait]
+        impl warden_core::tool::Tool for Named {
+            fn spec(&self) -> warden_core::tool::ToolSpec {
+                warden_core::tool::ToolSpec { name: self.0.to_string(), description: String::new(), parameters: serde_json::json!({}) }
+            }
+            async fn call(&self, _args: serde_json::Value) -> anyhow::Result<serde_json::Value> {
+                Ok(serde_json::Value::Null)
+            }
+        }
+
+        let dir = std::env::temp_dir().join(format!("warden-cli-reload-{name}-{}", now_millis()));
+        Orchestrator::new(Arc::new(NoModel), Arc::new(warden_core::memory::Vault::new(dir.join("vault")))).with_tool(Arc::new(Named(name)))
+    }
+
+    fn idle_session(orchestrator: &Orchestrator) -> CliSession {
+        let mut session = CliSession {
+            config_path: None,
+            vault_path_override: None,
+            provider_id: None,
+            agent_id: None,
+            usage_total: Usage::default(),
+            turn_count: 0,
+            started_at: 0,
+            tool_names: Vec::new(),
+            spend_guard: None,
+            workdir: None,
+            grants: GrantBook::default(),
+            reload_requested: false,
+        };
+        session.refresh_from(orchestrator);
+        session
+    }
+
+    #[tokio::test]
+    async fn nothing_is_rebuilt_unless_a_command_asked_for_it() {
+        let mut orchestrator = orchestrator_with_tool("old_tool");
+        let mut session = idle_session(&orchestrator);
+        let rebuilds = std::cell::Cell::new(0);
+        let rebuild = || {
+            rebuilds.set(rebuilds.get() + 1);
+            async { Ok(orchestrator_with_tool("new_tool")) }
+        };
+
+        assert!(reload_if_requested(&mut session, &mut orchestrator, &rebuild).await.is_none());
+        assert_eq!(rebuilds.get(), 0);
+        assert!(session.tool_names.contains(&"old_tool".to_string()));
+    }
+
+    #[tokio::test]
+    async fn a_requested_reload_swaps_the_orchestrator_and_what_the_session_read_from_it() {
+        let mut orchestrator = orchestrator_with_tool("old_tool");
+        let mut session = idle_session(&orchestrator);
+        session.reload_requested = true;
+        let rebuilds = std::cell::Cell::new(0);
+        let rebuild = || {
+            rebuilds.set(rebuilds.get() + 1);
+            async { Ok(orchestrator_with_tool("new_tool")) }
+        };
+
+        assert!(reload_if_requested(&mut session, &mut orchestrator, &rebuild).await.expect("asked for").is_ok());
+        assert_eq!(rebuilds.get(), 1);
+        assert!(!session.reload_requested, "one request, one rebuild");
+        assert!(session.tool_names.contains(&"new_tool".to_string()) && !session.tool_names.contains(&"old_tool".to_string()), "{:?}", session.tool_names);
+        assert!(orchestrator.tools().iter().any(|t| t.spec().name == "new_tool"));
+        assert!(reload_if_requested(&mut session, &mut orchestrator, &rebuild).await.is_none());
+        assert_eq!(rebuilds.get(), 1, "asking is not sticky");
+    }
+
+    #[tokio::test]
+    async fn a_failed_reload_keeps_the_orchestrator_the_session_had() {
+        let mut orchestrator = orchestrator_with_tool("old_tool");
+        let mut session = idle_session(&orchestrator);
+        session.reload_requested = true;
+        let rebuild = || async { Err::<Orchestrator, _>(anyhow::anyhow!("config.toml is broken")) };
+
+        let err = reload_if_requested(&mut session, &mut orchestrator, &rebuild).await.expect("asked for").unwrap_err();
+        assert!(err.to_string().contains("config.toml is broken"), "{err}");
+        assert!(!session.reload_requested, "the failure is reported once, not on every command");
+        assert!(session.tool_names.contains(&"old_tool".to_string()));
+        assert!(orchestrator.tools().iter().any(|t| t.spec().name == "old_tool"));
     }
 
     #[test]
@@ -3558,6 +3693,7 @@ mod tests {
             spend_guard: None,
             workdir: None,
             grants: GrantBook::default(),
+            reload_requested: false,
         };
         let tools =|agent: &str| -> Vec<String> {
             resolve_turn_context(&session(agent), &orchestrator).unwrap().orchestrator.tools().iter().map(|t| t.spec().name).collect()

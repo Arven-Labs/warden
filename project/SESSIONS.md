@@ -2,9 +2,17 @@
 
 > **Nota**: Este log foi criado junto com o projeto. As sessões serão registradas aqui conforme o trabalho avança.
 >
-> Última atualização: 2026-10-12 (Sessão 187)
+> Última atualização: 2026-10-12 (Sessão 188)
 
 ---
+
+### 2026-10-12 — Sessão 188 (P54: a CLI recarrega o orquestrador depois de um pull)
+
+- **Pedido do usuário**: anotar os testes manuais para depois, "testes podemos fazer mas não quero nada pra testar manualmente", e seguir com o item 3. Virou o **P129** no `PENDING.md` (conferência manual adiada de propósito, fora da lista de próximos passos).
+- **Item 3 (P127/P128)**: conferido, sem código a fazer. O teste do P128 já espera 10 s (`238c4ae`) e o `post()` do P127 já está em 60 s (`engine_models.rs:130`); nunca reproduziram com a máquina livre. As linhas ficam abertas só como vigia. O usuário escolheu então a recarga ao vivo da CLI.
+- **Feito** (planejado em plan mode): `run` recebe `Orchestrator` por valor e uma closure `rebuild` (`main.rs`: o `bootstrap()` da partida + `SpendContext::new("cli")`); `CliSession` ganha `reload_requested` e `refresh_from`; `/sync pull` e `/sync git pull` marcam a flag; `reload_if_requested` troca o orquestrador depois do comando e o loop mostra "Warden recarregado" ou o erro, com o orquestrador antigo mantido. `serde_json` virou dev-dependency do `warden-cli` (a tool falsa dos testes).
+- **Testes**: `nothing_is_rebuilt_unless_a_command_asked_for_it`, `a_requested_reload_swaps_the_orchestrator_and_what_the_session_read_from_it`, `a_failed_reload_keeps_the_orchestrator_the_session_had`, e a nota do pull; `warden-cli` 69 + 7 de processo verdes, clippy limpo.
+- **Fica**: o loop do terminal não é testável sem terminal (no P129); `/ssh`, `/limits` etc. ainda pedem reiniciar, dá para ligá-los à mesma flag.
 
 ### 2026-10-12 — Sessão 187 (P54: teste do login sobrescrito sob um cliente MCP vivo)
 

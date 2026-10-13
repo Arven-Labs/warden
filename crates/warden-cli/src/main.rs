@@ -80,20 +80,24 @@ async fn main() -> anyhow::Result<()> {
         return bots::run(action, config_path.as_deref(), &mut io::stdout(), &bots::prompt_password).await;
     }
 
-    let orchestrator = bootstrap(
-        cli.config.as_deref(),
-        Overrides { provider: cli.provider.map(Into::into), model: cli.model, vault_path: cli.vault_path, ..Default::default() },
-        PathBuf::from("vault"),
-    )
-    .await?;
-    // Whatever is spent from here on counts as the terminal's (P4's channel scope), in both modes below.
-    let orchestrator = orchestrator.with_spend_context(SpendContext::new("cli"));
+    // The same build, for the start and for a reload (P54: a pull that brought a new config or an MCP login). Whatever is
+    // spent from here on counts as the terminal's (P4's channel scope), in both modes below.
+    let build = || async {
+        let orchestrator = bootstrap(
+            cli.config.as_deref(),
+            Overrides { provider: cli.provider.map(Into::into), model: cli.model.clone(), vault_path: cli.vault_path.clone(), ..Default::default() },
+            PathBuf::from("vault"),
+        )
+        .await?;
+        anyhow::Ok(orchestrator.with_spend_context(SpendContext::new("cli")))
+    };
+    let orchestrator = build().await?;
 
     // Readline-style editing needs a real terminal — piped stdin (scripted use, the process-level
     // tests in tests/cli.rs) falls back to the plain loop below, unchanged from before this
     // module existed.
     if io::stdin().is_terminal() {
-        interactive::run(&orchestrator, history_path().as_deref(), config_path, vault_path_override).await
+        interactive::run(orchestrator, history_path().as_deref(), config_path, vault_path_override, build).await
     } else {
         run_plain(&orchestrator).await
     }
