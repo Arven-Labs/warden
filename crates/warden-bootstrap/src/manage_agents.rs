@@ -14,6 +14,10 @@
 //!    requested list may only name tools that exist (never `delegate_to_agent`/`manage_agents`) and
 //!    can't exceed the tools the calling agent itself is limited to, and the approval card shows it.
 //!
+//! `replace` (P120) is a manager swapping one of its subordinates for a new agent in one step: the new one takes the old one's
+//! place and subordinates and none of its powers or SSH access, and the old one is deleted, so it is held to the same checks
+//! and the same "yes" as `create` plus `delete` (the risk category is the stricter, `DeleteData`).
+//!
 //! `delete` was left out at first (same reasoning as `manage_skill`: a mistake should only overwrite,
 //! never silently lose, something the user set up). It exists now because the approval card shows the
 //! whole persona being lost and every delete needs the person's "yes". Deleting also cleans up the SSH
@@ -60,6 +64,9 @@ enum Change {
         reports_to: Option<String>,
     },
     Delete { id: String },
+    /// `id` leaves and `new_id` takes its place in the organization (P120): same superior, the same subordinates, and nothing of
+    /// its powers. `None` = keep the old one's `provider_id` / `role`; the tools are never kept.
+    Replace { id: String, new_id: String, persona: String, provider_id: Option<Option<String>>, allowed_tools: Option<Vec<String>>, role: Option<Option<String>> },
 }
 
 /// What `change` would leave in the config: the new agent list and SSH hosts (only a delete touches
@@ -76,12 +83,13 @@ impl Change {
             Change::Create { .. } => "create_agent",
             Change::Update { .. } => "update_agent",
             Change::Delete { .. } => "delete_agent",
+            Change::Replace { .. } => "replace_agent",
         }
     }
 
     fn id(&self) -> &str {
         match self {
-            Change::Create { id, .. } | Change::Update { id, .. } | Change::Delete { id } => id,
+            Change::Create { id, .. } | Change::Update { id, .. } | Change::Delete { id } | Change::Replace { id, .. } => id,
         }
     }
 }
@@ -235,6 +243,10 @@ impl ManageAgentsTool {
         self.record_change(&change);
         let message = match change {
             Change::Delete { .. } => format!("Agent '{}' deleted.", change.id()),
+            Change::Replace { ref new_id, .. } => format!(
+                "Agent '{}' replaced by '{new_id}', which reports to the same superior and now has its subordinates. It can be picked as the conversation's agent from the user's next message.",
+                change.id()
+            ),
             Change::Create { .. } | Change::Update { .. } => format!(
                 "Agent '{}' {}. It can be picked as the conversation's agent from the user's next message{}.",
                 change.id(),
@@ -247,14 +259,22 @@ impl ManageAgentsTool {
 
     /// P121: an agent created or removed goes to the feed of activity, next to the config it was saved in. An edit does not.
     fn record_change(&self, change: &Change) {
-        let (kind, detail) = match change {
-            Change::Create { persona, role, .. } => ("created", role.clone().unwrap_or_else(|| persona.chars().take(LIST_PERSONA_PREVIEW_CHARS).collect())),
-            Change::Delete { .. } => ("removed", String::new()),
+        let preview = |persona: &str, role: Option<&String>| role.cloned().unwrap_or_else(|| persona.chars().take(LIST_PERSONA_PREVIEW_CHARS).collect());
+        // A replacement is two lines in the feed, the one that came in and the one that left, so no client needs a new kind.
+        let entries: Vec<(&str, String, String)> = match change {
+            Change::Create { id, persona, role, .. } => vec![("created", id.clone(), preview(persona, role.as_ref()))],
+            Change::Delete { id } => vec![("removed", id.clone(), String::new())],
+            Change::Replace { id, new_id, persona, role, .. } => {
+                vec![("created", new_id.clone(), preview(persona, role.as_ref().and_then(Option::as_ref))), ("removed", id.clone(), String::new())]
+            }
             Change::Update { .. } => return,
         };
         let at_ms = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_millis() as u64);
         let actor = self.rules.caller.clone().unwrap_or_default();
-        agent_changes::record(&agent_changes::beside(&self.config_path), &AgentChange { at_ms, kind: kind.into(), actor, agent: change.id().to_string(), detail });
+        let log = agent_changes::beside(&self.config_path);
+        for (kind, agent, detail) in entries {
+            agent_changes::record(&log, &AgentChange { at_ms, kind: kind.into(), actor: actor.clone(), agent, detail });
+        }
     }
 }
 
@@ -286,32 +306,7 @@ fn plan(config: &FileConfig, change: &Change, rules: &ToolRules) -> anyhow::Resu
                 anyhow::bail!("an agent named '{id}' already exists — pick another name, or use action 'update'");
             }
             let level = rules.caller_autonomy.map_or(ASK_FIRST_LEVEL, |caller| caller.min(ASK_FIRST_LEVEL));
-            updated.push(AgentConfig {
-                id: id.clone(),
-                persona: persona.clone(),
-                provider_id: provider_id.clone(),
-                // Never granted from here; only a person turns these on.
-                can_delegate_to_agents: false,
-                can_manage_agents: false,
-                can_message_agents: false,
-                can_manage_tasks: false,
-                allowed_tools: Some(tools.clone()),
-                // Careful by default: it asks before every change until a person raises it.
-                autonomy: level,
-                // Every kind of risky action needs a person's yes until the person says otherwise.
-                approval_required: Category::ALL.to_vec(),
-                role: role.clone(),
-                reports_to: superior.clone(),
-                owner: None,
-                shared_with: Vec::new(),
-                // Never granted from here either: a person limits the models of an agent.
-                delegation_models: Vec::new(),
-                // Like its autonomy level and its categories: the new agent is the cautious one, and only a person turns these on.
-                can_start_tasks: false,
-                can_create_workers: false,
-                can_message_user: false,
-                can_choose_models: false,
-            });
+            updated.push(new_agent(id, persona, provider_id.clone(), &tools, level, role.clone(), superior.clone()));
             org::check_hierarchy(&updated).map_err(|why| anyhow::anyhow!(why))?;
             format!(
                 "New agent '{id}'\nRole: {}\nReports to: {}\nModel provider: {}\nTools: {}\nAutonomy {}: {}\nCannot delegate or manage agents (only you can turn that on).\n\nPersona:\n{persona}",
@@ -396,8 +391,101 @@ fn plan(config: &FileConfig, change: &Change, rules: &ToolRules) -> anyhow::Resu
             lines.push(format!("\nPersona that will be lost:\n{}", current.persona));
             lines.join("\n")
         }
+        Change::Replace { id, new_id, persona, provider_id, allowed_tools, role } => {
+            let Some(index) = config.agents.iter().position(|a| &a.id == id && a.owner.is_none()) else {
+                anyhow::bail!("no agent named '{id}' — use action 'list' to see the existing ones");
+            };
+            let current = &config.agents[index];
+            check_authority(config, rules, current, "replace")?;
+            check_id(new_id)?;
+            if new_id == id {
+                anyhow::bail!("'new_id' must be a different name from '{id}' — to change its persona, use action 'update'");
+            }
+            if config.agents.iter().any(|a| &a.id == new_id) {
+                anyhow::bail!("an agent named '{new_id}' already exists — pick another name for the replacement");
+            }
+            check_persona(persona)?;
+            let provider = match provider_id {
+                Some(wanted) => wanted.clone(),
+                None => current.provider_id.clone(),
+            };
+            check_provider(config, provider.as_deref())?;
+            let role = match role {
+                Some(wanted) => check_role(wanted.as_deref())?,
+                None => current.role.clone(),
+            };
+            let tools = match allowed_tools {
+                Some(requested) => rules.check(requested)?,
+                None => rules.default_tools(),
+            };
+            let level = rules.caller_autonomy.map_or(ASK_FIRST_LEVEL, |caller| caller.min(ASK_FIRST_LEVEL));
+            // The new one takes the place of the old: same superior, and the ones that reported to the old report to it.
+            let replacement = new_agent(new_id, persona, provider.clone(), &tools, level, role.clone(), current.reports_to.clone());
+            let subordinates: Vec<String> = updated.iter().filter(|a| a.reports_to.as_deref() == Some(id.as_str())).map(|a| a.id.clone()).collect();
+            org::rename_in_reports(&mut updated, id, new_id);
+            let effects = remove_agent_from(&mut updated, &mut ssh_hosts, id);
+            updated.insert(index.min(updated.len()), replacement);
+            org::check_hierarchy(&updated).map_err(|why| anyhow::anyhow!(why))?;
+            let mut lines = vec![
+                format!("Replace agent '{id}' with a new agent '{new_id}' — '{id}' is deleted and this cannot be undone"),
+                format!("Role: {}", role.as_deref().unwrap_or("(none)")),
+                format!("Reports to: {}", current.reports_to.as_deref().unwrap_or("(nobody)")),
+                format!("Model provider: {}", provider_label(provider.as_deref())),
+                format!("Tools: {}", tools_label(Some(&tools))),
+                format!("Autonomy {level}: {}", autonomy_label(level)),
+                "Cannot delegate or manage agents, and gets none of the SSH access or powers of the old one (only you can turn that on).".to_string(),
+            ];
+            if !subordinates.is_empty() {
+                lines.push(format!("These will report to '{new_id}': {}", subordinates.join(", ")));
+            }
+            let touches_ssh = !effects.is_empty();
+            for effect in effects {
+                lines.push(if effect.switched_off {
+                    format!("SSH server '{}' was only for '{id}', so it will be switched off.", effect.host_id)
+                } else {
+                    format!("SSH server '{}' will stop listing '{id}' (other agents keep their access).", effect.host_id)
+                });
+            }
+            if touches_ssh {
+                lines.push("(SSH servers are read when Warden starts, so those changes apply from the next launch.)".to_string());
+            }
+            lines.push(format!("\nNew persona:\n{persona}\n\nPersona that will be lost:\n{}", current.persona));
+            lines.join("\n")
+        }
     };
     Ok(Planned { agents: updated, ssh_hosts, detail })
+}
+
+/// An agent as another agent may make it (`create`, and the one that comes in with `replace`): the cautious one. It can't
+/// delegate, manage, message, start tasks or pick models, asks before every kind of risky action and keeps no sharing, and
+/// only a person turns any of that on.
+fn new_agent(id: &str, persona: &str, provider_id: Option<String>, tools: &[String], level: u8, role: Option<String>, reports_to: Option<String>) -> AgentConfig {
+    AgentConfig {
+        id: id.to_string(),
+        persona: persona.to_string(),
+        provider_id,
+        // Never granted from here; only a person turns these on.
+        can_delegate_to_agents: false,
+        can_manage_agents: false,
+        can_message_agents: false,
+        can_manage_tasks: false,
+        allowed_tools: Some(tools.to_vec()),
+        // Careful by default: it asks before every change until a person raises it.
+        autonomy: level,
+        // Every kind of risky action needs a person's yes until the person says otherwise.
+        approval_required: Category::ALL.to_vec(),
+        role,
+        reports_to,
+        owner: None,
+        shared_with: Vec::new(),
+        // Never granted from here either: a person limits the models of an agent.
+        delegation_models: Vec::new(),
+        // Like its autonomy level and its categories: the new agent is the cautious one, and only a person turns these on.
+        can_start_tasks: false,
+        can_create_workers: false,
+        can_message_user: false,
+        can_choose_models: false,
+    }
 }
 
 impl ToolRules {
@@ -581,10 +669,12 @@ impl Tool for ManageAgentsTool {
     fn spec(&self) -> ToolSpec {
         ToolSpec {
             name: "manage_agents".to_string(),
-            description: "List, create, edit or delete the user's named agents (each is a persona, optionally with its \
-                          own model). Use it only when the user asks to create, change or remove an agent. Every \
-                          create/update/delete is shown to the user, who must approve it (a delete shows the whole \
-                          persona that will be lost); you cannot give any agent the power to delegate or manage other \
+            description: "List, create, edit, replace or delete the user's named agents (each is a persona, optionally with its \
+                          own model). Use it only when the user asks to create, change, replace or remove an agent. Every \
+                          create/update/replace/delete is shown to the user, who must approve it (a delete shows the whole \
+                          persona that will be lost); 'replace' swaps one of your subordinates for a new agent ('new_id') \
+                          in one step: it takes the same place in the organization and its subordinates, and none of the \
+                          old one's powers. You cannot give any agent the power to delegate or manage other \
                           agents. You manage only the agents that report to you, directly or through someone else \
                           (see 'list'), never yourself, your superior or your peers; one of them that can delegate or \
                           manage agents is yours to change only if you have that power too. A new agent reports to \
@@ -596,10 +686,14 @@ impl Tool for ManageAgentsTool {
             parameters: json!({
                 "type": "object",
                 "properties": {
-                    "action": { "type": "string", "enum": ["list", "create", "update", "delete"] },
+                    "action": { "type": "string", "enum": ["list", "create", "update", "replace", "delete"] },
                     "id": {
                         "type": "string",
-                        "description": "The agent's name (create: must be new; update: must exist)."
+                        "description": "The agent's name (create: must be new; update, replace: must exist; replace: the one that leaves)."
+                    },
+                    "new_id": {
+                        "type": "string",
+                        "description": "Replace only: the name of the agent that takes the place of 'id'. Must be new and different."
                     },
                     "persona": {
                         "type": "string",
@@ -644,8 +738,8 @@ impl Tool for ManageAgentsTool {
         if action == "list" {
             return self.list();
         }
-        if !matches!(action, "create" | "update" | "delete") {
-            anyhow::bail!("unknown action '{action}' — use 'list', 'create', 'update' or 'delete'");
+        if !matches!(action, "create" | "update" | "replace" | "delete") {
+            anyhow::bail!("unknown action '{action}' — use 'list', 'create', 'update', 'replace' or 'delete'");
         }
         let id = args.get("id").and_then(Value::as_str).ok_or_else(|| anyhow::anyhow!("missing required 'id' argument"))?.to_string();
         let persona = args.get("persona").and_then(Value::as_str).map(str::to_string);
@@ -661,6 +755,11 @@ impl Tool for ManageAgentsTool {
                     role: text_arg(&args, "role").flatten(),
                     reports_to: text_arg(&args, "reports_to").flatten(),
                 }
+            }
+            "replace" => {
+                let new_id = args.get("new_id").and_then(Value::as_str).ok_or_else(|| anyhow::anyhow!("missing required 'new_id' argument"))?.to_string();
+                let persona = persona.ok_or_else(|| anyhow::anyhow!("missing required 'persona' argument"))?;
+                Change::Replace { id, new_id, persona, provider_id: provider_arg(&args), allowed_tools: allowed_tools_arg(&args)?, role: text_arg(&args, "role") }
             }
             _ => Change::Update {
                 id,
@@ -1431,9 +1530,120 @@ mod tests {
     #[test]
     fn the_spec_offers_no_way_to_grant_powers() {
         let spec = ManageAgentsTool::new("unused").spec();
-        assert_eq!(spec.parameters["properties"]["action"]["enum"], json!(["list", "create", "update", "delete"]));
+        assert_eq!(spec.parameters["properties"]["action"]["enum"], json!(["list", "create", "update", "replace", "delete"]));
         let props = spec.parameters["properties"].as_object().unwrap();
         assert!(!props.contains_key("can_manage_agents") && !props.contains_key("can_delegate_to_agents"));
         assert!(props.contains_key("allowed_tools"));
+    }
+
+    #[tokio::test]
+    async fn a_replacement_takes_the_place_and_the_subordinates_of_the_one_it_replaces() {
+        let path = organization();
+        let (tool, approver) = as_caller(&path, "a");
+        tool.call(json!({ "action": "update", "id": "a1", "role": "Dev", "provider_id": "local" })).await.unwrap();
+
+        let result = tool.call(json!({ "action": "replace", "id": "a1", "new_id": "a1x", "persona": "the new one" })).await.unwrap();
+
+        assert!(result["message"].as_str().unwrap().contains("'a1' replaced by 'a1x'"));
+        let agents = agents_on_disk(&path);
+        let ids: Vec<&str> = agents.iter().map(|x| x.id.as_str()).collect();
+        assert_eq!(ids, ["boss", "a", "b", "a1x", "a2", "a11", "solo"], "the new one stands where the old one stood");
+        let by = |id: &str| agents.iter().find(|x| x.id == id).unwrap();
+        assert_eq!(by("a1x").reports_to.as_deref(), Some("a"));
+        assert_eq!(by("a11").reports_to.as_deref(), Some("a1x"), "whoever reported to the old one reports to the new one");
+        assert_eq!((by("a1x").role.as_deref(), by("a1x").provider_id.as_deref()), (Some("Dev"), Some("local")), "kept when not given");
+        assert_eq!(by("a1x").persona, "the new one");
+        assert_eq!(by("a1x").allowed_tools, Some(names(&SAFE_AGENT_TOOLS)), "the tools are never kept");
+
+        let card = approver.asked.lock().unwrap().last().unwrap().clone();
+        assert_eq!((card.action.as_str(), card.target.as_str()), ("replace_agent", "a1"));
+        assert!(card.detail.contains("These will report to 'a1x': a11") && card.detail.contains("persona of a1"), "{}", card.detail);
+
+        // Given, the role and the provider win over the old ones; an empty provider clears it.
+        tool.call(json!({ "action": "replace", "id": "a1x", "new_id": "a1y", "persona": "p", "role": "Ops", "provider_id": "" })).await.unwrap();
+        let agents = agents_on_disk(&path);
+        let new = agents.iter().find(|x| x.id == "a1y").unwrap();
+        assert_eq!((new.role.as_deref(), new.provider_id.as_deref()), (Some("Ops"), None));
+    }
+
+    #[tokio::test]
+    async fn a_replacement_starts_with_no_powers_and_none_of_the_ssh_access_of_the_old_one() {
+        let path = organization();
+        with_hosts(&path, vec![ssh_host("only-a2", &["a2"]), ssh_host("shared", &["a2", "b"])]);
+        let (tool, approver) = as_caller(&path, "boss");
+
+        tool.call(json!({ "action": "replace", "id": "a2", "new_id": "a2x", "persona": "p" })).await.unwrap();
+
+        let agents = agents_on_disk(&path);
+        assert!(!agents.iter().any(|x| x.id == "a2"));
+        let new = agents.iter().find(|x| x.id == "a2x").unwrap();
+        assert!(!new.can_delegate_to_agents && !new.can_manage_agents && !new.can_message_agents && !new.can_manage_tasks);
+        assert!(!new.can_start_tasks && !new.can_create_workers && !new.can_message_user && !new.can_choose_models);
+        assert_eq!((new.autonomy, new.approval_required.clone()), (3, Category::ALL.to_vec()));
+        let hosts = hosts_on_disk(&path);
+        assert_eq!((hosts[0].agents.len(), hosts[0].enabled), (0, false), "a host only for the old one is switched off, not handed over");
+        assert_eq!((hosts[1].agents.clone(), hosts[1].enabled), (vec!["b".to_string()], true));
+        let detail = approver.asked.lock().unwrap()[0].detail.clone();
+        assert!(detail.contains("SSH server 'only-a2' was only for 'a2', so it will be switched off"), "{detail}");
+    }
+
+    #[tokio::test]
+    async fn a_replacement_stays_inside_the_scope_of_the_one_asking() {
+        let path = organization();
+        let before = agents_on_disk(&path);
+        let (tool, approver) = as_caller(&path, "a");
+
+        // Not its own to replace: a peer's branch, its superior, itself, someone outside.
+        for id in ["b", "boss", "a", "solo"] {
+            let err = tool.call(json!({ "action": "replace", "id": id, "new_id": "n", "persona": "p" })).await.unwrap_err().to_string();
+            assert!(err.contains("is not yours") || err.contains("doesn't report"), "{id}: {err}");
+        }
+        // `a2` can delegate and `a` can't, so it is not `a`'s to replace either.
+        let err = tool.call(json!({ "action": "replace", "id": "a2", "new_id": "n", "persona": "p" })).await.unwrap_err().to_string();
+        assert!(err.contains("can delegate to other agents and you can't"), "{err}");
+        // The names, the persona and the tools are held to the rules of `create`.
+        for (args, why) in [
+            (json!({ "id": "a1", "new_id": "a1", "persona": "p" }), "different name"),
+            (json!({ "id": "a1", "new_id": "b", "persona": "p" }), "already exists"),
+            (json!({ "id": "a1", "new_id": " padded", "persona": "p" }), "start/end with spaces"),
+            (json!({ "id": "a1", "new_id": "n", "persona": "   " }), "persona must not be empty"),
+            (json!({ "id": "a1", "new_id": "n", "persona": "p", "provider_id": "ghost" }), "unknown provider_id"),
+            (json!({ "id": "a1", "new_id": "n", "persona": "p", "allowed_tools": ["manage_agents"] }), "only the user can give an agent that power"),
+            (json!({ "id": "ghost", "new_id": "n", "persona": "p" }), "no agent named"),
+        ] {
+            let mut args = args;
+            args["action"] = json!("replace");
+            let err = tool.call(args).await.unwrap_err().to_string();
+            assert!(err.contains(why), "{why}: {err}");
+        }
+        let err = tool.call(json!({ "action": "replace", "id": "a1", "persona": "p" })).await.unwrap_err().to_string();
+        assert!(err.contains("missing required 'new_id'"), "{err}");
+
+        assert!(approver.asked.lock().unwrap().is_empty(), "refused before anyone was asked");
+        assert_eq!(agents_on_disk(&path), before, "nothing was written");
+    }
+
+    #[tokio::test]
+    async fn a_replacement_waits_for_a_yes_unless_the_manager_is_at_level_five_and_goes_to_the_feed_twice() {
+        let path = organization();
+        let before = agents_on_disk(&path);
+        let (tool, approver) = manager_at(&path, 4, false);
+        let err = tool.call(json!({ "action": "replace", "id": "a1", "new_id": "a1x", "persona": "p" })).await.unwrap_err().to_string();
+        assert!(err.contains("did not approve"), "{err}");
+        assert_eq!(approver.asked.lock().unwrap().len(), 1);
+        assert_eq!(agents_on_disk(&path), before, "a 'no' writes nothing");
+        let log = crate::agent_changes::beside(&path);
+        assert!(crate::agent_changes::read_agent_changes(&log).is_empty());
+
+        let revision = AgentsRevision::default();
+        let seen = revision.current();
+        let (_, approver) = manager_at(&path, 5, false);
+        let alone = ManageAgentsTool::new(&path).with_caller("a").with_caller_autonomy(5).with_agents_revision(revision.clone());
+        alone.call(json!({ "action": "replace", "id": "a1", "new_id": "a1x", "persona": "p" })).await.unwrap();
+        assert!(approver.asked.lock().unwrap().is_empty(), "nobody asked at level 5");
+        assert_ne!(revision.current(), seen, "delegate_to_agent sees the new one");
+        let changes = crate::agent_changes::read_agent_changes(&log);
+        let seen: Vec<(&str, &str, &str, &str)> = changes.iter().map(|c| (c.kind.as_str(), c.actor.as_str(), c.agent.as_str(), c.detail.as_str())).collect();
+        assert_eq!(seen, vec![("created", "a", "a1x", "p"), ("removed", "a", "a1", "")], "the one that came in and the one that left");
     }
 }

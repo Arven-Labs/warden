@@ -14,6 +14,7 @@ const VERB: Record<string, string> = {
   create_agent: "criar o agente",
   update_agent: "alterar o agente",
   delete_agent: "apagar o agente",
+  replace_agent: "substituir o agente",
   tool_call: "usar a ferramenta",
 };
 

@@ -35,7 +35,8 @@ pub fn builtin_category(name: &str, arguments: &Value) -> Option<Category> {
         },
         "manage_agents" => match action {
             "list" => None,
-            "delete" => Some(Category::DeleteData),
+            // A replacement removes the agent it replaces, so it is held to the stricter kind of the two.
+            "delete" | "replace" => Some(Category::DeleteData),
             _ => Some(Category::ElevatedAgent),
         },
         "manage_tasks" => match action {
@@ -128,6 +129,7 @@ mod tests {
         assert_eq!(by("manage_agents", "create"), Some(Category::ElevatedAgent));
         assert_eq!(by("manage_agents", "update"), Some(Category::ElevatedAgent));
         assert_eq!(by("manage_agents", "delete"), Some(Category::DeleteData));
+        assert_eq!(by("manage_agents", "replace"), Some(Category::DeleteData), "it deletes the one it replaces");
         assert_eq!(by("manage_tasks", "list"), None);
         assert_eq!(by("manage_tasks", "create"), Some(Category::ImportantConfig));
         assert_eq!(by("manage_tasks", "delete"), Some(Category::DeleteData));

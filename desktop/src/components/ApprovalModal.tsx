@@ -54,6 +54,7 @@ function ApprovalModal() {
     create_agent: "create the agent",
     update_agent: "change the agent",
     delete_agent: "delete the agent",
+    replace_agent: "replace the agent",
     tool_call: "run the tool",
   };
 

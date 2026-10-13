@@ -243,7 +243,7 @@ export interface ApprovalRequest {
   id: number;
   /** The SSH server id or the agent id the action is about. */
   target: string;
-  /** `exec` | `upload` | `download` | `create_agent` | `update_agent` | `delete_agent` | `extend_limit` (a spending limit paused the turn, P4). */
+  /** `exec` | `upload` | `download` | `create_agent` | `update_agent` | `delete_agent` | `replace_agent` | `extend_limit` (a spending limit paused the turn, P4). */
   action: string;
   detail: string;
   /** What "Always allow" would cover (e.g. `git status *`), when this ask can be answered that way (P103 b). */

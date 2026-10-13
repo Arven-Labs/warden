@@ -143,7 +143,7 @@ pub trait Tool: Send + Sync {
 }
 
 /// What a tool wants a human to confirm: what it acts on (an SSH server id, an agent id), what kind
-/// of action (`exec`, `upload`, `download`, `create_agent`, `update_agent`), and the exact command
+/// of action (`exec`, `upload`, `download`, `create_agent`, `update_agent`, `delete_agent`, `replace_agent`), and the exact command
 /// line, file paths or text that will be applied.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ApprovalRequest {

@@ -2,9 +2,16 @@
 
 > **Nota**: Este log foi criado junto com o projeto. As sessões serão registradas aqui conforme o trabalho avança.
 >
-> Última atualização: 2026-10-13 (Sessão 190)
+> Última atualização: 2026-10-13 (Sessão 191)
 
 ---
+
+### 2026-10-13 — Sessão 191 (P120: um gerente substitui um subordinado)
+
+- **Pedido do usuário**: "vamos de p120"; planejado em plan mode. Ao ler o P120 vi que quase tudo já existia (Sessões 147 a 178); a lacuna que sobrou na tabela da visão era substituir.
+- **Feito**: `manage_agents` ganha a ação `replace` (`Change::Replace`, `new_agent()` extraído do `create` para os dois usarem): o novo toma o lugar do antigo (mesmo superior, os subordinados do antigo passam a reportar a ele via `org::rename_in_reports`) e nasce sem poderes, sem SSH e com as tools do padrão seguro; `role` e `provider_id` herdam se omitidos. Autoridade do `delete`, regras do `create`, um só "sim" (nenhum no nível 5). `risk.rs`: `replace` é `DeleteData`. Feed: duas linhas (criado, removido), sem tipo novo nos clientes. Cartões de aprovação do desktop e da web com o verbo.
+- **Testes**: 4 em `manage_agents.rs` (lugar e subordinados, sem poderes nem SSH, escopo e validações, "não" e nível 5 e o feed) e 1 em `risk.rs`; `warden-bootstrap` 478 e `warden-core` 510 verdes, clippy sem aviso novo (o do `learning_eval` já existia), `tsc` do desktop e da web limpos.
+- **Fica**: acesso do membro na extensão, no celular e no desktop, permissões atreladas ao cargo, e um modelo real usando `replace`.
 
 ### 2026-10-13 — Sessão 190 (P130: `/limits`, `/prices` e `/ssh` recarregam o Warden na CLI)
 
