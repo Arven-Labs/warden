@@ -14,6 +14,12 @@
 - **Testes**: novo `the_embedded_hub_takes_the_pairing_key_from_the_file_beside_the_registry` (a chave do config deixa de parear, a do arquivo pareia, e uma segunda rotação vale sem reiniciar); `desktop --lib` 63 verdes, clippy limpo.
 - **Disco**: `/home` em 70% (55 GB livres) depois de recompilar o desktop.
 
+**Segunda parte (commit à parte): convite e rotação por tela**
+- **Feito**: `CreateDeviceInvite`/`DeviceInvite` e `RotatePairingKey`/`PairingKeyRotated` no protocolo; `handle_create_device_invite` e `handle_rotate_pairing_key` em `devices.rs`, `PairingKey::file_path()`, os dois bloqueados para membro; web: `DeviceInvites.tsx` e os dois métodos de `connection.ts`; desktop: quatro comandos em `workspace_cmds.rs` e `DeviceInvitesSection`.
+- **Testes**: 2 unitários em `devices.rs`, 1 de ida e volta do protocolo, 2 contra um hub real em `tests/invite.rs`, 1 do desktop; `warden-server --lib` 169, `desktop --lib` 64, web 62 e `tsc` do web e do desktop, desktop 122, `cargo check --workspace` e clippy limpos. Sem a suíte inteira do `warden-server` (P127).
+- **Fica**: celular e extensão sem tela; a lista de convites que esperam só no desktop; o QR do desktop usa uma chave digitada e não acompanha a rotação; a chave global ainda pareia.
+- **Disco**: `/home` em 71% (52 GB livres).
+
 ---
 
 ### 2026-10-13 — Sessão 194 (P36: convite de uso único para parear um aparelho)

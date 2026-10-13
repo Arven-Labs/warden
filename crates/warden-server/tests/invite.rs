@@ -76,3 +76,48 @@ async fn an_invite_does_not_open_the_administration() {
         }
     }
 }
+
+async fn reply(conn: &mut ServerConnection) -> ServerMessage {
+    loop {
+        match tokio::time::timeout(Duration::from_secs(10), conn.recv()).await.expect("no reply").unwrap().expect("connection closed") {
+            ServerMessage::ConversationsChanged { .. } | ServerMessage::Pong { .. } => continue,
+            msg => return msg,
+        }
+    }
+}
+
+/// The Devices screen's way: the invite is made over the protocol by a paired device that knows the pairing key.
+#[tokio::test]
+async fn an_invite_made_over_the_protocol_pairs_a_device() {
+    let (addr, _, _) = spin_up_server_with_pairing_key_file(MockProvider::replying("unused")).await;
+    let (mut admin, _) = pair(addr, "admin", "test-key").await.unwrap();
+
+    admin.send(&ClientMessage::CreateDeviceInvite { request_id: 1, pairing_key: "test-key".into(), name: "Ana's phone".into(), ttl_minutes: 15 }).await.unwrap();
+    let ServerMessage::DeviceInvite { name, code, .. } = reply(&mut admin).await else { panic!("no invite") };
+    assert_eq!(name, "Ana's phone");
+
+    pair(addr, "phone", &code).await.expect("the code from the screen pairs");
+    assert!(pair(addr, "tablet", &code).await.is_err(), "once");
+
+    admin.send(&ClientMessage::CreateDeviceInvite { request_id: 2, pairing_key: "wrong".into(), name: "x".into(), ttl_minutes: 15 }).await.unwrap();
+    assert!(matches!(reply(&mut admin).await, ServerMessage::DeviceError { auth_rejected: true, .. }));
+}
+
+/// And the key: changed over the protocol, it counts for the very next `Hello`, and the one that changed it is held to the new one.
+#[tokio::test]
+async fn the_pairing_key_rotated_over_the_protocol_counts_at_once() {
+    let (addr, _, key_file) = spin_up_server_with_pairing_key_file(MockProvider::replying("unused")).await;
+    let (mut admin, _) = pair(addr, "admin", "test-key").await.unwrap();
+
+    admin.send(&ClientMessage::RotatePairingKey { request_id: 1, pairing_key: "wrong".into() }).await.unwrap();
+    assert!(matches!(reply(&mut admin).await, ServerMessage::DeviceError { auth_rejected: true, .. }));
+    assert!(!key_file.exists(), "a wrong key changes nothing");
+
+    admin.send(&ClientMessage::RotatePairingKey { request_id: 2, pairing_key: "test-key".into() }).await.unwrap();
+    let ServerMessage::PairingKeyRotated { new_key, .. } = reply(&mut admin).await else { panic!("not rotated") };
+
+    assert!(pair(addr, "dev-b", "test-key").await.is_err(), "the old key pairs no one");
+    pair(addr, "dev-b", &new_key).await.expect("the new one does");
+    admin.send(&ClientMessage::RotatePairingKey { request_id: 3, pairing_key: "test-key".into() }).await.unwrap();
+    assert!(matches!(reply(&mut admin).await, ServerMessage::DeviceError { auth_rejected: true, .. }), "the old key no longer opens the administration");
+}

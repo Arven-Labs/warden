@@ -56,6 +56,61 @@ pub fn revoke_paired_device(device_id: String) -> Result<(), String> {
     store()?.revoke(&device_id).map_err(|e| format!("{e:#}"))
 }
 
+/// An invite waiting to be used (P36) — never its code, which the hub keeps only as a hash.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DeviceInviteInfo {
+    name: String,
+    expires_ms: i64,
+}
+
+/// A freshly made invite, with the code shown once.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NewDeviceInvite {
+    name: String,
+    code: String,
+    expires_ms: i64,
+}
+
+#[tauri::command]
+pub fn list_device_invites() -> Result<Vec<DeviceInviteInfo>, String> {
+    Ok(store()?.list_invites().map_err(|e| format!("{e:#}"))?.into_iter().map(|i| DeviceInviteInfo { name: i.name, expires_ms: i.expires_ms }).collect())
+}
+
+/// Same limits as the hub's `CreateDeviceInvite`, so the two screens agree.
+fn make_invite(store: &PairingStore, name: &str, ttl_minutes: u64) -> Result<NewDeviceInvite, String> {
+    let name = name.trim();
+    if name.is_empty() {
+        return Err("an invite needs a name, so the device list can say who it was for".to_string());
+    }
+    if !(1..=warden_server::devices::MAX_INVITE_MINUTES).contains(&ttl_minutes) {
+        return Err(format!("an invite works for 1 to {} minutes", warden_server::devices::MAX_INVITE_MINUTES));
+    }
+    let ttl = std::time::Duration::from_secs(ttl_minutes * 60);
+    let code = store.create_invite(name, ttl).map_err(|e| format!("{e:#}"))?;
+    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_millis() as i64;
+    Ok(NewDeviceInvite { name: name.to_string(), code, expires_ms: now + ttl.as_millis() as i64 })
+}
+
+#[tauri::command]
+pub fn create_device_invite(name: String, ttl_minutes: u64) -> Result<NewDeviceInvite, String> {
+    make_invite(&store()?, &name, ttl_minutes)
+}
+
+#[tauri::command]
+pub fn cancel_device_invite(name: String) -> Result<bool, String> {
+    store()?.cancel_invite(&name).map_err(|e| format!("{e:#}"))
+}
+
+/// Changes the pairing key of the hub on this machine (P36): the embedded one and a `warden-server serve` both read the
+/// `pairing_key` file beside the registry, so a running one takes it on its next use. Returns the new key, shown once.
+#[tauri::command]
+pub fn rotate_pairing_key() -> Result<String, String> {
+    let devices_path = warden_bootstrap::default_server_devices_path().ok_or_else(|| "could not determine the OS config directory".to_string())?;
+    warden_server::pairing_key::rotate_at(&warden_server::pairing_key::pairing_key_path_beside(&devices_path)).map_err(|e| format!("{e:#}"))
+}
+
 #[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct HubPairingConfigPayload {
@@ -149,6 +204,25 @@ pub async fn discover_hubs(port: u16) -> Result<Vec<DiscoveredHubPayload>, Strin
 mod tests {
     use super::*;
     use warden_server::PairingStatus;
+
+    #[test]
+    fn an_invite_from_the_desktop_follows_the_hubs_limits_and_pairs_a_device() {
+        let path = std::env::temp_dir().join(format!("warden-desktop-invite-{}.json", std::process::id()));
+        let _ = std::fs::remove_file(&path);
+        let store = PairingStore::new(&path);
+
+        assert!(make_invite(&store, "  ", 15).is_err(), "no name");
+        assert!(make_invite(&store, "x", 0).is_err(), "no time");
+        assert!(make_invite(&store, "x", warden_server::devices::MAX_INVITE_MINUTES + 1).is_err(), "too long");
+        assert!(store.list_invites().unwrap().is_empty(), "a refused one leaves nothing");
+
+        let made = make_invite(&store, " Ana's phone ", 15).unwrap();
+        assert_eq!(made.name, "Ana's phone");
+        assert_eq!(serde_json::to_value(&made).unwrap()["expiresMs"], made.expires_ms);
+        assert_eq!(store.list_invites().unwrap().len(), 1);
+        store.authenticate_as("phone", "Phone", None, warden_server::PairingProof::Invite(made.code)).unwrap().expect("the code pairs");
+        std::fs::remove_file(path).unwrap();
+    }
 
     // Locks in the exact camelCase JSON shape `desktop/src/types.ts`'s `PairedDevice` expects —
     // a mismatch here (e.g. someone reverting the `rename_all`) would silently break the frontend

@@ -286,6 +286,152 @@ function EmbeddedServerSection() {
  * client (today, the mobile app's `ConnectionScreen`) scans instead of typing them by hand.
  * Doesn't touch `PairingStore`/approval at all — a scanned device still shows up as `pending`
  * above like any other, same as one that connected with hand-typed values. */
+/** An invite waiting to be used / just made — mirrors `workspace_cmds::DeviceInviteInfo` and `NewDeviceInvite` (P36). */
+interface DeviceInvite {
+  name: string;
+  expiresMs: number;
+}
+interface NewDeviceInvite extends DeviceInvite {
+  code: string;
+}
+
+/** P36 — one-use codes that pair a device without the shared pairing key, and the button that changes that key. Both act
+ * on the hub on this machine through its files (the embedded hub and `warden-server serve` read them on every use). */
+function DeviceInvitesSection() {
+  const [invites, setInvites] = useState<DeviceInvite[]>([]);
+  const [name, setName] = useState("");
+  const [ttlMinutes, setTtlMinutes] = useState("15");
+  const [made, setMade] = useState<NewDeviceInvite | null>(null);
+  const [rotatedKey, setRotatedKey] = useState<string | null>(null);
+  const [confirmRotate, setConfirmRotate] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  function refresh() {
+    invoke<DeviceInvite[]>("list_device_invites")
+      .then(setInvites)
+      .catch((err) => setError(String(err)));
+  }
+  useEffect(refresh, []);
+
+  async function handleCreate() {
+    setError(null);
+    setBusy(true);
+    try {
+      setMade(await invoke<NewDeviceInvite>("create_device_invite", { name, ttlMinutes: Number(ttlMinutes) }));
+      setName("");
+      refresh();
+    } catch (err) {
+      setError(String(err));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleCancel(inviteName: string) {
+    setError(null);
+    try {
+      await invoke("cancel_device_invite", { name: inviteName });
+      if (made?.name === inviteName) setMade(null);
+      refresh();
+    } catch (err) {
+      setError(String(err));
+    }
+  }
+
+  async function handleRotate() {
+    setError(null);
+    setBusy(true);
+    try {
+      setRotatedKey(await invoke<string>("rotate_pairing_key"));
+      setConfirmRotate(false);
+    } catch (err) {
+      setError(String(err));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <section className="settings-section">
+      <div className="settings-section-header">
+        <h3 className="settings-section-title">Invites and pairing key</h3>
+      </div>
+      <p className="settings-hint">
+        An invite pairs one device, once, and expires — so a device you revoked can't come back by pairing again under a new
+        id, and nobody needs the shared pairing key. The code is shown once; the device types it where it would type the key.
+      </p>
+      {error && <p className="settings-error-banner">{error}</p>}
+
+      <label className="settings-field">
+        <span className="settings-label">Who it is for</span>
+        <input className="settings-input" type="text" placeholder="Ana's phone" value={name} onChange={(e) => setName(e.currentTarget.value)} />
+      </label>
+      <label className="settings-field">
+        <span className="settings-label">Works for (minutes)</span>
+        <input
+          className="settings-input"
+          type="text"
+          inputMode="numeric"
+          value={ttlMinutes}
+          onChange={(e) => setTtlMinutes(e.currentTarget.value)}
+        />
+      </label>
+      <button type="button" className="settings-save-btn" disabled={busy || name.trim() === ""} onClick={handleCreate}>
+        Create invite
+      </button>
+
+      {made && (
+        <p className="settings-hint">
+          Invite for <strong>{made.name}</strong> (until {formatSeen(made.expiresMs)}): <code>{made.code}</code>
+        </p>
+      )}
+
+      {invites.length > 0 && (
+        <div className="workspace-device-list">
+          {invites.map((invite) => (
+            <div className="workspace-device-row" key={invite.name}>
+              <div className="workspace-device-info">
+                <span className="workspace-device-name">{invite.name}</span>
+                <span className="workspace-device-meta">waiting · expires {formatSeen(invite.expiresMs)}</span>
+              </div>
+              <div className="workspace-device-actions">
+                <button type="button" className="provider-delete-btn" onClick={() => handleCancel(invite.name)}>
+                  Cancel
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <p className="settings-hint">
+        Changing the pairing key makes the old one stop pairing new devices and stop opening the hub's administration.
+        Devices that already paired keep working.
+      </p>
+      {confirmRotate ? (
+        <div className="workspace-device-actions">
+          <button type="button" className="provider-delete-btn" disabled={busy} onClick={handleRotate}>
+            Yes, change the key
+          </button>
+          <button type="button" className="settings-browse-btn" onClick={() => setConfirmRotate(false)}>
+            Keep it
+          </button>
+        </div>
+      ) : (
+        <button type="button" className="settings-browse-btn" onClick={() => setConfirmRotate(true)}>
+          Change the pairing key
+        </button>
+      )}
+      {rotatedKey && (
+        <p className="settings-hint">
+          New pairing key (shown once): <code>{rotatedKey}</code> — update the Auth key in the QR section below if you use it.
+        </p>
+      )}
+    </section>
+  );
+}
+
 function HubPairingQrSection() {
   const [config, setConfig] = useState<HubPairingConfig>({ serverUrl: "", authKey: "" });
   const [qrSvg, setQrSvg] = useState<string | null>(null);
@@ -1379,6 +1525,8 @@ function WorkspaceView() {
       <EmbeddedServerSection />
 
       <HubsSection />
+
+      <DeviceInvitesSection />
 
       <HubPairingQrSection />
 

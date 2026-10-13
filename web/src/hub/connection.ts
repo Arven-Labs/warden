@@ -563,6 +563,8 @@ export class ServerConnection {
       case "settingsSaved":
       case "agentOrgList":
       case "deviceList":
+      case "deviceInvite":
+      case "pairingKeyRotated":
       case "apiKeyList":
       case "apiKeyCreated":
       case "syncStatus":
@@ -1200,6 +1202,22 @@ export class ServerConnection {
     const reply = await this.request((requestId) => ({ type: "setDeviceStatus", requestId, pairingKey, deviceId, action }));
     if (reply.type !== "deviceList") throw new Error("resposta inesperada do hub");
     return { devices: reply.devices, you: reply.you };
+  }
+
+  /** Makes a one-use invite that pairs a device without the pairing key (P36); the code comes back once. Rejects with
+   * `DeviceError` on a wrong pairing key or a name/time the hub refuses. */
+  async createDeviceInvite(pairingKey: string, name: string, ttlMinutes: number): Promise<{ name: string; code: string; expiresMs: number }> {
+    const reply = await this.request((requestId) => ({ type: "createDeviceInvite", requestId, pairingKey, name, ttlMinutes }));
+    if (reply.type !== "deviceInvite") throw new Error("resposta inesperada do hub");
+    return { name: reply.name, code: reply.code, expiresMs: reply.expiresMs };
+  }
+
+  /** Changes the hub's pairing key (P36) and returns the new one, once. From then on this connection is held to the new key
+   * for the administration. Rejects with `DeviceError`. */
+  async rotatePairingKey(pairingKey: string): Promise<string> {
+    const reply = await this.request((requestId) => ({ type: "rotatePairingKey", requestId, pairingKey }));
+    if (reply.type !== "pairingKeyRotated") throw new Error("resposta inesperada do hub");
+    return reply.newKey;
   }
 
   /** Where the hub's vault syncs to and how its last round went (P61). */

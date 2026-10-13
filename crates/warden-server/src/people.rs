@@ -156,7 +156,10 @@ pub fn member_refusal(message: &ClientMessage) -> Option<ServerMessage> {
         ClientMessage::SaveSettings { request_id, .. } => {
             ServerMessage::SettingsError { request_id: *request_id, message: message_text, conflict: false, auth_rejected: true }
         }
-        ClientMessage::ListDevices { request_id } | ClientMessage::SetDeviceStatus { request_id, .. } => {
+        ClientMessage::ListDevices { request_id }
+        | ClientMessage::SetDeviceStatus { request_id, .. }
+        | ClientMessage::CreateDeviceInvite { request_id, .. }
+        | ClientMessage::RotatePairingKey { request_id, .. } => {
             ServerMessage::DeviceError { request_id: *request_id, message: message_text, auth_rejected: true }
         }
         ClientMessage::ListNodes { request_id } | ClientMessage::SetNodeAccess { request_id, .. } => {

@@ -1,12 +1,13 @@
 import { useCallback, useEffect, useState } from "react";
 import { DeviceError, type DeviceList, type ServerConnection } from "../hub/connection";
 import type { HubDevice } from "../hub/messages";
+import DeviceInvites from "./DeviceInvites";
 import NodesSection from "./NodesSection";
 
 // The hub's paired devices (Sessão 103) — the same list, approve and revoke as the desktop's
 // Workspace screen and `warden-server devices`, so a hub with no screen can be managed from here.
 // Listing is open to any logged-in browser; approving or revoking asks for the pairing key each
-// time, like saving settings. Changing the pairing key itself stays on the hub's own machine.
+// time, like saving settings. Invites and changing the pairing key (P36) are in `DeviceInvites`.
 
 type Action = "approve" | "revoke";
 
@@ -158,6 +159,8 @@ export default function DevicesView({ conn }: { conn: ServerConnection | null })
           })}
         </ul>
       )}
+
+      <DeviceInvites conn={conn} />
 
       <NodesSection conn={conn} refreshKey={refreshKey} />
     </div>

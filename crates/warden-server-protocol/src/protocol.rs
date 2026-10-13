@@ -1798,6 +1798,22 @@ pub enum ClientMessage {
         device_id: String,
         action: DeviceAction,
     },
+    /// Makes a one-use invite that pairs one device without the pairing key (P36), answered by
+    /// `DeviceInvite`. `ttl_minutes` is how long the code works. Asks for the pairing key every time,
+    /// like `SetDeviceStatus`. (`CreateInvite` is another thing: a member's TruthID link.)
+    CreateDeviceInvite {
+        request_id: u64,
+        pairing_key: String,
+        name: String,
+        ttl_minutes: u64,
+    },
+    /// Changes the hub's pairing key (P36), answered by `PairingKeyRotated` with the new one. Devices
+    /// that already hold a token keep working; the old key stops pairing and stops opening the
+    /// administration. Asks for the current pairing key.
+    RotatePairingKey {
+        request_id: u64,
+        pairing_key: String,
+    },
     /// The Warden API's keys (P12), answered by `ApiKeyList`. Open to any paired device, like the
     /// device list; creating and revoking ask for the pairing key again.
     ListApiKeys {
@@ -2470,6 +2486,18 @@ pub enum ServerMessage {
         request_id: u64,
         devices: Vec<DeviceDto>,
         you: String,
+    },
+    /// Reply to `CreateDeviceInvite` (P36). The `code` is shown once: the hub keeps only its hash.
+    DeviceInvite {
+        request_id: u64,
+        name: String,
+        code: String,
+        expires_ms: i64,
+    },
+    /// Reply to `RotatePairingKey` (P36): the new key, shown once.
+    PairingKeyRotated {
+        request_id: u64,
+        new_key: String,
     },
     /// Reply to `ListApiKeys` and to a successful `RevokeApiKey`, oldest first.
     ApiKeyList {
@@ -3742,6 +3770,20 @@ mod tests {
 
         let error: ServerMessage = serde_json::from_str(r#"{"type":"deviceError","requestId":4,"message":"m"}"#).unwrap();
         assert_eq!(error, ServerMessage::DeviceError { request_id: 4, message: "m".into(), auth_rejected: false });
+    }
+
+    #[test]
+    fn device_invite_and_key_rotation_use_the_web_shapes() {
+        let invite: ClientMessage =
+            serde_json::from_str(r#"{"type":"createDeviceInvite","requestId":5,"pairingKey":"k","name":"Ana's phone","ttlMinutes":15}"#).unwrap();
+        assert_eq!(invite, ClientMessage::CreateDeviceInvite { request_id: 5, pairing_key: "k".into(), name: "Ana's phone".into(), ttl_minutes: 15 });
+        let rotate: ClientMessage = serde_json::from_str(r#"{"type":"rotatePairingKey","requestId":6,"pairingKey":"k"}"#).unwrap();
+        assert_eq!(rotate, ClientMessage::RotatePairingKey { request_id: 6, pairing_key: "k".into() });
+
+        let made = ServerMessage::DeviceInvite { request_id: 5, name: "Ana's phone".into(), code: "abc".into(), expires_ms: 9 };
+        assert_eq!(serde_json::to_value(&made).unwrap(), serde_json::json!({ "type": "deviceInvite", "requestId": 5, "name": "Ana's phone", "code": "abc", "expiresMs": 9 }));
+        let rotated = ServerMessage::PairingKeyRotated { request_id: 6, new_key: "new".into() };
+        assert_eq!(serde_json::to_value(&rotated).unwrap(), serde_json::json!({ "type": "pairingKeyRotated", "requestId": 6, "newKey": "new" }));
     }
 
     #[test]

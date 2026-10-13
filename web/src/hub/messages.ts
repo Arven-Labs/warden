@@ -908,6 +908,9 @@ export type ClientMessage =
   | { type: "createWebhookCredential"; requestId: number; pairingKey: string; id: string }
   | { type: "revokeWebhookCredential"; requestId: number; pairingKey: string; id: string }
   | { type: "setDeviceStatus"; requestId: number; pairingKey: string; deviceId: string; action: "approve" | "revoke" }
+  /** P36 — a one-use code that pairs one device without the pairing key, and a new pairing key. */
+  | { type: "createDeviceInvite"; requestId: number; pairingKey: string; name: string; ttlMinutes: number }
+  | { type: "rotatePairingKey"; requestId: number; pairingKey: string }
   /** P61 — the hub's vault sync; an action repeats the pairing key. */
   | { type: "requestSyncStatus"; requestId: number }
   | { type: "syncAction"; requestId: number; pairingKey: string; action: SyncAction }
@@ -1011,6 +1014,9 @@ export type ServerMessage =
   /** `you` is this browser's own device id. */
   | { type: "deviceList"; requestId: number; devices: HubDevice[]; you: string }
   | { type: "deviceError"; requestId: number; message: string; authRejected: boolean }
+  /** P36 — the `code` is shown once; the hub keeps only its hash. */
+  | { type: "deviceInvite"; requestId: number; name: string; code: string; expiresMs: number }
+  | { type: "pairingKeyRotated"; requestId: number; newKey: string }
   | { type: "apiKeyList"; requestId: number; keys: ApiKey[] }
   | { type: "apiKeyCreated"; requestId: number; key: string; keys: ApiKey[] }
   | { type: "apiKeyError"; requestId: number; message: string; authRejected: boolean }
@@ -1124,6 +1130,8 @@ export function decode(text: string): ServerMessage {
     case "settingsSaved":
     case "agentOrgList":
     case "deviceList":
+    case "deviceInvite":
+    case "pairingKeyRotated":
     case "apiKeyList":
     case "apiKeyCreated":
     case "syncStatus":

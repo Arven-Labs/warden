@@ -39,7 +39,7 @@ use crate::user_admin::{
     handle_redeem_invite, handle_accept_recovery_policy, handle_ack_recovery_notices, handle_set_learning, handle_change_password, handle_list_spaces, handle_list_users, handle_regenerate_recovery_code, handle_set_recovery_policy,
     handle_space_change, handle_user_change, open_member_data_at_sign_in, DataDirs, SpaceChange, UserChange,
 };
-use crate::devices::{handle_list_devices, handle_set_device_status};
+use crate::devices::{handle_create_device_invite, handle_list_devices, handle_rotate_pairing_key, handle_set_device_status};
 use crate::projects::handle_project_request;
 use crate::skills::handle_skill_request;
 use crate::usage::{handle_extend_limit, handle_member_usage_request, handle_usage_request, member_limit_message, spend_limit_id};
@@ -1788,6 +1788,20 @@ async fn handle_connection<S: Transport>(ws: WebSocketStream<S>, peer: SocketAdd
                     tokio::spawn(async move {
                         let reply = handle_set_device_status(&store, &lock, &auth_key, &you, request_id, &pairing_key, &target, action).await;
                         let _ = reply_tx.send(reply);
+                    });
+                }
+                Ok(ClientMessage::CreateDeviceInvite { request_id, pairing_key: given, name, ttl_minutes }) => {
+                    let store = PairingStore::new(devices_path.as_ref().clone());
+                    let (lock, auth_key, reply_tx) = (settings_lock.clone(), auth_key.clone(), tx.clone());
+                    tokio::spawn(async move {
+                        let _ = reply_tx.send(handle_create_device_invite(&store, &lock, &auth_key, request_id, &given, &name, ttl_minutes).await);
+                    });
+                }
+                Ok(ClientMessage::RotatePairingKey { request_id, pairing_key: given }) => {
+                    let key_file = pairing_key.file_path();
+                    let (lock, auth_key, reply_tx) = (settings_lock.clone(), auth_key.clone(), tx.clone());
+                    tokio::spawn(async move {
+                        let _ = reply_tx.send(handle_rotate_pairing_key(key_file.as_deref(), &lock, &auth_key, request_id, &given).await);
                     });
                 }
                 Ok(ClientMessage::ListApiKeys { request_id }) => {

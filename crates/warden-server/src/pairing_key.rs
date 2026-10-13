@@ -49,6 +49,11 @@ impl PairingKey {
         }
     }
 
+    /// Where the key can be changed from, when this hub has such a file (`None` for a key that never changes).
+    pub fn file_path(&self) -> Option<PathBuf> {
+        self.file.as_deref().cloned()
+    }
+
     /// Whether the file is what `current()` is giving now, not the start-up key.
     pub fn from_file(&self) -> bool {
         self.file.as_deref().is_some_and(|path| read_usable(path).is_some())
