@@ -2,9 +2,17 @@
 
 > **Nota**: Este log foi criado junto com o projeto. As sessões serão registradas aqui conforme o trabalho avança.
 >
-> Última atualização: 2026-10-13 (Sessão 189)
+> Última atualização: 2026-10-13 (Sessão 190)
 
 ---
+
+### 2026-10-13 — Sessão 190 (P130: `/limits`, `/prices` e `/ssh` recarregam o Warden na CLI)
+
+- **Pedido do usuário**: "vamos de p130"; planejado em plan mode.
+- **Feito**: `save_config_and_reload` em `interactive.rs` (grava e marca `reload_requested`, só se gravou); trocou `save_config_or_report` nos 12 pontos de limites, preços e ssh e tirou o aviso de reiniciar (`CONFIG_RESTART_NOTE` apagado). `/agents remove` recarrega só se o agente saiu de algum servidor SSH.
+- **Achados**: o gasto sobrevive à recarga (ledger em arquivo), os grants vivem na `CliSession` e uma recarga que falha mantém o orquestrador antigo (já testado no P54).
+- **Testes**: `saving_a_config_change_asks_for_a_reload`, `a_save_that_fails_asks_for_no_reload`; `warden-cli` 71 + 7 de processo verdes, clippy limpo.
+- **Fica**: o laço e os cards não têm teste sem terminal (P129); a decisão "só recarrega se há efeito em SSH" do `/agents remove` não tem teste próprio.
 
 ### 2026-10-13 — Sessão 189 (P126: o uso por agente e por provider conta cada chamada sob quem a fez)
 

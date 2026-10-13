@@ -1728,8 +1728,8 @@ async fn wizard_limits_add(terminal: &mut CliTerminal, session: &mut CliSession)
     limits.push(limit);
     config.limits = Some(limits);
 
-    save_config_or_report(session, &config).await?;
-    let mut lines = vec![(format!("limite '{id}' criado — {CONFIG_RESTART_NOTE}"), Style::default())];
+    save_config_and_reload(session, &config).await?;
+    let mut lines = vec![(format!("limite '{id}' criado"), Style::default())];
     if materialized {
         lines.push(("a rede de segurança padrão (default-hour, default-day) foi mantida junto".to_string(), dim_style()));
     }
@@ -1752,8 +1752,8 @@ async fn wizard_limits_edit(terminal: &mut CliTerminal, session: &mut CliSession
     limits[index] = updated;
     config.limits = Some(limits);
 
-    save_config_or_report(session, &config).await?;
-    let mut lines = vec![(format!("limite '{new_id}' atualizado — {CONFIG_RESTART_NOTE}"), Style::default())];
+    save_config_and_reload(session, &config).await?;
+    let mut lines = vec![(format!("limite '{new_id}' atualizado"), Style::default())];
     if materialized {
         lines.push(("os demais limites padrão foram mantidos junto".to_string(), dim_style()));
     }
@@ -1774,8 +1774,8 @@ async fn cmd_limits_remove(terminal: &mut CliTerminal, session: &mut CliSession,
     }
     limits.retain(|l| l.id != id);
     config.limits = Some(limits);
-    save_config_or_report(session, &config).await?;
-    render_message_card(terminal, "limites", accent_style(), vec![(format!("limite '{id}' removido — {CONFIG_RESTART_NOTE}"), Style::default())])
+    save_config_and_reload(session, &config).await?;
+    render_message_card(terminal, "limites", accent_style(), vec![(format!("limite '{id}' removido"), Style::default())])
 }
 
 /// `/limits off` — the riskiest of the bunch (drops every ceiling, so nothing stops a runaway
@@ -1795,8 +1795,8 @@ async fn cmd_limits_off(terminal: &mut CliTerminal, session: &mut CliSession) ->
         return limits_cancelled(terminal, "desativação");
     }
     config.limits = Some(Vec::new());
-    save_config_or_report(session, &config).await?;
-    render_message_card(terminal, "limites", accent_style(), vec![(format!("todos os limites desligados — {CONFIG_RESTART_NOTE}"), Style::default())])
+    save_config_and_reload(session, &config).await?;
+    render_message_card(terminal, "limites", accent_style(), vec![("todos os limites desligados".to_string(), Style::default())])
 }
 
 /// `/limits reset` — back to the built-in safety net (`limits` field removed from the file, not
@@ -1815,8 +1815,8 @@ async fn cmd_limits_reset(terminal: &mut CliTerminal, session: &mut CliSession) 
         return limits_cancelled(terminal, "restauração");
     }
     config.limits = None;
-    save_config_or_report(session, &config).await?;
-    render_message_card(terminal, "limites", accent_style(), vec![(format!("rede de segurança padrão restaurada — {CONFIG_RESTART_NOTE}"), Style::default())])
+    save_config_and_reload(session, &config).await?;
+    render_message_card(terminal, "limites", accent_style(), vec![("rede de segurança padrão restaurada".to_string(), Style::default())])
 }
 
 /// Asks the two fields of a `[[prices]]` entry, `model` kept fixed when editing (same
@@ -1866,8 +1866,8 @@ async fn wizard_prices_add(terminal: &mut CliTerminal, session: &mut CliSession)
     };
     let model = price.model.clone();
     config.prices.push(price);
-    save_config_or_report(session, &config).await?;
-    render_message_card(terminal, "preços", accent_style(), vec![(format!("preço de '{model}' cadastrado — {CONFIG_RESTART_NOTE}"), Style::default())])
+    save_config_and_reload(session, &config).await?;
+    render_message_card(terminal, "preços", accent_style(), vec![(format!("preço de '{model}' cadastrado"), Style::default())])
 }
 
 async fn wizard_prices_edit(terminal: &mut CliTerminal, session: &mut CliSession, target_model: String) -> anyhow::Result<()> {
@@ -1881,8 +1881,8 @@ async fn wizard_prices_edit(terminal: &mut CliTerminal, session: &mut CliSession
     };
     let model = updated.model.clone();
     config.prices[index] = updated;
-    save_config_or_report(session, &config).await?;
-    render_message_card(terminal, "preços", accent_style(), vec![(format!("preço de '{model}' atualizado — {CONFIG_RESTART_NOTE}"), Style::default())])
+    save_config_and_reload(session, &config).await?;
+    render_message_card(terminal, "preços", accent_style(), vec![(format!("preço de '{model}' atualizado"), Style::default())])
 }
 
 async fn cmd_prices_remove(terminal: &mut CliTerminal, session: &mut CliSession, model: String) -> anyhow::Result<()> {
@@ -1897,8 +1897,8 @@ async fn cmd_prices_remove(terminal: &mut CliTerminal, session: &mut CliSession,
         return render_message_card(terminal, "preços", dim_style(), vec![("remoção cancelada".to_string(), dim_style())]);
     }
     config.prices.retain(|p| p.model != model);
-    save_config_or_report(session, &config).await?;
-    render_message_card(terminal, "preços", accent_style(), vec![(format!("preço de '{model}' removido — {CONFIG_RESTART_NOTE}"), Style::default())])
+    save_config_and_reload(session, &config).await?;
+    render_message_card(terminal, "preços", accent_style(), vec![(format!("preço de '{model}' removido"), Style::default())])
 }
 
 fn provider_display_model(provider: &ProviderConfig) -> String {
@@ -2584,25 +2584,26 @@ async fn cmd_agents_remove(terminal: &mut CliTerminal, session: &mut CliSession,
         session.agent_id = None;
     }
 
-    save_config_or_report(session, &config).await?;
+    // The agent itself is re-read from disk each turn; only a change to an SSH server (baked into the orchestrator by
+    // `bootstrap()`) needs a rebuild.
+    if effects.is_empty() {
+        save_config_or_report(session, &config).await?;
+    } else {
+        save_config_and_reload(session, &config).await?;
+    }
     let mut lines = vec![(format!("agente '{id}' removido"), Style::default())];
     for effect in effects {
         lines.push((
             if effect.switched_off {
-                format!("servidor ssh '{}' era só desse agente e foi bloqueado — {CONFIG_RESTART_NOTE}", effect.host_id)
+                format!("servidor ssh '{}' era só desse agente e foi bloqueado", effect.host_id)
             } else {
-                format!("servidor ssh '{}' deixou de listar esse agente — {CONFIG_RESTART_NOTE}", effect.host_id)
+                format!("servidor ssh '{}' deixou de listar esse agente", effect.host_id)
             },
             Style::default(),
         ));
     }
     render_message_card(terminal, "agentes", accent_style(), lines)
 }
-
-/// The note every card that changes something baked into the `Orchestrator` at startup ends with —
-/// SSH hosts (the tool), and spending limits/prices (the `SpendGuard`) are both registered once in
-/// `bootstrap()`, unlike agents/models, which are re-read fresh from disk each turn/command.
-const CONFIG_RESTART_NOTE: &str = "vale a partir da próxima vez que o Warden for iniciado";
 
 async fn cmd_ssh_list(terminal: &mut CliTerminal, session: &CliSession) -> anyhow::Result<()> {
     let config = load_fresh_config(session.config_path.as_deref())?;
@@ -2715,8 +2716,8 @@ async fn wizard_ssh_add(terminal: &mut CliTerminal, session: &mut CliSession) ->
     };
     let id = host.id.clone();
     config.ssh_hosts.push(host);
-    save_config_or_report(session, &config).await?;
-    render_message_card(terminal, "ssh", accent_style(), vec![(format!("servidor '{id}' cadastrado — {CONFIG_RESTART_NOTE}"), Style::default())])
+    save_config_and_reload(session, &config).await?;
+    render_message_card(terminal, "ssh", accent_style(), vec![(format!("servidor '{id}' cadastrado"), Style::default())])
 }
 
 async fn wizard_ssh_edit(terminal: &mut CliTerminal, session: &mut CliSession, target_id: String) -> anyhow::Result<()> {
@@ -2730,8 +2731,8 @@ async fn wizard_ssh_edit(terminal: &mut CliTerminal, session: &mut CliSession, t
     };
     let id = host.id.clone();
     config.ssh_hosts[index] = host;
-    save_config_or_report(session, &config).await?;
-    render_message_card(terminal, "ssh", accent_style(), vec![(format!("servidor '{id}' atualizado — {CONFIG_RESTART_NOTE}"), Style::default())])
+    save_config_and_reload(session, &config).await?;
+    render_message_card(terminal, "ssh", accent_style(), vec![(format!("servidor '{id}' atualizado"), Style::default())])
 }
 
 async fn cmd_ssh_remove(terminal: &mut CliTerminal, session: &mut CliSession, id: String) -> anyhow::Result<()> {
@@ -2746,8 +2747,8 @@ async fn cmd_ssh_remove(terminal: &mut CliTerminal, session: &mut CliSession, id
         return ssh_cancelled(terminal, "remoção");
     }
     config.ssh_hosts.retain(|h| h.id != id);
-    save_config_or_report(session, &config).await?;
-    render_message_card(terminal, "ssh", accent_style(), vec![(format!("servidor '{id}' removido — {CONFIG_RESTART_NOTE}"), Style::default())])
+    save_config_and_reload(session, &config).await?;
+    render_message_card(terminal, "ssh", accent_style(), vec![(format!("servidor '{id}' removido"), Style::default())])
 }
 
 async fn cmd_ssh_enable(terminal: &mut CliTerminal, session: &mut CliSession, id: String, enabled: bool) -> anyhow::Result<()> {
@@ -2756,9 +2757,9 @@ async fn cmd_ssh_enable(terminal: &mut CliTerminal, session: &mut CliSession, id
         return render_message_card(terminal, "erro", error_style(), vec![(format!("servidor '{id}' não encontrado"), Style::default())]);
     };
     host.enabled = enabled;
-    save_config_or_report(session, &config).await?;
+    save_config_and_reload(session, &config).await?;
     let state = if enabled { "liberado pra IA" } else { "bloqueado pra IA" };
-    render_message_card(terminal, "ssh", accent_style(), vec![(format!("servidor '{id}' {state} — {CONFIG_RESTART_NOTE}"), Style::default())])
+    render_message_card(terminal, "ssh", accent_style(), vec![(format!("servidor '{id}' {state}"), Style::default())])
 }
 
 async fn cmd_ssh_test(terminal: &mut CliTerminal, session: &mut CliSession, id: String) -> anyhow::Result<()> {
@@ -3020,6 +3021,15 @@ async fn save_config_or_report(session: &CliSession, config: &FileConfig) -> any
         .as_deref()
         .ok_or_else(|| anyhow::anyhow!("não foi possível localizar um arquivo de configuração pra salvar (sem diretório de config no sistema)"))?;
     save_config(path, config)?;
+    Ok(())
+}
+
+/// Saves like `save_config_or_report` and, once the file is written, asks the loop to rebuild the orchestrator: for a change
+/// to what `bootstrap()` builds once (spending limits and prices, SSH servers), which a running session would otherwise only
+/// see at the next start. A save that fails asks for nothing.
+async fn save_config_and_reload(session: &mut CliSession, config: &FileConfig) -> anyhow::Result<()> {
+    save_config_or_report(session, config).await?;
+    session.reload_requested = true;
     Ok(())
 }
 
@@ -3502,6 +3512,30 @@ mod tests {
         assert!(orchestrator.tools().iter().any(|t| t.spec().name == "new_tool"));
         assert!(reload_if_requested(&mut session, &mut orchestrator, &rebuild).await.is_none());
         assert_eq!(rebuilds.get(), 1, "asking is not sticky");
+    }
+
+    #[tokio::test]
+    async fn saving_a_config_change_asks_for_a_reload() {
+        let dir = std::env::temp_dir().join(format!("warden-cli-save-reload-{}", now_millis()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let orchestrator = orchestrator_with_tool("old_tool");
+        let mut session = idle_session(&orchestrator);
+        session.config_path = Some(dir.join("config.toml"));
+
+        save_config_and_reload(&mut session, &FileConfig::default()).await.expect("the config is written");
+
+        assert!(session.reload_requested);
+        assert!(dir.join("config.toml").exists());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[tokio::test]
+    async fn a_save_that_fails_asks_for_no_reload() {
+        let orchestrator = orchestrator_with_tool("old_tool");
+        let mut session = idle_session(&orchestrator);
+
+        assert!(save_config_and_reload(&mut session, &FileConfig::default()).await.is_err(), "no config path to write to");
+        assert!(!session.reload_requested);
     }
 
     #[tokio::test]
