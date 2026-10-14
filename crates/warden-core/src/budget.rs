@@ -182,9 +182,10 @@ impl SpendTurn {
         self.guard.last_error()
     }
 
-    /// Books a finished model call to the ledger, with the provider that answered ("" when it isn't labelled).
-    pub fn record(&self, model: &str, provider: &str, usage: &Usage) {
-        self.guard.record_served(&self.ctx, model, provider, usage);
+    /// Books a finished model call to the ledger, with the provider that answered ("" when it isn't labelled)
+    /// and the combo it went through ("" when it wasn't through one, P126).
+    pub fn record(&self, model: &str, provider: &str, combo: &str, usage: &Usage) {
+        self.guard.record_in_combo(&self.ctx, model, provider, combo, usage);
     }
 
     /// Called before every model call. Returns what to tell the model when a limit is close

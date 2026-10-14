@@ -174,6 +174,10 @@ pub struct SpendEvent {
     /// served the call. Absent in a ledger from before it was kept, and for a call whose provider has no label.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub provider: Option<String>,
+    /// The combo the call went through (P126), when the model that answered was one — what gives dollars per
+    /// combo. Absent in a ledger from before it was kept, and for a call that wasn't made through a combo.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub combo: Option<String>,
 }
 
 impl SpendEvent {
@@ -463,6 +467,9 @@ pub struct SpendBreakdown {
     /// The agent the turn started with: a sub-agent's calls count under the one that delegated.
     pub by_agent: Vec<SpendBucket>,
     pub by_person: Vec<SpendBucket>,
+    /// Only the calls made through a combo (P126): there is no bucket for the ones that weren't, and a combo's
+    /// members still count under `by_provider`.
+    pub by_combo: Vec<SpendBucket>,
 }
 
 pub struct SpendGuard {
@@ -528,6 +535,11 @@ impl SpendGuard {
 
     /// Books one model call with the provider that answered (P10): the `[[providers]]` id, or "" when unknown.
     pub fn record_served(&self, ctx: &SpendContext, model: &str, provider: &str, usage: &Usage) {
+        self.record_in_combo(ctx, model, provider, "", usage);
+    }
+
+    /// Like `record_served`, also with the combo the call went through (P126), or "" when it wasn't through one.
+    pub fn record_in_combo(&self, ctx: &SpendContext, model: &str, provider: &str, combo: &str, usage: &Usage) {
         let tokens = usage.total_tokens.max(usage.prompt_tokens + usage.completion_tokens) as u64;
         if tokens == 0 {
             return;
@@ -542,6 +554,7 @@ impl SpendGuard {
             cost_usd: self.prices.cost(model, usage),
             person: ctx.person.clone(),
             provider: Some(provider.to_string()).filter(|p| !p.is_empty()),
+            combo: Some(combo.to_string()).filter(|c| !c.is_empty()),
         };
         self.note(self.store.append(&Entry::Spend(event)));
     }
@@ -592,6 +605,7 @@ impl SpendGuard {
         let mut by_provider: Vec<SpendBucket> = Vec::new();
         let mut by_agent: Vec<SpendBucket> = Vec::new();
         let mut by_person: Vec<SpendBucket> = Vec::new();
+        let mut by_combo: Vec<SpendBucket> = Vec::new();
         let bucket = |buckets: &mut Vec<SpendBucket>, key: &str, event: &SpendEvent| {
             match buckets.iter_mut().find(|b| b.key == key) {
                 Some(b) => b.add(event),
@@ -612,11 +626,14 @@ impl SpendGuard {
             bucket(&mut by_provider, event.provider.as_deref().unwrap_or(""), &event);
             bucket(&mut by_agent, event.agent.as_deref().unwrap_or(""), &event);
             bucket(&mut by_person, event.person.as_deref().unwrap_or(""), &event);
+            if let Some(combo) = event.combo.as_deref() {
+                bucket(&mut by_combo, combo, &event);
+            }
         }
-        for buckets in [&mut by_model, &mut by_channel, &mut by_provider, &mut by_agent, &mut by_person] {
+        for buckets in [&mut by_model, &mut by_channel, &mut by_provider, &mut by_agent, &mut by_person, &mut by_combo] {
             buckets.sort_by_key(|b| std::cmp::Reverse(b.tokens));
         }
-        SpendBreakdown { window_hours, by_model, by_channel, by_provider, by_agent, by_person }
+        SpendBreakdown { window_hours, by_model, by_channel, by_provider, by_agent, by_person, by_combo }
     }
 
     /// What one extension of `limit_id` would add, as `(tokens, dollars)` — `0` for a ceiling the
@@ -838,6 +855,24 @@ mod tests {
         assert_eq!(guard.check(&cli()), Check::default(), "nor the owner");
     }
 
+    /// P126: a line from before the combo was kept reads, and the breakdown only has a bucket for the calls made through one.
+    #[test]
+    fn a_ledger_line_from_before_the_combo_still_reads_and_the_breakdown_splits_by_combo() {
+        let line = r#"{"kind":"spend","ts":1,"channel":"cli","user":null,"agent":null,"model":"m","tokens":5,"cost_usd":null,"provider":"main"}"#;
+        assert!(matches!(serde_json::from_str::<Entry>(line).unwrap(), Entry::Spend(SpendEvent { combo: None, .. })));
+
+        let prices = vec![Price { model: "m".into(), input_per_mtok: 1.0, output_per_mtok: 0.0 }];
+        let (guard, _) = guard(vec![Limit::new("day", Scope::Global, 24).with_max_tokens(100_000_000)], prices);
+        guard.record_in_combo(&cli(), "m", "main", "fast", &usage(1_000_000, 0));
+        guard.record_in_combo(&cli(), "m", "spare", "fast", &usage(500_000, 0));
+        guard.record_in_combo(&cli(), "m", "main", "slow", &usage(100_000, 0));
+        guard.record_served(&cli(), "m", "main", &usage(9_000_000, 0));
+        let breakdown = guard.breakdown();
+        assert_eq!(breakdown.by_combo.iter().map(|b| (b.key.as_str(), b.calls, b.tokens)).collect::<Vec<_>>(), [("fast", 2, 1_500_000), ("slow", 1, 100_000)], "no bucket for the call that wasn't through a combo");
+        assert!((breakdown.by_combo[0].cost_usd - 1.5).abs() < 1e-9 && (breakdown.by_combo[1].cost_usd - 0.1).abs() < 1e-9);
+        assert_eq!(breakdown.by_provider.iter().map(|b| b.calls).sum::<u64>(), 4, "the members still count by provider");
+    }
+
     #[test]
     fn a_ledger_line_from_before_people_still_reads() {
         let line = r#"{"kind":"spend","ts":1,"channel":"cli","user":null,"agent":null,"model":"m","tokens":5,"cost_usd":null}"#;
@@ -1042,7 +1077,7 @@ mod tests {
     fn opening_the_file_store_drops_entries_no_window_needs() {
         let path = temp_ledger("prune");
         std::fs::create_dir_all(path.parent().unwrap()).unwrap();
-        let old = Entry::Spend(SpendEvent { ts: 1, channel: "cli".into(), user: None, agent: None, model: "m".into(), tokens: 5, cost_usd: None, person: None, provider: None });
+        let old = Entry::Spend(SpendEvent { ts: 1, channel: "cli".into(), user: None, agent: None, model: "m".into(), tokens: 5, cost_usd: None, person: None, provider: None, combo: None });
         let fresh = Entry::Spend(SpendEvent { ts: now_millis(), ..match old.clone() { Entry::Spend(e) => e, _ => unreachable!() } });
         let text = format!("{}\n{}\n", serde_json::to_string(&old).unwrap(), serde_json::to_string(&fresh).unwrap());
         std::fs::write(&path, text).unwrap();

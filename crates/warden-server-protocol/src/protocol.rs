@@ -310,6 +310,7 @@ impl From<SpendBreakdown> for RecentSpendDto {
             by_provider: b.by_provider.into_iter().map(Into::into).collect(),
             by_agent: b.by_agent.into_iter().map(Into::into).collect(),
             by_person: b.by_person.into_iter().map(Into::into).collect(),
+            by_combo: b.by_combo.into_iter().map(Into::into).collect(),
         }
     }
 }
@@ -342,6 +343,9 @@ pub struct RecentSpendDto {
     /// The workspace member (P84); an empty key is the owner.
     #[serde(default)]
     pub by_person: Vec<SpendBucketDto>,
+    /// The combo the call went through (P126); only the calls made through one, so no empty key.
+    #[serde(default)]
+    pub by_combo: Vec<SpendBucketDto>,
 }
 
 /// Reply body of `RequestUsage` (P78): tokens from every conversation the hub keeps (all devices,
@@ -3543,6 +3547,7 @@ mod tests {
                     by_provider: vec![SpendBucketDto { key: "main".into(), calls: 1, tokens: 10, cost_usd: 0.5, unpriced_calls: 0 }],
                     by_agent: vec![SpendBucketDto { key: "writer".into(), calls: 1, tokens: 10, cost_usd: 0.5, unpriced_calls: 0 }],
                     by_person: Vec::new(),
+                    by_combo: vec![SpendBucketDto { key: "fast".into(), calls: 1, tokens: 10, cost_usd: 0.5, unpriced_calls: 0 }],
                 }),
                 ledger_error: None,
                 by_agent: vec![UsageByKeyDto { key: None, message_count: 1, usage: Usage { prompt_tokens: 7, completion_tokens: 3, total_tokens: 10 } }],

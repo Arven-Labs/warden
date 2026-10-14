@@ -384,20 +384,25 @@ mod tests {
         guard.record_served(&SpendContext::new("server").with_agent(Some("writer".to_string())), "m", "main", &usage(1_000_000)); // $1.00
         guard.record_served(&SpendContext::new("server").with_person("ana"), "m", "spare", &usage(500_000)); // $0.50
         guard.record(&SpendContext::new("cli"), "unpriced", &usage(10));
+        guard.record_in_combo(&SpendContext::new("server"), "m", "main", "fast", &usage(250_000)); // $0.25
         let pairing = PairingStore::new(temp_dir("devices").join("devices.json"));
 
         let report = build_usage_report(&temp_dir("none"), None, &pairing, Some(&guard), 0, now).unwrap();
         let today = report.daily_cost.last().unwrap();
-        assert_eq!((today.calls, today.unpriced_calls), (3, 1));
-        assert!((today.cost_usd - 1.5).abs() < 1e-9, "{}", today.cost_usd);
+        assert_eq!((today.calls, today.unpriced_calls), (4, 1));
+        assert!((today.cost_usd - 1.75).abs() < 1e-9, "{}", today.cost_usd);
         assert_eq!(report.daily_cost.len(), USAGE_DAYS as usize);
         assert!(report.daily_cost[..USAGE_DAYS as usize - 1].iter().all(|d| d.calls == 0), "only today has spending");
 
         let recent = report.recent.unwrap();
         let keys = |buckets: &[warden_server_protocol::protocol::SpendBucketDto]| buckets.iter().map(|b| b.key.clone()).collect::<Vec<_>>();
         assert_eq!(keys(&recent.by_provider), ["main", "spare", ""]);
-        assert_eq!(keys(&recent.by_agent), ["writer", ""], "largest first: the writer's 1,000,000 tokens against the other calls' 500,010");
-        assert_eq!(keys(&recent.by_person), ["", "ana"], "the owner's 1,000,010 tokens against Ana's 500,000");
+        assert_eq!(keys(&recent.by_agent), ["writer", ""], "largest first: the writer's 1,000,000 tokens against the other calls' 750,010");
+        assert_eq!(keys(&recent.by_person), ["", "ana"], "the owner's 1,250,010 tokens against Ana's 500,000");
+        // P126: dollars per combo, with no bucket for the calls that weren't through one.
+        assert_eq!(recent.by_combo.len(), 1);
+        assert_eq!(recent.by_combo[0].key, "fast");
+        assert!((recent.by_combo[0].cost_usd - 0.25).abs() < 1e-9, "{}", recent.by_combo[0].cost_usd);
 
         // With limits off there is no guard, so no ledger and no dollars.
         let off = build_usage_report(&temp_dir("none"), None, &pairing, None, 0, now).unwrap();

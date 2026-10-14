@@ -822,7 +822,7 @@ impl Orchestrator {
                 budget.record_in_combo(self.agent_id.as_deref(), answering_provider.as_deref(), answering_combo.as_deref(), response.usage.as_ref());
             }
             if let (Some(spend), Some(u)) = (spend, response.usage.as_ref()) {
-                spend.record(&served_model, &served_provider, u);
+                spend.record(&served_model, &served_provider, answering_combo.as_deref().unwrap_or(""), u);
             }
             if let Some(u) = response.usage {
                 usage.prompt_tokens += u.prompt_tokens;
@@ -2952,12 +2952,17 @@ mod tests {
                 ("spare".to_string(), Arc::new(Answers) as Arc<dyn ModelProvider>),
             ])
             .in_combo("fast");
+            let guard = guard(vec![day(1_000)], vec![]);
             let mut root = Orchestrator::new(Arc::new(model), temp_vault());
             root.register_tool(Arc::new(NamedTool("noop")));
+            let root = root.with_spend_guard(guard.clone()).with_spend_context(SpendContext::new("cli"));
 
             let outcome = root.handle_message(&[], "go").await.unwrap();
 
             assert_eq!(outcome.combo_id.as_deref(), Some("fast"));
+            // The ledger keeps the combo too, so its dollars can be told apart: both members' calls count under it.
+            let by_combo = guard.breakdown().by_combo;
+            assert_eq!(by_combo.iter().map(|b| (b.key.as_str(), b.tokens)).collect::<Vec<_>>(), vec![("fast", 16)]);
             let slices = outcome.usage_slices.iter().map(|s| (s.provider_id.as_deref(), s.combo_id.as_deref(), s.usage.total_tokens)).collect::<Vec<_>>();
             assert_eq!(slices, vec![(Some("main"), Some("fast"), 5), (Some("spare"), Some("fast"), 11)], "the reserve that took over is still the combo's");
 

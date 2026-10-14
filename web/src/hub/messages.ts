@@ -195,6 +195,8 @@ export interface RecentSpend {
   byProvider?: SpendBucket[];
   byAgent?: SpendBucket[];
   byPerson?: SpendBucket[];
+  /** P126 — only the calls made through a combo; absent from an older hub. */
+  byCombo?: SpendBucket[];
 }
 
 /** Mirrors `SecretStatusDto` (P78): whether an API key is saved, never the key itself. `hint` is its

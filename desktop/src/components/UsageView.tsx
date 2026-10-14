@@ -123,6 +123,7 @@ function RecentSpending({ source }: { source: UsageSource }) {
       <SpendTable title="By provider" buckets={recent.byProvider} keyLabel="Provider" emptyLabel="no provider recorded" />
       <SpendTable title="By agent" buckets={recent.byAgent} keyLabel="Agent" emptyLabel="no agent" />
       <SpendTable title="By person" buckets={recent.byPerson} keyLabel="Person" emptyLabel="the owner" />
+      <SpendTable title="By combo" buckets={recent.byCombo ?? []} keyLabel="Combo" />
       <p className="settings-hint">
         "By agent" is the agent the turn started with: a delegated sub-agent's calls count under the agent that delegated. "No provider recorded" is
         calls from before the provider was kept.

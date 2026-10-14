@@ -6,6 +6,15 @@
 
 ---
 
+### 2026-10-14 — Sessão 210 (P126: dólares por combo, o combo no ledger)
+
+- **Pedido do usuário**: "grava o combo no ledger". Planejado em plan mode.
+- **Feito**: `SpendEvent.combo` (serde default, não escreve quando vazio); `SpendGuard::record_in_combo` (`record_served` delega com ""); `SpendTurn::record` recebe o combo e o orquestrador passa o `answering_combo`; `SpendBreakdown.by_combo` só com as chamadas feitas por um combo; `RecentSpendDto.by_combo` (`#[serde(default)]`); tabela "By combo"/"Por combo" no desktop e na web (tipos opcionais para hub antigo).
+- **Testes**: linha antiga sem combo + breakdown por combo (`spend.rs`), turno por combo grava o combo no ledger (`orchestrator`), dólares por combo no relatório do hub, roundtrip do protocolo; web 68 e desktop 123 passam, `tsc` limpo.
+- **Sobra do P126**: celular e extensão sem dólares por combo, o formato de `info.tokens` do opencode real e nada visto numa janela (P129).
+
+---
+
 ### 2026-10-14 — Sessão 209 (P126: painel de uso na extensão)
 
 - **Pedido do usuário**: "vamos com o painel da extensão". Planejado em plan mode.

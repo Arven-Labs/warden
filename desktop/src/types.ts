@@ -356,6 +356,8 @@ export interface RecentSpend {
   byProvider: SpendBucket[];
   byAgent: SpendBucket[];
   byPerson: SpendBucket[];
+  /** P126 — only the calls made through a combo; absent from a hub that does not tell them. */
+  byCombo?: SpendBucket[];
 }
 
 /** The Usage screen's limits and recent spending: `spend_status` here, the hub's `UsageReport` there. */

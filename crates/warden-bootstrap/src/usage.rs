@@ -463,7 +463,7 @@ mod tests {
     /// P10: dollars per day from the ledger, in the viewer's day, with empty days as zero and what had no price counted apart.
     #[test]
     fn daily_cost_buckets_the_ledgers_calls_by_the_viewers_day() {
-        let event = |ts: i64, cost_usd: Option<f64>| SpendEvent { ts: ts as u64, channel: "cli".into(), user: None, agent: None, model: "m".into(), tokens: 10, cost_usd, person: None, provider: None };
+        let event = |ts: i64, cost_usd: Option<f64>| SpendEvent { ts: ts as u64, channel: "cli".into(), user: None, agent: None, model: "m".into(), tokens: 10, cost_usd, person: None, provider: None, combo: None };
         let day = 20_721 * DAY_MS; // 2026-09-25T00:00Z
         let now = day + 12 * 3_600_000;
         let events = vec![

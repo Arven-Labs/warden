@@ -374,6 +374,7 @@ export default function UsageView({ conn, readOnly = false }: { conn: ServerConn
           <SpendTable title="Por provedor" buckets={report.recent.byProvider ?? []} keyLabel="Provedor" emptyLabel="sem provedor registrado" />
           <SpendTable title="Por agente" buckets={report.recent.byAgent ?? []} keyLabel="Agente" emptyLabel="sem agente" />
           {!readOnly && <SpendTable title="Por pessoa" buckets={report.recent.byPerson ?? []} keyLabel="Pessoa" emptyLabel="o dono" />}
+          <SpendTable title="Por combo" buckets={report.recent.byCombo ?? []} keyLabel="Combo" />
           <p className="skills-hint">
             “Por agente” é o agente com que o turno começou: as chamadas de um sub-agente delegado contam no agente que delegou. “Sem provedor registrado”
             são as chamadas de antes de o provedor passar a ser guardado.
