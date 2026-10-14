@@ -80,8 +80,9 @@ pub trait Tool: Send + Sync {
     }
 
     /// Whether this call, as things stand now, cannot replace or remove anything that exists (P122): a file write to a
-    /// path with nothing on it. Only ever relaxes `delete_data`; anything the tool can't tell is `false`.
-    fn only_creates(&self, _args: &Value) -> bool {
+    /// path with nothing on it. Only ever relaxes `delete_data`; anything the tool can't tell is `false`. Async because a
+    /// tool that works on another machine has to ask it.
+    async fn only_creates(&self, _args: &Value) -> bool {
         false
     }
 
@@ -333,8 +334,8 @@ impl Tool for NamespacedTool {
         self.inner.risk_hints()
     }
 
-    fn only_creates(&self, args: &Value) -> bool {
-        self.inner.only_creates(args)
+    async fn only_creates(&self, args: &Value) -> bool {
+        self.inner.only_creates(args).await
     }
 }
 

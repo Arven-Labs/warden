@@ -398,6 +398,17 @@ impl Tool for NodeFolderTool {
         Some(self.rebuilt(ctx))
     }
 
+    /// P122: asks the node whether the path has anything on it. Any doubt (no node, an old node without `exists`, a
+    /// timeout, a path outside the folder) is `false`, so the write is asked about as it always was.
+    async fn only_creates(&self, args: &Value) -> bool {
+        if !matches!(self.op, FolderOp::Write) {
+            return false;
+        }
+        let Ok(node) = self.ctx.pick(&self.node, Need::Files) else { return false };
+        let Some(path) = args.get("path").and_then(Value::as_str).and_then(|p| inside_folder(&self.path, p).ok()) else { return false };
+        call_node(&node, "exists", json!({ "path": path }), FILE_TIMEOUT).await.is_ok_and(|answer| answer.get("exists").and_then(Value::as_bool) == Some(false))
+    }
+
     async fn call(&self, args: Value) -> anyhow::Result<Value> {
         let name = self.spec().name;
         let result = self.run(&args).await;

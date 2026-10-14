@@ -6,6 +6,15 @@
 
 ---
 
+### 2026-10-14 — Sessão 206 (P122: `write_file` em nó remoto só pergunta quando substitui)
+
+- **Pedido do usuário**: "vamos com o P117". Ao ler a linha inteira, o P117 já estava feito (Sessões 117 a 123, 182); só sobrava teste com bot real (P129). O usuário escolheu então o resto do P122 "write_file em nó remoto". Planejado em plan mode.
+- **Feito**: `Tool::only_creates` virou `async` (`tool/mod.rs`, `rename_tool`, `WriteFileTool`, `FolderWriteTool`); `run_tool` só a consulta quando a categoria é `delete_data`. O nó (`LocalNode::run`) ganhou a op `exists` (`{ "exists": bool }`, usa `inside_shared` e `symlink_metadata`). `NodeFolderTool::only_creates` pergunta ao nó e só devolve `true` se a resposta for `exists == false`; erro, timeout, nó antigo e link que não resolve dão `false` (pergunta, como antes).
+- **Testes**: `exists_says_whether_anything_is_at_a_path_inside_the_shared_folder` (nó), `a_write_on_a_node_asks_for_delete_data_only_when_it_replaces_something` (hub real com nó; `spin_up_with(delete_asks)`), e os de `only_creates` do core com `.await`. `warden-server` (174 na lib e a bateria de integração), `warden-core` (520) e `warden-bootstrap --lib` (490) verdes; clippy sem aviso novo.
+- **Não feito**: corrida entre checar e escrever aceita; nada visto com modelo real nem numa janela (P129). Deslize meu: o teste do hub entrou por heredoc no Bash em vez do Edit; o conteúdo está no diff.
+
+---
+
 ### 2026-10-14 — Sessão 205 (P128: conferir o conserto do `dropping_releases_it`)
 
 - **Pedido do usuário**: "vamos com o P128". Planejado em plan mode.

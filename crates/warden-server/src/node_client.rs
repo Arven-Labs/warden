@@ -199,6 +199,14 @@ impl LocalNode {
                 let vault = self.files.as_ref().ok_or_else(|| anyhow::anyhow!("this node doesn't share files (start it with --files <folder>)"))?;
                 list_dirs(vault, args.get("path").and_then(Value::as_str).unwrap_or(""))
             }
+            "exists" => {
+                let vault = self.files.as_ref().ok_or_else(|| anyhow::anyhow!("this node doesn't share files (start it with --files <folder>)"))?;
+                let path = args.get("path").and_then(Value::as_str).unwrap_or("");
+                // A link is something there: writing through it would replace what it points to. One that can't be
+                // resolved, or leads out, is an error, and the hub treats an error as "don't know".
+                let there = inside_shared(vault, path)?.symlink_metadata().is_ok();
+                Ok(json!({ "exists": there }))
+            }
             "read_file" | "write_file" | "list_files" => {
                 let vault = self.files.as_ref().ok_or_else(|| anyhow::anyhow!("this node doesn't share files (start it with --files <folder>)"))?;
                 let path = args.get("path").and_then(Value::as_str).unwrap_or("");
@@ -587,6 +595,36 @@ mod tests {
         let via_link = LocalNode::new(false, Some(dir.join("lent")));
         assert_eq!(via_link.run("read_file", json!({ "path": "real/ok.txt" })).await.unwrap()["content"], "ok");
         assert!(via_link.run("read_file", json!({ "path": "file-link" })).await.is_err());
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[tokio::test]
+    async fn exists_says_whether_anything_is_at_a_path_inside_the_shared_folder() {
+        let dir = temp_dir().canonicalize().unwrap();
+        let shared = dir.join("shared");
+        std::fs::create_dir_all(shared.join("sub")).unwrap();
+        std::fs::write(shared.join("old.txt"), "x").unwrap();
+        let node = LocalNode::new(false, Some(shared.clone()));
+
+        assert_eq!(node.run("exists", json!({ "path": "old.txt" })).await.unwrap(), json!({ "exists": true }));
+        assert_eq!(node.run("exists", json!({ "path": "sub" })).await.unwrap(), json!({ "exists": true }));
+        assert_eq!(node.run("exists", json!({ "path": "new.txt" })).await.unwrap(), json!({ "exists": false }));
+        assert_eq!(node.run("exists", json!({ "path": "deep/er/new.txt" })).await.unwrap(), json!({ "exists": false }), "folders that don't exist yet");
+        for path in ["../out.txt", "/etc/passwd"] {
+            assert!(node.run("exists", json!({ "path": path })).await.is_err(), "{path}");
+        }
+        #[cfg(unix)]
+        {
+            // A link that can't be resolved (dangling) or leads out is refused, as a write through it is: the hub asks.
+            std::os::unix::fs::symlink(shared.join("nowhere"), shared.join("dangling")).unwrap();
+            assert!(node.run("exists", json!({ "path": "dangling" })).await.is_err());
+            std::os::unix::fs::symlink(shared.join("old.txt"), shared.join("link")).unwrap();
+            assert_eq!(node.run("exists", json!({ "path": "link" })).await.unwrap(), json!({ "exists": true }));
+            std::os::unix::fs::symlink(dir.join("outside"), shared.join("escape")).unwrap();
+            std::fs::create_dir_all(dir.join("outside")).unwrap();
+            assert!(node.run("exists", json!({ "path": "escape/x.txt" })).await.is_err());
+        }
+        assert!(LocalNode::new(true, None).run("exists", json!({ "path": "a" })).await.is_err());
         std::fs::remove_dir_all(&dir).ok();
     }
 

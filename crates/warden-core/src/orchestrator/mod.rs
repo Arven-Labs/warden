@@ -905,7 +905,13 @@ impl Orchestrator {
         let category = self.classifier.as_ref().and_then(|classify| classify(tool_call));
         // P122: a write that only creates a file takes nothing away, so it isn't "delete data".
         let category = match category {
-            Some(Category::DeleteData) if tool.only_creates(&tool_call.arguments) => None,
+            Some(Category::DeleteData) => {
+                if tool.only_creates(&tool_call.arguments).await {
+                    None
+                } else {
+                    category
+                }
+            }
             other => other,
         };
         crate::autonomy::authorize(self.autonomy, &self.read_only_tools, &self.approval_required, category, self.approver.as_ref(), tool_call).await?;
@@ -2101,7 +2107,7 @@ mod tests {
             fn spec(&self) -> ToolSpec {
                 ToolSpec { name: self.0.to_string(), description: String::new(), parameters: serde_json::json!({}) }
             }
-            fn only_creates(&self, _args: &Value) -> bool {
+            async fn only_creates(&self, _args: &Value) -> bool {
                 self.1
             }
             async fn call(&self, _args: Value) -> anyhow::Result<Value> {

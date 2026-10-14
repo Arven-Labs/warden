@@ -84,6 +84,11 @@ impl Hub {
 
 /// A hub with member Ana, who may work in `proj` of the node (and nothing else on it).
 async fn spin_up() -> Hub {
+    spin_up_with(false).await
+}
+
+/// `spin_up`, and with `delete_data` on the hub's agent when `delete_asks` (every `write_file` is that category).
+async fn spin_up_with(delete_asks: bool) -> Hub {
     std::env::set_var(warden_core::memory::embed::OFF_SWITCH, "1");
     static NEXT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
     let n = NEXT.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
@@ -103,6 +108,10 @@ async fn spin_up() -> Hub {
     orchestrator.register_tool(Arc::new(ReadFileTool::new(vault.clone())));
     orchestrator.register_tool(Arc::new(WriteFileTool::new(vault.clone())));
     orchestrator.register_tool(Arc::new(ShellTool::new(vault)));
+    if delete_asks {
+        let classify: warden_core::autonomy::Classifier = Arc::new(|call: &ToolCall| (call.name == "write_file").then_some(warden_core::autonomy::Category::DeleteData));
+        orchestrator = orchestrator.with_approval_rules(&[warden_core::autonomy::Category::DeleteData], Some(classify));
+    }
     let server = Server::bind("127.0.0.1:0".parse().unwrap(), KEY, "Test Hub", Arc::new(orchestrator), dir.join("conversations"), dir.join("devices.json"))
         .await
         .unwrap()
@@ -337,4 +346,27 @@ async fn a_member_only_browses_and_works_in_the_node_folders_the_owner_named_for
     let (reply, _) = say(&mut ana, "a1", "again", None, false).await;
     assert!(reply.starts_with("error:") && reply.contains("not a folder on a node you can work in"), "{reply}");
     assert!(dirs(&mut ana, None).await.unwrap().2.is_empty());
+}
+
+#[tokio::test]
+async fn a_write_on_a_node_asks_for_delete_data_only_when_it_replaces_something() {
+    let hub = spin_up_with(true).await;
+    let (mut me, _node) = owner_with_node(&hub).await;
+    let (reply, _) = say(&mut me, "c1", "hello", Some(&folder("proj")), false).await;
+    assert!(reply.contains("works in the folder 'proj'"), "{reply}");
+
+    // Nothing at the path: the node says so, nobody is asked, and the file is made.
+    let (reply, asked) = say(&mut me, "c1", "WRITE", None, false).await;
+    assert!(reply.contains("tool said") && !reply.contains("error"), "{reply}");
+    assert_eq!((asked, std::fs::read_to_string(hub.shared().join("proj/out.txt")).unwrap()), (0, "from the hub".to_string()));
+
+    // Now it would replace the file: the person is asked, and a no leaves it alone.
+    std::fs::write(hub.shared().join("proj/out.txt"), "mine").unwrap();
+    let (reply, asked) = say(&mut me, "c1", "WRITE", None, false).await;
+    assert_eq!(asked, 1);
+    assert!(reply.contains("said no"), "{reply}");
+    assert_eq!(std::fs::read_to_string(hub.shared().join("proj/out.txt")).unwrap(), "mine");
+    let (_, asked) = say(&mut me, "c1", "WRITE", None, true).await;
+    assert_eq!(asked, 1);
+    assert_eq!(std::fs::read_to_string(hub.shared().join("proj/out.txt")).unwrap(), "from the hub");
 }
