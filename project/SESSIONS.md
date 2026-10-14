@@ -2,7 +2,7 @@
 
 > **Nota**: Este log foi criado junto com o projeto. As sessões serão registradas aqui conforme o trabalho avança.
 >
-> Última atualização: 2026-10-13 (Sessão 193)
+> Última atualização: 2026-10-14 (Sessão 214)
 
 ---
 
@@ -10,7 +10,8 @@
 
 - **Pedido do usuário**: "vamos de P113", planejado em plan mode. **Decisão do usuário**: só o desktop. O celular fica de fora porque o app TruthID lê o `challenge` como mapa e um deep link só leva texto (mexer no TruthID está fora do escopo).
 - **Feito**: `ServerConnection::handshake_with_truthid` (e o tipo `ChallengeSink`); `RemoteCredential::TruthId` e `RemoteEvent::TruthIdChallenge` no `remote_client.rs`, com espera de 130 s, parada imediata durante a espera (`until_stopped`) e sem tentar de novo sozinho; no desktop, `CredentialPayload::Truthid`, o evento `remote-truthid-challenge` (QR em SVG feito no Rust), a terceira opção do `HubConnectDialog` (QR, texto, contagem regressiva, "New QR", cancelar) e o `App.tsx` concluindo quando o hub vira `connected`. Helpers puros em `hubMap.ts` (`qrSecondsLeft`, `truthIdProgress`).
-- **Testes**: `people.rs` (cliente de biblioteca: QR, aprovação, recusa), `remote_client.rs` (2), `remote_cmds.rs`, `hubMap.test.mjs` (3; `npm test` 126), `tsc` e build do desktop, clippy.
+- **Testes**: `people.rs` (cliente de biblioteca: QR, aprovação, recusa), `remote_client.rs` (2), `remote_cmds.rs`, `hubMap.test.mjs` (3; `npm test` 126), `tsc` e build do desktop, clippy sem aviso. Rodada completa de `warden-server-protocol`, `warden-server` e `desktop` (saída num arquivo, sem `head`): 41 binários de teste, nenhum falhou. Uma primeira rodada, cortada por um `head -40`, não valia como prova.
+- **Cache de build**: `target/debug/incremental` (16 GB) apagado e, em `target/debug/deps`, as cópias velhas de cada crate (3925 arquivos, mantida a mais nova), como no P74: `/home` foi de 94% para 73%. Esperei a rodada de testes acabar antes, para não quebrá-la.
 - **Sobra**: nunca visto num aparelho nem com o app TruthID real (P38, P129); o celular segue sem esse login.
 
 ---
