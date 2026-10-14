@@ -1541,6 +1541,28 @@ class LimitMeter {
   final bool exceeded;
 }
 
+/// One bucket of a token breakdown (P126): what an agent, a provider or a combo used. A null [key] is "no agent" / "the default provider".
+class UsageBucket {
+  const UsageBucket({required this.key, required this.calls, required this.tokens});
+
+  final String? key;
+
+  /// Model calls (assistant messages that carried usage).
+  final int calls;
+  final int tokens;
+
+  /// The buckets the hub sent under [field], in its order (biggest first); none from a hub that does not tell them.
+  static List<UsageBucket> listFrom(Map<String, dynamic> report, String field) => [
+        for (final bucket in (report[field] as List<dynamic>? ?? const []))
+          if (bucket is Map<String, dynamic>)
+            UsageBucket(
+              key: bucket['key'] as String?,
+              calls: (bucket['messageCount'] as num?)?.toInt() ?? 0,
+              tokens: ((bucket['usage'] as Map<String, dynamic>?)?['totalTokens'] as num?)?.toInt() ?? 0,
+            ),
+      ];
+}
+
 /// What the usage screen reads from the report (P99): the person's tokens and calls, a series per day with the dollars the ledger
 /// still holds, and the limits that apply to them.
 class UsageSummary {
@@ -1552,6 +1574,9 @@ class UsageSummary {
     required this.limits,
     required this.windowHours,
     required this.costInWindowUsd,
+    this.byAgent = const [],
+    this.byProvider = const [],
+    this.byCombo = const [],
   });
 
   final int totalTokens;
@@ -1567,6 +1592,11 @@ class UsageSummary {
 
   /// Dollars of the priced calls in that window; zero with no ledger.
   final double costInWindowUsd;
+
+  /// Tokens by the agent a turn started with, by the provider that answered and by the combo it went through (P126); empty from an older hub.
+  final List<UsageBucket> byAgent;
+  final List<UsageBucket> byProvider;
+  final List<UsageBucket> byCombo;
 
   static UsageSummary fromJson(Map<String, dynamic> report) {
     final costs = <String, double>{
@@ -1605,6 +1635,9 @@ class UsageSummary {
       ],
       windowHours: ((report['recent'] as Map<String, dynamic>?)?['windowHours'] as num?)?.toInt() ?? 0,
       costInWindowUsd: costs.values.fold(0.0, (sum, cost) => sum + cost),
+      byAgent: UsageBucket.listFrom(report, 'byAgent'),
+      byProvider: UsageBucket.listFrom(report, 'byProvider'),
+      byCombo: UsageBucket.listFrom(report, 'byCombo'),
     );
   }
 }

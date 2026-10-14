@@ -105,7 +105,55 @@ class _UsageScreenState extends State<UsageScreen> {
             subtitle: Text('${day.calls} ${day.calls == 1 ? 'call' : 'calls'}'),
             trailing: Text(day.costUsd != null && day.costUsd! > 0 ? '${_compact(day.tokens)} tokens · ${_usd(day.costUsd!)}' : '${_compact(day.tokens)} tokens'),
           ),
+      _Breakdown(title: 'By agent', prefix: 'agent', emptyLabel: 'No agent', buckets: summary.byAgent),
+      _Breakdown(title: 'By provider', prefix: 'provider', emptyLabel: 'Default provider', buckets: summary.byProvider),
+      _Breakdown(title: 'By combo', prefix: 'combo', emptyLabel: 'No combo', buckets: summary.byCombo),
     ];
+  }
+}
+
+/// Tokens by agent, provider or combo (P126): a bar per bucket against the biggest one. Nothing to show hides it (an older hub sends none).
+class _Breakdown extends StatelessWidget {
+  const _Breakdown({required this.title, required this.prefix, required this.emptyLabel, required this.buckets});
+
+  final String title;
+
+  /// Starts the rows' keys: `usage-<prefix>-<key>`, with `none` for the bucket that has no key.
+  final String prefix;
+  final String emptyLabel;
+  final List<UsageBucket> buckets;
+
+  @override
+  Widget build(BuildContext context) {
+    if (buckets.isEmpty) return const SizedBox.shrink();
+    final theme = Theme.of(context);
+    final biggest = buckets.map((b) => b.tokens).reduce((a, b) => a > b ? a : b);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const SizedBox(height: 24),
+        Text(title, key: Key('usage-$prefix-title'), style: theme.textTheme.titleMedium),
+        const SizedBox(height: 8),
+        for (final bucket in buckets)
+          Padding(
+            key: Key('usage-$prefix-${bucket.key ?? 'none'}'),
+            padding: const EdgeInsets.symmetric(vertical: 4),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Expanded(child: Text(bucket.key ?? emptyLabel, overflow: TextOverflow.ellipsis)),
+                    Text('${_compact(bucket.tokens)} tokens · ${bucket.calls} ${bucket.calls == 1 ? 'call' : 'calls'}', style: theme.textTheme.bodySmall),
+                  ],
+                ),
+                const SizedBox(height: 4),
+                LinearProgressIndicator(value: biggest > 0 ? bucket.tokens / biggest : 0, minHeight: 6),
+              ],
+            ),
+          ),
+      ],
+    );
   }
 }
 

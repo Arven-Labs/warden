@@ -3,7 +3,17 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:mobile/protocol/messages.dart';
 import 'package:mobile/screens/usage_screen.dart';
 
-UsageSummary _summary({List<LimitMeter> limits = const [], bool limitsEnabled = true}) => UsageSummary(
+UsageSummary _summary({
+  List<LimitMeter> limits = const [],
+  bool limitsEnabled = true,
+  List<UsageBucket> byAgent = const [],
+  List<UsageBucket> byProvider = const [],
+  List<UsageBucket> byCombo = const [],
+}) =>
+    UsageSummary(
+      byAgent: byAgent,
+      byProvider: byProvider,
+      byCombo: byCombo,
       totalTokens: 12500,
       calls: 7,
       days: const [
@@ -53,6 +63,33 @@ void main() {
 
     await _open(tester, () async => _summary());
     expect(find.text('No limit is set for you.'), findsOneWidget);
+  });
+
+  testWidgets('shows the tokens by agent, provider and combo, the bucket with no key by its own name (P126)', (tester) async {
+    await _open(
+      tester,
+      () async => _summary(
+        byAgent: const [UsageBucket(key: 'writer', calls: 2, tokens: 30000), UsageBucket(key: null, calls: 1, tokens: 15000)],
+        byProvider: const [UsageBucket(key: null, calls: 3, tokens: 45000)],
+        byCombo: const [UsageBucket(key: 'fast', calls: 1, tokens: 2500)],
+      ),
+    );
+    await tester.scrollUntilVisible(find.byKey(const Key('usage-combo-fast')), 200, scrollable: find.byType(Scrollable).first);
+
+    expect(find.byKey(const Key('usage-agent-title')), findsOneWidget);
+    expect(find.descendant(of: find.byKey(const Key('usage-agent-writer')), matching: find.text('30k tokens · 2 calls')), findsOneWidget);
+    expect(find.descendant(of: find.byKey(const Key('usage-agent-none')), matching: find.text('No agent')), findsOneWidget);
+    expect(find.descendant(of: find.byKey(const Key('usage-agent-none')), matching: find.text('15k tokens · 1 call')), findsOneWidget, reason: 'one call, singular');
+    expect(find.descendant(of: find.byKey(const Key('usage-provider-none')), matching: find.text('Default provider')), findsOneWidget);
+    expect(find.descendant(of: find.byKey(const Key('usage-combo-fast')), matching: find.text('2.5k tokens · 1 call')), findsOneWidget);
+    expect(tester.getTopLeft(find.byKey(const Key('usage-agent-writer'))).dy, lessThan(tester.getTopLeft(find.byKey(const Key('usage-agent-none'))).dy), reason: "the hub's order");
+  });
+
+  testWidgets('shows no breakdown at all for an older hub that sends none (P126)', (tester) async {
+    await _open(tester, () async => _summary());
+    for (final prefix in ['agent', 'provider', 'combo']) {
+      expect(find.byKey(Key('usage-$prefix-title')), findsNothing);
+    }
   });
 
   testWidgets("shows the hub's refusal instead of an empty screen", (tester) async {

@@ -254,6 +254,39 @@ void main() {
       expect([error.requestId, error.message], [10, 'your data is locked']);
     });
 
+    test('a usage report keeps the token breakdowns by agent, provider and combo, and reads an older hub as none (P126)', () {
+      final summary = (ServerMessage.decode(jsonEncode({
+        'type': 'usageReport',
+        'requestId': 11,
+        'report': {
+          'byAgent': [
+            {'key': 'writer', 'messageCount': 2, 'usage': {'totalTokens': 30}},
+            {'key': null, 'messageCount': 1, 'usage': {'totalTokens': 5}},
+            'not a bucket',
+          ],
+          'byProvider': [
+            {'key': 'main', 'messageCount': 3, 'usage': {'totalTokens': 35}},
+          ],
+          'byCombo': [
+            {'key': 'fast', 'messageCount': 2},
+          ],
+        },
+      })) as UsageReportMessage)
+          .summary!;
+      expect(summary.byAgent.map((b) => [b.key, b.calls, b.tokens]), [
+        ['writer', 2, 30],
+        [null, 1, 5],
+      ], reason: 'in the hub\'s order, the junk left out');
+      expect(summary.byProvider.map((b) => [b.key, b.calls, b.tokens]), [
+        ['main', 3, 35],
+      ]);
+      expect(summary.byCombo.map((b) => [b.key, b.calls, b.tokens]), [
+        ['fast', 2, 0],
+      ], reason: 'a bucket without usage counts no tokens');
+      final old = (ServerMessage.decode('{"type":"usageReport","requestId":12,"report":{}}') as UsageReportMessage).summary!;
+      expect([old.byAgent, old.byProvider, old.byCombo], [isEmpty, isEmpty, isEmpty]);
+    });
+
     test('a task list keeps what the hub sent', () {
       final msg = ServerMessage.decode(jsonEncode({
         'type': 'agentTaskList',

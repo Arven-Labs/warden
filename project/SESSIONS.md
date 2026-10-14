@@ -6,6 +6,16 @@
 
 ---
 
+### 2026-10-14 — Sessão 208 (P126: tokens por agente, provider e combo no celular)
+
+- **Pedido do usuário**: "limpa os cache tudo e vamos o do celular". Planejado em plan mode.
+- **Limpeza**: `target/debug/incremental` (18 GB, recriado pelos builds da sessão, que rodaram sem `CARGO_INCREMENTAL=0`) e os duplicados antigos de `target/debug/deps` (8,9 GB, fica o mais novo de cada grupo). `/home` foi de 88% para 73%, `target` de 40 GB para 15 GB. O Docker não foi tocado (os 28 GB recuperáveis de volumes podem ter dados seus, e o volume do pub cache do Flutter é usado aqui).
+- **Feito**: `UsageBucket` e `byAgent`/`byProvider`/`byCombo` no `UsageSummary` (`messages.dart`; item que não é mapa é ignorado, relatório sem os campos dá listas vazias); `UsageScreen` ganhou "By agent", "By provider" e "By combo" depois de "By day" (`_Breakdown`: rótulo, "N tokens · N call(s)" e barra contra o maior; a chave nula tem rótulo próprio; a lista vazia some).
+- **Testes**: `agents_messages_test.dart` (decodificação com e sem os campos), `usage_screen_test.dart` (as três listas, singular, ordem do hub, nada num hub antigo). `flutter analyze` limpo e `flutter test` 282, pelo Docker `mobile-flutter`.
+- **Não feito**: extensão (sem tela de uso); dólares por combo; nada visto num aparelho (P129).
+
+---
+
 ### 2026-10-14 — Sessão 207 (P126: tokens por agente, provider e combo no relatório do hub)
 
 - **Pedido do usuário**: "vamos com outro item do PENDING"; entre as opções escolheu o P126, "By combo" nos outros clientes, e depois o escopo hub + web + desktop em modo hub. Planejado em plan mode.
