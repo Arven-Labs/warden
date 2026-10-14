@@ -57,6 +57,8 @@ export type PopupRequest =
   | { type: "revokeGrant"; grant: Grant }
   /** P121 — the feed of activity. */
   | { type: "listActivity" }
+  /** P126 — the usage report, for the tokens by agent, provider and combo of the Uso part of the agents tab. */
+  | { type: "getUsage" }
   /** P123 — pauses, resumes or stops a task, with the hub's pairing key (asked every time, never kept). */
   | { type: "controlAgentTask"; pairingKey: string; taskId: string; action: AgentTaskAction }
   /** P120 — the agents with their roles, superiors and model limits, and the model policies. */
@@ -124,6 +126,13 @@ export interface DiscoverHubsResponse {
 export interface ActivityResponse {
   ok: boolean;
   events: ActivityEvent[];
+  error?: string;
+}
+
+/** Reply to `getUsage` (P126). */
+export interface UsageResponse {
+  ok: boolean;
+  usage: SpendReport | null;
   error?: string;
 }
 

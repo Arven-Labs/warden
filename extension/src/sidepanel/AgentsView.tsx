@@ -3,6 +3,7 @@ import ActivityView from "./ActivityView";
 import AgentTasksView from "./AgentTasksView";
 import GrantsSection from "./GrantsSection";
 import OrgView from "./OrgView";
+import UsageView from "./UsageView";
 
 /** P120, P123, P121 — a organização dos agentes, o trabalho que eles passam uns aos outros e o feed do que aconteceu, lado a lado. Um nó da
  * árvore abre as tarefas do agente (o filtro daqui) ou uma conversa nova com ele (quem monta esta tela decide como, porque o chat é de outra
@@ -16,7 +17,7 @@ export default function AgentsView({
   onOpenConversation: (conversationId: string) => void;
   onOpenChannel: (agent: string) => void;
 }) {
-  const [part, setPart] = useState<"org" | "tasks" | "activity">("org");
+  const [part, setPart] = useState<"org" | "tasks" | "activity" | "usage">("org");
   const [taskAgent, setTaskAgent] = useState<string | null>(null);
 
   return (
@@ -38,6 +39,9 @@ export default function AgentsView({
         <button type="button" className={part === "activity" ? "tab tab--active" : "tab"} onClick={() => setPart("activity")}>
           Atividade
         </button>
+        <button type="button" className={part === "usage" ? "tab tab--active" : "tab"} onClick={() => setPart("usage")}>
+          Uso
+        </button>
       </nav>
       {part === "org" ? (
         <OrgView
@@ -52,6 +56,8 @@ export default function AgentsView({
           <AgentTasksView agent={taskAgent} onClearAgent={() => setTaskAgent(null)} />
           <GrantsSection />
         </>
+      ) : part === "usage" ? (
+        <UsageView />
       ) : (
         <ActivityView
           onOpen={(to) => {

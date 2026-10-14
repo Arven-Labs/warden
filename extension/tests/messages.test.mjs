@@ -122,6 +122,19 @@ describe("decoding the delegated tasks", () => {
     assert.equal(decode(JSON.stringify({ type: "usageReport", requestId: 6, report: {} })).type, "usageReport");
   });
 
+  test("a usage report keeps the token totals and breakdowns by agent, provider and combo (P126)", () => {
+    const entry = (key, messageCount, totalTokens) => ({ key, messageCount, usage: { totalTokens } });
+    const report = {
+      total: { totalTokens: 35 },
+      messageCount: 3,
+      byAgent: [entry("writer", 2, 30), entry(null, 1, 5)],
+      byProvider: [entry("main", 3, 35)],
+      byCombo: [entry("fast", 2, 30)],
+    };
+    const reply = decode(JSON.stringify({ type: "usageReport", requestId: 7, report }));
+    assert.deepEqual(reply.report, report);
+  });
+
   test("a grant list keeps the \"always\" permissions as the hub sent them (P122)", () => {
     const grants = [{ conversationId: "c1", agentId: "chief", covers: "delete_data" }, { conversationId: "c1", covers: "shell" }];
     const reply = decode(JSON.stringify({ type: "grantList", requestId: 6, grants, ttlDays: 7 }));

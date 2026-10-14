@@ -611,6 +611,14 @@ async function handleRequest(request: PopupRequest): Promise<unknown> {
         return { ok: false, events: [], error: err instanceof Error ? err.message : String(err) };
       }
 
+    case "getUsage":
+      if (!connection || connection.status.kind !== "connected") return { ok: false, usage: null, error: "not connected" };
+      try {
+        return { ok: true, usage: await connection.requestUsage() };
+      } catch (err) {
+        return { ok: false, usage: null, error: err instanceof Error ? err.message : String(err) };
+      }
+
     case "listHubAgents":
     case "editAgentOrg":
       if (!connection || connection.status.kind !== "connected") return { ok: false, error: "not connected" };

@@ -717,6 +717,29 @@ button:hover:not(:disabled) {
   margin-bottom: 0.25rem;
 }
 
+/* Uso (P126): os totais e as barras de tokens por agente, provedor e combo. */
+.usage-totals {
+  margin: 0;
+}
+
+.usage-block {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.usage-row {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+.usage-row-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
 .agents-subtitle {
   margin: 0.5rem 0 0;
   font-size: 0.9rem;

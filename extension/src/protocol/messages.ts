@@ -303,6 +303,19 @@ export type ChatEventDto =
  * `recent`, or none of `byAgent`; an empty `key` is a call with no agent chosen. */
 export interface SpendReport {
   recent?: { windowHours: number; byAgent?: { key: string; costUsd: number; unpricedCalls: number }[] } | null;
+  /** P126 — the tokens of every conversation the hub keeps, and by agent, provider and combo; an older hub sends no breakdown. */
+  total?: { totalTokens: number };
+  messageCount?: number;
+  byAgent?: UsageByKey[];
+  byProvider?: UsageByKey[];
+  byCombo?: UsageByKey[];
+}
+
+/** P126 — one bucket of a token breakdown. A `null` key is "no agent" / "the default provider". */
+export interface UsageByKey {
+  key: string | null;
+  messageCount: number;
+  usage: { totalTokens: number };
 }
 
 export type ServerMessage =

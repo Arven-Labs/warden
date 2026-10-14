@@ -6,6 +6,15 @@
 
 ---
 
+### 2026-10-14 — Sessão 209 (P126: painel de uso na extensão)
+
+- **Pedido do usuário**: "vamos com o painel da extensão". Planejado em plan mode.
+- **Feito**: `SpendReport` ganhou `total`, `messageCount`, `byAgent`, `byProvider` e `byCombo` (`UsageByKey`); o fundo atende `getUsage` com o `requestUsage` que já existia (`UsageResponse`); a subaba "Uso" da aba Agentes (`UsageView.tsx`) mostra os totais e três blocos com barras (reaproveita `formatTokens` e as classes `agent-work-bar`), atualiza a cada 10 s e avisa quando o hub é antigo e não manda as listas. Lógica de linhas no módulo puro `lib/usageBreakdown.ts`, espelho do da web.
+- **Testes**: `usageBreakdown.test.mjs` (4) e um caso novo em `messages.test.mjs`; `npm test` 105, `tsc --noEmit` e build limpos (o `dist` que o build deixou foi apagado).
+- **Com isto o P126 fica sem pendência de tela**: sobram os dólares por combo (o ledger não grava o combo), o formato de `info.tokens` do opencode real e nada visto numa janela (P129).
+
+---
+
 ### 2026-10-14 — Sessão 208 (P126: tokens por agente, provider e combo no celular)
 
 - **Pedido do usuário**: "limpa os cache tudo e vamos o do celular". Planejado em plan mode.
