@@ -18,7 +18,7 @@ use serde_json::{json, Value};
 use warden_bootstrap::{load_config_from_path, NodeAccessConfig};
 use warden_core::orchestrator::Orchestrator;
 use warden_core::tool::ssh::AuditLog;
-use warden_core::tool::{ApprovalRequest, Approver, Tool, ToolSpec};
+use warden_core::tool::{ApprovalRequest, Approver, RiskHints, Tool, ToolSpec};
 
 use crate::device_registry::{PairingStatus, PairingStore};
 use crate::nodes::{ConnectedNode, NodeRegistry};
@@ -196,7 +196,8 @@ impl NodeToolFactory {
                 let mut offered = spec.clone();
                 offered.name = name;
                 offered.description = format!("On node '{}': {}", node.name, spec.description);
-                tools.push(Arc::new(NodeMcpTool { ctx: self.ctx.clone(), node_id: id.clone(), remote_name: spec.name.clone(), spec: offered }));
+                let hints = node.offer.mcp_hints.get(&spec.name).copied();
+                tools.push(Arc::new(NodeMcpTool { ctx: self.ctx.clone(), node_id: id.clone(), remote_name: spec.name.clone(), spec: offered, hints }));
             }
         }
         tools
@@ -675,6 +676,8 @@ pub struct NodeMcpTool {
     /// The name on the node.
     remote_name: String,
     spec: ToolSpec,
+    /// What the node's MCP server said about the tool, as the node offered it.
+    hints: Option<RiskHints>,
 }
 
 impl NodeMcpTool {
@@ -692,17 +695,21 @@ impl Tool for NodeMcpTool {
     fn scoped_to_agent(&self, agent: Option<&str>) -> Option<Arc<dyn Tool>> {
         let mut ctx = self.ctx.clone();
         ctx.agent = agent.map(str::to_string);
-        Some(Arc::new(Self { ctx, node_id: self.node_id.clone(), remote_name: self.remote_name.clone(), spec: self.spec.clone() }))
+        Some(Arc::new(Self { ctx, node_id: self.node_id.clone(), remote_name: self.remote_name.clone(), spec: self.spec.clone(), hints: self.hints }))
     }
 
     fn with_approver(&self, approver: Arc<dyn Approver>) -> Option<Arc<dyn Tool>> {
         let mut ctx = self.ctx.clone();
         ctx.approver = Some(approver);
-        Some(Arc::new(Self { ctx, node_id: self.node_id.clone(), remote_name: self.remote_name.clone(), spec: self.spec.clone() }))
+        Some(Arc::new(Self { ctx, node_id: self.node_id.clone(), remote_name: self.remote_name.clone(), spec: self.spec.clone(), hints: self.hints }))
     }
 
     fn is_available(&self) -> bool {
         self.usable().is_some()
+    }
+
+    fn risk_hints(&self) -> Option<RiskHints> {
+        self.hints
     }
 
     async fn call(&self, args: Value) -> anyhow::Result<Value> {

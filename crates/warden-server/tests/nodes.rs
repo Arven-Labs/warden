@@ -150,6 +150,10 @@ impl warden_core::tool::Tool for EchoText {
     async fn call(&self, args: serde_json::Value) -> anyhow::Result<serde_json::Value> {
         Ok(json!({ "echoed": args["text"] }))
     }
+
+    fn risk_hints(&self) -> Option<warden_core::tool::RiskHints> {
+        Some(warden_core::tool::RiskHints { destructive: Some(true), ..Default::default() })
+    }
 }
 
 /// Starts the node in the background; aborting the handle drops its connection.
@@ -319,6 +323,8 @@ async fn a_nodes_mcp_tools_come_and_go_with_it() {
     wait_online(&mut web, true).await;
     let offer = nodes(&mut web).await.into_iter().find(|n| n.device_id == NODE).unwrap().offer.unwrap();
     assert_eq!(offer.mcp_tools[0].name, "echo_text");
+    // What the lending server says about the tool crosses to the hub with it.
+    assert_eq!(offer.mcp_hints.get("echo_text").and_then(|h| h.destructive), Some(true));
 
     // Nothing before it's approved and allowed.
     chat(&mut web, "hello", "ops", false).await;

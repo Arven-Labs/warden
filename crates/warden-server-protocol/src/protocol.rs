@@ -5,7 +5,8 @@ use warden_core::model::{Attachment, Message, StreamEvent, Usage};
 use warden_core::project::Project;
 use warden_core::skill::Skill;
 use warden_core::spend::{LimitStatus, Price, SpendBreakdown, SpendBucket, SpendGuard};
-use warden_core::tool::ToolSpec;
+use warden_core::tool::{RiskHints, ToolSpec};
+use std::collections::BTreeMap;
 
 /// A skill (P16) on the wire — what the browser extension's Skills screen lists and edits over
 /// `ListSkills`/`SaveSkill`. `agents` is `#[serde(default)]` so a client that never touches the
@@ -430,6 +431,10 @@ pub struct NodeOfferDto {
     /// them. The hub offers each as a tool of its own, `<node>__<tool>`.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub mcp_tools: Vec<ToolSpec>,
+    /// What each of those MCP servers says about its tool (`annotations`), by the tool's name on the node. A tool that
+    /// says nothing is not here; a node from before this field sends none, and its tools are classified by name only.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub mcp_hints: BTreeMap<String, RiskHints>,
     /// Model providers this node lends (fatia 3), by their id on the node. A hub reaches one through
     /// a `[[providers]]` entry with `kind = "node"`.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -3923,7 +3928,11 @@ mod tests {
         )
         .unwrap();
         let ClientMessage::Hello { node: Some(offer), .. } = hello else { panic!("{hello:?}") };
-        assert_eq!(offer, NodeOfferDto { description: "PC".into(), tags: vec!["gpu".into()], shell: true, files: false, mcp_tools: vec![], models: vec![] });
+        assert_eq!(offer, NodeOfferDto { description: "PC".into(), tags: vec!["gpu".into()], shell: true, files: false, mcp_tools: vec![], mcp_hints: BTreeMap::new(), models: vec![] });
+
+        let hinted: NodeOfferDto = serde_json::from_str(r#"{"description":"PC","tags":[],"shell":false,"files":false,"mcpHints":{"drop_table":{"destructive":true}}}"#).unwrap();
+        assert_eq!(hinted.mcp_hints["drop_table"], RiskHints { destructive: Some(true), ..Default::default() });
+        assert!(serde_json::to_string(&NodeOfferDto::default()).unwrap().find("mcpHints").is_none(), "none to say, none sent");
 
         let event: ClientMessage = serde_json::from_str(r#"{"type":"modelEvent","requestId":4,"event":{"kind":"content_delta","data":"Olá"}}"#).unwrap();
         assert!(matches!(event, ClientMessage::ModelEvent { request_id: 4, event: StreamEvent::ContentDelta(ref t) } if t == "Olá"));

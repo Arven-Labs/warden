@@ -45,6 +45,16 @@ pub fn builtin_category(name: &str, arguments: &Value) -> Option<Category> {
             _ => Some(Category::ImportantConfig),
         },
         "browser_click_element" | "browser_navigate" => Some(Category::ExternalMessage),
+        // Reaching the person on their channels, or leaving another agent a message that sets it working; collecting an answer sends nothing.
+        "message_user" => Some(Category::ExternalMessage),
+        "message_agent" => match action {
+            "read" => None,
+            _ => Some(Category::ExternalMessage),
+        },
+        // A skill is instructions every later turn of the agents it applies to will follow.
+        "manage_skill" => Some(Category::ImportantConfig),
+        // The call carries no word on whether the file already exists, so every write counts as a possible overwrite.
+        "write_file" => Some(Category::DeleteData),
         _ => None,
     }
 }
@@ -109,9 +119,21 @@ mod tests {
         for name in ["shell", "ssh_exec", "ssh_upload", "ssh_download", "node_shell", "node_write_file", "pc__shell", "code_task"] {
             assert_eq!(builtin_category(name, &json!({})), Some(Category::CriticalInfra), "{name}");
         }
-        for name in ["read_file", "write_file", "use_skill", "list_nodes", "node_read_file", "delegate_task", "message_agent"] {
+        for name in ["read_file", "use_skill", "list_nodes", "node_read_file", "delegate_task"] {
             assert_eq!(builtin_category(name, &json!({})), None, "{name}");
         }
+    }
+
+    #[test]
+    fn reaching_someone_changing_a_skill_and_writing_a_file_have_a_category() {
+        assert_eq!(builtin_category("message_user", &json!({ "message": "hi" })), Some(Category::ExternalMessage));
+        assert_eq!(builtin_category("message_agent", &json!({ "action": "send" })), Some(Category::ExternalMessage));
+        assert_eq!(builtin_category("message_agent", &json!({ "action": "read" })), None);
+        for action in ["create", "update", "patch"] {
+            assert_eq!(builtin_category("manage_skill", &json!({ "action": action })), Some(Category::ImportantConfig), "{action}");
+        }
+        assert_eq!(builtin_category("write_file", &json!({ "path": "a.md", "content": "x" })), Some(Category::DeleteData));
+        assert_eq!(builtin_category("pc__write_file", &json!({})), Some(Category::DeleteData));
     }
 
     #[test]

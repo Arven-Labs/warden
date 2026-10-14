@@ -130,6 +130,7 @@ impl LocalNode {
             shell: self.shell.is_some(),
             files: self.files.is_some(),
             mcp_tools: self.mcp.iter().map(|t| t.spec()).collect(),
+            mcp_hints: self.mcp.iter().filter_map(|t| Some((t.spec().name, t.risk_hints()?))).collect(),
             models: self.models.iter().map(|(id, _)| id.clone()).collect(),
         }
     }

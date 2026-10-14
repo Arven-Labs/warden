@@ -164,7 +164,8 @@ impl ApprovalRequest {
 
 /// What a tool's own provider says about how risky it is (an MCP server's `annotations`). Advice from the server, not a
 /// guarantee: a tool that says nothing is `None`, never "safe".
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct RiskHints {
     pub read_only: Option<bool>,
     pub destructive: Option<bool>,
