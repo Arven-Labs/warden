@@ -22,6 +22,8 @@ export function headline(event: ActivityEvent): string {
       return `${actor} criou o agente ${target}`;
     case "removed_agent":
       return `${actor} removeu o agente ${target}`;
+    case "updated_agent":
+      return `${actor} alterou o agente ${target}`;
     case "scheduled_ran":
       return `${actor} rodou a tarefa agendada ${target}`;
     case "scheduled_failed":
@@ -70,6 +72,8 @@ export function mark(kind: string): string {
       return "+";
     case "removed_agent":
       return "−";
+    case "updated_agent":
+      return "~";
     case "scheduled_ran":
       return "⏱";
     case "webhook_ran":

@@ -17,7 +17,7 @@ pub const MAX_CHANGES: usize = 200;
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AgentChange {
     pub at_ms: u64,
-    /// `created` or `removed`.
+    /// `created`, `removed`, or `updated` (an edit nobody approved, made by a manager at level 5).
     pub kind: String,
     /// The agent that made the change; empty for the assistant with no agent.
     pub actor: String,

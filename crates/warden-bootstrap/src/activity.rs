@@ -33,7 +33,7 @@ pub struct ActivityEvent {
     pub id: String,
     pub at_ms: u64,
     /// `delegated`, `started`, `done`, `failed`, `cancelled`, `note`, `reply`, `messaged_user`, `created_agent`, `removed_agent`,
-    /// `scheduled_ran`, `scheduled_failed`, `webhook_ran` or `webhook_failed`.
+    /// `updated_agent`, `scheduled_ran`, `scheduled_failed`, `webhook_ran` or `webhook_failed`.
     pub kind: &'static str,
     /// The agent that did it.
     pub actor: String,
@@ -194,6 +194,7 @@ pub fn change_events(changes: &[AgentChange]) -> Vec<ActivityEvent> {
             let kind = match change.kind.as_str() {
                 "created" => "created_agent",
                 "removed" => "removed_agent",
+                "updated" => "updated_agent",
                 _ => return None,
             };
             Some(ActivityEvent {
@@ -463,6 +464,7 @@ mod tests {
         let changes = [
             AgentChange { at_ms: 100, kind: "created".into(), actor: "chief".into(), agent: "poet".into(), detail: "Poet".into() },
             AgentChange { at_ms: 300, kind: "removed".into(), actor: "chief".into(), agent: "poet".into(), detail: String::new() },
+            AgentChange { at_ms: 250, kind: "updated".into(), actor: "chief".into(), agent: "poet".into(), detail: "persona, role".into() },
             AgentChange { at_ms: 400, kind: "renamed".into(), actor: "chief".into(), agent: "x".into(), detail: String::new() },
         ];
         let run = run_conversation("task-daily", Some("poet"), vec![message("m1", ChatRole::User, "[Scheduled task 'daily', now]", 199), message("m2", ChatRole::Assistant, "a poem", 200)]);
@@ -470,10 +472,16 @@ mod tests {
         let summary: Vec<_> = feed.iter().map(|e| (e.kind, e.actor.as_str(), e.target.as_deref())).collect();
         assert_eq!(
             summary,
-            [("removed_agent", "chief", Some("poet")), ("scheduled_ran", "poet", Some("daily")), ("created_agent", "chief", Some("poet"))],
+            [
+                ("removed_agent", "chief", Some("poet")),
+                ("updated_agent", "chief", Some("poet")),
+                ("scheduled_ran", "poet", Some("daily")),
+                ("created_agent", "chief", Some("poet"))
+            ],
             "newest first; a kind the feed does not know is left out"
         );
-        assert_eq!(feed[2].text, "Poet");
+        assert_eq!(feed[1].text, "persona, role");
+        assert_eq!(feed[3].text, "Poet");
     }
 
     #[test]

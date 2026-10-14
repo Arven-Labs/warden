@@ -257,7 +257,8 @@ impl ManageAgentsTool {
         Ok(json!({ "status": "ok", "message": message }))
     }
 
-    /// P121: an agent created or removed goes to the feed of activity, next to the config it was saved in. An edit does not.
+    /// P121: an agent created or removed goes to the feed of activity, next to the config it was saved in. An edit does only
+    /// when nobody approved it (level 5).
     fn record_change(&self, change: &Change) {
         let preview = |persona: &str, role: Option<&String>| role.cloned().unwrap_or_else(|| persona.chars().take(LIST_PERSONA_PREVIEW_CHARS).collect());
         // A replacement is two lines in the feed, the one that came in and the one that left, so no client needs a new kind.
@@ -266,6 +267,18 @@ impl ManageAgentsTool {
             Change::Delete { id } => vec![("removed", id.clone(), String::new())],
             Change::Replace { id, new_id, persona, role, .. } => {
                 vec![("created", new_id.clone(), preview(persona, role.as_ref().and_then(Option::as_ref))), ("removed", id.clone(), String::new())]
+            }
+            // An edit a person said yes to is not written, as before; one made at level 5 had nobody's yes, so it is.
+            Change::Update { id, persona, provider_id, allowed_tools, role, reports_to } if self.manages_alone() => {
+                let touched = [
+                    ("persona", persona.is_some()),
+                    ("provider", provider_id.is_some()),
+                    ("tools", allowed_tools.is_some()),
+                    ("role", role.is_some()),
+                    ("reports_to", reports_to.is_some()),
+                ];
+                let fields: Vec<&str> = touched.into_iter().filter_map(|(name, changed)| changed.then_some(name)).collect();
+                vec![("updated", id.clone(), fields.join(", "))]
             }
             Change::Update { .. } => return,
         };
@@ -1621,6 +1634,27 @@ mod tests {
 
         assert!(approver.asked.lock().unwrap().is_empty(), "refused before anyone was asked");
         assert_eq!(agents_on_disk(&path), before, "nothing was written");
+    }
+
+    #[tokio::test]
+    async fn an_edit_with_nobody_to_approve_it_goes_to_the_feed_and_one_a_person_approved_does_not() {
+        let path = organization();
+        let log = crate::agent_changes::beside(&path);
+        let (asked_tool, approver) = manager_at(&path, 4, true);
+        asked_tool.call(json!({ "action": "update", "id": "a11", "role": "Approved" })).await.unwrap();
+        assert_eq!(approver.asked.lock().unwrap().len(), 1);
+        assert!(crate::agent_changes::read_agent_changes(&log).is_empty(), "a person said yes, so it is not news");
+
+        let (alone, approver) = manager_at(&path, 5, false);
+        alone.call(json!({ "action": "update", "id": "a11", "role": "Moved", "persona": "new persona" })).await.unwrap();
+        assert!(approver.asked.lock().unwrap().is_empty());
+        let changes = crate::agent_changes::read_agent_changes(&log);
+        let seen: Vec<(&str, &str, &str, &str)> = changes.iter().map(|c| (c.kind.as_str(), c.actor.as_str(), c.agent.as_str(), c.detail.as_str())).collect();
+        assert_eq!(seen, vec![("updated", "a", "a11", "persona, role")]);
+
+        // One that can't succeed is not written.
+        alone.call(json!({ "action": "update", "id": "boss", "role": "Nope" })).await.unwrap_err();
+        assert_eq!(crate::agent_changes::read_agent_changes(&log).len(), 1);
     }
 
     #[tokio::test]

@@ -21,6 +21,7 @@ String activityHeadline(ActivityEvent event) {
   return switch (event.kind) {
     'created_agent' => '$actor created the agent $target',
     'removed_agent' => '$actor removed the agent $target',
+    'updated_agent' => '$actor changed the agent $target',
     'scheduled_ran' => '$actor ran the scheduled task $target',
     'scheduled_failed' => 'The scheduled task $target failed',
     'webhook_ran' => '$actor answered the webhook $target',
@@ -46,6 +47,7 @@ String activityMark(String kind) => switch (kind) {
       'cancelled' => '■',
       'created_agent' => '+',
       'removed_agent' => '−',
+      'updated_agent' => '~',
       'scheduled_ran' => '⏱',
       'webhook_ran' => '⚡',
       'note' || 'reply' => '✉',

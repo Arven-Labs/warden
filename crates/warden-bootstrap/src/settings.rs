@@ -252,6 +252,10 @@ pub fn check_agents(agents: Vec<AgentConfig>, providers: &[ProviderConfig], comb
         if warden_core::autonomy::Autonomy::from_level(a.autonomy).is_none() {
             return Err(format!("agent '{id}' has autonomy {}: pick a level from 1 to 5", a.autonomy));
         }
+        // P122: level 5 is a manager's level, and only `manage_agents` reads it.
+        if a.autonomy == warden_core::autonomy::Autonomy::Manager.level() && !a.can_manage_agents {
+            return Err(format!("agent '{id}' is at level 5 but can't manage agents: turn that permission on, or pick a lower level"));
+        }
         // P120: a blank role or superior is none, and a stray space doesn't make a different id.
         let role = a.role.as_deref().and_then(non_empty);
         let reports_to = a.reports_to.as_deref().and_then(non_empty);
@@ -1201,13 +1205,20 @@ mod tests {
 
     #[test]
     fn an_agent_autonomy_is_a_level_from_one_to_five() {
-        for level in 1..=5 {
+        for level in 1..=4 {
             assert!(check_agents(vec![AgentConfig { autonomy: level, ..agent("a") }], &[], &[]).is_ok());
         }
+        assert!(check_agents(vec![AgentConfig { autonomy: 5, can_manage_agents: true, ..agent("a") }], &[], &[]).is_ok());
         for level in [0, 6, 200] {
             let err = check_agents(vec![AgentConfig { autonomy: level, ..agent("a") }], &[], &[]).unwrap_err();
             assert!(err.contains("autonomy") && err.contains("1 to 5"), "{err}");
         }
+    }
+
+    #[test]
+    fn level_five_needs_the_permission_to_manage_agents() {
+        let err = check_agents(vec![AgentConfig { autonomy: 5, can_manage_agents: false, ..agent("boss") }], &[], &[]).unwrap_err();
+        assert!(err.contains("boss") && err.contains("level 5") && err.contains("manage agents"), "{err}");
     }
 
     #[test]

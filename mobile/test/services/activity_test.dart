@@ -25,6 +25,7 @@ void main() {
     test('tells agents made or removed by another, and the runs of scheduled tasks and webhooks', () {
       expect(activityHeadline(_event('created_agent', 'chief', target: 'poet')), 'chief created the agent poet');
       expect(activityHeadline(_event('removed_agent', 'chief', target: 'poet')), 'chief removed the agent poet');
+      expect(activityHeadline(_event('updated_agent', 'chief', target: 'poet')), 'chief changed the agent poet');
       expect(activityHeadline(_event('scheduled_ran', 'reporter', target: 'daily')), 'reporter ran the scheduled task daily');
       expect(activityHeadline(_event('scheduled_failed', 'reporter', target: 'daily')), 'The scheduled task daily failed');
       expect(activityHeadline(_event('webhook_ran', '', target: 'build')), 'The assistant answered the webhook build');
@@ -34,7 +35,7 @@ void main() {
     test('every kind has a mark, and an unknown one still reads', () {
       for (final kind in [
         'delegated', 'started', 'done', 'failed', 'cancelled', 'note', 'reply', 'messaged_user', //
-        'created_agent', 'removed_agent', 'scheduled_ran', 'scheduled_failed', 'webhook_ran', 'webhook_failed',
+        'created_agent', 'removed_agent', 'updated_agent', 'scheduled_ran', 'scheduled_failed', 'webhook_ran', 'webhook_failed',
       ]) {
         expect(activityMark(kind), isNot('·'), reason: kind);
       }

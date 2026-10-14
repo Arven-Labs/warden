@@ -23,6 +23,7 @@ describe("the sentence of an event", () => {
   test("tells agents made or removed by another, and the runs of scheduled tasks and webhooks", () => {
     assert.equal(headline(event("created_agent", "chief", { target: "poet" })), "chief created the agent poet");
     assert.equal(headline(event("removed_agent", "chief", { target: "poet" })), "chief removed the agent poet");
+    assert.equal(headline(event("updated_agent", "chief", { target: "poet" })), "chief changed the agent poet");
     assert.equal(headline(event("scheduled_ran", "reporter", { target: "daily" })), "reporter ran the scheduled task daily");
     assert.equal(headline(event("scheduled_failed", "reporter", { target: "daily" })), "The scheduled task daily failed");
     assert.equal(headline(event("webhook_ran", "", { target: "build" })), "The assistant answered the webhook build");
@@ -30,7 +31,7 @@ describe("the sentence of an event", () => {
   });
 
   test("every kind has a mark, and an unknown one still reads", () => {
-    const kinds = ["delegated", "started", "done", "failed", "cancelled", "note", "reply", "messaged_user", "created_agent", "removed_agent", "scheduled_ran", "scheduled_failed", "webhook_ran", "webhook_failed"];
+    const kinds = ["delegated", "started", "done", "failed", "cancelled", "note", "reply", "messaged_user", "created_agent", "removed_agent", "updated_agent", "scheduled_ran", "scheduled_failed", "webhook_ran", "webhook_failed"];
     for (const kind of kinds) assert.notEqual(mark(kind), "·");
     assert.equal(mark("later"), "·");
     assert.equal(headline(event("later", "x")), "x: later");

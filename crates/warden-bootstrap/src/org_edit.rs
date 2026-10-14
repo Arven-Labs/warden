@@ -76,6 +76,9 @@ pub fn apply_org_edit(config: &mut FileConfig, edit: &AgentOrgEdit) -> Result<()
             }
             let categories = categories_from_ids(approval_required)?;
             let agent = agents.iter_mut().find(|a| a.owner.is_none() && &a.id == id).ok_or_else(|| format!("no agent named '{id}'"))?;
+            if *autonomy == Autonomy::Manager.level() && !agent.can_manage_agents {
+                return Err(format!("agent '{id}' is at level 5 but can't manage agents: turn that permission on, or pick a lower level"));
+            }
             agent.autonomy = *autonomy;
             agent.can_start_tasks = *can_start_tasks;
             agent.can_create_workers = *can_create_workers;
@@ -355,6 +358,19 @@ mod tests {
         assert_eq!(config.agents.iter().find(|a| a.id == "dev").unwrap().approval_required, vec![Category::PublishCode]);
         apply_org_edit(&mut config, &powers("dev", 4, &[])).unwrap();
         assert!(config.agents.iter().find(|a| a.id == "dev").unwrap().approval_required.is_empty());
+    }
+
+    #[test]
+    fn level_five_is_only_for_an_agent_that_can_manage_agents() {
+        let mut config = config();
+        let before = config.agents.clone();
+        let err = apply_org_edit(&mut config, &powers("dev", 5, &[])).unwrap_err();
+        assert!(err.contains("level 5") && err.contains("manage agents"), "{err}");
+        assert_eq!(config.agents, before, "nothing changed");
+
+        config.agents.iter_mut().find(|a| a.id == "dev").unwrap().can_manage_agents = true;
+        apply_org_edit(&mut config, &powers("dev", 5, &[])).unwrap();
+        assert_eq!(config.agents.iter().find(|a| a.id == "dev").unwrap().autonomy, 5);
     }
 
     #[test]

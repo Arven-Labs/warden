@@ -6,6 +6,16 @@
 
 ---
 
+### 2026-10-14 — Sessão 203 (P122: os dois restos do nível 5)
+
+- **Pedido do usuário**: "vamos com o nível 5". Eu o havia listado como inexistente por engano: ele já existe desde a Sessão 180 (`Autonomy::Manager`). Perguntei, e o usuário escolheu os dois restos que a Sessão 180 deixou: exigir `can_manage_agents` e registrar no feed as edições do gerente. Planejado em plan mode.
+- **Feito**: `check_agents` e `SetPowers` recusam o nível 5 em agente sem `can_manage_agents`. `record_change` grava `updated` (com os campos mudados, sem o conteúdo) quando a edição é de um gerente no 5, isto é, sem o "sim" de ninguém; a edição aprovada por uma pessoa segue fora do feed. `change_events` vira `updated_agent`, e `headline`/`mark` dos quatro clientes (web e extensão em português, desktop e celular em inglês, marca `~`) conhecem o tipo.
+- **Testes**: `settings.rs` (5 sem permissão recusado, com permissão passa), `org_edit.rs`, `manage_agents.rs` (aprovada não vai ao feed, no 5 vai, falha não grava), `activity.rs`; `activity.test.mjs` nos três front-ends (13 cada) e `activity_test.dart` pelo Docker. `cargo test -p warden-bootstrap --lib` (490), `org_access` e clippy sem aviso novo.
+- **Efeito a saber**: uma config já salva com nível 5 sem a permissão passa a falhar em qualquer salvamento da lista de agentes, com a mensagem apontando o agente.
+- **Não feito**: nenhuma tela foi vista numa janela (P129).
+
+---
+
 ### 2026-10-14 — Sessão 202 (P122: `write_file` só pergunta quando substitui)
 
 - **Pedido do usuário**: "vamos com o item 3" (quem liga `delete_data` era perguntado a cada `write_file`). Planejado em plan mode.
