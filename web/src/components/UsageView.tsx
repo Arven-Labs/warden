@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import type { ServerConnection } from "../hub/connection";
-import type { LimitStatus, SpendBucket, UsageReport } from "../hub/messages";
+import type { LimitStatus, SpendBucket, UsageByKey, UsageReport } from "../hub/messages";
+import { breakdownRows } from "../hub/usageBreakdown";
 
 // Usage across the whole hub (P78): tokens from every device's conversations (all time), and the
 // spending limits and recent dollars from the P4 ledger, which every channel on the hub's machine
@@ -173,6 +174,32 @@ function LimitCard({ limit, busy, onExtend }: { limit: LimitStatus; busy: boolea
   );
 }
 
+/** Tokens by agent, provider or combo (P126), drawn like the devices' bars. Nothing to show hides it (an older hub sends none). */
+function TokenBreakdown({ title, entries, emptyLabel }: { title: string; entries: UsageByKey[] | undefined; emptyLabel: string }) {
+  const rows = breakdownRows(entries, emptyLabel);
+  if (rows.length === 0) return null;
+  return (
+    <section className="usage-section">
+      <h2 className="usage-heading">{title}</h2>
+      <ul className="usage-bars">
+        {rows.map((r) => (
+          <li key={r.key} className="usage-bar-row">
+            <span className="usage-bar-label" title={r.label}>
+              {r.label}
+            </span>
+            <div className="usage-bar-track">
+              <div className="usage-bar-fill" style={{ width: `${r.share * 100}%` }} />
+            </div>
+            <span className="usage-bar-value" title={`${full.format(r.tokens)} tokens em ${full.format(r.calls)} chamadas`}>
+              {compact.format(r.tokens)}
+            </span>
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
 /** `emptyLabel` is what a bucket with an empty key is called: a call with no provider, agent or person on record. */
 function SpendTable({ title, buckets, keyLabel, emptyLabel }: { title: string; buckets: SpendBucket[]; keyLabel: string; emptyLabel?: string }) {
   if (buckets.length === 0) return null;
@@ -330,6 +357,10 @@ export default function UsageView({ conn, readOnly = false }: { conn: ServerConn
           )}
         </section>
       )}
+
+      <TokenBreakdown title="Por agente (tokens)" entries={report.byAgent} emptyLabel="Sem agente" />
+      <TokenBreakdown title="Por provedor (tokens)" entries={report.byProvider} emptyLabel="Provedor padrão" />
+      <TokenBreakdown title="Por combo (tokens)" entries={report.byCombo} emptyLabel="Sem combo" />
 
       {report.recent && (report.recent.byModel.length > 0 || report.recent.byChannel.length > 0) && (
         <section className="usage-section">

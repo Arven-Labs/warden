@@ -14,6 +14,7 @@ import type {
   RecentSpend,
   SpendStatus,
   Usage,
+  UsageByKey,
   UsageSummary,
 } from "../types";
 
@@ -256,13 +257,24 @@ export interface HubUsageReport {
   limits: LimitStatus[];
   recent?: RecentSpend;
   ledgerError?: string;
+  /** P126 — tokens by agent, provider and combo; absent from a hub that does not tell them. */
+  byAgent?: UsageByKey[];
+  byProvider?: UsageByKey[];
+  byCombo?: UsageByKey[];
 }
 
-/** The Usage screen's two kinds of numbers out of one report. The hub doesn't split tokens by agent or provider (its
- * dollars are split in `recent`), so those two lists are empty and the screen hides them. */
+/** The Usage screen's two kinds of numbers out of one report. A hub from before P126 doesn't split tokens by agent, provider
+ * or combo (its dollars are split in `recent`), so those lists are empty and the screen hides them. */
 export function usageFromReport(report: HubUsageReport): { summary: UsageSummary; spend: SpendStatus } {
   return {
-    summary: { conversationCount: report.conversationCount, messageCount: report.messageCount, total: report.total, byAgent: [], byProvider: [] },
+    summary: {
+      conversationCount: report.conversationCount,
+      messageCount: report.messageCount,
+      total: report.total,
+      byAgent: report.byAgent ?? [],
+      byProvider: report.byProvider ?? [],
+      ...(report.byCombo ? { byCombo: report.byCombo } : {}),
+    },
     spend: { limitsEnabled: report.limitsEnabled, limits: report.limits, recent: report.recent ?? null, ledgerError: report.ledgerError ?? null },
   };
 }

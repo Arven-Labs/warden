@@ -6,6 +6,16 @@
 
 ---
 
+### 2026-10-14 — Sessão 207 (P126: tokens por agente, provider e combo no relatório do hub)
+
+- **Pedido do usuário**: "vamos com outro item do PENDING"; entre as opções escolheu o P126, "By combo" nos outros clientes, e depois o escopo hub + web + desktop em modo hub. Planejado em plan mode.
+- **Achado**: o item era maior do que parecia: o hub não mandava ao web, à extensão e ao celular o uso por agente, provider e combo (o `UsageReportDto` só tinha total, por dispositivo e por dia), embora já calculasse tudo isso em `aggregate_usage`. O desktop em modo hub também mostrava as listas vazias (`usageFromReport`).
+- **Feito**: `UsageByKeyDto` e `by_agent`/`by_provider`/`by_combo` no `UsageReportDto` (`#[serde(default)]`), preenchidos em `build_usage_report` e `build_member_usage_report`. Web: tipos em `hub/messages.ts`, módulo puro `hub/usageBreakdown.ts` e o componente `TokenBreakdown` no `UsageView`, com as barras de dispositivo como modelo. Desktop: `usageFromReport` repassa as listas (`byCombo` só quando o hub manda).
+- **Testes**: hub (`tokens_are_told_by_agent_provider_and_combo_for_the_owner_and_for_a_member`, dono e membro), protocolo (ida e volta e relatório sem os campos), web (`usageBreakdown.test.mjs`, 68 no total, `tsc` e build) e desktop (`hubMap.test.mjs`, 123, `tsc`).
+- **Não feito**: extensão (sem tela de uso) e celular (`UsageScreen` e `UsageSummary` em Dart); dólares por combo; nenhuma tela vista com dados reais (P129).
+
+---
+
 ### 2026-10-14 — Sessão 206 (P122: `write_file` em nó remoto só pergunta quando substitui)
 
 - **Pedido do usuário**: "vamos com o P117". Ao ler a linha inteira, o P117 já estava feito (Sessões 117 a 123, 182); só sobrava teste com bot real (P129). O usuário escolheu então o resto do P122 "write_file em nó remoto". Planejado em plan mode.

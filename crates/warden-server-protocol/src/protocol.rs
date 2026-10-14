@@ -365,6 +365,24 @@ pub struct UsageReportDto {
     /// Why the ledger couldn't be written the last time it failed — the numbers may be short.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub ledger_error: Option<String>,
+    /// Tokens by the agent a turn started with, by the provider that answered and by the combo it went through (P126),
+    /// from the conversations the report covers. A `None` key is "no agent" / "the default provider"; combos only list
+    /// the calls made through one.
+    #[serde(default)]
+    pub by_agent: Vec<UsageByKeyDto>,
+    #[serde(default)]
+    pub by_provider: Vec<UsageByKeyDto>,
+    #[serde(default)]
+    pub by_combo: Vec<UsageByKeyDto>,
+}
+
+/// One bucket of a token breakdown (`warden_bootstrap::usage::UsageByKey`), biggest consumer first.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UsageByKeyDto {
+    pub key: Option<String>,
+    pub message_count: usize,
+    pub usage: Usage,
 }
 
 /// Whether a secret (an API key) is saved, without the secret itself: the hub never sends one back
@@ -3527,9 +3545,22 @@ mod tests {
                     by_person: Vec::new(),
                 }),
                 ledger_error: None,
+                by_agent: vec![UsageByKeyDto { key: None, message_count: 1, usage: Usage { prompt_tokens: 7, completion_tokens: 3, total_tokens: 10 } }],
+                by_provider: Vec::new(),
+                by_combo: vec![UsageByKeyDto { key: Some("fast".into()), message_count: 1, usage: Usage { prompt_tokens: 7, completion_tokens: 3, total_tokens: 10 } }],
             },
         };
         let json = serde_json::to_string(&report).unwrap();
+        assert!(json.contains(r#""byCombo":[{"key":"fast","messageCount":1,"usage":{"#) && json.contains(r#""byAgent":[{"key":null,"messageCount":1"#), "{json}");
+        // A hub from before the token breakdowns sends none of them: they read as empty rather than failing.
+        let mut without: serde_json::Value = serde_json::from_str(&json).unwrap();
+        for field in ["byAgent", "byProvider", "byCombo"] {
+            without["report"].as_object_mut().unwrap().remove(field);
+        }
+        match serde_json::from_value::<ServerMessage>(without).unwrap() {
+            ServerMessage::UsageReport { report, .. } => assert!(report.by_agent.is_empty() && report.by_provider.is_empty() && report.by_combo.is_empty()),
+            other => panic!("{other:?}"),
+        }
         assert!(json.contains(r#""dailyCost":[{"date":"2026-09-25","calls":1,"costUsd":0.5,"unpricedCalls":0}]"#), "{json}");
         assert!(json.contains(r#""byProvider":[{"key":"main""#) && json.contains(r#""byAgent":[{"key":"writer""#), "{json}");
         // A hub from before these existed sends none of them: they read as empty rather than failing.

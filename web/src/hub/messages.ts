@@ -173,6 +173,17 @@ export interface UsageReport {
   limits: LimitStatus[];
   recent?: RecentSpend;
   ledgerError?: string;
+  /** P126 — tokens by the agent a turn started with, the provider that answered and the combo it went through. Absent from an older hub. */
+  byAgent?: UsageByKey[];
+  byProvider?: UsageByKey[];
+  byCombo?: UsageByKey[];
+}
+
+/** Mirrors `UsageByKeyDto`: one bucket of a token breakdown. A `null` key is "no agent" / "the default provider". */
+export interface UsageByKey {
+  key: string | null;
+  messageCount: number;
+  usage: Usage;
 }
 
 /** Mirrors `RecentSpendDto`: what the ledger still holds. `byProvider`, `byAgent` and `byPerson` (P10) are absent

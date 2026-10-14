@@ -7,10 +7,10 @@
 use std::collections::HashMap;
 use std::path::Path;
 
-use warden_bootstrap::usage::{daily_cost, daily_usage};
+use warden_bootstrap::usage::{daily_cost, daily_usage, UsageByKey};
 use warden_bootstrap::{aggregate_usage, list_conversations, Conversation};
 use warden_core::spend::SpendGuard;
-use warden_server_protocol::protocol::{DailyCostDto, DailyUsageDto, DeviceUsage, LimitStatusDto, UsageReportDto};
+use warden_server_protocol::protocol::{DailyCostDto, DailyUsageDto, DeviceUsage, LimitStatusDto, UsageByKeyDto, UsageReportDto};
 use warden_server_protocol::ServerMessage;
 
 use crate::device_registry::PairingStore;
@@ -125,6 +125,9 @@ pub fn build_usage_report(
         limits: guard.map(LimitStatusDto::all).unwrap_or_default(),
         recent: guard.map(|g| g.breakdown().into()),
         ledger_error: guard.and_then(SpendGuard::last_error),
+        by_agent: usage_by_key(summary.by_agent),
+        by_provider: usage_by_key(summary.by_provider),
+        by_combo: usage_by_key(summary.by_combo),
     })
 }
 
@@ -177,7 +180,15 @@ pub fn build_member_usage_report(
         limits,
         recent: guard.map(|g| g.breakdown_for_person(person).into()),
         ledger_error: None,
+        by_agent: usage_by_key(summary.by_agent),
+        by_provider: usage_by_key(summary.by_provider),
+        by_combo: usage_by_key(summary.by_combo),
     })
+}
+
+/// A token breakdown as the report carries it (P126).
+fn usage_by_key(buckets: Vec<UsageByKey>) -> Vec<UsageByKeyDto> {
+    buckets.into_iter().map(|b| UsageByKeyDto { key: b.key, message_count: b.message_count, usage: b.usage }).collect()
 }
 
 /// Answers `RequestUsage`.
@@ -299,6 +310,41 @@ mod tests {
         assert_eq!(report.daily.len(), USAGE_DAYS as usize);
         assert_eq!(report.daily.last().unwrap().tokens, 136);
         assert!(!report.limits_enabled && report.limits.is_empty() && report.recent.is_none());
+    }
+
+    fn answered(conversation: &mut Conversation, agent: Option<&str>, provider: Option<&str>, combo: Option<&str>) {
+        for message in &mut conversation.messages {
+            message.answered_by = Some(warden_bootstrap::AnsweredBy {
+                agent_id: agent.map(str::to_string),
+                provider_id: provider.map(str::to_string),
+                combo_id: combo.map(str::to_string),
+                slices: Vec::new(),
+            });
+        }
+    }
+
+    #[test]
+    fn tokens_are_told_by_agent_provider_and_combo_for_the_owner_and_for_a_member() {
+        let root = temp_dir("by-key");
+        let now = warden_core::spend::now_millis() as i64;
+        let mut writer = conversation("w", &[10, 20], now);
+        answered(&mut writer, Some("writer"), Some("main"), Some("fast"));
+        let mut plain = conversation("p", &[5], now);
+        answered(&mut plain, None, Some("main"), None);
+        save_conversation(&root.join("phone"), &writer).unwrap();
+        save_conversation(&root.join("web-1"), &plain).unwrap();
+        let pairing = PairingStore::new(temp_dir("devices").join("devices.json"));
+
+        let report = build_usage_report(&root, None, &pairing, None, 0, now).unwrap();
+        let tokens = |buckets: &[UsageByKeyDto]| buckets.iter().map(|b| (b.key.clone(), b.message_count, b.usage.total_tokens)).collect::<Vec<_>>();
+        assert_eq!(tokens(&report.by_agent), vec![(Some("writer".to_string()), 2, 30), (None, 1, 5)], "biggest first, no agent as a key of its own");
+        assert_eq!(tokens(&report.by_provider), vec![(Some("main".to_string()), 3, 35)]);
+        assert_eq!(tokens(&report.by_combo), vec![(Some("fast".to_string()), 2, 30)], "only what went through a combo");
+
+        // A member's report counts their own conversations only.
+        let member = build_member_usage_report(&root.join("phone"), None, "ana", 0, now).unwrap();
+        assert_eq!(tokens(&member.by_agent), vec![(Some("writer".to_string()), 2, 30)]);
+        assert_eq!(tokens(&member.by_combo), vec![(Some("fast".to_string()), 2, 30)]);
     }
 
     #[test]

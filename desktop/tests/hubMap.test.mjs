@@ -169,6 +169,17 @@ describe("the hub's usage report", () => {
     assert.deepEqual(spend, { limitsEnabled: true, limits: [limit], recent, ledgerError: "disk full" });
   });
 
+  test("the token breakdowns of the hub (P126) reach the screen, and a hub without them leaves the lists empty", () => {
+    const byAgent = [{ key: "writer", messageCount: 2, usage: total }];
+    const byProvider = [{ key: null, messageCount: 1, usage: total }];
+    const byCombo = [{ key: "fast", messageCount: 2, usage: total }];
+    const told = usageFromReport({ total, conversationCount: 1, messageCount: 2, limitsEnabled: false, limits: [], byAgent, byProvider, byCombo }).summary;
+    assert.deepEqual([told.byAgent, told.byProvider, told.byCombo], [byAgent, byProvider, byCombo]);
+    const old = usageFromReport({ total, conversationCount: 1, messageCount: 2, limitsEnabled: false, limits: [] }).summary;
+    assert.deepEqual(old, { conversationCount: 1, messageCount: 2, total, byAgent: [], byProvider: [] });
+    assert.equal("byCombo" in old, false, "no combo list for a hub that does not tell it");
+  });
+
   test("a hub with the limits off has no recent spending and no ledger error", () => {
     const { spend } = usageFromReport({ total, conversationCount: 0, messageCount: 0, limitsEnabled: false, limits: [] });
     assert.deepEqual(spend, { limitsEnabled: false, limits: [], recent: null, ledgerError: null });
