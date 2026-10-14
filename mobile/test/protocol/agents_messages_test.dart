@@ -151,6 +151,29 @@ void main() {
       expect(plain.authRejected, isFalse);
     });
 
+    test('the powers edit goes out in the shape the hub reads (P122)', () {
+      const edit = SetPowersEdit(
+        'dev',
+        autonomy: 3,
+        canStartTasks: false,
+        canCreateWorkers: true,
+        canMessageUser: false,
+        canChooseModels: true,
+        approvalRequired: ['spend_money'],
+      );
+      expect(edit.toJson(), {
+        'kind': 'setPowers',
+        'id': 'dev',
+        'autonomy': 3,
+        'canStartTasks': false,
+        'canCreateWorkers': true,
+        'canMessageUser': false,
+        'canChooseModels': true,
+        'approvalRequired': ['spend_money'],
+      });
+      expect(const EditAgentOrgMessage(4, 'k', edit).toJson()['edit'], edit.toJson());
+    });
+
     test('the invites that wait go out and come back by name and deadline, with no code (P36)', () {
       expect(const ListDeviceInvitesMessage(7).toJson(), {'type': 'listDeviceInvites', 'requestId': 7});
       expect(const CancelDeviceInviteMessage(8, 'k', "Ana's phone").toJson(),

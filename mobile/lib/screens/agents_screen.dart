@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import '../protocol/messages.dart';
 import '../services/activity.dart';
 import '../services/agent_work.dart';
+import '../services/approval_categories.dart';
 import '../services/server_connection.dart' show HubRequestException;
 import 'member_org_tab.dart';
 
@@ -289,6 +290,114 @@ class _PositionDialogState extends State<PositionDialog> {
 }
 
 /// The models an agent may pick when it delegates (P123): checked, with a default (the first). Nothing checked leaves the choice open.
+/// What [agent] may do on its own (P122): the autonomy level, the four permissions and the kinds of action that always ask for the
+/// person's yes. One edit with one Save, because each edit restarts the hub and asks for the pairing key. Starts from what the agent
+/// has now. Pops the [SetPowersEdit], or null on Cancel.
+class _PowersDialog extends StatefulWidget {
+  const _PowersDialog({required this.agent});
+
+  final AgentInfo agent;
+
+  @override
+  State<_PowersDialog> createState() => _PowersDialogState();
+}
+
+class _PowersDialogState extends State<_PowersDialog> {
+  late int _autonomy = widget.agent.autonomy;
+  late bool _startTasks = widget.agent.canStartTasks;
+  late bool _createWorkers = widget.agent.canCreateWorkers;
+  late bool _messageUser = widget.agent.canMessageUser;
+  late bool _chooseModels = widget.agent.canChooseModels;
+  late final Set<String> _categories = {...widget.agent.approvalRequired};
+
+  Widget _switch(String key, String label, bool value, ValueChanged<bool> onChanged) => SwitchListTile(
+        key: Key(key),
+        dense: true,
+        contentPadding: EdgeInsets.zero,
+        title: Text(label),
+        value: value,
+        onChanged: (on) => setState(() => onChanged(on)),
+      );
+
+  @override
+  Widget build(BuildContext context) {
+    final agent = widget.agent;
+    // An id only a newer hub knows is shown by its own id, so it does not vanish on Save.
+    final unknown = [for (final id in _categories) if (!approvalCategories.any((c) => c.id == id)) id];
+    return AlertDialog(
+      title: Text('Powers of ${agent.id}'),
+      content: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            DropdownButtonFormField<int>(
+              key: const Key('powers-autonomy'),
+              initialValue: _autonomy,
+              isExpanded: true,
+              decoration: const InputDecoration(labelText: 'Autonomy'),
+              items: [for (final n in autonomyLevels) DropdownMenuItem(value: n.level, child: Text(n.label, overflow: TextOverflow.ellipsis))],
+              onChanged: (value) => setState(() => _autonomy = value ?? _autonomy),
+            ),
+            if (_autonomy == 5 && !agent.canManageAgents)
+              Padding(
+                padding: const EdgeInsets.only(top: 4),
+                child: Text(
+                  'Level 5 only counts for an agent that may manage agents, and ${agent.id} may not: that is turned on in the settings.',
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
+              ),
+            const SizedBox(height: 8),
+            _switch('powers-start-tasks', 'Can start background work', _startTasks, (on) => _startTasks = on),
+            _switch('powers-create-workers', 'Can create temporary agents', _createWorkers, (on) => _createWorkers = on),
+            _switch('powers-message-user', 'Can start a conversation with you', _messageUser, (on) => _messageUser = on),
+            _switch('powers-choose-models', 'Can pick the model of the tasks it delegates', _chooseModels, (on) => _chooseModels = on),
+            const SizedBox(height: 8),
+            Text('Asks for your yes before (even when acting on its own):', style: Theme.of(context).textTheme.bodySmall),
+            for (final c in approvalCategories)
+              CheckboxListTile(
+                key: Key('powers-category-${c.id}'),
+                dense: true,
+                contentPadding: EdgeInsets.zero,
+                controlAffinity: ListTileControlAffinity.leading,
+                title: Text(c.label),
+                value: _categories.contains(c.id),
+                onChanged: (on) => setState(() => on == true ? _categories.add(c.id) : _categories.remove(c.id)),
+              ),
+            for (final id in unknown)
+              CheckboxListTile(
+                dense: true,
+                contentPadding: EdgeInsets.zero,
+                controlAffinity: ListTileControlAffinity.leading,
+                title: Text(approvalCategoryLabel(id)),
+                value: true,
+                onChanged: (_) => setState(() => _categories.remove(id)),
+              ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(onPressed: () => Navigator.of(context).pop(), child: const Text('Cancel')),
+        FilledButton(
+          key: const Key('powers-save'),
+          onPressed: () => Navigator.of(context).pop(
+            SetPowersEdit(
+              agent.id,
+              autonomy: _autonomy,
+              canStartTasks: _startTasks,
+              canCreateWorkers: _createWorkers,
+              canMessageUser: _messageUser,
+              canChooseModels: _chooseModels,
+              approvalRequired: orderedCategories(_categories),
+            ),
+          ),
+          child: const Text('Save'),
+        ),
+      ],
+    );
+  }
+}
+
 class _LimitDialog extends StatefulWidget {
   const _LimitDialog({required this.agent, required this.candidates, required this.policyIds});
 
@@ -596,6 +705,13 @@ class _OrganizationTabState extends State<OrganizationTab> {
     await _apply(AddReportEdit(picked.id, picked.persona, role: picked.role, reportsTo: under), 'Add ${picked.id}');
   }
 
+  /// What [agent] may do on its own (P122): autonomy, permissions and the kinds of action that ask for the person's yes.
+  Future<void> _powers(AgentInfo agent) async {
+    final picked = await showDialog<SetPowersEdit>(context: context, builder: (_) => _PowersDialog(agent: agent));
+    if (picked == null || !mounted) return;
+    await _apply(picked, 'Powers of ${agent.id}');
+  }
+
   /// The models [agent] may pick when it delegates (P123).
   Future<void> _limit(AgentInfo agent) async {
     final hub = _hub;
@@ -698,6 +814,8 @@ class _OrganizationTabState extends State<OrganizationTab> {
                       widget.onOpenTasks(agent.id);
                     case 'edit':
                       _edit(agent, all);
+                    case 'powers':
+                      _powers(agent);
                     case 'models':
                       _limit(agent);
                     case 'add':
@@ -710,6 +828,7 @@ class _OrganizationTabState extends State<OrganizationTab> {
                   if (widget.onOpenChat != null) const PopupMenuItem(value: 'chat', child: Text('Chat')),
                   const PopupMenuItem(value: 'tasks', child: Text('Tasks')),
                   const PopupMenuItem(value: 'edit', child: Text('Edit position')),
+                  const PopupMenuItem(value: 'powers', child: Text('Powers')),
                   if (agent.canDelegateToAgents) const PopupMenuItem(value: 'models', child: Text('Models it can pick')),
                   const PopupMenuItem(value: 'add', child: Text('Add a report')),
                   const PopupMenuItem(value: 'remove', child: Text('Remove')),

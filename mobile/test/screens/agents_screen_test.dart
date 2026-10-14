@@ -58,6 +58,27 @@ class _FakeBackend implements AgentsBackend {
         ];
       case SetModelPoliciesEdit(policies: final next):
         policies = List.of(next);
+      case SetPowersEdit e:
+        agents = [
+          for (final a in agents)
+            if (a.id == e.id)
+              AgentInfo(
+                id: a.id,
+                role: a.role,
+                reportsTo: a.reportsTo,
+                canDelegateToAgents: a.canDelegateToAgents,
+                canManageAgents: a.canManageAgents,
+                delegationModels: a.delegationModels,
+                autonomy: e.autonomy,
+                canStartTasks: e.canStartTasks,
+                canCreateWorkers: e.canCreateWorkers,
+                canMessageUser: e.canMessageUser,
+                canChooseModels: e.canChooseModels,
+                approvalRequired: e.approvalRequired,
+              )
+            else
+              a,
+        ];
     }
     return HubAgents(List.of(agents), List.of(policies), modelIds);
   }
@@ -189,6 +210,59 @@ void main() {
       await tester.pumpAndSettle();
       expect(backend.edits.single, isA<SetPositionEdit>());
       expect(find.text('Backend'), findsOneWidget);
+    });
+
+    testWidgets('the powers of an agent start from what it has, and saving sends the whole edit once the key is right (P122)', (tester) async {
+      final backend = _FakeBackend(agents: agents);
+      await _pump(tester, backend);
+      await _openMenu(tester, 'dev', 'Powers');
+      expect(find.text('Powers of dev'), findsOneWidget);
+      expect(tester.widget<SwitchListTile>(find.byKey(const Key('powers-create-workers'))).value, isTrue, reason: 'the permissions start as the agent has them');
+      expect(tester.widget<CheckboxListTile>(find.byKey(const Key('powers-category-spend_money'))).value, isFalse);
+
+      await tester.tap(find.byKey(const Key('powers-create-workers')));
+      await tester.tap(find.byKey(const Key('powers-category-spend_money')));
+      await tester.tap(find.byKey(const Key('powers-category-delete_data')));
+      await tester.pump();
+      await tester.tap(find.byKey(const Key('powers-save')));
+      await tester.pumpAndSettle();
+
+      await _typeKey(tester, 'wrong');
+      expect(find.text('Wrong pairing key.'), findsOneWidget);
+      expect(backend.edits, isEmpty, reason: 'a wrong key sends nothing');
+
+      await tester.enterText(find.byKey(const Key('pairing-key-field')), _FakeBackend.pairingKey);
+      await tester.pump();
+      await tester.tap(find.byKey(const Key('pairing-key-confirm')));
+      await tester.pumpAndSettle();
+
+      final sent = backend.edits.single as SetPowersEdit;
+      expect((sent.id, sent.autonomy, sent.canCreateWorkers, sent.canStartTasks), ('dev', 3, false, true));
+      expect(sent.approvalRequired, ['delete_data', 'spend_money'], reason: 'in the list order, however they were checked');
+      expect(find.textContaining('autonomy 3: asks first'), findsOneWidget);
+    });
+
+    testWidgets('cancelling the powers sends nothing, and a kind only a newer hub knows survives a save (P122)', (tester) async {
+      final backend = _FakeBackend(agents: [
+        const AgentInfo(id: 'chief'),
+        const AgentInfo(id: 'dev', reportsTo: 'chief', approvalRequired: ['brand_new']),
+      ]);
+      await _pump(tester, backend);
+      await _openMenu(tester, 'dev', 'Powers');
+      await tester.tap(find.text('Cancel'));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('pairing-key-field')), findsNothing);
+      expect(backend.edits, isEmpty);
+
+      await _openMenu(tester, 'dev', 'Powers');
+      expect(find.text('brand_new'), findsOneWidget, reason: 'shown by its own id');
+      await tester.tap(find.byKey(const Key('powers-category-spend_money')));
+      await tester.pump();
+      await tester.tap(find.byKey(const Key('powers-save')));
+      await tester.pumpAndSettle();
+      await _typeKey(tester, _FakeBackend.pairingKey);
+
+      expect((backend.edits.single as SetPowersEdit).approvalRequired, ['spend_money', 'brand_new']);
     });
 
     testWidgets('adds an agent at the top once it has a name and instructions', (tester) async {

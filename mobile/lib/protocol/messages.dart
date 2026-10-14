@@ -464,6 +464,40 @@ final class SetModelPoliciesEdit extends OrgEdit {
       };
 }
 
+/// P122 — what [id] may do on its own, all at once: the autonomy level (1 to 5), the four permissions and the kinds of action
+/// ([approvalRequired], ids such as `spend_money`) that always need the person's yes. Only the owner makes this edit.
+final class SetPowersEdit extends OrgEdit {
+  const SetPowersEdit(
+    this.id, {
+    required this.autonomy,
+    required this.canStartTasks,
+    required this.canCreateWorkers,
+    required this.canMessageUser,
+    required this.canChooseModels,
+    required this.approvalRequired,
+  });
+
+  final String id;
+  final int autonomy;
+  final bool canStartTasks;
+  final bool canCreateWorkers;
+  final bool canMessageUser;
+  final bool canChooseModels;
+  final List<String> approvalRequired;
+
+  @override
+  Map<String, dynamic> toJson() => {
+        'kind': 'setPowers',
+        'id': id,
+        'autonomy': autonomy,
+        'canStartTasks': canStartTasks,
+        'canCreateWorkers': canCreateWorkers,
+        'canMessageUser': canMessageUser,
+        'canChooseModels': canChooseModels,
+        'approvalRequired': approvalRequired,
+      };
+}
+
 /// What the organization screen reads of an agent in the hub's settings (P120, P123); the rest of `AgentSettings` stays
 /// out. A hub that doesn't send a field gets its default.
 class AgentInfo {
