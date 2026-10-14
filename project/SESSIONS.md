@@ -6,6 +6,15 @@
 
 ---
 
+### 2026-10-14 — Sessão 212 (P102: pastas de nós no seletor de pasta do celular)
+
+- **Pedido do usuário**: "vamos com o seletor de pasta no celular". Planejado em plan mode. **Achado**: o seletor já existia no celular (commit `ffed811`, 2026-10-04) e a linha do P102 no `PENDING.md` estava desatualizada; confiei nela sem conferir o código. O que faltava era a fatia 2 (nós).
+- **Feito**: `ListNodesMessage`/`NodeListMessage`/`NodeErrorMessage`/`NodeInfo` (`messages.dart`); `ServerConnection.listNodes()` (o membro não pede nada, falha vira lista vazia) e `ChatTranscript.loadNodes()`/`nodes` (também carregados ao abrir uma conversa que trabalha numa pasta de nó); `services/workdir.dart` (`parseNodeFolder`, `nodeFolderRef`, `folderLabel`, `folderPlace`, espelho do `web/src/hub/workdir.ts`); o seletor ganhou o `DropdownButton` "Máquina" quando há nós e o cabeçalho com o nome da máquina; o chip usa `folderLabel`.
+- **Testes**: `flutter analyze` sem avisos e `flutter test` 292 passam (pela imagem `mobile-flutter`): protocolo, helpers (`workdir_test.dart`), transcript e o seletor de ponta a ponta contra um hub simulado (dono escolhe a pasta do nó, a primeira mensagem leva `node:node-a:web`; sem nós o seletor de máquina não aparece).
+- **Sobra**: nunca visto num aparelho (P129); o dono num nó sem `parent` só volta ao hub pelo seletor de máquina.
+
+---
+
 ### 2026-10-14 — Sessão 211 (P126: dólares por combo no celular e na extensão)
 
 - **Pedido do usuário**: seguir com a sobra do P126 (o P117 que propus já estava quase todo feito; só falta teste com bot real, que é P129). Planejado em plan mode.

@@ -251,6 +251,26 @@ void main() {
       expect(error.message, 'm');
     });
 
+    test('the nodes list: what the owner may pick a folder on, tolerant of what a hub leaves out', () {
+      expect(const ListNodesMessage(5).encode(), '{"type":"listNodes","requestId":5}');
+      final list = ServerMessage.decode('{"type":"nodeList","requestId":5,"nodes":['
+          '{"deviceId":"node-a","name":"Home PC","online":true,"approved":true,"enabled":true,"offer":{"files":true}},'
+          '{"deviceId":"node-b","name":"Off","online":false,"approved":true,"enabled":true,"offer":{"files":true}},'
+          '{"deviceId":"node-c","name":"No files","online":true,"approved":true,"enabled":true,"offer":{"shell":true}},'
+          '{"deviceId":"node-d","name":"Never seen","online":true,"approved":true,"enabled":true}]}') as NodeListMessage;
+      expect(list.requestId, 5);
+      expect(list.nodes.map((n) => [n.deviceId, n.name, n.hasFolders]), [
+        ['node-a', 'Home PC', true],
+        ['node-b', 'Off', false],
+        ['node-c', 'No files', false],
+        ['node-d', 'Never seen', false],
+      ]);
+      final bare = ServerMessage.decode('{"type":"nodeList","requestId":6,"nodes":[{"deviceId":"x"}]}') as NodeListMessage;
+      expect(bare.nodes.single.hasFolders, isFalse);
+      final error = ServerMessage.decode('{"type":"nodeError","requestId":7,"message":"m","authRejected":false}') as NodeErrorMessage;
+      expect((error.requestId, error.message), (7, 'm'));
+    });
+
     test('a conversation summary carries its folder when it has one', () {
       final list = ServerMessage.decode(
           '{"type":"conversationList","requestId":1,"conversations":[{"id":"c1","title":"T","createdAt":1,"updatedAt":2,"workdir":"/srv/work"},{"id":"c2","title":"U","createdAt":1,"updatedAt":2}]}')

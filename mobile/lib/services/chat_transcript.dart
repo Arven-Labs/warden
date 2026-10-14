@@ -6,6 +6,7 @@ import '../protocol/messages.dart';
 import 'channel_unread.dart';
 import 'device_id.dart';
 import 'live_turn.dart';
+import 'workdir.dart';
 
 enum EntryRole { user, assistant, error }
 
@@ -53,6 +54,9 @@ abstract interface class ConversationBackend {
   void cancelTurn(String conversationId);
   Future<List<String>> listAgentIds();
   Future<DirListMessage> listDirs([String? path]);
+
+  /// P102 — the nodes a folder can be picked on; empty for a member and for a hub that doesn't say.
+  Future<List<NodeInfo>> listNodes();
   Future<List<HistoryEntry>> fetchHistory({int? limit, String? conversationId});
   Future<List<ConversationSummary>> listConversations();
   Future<void> renameConversation(String conversationId, String title);
@@ -298,6 +302,21 @@ class ChatTranscript extends ChangeNotifier {
   /// The folders inside [path] on the hub's machine, for the picker (no path: where the person may start).
   Future<DirListMessage> listDirs([String? path]) => backend.listDirs(path);
 
+  /// The nodes a folder can be picked on, as of the last [loadNodes]; the chip names a node's folder by them.
+  List<NodeInfo> get nodes => List.unmodifiable(_nodes);
+  var _nodes = const <NodeInfo>[];
+
+  /// Asks the hub for the nodes (the picker opens with them). A failure leaves the ones known.
+  Future<List<NodeInfo>> loadNodes() async {
+    try {
+      _nodes = await backend.listNodes();
+      notifyListeners();
+    } catch (_) {
+      // The picker still works on the hub's own machine.
+    }
+    return nodes;
+  }
+
   /// Work in [path] from the first message on (null: no folder). Ignored once the conversation has begun.
   void selectWorkdir(String? path) {
     if (!canPickFolder || path == _workdir) return;
@@ -312,6 +331,9 @@ class ChatTranscript extends ChangeNotifier {
     for (final c in _conversations) {
       if (c.id == conversationId) {
         _workdir = c.workdir;
+        // The chip names a node's folder by the node's name, which is only known once the nodes are loaded.
+        final folder = _workdir;
+        if (folder != null && parseNodeFolder(folder) != null && _nodes.isEmpty) unawaited(loadNodes());
         return;
       }
     }

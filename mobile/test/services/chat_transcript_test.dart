@@ -59,6 +59,18 @@ class FakeBackend implements ConversationBackend {
     return DirListMessage(1, path: path ?? '', dirs: const []);
   }
 
+  /// The nodes the hub says a folder can be picked on, and how many times they were asked for (P102).
+  var nodes = <NodeInfo>[];
+  var askedNodes = 0;
+  Object? nodesError;
+
+  @override
+  Future<List<NodeInfo>> listNodes() async {
+    askedNodes++;
+    if (nodesError != null) throw nodesError!;
+    return nodes;
+  }
+
   @override
   Future<List<String>> listAgentIds() async => agentIds;
 
@@ -244,6 +256,37 @@ void main() {
     await transcript.listDirs();
     await transcript.listDirs('/srv/work');
     expect(backend.listedDirs, [null, '/srv/work']);
+  });
+
+  test('the nodes of the picker are loaded on demand, kept for the chip, and a failure leaves the ones known (P102)', () async {
+    const home = NodeInfo(deviceId: 'node-a', name: 'Home PC', online: true, approved: true, enabled: true, sharesFiles: true);
+    final transcript = make();
+    await settle();
+    expect(backend.askedNodes, 0, reason: 'nothing asked until the picker opens');
+    expect(transcript.nodes, isEmpty);
+
+    backend.nodes = [home];
+    expect((await transcript.loadNodes()).map((n) => n.deviceId), ['node-a']);
+    expect(transcript.nodes.single.name, 'Home PC');
+
+    backend.nodesError = StateError('hub down');
+    expect((await transcript.loadNodes()).map((n) => n.deviceId), ['node-a'], reason: 'a failure keeps what was known');
+  });
+
+  test('opening a conversation that works in a node folder loads the nodes so the chip can name it (P102)', () async {
+    backend.nodes = [const NodeInfo(deviceId: 'node-a', name: 'Home PC', online: true, approved: true, enabled: true, sharesFiles: true)];
+    backend.conversations = [
+      ConversationSummary(id: 'c1', title: 'T', createdAt: 1, updatedAt: 2, workdir: 'node:node-a:projects'),
+      ConversationSummary(id: 'c2', title: 'U', createdAt: 1, updatedAt: 2, workdir: '/srv/work'),
+    ];
+    final transcript = make(last: 'c2');
+    await settle();
+    expect(backend.askedNodes, 0, reason: 'a folder of the hub needs no node names');
+
+    transcript.open('c1');
+    await settle();
+    expect(backend.askedNodes, 1);
+    expect(transcript.nodes.single.name, 'Home PC');
   });
 
   test('a changed conversation reloads the list and the open transcript (P87)', () async {

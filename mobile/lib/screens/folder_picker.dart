@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../protocol/messages.dart';
+import '../services/workdir.dart';
 
 /// P102 — the last segment of a folder path, for the chip ("/srv/work/alpha" → "alpha").
 String folderName(String path) {
@@ -12,22 +13,26 @@ typedef ListDirs = Future<DirListMessage> Function([String? path]);
 
 /// Opens the folder browser as a bottom sheet and returns the folder picked, or null when it was cancelled.
 /// [initialPath] is where it opens (the current choice); a folder that is gone falls back to the start.
-Future<String?> showFolderPicker(BuildContext context, {required ListDirs listDirs, String? initialPath}) {
+/// [nodes] are the machines besides the hub's a folder can be picked on (the owner's; none for a member), chosen with a selector.
+Future<String?> showFolderPicker(BuildContext context, {required ListDirs listDirs, String? initialPath, List<NodeInfo> nodes = const []}) {
   return showModalBottomSheet<String>(
     context: context,
     isScrollControlled: true,
     useSafeArea: true,
-    builder: (_) => FolderPicker(listDirs: listDirs, initialPath: initialPath),
+    builder: (_) => FolderPicker(listDirs: listDirs, initialPath: initialPath, nodes: nodes),
   );
 }
 
 /// Browses the folders of the hub's machine to choose the one a conversation works in (P102). The hub lists
 /// folders only; a member sees just the ones the owner allowed, so at the top their list has no path to pick.
 class FolderPicker extends StatefulWidget {
-  const FolderPicker({super.key, required this.listDirs, this.initialPath});
+  const FolderPicker({super.key, required this.listDirs, this.initialPath, this.nodes = const []});
 
   final ListDirs listDirs;
   final String? initialPath;
+
+  /// The nodes a folder can be picked on besides the hub's machine; with none the machine selector is not shown.
+  final List<NodeInfo> nodes;
 
   @override
   State<FolderPicker> createState() => _FolderPickerState();
@@ -94,6 +99,7 @@ class _FolderPickerState extends State<FolderPicker> {
     final listing = _listing;
     final here = listing?.path ?? '';
     final parent = listing?.parent;
+    final machine = parseNodeFolder(here)?.node ?? '';
     return SafeArea(
       child: Padding(
         padding: const EdgeInsets.all(16),
@@ -109,7 +115,21 @@ class _FolderPickerState extends State<FolderPicker> {
               style: Theme.of(context).textTheme.bodySmall,
             ),
             const SizedBox(height: 12),
-            Text(here.isEmpty ? 'Your folders' : here, key: const Key('folder-here'), style: const TextStyle(fontFamily: 'monospace')),
+            if (widget.nodes.isNotEmpty) ...[
+              DropdownButton<String>(
+                key: const Key('folder-machine'),
+                isExpanded: true,
+                // A node that is not in the list (gone offline since) shows as the hub, which is where "Up" and the start lead.
+                value: widget.nodes.any((n) => n.deviceId == machine) ? machine : '',
+                items: [
+                  const DropdownMenuItem(value: '', child: Text('This hub')),
+                  for (final node in widget.nodes) DropdownMenuItem(value: node.deviceId, child: Text(node.name.isEmpty ? node.deviceId : node.name)),
+                ],
+                onChanged: _loading ? null : (id) => _open(id == null || id.isEmpty ? null : nodeFolderRef(id, '')),
+              ),
+              const SizedBox(height: 8),
+            ],
+            Text(here.isEmpty ? 'Your folders' : folderPlace(here, widget.nodes), key: const Key('folder-here'), style: const TextStyle(fontFamily: 'monospace')),
             if (_error != null) ...[
               const SizedBox(height: 8),
               Text(_error!, key: const Key('folder-error'), style: TextStyle(color: Theme.of(context).colorScheme.error)),

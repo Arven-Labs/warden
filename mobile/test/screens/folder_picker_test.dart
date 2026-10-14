@@ -21,6 +21,9 @@ void main() {
   /// What the hub answers to `listDirs` with no path: a folder to go into, or nothing at all (a member with no folder).
   late Map<String, dynamic> Function(int id) topReply;
 
+  /// What the hub answers to `listNodes` (P102): the nodes the owner may pick a folder on.
+  late List<Map<String, dynamic>> nodes;
+
   Map<String, dynamic> dirList(int id, String path, String? parent, List<List<String>> dirs) => {
         'type': 'dirList',
         'requestId': id,
@@ -34,6 +37,7 @@ void main() {
     controller = StreamChannelController<dynamic>();
     fromClient = StreamQueue<dynamic>(controller.local.stream);
     chats = [];
+    nodes = [];
     topReply = (id) => dirList(id, '', null, [
           ['work', '/srv/work']
         ]);
@@ -50,9 +54,15 @@ void main() {
               ['alpha', '/srv/work/alpha']
             ]),
           '/srv/work/alpha' => dirList(id!, '/srv/work/alpha', '/srv/work', []),
+          'node:node-a:' => dirList(id!, 'node:node-a:', null, [
+              ['web', 'node:node-a:web']
+            ]),
+          'node:node-a:web' => dirList(id!, 'node:node-a:web', 'node:node-a:', []),
           _ => {'type': 'dirError', 'requestId': id, 'message': 'that folder is not one of yours'},
         };
         controller.local.sink.add(jsonEncode(reply));
+      case 'listNodes':
+        controller.local.sink.add(jsonEncode({'type': 'nodeList', 'requestId': id, 'nodes': nodes}));
       case 'chat':
         chats.add(frame);
     }
@@ -178,6 +188,52 @@ void main() {
     await hubRound(tester);
     expect(chats.single['message'], 'hi');
     expect(chats.single.containsKey('workdir'), isFalse);
+  });
+
+  testWidgets('the owner picks a folder on a node: the machine selector, the node by name, the chip and the first message (P102)', (tester) async {
+    nodes = [
+      {'deviceId': 'node-a', 'name': 'Home PC', 'online': true, 'approved': true, 'enabled': true, 'offer': {'files': true}},
+      {'deviceId': 'node-b', 'name': 'Offline PC', 'online': false, 'approved': true, 'enabled': true, 'offer': {'files': true}},
+    ];
+    await openChat(tester);
+
+    await tester.tap(find.byKey(const Key('folder-button')));
+    await hubRound(tester);
+    await hubRound(tester);
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('folder-machine')), findsOneWidget);
+
+    await tester.tap(find.byKey(const Key('folder-machine')));
+    await tester.pumpAndSettle();
+    expect(find.text('Offline PC'), findsNothing, reason: 'only a node a folder can be picked on now');
+    await tester.tap(find.text('Home PC').last);
+    await hubRound(tester);
+    await tester.pumpAndSettle();
+    expect(tester.widget<Text>(find.byKey(const Key('folder-here'))).data, 'Home PC: /', reason: 'the machine by name, not the raw reference');
+    expect(find.byKey(const Key('folder-up')), findsNothing, reason: 'the top of what the node lends');
+
+    await tester.tap(find.text('web'));
+    await hubRound(tester);
+    expect(tester.widget<Text>(find.byKey(const Key('folder-here'))).data, 'Home PC: /web');
+    await tester.tap(find.byKey(const Key('folder-use')));
+    await tester.pumpAndSettle();
+    expect(find.text('web · Home PC'), findsOneWidget, reason: 'the chip names the folder and the machine');
+
+    await tester.enterText(find.byType(TextField), 'work there');
+    await tester.tap(find.byIcon(Icons.send));
+    await hubRound(tester);
+    expect(chats.single['workdir'], 'node:node-a:web');
+  });
+
+  testWidgets('with no node to pick on the machine selector is not shown (P102)', (tester) async {
+    await openChat(tester);
+
+    await tester.tap(find.byKey(const Key('folder-button')));
+    await hubRound(tester);
+    await hubRound(tester);
+    await tester.pumpAndSettle();
+    expect(find.text('Your folders'), findsOneWidget);
+    expect(find.byKey(const Key('folder-machine')), findsNothing);
   });
 
   testWidgets('a member with no folder allowed gets an empty list that cannot be used, not a failure', (tester) async {

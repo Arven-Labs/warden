@@ -206,6 +206,17 @@ final class ListDirsMessage extends ClientMessage {
   Map<String, dynamic> toJson() => {'type': 'listDirs', 'requestId': requestId, if (path != null) 'path': path};
 }
 
+/// P102 — asks for the nodes (machines other than the hub) so the owner can pick a folder on one. Answered by [NodeListMessage]
+/// or [NodeErrorMessage] with the same `requestId`.
+final class ListNodesMessage extends ClientMessage {
+  const ListNodesMessage(this.requestId);
+
+  final int requestId;
+
+  @override
+  Map<String, dynamic> toJson() => {'type': 'listNodes', 'requestId': requestId};
+}
+
 /// Asks for the hub's settings (P78) — here only for the configured agents' ids (P87), the same
 /// way the web's agent selector gets them. Answered by [SettingsMessage] or [SettingsErrorMessage].
 final class RequestSettingsMessage extends ClientMessage {
@@ -904,6 +915,37 @@ class DirEntry {
   }
 }
 
+/// A machine other than the hub (P93) — here only what the folder picker needs: its id and name, and whether a folder can be picked on it
+/// now (online, approved, switched on and lending a folder).
+class NodeInfo {
+  const NodeInfo({required this.deviceId, required this.name, this.online = false, this.approved = false, this.enabled = false, this.sharesFiles = false});
+
+  final String deviceId;
+  final String name;
+  final bool online;
+  final bool approved;
+  final bool enabled;
+
+  /// The node offered to read and write files in one folder (`offer.files`).
+  final bool sharesFiles;
+
+  /// A folder can be picked on it right now.
+  bool get hasFolders => online && approved && enabled && sharesFiles;
+
+  static NodeInfo fromJson(dynamic json) {
+    final map = json as Map<String, dynamic>;
+    final offer = map['offer'];
+    return NodeInfo(
+      deviceId: map['deviceId'] as String? ?? '',
+      name: map['name'] as String? ?? '',
+      online: map['online'] as bool? ?? false,
+      approved: map['approved'] as bool? ?? false,
+      enabled: map['enabled'] as bool? ?? false,
+      sharesFiles: offer is Map<String, dynamic> && (offer['files'] as bool? ?? false),
+    );
+  }
+}
+
 /// Token usage for one chat turn, when the provider reported it. Mirrors
 /// `warden_core::model::Usage`.
 class Usage {
@@ -1012,6 +1054,11 @@ sealed class ServerMessage {
           dirs: (json['dirs'] as List<dynamic>).map(DirEntry.fromJson).toList(),
         ),
       'dirError' => DirErrorMessage(json['requestId'] as int, json['message'] as String),
+      'nodeList' => NodeListMessage(
+          json['requestId'] as int,
+          [for (final node in (json['nodes'] as List<dynamic>? ?? const [])) NodeInfo.fromJson(node)],
+        ),
+      'nodeError' => NodeErrorMessage(json['requestId'] as int, json['message'] as String? ?? ''),
       'conversationOk' => ConversationOkMessage(json['requestId'] as int),
       'agentChannel' => AgentChannelMessage(json['requestId'] as int, json['conversationId'] as String),
       'conversationError' => ConversationErrorMessage(json['requestId'] as int, json['message'] as String),
@@ -1374,6 +1421,22 @@ final class DirListMessage extends ServerMessage {
 /// A [ListDirsMessage] failed (P102): not a folder, outside what the person may see, unreadable.
 final class DirErrorMessage extends ServerMessage {
   const DirErrorMessage(this.requestId, this.message);
+
+  final int requestId;
+  final String message;
+}
+
+/// Reply to [ListNodesMessage] (P102).
+final class NodeListMessage extends ServerMessage {
+  const NodeListMessage(this.requestId, this.nodes);
+
+  final int requestId;
+  final List<NodeInfo> nodes;
+}
+
+/// A [ListNodesMessage] failed (P102).
+final class NodeErrorMessage extends ServerMessage {
+  const NodeErrorMessage(this.requestId, this.message);
 
   final int requestId;
   final String message;

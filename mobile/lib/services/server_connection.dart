@@ -344,6 +344,8 @@ class ServerConnection implements ConversationBackend, AgentsBackend, MemberOrgB
               AgentChannelMessage() ||
               DirListMessage() ||
               DirErrorMessage() ||
+              NodeListMessage() ||
+              NodeErrorMessage() ||
               SettingsMessage() ||
               SettingsSavedMessage() ||
               SettingsErrorMessage() ||
@@ -449,9 +451,10 @@ class ServerConnection implements ConversationBackend, AgentsBackend, MemberOrgB
       case ConversationListMessage(:final requestId) ||
             ConversationOkMessage(:final requestId) ||
             AgentChannelMessage(:final requestId) ||
-            DirListMessage(:final requestId):
+            DirListMessage(:final requestId) ||
+            NodeListMessage(:final requestId):
         _pendingConversation.remove(requestId)?.complete(msg);
-      case DirErrorMessage(:final requestId, :final message):
+      case DirErrorMessage(:final requestId, :final message) || NodeErrorMessage(:final requestId, :final message):
         _pendingConversation.remove(requestId)?.completeError(ConversationException(message));
       case ConversationErrorMessage(:final requestId, :final message):
         _pendingConversation.remove(requestId)?.completeError(ConversationException(message));
@@ -497,6 +500,19 @@ class ServerConnection implements ConversationBackend, AgentsBackend, MemberOrgB
     final reply = await _conversationRequest((requestId) => ListDirsMessage(requestId, path: path));
     if (reply is DirListMessage) return reply;
     throw ConversationException('Unexpected reply to the folder list: $reply');
+  }
+
+  /// P102 — the machines a folder can be picked on besides the hub's. Only the owner has any to choose from (a member reaches the ones
+  /// named for them through the start of [listDirs]), so a member asks nothing; a hub that fails to say gives none.
+  @override
+  Future<List<NodeInfo>> listNodes() async {
+    if (user != null) return const [];
+    try {
+      final reply = await _conversationRequest(ListNodesMessage.new);
+      return reply is NodeListMessage ? [for (final node in reply.nodes) if (node.hasFolders) node] : const [];
+    } on ConversationException {
+      return const [];
+    }
   }
 
   /// P87 — the configured agents' ids, from the hub's settings (the web's selector reads the same).

@@ -15,6 +15,7 @@ import '../services/live_turn.dart';
 import '../services/mobile_file_tool.dart';
 import '../services/server_connection.dart';
 import '../services/side_work.dart';
+import '../services/workdir.dart';
 import '../services/sync_auto_pull.dart';
 import '../services/vault_paths.dart';
 import '../src/rust/api/sync.dart' as sync_bridge;
@@ -559,7 +560,9 @@ class _FolderBar extends StatelessWidget {
   final bool connected;
 
   Future<void> _pick(BuildContext context) async {
-    final picked = await showFolderPicker(context, listDirs: transcript.listDirs, initialPath: transcript.workdir);
+    final nodes = await transcript.loadNodes();
+    if (!context.mounted) return;
+    final picked = await showFolderPicker(context, listDirs: transcript.listDirs, initialPath: transcript.workdir, nodes: nodes);
     if (picked != null) transcript.selectWorkdir(picked);
   }
 
@@ -577,8 +580,8 @@ class _FolderBar extends StatelessWidget {
               ActionChip(
                 key: const Key('folder-button'),
                 avatar: const Icon(Icons.folder_special_outlined, size: 18),
-                label: Text(folder == null ? 'Working folder: none' : folderName(folder)),
-                tooltip: folder ?? 'Pick a folder of the hub for the AI to work in',
+                label: Text(folder == null ? 'Working folder: none' : folderLabel(folder, transcript.nodes)),
+                tooltip: folder == null ? 'Pick a folder of the hub or of a node for the AI to work in' : folderPlace(folder, transcript.nodes),
                 onPressed: connected ? () => _pick(context) : null,
               ),
               if (folder != null)
@@ -599,11 +602,11 @@ class _FolderBar extends StatelessWidget {
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 12),
         child: Tooltip(
-          message: folder,
+          message: folderPlace(folder, transcript.nodes),
           child: Chip(
             key: const Key('folder-chip'),
             avatar: const Icon(Icons.folder_special_outlined, size: 18),
-            label: Text(folderName(folder)),
+            label: Text(folderLabel(folder, transcript.nodes)),
           ),
         ),
       ),
