@@ -131,6 +131,49 @@ async fn the_owner_edits_the_organization_from_the_tree_and_the_hub_starts_again
 }
 
 #[tokio::test]
+async fn the_owner_sets_what_an_agent_may_do_from_a_light_client_and_a_wrong_key_or_level_changes_nothing() {
+    let (url, path, builds) = spin_up().await;
+    let mut conn = ServerConnection::connect(&url, "phone-1", "Phone", "test-key").await.unwrap();
+    let powers = |autonomy: u8, categories: &[&str]| AgentOrgEdit::SetPowers {
+        id: "dev".into(),
+        autonomy,
+        can_start_tasks: false,
+        can_create_workers: true,
+        can_message_user: false,
+        can_choose_models: true,
+        approval_required: categories.iter().map(|c| c.to_string()).collect(),
+    };
+
+    match edit(&mut conn, "test-key", powers(3, &["spend_money", "publish_code"])).await {
+        ServerMessage::SettingsSaved { settings, .. } => {
+            let dev = settings.agents.iter().find(|a| a.id == "dev").unwrap();
+            assert_eq!(dev.autonomy, 3);
+            assert_eq!((dev.can_start_tasks, dev.can_create_workers, dev.can_message_user, dev.can_choose_models), (false, true, false, true));
+            assert_eq!(dev.approval_required, ["spend_money", "publish_code"]);
+        }
+        other => panic!("expected the new settings, got {other:?}"),
+    }
+    assert_eq!(builds.load(Ordering::SeqCst), 1, "the hub started again, so the new level counts from the next turn");
+    let dev = load_config_from_path(&path, false).unwrap().agents.into_iter().find(|a| a.id == "dev").unwrap();
+    assert_eq!((dev.autonomy, dev.reports_to.as_deref()), (3, Some("lead")), "the powers changed, the position did not");
+
+    // A wrong key, a level that does not exist and a kind of action that does not: each refused, nothing written or restarted.
+    let before = std::fs::read_to_string(&path).unwrap();
+    match edit(&mut conn, "wrong", powers(1, &[])).await {
+        ServerMessage::SettingsError { auth_rejected, .. } => assert!(auth_rejected),
+        other => panic!("expected a refusal, got {other:?}"),
+    }
+    for bad in [powers(0, &[]), powers(6, &[]), powers(4, &["buy_a_boat"])] {
+        match edit(&mut conn, "test-key", bad).await {
+            ServerMessage::SettingsError { auth_rejected, .. } => assert!(!auth_rejected),
+            other => panic!("expected a refusal, got {other:?}"),
+        }
+    }
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), before);
+    assert_eq!(builds.load(Ordering::SeqCst), 1);
+}
+
+#[tokio::test]
 async fn the_owner_sets_the_model_policies_and_an_agents_limit_from_a_light_client() {
     use warden_bootstrap::{Provider, ProviderConfig};
     use warden_server_protocol::protocol::ModelPolicyDto;

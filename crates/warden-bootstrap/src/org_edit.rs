@@ -2,15 +2,18 @@
 //! removes one, and nothing else of the settings is touched. The same hierarchy checks as a settings save (`check_hierarchy`: no
 //! circle, no missing superior), applied to a copy first, so a refused edit changes nothing.
 //!
+//! A third edit, `SetPowers` (P122), changes what an agent may do on its own (autonomy level, the four permissions, the kinds of
+//! action that always need a yes), with the checks of a settings save.
+//!
 //! The same narrow door takes the two edits of P123 the light clients (phone, browser extension) make without the whole settings form:
 //! the models an agent may delegate with, and the named model policies. They reuse the checks of a save (`check_policies`,
 //! `check_delegation_models`).
 
-use warden_core::autonomy::Category;
+use warden_core::autonomy::{Autonomy, Category};
 use warden_server_protocol::protocol::AgentOrgEdit;
 
 use crate::manage_agents::{check_id, check_persona, check_role, ASK_FIRST_LEVEL};
-use crate::settings::{check_delegation_models, check_policies};
+use crate::settings::{categories_from_ids, check_delegation_models, check_policies};
 use crate::{org, prune_delegation_models, remove_agent_references, AgentConfig, FileConfig, ModelPolicyConfig, SAFE_AGENT_TOOLS};
 
 fn blank_is_none(value: &Option<String>) -> Option<String> {
@@ -65,6 +68,20 @@ pub fn apply_org_edit(config: &mut FileConfig, edit: &AgentOrgEdit) -> Result<()
                 can_message_user: false,
                 can_choose_models: false,
             });
+        }
+        AgentOrgEdit::SetPowers { id, autonomy, can_start_tasks, can_create_workers, can_message_user, can_choose_models, approval_required } => {
+            // The same checks as a settings save: a level from 1 to 5, and categories that exist (each once).
+            if Autonomy::from_level(*autonomy).is_none() {
+                return Err(format!("autonomy {autonomy}: pick a level from 1 to 5"));
+            }
+            let categories = categories_from_ids(approval_required)?;
+            let agent = agents.iter_mut().find(|a| a.owner.is_none() && &a.id == id).ok_or_else(|| format!("no agent named '{id}'"))?;
+            agent.autonomy = *autonomy;
+            agent.can_start_tasks = *can_start_tasks;
+            agent.can_create_workers = *can_create_workers;
+            agent.can_message_user = *can_message_user;
+            agent.can_choose_models = *can_choose_models;
+            agent.approval_required = categories;
         }
         AgentOrgEdit::SetDelegationModels { id, models } => {
             let models = check_delegation_models(models);
@@ -302,6 +319,69 @@ mod tests {
         assert_eq!(json, r#"{"kind":"setModelPolicies","policies":[{"id":"fast","model":"main","description":"quick"}]}"#);
         assert_eq!(serde_json::from_str::<AgentOrgEdit>(&json).unwrap(), policies);
         assert_eq!(serde_json::from_str::<AgentOrgEdit>(r#"{"kind":"setModelPolicies"}"#).unwrap(), AgentOrgEdit::SetModelPolicies { policies: Vec::new() });
+    }
+
+    fn powers(id: &str, autonomy: u8, categories: &[&str]) -> AgentOrgEdit {
+        AgentOrgEdit::SetPowers {
+            id: id.into(),
+            autonomy,
+            can_start_tasks: false,
+            can_create_workers: true,
+            can_message_user: false,
+            can_choose_models: true,
+            approval_required: categories.iter().map(|c| c.to_string()).collect(),
+        }
+    }
+
+    #[test]
+    fn setting_powers_changes_those_six_things_and_nothing_else() {
+        let mut config = config();
+        let before = config.agents.clone();
+        apply_org_edit(&mut config, &powers("dev", 3, &["spend_money", "delete_data"])).unwrap();
+
+        let dev = config.agents.iter().find(|a| a.id == "dev").unwrap();
+        assert_eq!(dev.autonomy, 3);
+        assert_eq!((dev.can_start_tasks, dev.can_create_workers, dev.can_message_user, dev.can_choose_models), (false, true, false, true));
+        assert_eq!(dev.approval_required, vec![Category::SpendMoney, Category::DeleteData]);
+        // Everything else of the agent, and every other agent, is as it was.
+        let was = before.iter().find(|a| a.id == "dev").unwrap();
+        assert_eq!((&dev.persona, &dev.role, &dev.reports_to, dev.can_delegate_to_agents, dev.can_manage_agents, &dev.allowed_tools), (&was.persona, &was.role, &was.reports_to, was.can_delegate_to_agents, was.can_manage_agents, &was.allowed_tools));
+        for (now, was) in config.agents.iter().zip(&before).filter(|(a, _)| a.id != "dev") {
+            assert_eq!(now, was);
+        }
+
+        // A second edit replaces the categories, it does not add to them, and none clears them.
+        apply_org_edit(&mut config, &powers("dev", 4, &["publish_code", "publish_code"])).unwrap();
+        assert_eq!(config.agents.iter().find(|a| a.id == "dev").unwrap().approval_required, vec![Category::PublishCode]);
+        apply_org_edit(&mut config, &powers("dev", 4, &[])).unwrap();
+        assert!(config.agents.iter().find(|a| a.id == "dev").unwrap().approval_required.is_empty());
+    }
+
+    #[test]
+    fn powers_are_refused_for_a_level_that_does_not_exist_a_category_that_does_not_and_an_agent_that_is_not_the_owners() {
+        let mut config = config();
+        let before = config.agents.clone();
+        for edit in [
+            powers("dev", 0, &[]),
+            powers("dev", 6, &[]),
+            powers("dev", 3, &["spend_money", "buy_a_boat"]),
+            powers("ghost", 3, &[]),
+            powers("ana-bot", 1, &[]),
+        ] {
+            assert!(apply_org_edit(&mut config, &edit).is_err(), "{edit:?}");
+            assert_eq!(config.agents, before, "{edit:?}");
+        }
+    }
+
+    #[test]
+    fn the_powers_edit_round_trips_over_the_wire() {
+        let edit = powers("dev", 3, &["spend_money"]);
+        let json = serde_json::to_string(&edit).unwrap();
+        assert_eq!(
+            json,
+            r#"{"kind":"setPowers","id":"dev","autonomy":3,"canStartTasks":false,"canCreateWorkers":true,"canMessageUser":false,"canChooseModels":true,"approvalRequired":["spend_money"]}"#
+        );
+        assert_eq!(serde_json::from_str::<AgentOrgEdit>(&json).unwrap(), edit);
     }
 
     #[test]

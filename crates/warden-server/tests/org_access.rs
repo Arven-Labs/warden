@@ -204,9 +204,21 @@ async fn a_member_sees_and_changes_the_one_organization_only_as_far_as_the_owner
     assert!(matches!(circle, ServerMessage::SettingsError { auth_rejected: false, .. }), "{circle:?}");
 
     // What is not the tree stays the owner's.
-    for owners_only in [AgentOrgEdit::SetDelegationModels { id: "chief".into(), models: vec!["x".into()] }, AgentOrgEdit::SetModelPolicies { policies: Vec::new() }] {
+    // An agent's powers (P122) are the owner's too: `edit` on the tree never reaches them.
+    let powers = AgentOrgEdit::SetPowers {
+        id: "chief".into(),
+        autonomy: 5,
+        can_start_tasks: true,
+        can_create_workers: true,
+        can_message_user: true,
+        can_choose_models: true,
+        approval_required: Vec::new(),
+    };
+    for owners_only in [AgentOrgEdit::SetDelegationModels { id: "chief".into(), models: vec!["x".into()] }, AgentOrgEdit::SetModelPolicies { policies: Vec::new() }, powers] {
         assert!(refused(&edit(&mut ana, "", owners_only).await));
     }
+    let chief = load_config_from_path(&hub.path, false).unwrap().agents.into_iter().find(|a| a.id == "chief").unwrap();
+    assert_eq!(chief.autonomy, warden_bootstrap::default_autonomy(), "her try at the powers changed nothing");
 
     // She cannot give herself more, and the access is read again at each request, so the owner can take it back.
     ana.send(&ClientMessage::SetUserOrgAccess { request_id: 4, pairing_key: KEY.into(), id: "ana".into(), access: "edit".into() }).await.unwrap();

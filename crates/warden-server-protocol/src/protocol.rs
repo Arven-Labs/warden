@@ -1477,6 +1477,19 @@ pub enum AgentOrgEdit {
     },
     /// Removes `id`; whoever reported to it reports to its superior.
     Remove { id: String },
+    /// What `id` is allowed to do on its own (P122), all at once: its autonomy level (1 to 5), the four permissions a person turns on
+    /// and off, and the kinds of action (`approval_required`, by id, e.g. `spend_money`) that always need the person's yes. Nothing else
+    /// of the agent changes. Only the owner makes this edit: a member's access to the organization never reaches an agent's powers.
+    SetPowers {
+        id: String,
+        autonomy: u8,
+        can_start_tasks: bool,
+        can_create_workers: bool,
+        can_message_user: bool,
+        can_choose_models: bool,
+        #[serde(default)]
+        approval_required: Vec<String>,
+    },
     /// The models `id` may pick when it delegates (P123), in order: the first is the default of a delegation that names none, so a list
     /// of one dictates the model. Empty leaves the choice open. A name that isn't a provider, a combo or a policy is refused.
     SetDelegationModels {
