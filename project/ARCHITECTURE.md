@@ -3500,3 +3500,11 @@ Girar a chave fecha a porta para todos; faltava deixar um aparelho entrar sem a 
 - **Sem as regras "só desce / nasce no 3"**: elas valem para um **agente** que cria ou chama outro (`manage_agents`, `agent_scope`). Quem edita aqui é a pessoa, que já podia pôr qualquer 1 a 5 nas Configurações.
 - **Extensão**: `OrgView.tsx` ganhou o painel `powers` (`FormularioPoderes`) e o botão "Poderes"; `lib/org.ts` tem `powersEdit` (as categorias saem na ordem fixa da lista, as que só um hub mais novo conhece vão depois) e as listas de níveis e categorias, copiadas da web. **Celular**: `SetPowersEdit`, `_PowersDialog` e o item "Powers" no menu do agente; `services/approval_categories.dart` guarda as listas. Ambos mostram um id de categoria desconhecido pelo próprio id, para não sumir ao salvar, e avisam que o nível 5 só vale para quem pode gerenciar agentes.
 - **Web e desktop**: não mudaram; editam tudo isso nas Configurações.
+
+### Entrar num hub com o TruthID pelo desktop; o celular fica de fora (P113, Sessão 214)
+
+- **Decisão do usuário**: só o desktop. O hub não mudou (o `Hello` com `truthid_login` e o `/auth/truthid` são os da web).
+- **Por que não o celular**: o app TruthID lê o `challenge` do `ApprovalScreen` como mapa (`payload['challenge'] as Map`), e o `DeepLinkService` monta o payload de um `truthid://` só com `queryParameters` (texto). Abrir o app no mesmo aparelho pede uma mudança no TruthID (outro repositório); um QR na tela do celular só serviria para outro aparelho ler.
+- **Cliente**: `ServerConnection::handshake_with_truthid` lê quadros até o `HelloAck`, entregando cada `TruthIdChallenge` a um callback (`ChallengeSink`); sem callback o `hello` continua exigindo o `HelloAck` como antes. `recovery_codes: false`, então nunca cria a chave de dados.
+- **Sem tentar de novo**: no `remote_client`, uma credencial `TruthId` que não entrou termina em `Stopped` com o motivo, nunca em `Retrying`: cada tentativa seria um QR novo na tela de alguém. A espera é de 130 s (a janela de resposta do hub é de 120 s) e `until_stopped` a encerra na hora quando o desktop pede outro QR ou cancela, para o hub esquecer o desafio e a conexão velha não reportar depois.
+- **Tela**: o `HubConnectDialog` fica aberto e mostra o QR (SVG desenhado no Rust), o texto, a contagem dos 30 s e "New QR"; o `App.tsx` o fecha quando o estado do hub vira `connected`.

@@ -6,6 +6,24 @@
 
 ---
 
+### 2026-10-14 — Sessão 214 (P113: login por TruthID no desktop)
+
+- **Pedido do usuário**: "vamos de P113", planejado em plan mode. **Decisão do usuário**: só o desktop. O celular fica de fora porque o app TruthID lê o `challenge` como mapa e um deep link só leva texto (mexer no TruthID está fora do escopo).
+- **Feito**: `ServerConnection::handshake_with_truthid` (e o tipo `ChallengeSink`); `RemoteCredential::TruthId` e `RemoteEvent::TruthIdChallenge` no `remote_client.rs`, com espera de 130 s, parada imediata durante a espera (`until_stopped`) e sem tentar de novo sozinho; no desktop, `CredentialPayload::Truthid`, o evento `remote-truthid-challenge` (QR em SVG feito no Rust), a terceira opção do `HubConnectDialog` (QR, texto, contagem regressiva, "New QR", cancelar) e o `App.tsx` concluindo quando o hub vira `connected`. Helpers puros em `hubMap.ts` (`qrSecondsLeft`, `truthIdProgress`).
+- **Testes**: `people.rs` (cliente de biblioteca: QR, aprovação, recusa), `remote_client.rs` (2), `remote_cmds.rs`, `hubMap.test.mjs` (3; `npm test` 126), `tsc` e build do desktop, clippy.
+- **Sobra**: nunca visto num aparelho nem com o app TruthID real (P38, P129); o celular segue sem esse login.
+
+---
+
+### 2026-10-14 — Sessão 213 (limpeza do PENDING.md: P109, P125 e P120 já estavam feitos)
+
+- **Pedido do usuário**: "por onde continuamos?", depois "vamos de 109". **Achado**: sugeri o P109, o P125 e o P120 como abertos lendo só o título das linhas; o último "Fica" de cada um já estava cumprido (P109 na Sessão 115; P125 na 164; o acesso do membro do P120 no celular e no desktop, com o aviso `OrgAccessChanged`). A extensão não tem login de membro.
+- **Feito**: só documentação. P120 ganhou o "Fica de verdade" (permissões atreladas ao cargo, modelo real com `replace`, telas numa janela) e P125 a nota de que não há código a escrever nos clientes. Nenhum código mudou.
+- **Auditoria das linhas abertas** (a pedido): P10, P118 e P119 já diziam "✅ Resolvida" no texto e passaram a dizer na coluna de status. Código ainda por escrever, com clareza: **P113** (login por TruthID no celular e no desktop; só a web tem, e o celular só liga o TruthID de um membro), **P122** (nenhum cliente manda `Hello.tool_hints`), **P107** (espaço criado por membro, pasta de membro compartilhada, skills em espaço), **P60** (aviso ao aumentar `delegate_max_depth`) e **P120** (permissões atreladas ao cargo, sem desenho). O P115 está feito; só falta medir com conversas reais. O resto é ideia sem escopo ou conferência com modelo real, aparelho ou tela (P129).
+- **Lição**: antes de recomendar um item, ler o último "Fica/Falta" e conferir o código (já era a regra do memory `feedback_verify_pending_before_suggesting`).
+
+---
+
 ### 2026-10-14 — Sessão 212 (P102: pastas de nós no seletor de pasta do celular)
 
 - **Pedido do usuário**: "vamos com o seletor de pasta no celular". Planejado em plan mode. **Achado**: o seletor já existia no celular (commit `ffed811`, 2026-10-04) e a linha do P102 no `PENDING.md` estava desatualizada; confiei nela sem conferir o código. O que faltava era a fatia 2 (nós).
