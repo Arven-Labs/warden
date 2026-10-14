@@ -94,6 +94,11 @@ describe("decoding the device invite and the key rotation (P36)", () => {
     assert.deepEqual(reply, { type: "pairingKeyRotated", requestId: 6, newKey: "new" });
   });
 
+  test("the invites that wait come back by name and deadline, with no code", () => {
+    const reply = decode(JSON.stringify({ type: "deviceInviteList", requestId: 8, invites: [{ name: "Ana's phone", createdMs: 1, expiresMs: 9 }] }));
+    assert.deepEqual(reply, { type: "deviceInviteList", requestId: 8, invites: [{ name: "Ana's phone", createdMs: 1, expiresMs: 9 }] });
+  });
+
   test("a refused key comes through as authRejected", () => {
     const reply = decode(JSON.stringify({ type: "deviceError", requestId: 7, message: "wrong key", authRejected: true }));
     assert.equal(reply.type, "deviceError");

@@ -625,11 +625,20 @@ async function handleRequest(request: PopupRequest): Promise<unknown> {
 
     case "createDeviceInvite":
     case "rotatePairingKey":
+    case "listDeviceInvites":
+    case "cancelDeviceInvite":
       if (!connection || connection.status.kind !== "connected") return { ok: false, error: "not connected" };
       try {
-        return request.type === "createDeviceInvite"
-          ? { ok: true, invite: await connection.createDeviceInvite(request.pairingKey, request.name, request.ttlMinutes) }
-          : { ok: true, newKey: await connection.rotatePairingKey(request.pairingKey) };
+        switch (request.type) {
+          case "createDeviceInvite":
+            return { ok: true, invite: await connection.createDeviceInvite(request.pairingKey, request.name, request.ttlMinutes) };
+          case "rotatePairingKey":
+            return { ok: true, newKey: await connection.rotatePairingKey(request.pairingKey) };
+          case "listDeviceInvites":
+            return { ok: true, invites: await connection.listDeviceInvites() };
+          case "cancelDeviceInvite":
+            return { ok: true, invites: await connection.cancelDeviceInvite(request.pairingKey, request.name) };
+        }
       } catch (err) {
         return { ok: false, error: err instanceof Error ? err.message : String(err), authRejected: err instanceof HubRequestError && err.authRejected };
       }

@@ -7,7 +7,7 @@
 
 import type { ChatEntry, ConnectionStatus } from "./connection";
 import type { DiscoveredHub } from "./discovery";
-import type { ActivityEvent, AgentTask, AgentTaskAction, Grant, ApprovalPrompt, ConversationSummary, DirListing, HubAgents, OrgEdit, SkillDto, SpendReport, ThreadParent } from "../protocol/messages";
+import type { ActivityEvent, AgentTask, AgentTaskAction, Grant, ApprovalPrompt, ConversationSummary, DeviceInviteInfo, DirListing, HubAgents, OrgEdit, SkillDto, SpendReport, ThreadParent } from "../protocol/messages";
 import type { GroupTab } from "./tab_group";
 import type { LiveTurn } from "../protocol/liveTurn";
 
@@ -66,6 +66,9 @@ export type PopupRequest =
   /** P36 — a one-use invite for a new device, and a new pairing key; both with the current pairing key (asked every time, never kept). */
   | { type: "createDeviceInvite"; pairingKey: string; name: string; ttlMinutes: number }
   | { type: "rotatePairingKey"; pairingKey: string }
+  /** P36 — the invites that wait (no key: it shows names and deadlines only), and cancelling one (asks for the pairing key). */
+  | { type: "listDeviceInvites" }
+  | { type: "cancelDeviceInvite"; pairingKey: string; name: string }
   | { type: "listSkills" }
   | { type: "saveSkill"; skill: SkillDto; overwrite: boolean }
   | { type: "deleteSkill"; name: string }
@@ -157,11 +160,13 @@ export interface HubAgentsResponse {
   authRejected?: boolean;
 }
 
-/** Reply to `createDeviceInvite` (`invite`) and `rotatePairingKey` (`newKey`); each is shown once. `authRejected`: the pairing key was wrong. */
+/** Reply to `createDeviceInvite` (`invite`) and `rotatePairingKey` (`newKey`); each is shown once. `invites` is what waits, in the replies to
+ * `listDeviceInvites` and `cancelDeviceInvite`. `authRejected`: the pairing key was wrong. */
 export interface DeviceAdminResponse {
   ok: boolean;
   invite?: { name: string; code: string; expiresMs: number };
   newKey?: string;
+  invites?: DeviceInviteInfo[];
   error?: string;
   authRejected?: boolean;
 }

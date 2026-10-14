@@ -210,6 +210,13 @@ export interface HistoryMessage {
   attachments: Attachment[];
 }
 
+/** P36 — an invite that waits to be used. The hub never sends its code. */
+export interface DeviceInviteInfo {
+  name: string;
+  createdMs: number;
+  expiresMs: number;
+}
+
 export type ClientMessage =
   /** `authKey` is the hub's pairing key (P36), only needed until this device holds a
    * `deviceToken` from an earlier `helloAck`. */
@@ -244,6 +251,9 @@ export type ClientMessage =
   | { type: "createDeviceInvite"; requestId: number; pairingKey: string; name: string; ttlMinutes: number }
   /** P36 — changes the hub's pairing key. Asks for the current one; answered by `pairingKeyRotated` or `deviceError`. */
   | { type: "rotatePairingKey"; requestId: number; pairingKey: string }
+  /** P36 — the invites that wait (open to a paired device), answered by `deviceInviteList`; cancelling one asks for the pairing key. */
+  | { type: "listDeviceInvites"; requestId: number }
+  | { type: "cancelDeviceInvite"; requestId: number; pairingKey: string; name: string }
   | { type: "toolCallResult"; callId: number; result: unknown }
   | { type: "toolCallError"; callId: number; message: string }
   /** Skills management (P72) — `requestId` is echoed on the matching reply. */
@@ -321,6 +331,8 @@ export type ServerMessage =
   | { type: "deviceInvite"; requestId: number; name: string; code: string; expiresMs: number }
   /** Reply to `rotatePairingKey`: the new key, shown once. */
   | { type: "pairingKeyRotated"; requestId: number; newKey: string }
+  /** Reply to `listDeviceInvites` and `cancelDeviceInvite`: the invites that wait, by name; never a code. */
+  | { type: "deviceInviteList"; requestId: number; invites: DeviceInviteInfo[] }
   /** `authRejected`: the pairing key was wrong; nothing was changed. */
   | { type: "deviceError"; requestId: number; message: string; authRejected?: boolean }
   | ({ type: "approvalRequest" } & ApprovalPrompt)
@@ -402,6 +414,7 @@ export function decode(text: string): ServerMessage {
     case "activityList":
     case "deviceInvite":
     case "pairingKeyRotated":
+    case "deviceInviteList":
     case "deviceError":
     case "taskError":
     case "settingsError":

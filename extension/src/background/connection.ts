@@ -22,6 +22,7 @@ import {
   type ClientMessage,
   type ChatEventDto,
   type ConversationSummary,
+  type DeviceInviteInfo,
   type DirListing,
   type HistoryMessage,
   type HubAgents,
@@ -323,6 +324,7 @@ export class ServerConnection {
       case "agentChannel":
       case "dirList":
       case "deviceInvite":
+      case "deviceInviteList":
       case "pairingKeyRotated":
         this.settleRequest(message.requestId, (pending) => pending.resolve(message));
         break;
@@ -451,6 +453,21 @@ export class ServerConnection {
     const reply = await this.request((requestId) => ({ type: "createDeviceInvite", requestId, pairingKey, name, ttlMinutes }));
     if (reply.type !== "deviceInvite") throw new Error("unexpected reply from the hub");
     return { name: reply.name, code: reply.code, expiresMs: reply.expiresMs };
+  }
+
+  /** P36 — the invites that wait to be used, by name; the hub never says their codes. */
+  async listDeviceInvites(): Promise<DeviceInviteInfo[]> {
+    const reply = await this.request((requestId) => ({ type: "listDeviceInvites", requestId }));
+    if (reply.type !== "deviceInviteList") throw new Error("unexpected reply from the hub");
+    return reply.invites;
+  }
+
+  /** P36 — cancels the waiting invite called `name`, with the pairing key, and returns the ones that still wait. Rejects with
+   * `HubRequestError` (`authRejected` on a wrong key, or no such invite waits any more). */
+  async cancelDeviceInvite(pairingKey: string, name: string): Promise<DeviceInviteInfo[]> {
+    const reply = await this.request((requestId) => ({ type: "cancelDeviceInvite", requestId, pairingKey, name }));
+    if (reply.type !== "deviceInviteList") throw new Error("unexpected reply from the hub");
+    return reply.invites;
   }
 
   /** P36 — changes the hub's pairing key, made with the current one. The new key comes back once. */

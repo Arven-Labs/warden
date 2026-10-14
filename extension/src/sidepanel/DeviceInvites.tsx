@@ -1,7 +1,13 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { DeviceAdminResponse } from "../background/popup_protocol";
+import type { DeviceInviteInfo } from "../protocol/messages";
 
-type Made = { kind: "invite"; name: string; code: string; expiresMs: number } | { kind: "key"; newKey: string };
+type Made = { kind: "invite"; name: string; code: string; expiresMs: number } | { kind: "key"; newKey: string } | { kind: "cancelled"; name: string };
+
+type Request =
+  | { type: "createDeviceInvite"; pairingKey: string; name: string; ttlMinutes: number }
+  | { type: "rotatePairingKey"; pairingKey: string }
+  | { type: "cancelDeviceInvite"; pairingKey: string; name: string };
 
 /** Aparelhos (P36): cria um convite de uso único para parear mais um aparelho e troca a chave de pareamento do hub. A chave de pareamento
  * só pareia o primeiro aparelho; os outros entram com o código do convite. A chave é pedida a cada ação e não fica guardada em lugar nenhum;
@@ -14,21 +20,36 @@ export default function DeviceInvites() {
   const [made, setMade] = useState<Made | null>(null);
   const [confirmRotate, setConfirmRotate] = useState(false);
   const [busy, setBusy] = useState(false);
+  // Os convites que esperam, que qualquer aparelho pareado pode ver (pelo nome, nunca o código).
+  const [waiting, setWaiting] = useState<DeviceInviteInfo[]>([]);
 
-  function run(request: { type: "createDeviceInvite"; pairingKey: string; name: string; ttlMinutes: number } | { type: "rotatePairingKey"; pairingKey: string }) {
+  function refreshWaiting() {
+    chrome.runtime.sendMessage({ type: "listDeviceInvites" }).then((res: DeviceAdminResponse) => {
+      if (res.ok && res.invites) setWaiting(res.invites);
+    });
+  }
+
+  useEffect(refreshWaiting, []);
+
+  function run(request: Request) {
     setBusy(true);
     setError(null);
     setMade(null);
     chrome.runtime
       .sendMessage(request)
       .then((res: DeviceAdminResponse) => {
-        if (res.ok && res.invite) {
-          setMade({ kind: "invite", ...res.invite });
-        } else if (res.ok && res.newKey) {
-          setMade({ kind: "key", newKey: res.newKey });
-        } else {
+        if (!res.ok) {
           setError(res.authRejected ? "Chave de pareamento errada." : (res.error ?? "Não foi possível."));
           return;
+        }
+        if (request.type === "cancelDeviceInvite") {
+          setMade({ kind: "cancelled", name: request.name });
+          setWaiting(res.invites ?? []);
+        } else if (res.invite) {
+          setMade({ kind: "invite", ...res.invite });
+          refreshWaiting();
+        } else if (res.newKey) {
+          setMade({ kind: "key", newKey: res.newKey });
         }
         setPairingKey("");
         setConfirmRotate(false);
@@ -89,6 +110,28 @@ export default function DeviceInvites() {
           A chave antiga deixa de abrir a administração do hub. Os aparelhos já pareados continuam funcionando.
         </p>
       )}
+      {waiting.length > 0 && (
+        <>
+          <p className="skills-hint">Convites esperando:</p>
+          <ul className="device-invites-waiting">
+            {waiting.map((invite) => (
+              <li key={invite.name}>
+                {invite.name}, até {new Intl.DateTimeFormat("pt-BR", { dateStyle: "short", timeStyle: "short" }).format(invite.expiresMs)}{" "}
+                <button
+                  type="button"
+                  className="link-button"
+                  disabled={busy || pairingKey.trim() === ""}
+                  title={pairingKey.trim() === "" ? "Digite a chave de pareamento acima para cancelar" : undefined}
+                  onClick={() => run({ type: "cancelDeviceInvite", pairingKey, name: invite.name })}
+                >
+                  Cancelar
+                </button>
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
+      {made?.kind === "cancelled" && <p className="skills-hint">Convite de {made.name} cancelado.</p>}
       {made?.kind === "invite" && (
         <p className="skills-hint">
           Convite para {made.name}, válido até {new Intl.DateTimeFormat("pt-BR", { dateStyle: "short", timeStyle: "short" }).format(made.expiresMs)}. O código só
