@@ -111,24 +111,41 @@ pub fn rotate_pairing_key() -> Result<String, String> {
     warden_server::pairing_key::rotate_at(&warden_server::pairing_key::pairing_key_path_beside(&devices_path)).map_err(|e| format!("{e:#}"))
 }
 
+/// What the Workspace screen keeps of the QR section: only the hub's address (P36 — the secret in the QR is an invite made
+/// when the QR is drawn, so nothing secret is saved).
 #[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct HubPairingConfigPayload {
     server_url: String,
-    auth_key: String,
 }
 
 impl From<HubPairingConfig> for HubPairingConfigPayload {
     fn from(c: HubPairingConfig) -> Self {
-        HubPairingConfigPayload { server_url: c.server_url, auth_key: c.auth_key }
+        HubPairingConfigPayload { server_url: c.server_url }
     }
 }
 
-impl From<HubPairingConfigPayload> for HubPairingConfig {
-    fn from(p: HubPairingConfigPayload) -> Self {
-        HubPairingConfig { server_url: p.server_url, auth_key: p.auth_key }
-    }
+/// The JSON drawn in the pairing QR: the shape `mobile/lib/services/hub_pairing_qr.dart::parseHubPairingQr` reads. `auth_key`
+/// is the code of a one-use invite (the hub takes any code it does not know as the key for an invite), not the pairing key.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct PairingQrPayload<'a> {
+    server_url: &'a str,
+    auth_key: &'a str,
 }
+
+/// A drawn pairing QR and when the invite inside it stops working.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HubPairingQr {
+    svg: String,
+    expires_ms: i64,
+}
+
+/// How long the invite in a QR works: the time to pick up the phone and scan it.
+const QR_INVITE_MINUTES: u64 = 10;
+/// The invite's name. A fixed one means drawing a new QR replaces the last one instead of leaving invites behind.
+const QR_INVITE_NAME: &str = "QR pairing";
 
 fn hub_pairing_config_path() -> Result<std::path::PathBuf, String> {
     warden_bootstrap::default_hub_pairing_config_path().ok_or_else(|| "could not determine the OS config directory".to_string())
@@ -143,31 +160,34 @@ pub fn get_hub_pairing_config() -> Result<Option<HubPairingConfigPayload>, Strin
 }
 
 #[tauri::command]
-pub fn save_hub_pairing_config(server_url: String, auth_key: String) -> Result<(), String> {
+pub fn save_hub_pairing_config(server_url: String) -> Result<(), String> {
     let server_url = server_url.trim();
-    let auth_key = auth_key.trim();
-    if server_url.is_empty() || auth_key.is_empty() {
-        return Err("Server URL e Auth key são obrigatórios".to_string());
+    if server_url.is_empty() {
+        return Err("O Server URL é obrigatório".to_string());
     }
     let path = hub_pairing_config_path()?;
-    let config = HubPairingConfig { server_url: server_url.to_string(), auth_key: auth_key.to_string() };
+    let config = HubPairingConfig { server_url: server_url.to_string() };
     warden_bootstrap::save_hub_pairing_config(&path, &config).map_err(|e| format!("{e:#}"))
 }
 
-/// Renders the pairing QR (Fase 9.7) from whatever was last saved via `save_hub_pairing_config` —
-/// a new client (today, the mobile app's `ConnectionScreen`) scans this to skip typing the server
-/// URL and auth key by hand. The payload is deliberately just those two fields: `device_id`/
-/// `device_name` stay client-chosen (mobile already generates/persists its own), and approving the
-/// device for `CallDeviceTool` routing (Fase 9.3/9.6) still happens separately, after it connects.
+/// Draws the pairing QR (Fase 9.7) from the address saved with `save_hub_pairing_config` — a new client (today, the mobile app's
+/// `ConnectionScreen`) scans this to skip typing the address and the key by hand. The key in it is a one-use invite made now, on
+/// this machine's registry (P36: the hub's pairing key pairs only its first device), valid for `QR_INVITE_MINUTES`. `device_id`/
+/// `device_name` stay client-chosen, and approving the device for `CallDeviceTool` routing (Fase 9.3/9.6) still happens separately.
 #[tauri::command]
-pub fn hub_pairing_qr_svg() -> Result<String, String> {
+pub fn hub_pairing_qr_svg() -> Result<HubPairingQr, String> {
     let path = hub_pairing_config_path()?;
     let config = warden_bootstrap::load_hub_pairing_config(&path)
         .map_err(|e| format!("{e:#}"))?
-        .ok_or_else(|| "Preencha e salve o Server URL e a Auth key antes de gerar o QR".to_string())?;
-    let payload = HubPairingConfigPayload::from(config);
-    let json = serde_json::to_string(&payload).map_err(|e| format!("failed to serialize pairing payload: {e}"))?;
-    crate::qr::render_qr_svg(&json)
+        .ok_or_else(|| "Preencha o Server URL antes de gerar o QR".to_string())?;
+    draw_pairing_qr(&store()?, &config.server_url)
+}
+
+/// `hub_pairing_qr_svg` without the files: makes the invite in `store` and draws it with `server_url`.
+fn draw_pairing_qr(store: &PairingStore, server_url: &str) -> Result<HubPairingQr, String> {
+    let invite = make_invite(store, QR_INVITE_NAME, QR_INVITE_MINUTES)?;
+    let json = serde_json::to_string(&PairingQrPayload { server_url, auth_key: &invite.code }).map_err(|e| format!("failed to serialize pairing payload: {e}"))?;
+    Ok(HubPairingQr { svg: crate::qr::render_qr_svg(&json)?, expires_ms: invite.expires_ms })
 }
 
 #[derive(Serialize)]
@@ -242,12 +262,37 @@ mod tests {
     // what `mobile/lib/services/hub_pairing_qr.dart::parseHubPairingQr` decodes on the other end,
     // so the two sides must agree on field names without either one importing the other's types.
     #[test]
-    fn hub_pairing_config_payload_serializes_as_camel_case() {
-        let payload = HubPairingConfigPayload::from(HubPairingConfig {
-            server_url: "ws://192.168.1.10:7420".to_string(),
-            auth_key: "secret".to_string(),
-        });
+    fn the_pairing_qr_payload_serializes_as_camel_case() {
+        let payload = PairingQrPayload { server_url: "ws://192.168.1.10:7420", auth_key: "secret" };
         assert_eq!(serde_json::to_string(&payload).unwrap(), r#"{"serverUrl":"ws://192.168.1.10:7420","authKey":"secret"}"#);
+    }
+
+    // What the Workspace screen keeps and reads back is the address alone: no secret sits in the config file (P36).
+    #[test]
+    fn the_saved_qr_config_holds_the_address_and_nothing_secret() {
+        let payload = HubPairingConfigPayload::from(HubPairingConfig { server_url: "ws://192.168.1.10:7420".to_string() });
+        assert_eq!(serde_json::to_string(&payload).unwrap(), r#"{"serverUrl":"ws://192.168.1.10:7420"}"#);
+    }
+
+    // P36: the QR carries a one-use invite made when it is drawn, short-lived, and a new QR replaces the last one's invite.
+    #[test]
+    fn drawing_the_qr_makes_one_short_invite_and_a_second_qr_replaces_it() {
+        let path = std::env::temp_dir().join(format!("warden-desktop-qr-{}.json", std::process::id()));
+        let _ = std::fs::remove_file(&path);
+        let store = PairingStore::new(&path);
+
+        let first = draw_pairing_qr(&store, "ws://192.168.1.10:7420").unwrap();
+        assert!(first.svg.contains("<svg"));
+        let invites = store.list_invites().unwrap();
+        assert_eq!(invites.len(), 1);
+        assert_eq!(invites[0].name, QR_INVITE_NAME);
+        let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis() as i64;
+        assert!(first.expires_ms > now && first.expires_ms <= now + (QR_INVITE_MINUTES as i64) * 60_000, "valid for the next few minutes only");
+        assert_eq!(serde_json::to_value(&first).unwrap()["expiresMs"], first.expires_ms);
+
+        draw_pairing_qr(&store, "ws://192.168.1.10:7420").unwrap();
+        assert_eq!(store.list_invites().unwrap().len(), 1, "the new QR took the place of the old one");
+        std::fs::remove_file(path).unwrap();
     }
 
     // Locks in the exact camelCase JSON shape `desktop/src/types.ts`'s `DiscoveredHub` expects.

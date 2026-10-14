@@ -1201,14 +1201,14 @@ pub fn default_tls_dir() -> Option<PathBuf> {
 /// `FileConfig`: it's a Workspace-only concern (generating a QR), unrelated to the
 /// providers/agents/mcp settings that file's Settings-screen form already covers, and it never
 /// gets read by `bootstrap()`.
+///
+/// Only the address is kept (P36): what goes in the QR as the secret is a one-use invite made when the QR is drawn, not the hub's
+/// pairing key (which pairs only the first device now). A file from before still holds an `auth_key`; it is ignored when read and
+/// gone the next time the file is saved.
 #[derive(Deserialize, Serialize, Clone, Debug, PartialEq)]
-#[serde(deny_unknown_fields)]
 pub struct HubPairingConfig {
     /// The `warden-server` hub to embed in the QR, e.g. `"ws://192.168.1.10:7420"`.
     pub server_url: String,
-    /// Shared secret for that hub's `Hello` handshake — same value the operator passed it via
-    /// `WARDEN_SERVER_AUTH_KEY`/`--auth-key` when starting it.
-    pub auth_key: String,
 }
 
 /// Where every `ssh_exec`/`ssh_upload`/`ssh_download` call is recorded (P47) — JSONL, one line per
@@ -2443,12 +2443,25 @@ mod tests {
     #[test]
     fn hub_pairing_config_round_trips_through_save_and_load() {
         let path = temp_json_path("round-trip");
-        let config = HubPairingConfig { server_url: "ws://192.168.1.10:7420".to_string(), auth_key: "secret".to_string() };
+        let config = HubPairingConfig { server_url: "ws://192.168.1.10:7420".to_string() };
 
         save_hub_pairing_config(&path, &config).unwrap();
         let loaded = load_hub_pairing_config(&path).unwrap();
 
         assert_eq!(loaded, Some(config));
+        std::fs::remove_file(&path).ok();
+    }
+
+    #[test]
+    fn a_hub_pairing_file_from_before_invites_still_loads_and_loses_its_key_when_saved() {
+        let path = temp_json_path("old-file");
+        std::fs::write(&path, r#"{"server_url":"ws://192.168.1.10:7420","auth_key":"secret"}"#).unwrap();
+
+        let loaded = load_hub_pairing_config(&path).unwrap().expect("the old file still loads");
+        assert_eq!(loaded.server_url, "ws://192.168.1.10:7420");
+
+        save_hub_pairing_config(&path, &loaded).unwrap();
+        assert!(!std::fs::read_to_string(&path).unwrap().contains("secret"), "the key does not survive a save");
         std::fs::remove_file(&path).ok();
     }
 

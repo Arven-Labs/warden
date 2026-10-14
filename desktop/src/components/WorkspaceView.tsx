@@ -4,7 +4,7 @@ import { open } from "@tauri-apps/plugin-dialog";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { ApiKeyField } from "./SettingsView";
 import HubsSection from "./HubsSection";
-import type { DiscoveredHub, EmbeddedServerConfig, EmbeddedServerStatus, HubPairingConfig, PairedDevice } from "../types";
+import type { DiscoveredHub, EmbeddedServerConfig, EmbeddedServerStatus, HubPairingConfig, HubPairingQr, PairedDevice } from "../types";
 
 const STOPPED_STATUS: EmbeddedServerStatus = { running: false, boundAddr: null, serverName: null, secure: false, secureUrl: null, webUrl: null };
 
@@ -425,7 +425,7 @@ function DeviceInvitesSection() {
       )}
       {rotatedKey && (
         <p className="settings-hint">
-          New pairing key (shown once): <code>{rotatedKey}</code> — update the Auth key in the QR section below if you use it.
+          New pairing key (shown once): <code>{rotatedKey}</code>
         </p>
       )}
     </section>
@@ -433,8 +433,9 @@ function DeviceInvitesSection() {
 }
 
 function HubPairingQrSection() {
-  const [config, setConfig] = useState<HubPairingConfig>({ serverUrl: "", authKey: "" });
-  const [qrSvg, setQrSvg] = useState<string | null>(null);
+  const [config, setConfig] = useState<HubPairingConfig>({ serverUrl: "" });
+  // P36 — the QR carries a one-use invite made when it is drawn, so the screen also keeps when that invite stops working.
+  const [qr, setQr] = useState<HubPairingQr | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -457,11 +458,10 @@ function HubPairingQrSection() {
   async function handleGenerate() {
     setError(null);
     setBusy(true);
-    setQrSvg(null);
+    setQr(null);
     try {
-      await invoke("save_hub_pairing_config", { serverUrl: config.serverUrl, authKey: config.authKey });
-      const svg = await invoke<string>("hub_pairing_qr_svg");
-      setQrSvg(svg);
+      await invoke("save_hub_pairing_config", { serverUrl: config.serverUrl });
+      setQr(await invoke<HubPairingQr>("hub_pairing_qr_svg"));
     } catch (err) {
       setError(String(err));
     } finally {
@@ -470,8 +470,7 @@ function HubPairingQrSection() {
   }
 
   // Fase 9.1 (redefined) — sweeps the LAN instead of asking the operator to already know the IP.
-  // Only ever fills Server URL: the auth key is never part of the probe's reply, so it stays
-  // manual on purpose.
+  // Only ever fills Server URL: the probe's reply has no secret in it.
   async function handleDiscover() {
     setSearchError(null);
     setSearching(true);
@@ -493,8 +492,9 @@ function HubPairingQrSection() {
         <h3 className="settings-section-title">Pareamento por QR</h3>
       </div>
       <p className="settings-hint">
-        Preencha os dados deste hub uma vez e gere um QR — escaneie no app pra preencher a conexão automaticamente, sem
-        digitar o endereço e a chave na mão.
+        Informe o endereço deste hub e gere um QR — escaneie no app pra preencher a conexão automaticamente. O QR leva um
+        convite de uso único, válido por poucos minutos (a chave de pareamento só pareia o primeiro aparelho), criado nesta
+        máquina: serve para o hub deste app ou um <code>warden-server</code> daqui.
       </p>
 
       <label className="settings-field">
@@ -546,25 +546,19 @@ function HubPairingQrSection() {
           Usar o hub deste app ({embeddedSecureUrl})
         </button>
       )}
-      <label className="settings-field">
-        <span className="settings-label">Auth key</span>
-        <input
-          className="settings-input"
-          type="password"
-          value={config.authKey}
-          onChange={(e) => setConfig((c) => ({ ...c, authKey: e.currentTarget.value }))}
-        />
-      </label>
 
       {error && <p className="settings-error-banner">{error}</p>}
 
       <button type="button" className="settings-save-btn" onClick={handleGenerate} disabled={busy}>
-        Salvar e gerar QR
+        Gerar QR
       </button>
 
-      {qrSvg && (
+      {qr && (
         <div className="sync-qr-card">
-          <div className="sync-qr-image" dangerouslySetInnerHTML={{ __html: qrSvg }} />
+          <div className="sync-qr-image" dangerouslySetInnerHTML={{ __html: qr.svg }} />
+          <p className="settings-hint">
+            Vale uma vez, até {new Date(qr.expiresMs).toLocaleTimeString()}. Gerar outro QR cancela este.
+          </p>
         </div>
       )}
     </section>

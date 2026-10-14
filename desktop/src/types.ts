@@ -379,11 +379,16 @@ export interface PairedDevice {
 }
 
 /** Mirrors `warden_bootstrap::HubPairingConfig` (via `workspace_cmds::HubPairingConfigPayload`,
- * Fase 9.7) — what the Workspace screen's "Pareamento por QR" section saves and embeds in the QR
- * a new client scans, so it doesn't have to type `serverUrl`/`authKey` by hand. */
+ * Fase 9.7) — what the Workspace screen's "Pareamento por QR" section saves: the hub's address, which goes in the QR a
+ * new client scans. The secret in the QR is a one-use invite made when it is drawn (P36), so none is saved. */
 export interface HubPairingConfig {
   serverUrl: string;
-  authKey: string;
+}
+
+/** Mirrors `workspace_cmds::HubPairingQr` (P36): the drawn QR, and when the invite inside it stops working. */
+export interface HubPairingQr {
+  svg: string;
+  expiresMs: number;
 }
 
 /** Mirrors `warden_server_protocol::discovery::DiscoveredHub` (via
