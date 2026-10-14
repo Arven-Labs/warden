@@ -322,6 +322,8 @@ export class ServerConnection {
       case "conversationOk":
       case "agentChannel":
       case "dirList":
+      case "deviceInvite":
+      case "pairingKeyRotated":
         this.settleRequest(message.requestId, (pending) => pending.resolve(message));
         break;
       case "dirError":
@@ -332,6 +334,7 @@ export class ServerConnection {
         break;
       case "settingsError":
       case "taskError":
+      case "deviceError":
         this.settleRequest(message.requestId, (pending) => pending.reject(new HubRequestError(message.message, message.authRejected ?? false)));
         break;
       case "authError":
@@ -440,6 +443,21 @@ export class ServerConnection {
     const reply = await this.request((requestId) => ({ type: "controlAgentTask", requestId, pairingKey, taskId, action }));
     if (reply.type !== "agentTaskList") throw new Error("unexpected reply from the hub");
     return reply.tasks;
+  }
+
+  /** P36 — a one-use invite that pairs one device without the pairing key, made with the pairing key. The code comes back once. Rejects with
+   * `HubRequestError` (`authRejected` on a wrong key). */
+  async createDeviceInvite(pairingKey: string, name: string, ttlMinutes: number): Promise<{ name: string; code: string; expiresMs: number }> {
+    const reply = await this.request((requestId) => ({ type: "createDeviceInvite", requestId, pairingKey, name, ttlMinutes }));
+    if (reply.type !== "deviceInvite") throw new Error("unexpected reply from the hub");
+    return { name: reply.name, code: reply.code, expiresMs: reply.expiresMs };
+  }
+
+  /** P36 — changes the hub's pairing key, made with the current one. The new key comes back once. */
+  async rotatePairingKey(pairingKey: string): Promise<string> {
+    const reply = await this.request((requestId) => ({ type: "rotatePairingKey", requestId, pairingKey }));
+    if (reply.type !== "pairingKeyRotated") throw new Error("unexpected reply from the hub");
+    return reply.newKey;
   }
 
   /** P87 — the person's answer to an `approvalRequest`. */

@@ -623,6 +623,17 @@ async function handleRequest(request: PopupRequest): Promise<unknown> {
         return { ok: false, error: err instanceof Error ? err.message : String(err), authRejected: err instanceof HubRequestError && err.authRejected };
       }
 
+    case "createDeviceInvite":
+    case "rotatePairingKey":
+      if (!connection || connection.status.kind !== "connected") return { ok: false, error: "not connected" };
+      try {
+        return request.type === "createDeviceInvite"
+          ? { ok: true, invite: await connection.createDeviceInvite(request.pairingKey, request.name, request.ttlMinutes) }
+          : { ok: true, newKey: await connection.rotatePairingKey(request.pairingKey) };
+      } catch (err) {
+        return { ok: false, error: err instanceof Error ? err.message : String(err), authRejected: err instanceof HubRequestError && err.authRejected };
+      }
+
     case "listSkills":
       if (!connection || connection.status.kind !== "connected") return { ok: false, skills: [], error: "not connected" };
       try {

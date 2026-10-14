@@ -83,6 +83,24 @@ describe("decoding the hub's settings", () => {
   });
 });
 
+describe("decoding the device invite and the key rotation (P36)", () => {
+  test("an invite comes back with its code and when it lapses", () => {
+    const reply = decode(JSON.stringify({ type: "deviceInvite", requestId: 5, name: "Ana's phone", code: "abc", expiresMs: 9 }));
+    assert.deepEqual(reply, { type: "deviceInvite", requestId: 5, name: "Ana's phone", code: "abc", expiresMs: 9 });
+  });
+
+  test("a rotation comes back with the new key", () => {
+    const reply = decode(JSON.stringify({ type: "pairingKeyRotated", requestId: 6, newKey: "new" }));
+    assert.deepEqual(reply, { type: "pairingKeyRotated", requestId: 6, newKey: "new" });
+  });
+
+  test("a refused key comes through as authRejected", () => {
+    const reply = decode(JSON.stringify({ type: "deviceError", requestId: 7, message: "wrong key", authRejected: true }));
+    assert.equal(reply.type, "deviceError");
+    assert.equal(reply.authRejected, true);
+  });
+});
+
 describe("decoding the delegated tasks", () => {
   test("a task list keeps its tasks as the hub sent them", () => {
     const task = { id: "at-1", group: "g", assignee: "dev", objective: "x", channel: "cli", state: "running", createdAtMs: 5, controllable: true, pausable: true };

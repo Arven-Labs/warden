@@ -240,6 +240,10 @@ export type ClientMessage =
   | { type: "controlAgentTask"; requestId: number; pairingKey: string; taskId: string; action: AgentTaskAction }
   /** P120 — one change to the agents' organization. Asks for the pairing key; answered by `settingsSaved` or `settingsError`. */
   | { type: "editAgentOrg"; requestId: number; pairingKey: string; edit: OrgEdit }
+  /** P36 — a one-use invite that pairs one device without the pairing key. Asks for the pairing key; answered by `deviceInvite` or `deviceError`. */
+  | { type: "createDeviceInvite"; requestId: number; pairingKey: string; name: string; ttlMinutes: number }
+  /** P36 — changes the hub's pairing key. Asks for the current one; answered by `pairingKeyRotated` or `deviceError`. */
+  | { type: "rotatePairingKey"; requestId: number; pairingKey: string }
   | { type: "toolCallResult"; callId: number; result: unknown }
   | { type: "toolCallError"; callId: number; message: string }
   /** Skills management (P72) — `requestId` is echoed on the matching reply. */
@@ -313,6 +317,12 @@ export type ServerMessage =
   | { type: "grantList"; requestId: number; grants: Grant[]; ttlDays?: number }
   | { type: "activityList"; requestId: number; events: ActivityEvent[] }
   | { type: "taskError"; requestId: number; message: string; authRejected?: boolean }
+  /** Reply to `createDeviceInvite`: the `code` is shown once, the hub keeps only its hash. */
+  | { type: "deviceInvite"; requestId: number; name: string; code: string; expiresMs: number }
+  /** Reply to `rotatePairingKey`: the new key, shown once. */
+  | { type: "pairingKeyRotated"; requestId: number; newKey: string }
+  /** `authRejected`: the pairing key was wrong; nothing was changed. */
+  | { type: "deviceError"; requestId: number; message: string; authRejected?: boolean }
   | ({ type: "approvalRequest" } & ApprovalPrompt)
   | { type: "approvalCancelled"; approvalId: number }
   /** An agent left a note in one of this device's conversations, or answered one (P46 `message_agent`). */
@@ -390,6 +400,9 @@ export function decode(text: string): ServerMessage {
     case "usageReport":
     case "grantList":
     case "activityList":
+    case "deviceInvite":
+    case "pairingKeyRotated":
+    case "deviceError":
     case "taskError":
     case "settingsError":
     case "approvalRequest":

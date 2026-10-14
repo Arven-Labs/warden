@@ -63,6 +63,9 @@ export type PopupRequest =
   | { type: "listHubAgents" }
   /** P120 — one change to the organization, with the pairing key. */
   | { type: "editAgentOrg"; pairingKey: string; edit: OrgEdit }
+  /** P36 — a one-use invite for a new device, and a new pairing key; both with the current pairing key (asked every time, never kept). */
+  | { type: "createDeviceInvite"; pairingKey: string; name: string; ttlMinutes: number }
+  | { type: "rotatePairingKey"; pairingKey: string }
   | { type: "listSkills" }
   | { type: "saveSkill"; skill: SkillDto; overwrite: boolean }
   | { type: "deleteSkill"; name: string }
@@ -150,6 +153,15 @@ export interface AgentActivityExtrasResponse {
 export interface HubAgentsResponse {
   ok: boolean;
   hub?: HubAgents;
+  error?: string;
+  authRejected?: boolean;
+}
+
+/** Reply to `createDeviceInvite` (`invite`) and `rotatePairingKey` (`newKey`); each is shown once. `authRejected`: the pairing key was wrong. */
+export interface DeviceAdminResponse {
+  ok: boolean;
+  invite?: { name: string; code: string; expiresMs: number };
+  newKey?: string;
   error?: string;
   authRejected?: boolean;
 }

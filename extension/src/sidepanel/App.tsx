@@ -4,6 +4,7 @@ import ChatView from "./ChatView";
 import ConversationBar from "./ConversationBar";
 import SkillsView from "./SkillsView";
 import AgentsView from "./AgentsView";
+import DeviceInvites from "./DeviceInvites";
 import TabsView from "./TabsView";
 import ChannelsView from "./ChannelsView";
 import AgentWorkList from "./AgentWorkList";
@@ -35,7 +36,7 @@ export default function App() {
   });
   /** P87 — approvals the hub is waiting on, kept by the background. */
   const [approvals, setApprovals] = useState<ApprovalPrompt[]>([]);
-  const [tab, setTab] = useState<"chat" | "channels" | "skills" | "tabs" | "agents">("chat");
+  const [tab, setTab] = useState<"chat" | "channels" | "skills" | "tabs" | "agents" | "devices">("chat");
   /** P121 — the agent whose notes and runs (outside its channel) the Canais tab lists, instead of the contacts; `null` for the contacts. */
   const [workOf, setWorkOf] = useState<string | null>(null);
   /** P121 — the conversation of that list that the chat tab is showing, to come back to the list from it. */
@@ -144,6 +145,9 @@ export default function App() {
             </button>
             <button type="button" className={tab === "agents" ? "tab tab--active" : "tab"} onClick={() => setTab("agents")}>
               Agentes
+            </button>
+            <button type="button" className={tab === "devices" ? "tab tab--active" : "tab"} onClick={() => setTab("devices")}>
+              Aparelhos
             </button>
             <button type="button" className={tab === "tabs" ? "tab tab--active" : "tab"} onClick={() => setTab("tabs")}>
               Abas
@@ -289,6 +293,11 @@ export default function App() {
                   void chrome.runtime.sendMessage({ type: "openAgentChannel", agentId }).then(() => setTab("chat"));
                 }}
               />
+            </div>
+          )}
+          {tab === "devices" && (
+            <div className="tab-panel">
+              <DeviceInvites />
             </div>
           )}
           {tab === "tabs" && (
