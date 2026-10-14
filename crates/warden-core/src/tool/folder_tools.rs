@@ -83,6 +83,11 @@ impl FolderWriteTool {
 
 #[async_trait]
 impl Tool for FolderWriteTool {
+    fn only_creates(&self, args: &Value) -> bool {
+        let Some(relative) = args.get("path").and_then(Value::as_str) else { return false };
+        inside(&self.root, relative).is_ok_and(|path| path.symlink_metadata().is_err_and(|e| e.kind() == std::io::ErrorKind::NotFound))
+    }
+
     fn spec(&self) -> ToolSpec {
         ToolSpec {
             name: "write_file".to_string(),
@@ -167,6 +172,24 @@ mod tests {
         assert!(write.call(json!({ "path": "file-link", "content": "changed" })).await.is_err());
         assert_eq!(std::fs::read_to_string(outside.join("secret.txt")).unwrap(), "secret");
         assert!(!outside.join("new.txt").exists());
+    }
+
+    #[tokio::test]
+    async fn a_write_only_creates_when_nothing_is_at_the_path_and_never_when_unsure() {
+        let root = folder();
+        std::fs::write(root.join("old.txt"), "old").unwrap();
+        let write = FolderWriteTool::new(&root);
+        assert!(write.only_creates(&json!({ "path": "new.txt", "content": "x" })));
+        assert!(write.only_creates(&json!({ "path": "deep/er/new.txt", "content": "x" })), "folders that don't exist yet");
+        assert!(!write.only_creates(&json!({ "path": "old.txt", "content": "x" })));
+        assert!(!write.only_creates(&json!({ "path": "../out.txt", "content": "x" })));
+        assert!(!write.only_creates(&json!({ "content": "x" })));
+        #[cfg(unix)]
+        {
+            // A link, even a dangling one, is something there: writing through it would replace what it points to.
+            std::os::unix::fs::symlink(root.join("nowhere"), root.join("dangling")).unwrap();
+            assert!(!write.only_creates(&json!({ "path": "dangling", "content": "x" })));
+        }
     }
 
     #[tokio::test]

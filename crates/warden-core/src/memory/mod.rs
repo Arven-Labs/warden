@@ -261,6 +261,16 @@ impl Vault {
         self.path_of(relative_path).is_ok_and(|p| p.is_file())
     }
 
+    /// Whether writing `relative_path` could replace something (P122): a file is there now, or it can't be told (a path
+    /// the vault refuses, a locked vault, a shared space that doesn't answer). Follows the shared spaces.
+    pub fn would_replace(&self, relative_path: &str) -> bool {
+        match self.route(relative_path) {
+            Ok(Some((mount, inner))) => mount.vault.would_replace(&inner),
+            Ok(None) => self.path_of(relative_path).map_or(true, |p| p.symlink_metadata().map_or_else(|e| e.kind() != std::io::ErrorKind::NotFound, |_| true)),
+            Err(_) => true,
+        }
+    }
+
     /// The names of the files directly inside a folder of this vault (not the folders, and not the
     /// mounted ones), in no particular order. Empty when the folder doesn't exist.
     pub fn files_in(&self, relative_dir: &str) -> anyhow::Result<Vec<String>> {

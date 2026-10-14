@@ -68,6 +68,10 @@ impl Tool for WriteFileTool {
         Some(Arc::new(Self::new(vault.clone())))
     }
 
+    fn only_creates(&self, args: &Value) -> bool {
+        args.get("path").and_then(Value::as_str).is_some_and(|path| !self.vault.would_replace(path))
+    }
+
     fn spec(&self) -> ToolSpec {
         ToolSpec {
             name: "write_file".to_string(),
@@ -114,6 +118,17 @@ mod tests {
             "warden-file-tools-test-{}",
             std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
         ))))
+    }
+
+    #[tokio::test]
+    async fn a_write_only_creates_when_nothing_is_at_the_path_and_never_when_unsure() {
+        let vault = temp_vault();
+        let writer = WriteFileTool::new(vault.clone());
+        assert!(writer.only_creates(&json!({ "path": "notes/new.md", "content": "x" })));
+        writer.call(json!({ "path": "notes/new.md", "content": "x" })).await.unwrap();
+        assert!(!writer.only_creates(&json!({ "path": "notes/new.md", "content": "y" })), "now it would replace");
+        assert!(!writer.only_creates(&json!({ "path": "../out.md", "content": "y" })), "a path the vault refuses");
+        assert!(!writer.only_creates(&json!({ "content": "y" })), "no path");
     }
 
     #[tokio::test]

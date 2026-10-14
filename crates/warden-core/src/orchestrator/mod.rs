@@ -903,6 +903,11 @@ impl Orchestrator {
             .find(|t| t.spec().name == tool_call.name)
             .ok_or_else(|| anyhow::anyhow!("model requested unknown tool '{}'", tool_call.name))?;
         let category = self.classifier.as_ref().and_then(|classify| classify(tool_call));
+        // P122: a write that only creates a file takes nothing away, so it isn't "delete data".
+        let category = match category {
+            Some(Category::DeleteData) if tool.only_creates(&tool_call.arguments) => None,
+            other => other,
+        };
         crate::autonomy::authorize(self.autonomy, &self.read_only_tools, &self.approval_required, category, self.approver.as_ref(), tool_call).await?;
         tool.call(tool_call.arguments.clone()).await
     }
@@ -2085,6 +2090,50 @@ mod tests {
         assert!(alone.run_tool(&call_of("shell")).await.unwrap_err().to_string().contains("can't ask"));
         // The original is untouched.
         assert!(orchestrator.run_tool(&call_of("shell")).await.is_ok());
+    }
+
+    #[tokio::test]
+    async fn a_write_that_only_creates_is_not_delete_data_but_a_replacement_and_other_categories_still_ask() {
+        use crate::tool::{Answer, ApprovalRequest};
+        struct Writes(&'static str, bool);
+        #[async_trait]
+        impl Tool for Writes {
+            fn spec(&self) -> ToolSpec {
+                ToolSpec { name: self.0.to_string(), description: String::new(), parameters: serde_json::json!({}) }
+            }
+            fn only_creates(&self, _args: &Value) -> bool {
+                self.1
+            }
+            async fn call(&self, _args: Value) -> anyhow::Result<Value> {
+                Ok(serde_json::json!("ran"))
+            }
+        }
+        struct Counts(std::sync::Mutex<usize>);
+        #[async_trait]
+        impl Approver for Counts {
+            async fn approve(&self, _request: ApprovalRequest) -> bool {
+                true
+            }
+            async fn ask(&self, _request: ApprovalRequest, _always: Option<&str>) -> Answer {
+                *self.0.lock().unwrap() += 1;
+                Answer::Once
+            }
+        }
+        let mut orchestrator = Orchestrator::new(Arc::new(EchoesToolNamesModel), temp_vault());
+        // `shell` says it only creates too, but it is `critical_infra`: only `delete_data` is ever relaxed.
+        for (name, creates) in [("new_file", true), ("old_file", false), ("shell", true)] {
+            orchestrator.register_tool(Arc::new(Writes(name, creates)));
+        }
+        let classify: Classifier = Arc::new(|call: &ToolCall| Some(if call.name == "shell" { Category::CriticalInfra } else { Category::DeleteData }));
+        let asked = Arc::new(Counts(std::sync::Mutex::new(0)));
+        let ruled = orchestrator.with_approval_rules(&[Category::DeleteData, Category::CriticalInfra], Some(classify)).with_approver(asked.clone());
+
+        assert!(ruled.run_tool(&call_of("new_file")).await.is_ok());
+        assert_eq!(*asked.0.lock().unwrap(), 0, "creating asks nothing");
+        assert!(ruled.run_tool(&call_of("old_file")).await.is_ok());
+        assert_eq!(*asked.0.lock().unwrap(), 1, "replacing asks");
+        assert!(ruled.run_tool(&call_of("shell")).await.is_ok());
+        assert_eq!(*asked.0.lock().unwrap(), 2, "another category still asks");
     }
 
     /// Calls `shell` once, then answers with what came back.

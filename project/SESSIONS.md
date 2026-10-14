@@ -6,6 +6,15 @@
 
 ---
 
+### 2026-10-14 — Sessão 202 (P122: `write_file` só pergunta quando substitui)
+
+- **Pedido do usuário**: "vamos com o item 3" (quem liga `delete_data` era perguntado a cada `write_file`). Planejado em plan mode.
+- **Feito**: `Tool::only_creates(&args)` (padrão `false`, repassado pelo `rename_tool`). `Orchestrator::run_tool` tira a categoria quando ela é `delete_data` e a tool que vai rodar diz que só cria; nenhuma outra categoria é relaxada. Implementado em `WriteFileTool` (cofre, via novo `Vault::would_replace`, que segue os espaços compartilhados e na dúvida diz que substitui) e `FolderWriteTool` (pasta local; link, mesmo quebrado, conta como algo ali). A checagem fica em `run_tool` e não no classificador porque as tools são religadas a outro cofre/pasta depois que o classificador é montado.
+- **Testes**: orquestrador (cria não pergunta, substitui pergunta, `critical_infra` nunca é relaxada), cofre e pasta (novo, existente, `..`, sem caminho, link quebrado). `warden-core` (519) e `warden-bootstrap` (487) verdes; clippy sem aviso novo.
+- **Não feito**: `write_file` em nó remoto segue `delete_data` sempre; corrida entre checar e escrever é aceita; sem teste de cofre com espaço compartilhado nem do `rename_tool` repassando `only_creates`.
+
+---
+
 ### 2026-10-14 — Sessão 201 (P122: as tools de dispositivo levam as dicas do MCP)
 
 - **Pedido do usuário**: "vamos com o item 1" (as tools de dispositivo perdem as dicas). Planejado em plan mode.

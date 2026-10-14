@@ -79,6 +79,12 @@ pub trait Tool: Send + Sync {
         None
     }
 
+    /// Whether this call, as things stand now, cannot replace or remove anything that exists (P122): a file write to a
+    /// path with nothing on it. Only ever relaxes `delete_data`; anything the tool can't tell is `false`.
+    fn only_creates(&self, _args: &Value) -> bool {
+        false
+    }
+
     /// A copy of this tool that reads and writes `vault` instead of the one it was built with, or
     /// `None` when it doesn't touch a vault. Called by `Orchestrator::with_vault` (P84: a person's
     /// own vault): every tool that holds a vault — or a nested orchestrator — overrides it, so the
@@ -325,6 +331,10 @@ impl Tool for NamespacedTool {
 
     fn risk_hints(&self) -> Option<RiskHints> {
         self.inner.risk_hints()
+    }
+
+    fn only_creates(&self, args: &Value) -> bool {
+        self.inner.only_creates(args)
     }
 }
 
