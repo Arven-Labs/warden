@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import type { SpendReport, UsageByKey } from "../protocol/messages";
 import type { UsageResponse } from "../background/popup_protocol";
-import { formatTokens } from "./lib/agentTasks";
+import { comboSpendRows, formatTokens } from "./lib/agentTasks";
 import { breakdownRows } from "./lib/usageBreakdown";
 
 const REFRESH_MS = 10000;
@@ -54,6 +54,7 @@ export default function UsageView() {
     return () => window.clearInterval(timer);
   }, [load]);
 
+  const comboSpend = usage === null ? [] : comboSpendRows(usage);
   const told = usage !== null && (usage.byAgent !== undefined || usage.byProvider !== undefined || usage.byCombo !== undefined);
   return (
     <div className="agents-pane">
@@ -72,6 +73,21 @@ export default function UsageView() {
           <Breakdown title="Por agente" entries={usage.byAgent} emptyLabel="Sem agente" />
           <Breakdown title="Por provedor" entries={usage.byProvider} emptyLabel="Provedor padrão" />
           <Breakdown title="Por combo" entries={usage.byCombo} emptyLabel="Sem combo" />
+          {comboSpend.length > 0 && (
+            <section className="usage-block">
+              <h3 className="activity-day-title">Gasto por combo</h3>
+              <ul className="agent-work-list">
+                {comboSpend.map((row) => (
+                  <li key={row.combo} className="usage-row">
+                    <div className="usage-row-head">
+                      <strong>{row.combo}</strong>
+                      <span className="skills-hint">{row.label}</span>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            </section>
+          )}
         </>
       )}
     </div>

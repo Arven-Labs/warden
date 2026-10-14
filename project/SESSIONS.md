@@ -6,6 +6,15 @@
 
 ---
 
+### 2026-10-14 — Sessão 211 (P126: dólares por combo no celular e na extensão)
+
+- **Pedido do usuário**: seguir com a sobra do P126 (o P117 que propus já estava quase todo feito; só falta teste com bot real, que é P129). Planejado em plan mode.
+- **Feito**: bloco "Gasto por combo" separado da linha de tokens (os tokens não têm limite de tempo; os dólares só alcançam a janela do ledger). Extensão: `SpendReport.recent.byCombo`, `comboSpendRows` em `agentTasks.ts` (reusa `spendLabel`) e o bloco em `UsageView.tsx`. Celular: `SpendBucket.listFrom`, `RecentSpend.byCombo`, `UsageSummary.comboSpend` e o bloco "Spent by combo, last N h" em `usage_screen.dart`. Hub antigo, sem `byCombo`, não mostra o bloco.
+- **Testes**: extensão `npm test` 107 e `tsc` limpos; celular `flutter analyze` sem avisos e `flutter test` 284 passam (pela imagem `mobile-flutter`).
+- **Sobra do P126**: o formato de `info.tokens` do opencode real e nada visto numa janela (P129).
+
+---
+
 ### 2026-10-14 — Sessão 210 (P126: dólares por combo, o combo no ledger)
 
 - **Pedido do usuário**: "grava o combo no ledger". Planejado em plan mode.

@@ -287,6 +287,35 @@ void main() {
       expect([old.byAgent, old.byProvider, old.byCombo], [isEmpty, isEmpty, isEmpty]);
     });
 
+    test('a usage report keeps the dollars by combo of the ledger, and reads an older hub as none (P126)', () {
+      final message = ServerMessage.decode(jsonEncode({
+        'type': 'usageReport',
+        'requestId': 13,
+        'report': {
+          'recent': {
+            'windowHours': 24,
+            'byAgent': [
+              {'key': 'writer', 'costUsd': 1.5, 'unpricedCalls': 0},
+            ],
+            'byCombo': [
+              {'key': 'fast', 'calls': 2, 'tokens': 30, 'costUsd': 0.25, 'unpricedCalls': 1},
+              'not a bucket',
+            ],
+          },
+        },
+      })) as UsageReportMessage;
+      expect(message.summary!.comboSpend.map((b) => [b.key, b.costUsd, b.unpricedCalls]), [
+        ['fast', 0.25, 1],
+      ]);
+      expect(message.recent!.byCombo.map((b) => b.key), ['fast']);
+      expect(message.recent!.byAgent.map((b) => b.key), ['writer'], reason: 'the agents are read as before');
+
+      final old = (ServerMessage.decode('{"type":"usageReport","requestId":14,"report":{"recent":{"windowHours":24}}}') as UsageReportMessage);
+      expect(old.summary!.comboSpend, isEmpty);
+      expect(old.recent!.byCombo, isEmpty);
+      expect((ServerMessage.decode('{"type":"usageReport","requestId":15,"report":{}}') as UsageReportMessage).summary!.comboSpend, isEmpty);
+    });
+
     test('a task list keeps what the hub sent', () {
       final msg = ServerMessage.decode(jsonEncode({
         'type': 'agentTaskList',

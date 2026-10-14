@@ -9,8 +9,10 @@ UsageSummary _summary({
   List<UsageBucket> byAgent = const [],
   List<UsageBucket> byProvider = const [],
   List<UsageBucket> byCombo = const [],
+  List<SpendBucket> comboSpend = const [],
 }) =>
     UsageSummary(
+      comboSpend: comboSpend,
       byAgent: byAgent,
       byProvider: byProvider,
       byCombo: byCombo,
@@ -90,6 +92,23 @@ void main() {
     for (final prefix in ['agent', 'provider', 'combo']) {
       expect(find.byKey(Key('usage-$prefix-title')), findsNothing);
     }
+    expect(find.textContaining('Spent by combo'), findsNothing);
+  });
+
+  testWidgets('shows the dollars by combo of the ledger window, the biggest first, with the unpriced calls (P126)', (tester) async {
+    await _open(
+      tester,
+      () async => _summary(comboSpend: const [
+        SpendBucket(key: 'slow', costUsd: 0.5, unpricedCalls: 0),
+        SpendBucket(key: 'fast', costUsd: 1.25, unpricedCalls: 2),
+      ]),
+    );
+    await tester.scrollUntilVisible(find.byKey(const Key('usage-spend-combo-slow')), 200, scrollable: find.byType(Scrollable).first);
+
+    expect(find.text('Spent by combo, last 24 h'), findsOneWidget);
+    expect(find.descendant(of: find.byKey(const Key('usage-spend-combo-fast')), matching: find.text('US\$ 1.25 (+2 unpriced)')), findsOneWidget);
+    expect(find.descendant(of: find.byKey(const Key('usage-spend-combo-slow')), matching: find.text('US\$ 0.5000')), findsOneWidget);
+    expect(tester.getTopLeft(find.byKey(const Key('usage-spend-combo-fast'))).dy, lessThan(tester.getTopLeft(find.byKey(const Key('usage-spend-combo-slow'))).dy));
   });
 
   testWidgets("shows the hub's refusal instead of an empty screen", (tester) async {

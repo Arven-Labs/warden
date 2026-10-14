@@ -1467,29 +1467,36 @@ class SpendBucket {
   final String key;
   final double costUsd;
   final int unpricedCalls;
-}
 
-/// The part of the usage report the app reads (P123): what each agent spent in the last [windowHours], which is all the ledger keeps.
-class RecentSpend {
-  const RecentSpend({required this.windowHours, required this.byAgent});
-
-  final int windowHours;
-  final List<SpendBucket> byAgent;
-
-  /// Null for a hub that sent no `recent` (spending limits off, or an older hub); a hub from before `byAgent` gives an empty split.
-  static RecentSpend? fromJson(dynamic json) {
-    if (json is! Map<String, dynamic>) return null;
-    return RecentSpend(
-      windowHours: (json['windowHours'] as num?)?.toInt() ?? 0,
-      byAgent: [
-        for (final bucket in (json['byAgent'] as List<dynamic>? ?? const []))
+  /// The buckets the hub sent under [field] of `recent` (`byAgent`, `byCombo`); none for a hub from before the field.
+  static List<SpendBucket> listFrom(Map<String, dynamic> recent, String field) => [
+        for (final bucket in (recent[field] as List<dynamic>? ?? const []))
           if (bucket is Map<String, dynamic>)
             SpendBucket(
               key: bucket['key'] as String? ?? '',
               costUsd: (bucket['costUsd'] as num?)?.toDouble() ?? 0,
               unpricedCalls: (bucket['unpricedCalls'] as num?)?.toInt() ?? 0,
             ),
-      ],
+      ];
+}
+
+/// The part of the usage report the app reads (P123): what each agent spent in the last [windowHours], which is all the ledger keeps.
+class RecentSpend {
+  const RecentSpend({required this.windowHours, required this.byAgent, this.byCombo = const []});
+
+  final int windowHours;
+  final List<SpendBucket> byAgent;
+
+  /// The dollars of the calls made through a combo (P126); there is no bucket for the ones that were not.
+  final List<SpendBucket> byCombo;
+
+  /// Null for a hub that sent no `recent` (spending limits off, or an older hub); a hub from before `byAgent` gives an empty split.
+  static RecentSpend? fromJson(dynamic json) {
+    if (json is! Map<String, dynamic>) return null;
+    return RecentSpend(
+      windowHours: (json['windowHours'] as num?)?.toInt() ?? 0,
+      byAgent: SpendBucket.listFrom(json, 'byAgent'),
+      byCombo: SpendBucket.listFrom(json, 'byCombo'),
     );
   }
 }
@@ -1577,6 +1584,7 @@ class UsageSummary {
     this.byAgent = const [],
     this.byProvider = const [],
     this.byCombo = const [],
+    this.comboSpend = const [],
   });
 
   final int totalTokens;
@@ -1598,7 +1606,11 @@ class UsageSummary {
   final List<UsageBucket> byProvider;
   final List<UsageBucket> byCombo;
 
+  /// Dollars by combo in the ledger's [windowHours] (P126), which is not the span of the token breakdown above; empty from an older hub.
+  final List<SpendBucket> comboSpend;
+
   static UsageSummary fromJson(Map<String, dynamic> report) {
+    final recent = report['recent'] as Map<String, dynamic>?;
     final costs = <String, double>{
       for (final day in (report['dailyCost'] as List<dynamic>? ?? const []))
         if (day is Map<String, dynamic>) day['date'] as String: (day['costUsd'] as num?)?.toDouble() ?? 0,
@@ -1633,11 +1645,12 @@ class UsageSummary {
               exceeded: limit['exceeded'] as bool? ?? false,
             ),
       ],
-      windowHours: ((report['recent'] as Map<String, dynamic>?)?['windowHours'] as num?)?.toInt() ?? 0,
+      windowHours: (recent?['windowHours'] as num?)?.toInt() ?? 0,
       costInWindowUsd: costs.values.fold(0.0, (sum, cost) => sum + cost),
       byAgent: UsageBucket.listFrom(report, 'byAgent'),
       byProvider: UsageBucket.listFrom(report, 'byProvider'),
       byCombo: UsageBucket.listFrom(report, 'byCombo'),
+      comboSpend: recent == null ? const [] : SpendBucket.listFrom(recent, 'byCombo'),
     );
   }
 }

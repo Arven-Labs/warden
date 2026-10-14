@@ -302,7 +302,12 @@ export type ChatEventDto =
 /** P123 — the part of the hub's usage report the extension reads: what each agent spent in the ledger's window. An older hub sends no
  * `recent`, or none of `byAgent`; an empty `key` is a call with no agent chosen. */
 export interface SpendReport {
-  recent?: { windowHours: number; byAgent?: { key: string; costUsd: number; unpricedCalls: number }[] } | null;
+  recent?: {
+    windowHours: number;
+    byAgent?: { key: string; costUsd: number; unpricedCalls: number }[];
+    /** P126 — the dollars of the calls made through a combo; there is no bucket for the ones that were not. */
+    byCombo?: { key: string; costUsd: number; unpricedCalls: number }[];
+  } | null;
   /** P126 — the tokens of every conversation the hub keeps, and by agent, provider and combo; an older hub sends no breakdown. */
   total?: { totalTokens: number };
   messageCount?: number;

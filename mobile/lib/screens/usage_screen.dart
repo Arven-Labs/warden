@@ -108,6 +108,20 @@ class _UsageScreenState extends State<UsageScreen> {
       _Breakdown(title: 'By agent', prefix: 'agent', emptyLabel: 'No agent', buckets: summary.byAgent),
       _Breakdown(title: 'By provider', prefix: 'provider', emptyLabel: 'Default provider', buckets: summary.byProvider),
       _Breakdown(title: 'By combo', prefix: 'combo', emptyLabel: 'No combo', buckets: summary.byCombo),
+      if (summary.comboSpend.isNotEmpty) ...[
+        const SizedBox(height: 16),
+        Text('Spent by combo, last ${_window(summary.windowHours)}', style: theme.textTheme.titleSmall),
+        for (final spend in [...summary.comboSpend]..sort((a, b) => b.costUsd.compareTo(a.costUsd)))
+          ListTile(
+            key: Key('usage-spend-combo-${spend.key}'),
+            dense: true,
+            contentPadding: EdgeInsets.zero,
+            title: Text(spend.key),
+            trailing: Text(
+              spend.unpricedCalls > 0 ? '${_usd(spend.costUsd)} (+${spend.unpricedCalls} unpriced)' : _usd(spend.costUsd),
+            ),
+          ),
+      ],
     ];
   }
 }

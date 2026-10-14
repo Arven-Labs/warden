@@ -215,6 +215,22 @@ export function spendLabel(spend: AgentSpend): string {
   return unpriced ? `${money} ${window} (e ${unpriced})` : `${money} ${window}`;
 }
 
+export interface ComboSpendRow {
+  combo: string;
+  /** `US$ 1,20 nas últimas 24 h`, com as chamadas que o valor deixa de fora. */
+  label: string;
+}
+
+/** P126 — o que cada combo gastou na janela do ledger, o maior primeiro. A janela é a do ledger, e não a dos tokens por combo (essa não tem limite
+ * de tempo), por isso são linhas à parte. Um hub antigo, ou nenhuma chamada por um combo, não dá linha nenhuma. */
+export function comboSpendRows(report: { recent?: { windowHours: number; byCombo?: { key: string; costUsd: number; unpricedCalls: number }[] } | null }): ComboSpendRow[] {
+  const recent = report.recent;
+  if (!recent?.byCombo) return [];
+  return [...recent.byCombo]
+    .sort((a, b) => b.costUsd - a.costUsd)
+    .map((b) => ({ combo: b.key, label: spendLabel({ costUsd: b.costUsd, unpricedCalls: b.unpricedCalls, windowHours: recent.windowHours }) }));
+}
+
 /** A atividade numa linha do cartão da árvore: `3 concluídas, 1 falhou, 2 em andamento · 12,9 mil tokens · US$ 1,20 nas últimas 24 h · delegou 5 · ativo há 4 min`. */
 export function activityLine(a: AgentActivity, nowMs: number): string {
   const parts = [
