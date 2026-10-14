@@ -6,6 +6,17 @@
 
 ---
 
+### 2026-10-13 — Sessão 198 (P36: QR com convite, lista de convites em todos os clientes, e o P36 fechado)
+
+- **Pedido do usuário**: "não é melhor finalizarmos o p36?"; entre fechar só o QR, fazer QR e lista, ou só registrar, escolheu **QR e lista**. Planejado em plan mode, com o plano explicado em linguagem simples e um diagrama do caminho de um pedido (pedido do usuário). Seis commits: QR, hub, web, extensão, celular, docs.
+- **Feito**: ver a seção de `ARCHITECTURE.md`. O QR leva um convite de 10 minutos em vez da chave; `ListDeviceInvites`/`CancelDeviceInvite` no hub e a lista com "Cancelar" na web, extensão e celular. A linha do P36 no `PENDING.md` virou ✅ Resolvida; o que pede ambiente real (tailnet, aparelhos e janelas) foi para o P129.
+- **Testes**: `warden-bootstrap --lib` 483; `desktop --lib` 66 (testes novos do QR: o payload, o config sem segredo, um convite curto que um QR novo substitui); `warden-server --lib` 172 e `--test invite` 7 (novo: criar, listar, chave errada, cancelar, e o código cancelado não pareia); `warden-server-protocol` 54; `cargo check --workspace --tests` e clippy dos crates tocados limpos (um aviso antigo em `learning_eval`, que não é meu); web 64 + `tsc`; desktop 122 + `tsc`; extensão 96 + `tsc` + build; celular `flutter analyze` limpo e 273 verdes.
+- **Intermitente**: numa rodada completa do celular, 4 testes de `member_gate_test` não terminaram; isolados passaram, e duas rodadas completas seguintes passaram. Parece carga da máquina (como o P127 no hub), não código. Não investiguei.
+- **Processo**: desta vez rodei a suíte inteira antes de cada commit, depois do erro da Sessão 197. Edições todas com Edit/Write.
+- **Não verificado**: nenhuma tela foi vista numa janela, o QR não foi lido por um celular de verdade, e nada rodou contra um hub real fora dos testes automatizados (tudo isso está no P129).
+
+---
+
 ### 2026-10-13 — Sessão 197 (P36: convite e rotação da chave na extensão e no celular, e os textos)
 
 - **Pedido do usuário**: "pode seguir no p36", e que os planos sejam mais didáticos (o plano passou a explicar a ideia, o caminho de um pedido em um diagrama e o porquê de cada parte). Escopo escolhido: textos dos clientes, aba na extensão e tela no celular. Três commits.
