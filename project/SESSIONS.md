@@ -6,6 +6,15 @@
 
 ---
 
+### 2026-10-14 — Sessão 205 (P128: conferir o conserto do `dropping_releases_it`)
+
+- **Pedido do usuário**: "vamos com o P128". Planejado em plan mode.
+- **Achado**: o teste já tinha sido corrigido na Sessão 182 (espera até 10 s em vez de `Duration::ZERO`, commit `238c4ae`), mas a linha do PENDING ficou aberta sem ninguém ter conferido sob carga. Os outros testes de `lock.rs` não têm a mesma fragilidade (só esperam mais, esperam erro, ou usam zero depois de o filho dizer que segura a trava).
+- **Feito**: nenhuma mudança de código. Rodei o binário de teste de `lock::` 30 vezes com 16 processos `yes` em 8 núcleos: 30 passaram, 0 falharam (os `yes` foram encerrados no fim).
+- **Não confirmado**: a falha original não foi reproduzida, então a causa (o `fork` do `holds_across_processes` segurando a trava) segue provável. P128 marcado como resolvido; se voltar, guardar a saída completa antes de mexer.
+
+---
+
 ### 2026-10-14 — Sessão 204 (P127: o teste `engine_models` intermitente)
 
 - **Pedido do usuário**: "vamos com outro item do PENDING"; entre as opções, escolheu o P127. Planejado em plan mode.
