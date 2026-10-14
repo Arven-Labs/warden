@@ -319,6 +319,30 @@ final class CreateDeviceInviteMessage extends ClientMessage {
       };
 }
 
+/// P36 — the invites that wait to be used. Open to a paired device (it shows names and deadlines, never a code). Answered by
+/// [DeviceInviteListMessage].
+final class ListDeviceInvitesMessage extends ClientMessage {
+  const ListDeviceInvitesMessage(this.requestId);
+
+  final int requestId;
+
+  @override
+  Map<String, dynamic> toJson() => {'type': 'listDeviceInvites', 'requestId': requestId};
+}
+
+/// P36 — cancels the waiting invite called [name]. Asks for the pairing key every time. Answered by [DeviceInviteListMessage]
+/// or [DeviceErrorMessage].
+final class CancelDeviceInviteMessage extends ClientMessage {
+  const CancelDeviceInviteMessage(this.requestId, this.pairingKey, this.name);
+
+  final int requestId;
+  final String pairingKey;
+  final String name;
+
+  @override
+  Map<String, dynamic> toJson() => {'type': 'cancelDeviceInvite', 'requestId': requestId, 'pairingKey': pairingKey, 'name': name};
+}
+
 /// P36 — changes the hub's pairing key. Asks for the current one. Answered by [PairingKeyRotatedMessage] or
 /// [DeviceErrorMessage].
 final class RotatePairingKeyMessage extends ClientMessage {
@@ -1006,6 +1030,10 @@ sealed class ServerMessage {
           json['code'] as String,
           (json['expiresMs'] as num).toInt(),
         ),
+      'deviceInviteList' => DeviceInviteListMessage(
+          json['requestId'] as int,
+          ((json['invites'] as List<dynamic>?) ?? const []).map((i) => PendingDeviceInvite.fromJson(i as Map<String, dynamic>)).toList(),
+        ),
       'pairingKeyRotated' => PairingKeyRotatedMessage(json['requestId'] as int, json['newKey'] as String),
       'deviceError' => DeviceErrorMessage(json['requestId'] as int, json['message'] as String, authRejected: json['authRejected'] as bool? ?? false),
       'approvalRequest' => ApprovalRequestMessage(
@@ -1592,6 +1620,30 @@ final class DeviceInviteMessage extends ServerMessage {
   final int requestId;
   final String name;
   final String code;
+  final int expiresMs;
+}
+
+/// Reply to [ListDeviceInvitesMessage] and to a successful [CancelDeviceInviteMessage] (P36): the invites that wait, by name.
+/// The hub never sends their codes.
+final class DeviceInviteListMessage extends ServerMessage {
+  const DeviceInviteListMessage(this.requestId, this.invites);
+
+  final int requestId;
+  final List<PendingDeviceInvite> invites;
+}
+
+/// An invite that waits to be used (P36): who it is for, when it was made and when it lapses.
+class PendingDeviceInvite {
+  const PendingDeviceInvite({required this.name, required this.createdMs, required this.expiresMs});
+
+  factory PendingDeviceInvite.fromJson(Map<String, dynamic> json) => PendingDeviceInvite(
+        name: json['name'] as String,
+        createdMs: (json['createdMs'] as num).toInt(),
+        expiresMs: (json['expiresMs'] as num).toInt(),
+      );
+
+  final String name;
+  final int createdMs;
   final int expiresMs;
 }
 

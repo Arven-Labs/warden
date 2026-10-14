@@ -536,6 +536,21 @@ void main() {
     await fromClient.next;
     controller.local.sink.add('{"type":"deviceError","requestId":3,"message":"wrong key","authRejected":true}');
     await expectLater(refused, throwsA(isA<HubRequestException>().having((e) => e.authRejected, 'authRejected', isTrue)));
+
+    final waiting = conn.listDeviceInvites();
+    expect(await fromClient.next as String, '{"type":"listDeviceInvites","requestId":4}');
+    controller.local.sink.add('{"type":"deviceInviteList","requestId":4,"invites":[{"name":"Ana","createdMs":1,"expiresMs":9}]}');
+    expect((await waiting).map((i) => i.name).toList(), ['Ana']);
+
+    final cancelled = conn.cancelDeviceInvite('k', 'Ana');
+    expect(await fromClient.next as String, '{"type":"cancelDeviceInvite","requestId":5,"pairingKey":"k","name":"Ana"}');
+    controller.local.sink.add('{"type":"deviceInviteList","requestId":5,"invites":[]}');
+    expect(await cancelled, isEmpty);
+
+    final gone = conn.cancelDeviceInvite('k', 'Ana');
+    await fromClient.next;
+    controller.local.sink.add('{"type":"deviceError","requestId":6,"message":"no invite called \'Ana\' is waiting","authRejected":false}');
+    await expectLater(gone, throwsA(isA<HubRequestException>().having((e) => e.authRejected, 'authRejected', isFalse)));
   });
 
   test('the level the owner saves reaches the member as it happens, through the stream (P120)', () async {

@@ -1,6 +1,9 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../protocol/messages.dart' show PendingDeviceInvite;
 import '../services/device_invites.dart';
 import 'agents_screen.dart' show askPairingKey;
 
@@ -23,6 +26,49 @@ class _DeviceInvitesScreenState extends State<DeviceInvitesScreen> {
   DeviceInvite? _invite;
   String? _newKey;
   String? _error;
+  String? _cancelled;
+  // The invites that wait, which any paired device may see (by name, never the code).
+  List<PendingDeviceInvite> _waiting = const [];
+
+  @override
+  void initState() {
+    super.initState();
+    _loadWaiting();
+  }
+
+  Future<void> _loadWaiting() async {
+    try {
+      final waiting = await widget.backend.listDeviceInvites();
+      if (mounted) setState(() => _waiting = waiting);
+    } catch (e) {
+      if (mounted) setState(() => _error = e.toString());
+    }
+  }
+
+  Future<void> _cancel(PendingDeviceInvite invite) async {
+    setState(() {
+      _error = null;
+      _invite = null;
+      _newKey = null;
+      _cancelled = null;
+    });
+    List<PendingDeviceInvite>? left;
+    final ok = await askPairingKey(
+      context,
+      title: 'Cancel invite',
+      message: "Cancels the invite for ${invite.name}; its code stops working.",
+      submit: (key) async => left = await widget.backend.cancelDeviceInvite(key, invite.name),
+      onError: (error) {
+        if (mounted) setState(() => _error = error);
+      },
+    );
+    if (ok && mounted) {
+      setState(() {
+        _waiting = left ?? _waiting;
+        _cancelled = invite.name;
+      });
+    }
+  }
 
   @override
   void dispose() {
@@ -47,6 +93,7 @@ class _DeviceInvitesScreenState extends State<DeviceInvitesScreen> {
       _error = null;
       _invite = null;
       _newKey = null;
+      _cancelled = null;
     });
     DeviceInvite? made;
     final ok = await askPairingKey(
@@ -58,7 +105,13 @@ class _DeviceInvitesScreenState extends State<DeviceInvitesScreen> {
         if (mounted) setState(() => _error = error);
       },
     );
-    if (ok && mounted) setState(() => _invite = made);
+    if (ok && mounted) {
+      setState(() {
+        _invite = made;
+        _cancelled = null;
+      });
+      unawaited(_loadWaiting());
+    }
   }
 
   Future<void> _rotateKey() async {
@@ -66,6 +119,7 @@ class _DeviceInvitesScreenState extends State<DeviceInvitesScreen> {
       _error = null;
       _invite = null;
       _newKey = null;
+      _cancelled = null;
     });
     String? made;
     final ok = await askPairingKey(
@@ -117,6 +171,26 @@ class _DeviceInvitesScreenState extends State<DeviceInvitesScreen> {
           if (_error != null) ...[
             const SizedBox(height: 12),
             Text(_error!, key: const Key('devices-error'), style: TextStyle(color: Theme.of(context).colorScheme.error)),
+          ],
+          if (_cancelled != null) ...[
+            const SizedBox(height: 12),
+            Text('Invite for $_cancelled cancelled.', key: const Key('invite-cancelled')),
+          ],
+          if (_waiting.isNotEmpty) ...[
+            const SizedBox(height: 16),
+            const Text('Invites waiting', style: TextStyle(fontWeight: FontWeight.bold)),
+            for (final waiting in _waiting)
+              ListTile(
+                key: Key('waiting-${waiting.name}'),
+                contentPadding: EdgeInsets.zero,
+                title: Text(waiting.name),
+                subtitle: Text('valid until ${_when(waiting.expiresMs)}'),
+                trailing: TextButton(
+                  key: Key('cancel-${waiting.name}'),
+                  onPressed: () => _cancel(waiting),
+                  child: const Text('Cancel'),
+                ),
+              ),
           ],
           if (invite != null) ...[
             const SizedBox(height: 16),

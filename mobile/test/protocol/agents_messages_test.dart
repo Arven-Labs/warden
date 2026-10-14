@@ -151,6 +151,19 @@ void main() {
       expect(plain.authRejected, isFalse);
     });
 
+    test('the invites that wait go out and come back by name and deadline, with no code (P36)', () {
+      expect(const ListDeviceInvitesMessage(7).toJson(), {'type': 'listDeviceInvites', 'requestId': 7});
+      expect(const CancelDeviceInviteMessage(8, 'k', "Ana's phone").toJson(),
+          {'type': 'cancelDeviceInvite', 'requestId': 8, 'pairingKey': 'k', 'name': "Ana's phone"});
+
+      final list = ServerMessage.decode('{"type":"deviceInviteList","requestId":7,"invites":[{"name":"Ana\'s phone","createdMs":1,"expiresMs":9}]}')
+          as DeviceInviteListMessage;
+      expect(list.requestId, 7);
+      expect((list.invites.single.name, list.invites.single.createdMs, list.invites.single.expiresMs), ("Ana's phone", 1, 9));
+      final empty = ServerMessage.decode('{"type":"deviceInviteList","requestId":9,"invites":[]}') as DeviceInviteListMessage;
+      expect(empty.invites, isEmpty);
+    });
+
     test('a usage report keeps what each agent spent, and a hub that sends no recent spending decodes as none (P123)', () {
       final msg = ServerMessage.decode(jsonEncode({
         'type': 'usageReport',

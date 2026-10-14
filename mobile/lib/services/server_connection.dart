@@ -355,6 +355,7 @@ class ServerConnection implements ConversationBackend, AgentsBackend, MemberOrgB
               ActivityListMessage() ||
               TaskErrorMessage() ||
               DeviceInviteMessage() ||
+              DeviceInviteListMessage() ||
               PairingKeyRotatedMessage() ||
               DeviceErrorMessage() ||
               ApprovalRequestMessage() ||
@@ -418,6 +419,7 @@ class ServerConnection implements ConversationBackend, AgentsBackend, MemberOrgB
             ActivityListMessage(:final requestId) ||
             TaskErrorMessage(:final requestId) ||
             DeviceInviteMessage(:final requestId) ||
+            DeviceInviteListMessage(:final requestId) ||
             PairingKeyRotatedMessage(:final requestId) ||
             DeviceErrorMessage(:final requestId):
         _pendingConversation.remove(requestId)?.complete(msg);
@@ -649,6 +651,29 @@ class ServerConnection implements ConversationBackend, AgentsBackend, MemberOrgB
       DeviceInviteMessage(:final name, :final code, :final expiresMs) => DeviceInvite(name: name, code: code, expiresMs: expiresMs),
       DeviceErrorMessage(:final message, :final authRejected) => throw HubRequestException(message, authRejected: authRejected),
       _ => throw ConversationException('Unexpected reply to the device invite: $reply'),
+    };
+  }
+
+  /// P36 — the invites that wait to be used, by name; the hub never says their codes.
+  @override
+  Future<List<PendingDeviceInvite>> listDeviceInvites() async {
+    final reply = await _conversationRequest(ListDeviceInvitesMessage.new);
+    return switch (reply) {
+      DeviceInviteListMessage(:final invites) => invites,
+      DeviceErrorMessage(:final message, :final authRejected) => throw HubRequestException(message, authRejected: authRejected),
+      _ => throw ConversationException('Unexpected reply to the invite list: $reply'),
+    };
+  }
+
+  /// P36 — cancels the waiting invite called [name], with the pairing key, and returns the ones that still wait. Throws a
+  /// [HubRequestException] (`authRejected` on a wrong key, or no such invite waits any more).
+  @override
+  Future<List<PendingDeviceInvite>> cancelDeviceInvite(String pairingKey, String name) async {
+    final reply = await _conversationRequest((requestId) => CancelDeviceInviteMessage(requestId, pairingKey, name));
+    return switch (reply) {
+      DeviceInviteListMessage(:final invites) => invites,
+      DeviceErrorMessage(:final message, :final authRejected) => throw HubRequestException(message, authRejected: authRejected),
+      _ => throw ConversationException('Unexpected reply to the invite cancel: $reply'),
     };
   }
 
