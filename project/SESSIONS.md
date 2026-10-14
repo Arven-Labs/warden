@@ -6,6 +6,16 @@
 
 ---
 
+### 2026-10-14 — Sessão 200 (P122: classificar mais tools nas categorias de risco)
+
+- **Pedido do usuário**: "vamos com esse, classificar as tools", entre as opções que sobraram do P122. Planejado em plan mode; o usuário escolheu o escopo (as quatro frentes, mas `spend_money`/`publish_code` só pelo mapa).
+- **Feito**: `builtin_category` ganhou `message_user` e `message_agent` (menos `read`) → `external_message`, `manage_skill` → `important_config`, `write_file` → `delete_data`. As dicas do MCP das tools emprestadas por nó agora cruzam o fio: `NodeOfferDto.mcp_hints` (`RiskHints` ganhou serde), preenchido em `LocalNode::offer` e lido por `NodeMcpTool::risk_hints`.
+- **Decisão**: não ler `git push`/`npm publish` no comando do shell, porque o classificador devolve uma categoria só e trocar `critical_infra` por `publish_code` afrouxaria quem exige só a primeira.
+- **Testes**: `risk` (9, novo: message/skill/write_file), `nodes` (5, a dica `destructive` chega ao hub), `node_messages_use_the_web_shapes` (ida e volta do campo novo); `cargo check --workspace --tests` e clippy limpos.
+- **Não verificado**: nenhum modelo real perguntando por essas categorias (P129).
+
+---
+
 ### 2026-10-13 — Sessão 199 (P122: editar autonomia, permissões e categorias de risco pela extensão e pelo celular)
 
 - **Pedido do usuário**: "sim" à auditoria do `PENDING.md`, depois "vamos de 122". A auditoria mostrou que o P122 estava quase todo feito (níveis 1 a 5, categorias, "sempre" em arquivo, prazo editável); o que faltava em código era a extensão e o celular só **lerem** os poderes. Entre editar isso, classificar mais tools nas categorias e dar um aprovador à CLI sem terminal, o usuário escolheu o editor. Planejado em plan mode, com o plano explicado em linguagem simples e o caminho de uma edição em diagrama. Quatro commits: hub, extensão, celular, docs.
