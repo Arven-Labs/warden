@@ -59,6 +59,60 @@ export function positionEdit(id: string, role: string, reportsTo: string): OrgEd
   return { kind: "setPosition", id, ...(role.trim() ? { role: role.trim() } : {}), ...(reportsTo ? { reportsTo } : {}) };
 }
 
+/** P122 — os tipos de ação que um agente pode ser obrigado a ter aprovados mesmo quando age sozinho. Os ids são os de
+ * `warden_core::autonomy::Category`, como o hub e `approvalRequired` os escrevem (a mesma lista da web). */
+export const APPROVAL_CATEGORIES: { id: string; label: string }[] = [
+  { id: "delete_data", label: "Apagar dados" },
+  { id: "spend_money", label: "Gastar dinheiro" },
+  { id: "critical_infra", label: "Mexer em infraestrutura crítica (shell, SSH, nós)" },
+  { id: "external_message", label: "Enviar mensagem externa (navegador, serviços de fora)" },
+  { id: "publish_code", label: "Publicar código" },
+  { id: "important_config", label: "Alterar configuração importante (tarefas agendadas)" },
+  { id: "elevated_agent", label: "Criar ou alterar agentes" },
+];
+
+/** O nome de uma categoria, ou o próprio id quando um hub mais novo manda uma que esta tela não conhece. */
+export function approvalCategoryLabel(id: string): string {
+  return APPROVAL_CATEGORIES.find((c) => c.id === id)?.label ?? id;
+}
+
+/** O que cada nível de autonomia quer dizer, em uma linha (P122). */
+export const AUTONOMY_LEVELS: { level: number; label: string }[] = [
+  { level: 1, label: "1 — só responde, sem usar ferramentas" },
+  { level: 2, label: "2 — sugere: lê, mas recusa o resto com uma sugestão" },
+  { level: 3, label: "3 — pede o seu sim antes de qualquer mudança" },
+  { level: 4, label: "4 — age sozinho (as categorias marcadas ainda pedem o sim)" },
+  { level: 5, label: "5 — também gerencia subordinados sozinho" },
+];
+
+export interface Powers {
+  autonomy: number;
+  canStartTasks: boolean;
+  canCreateWorkers: boolean;
+  canMessageUser: boolean;
+  canChooseModels: boolean;
+  /** Os ids marcados, em qualquer ordem. */
+  approvalRequired: Iterable<string>;
+}
+
+/** P122 — a mudança de poderes de `id`. As categorias saem na ordem fixa da lista (as marcadas que a tela conhece, e as que só o hub conhece
+ * depois delas), sem repetir, para o mesmo conjunto dar sempre a mesma mudança. */
+export function powersEdit(id: string, powers: Powers): OrgEdit {
+  const marked = new Set(powers.approvalRequired);
+  const known = APPROVAL_CATEGORIES.map((c) => c.id).filter((c) => marked.has(c));
+  const unknown = [...marked].filter((c) => !APPROVAL_CATEGORIES.some((k) => k.id === c));
+  return {
+    kind: "setPowers",
+    id,
+    autonomy: powers.autonomy,
+    canStartTasks: powers.canStartTasks,
+    canCreateWorkers: powers.canCreateWorkers,
+    canMessageUser: powers.canMessageUser,
+    canChooseModels: powers.canChooseModels,
+    approvalRequired: [...known, ...unknown],
+  };
+}
+
 export function addReportEdit(id: string, persona: string, role: string, reportsTo: string | null): OrgEdit {
   return { kind: "addReport", id: id.trim(), persona: persona.trim(), ...(role.trim() ? { role: role.trim() } : {}), ...(reportsTo ? { reportsTo } : {}) };
 }

@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import type { AgentInfo, AgentTask, HubAgents, ModelPolicy, OrgEdit } from "../protocol/messages";
 import type { AgentActivityExtrasResponse, AgentTasksResponse, HubAgentsResponse } from "../background/popup_protocol";
 import { activityLine, activityOf, lastConversationOf, spendOf } from "./lib/agentTasks";
-import { addReportEdit, buildOrg, moveEdit, positionEdit, superiorChoices, type OrgNode } from "./lib/org";
+import { addReportEdit, APPROVAL_CATEGORIES, AUTONOMY_LEVELS, buildOrg, moveEdit, positionEdit, powersEdit, superiorChoices, type OrgNode } from "./lib/org";
 import { delegationCandidates, delegationSummary, limitEdit, limitModels, nextPolicyId, policiesEdit, policiesWith, policiesWithout } from "./lib/modelPolicies";
 import PairingKeyForm from "./PairingKeyForm";
 
@@ -32,6 +32,8 @@ type Painel =
   | { kind: "remove"; id: string }
   /** Os modelos que um agente pode escolher ao delegar. */
   | { kind: "limit"; id: string }
+  /** O que um agente pode fazer sozinho: autonomia, permissões e tipos de ação que pedem o seu sim (P122). */
+  | { kind: "powers"; id: string }
   /** Uma política de modelo: `id` é a que se edita, ou `null` para uma nova. */
   | { kind: "policy"; id: string | null };
 
@@ -88,6 +90,94 @@ function FormularioCargo({ agent, edicao }: { agent: AgentInfo; edicao: Edicao }
       <div className="skills-actions">
         <button type="button" disabled={edicao.ocupado} onClick={() => edicao.aplicar(positionEdit(agent.id, cargo, superior))}>
           Salvar
+        </button>
+        <button type="button" className="link-button" disabled={edicao.ocupado} onClick={() => edicao.abrir(null)}>
+          Cancelar
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/** O que o agente pode fazer sozinho (P122): o nível de autonomia, as quatro permissões e os tipos de ação que sempre pedem o seu sim. Tudo
+ * numa mudança só, com um Salvar, porque cada mudança reconstrói o hub e pede a chave de pareamento. Começa com o que o agente tem hoje. */
+function FormularioPoderes({ agent, edicao }: { agent: AgentInfo; edicao: Edicao }) {
+  const [autonomia, setAutonomia] = useState(agent.autonomy);
+  const [iniciarTarefas, setIniciarTarefas] = useState(agent.canStartTasks);
+  const [criarWorkers, setCriarWorkers] = useState(agent.canCreateWorkers);
+  const [falarComVoce, setFalarComVoce] = useState(agent.canMessageUser);
+  const [escolherModelos, setEscolherModelos] = useState(agent.canChooseModels);
+  const [categorias, setCategorias] = useState(() => new Set(agent.approvalRequired));
+  // Um id que só um hub mais novo conhece aparece também, pelo próprio id, para não sumir ao salvar.
+  const desconhecidas = [...categorias].filter((c) => !APPROVAL_CATEGORIES.some((k) => k.id === c));
+  function alternar(id: string) {
+    const proximo = new Set(categorias);
+    if (proximo.has(id)) proximo.delete(id);
+    else proximo.add(id);
+    setCategorias(proximo);
+  }
+  return (
+    <div className="connection-form org-form">
+      <label>
+        Autonomia de {agent.id}
+        <select value={autonomia} onChange={(e) => setAutonomia(Number(e.target.value))}>
+          {AUTONOMY_LEVELS.map((n) => (
+            <option key={n.level} value={n.level}>
+              {n.label}
+            </option>
+          ))}
+        </select>
+        {autonomia === 5 && !agent.canManageAgents && (
+          <span className="skills-hint">O nível 5 só vale para quem pode gerenciar agentes, e {agent.id} não pode: isso se liga nas configurações.</span>
+        )}
+      </label>
+      <label className="checkbox-label">
+        <input type="checkbox" checked={iniciarTarefas} onChange={(e) => setIniciarTarefas(e.target.checked)} />
+        Pode iniciar trabalho em segundo plano
+      </label>
+      <label className="checkbox-label">
+        <input type="checkbox" checked={criarWorkers} onChange={(e) => setCriarWorkers(e.target.checked)} />
+        Pode criar agentes temporários
+      </label>
+      <label className="checkbox-label">
+        <input type="checkbox" checked={falarComVoce} onChange={(e) => setFalarComVoce(e.target.checked)} />
+        Pode puxar conversa com você
+      </label>
+      <label className="checkbox-label">
+        <input type="checkbox" checked={escolherModelos} onChange={(e) => setEscolherModelos(e.target.checked)} />
+        Pode escolher o modelo das tarefas que delega
+      </label>
+      <p className="skills-hint">Pede o seu sim antes de (mesmo agindo sozinho):</p>
+      {APPROVAL_CATEGORIES.map((c) => (
+        <label key={c.id} className="checkbox-label">
+          <input type="checkbox" checked={categorias.has(c.id)} onChange={() => alternar(c.id)} />
+          {c.label}
+        </label>
+      ))}
+      {desconhecidas.map((id) => (
+        <label key={id} className="checkbox-label">
+          <input type="checkbox" checked onChange={() => alternar(id)} />
+          {id}
+        </label>
+      ))}
+      <div className="skills-actions">
+        <button
+          type="button"
+          disabled={edicao.ocupado}
+          onClick={() =>
+            edicao.aplicar(
+              powersEdit(agent.id, {
+                autonomy: autonomia,
+                canStartTasks: iniciarTarefas,
+                canCreateWorkers: criarWorkers,
+                canMessageUser: falarComVoce,
+                canChooseModels: escolherModelos,
+                approvalRequired: categorias,
+              }),
+            )
+          }
+        >
+          Salvar poderes
         </button>
         <button type="button" className="link-button" disabled={edicao.ocupado} onClick={() => edicao.abrir(null)}>
           Cancelar
@@ -288,6 +378,9 @@ function Node({ node, edicao }: { node: OrgNode<AgentInfo>; edicao: Edicao }) {
           <button type="button" className="link-button" disabled={edicao.ocupado} onClick={() => edicao.abrir({ kind: "edit", id: agent.id })}>
             Editar
           </button>
+          <button type="button" className="link-button" disabled={edicao.ocupado} onClick={() => edicao.abrir({ kind: "powers", id: agent.id })} title={`O que ${agent.id} pode fazer sozinho: autonomia, permissões e o que pede o seu sim`}>
+            Poderes
+          </button>
           {agent.canDelegateToAgents && (
             <button type="button" className="link-button" disabled={edicao.ocupado} onClick={() => edicao.abrir({ kind: "limit", id: agent.id })} title={`Os modelos que ${agent.id} pode escolher ao delegar`}>
               Modelos
@@ -303,6 +396,7 @@ function Node({ node, edicao }: { node: OrgNode<AgentInfo>; edicao: Edicao }) {
       </div>
       {painel?.kind === "edit" && painel.id === agent.id && <FormularioCargo key={`edit-${agent.id}`} agent={agent} edicao={edicao} />}
       {painel?.kind === "remove" && painel.id === agent.id && <ConfirmarRemocao node={node} edicao={edicao} />}
+      {painel?.kind === "powers" && painel.id === agent.id && <FormularioPoderes key={`powers-${agent.id}`} agent={agent} edicao={edicao} />}
       {painel?.kind === "limit" && painel.id === agent.id && <FormularioLimite key={`limit-${agent.id}`} agent={agent} edicao={edicao} />}
       {painel?.kind === "add" && painel.under === agent.id && <FormularioNovo key={`add-${agent.id}`} under={agent.id} edicao={edicao} />}
       {children.length > 0 && (

@@ -2,7 +2,20 @@
 
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
-import { addReportEdit, buildOrg, descendantsOf, moveEdit, positionEdit, removeFromOrg, renameInReports, superiorChoices } from "../src/sidepanel/lib/org.ts";
+import {
+  addReportEdit,
+  APPROVAL_CATEGORIES,
+  approvalCategoryLabel,
+  AUTONOMY_LEVELS,
+  buildOrg,
+  descendantsOf,
+  moveEdit,
+  positionEdit,
+  powersEdit,
+  removeFromOrg,
+  renameInReports,
+  superiorChoices,
+} from "../src/sidepanel/lib/org.ts";
 
 const agent = (id, reportsTo = null, role = null) => ({ id, reportsTo, role });
 const ids = (nodes) => nodes.map((n) => n.agent.id);
@@ -84,5 +97,40 @@ describe("dragging a card onto another", () => {
     assert.equal(moveEdit(team, "solo", null), null, "it is already at the top");
     assert.equal(moveEdit(team, "ghost", "boss"), null);
     assert.equal(moveEdit(team, "dev", "ghost"), null);
+  });
+});
+
+describe("editing what an agent may do on its own (P122)", () => {
+  const base = { autonomy: 3, canStartTasks: false, canCreateWorkers: true, canMessageUser: false, canChooseModels: true };
+
+  test("the edit carries the level, the four permissions and the marked kinds of action", () => {
+    assert.deepEqual(powersEdit("dev", { ...base, approvalRequired: new Set(["spend_money"]) }), {
+      kind: "setPowers",
+      id: "dev",
+      autonomy: 3,
+      canStartTasks: false,
+      canCreateWorkers: true,
+      canMessageUser: false,
+      canChooseModels: true,
+      approvalRequired: ["spend_money"],
+    });
+  });
+
+  test("the kinds of action come out in the list's order, once each, however they were marked", () => {
+    const edit = powersEdit("dev", { ...base, approvalRequired: ["publish_code", "delete_data", "publish_code", "spend_money"] });
+    assert.deepEqual(edit.approvalRequired, ["delete_data", "spend_money", "publish_code"]);
+    assert.deepEqual(powersEdit("dev", { ...base, approvalRequired: [] }).approvalRequired, []);
+  });
+
+  test("a kind of action only a newer hub knows is kept, after the ones this screen knows", () => {
+    const edit = powersEdit("dev", { ...base, approvalRequired: ["brand_new", "spend_money"] });
+    assert.deepEqual(edit.approvalRequired, ["spend_money", "brand_new"]);
+    assert.equal(approvalCategoryLabel("brand_new"), "brand_new");
+    assert.equal(approvalCategoryLabel("spend_money"), "Gastar dinheiro");
+  });
+
+  test("the screen offers the five levels and the seven kinds the hub has", () => {
+    assert.deepEqual(AUTONOMY_LEVELS.map((n) => n.level), [1, 2, 3, 4, 5]);
+    assert.deepEqual(APPROVAL_CATEGORIES.map((c) => c.id), ["delete_data", "spend_money", "critical_infra", "external_message", "publish_code", "important_config", "elevated_agent"]);
   });
 });

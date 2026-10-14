@@ -190,7 +190,19 @@ export type OrgEdit =
   /** P123 — the models `id` may pick when it delegates, in order (the first is the default; empty leaves the choice open). */
   | { kind: "setDelegationModels"; id: string; models: string[] }
   /** P123 — replaces the named model policies with this list. */
-  | { kind: "setModelPolicies"; policies: Array<{ id: string; model: string; description: string }> };
+  | { kind: "setModelPolicies"; policies: Array<{ id: string; model: string; description: string }> }
+  /** P122 — what `id` may do on its own, all at once: the autonomy level (1 to 5), the four permissions, and the kinds of action (ids,
+   * e.g. `spend_money`) that always need the person's yes. Only the owner makes this edit. */
+  | {
+      kind: "setPowers";
+      id: string;
+      autonomy: number;
+      canStartTasks: boolean;
+      canCreateWorkers: boolean;
+      canMessageUser: boolean;
+      canChooseModels: boolean;
+      approvalRequired: string[];
+    };
 
 /** What the hub's settings say about the agents (P87, P120, P123), reduced to what this client shows. */
 export interface HubAgents {
