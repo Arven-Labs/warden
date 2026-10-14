@@ -525,6 +525,12 @@ impl Vault {
             let _ = self.write_file(&index_path, &bytes);
         }
 
+        // P127: nothing to rank, so nothing to embed the question against — and loading the model (a download, the first time)
+        // is the one expensive part. The code engine's route searches an empty vault on every turn.
+        if index.chunks.is_empty() {
+            return Ok(Vec::new());
+        }
+
         let query_embedding = self.with_embedder(|model| {
             Ok(model.embed(vec![query], None)?.into_iter().next().unwrap_or_default())
         })?;
@@ -933,6 +939,16 @@ mod tests {
     fn an_encrypted_vault_refuses_a_name_too_long_to_store() {
         let (vault, _) = encrypted_vault();
         assert!(vault.write(&format!("{}.md", "n".repeat(MAX_NAME_BYTES)), "x").is_err());
+    }
+
+    #[cfg(feature = "semantic-search")]
+    #[test]
+    fn searching_a_vault_with_no_text_finds_nothing_without_loading_the_model() {
+        let vault = temp_vault();
+        assert!(vault.search_semantic("anything", 8).unwrap().is_empty());
+        vault.write("blank.md", "").unwrap();
+        assert!(vault.search_semantic("anything", 8).unwrap().is_empty());
+        assert!(vault.embedder.lock().unwrap().is_none(), "nothing to rank, so the model was never needed");
     }
 
     #[cfg(feature = "semantic-search")]

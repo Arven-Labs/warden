@@ -6,6 +6,16 @@
 
 ---
 
+### 2026-10-14 — Sessão 204 (P127: o teste `engine_models` intermitente)
+
+- **Pedido do usuário**: "vamos com outro item do PENDING"; entre as opções, escolheu o P127. Planejado em plan mode.
+- **Achado**: o teste voltou a falhar na primeira rodada do pacote (2 de 3, no `unwrap` depois do `timeout` de 60 s) e passou sozinho. Lendo o código: o turno chama `Vault::search_semantic`, e `search_semantic_own` embutia a pergunta (carregando o modelo ONNX, e baixando 87 MB sem cache) mesmo com o cofre sem trecho algum; a rota do opencode usa um cofre vazio de propósito, então todo turno do motor pagava isso. É o mesmo "primeiro turno lento" que o P121 achou na Sessão 182.
+- **Feito**: `search_semantic_own` devolve vazio logo depois de reescrever o índice quando não há trechos, antes de carregar o modelo (`memory/mod.rs`). Teste novo: cofre vazio e cofre com arquivo em branco não carregam o modelo.
+- **Medido** (`XDG_CACHE_HOME` vazio, `cargo test -p warden-server --lib engine_models`): antes 8,5 s e 87 MB baixados; depois 2,0 s e nenhum download. `warden-core` (520) e `warden-server --lib` (173) verdes; clippy do `warden-core` limpo.
+- **Não confirmado**: a falha de 60 s não foi reproduzida, então o carregamento concorrente do modelo é a causa provável, não provada. Não mexi no `timeout` do teste.
+
+---
+
 ### 2026-10-14 — Sessão 203 (P122: os dois restos do nível 5)
 
 - **Pedido do usuário**: "vamos com o nível 5". Eu o havia listado como inexistente por engano: ele já existe desde a Sessão 180 (`Autonomy::Manager`). Perguntei, e o usuário escolheu os dois restos que a Sessão 180 deixou: exigir `can_manage_agents` e registrar no feed as edições do gerente. Planejado em plan mode.
