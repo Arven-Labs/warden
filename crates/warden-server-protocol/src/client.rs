@@ -27,6 +27,9 @@ impl std::fmt::Display for AuthRejected {
 
 impl std::error::Error for AuthRejected {}
 
+/// Takes the TruthID challenge a sign-in gets (P113): the QR's JSON and when it stops being good.
+pub type ChallengeSink<'a> = dyn FnMut(&str, u64) + Send + 'a;
+
 /// A connection to a `warden-server`, past the Hello/HelloAck handshake.
 ///
 /// This is the reusable half of the Fase 9.2 protocol: Fase 7.2 (desktop/mobile as a client)
@@ -190,7 +193,43 @@ impl ServerConnection {
         Self::hello(url, hello, tls).await
     }
 
+    /// P113: signs in as a member with their TruthID. The hub answers with a challenge — the QR the TruthID
+    /// app scans — which goes to `on_challenge` (its JSON and when it stops being good), and the `HelloAck`
+    /// follows once the app approves; that can take up to the hub's answer window, so the caller sets the
+    /// time it is willing to wait. Can't show a recovery code, so it never makes the hub create a data key.
+    pub async fn handshake_with_truthid(
+        url: &str,
+        device_id: &str,
+        device_name: &str,
+        tls: Arc<ClientConfig>,
+        on_challenge: &mut ChallengeSink<'_>,
+    ) -> anyhow::Result<(Self, Option<String>, Option<UserInfoDto>)> {
+        let hello = ClientMessage::Hello {
+            device_id: device_id.to_string(),
+            device_name: device_name.to_string(),
+            auth_key: String::new(),
+            device_token: None,
+            tools: Vec::new(),
+            tool_hints: BTreeMap::new(),
+            node: None,
+            username: None,
+            password: None,
+            recovery_codes: false,
+            truthid_login: true,
+        };
+        Self::hello_with(url, hello, tls, Some(on_challenge)).await
+    }
+
     async fn hello(url: &str, hello: ClientMessage, tls: Arc<ClientConfig>) -> anyhow::Result<(Self, Option<String>, Option<UserInfoDto>)> {
+        Self::hello_with(url, hello, tls, None).await
+    }
+
+    async fn hello_with(
+        url: &str,
+        hello: ClientMessage,
+        tls: Arc<ClientConfig>,
+        mut on_challenge: Option<&mut ChallengeSink<'_>>,
+    ) -> anyhow::Result<(Self, Option<String>, Option<UserInfoDto>)> {
         let (ws, _response) = tokio_tungstenite::connect_async_tls_with_config(url, None, false, Some(Connector::Rustls(tls)))
             .await
             .map_err(|err| match err {
@@ -204,11 +243,19 @@ impl ServerConnection {
         let mut conn = Self { ws };
         conn.send(&hello).await?;
 
-        match conn.recv().await? {
-            Some(ServerMessage::HelloAck { device_token, user, .. }) => Ok((conn, device_token, user)),
-            Some(ServerMessage::AuthError { reason }) => Err(AuthRejected { reason }.into()),
-            Some(other) => anyhow::bail!("expected HelloAck, got {other:?}"),
-            None => anyhow::bail!("server closed the connection before replying to Hello"),
+        loop {
+            match conn.recv().await? {
+                Some(ServerMessage::HelloAck { device_token, user, .. }) => return Ok((conn, device_token, user)),
+                Some(ServerMessage::AuthError { reason }) => return Err(AuthRejected { reason }.into()),
+                // Only a sign-in that asked for it gets one; the `HelloAck` comes after.
+                Some(ServerMessage::TruthIdChallenge { payload, expires_at_ms }) if on_challenge.is_some() => {
+                    if let Some(on_challenge) = on_challenge.as_mut() {
+                        on_challenge(&payload, expires_at_ms);
+                    }
+                }
+                Some(other) => anyhow::bail!("expected HelloAck, got {other:?}"),
+                None => anyhow::bail!("server closed the connection before replying to Hello"),
+            }
         }
     }
 

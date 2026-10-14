@@ -42,7 +42,7 @@ import {
   type RemoteStatePayload,
 } from "./lib/hub";
 import { isPermissionGranted, requestPermission, sendNotification } from "@tauri-apps/plugin-notification";
-import { decorateLastAnswer, mergeConversations, type HubConversationSummary } from "./lib/hubMap";
+import { decorateLastAnswer, mergeConversations, type HubConversationSummary, type TruthIdChallengePayload } from "./lib/hubMap";
 import { isAgentChannel, threadHistory, threadsOf, visibleConversations } from "./lib/threads";
 import { baseline, isUnread, loadSeen, markSeen, notificationBody, saveSeen, unreadIds, type SeenMap } from "./lib/unread";
 import AgentContacts from "./components/AgentContacts";
@@ -164,6 +164,9 @@ function App() {
   const [activeHubId, setActiveHubId] = useState<string | null>(null);
   const [hubStates, setHubStates] = useState<Record<string, RemoteState>>({});
   const [connectingTo, setConnectingTo] = useState<SavedHub | null>(null);
+  // P113: signing in to `connectingTo` with a TruthID — the QR its hub made, and whether the dialog is waiting for the phone.
+  const [truthIdQr, setTruthIdQr] = useState<TruthIdChallengePayload | null>(null);
+  const [truthIdWaiting, setTruthIdWaiting] = useState(false);
   const [switching, setSwitching] = useState(false);
   const remote = activeHubId !== null;
   const remoteReady = activeHubId !== null && hubStates[activeHubId]?.state === "connected";
@@ -349,6 +352,29 @@ function App() {
       void unlisten.then((fn) => fn());
     };
   }, []);
+
+  // P113: the QR the hub made for a TruthID sign-in. Only the hub being signed in to is listened to.
+  const connectingToId = connectingTo?.id ?? null;
+  useEffect(() => {
+    if (connectingToId === null) return;
+    const unlisten = listen<TruthIdChallengePayload>("remote-truthid-challenge", ({ payload }) => {
+      if (payload.hubId === connectingToId) setTruthIdQr(payload);
+    });
+    return () => {
+      void unlisten.then((fn) => fn());
+    };
+  }, [connectingToId]);
+
+  // P113: the phone approved and the hub let this computer in: the dialog is done, and the hub becomes the one in use.
+  useEffect(() => {
+    if (!truthIdWaiting || connectingToId === null) return;
+    if (hubStates[connectingToId]?.state !== "connected") return;
+    setTruthIdWaiting(false);
+    setTruthIdQr(null);
+    setConnectingTo(null);
+    resetForMachine();
+    setActiveHubId(connectingToId);
+  }, [truthIdWaiting, connectingToId, hubStates]);
 
   // P120: the owner changed what a member may do with the organization, and the hub says so at once. Named by the hub it came from, so
   // one that is not in use only lands in its own entry.
@@ -658,10 +684,32 @@ function App() {
     }
   }
 
+  /** Closes the sign-in dialog; a TruthID sign-in that is still waiting for the phone is ended, so its QR stops being asked for. */
+  function cancelSignIn() {
+    if (truthIdWaiting) {
+      void hubDisconnect().catch((err) => console.error("failed to end the TruthID sign-in:", err));
+      // Asking for the QR took over the one connection there is: a hub that was in use lost it, so this computer is the machine again.
+      if (activeHubId !== null) {
+        resetForMachine();
+        setActiveHubId(null);
+      }
+    }
+    setTruthIdWaiting(false);
+    setTruthIdQr(null);
+    setConnectingTo(null);
+  }
+
   /** The sign-in dialog's submit: rejects with the reason, which the dialog shows. */
   async function handleSignIn(credential: HubCredential) {
     if (!connectingTo) return;
     const hubId = connectingTo.id;
+    if (credential.kind === "truthid") {
+      // Not done when this returns: the person still has to scan. The effect above finishes it when the hub says connected.
+      setTruthIdQr(null);
+      await hubConnect(hubId, credential);
+      setTruthIdWaiting(true);
+      return;
+    }
     await hubConnect(hubId, credential);
     setConnectingTo(null);
     resetForMachine();
@@ -1079,7 +1127,7 @@ function App() {
         )}
         </div>
       )}
-      {connectingTo &&<HubConnectDialog hub={connectingTo} onSubmit={handleSignIn} onCancel={() => setConnectingTo(null)} />}
+      {connectingTo && <HubConnectDialog hub={connectingTo} onSubmit={handleSignIn} onCancel={cancelSignIn} state={hubStates[connectingTo.id]} qr={truthIdQr} />}
       <ApprovalModal />
     </div>
   );

@@ -1270,6 +1270,56 @@ async fn a_member_signs_in_with_the_truthid_app_and_nobody_else_does() {
     assert_eq!(phone_posts(&hub, &warden_truthid::login::sign_challenge(&phone, &c)).await, 400, "nobody is waiting for it any more");
 }
 
+/// The client library (what the desktop signs in with, P113): the QR reaches the caller as it comes, and the
+/// connection is the member's once the phone is right — and an error, never a half-open connection, when it is not.
+#[tokio::test]
+async fn the_client_library_shows_the_qr_and_signs_the_member_in_when_the_phone_approves() {
+    let hub = spin_up().await;
+    let phone = device_key(7);
+    let stranger = device_key(10);
+    let registry = fake_device_registry(vec![(device_address(&phone), 42, false)]).await;
+    set_up_truthid(&hub, &registry, Some("https://hub.test/"));
+    let tls = warden_server_protocol::tls::default_client_config();
+
+    // The right phone.
+    let (qr_tx, mut qr_rx) = tokio::sync::mpsc::unbounded_channel::<(String, u64)>();
+    let url = hub.url.clone();
+    let signing_in = tokio::spawn({
+        let tls = tls.clone();
+        async move {
+            let mut show = |payload: &str, expires_at_ms: u64| {
+                let _ = qr_tx.send((payload.to_string(), expires_at_ms));
+            };
+            ServerConnection::handshake_with_truthid(&url, "desktop-1", "Desktop", tls, &mut show).await.map(|(_, token, user)| (token, user))
+        }
+    });
+    let (payload, expires_at_ms) = tokio::time::timeout(Duration::from_secs(10), qr_rx.recv()).await.expect("no QR").unwrap();
+    let qr: serde_json::Value = serde_json::from_str(&payload).unwrap();
+    assert_eq!(qr["action"], "truthid-auth");
+    assert!(expires_at_ms > 0);
+    let challenge: warden_truthid::login::AuthChallenge = serde_json::from_value(qr["challenge"].clone()).unwrap();
+    assert_eq!(phone_posts(&hub, &warden_truthid::login::sign_challenge(&phone, &challenge)).await, 200);
+    let (token, user) = tokio::time::timeout(Duration::from_secs(10), signing_in).await.expect("never let in").unwrap().expect("refused");
+    assert_eq!(user.map(|u| u.id).as_deref(), Some("ana"), "the hub took this device to be Ana");
+    assert!(token.is_some_and(|t| !t.is_empty()), "and gave it a token to come back with");
+
+    // A device the registry does not know: the QR came, and the answer to it is a refusal, not a connection.
+    let (qr_tx, mut qr_rx) = tokio::sync::mpsc::unbounded_channel::<(String, u64)>();
+    let url = hub.url.clone();
+    let refused = tokio::spawn(async move {
+        let mut show = |payload: &str, expires_at_ms: u64| {
+            let _ = qr_tx.send((payload.to_string(), expires_at_ms));
+        };
+        ServerConnection::handshake_with_truthid(&url, "desktop-2", "Desktop", tls, &mut show).await.map(|_| ())
+    });
+    let (payload, _) = tokio::time::timeout(Duration::from_secs(10), qr_rx.recv()).await.expect("no QR").unwrap();
+    let qr: serde_json::Value = serde_json::from_str(&payload).unwrap();
+    let challenge: warden_truthid::login::AuthChallenge = serde_json::from_value(qr["challenge"].clone()).unwrap();
+    assert_eq!(phone_posts(&hub, &warden_truthid::login::sign_challenge(&stranger, &challenge)).await, 401);
+    let err = tokio::time::timeout(Duration::from_secs(10), refused).await.expect("never answered").unwrap().expect_err("a stranger got in");
+    assert!(err.downcast_ref::<warden_server_protocol::AuthRejected>().is_some(), "{err:#}");
+}
+
 #[tokio::test]
 async fn signing_in_with_a_truthid_needs_the_hub_to_know_its_https_address() {
     let hub = spin_up().await;

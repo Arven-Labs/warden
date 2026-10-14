@@ -108,6 +108,12 @@ impl<R: tauri::Runtime> RemoteSink for TauriSink<R> {
             RemoteEvent::OrgAccessChanged { access } => {
                 let _ = self.app.emit("remote-org-access", json!({ "hubId": self.hub_id, "access": access }));
             }
+            RemoteEvent::TruthIdChallenge { payload, expires_at_ms } => match crate::qr::render_qr_svg(&payload) {
+                Ok(svg) => {
+                    let _ = self.app.emit("remote-truthid-challenge", json!({ "hubId": self.hub_id, "svg": svg, "payload": payload, "expiresAtMs": expires_at_ms }));
+                }
+                Err(err) => eprintln!("desktop: couldn't draw the TruthID QR: {err}"),
+            },
         }
     }
 }
@@ -140,6 +146,8 @@ fn identities() -> Result<RemoteIdentities, String> {
 pub enum CredentialPayload {
     Key { key: String },
     Member { username: String, password: String },
+    /// A member, by the TruthID app approving a QR the hub makes (P113): the QR comes as `remote-truthid-challenge`.
+    Truthid,
 }
 
 #[derive(Serialize)]
@@ -162,9 +170,10 @@ pub async fn remote_connect<R: tauri::Runtime>(app: AppHandle<R>, state: State<'
     let credential = credential.map(|c| match c {
         CredentialPayload::Key { key } => RemoteCredential::PairingKey(key.trim().to_string()),
         CredentialPayload::Member { username, password } => RemoteCredential::Member { username: username.trim().to_string(), password },
+        CredentialPayload::Truthid => RemoteCredential::TruthId,
     });
     if credential.is_none() && identity.device_token.is_none() {
-        return Err(format!("not signed in to '{}' yet: give its pairing key or a username and password", hub.name));
+        return Err(format!("not signed in to '{}' yet: give its pairing key, a username and password, or sign in with a TruthID", hub.name));
     }
     let config = RemoteConfig { url, device_id: identity.device_id, device_name: DEVICE_NAME.to_string(), credential, token: identity.device_token };
 
@@ -400,6 +409,8 @@ mod tests {
         assert!(matches!(key, CredentialPayload::Key { key } if key == "k"));
         let member: CredentialPayload = serde_json::from_value(json!({ "kind": "member", "username": "ana", "password": "p" })).unwrap();
         assert!(matches!(member, CredentialPayload::Member { username, password } if (username.as_str(), password.as_str()) == ("ana", "p")));
+        let truthid: CredentialPayload = serde_json::from_value(json!({ "kind": "truthid" })).unwrap();
+        assert!(matches!(truthid, CredentialPayload::Truthid), "the TruthID sign-in carries nothing: the hub makes the QR");
         assert!(serde_json::from_value::<CredentialPayload>(json!({ "kind": "token", "token": "t" })).is_err(), "a token is never typed in");
     }
 
@@ -413,7 +424,7 @@ mod tests {
         let app = tauri::test::mock_app();
         let handle = app.handle().clone();
         let seen: Arc<Mutex<Vec<(String, Value)>>> = Arc::default();
-        for name in ["remote-hub-state", "chat-event", "approval-request", "approval-cancelled", "conversations-changed", "remote-org-access"] {
+        for name in ["remote-hub-state", "chat-event", "approval-request", "approval-cancelled", "conversations-changed", "remote-org-access", "remote-truthid-challenge"] {
             let seen = seen.clone();
             handle.listen(name, move |event| seen.lock().unwrap().push((name.to_string(), serde_json::from_str(event.payload()).unwrap())));
         }
@@ -446,6 +457,13 @@ mod tests {
 
         sink.emit(RemoteEvent::OrgAccessChanged { access: "view".into() });
         assert_eq!(events("remote-org-access"), vec![json!({ "hubId": "hub-1", "access": "view" })], "named by the hub it came from, which the screen compares with the one in use");
+
+        sink.emit(RemoteEvent::TruthIdChallenge { payload: r#"{"action":"truthid-auth"}"#.into(), expires_at_ms: 1_700_000_030_000 });
+        let qr = events("remote-truthid-challenge");
+        assert_eq!(qr.len(), 1);
+        assert_eq!((qr[0]["hubId"].as_str(), qr[0]["expiresAtMs"].as_u64()), (Some("hub-1"), Some(1_700_000_030_000)), "named by the hub, with when it stops being good");
+        assert!(qr[0]["svg"].as_str().unwrap().contains("<svg"), "the screen gets the drawing, not a library to draw it with");
+        assert_eq!(qr[0]["payload"].as_str(), Some(r#"{"action":"truthid-auth"}"#), "and the text, for typing it where a camera is not an option");
 
         sink.emit(RemoteEvent::Approval { approval_id: 5, target: "critic".into(), action: "create_agent".into(), detail: "d".into(), always: Some("git *".into()), category: Some("critical_infra".into()) });
         let asked = events("approval-request");

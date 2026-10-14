@@ -43,6 +43,29 @@ export interface RemoteStatePayload {
   state: RemoteState;
 }
 
+/** The `remote-truthid-challenge` event (P113): the QR the TruthID app scans to sign in to a hub, drawn by the backend. */
+export interface TruthIdChallengePayload {
+  hubId: string;
+  svg: string;
+  /** The QR's own JSON, for pasting where a camera is not an option. */
+  payload: string;
+  /** When the TruthID app stops accepting this QR. */
+  expiresAtMs: number;
+}
+
+/** Whole seconds a QR is still good for (never below 0). */
+export function qrSecondsLeft(expiresAtMs: number, nowMs: number): number {
+  return Math.max(0, Math.ceil((expiresAtMs - nowMs) / 1000));
+}
+
+/** What a TruthID sign-in says to the person: the QR is waiting, it ran out, or the hub turned it away. `null`: nothing to say yet. */
+export function truthIdProgress(state: RemoteState | undefined, qr: TruthIdChallengePayload | null, nowMs: number): { kind: "waiting" | "expired" | "failed"; text: string } | null {
+  if (state?.state === "stopped" && state.error) return { kind: "failed", text: state.error };
+  if (!qr) return null;
+  const left = qrSecondsLeft(qr.expiresAtMs, nowMs);
+  return left > 0 ? { kind: "waiting", text: `Scan it with the TruthID app — ${left}s left` } : { kind: "expired", text: "The QR ran out. Ask for a new one." };
+}
+
 export interface HubConversationSummary {
   id: string;
   title: string;

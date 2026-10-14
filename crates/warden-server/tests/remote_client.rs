@@ -265,6 +265,40 @@ async fn the_token_signs_in_without_the_key_and_a_wrong_key_or_nothing_stops_it(
     until("no credential to end it", || matches!(nothing.state(), RemoteState::Stopped { error: Some(_) })).await;
 }
 
+#[tokio::test]
+async fn a_truthid_sign_in_the_hub_cannot_make_ends_with_the_reason_and_is_not_retried() {
+    // The hub does not know its https address, so it cannot make a QR the phone would accept.
+    let hub = spin_up().await;
+    let (handle, sink) = connect(hub.addr, "desktop-t1", Some(RemoteCredential::TruthId), None);
+    until("the refusal to end it", || matches!(handle.state(), RemoteState::Stopped { error: Some(_) })).await;
+    let RemoteState::Stopped { error: Some(error) } = handle.state() else { unreachable!() };
+    assert!(error.contains("truthid_public_url"), "{error}");
+    tokio::time::sleep(Duration::from_millis(1500)).await;
+    assert!(!sink.states().iter().any(|s| matches!(s, RemoteState::Retrying { .. })), "a QR nobody scanned is not asked for again by itself");
+    assert!(!sink.events().iter().any(|e| matches!(e, RemoteEvent::TruthIdChallenge { .. })));
+}
+
+#[tokio::test]
+async fn the_qr_reaches_the_screen_and_stopping_while_it_waits_ends_the_attempt_at_once() {
+    let hub = spin_up().await;
+    let mut config = load_config_from_path(&hub.config_path, false).unwrap();
+    config.truthid_public_url = Some("https://hub.test".into());
+    save_config(&hub.config_path, &config).unwrap();
+
+    let (handle, sink) = connect(hub.addr, "desktop-t2", Some(RemoteCredential::TruthId), None);
+    until("the QR to come", || sink.events().iter().any(|e| matches!(e, RemoteEvent::TruthIdChallenge { .. }))).await;
+    let Some(RemoteEvent::TruthIdChallenge { payload, expires_at_ms }) = sink.events().into_iter().find(|e| matches!(e, RemoteEvent::TruthIdChallenge { .. })) else { unreachable!() };
+    let qr: serde_json::Value = serde_json::from_str(&payload).unwrap();
+    assert_eq!((qr["action"].as_str(), qr["callbackUrl"].as_str()), (Some("truthid-auth"), Some("https://hub.test/auth/truthid")));
+    assert!(expires_at_ms > 0);
+    assert_eq!(handle.state(), RemoteState::Connecting, "still waiting for the phone");
+
+    // A new QR is a new connection: the old one must not sit on the hub for two minutes, nor report later.
+    handle.stop();
+    until("stopping to end the wait", || handle.state() == RemoteState::Stopped { error: None }).await;
+    assert_eq!(sink.states().last(), Some(&RemoteState::Stopped { error: None }), "ended by the stop, not by a timeout's error");
+}
+
 fn ana() -> Option<RemoteCredential> {
     Some(RemoteCredential::Member { username: "ana".into(), password: ANA_PASSWORD.into() })
 }

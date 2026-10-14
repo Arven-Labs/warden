@@ -14,6 +14,8 @@ import {
   mergeConversations,
   messagesFromHistory,
   projectFromHub,
+  qrSecondsLeft,
+  truthIdProgress,
   turnFromReply,
   usageFromReport,
 } from "../src/lib/hubMap.ts";
@@ -229,5 +231,26 @@ describe("threads (P125)", () => {
     assert.equal(first.agentId, "poet", "it talks to the same agent");
     assert.equal("threadOf" in chatMessage({ ...base, creating: false }), false, "a thread that exists keeps its message");
     assert.equal("threadOf" in chatMessage({ ...base, threadOf: undefined }), false, "an ordinary turn has none");
+  });
+});
+
+describe("signing in to a hub with a TruthID (P113)", () => {
+  const qr = (expiresAtMs) => ({ hubId: "h", svg: "<svg/>", payload: "{}", expiresAtMs });
+
+  test("the QR counts down in whole seconds and never goes below zero", () => {
+    assert.equal(qrSecondsLeft(30_000, 0), 30);
+    assert.equal(qrSecondsLeft(30_000, 29_001), 1, "a started second still counts");
+    assert.equal(qrSecondsLeft(30_000, 31_000), 0);
+  });
+
+  test("it says to scan while the QR is good, and to ask for another one once it ran out", () => {
+    assert.deepEqual(truthIdProgress({ state: "connecting" }, qr(30_000), 20_000), { kind: "waiting", text: "Scan it with the TruthID app — 10s left" });
+    assert.equal(truthIdProgress({ state: "connecting" }, qr(30_000), 30_000).kind, "expired");
+    assert.equal(truthIdProgress({ state: "connecting" }, null, 0), null, "no QR yet: nothing to say");
+  });
+
+  test("the hub turning it away is shown whatever the QR says; a plain stop is not an error", () => {
+    assert.deepEqual(truthIdProgress({ state: "stopped", error: "authentication rejected: invalid" }, qr(30_000), 1), { kind: "failed", text: "authentication rejected: invalid" });
+    assert.equal(truthIdProgress({ state: "stopped", error: null }, null, 0), null, "the old attempt ending after a new QR was asked for");
   });
 });

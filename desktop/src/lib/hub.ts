@@ -51,7 +51,7 @@ export { HubTurnError } from "./hubMap";
 export type { RemoteState, RemoteStatePayload, HubUser } from "./hubMap";
 
 /** How the first sign-in to a hub is made. Not kept: only the token the hub issues is. */
-export type HubCredential = { kind: "key"; key: string } | { kind: "member"; username: string; password: string };
+export type HubCredential = { kind: "key"; key: string } | { kind: "member"; username: string; password: string } | { kind: "truthid" };
 
 /** What `remote_connect` says when this computer has no token for the hub yet: the person has to sign in. */
 export function needsSignIn(error: unknown): boolean {

@@ -34,6 +34,8 @@ const HEARTBEAT: Duration = Duration::from_secs(20);
 const MAX_BACKOFF: Duration = Duration::from_secs(60);
 /// How long to wait for the hub to accept a connection and answer the Hello.
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(15);
+/// Signing in with a TruthID waits for a person to scan a QR and approve: the hub's answer window (120 s) and a margin.
+const TRUTHID_CONNECT_TIMEOUT: Duration = Duration::from_secs(130);
 /// What a turn may take: a model with tools can run for minutes.
 pub const TURN_TIMEOUT: Duration = Duration::from_secs(600);
 /// What an ordinary request (a list, a save) may take.
@@ -149,6 +151,9 @@ pub enum RemoteCredential {
     PairingKey(String),
     /// A member of the workspace.
     Member { username: String, password: String },
+    /// A member, by the TruthID app approving a QR the hub makes (P113). The QR comes as `RemoteEvent::TruthIdChallenge`. It
+    /// is not retried by itself: a connection that does not get in is over, and a new QR is a new connection.
+    TruthId,
 }
 
 /// Everything one connection needs. Not `Debug` on purpose: it holds a key or a password.
@@ -190,6 +195,8 @@ pub enum RemoteEvent {
     ConversationsChanged { conversation_id: String },
     /// The owner changed what this member may do with the organization of the agents (P120): `none`, `view` or `edit`.
     OrgAccessChanged { access: String },
+    /// Signing in with a TruthID (P113): what its app scans (the QR's JSON), good until `expires_at_ms`.
+    TruthIdChallenge { payload: String, expires_at_ms: u64 },
 }
 
 /// Where [`RemoteEvent`]s go. The desktop emits Tauri events; a test collects them.
@@ -291,13 +298,18 @@ async fn run(mut config: RemoteConfig, sink: Arc<dyn RemoteSink>, mut rx: mpsc::
         sink.emit(RemoteEvent::State(next));
     };
     if config.token.is_none() && config.credential.is_none() {
-        set(RemoteState::Stopped { error: Some("not signed in to this hub: give its pairing key or a username and password".to_string()) });
+        set(RemoteState::Stopped { error: Some("not signed in to this hub: give its pairing key, a username and password, or sign in with a TruthID".to_string()) });
         return;
     }
     let mut backoff = Duration::from_secs(1);
     loop {
         set(RemoteState::Connecting);
         let outcome = serve_once(&config, &mut rx, &sink, &set).await;
+        // A QR that was not approved is not asked for again by itself: each try is a new QR on someone's screen.
+        if let (Some(RemoteCredential::TruthId), false, Err(err)) = (&config.credential, outcome.signed_in, &outcome.end) {
+            set(RemoteState::Stopped { error: Some(format!("{err:#}")) });
+            return;
+        }
         if outcome.signed_in {
             backoff = Duration::from_secs(1);
             // The key or password did its one job: from here on the token signs in.
@@ -340,9 +352,13 @@ async fn run(mut config: RemoteConfig, sink: Arc<dyn RemoteSink>, mut rx: mpsc::
     }
 }
 
-async fn connect(config: &RemoteConfig) -> anyhow::Result<(ServerConnection, Option<String>, Option<UserInfoDto>)> {
+async fn connect(config: &RemoteConfig, sink: &Arc<dyn RemoteSink>) -> anyhow::Result<(ServerConnection, Option<String>, Option<UserInfoDto>)> {
     let tls = default_client_config();
     match (&config.credential, &config.token) {
+        (Some(RemoteCredential::TruthId), _) => {
+            let mut show = |payload: &str, expires_at_ms: u64| sink.emit(RemoteEvent::TruthIdChallenge { payload: payload.to_string(), expires_at_ms });
+            ServerConnection::handshake_with_truthid(&config.url, &config.device_id, &config.device_name, tls, &mut show).await
+        }
         (Some(RemoteCredential::PairingKey(key)), _) => {
             let (conn, token) = ServerConnection::handshake_with_tls(&config.url, &config.device_id, &config.device_name, key, None, Vec::new(), tls).await?;
             // The pairing key is the owner's: the hub says no user.
@@ -357,16 +373,40 @@ async fn connect(config: &RemoteConfig) -> anyhow::Result<(ServerConnection, Opt
     }
 }
 
+/// Resolves when the connection is told to stop (or nobody holds a handle any more). Anything asked meanwhile is told the
+/// hub is not there yet.
+async fn until_stopped(rx: &mut mpsc::UnboundedReceiver<Command>) {
+    loop {
+        match rx.recv().await {
+            None | Some(Command::Stop) => return,
+            Some(Command::Request { reply, .. }) | Some(Command::Turn { reply, .. }) => {
+                let _ = reply.send(Err("not connected to the hub yet".to_string()));
+            }
+            Some(Command::Forget(_)) | Some(Command::Send(_)) => {}
+        }
+    }
+}
+
 async fn serve_once(config: &RemoteConfig, rx: &mut mpsc::UnboundedReceiver<Command>, sink: &Arc<dyn RemoteSink>, set: &(dyn Fn(RemoteState) + Sync)) -> Outcome {
     let mut outcome = Outcome { signed_in: false, token: None, end: Ok(End::Closed) };
-    let (mut conn, issued, user) = match tokio::time::timeout(CONNECT_TIMEOUT, connect(config)).await {
+    let wait = if matches!(config.credential, Some(RemoteCredential::TruthId)) { TRUTHID_CONNECT_TIMEOUT } else { CONNECT_TIMEOUT };
+    // The wait can be minutes (a QR to scan): stopping ends it at once, so a new QR does not leave the old one's hub
+    // connection waiting, nor its timeout reporting later.
+    let attempt = tokio::select! {
+        attempt = tokio::time::timeout(wait, connect(config, sink)) => attempt,
+        () = until_stopped(rx) => {
+            outcome.end = Ok(End::Stop);
+            return outcome;
+        }
+    };
+    let (mut conn, issued, user) = match attempt {
         Ok(Ok(connected)) => connected,
         Ok(Err(err)) => {
             outcome.end = Err(err);
             return outcome;
         }
         Err(_) => {
-            outcome.end = Err(anyhow::anyhow!("the hub did not answer within {}s", CONNECT_TIMEOUT.as_secs()));
+            outcome.end = Err(anyhow::anyhow!("the hub did not answer within {}s", wait.as_secs()));
             return outcome;
         }
     };
