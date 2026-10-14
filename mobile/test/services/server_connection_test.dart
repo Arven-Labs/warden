@@ -507,6 +507,37 @@ void main() {
     await expectLater(refused, throwsA(isA<HubRequestException>().having((e) => e.message, 'message', 'no access')));
   });
 
+  test('an invite and a key rotation are asked with the pairing key, and a wrong key is an authRejected error (P36)', () async {
+    final controller = StreamChannelController<dynamic>();
+    final fromClient = StreamQueue<dynamic>(controller.local.stream);
+
+    final future = ServerConnection.connectOverChannel(
+      channel: controller.foreign,
+      deviceId: 'dev-1',
+      deviceName: 'Test',
+      authKey: 'test-key',
+    );
+    await fromClient.next; // Hello
+    controller.local.sink.add('{"type":"helloAck","serverName":"warden-server"}');
+    final conn = await future;
+
+    final made = conn.createDeviceInvite('k', "Ana's phone", 15);
+    expect(await fromClient.next as String, '{"type":"createDeviceInvite","requestId":1,"pairingKey":"k","name":"Ana\'s phone","ttlMinutes":15}');
+    controller.local.sink.add('{"type":"deviceInvite","requestId":1,"name":"Ana\'s phone","code":"abc","expiresMs":9}');
+    final invite = await made;
+    expect((invite.name, invite.code, invite.expiresMs), ("Ana's phone", 'abc', 9));
+
+    final rotated = conn.rotatePairingKey('k');
+    expect(await fromClient.next as String, '{"type":"rotatePairingKey","requestId":2,"pairingKey":"k"}');
+    controller.local.sink.add('{"type":"pairingKeyRotated","requestId":2,"newKey":"new"}');
+    expect(await rotated, 'new');
+
+    final refused = conn.createDeviceInvite('wrong', 'x', 15);
+    await fromClient.next;
+    controller.local.sink.add('{"type":"deviceError","requestId":3,"message":"wrong key","authRejected":true}');
+    await expectLater(refused, throwsA(isA<HubRequestException>().having((e) => e.authRejected, 'authRejected', isTrue)));
+  });
+
   test('the level the owner saves reaches the member as it happens, through the stream (P120)', () async {
     final controller = StreamChannelController<dynamic>();
     final fromClient = StreamQueue<dynamic>(controller.local.stream);

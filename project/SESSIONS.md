@@ -6,6 +6,16 @@
 
 ---
 
+### 2026-10-13 — Sessão 197 (P36: convite e rotação da chave na extensão e no celular, e os textos)
+
+- **Pedido do usuário**: "pode seguir no p36", e que os planos sejam mais didáticos (o plano passou a explicar a ideia, o caminho de um pedido em um diagrama e o porquê de cada parte). Escopo escolhido: textos dos clientes, aba na extensão e tela no celular. Três commits.
+- **Feito**: ver a seção de `ARCHITECTURE.md`. O hub não mudou.
+- **Erro meu**: o texto de ajuda que pus no campo "Auth key" do celular (Parte 1) quebrou 5 testes (`folder_picker_test`, `resume_chat_test`) porque empurrou o botão Conectar para fora da tela. Eu só tinha rodado `tsc` e não os testes do celular antes de commitar; descobri ao rodar a suíte inteira na Parte 3 e troquei por `hintText`. A correção entrou no commit da Parte 3, não no da Parte 1. Também fiz as edições da Parte 1 com um script Python, contra a regra de usar Edit.
+- **Testes**: extensão `npm test` 95 + `tsc` + build; celular `flutter analyze` limpo e `flutter test` 270 verdes (testes novos: fio e decode, `ServerConnection` com chave errada, tela). Web e desktop só `tsc`; os e2e do web não rodaram (só mudou um parágrafo de texto).
+- **Fica**: lista dos convites que esperam fora do desktop; o QR do desktop acompanhar a rotação; nenhum teste de ponta a ponta contra um hub real das telas novas (registrar no PENDING com a rodada de testes).
+
+---
+
 ### 2026-10-13 — Sessão 196 (P36: a chave global só pareia o primeiro aparelho)
 
 - **Pedido do usuário**: "vamos de 1" (fechar o P36, começando pelo furo da chave global); planejado em plan mode. Entre chave que nunca pareia, ligável e "só com o registro vazio", o usuário escolheu a última.

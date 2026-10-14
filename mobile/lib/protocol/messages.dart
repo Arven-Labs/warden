@@ -299,6 +299,38 @@ final class ControlAgentTaskMessage extends ClientMessage {
       };
 }
 
+/// P36 — a one-use invite that pairs one device without the pairing key. Asks for the pairing key every time. Answered by
+/// [DeviceInviteMessage] or [DeviceErrorMessage].
+final class CreateDeviceInviteMessage extends ClientMessage {
+  const CreateDeviceInviteMessage(this.requestId, this.pairingKey, this.name, this.ttlMinutes);
+
+  final int requestId;
+  final String pairingKey;
+  final String name;
+  final int ttlMinutes;
+
+  @override
+  Map<String, dynamic> toJson() => {
+        'type': 'createDeviceInvite',
+        'requestId': requestId,
+        'pairingKey': pairingKey,
+        'name': name,
+        'ttlMinutes': ttlMinutes,
+      };
+}
+
+/// P36 — changes the hub's pairing key. Asks for the current one. Answered by [PairingKeyRotatedMessage] or
+/// [DeviceErrorMessage].
+final class RotatePairingKeyMessage extends ClientMessage {
+  const RotatePairingKeyMessage(this.requestId, this.pairingKey);
+
+  final int requestId;
+  final String pairingKey;
+
+  @override
+  Map<String, dynamic> toJson() => {'type': 'rotatePairingKey', 'requestId': requestId, 'pairingKey': pairingKey};
+}
+
 /// P120 — one change to the organization of the agents, with the pairing key. Answered by [SettingsSavedMessage] or
 /// [SettingsErrorMessage].
 final class EditAgentOrgMessage extends ClientMessage {
@@ -968,6 +1000,14 @@ sealed class ServerMessage {
         ),
       'usageError' => UsageErrorMessage(json['requestId'] as int, json['message'] as String),
       'taskError' => TaskErrorMessage(json['requestId'] as int, json['message'] as String, authRejected: json['authRejected'] as bool? ?? false),
+      'deviceInvite' => DeviceInviteMessage(
+          json['requestId'] as int,
+          json['name'] as String,
+          json['code'] as String,
+          (json['expiresMs'] as num).toInt(),
+        ),
+      'pairingKeyRotated' => PairingKeyRotatedMessage(json['requestId'] as int, json['newKey'] as String),
+      'deviceError' => DeviceErrorMessage(json['requestId'] as int, json['message'] as String, authRejected: json['authRejected'] as bool? ?? false),
       'approvalRequest' => ApprovalRequestMessage(
           json['approvalId'] as int,
           target: json['target'] as String,
@@ -1539,6 +1579,33 @@ final class ActivityListMessage extends ServerMessage {
 /// A task request failed (P123). [authRejected]: the pairing key was wrong; nothing changed.
 final class TaskErrorMessage extends ServerMessage {
   const TaskErrorMessage(this.requestId, this.message, {this.authRejected = false});
+
+  final int requestId;
+  final String message;
+  final bool authRejected;
+}
+
+/// Reply to [CreateDeviceInviteMessage] (P36): the [code] is shown once, the hub keeps only its hash.
+final class DeviceInviteMessage extends ServerMessage {
+  const DeviceInviteMessage(this.requestId, this.name, this.code, this.expiresMs);
+
+  final int requestId;
+  final String name;
+  final String code;
+  final int expiresMs;
+}
+
+/// Reply to [RotatePairingKeyMessage] (P36): the new key, shown once.
+final class PairingKeyRotatedMessage extends ServerMessage {
+  const PairingKeyRotatedMessage(this.requestId, this.newKey);
+
+  final int requestId;
+  final String newKey;
+}
+
+/// A device request failed (P36). [authRejected]: the pairing key was wrong; nothing changed.
+final class DeviceErrorMessage extends ServerMessage {
+  const DeviceErrorMessage(this.requestId, this.message, {this.authRejected = false});
 
   final int requestId;
   final String message;

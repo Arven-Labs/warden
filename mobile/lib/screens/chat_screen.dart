@@ -19,6 +19,7 @@ import '../services/sync_auto_pull.dart';
 import '../services/vault_paths.dart';
 import '../src/rust/api/sync.dart' as sync_bridge;
 import 'agents_screen.dart';
+import 'device_invites_screen.dart';
 import 'usage_screen.dart';
 import 'attachment_kind.dart';
 import 'folder_picker.dart';
@@ -284,6 +285,11 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     Navigator.of(context).push(MaterialPageRoute(builder: (_) => UsageScreen(load: widget.connection.usageSummary)));
   }
 
+  /// P36 — the devices screen: invites for new devices, and changing the pairing key.
+  void _openDevices() {
+    Navigator.of(context).push(MaterialPageRoute(builder: (_) => DeviceInvitesScreen(backend: widget.connection)));
+  }
+
   Future<void> _disconnect() async {
     await widget.connection.goodbye('user disconnected');
     if (mounted) Navigator.of(context).pop();
@@ -402,6 +408,14 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
             icon: const Icon(Icons.bar_chart_outlined),
             tooltip: 'Usage',
           ),
+          // P36 — invites for new devices and the pairing key: the owner's, since a member has no key to ask for.
+          if (widget.connection.user == null)
+            IconButton(
+              key: const Key('devices-button'),
+              onPressed: _openDevices,
+              icon: const Icon(Icons.devices_outlined),
+              tooltip: 'Devices',
+            ),
           Builder(
             builder: (context) => IconButton(
               onPressed: () => Scaffold.of(context).openEndDrawer(),

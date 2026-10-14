@@ -136,6 +136,21 @@ void main() {
       expect((task as TaskErrorMessage).authRejected, isFalse);
     });
 
+    test('a device invite and a key rotation go out and come back in the web shapes (P36)', () {
+      expect(const CreateDeviceInviteMessage(5, 'k', "Ana's phone", 15).toJson(),
+          {'type': 'createDeviceInvite', 'requestId': 5, 'pairingKey': 'k', 'name': "Ana's phone", 'ttlMinutes': 15});
+      expect(const RotatePairingKeyMessage(6, 'k').toJson(), {'type': 'rotatePairingKey', 'requestId': 6, 'pairingKey': 'k'});
+
+      final invite = ServerMessage.decode('{"type":"deviceInvite","requestId":5,"name":"Ana\'s phone","code":"abc","expiresMs":9}') as DeviceInviteMessage;
+      expect((invite.requestId, invite.name, invite.code, invite.expiresMs), (5, "Ana's phone", 'abc', 9));
+      final rotated = ServerMessage.decode('{"type":"pairingKeyRotated","requestId":6,"newKey":"new"}') as PairingKeyRotatedMessage;
+      expect((rotated.requestId, rotated.newKey), (6, 'new'));
+      final refused = ServerMessage.decode('{"type":"deviceError","requestId":7,"message":"wrong key","authRejected":true}') as DeviceErrorMessage;
+      expect(refused.authRejected, isTrue);
+      final plain = ServerMessage.decode('{"type":"deviceError","requestId":7,"message":"nope"}') as DeviceErrorMessage;
+      expect(plain.authRejected, isFalse);
+    });
+
     test('a usage report keeps what each agent spent, and a hub that sends no recent spending decodes as none (P123)', () {
       final msg = ServerMessage.decode(jsonEncode({
         'type': 'usageReport',

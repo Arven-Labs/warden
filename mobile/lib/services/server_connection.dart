@@ -7,6 +7,7 @@ import 'package:web_socket_channel/web_socket_channel.dart';
 import '../protocol/messages.dart';
 import 'agent_work.dart';
 import 'chat_transcript.dart';
+import 'device_invites.dart';
 
 /// Connection state exposed to the UI. Mirrors the lifecycle a Fase 7.2
 /// connection screen needs to render — nothing more.
@@ -128,7 +129,7 @@ typedef ServerConnector = Future<ServerConnection> Function({
   Map<String, ToolHandler> toolHandlers,
 });
 
-class ServerConnection implements ConversationBackend, AgentsBackend, MemberOrgBackend {
+class ServerConnection implements ConversationBackend, AgentsBackend, MemberOrgBackend, DeviceInvitesBackend {
   ServerConnection._(this._channel, this._subscription, this.serverName, this.issuedDeviceToken, this.user, this._toolHandlers) {
     _setStatus(Connected(serverName));
     _startHeartbeat();
@@ -353,6 +354,9 @@ class ServerConnection implements ConversationBackend, AgentsBackend, MemberOrgB
               GrantListMessage() ||
               ActivityListMessage() ||
               TaskErrorMessage() ||
+              DeviceInviteMessage() ||
+              PairingKeyRotatedMessage() ||
+              DeviceErrorMessage() ||
               ApprovalRequestMessage() ||
               ApprovalCancelledMessage() ||
               ConversationsChangedMessage() ||
@@ -412,7 +416,10 @@ class ServerConnection implements ConversationBackend, AgentsBackend, MemberOrgB
             UsageErrorMessage(:final requestId) ||
             GrantListMessage(:final requestId) ||
             ActivityListMessage(:final requestId) ||
-            TaskErrorMessage(:final requestId):
+            TaskErrorMessage(:final requestId) ||
+            DeviceInviteMessage(:final requestId) ||
+            PairingKeyRotatedMessage(:final requestId) ||
+            DeviceErrorMessage(:final requestId):
         _pendingConversation.remove(requestId)?.complete(msg);
       case PasswordChangedMessage(:final requestId) ||
             RecoveryPolicyAcceptedMessage(:final requestId) ||
@@ -630,6 +637,29 @@ class ServerConnection implements ConversationBackend, AgentsBackend, MemberOrgB
       AgentTaskListMessage(:final tasks) => tasks,
       TaskErrorMessage(:final message, :final authRejected) => throw HubRequestException(message, authRejected: authRejected),
       _ => throw ConversationException('Unexpected reply to the task control: $reply'),
+    };
+  }
+
+  /// P36 — a one-use invite that pairs one device without the pairing key, made with the pairing key. Throws a
+  /// [HubRequestException] (`authRejected` on a wrong key).
+  @override
+  Future<DeviceInvite> createDeviceInvite(String pairingKey, String name, int ttlMinutes) async {
+    final reply = await _conversationRequest((requestId) => CreateDeviceInviteMessage(requestId, pairingKey, name, ttlMinutes));
+    return switch (reply) {
+      DeviceInviteMessage(:final name, :final code, :final expiresMs) => DeviceInvite(name: name, code: code, expiresMs: expiresMs),
+      DeviceErrorMessage(:final message, :final authRejected) => throw HubRequestException(message, authRejected: authRejected),
+      _ => throw ConversationException('Unexpected reply to the device invite: $reply'),
+    };
+  }
+
+  /// P36 — changes the hub's pairing key, made with the current one, and returns the new one.
+  @override
+  Future<String> rotatePairingKey(String pairingKey) async {
+    final reply = await _conversationRequest((requestId) => RotatePairingKeyMessage(requestId, pairingKey));
+    return switch (reply) {
+      PairingKeyRotatedMessage(:final newKey) => newKey,
+      DeviceErrorMessage(:final message, :final authRejected) => throw HubRequestException(message, authRejected: authRejected),
+      _ => throw ConversationException('Unexpected reply to the key rotation: $reply'),
     };
   }
 
