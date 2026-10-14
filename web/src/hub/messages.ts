@@ -517,6 +517,13 @@ export interface HubDevice {
   user?: string;
 }
 
+/** Mirrors `DeviceInviteDto` (P36): an invite that waits to be used. The hub never sends its code. */
+export interface HubDeviceInvite {
+  name: string;
+  createdMs: number;
+  expiresMs: number;
+}
+
 /** Mirrors `UserInfoDto` (P84): a member of the workspace, never the password or its hash. */
 /** Mirrors `NodeFolderDto` (P102 fatia 2): a folder on a node a member may work in; `path` is relative to the folder the node lends. */
 export interface NodeFolder {
@@ -911,6 +918,9 @@ export type ClientMessage =
   /** P36 — a one-use code that pairs one device without the pairing key, and a new pairing key. */
   | { type: "createDeviceInvite"; requestId: number; pairingKey: string; name: string; ttlMinutes: number }
   | { type: "rotatePairingKey"; requestId: number; pairingKey: string }
+  /** P36 — the invites that wait (open to a paired device), and cancelling one (asks for the pairing key). */
+  | { type: "listDeviceInvites"; requestId: number }
+  | { type: "cancelDeviceInvite"; requestId: number; pairingKey: string; name: string }
   /** P61 — the hub's vault sync; an action repeats the pairing key. */
   | { type: "requestSyncStatus"; requestId: number }
   | { type: "syncAction"; requestId: number; pairingKey: string; action: SyncAction }
@@ -1017,6 +1027,8 @@ export type ServerMessage =
   /** P36 — the `code` is shown once; the hub keeps only its hash. */
   | { type: "deviceInvite"; requestId: number; name: string; code: string; expiresMs: number }
   | { type: "pairingKeyRotated"; requestId: number; newKey: string }
+  /** P36 — the invites that wait, by name; never a code. */
+  | { type: "deviceInviteList"; requestId: number; invites: HubDeviceInvite[] }
   | { type: "apiKeyList"; requestId: number; keys: ApiKey[] }
   | { type: "apiKeyCreated"; requestId: number; key: string; keys: ApiKey[] }
   | { type: "apiKeyError"; requestId: number; message: string; authRejected: boolean }
@@ -1132,6 +1144,7 @@ export function decode(text: string): ServerMessage {
     case "deviceList":
     case "deviceInvite":
     case "pairingKeyRotated":
+    case "deviceInviteList":
     case "apiKeyList":
     case "apiKeyCreated":
     case "syncStatus":

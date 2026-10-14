@@ -1,5 +1,6 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { DeviceError, type ServerConnection } from "../hub/connection";
+import type { HubDeviceInvite } from "../hub/messages";
 
 // P36 — one-use invites that pair a device without the shared pairing key, and a button that changes that key. Both ask for
 // the pairing key each time, like approving or revoking a device. The code and the new key come back once: the hub keeps
@@ -11,7 +12,10 @@ function message(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
 
-type Made = { kind: "invite"; name: string; code: string; expiresMs: number } | { kind: "key"; newKey: string };
+type Made =
+  | { kind: "invite"; name: string; code: string; expiresMs: number }
+  | { kind: "key"; newKey: string }
+  | { kind: "cancelled"; name: string; left: HubDeviceInvite[] };
 
 export default function DeviceInvites({ conn }: { conn: ServerConnection | null }) {
   const [name, setName] = useState("");
@@ -21,6 +25,13 @@ export default function DeviceInvites({ conn }: { conn: ServerConnection | null 
   const [made, setMade] = useState<Made | null>(null);
   const [confirmRotate, setConfirmRotate] = useState(false);
   const [busy, setBusy] = useState(false);
+  // The invites that wait, which any paired device may see (by name, never the code).
+  const [waiting, setWaiting] = useState<HubDeviceInvite[]>([]);
+
+  useEffect(() => {
+    if (!conn) return;
+    conn.listDeviceInvites().then(setWaiting).catch((err) => setError(message(err)));
+  }, [conn]);
 
   async function run(action: () => Promise<Made>) {
     setBusy(true);
@@ -30,6 +41,7 @@ export default function DeviceInvites({ conn }: { conn: ServerConnection | null 
       setMade(await action());
       setPairingKey("");
       setConfirmRotate(false);
+      if (conn) setWaiting(await conn.listDeviceInvites());
     } catch (err) {
       setError(err instanceof DeviceError && err.authRejected ? "Chave de pareamento errada." : message(err));
     } finally {
@@ -43,8 +55,8 @@ export default function DeviceInvites({ conn }: { conn: ServerConnection | null 
     <section className="devices-invites">
       <h3>Convites e chave de pareamento</h3>
       <p className="skills-hint">
-        Um convite pareia um aparelho uma vez e expira: ninguém precisa da chave compartilhada, e um aparelho revogado não volta
-        pareando de novo com outro id. O código aparece só uma vez.
+        A chave de pareamento só pareia o primeiro aparelho do hub. Cada outro entra com um convite, que pareia um aparelho uma vez e
+        expira; um aparelho revogado não volta com outro id. O código aparece só uma vez.
       </p>
       {error && <p className="error-banner">{error}</p>}
 
@@ -94,12 +106,35 @@ export default function DeviceInvites({ conn }: { conn: ServerConnection | null 
         </div>
         {confirmRotate && (
           <p className="skills-hint">
-            A chave velha deixa de parear aparelhos novos e de abrir a administração do hub. Aparelhos já pareados continuam
-            funcionando. Digite a chave atual acima e confirme.
+            A chave velha deixa de abrir a administração do hub. Aparelhos já pareados continuam funcionando. Digite a chave atual
+            acima e confirme.
           </p>
         )}
       </form>
 
+      {waiting.length > 0 && (
+        <>
+          <h4>Convites esperando</h4>
+          <ul className="devices-waiting">
+            {waiting.map((invite) => (
+              <li key={invite.name}>
+                <strong>{invite.name}</strong> — vale até {dateFormatter.format(new Date(invite.expiresMs))}{" "}
+                <button
+                  type="button"
+                  className="link-button skills-danger"
+                  disabled={needsKey}
+                  title={needsKey ? "Digite a chave de pareamento acima para cancelar" : undefined}
+                  onClick={() => void run(async () => ({ kind: "cancelled", name: invite.name, left: await conn!.cancelDeviceInvite(pairingKey, invite.name) }))}
+                >
+                  Cancelar
+                </button>
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
+
+      {made?.kind === "cancelled" && <p className="skills-hint">Convite de {made.name} cancelado.</p>}
       {made?.kind === "invite" && (
         <p className="skills-hint">
           Convite para <strong>{made.name}</strong> (vale até {dateFormatter.format(new Date(made.expiresMs))}): <code>{made.code}</code>

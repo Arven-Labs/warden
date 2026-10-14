@@ -20,6 +20,7 @@ import {
   type ConversationSummary,
   type HistoryMessage,
   type HubDevice,
+  type HubDeviceInvite,
   type ProviderEdit,
   type ProviderFallback,
   type SyncAction,
@@ -564,6 +565,7 @@ export class ServerConnection {
       case "agentOrgList":
       case "deviceList":
       case "deviceInvite":
+      case "deviceInviteList":
       case "pairingKeyRotated":
       case "apiKeyList":
       case "apiKeyCreated":
@@ -1210,6 +1212,21 @@ export class ServerConnection {
     const reply = await this.request((requestId) => ({ type: "createDeviceInvite", requestId, pairingKey, name, ttlMinutes }));
     if (reply.type !== "deviceInvite") throw new Error("resposta inesperada do hub");
     return { name: reply.name, code: reply.code, expiresMs: reply.expiresMs };
+  }
+
+  /** The invites that wait to be used (P36), by name; the hub never says their codes. */
+  async listDeviceInvites(): Promise<HubDeviceInvite[]> {
+    const reply = await this.request((requestId) => ({ type: "listDeviceInvites", requestId }));
+    if (reply.type !== "deviceInviteList") throw new Error("resposta inesperada do hub");
+    return reply.invites;
+  }
+
+  /** Cancels the waiting invite called `name` and returns the ones that still wait. Rejects with `DeviceError` on a wrong pairing
+   * key, or when no such invite waits (it was used, lapsed or already cancelled). */
+  async cancelDeviceInvite(pairingKey: string, name: string): Promise<HubDeviceInvite[]> {
+    const reply = await this.request((requestId) => ({ type: "cancelDeviceInvite", requestId, pairingKey, name }));
+    if (reply.type !== "deviceInviteList") throw new Error("resposta inesperada do hub");
+    return reply.invites;
   }
 
   /** Changes the hub's pairing key (P36) and returns the new one, once. From then on this connection is held to the new key
