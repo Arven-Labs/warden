@@ -402,6 +402,15 @@ pub struct DeviceDto {
     pub user: Option<String>,
 }
 
+/// One invite waiting to be used (P36): who it is for and when it was made and lapses. Never the code or its hash.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DeviceInviteDto {
+    pub name: String,
+    pub created_ms: i64,
+    pub expires_ms: i64,
+}
+
 /// What a node offers (P93), as it announced itself in `Hello`. Its operator chose it on the node
 /// (`--shell`, `--files`); the hub still decides who may use it (`[[nodes]]`).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
@@ -1807,6 +1816,18 @@ pub enum ClientMessage {
         name: String,
         ttl_minutes: u64,
     },
+    /// The invites made and not used yet (P36), answered by `DeviceInviteList`. Open to any paired device, like `ListDevices`: it
+    /// shows a name and a deadline, never the code (the hub keeps only its hash).
+    ListDeviceInvites {
+        request_id: u64,
+    },
+    /// Cancels the waiting invite called `name` (P36), answered by the updated `DeviceInviteList`. Asks for the pairing key every
+    /// time, like `SetDeviceStatus`, so a leaked device token alone can't take an invite away.
+    CancelDeviceInvite {
+        request_id: u64,
+        pairing_key: String,
+        name: String,
+    },
     /// Changes the hub's pairing key (P36), answered by `PairingKeyRotated` with the new one. Devices
     /// that already hold a token keep working; the old key stops pairing and stops opening the
     /// administration. Asks for the current pairing key.
@@ -2493,6 +2514,11 @@ pub enum ServerMessage {
         name: String,
         code: String,
         expires_ms: i64,
+    },
+    /// Reply to `ListDeviceInvites` and to a successful `CancelDeviceInvite` (P36): the invites that wait, by name.
+    DeviceInviteList {
+        request_id: u64,
+        invites: Vec<DeviceInviteDto>,
     },
     /// Reply to `RotatePairingKey` (P36): the new key, shown once.
     PairingKeyRotated {
@@ -3784,6 +3810,20 @@ mod tests {
         assert_eq!(serde_json::to_value(&made).unwrap(), serde_json::json!({ "type": "deviceInvite", "requestId": 5, "name": "Ana's phone", "code": "abc", "expiresMs": 9 }));
         let rotated = ServerMessage::PairingKeyRotated { request_id: 6, new_key: "new".into() };
         assert_eq!(serde_json::to_value(&rotated).unwrap(), serde_json::json!({ "type": "pairingKeyRotated", "requestId": 6, "newKey": "new" }));
+    }
+
+    #[test]
+    fn listing_and_cancelling_device_invites_use_the_web_shapes() {
+        let list: ClientMessage = serde_json::from_str(r#"{"type":"listDeviceInvites","requestId":7}"#).unwrap();
+        assert_eq!(list, ClientMessage::ListDeviceInvites { request_id: 7 });
+        let cancel: ClientMessage = serde_json::from_str(r#"{"type":"cancelDeviceInvite","requestId":8,"pairingKey":"k","name":"Ana's phone"}"#).unwrap();
+        assert_eq!(cancel, ClientMessage::CancelDeviceInvite { request_id: 8, pairing_key: "k".into(), name: "Ana's phone".into() });
+
+        let waiting = ServerMessage::DeviceInviteList { request_id: 7, invites: vec![DeviceInviteDto { name: "Ana's phone".into(), created_ms: 1, expires_ms: 9 }] };
+        assert_eq!(
+            serde_json::to_value(&waiting).unwrap(),
+            serde_json::json!({ "type": "deviceInviteList", "requestId": 7, "invites": [{ "name": "Ana's phone", "createdMs": 1, "expiresMs": 9 }] })
+        );
     }
 
     #[test]

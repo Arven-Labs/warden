@@ -4,7 +4,7 @@
 //! again, with the same 1 s wait and the same per-hub lock as a settings save, so both share one
 //! guessing rate.
 
-use warden_server_protocol::protocol::{DeviceAction, DeviceDto, DeviceStatusDto};
+use warden_server_protocol::protocol::{DeviceAction, DeviceDto, DeviceInviteDto, DeviceStatusDto};
 use warden_server_protocol::ServerMessage;
 
 use crate::device_registry::{PairingStatus, PairingStore};
@@ -97,6 +97,39 @@ pub async fn handle_create_device_invite(
             let expires_ms = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_millis() as i64 + ttl.as_millis() as i64;
             ServerMessage::DeviceInvite { request_id, name: name.to_string(), code, expires_ms }
         }
+        Err(err) => device_error(request_id, format!("{err:#}"), false),
+    }
+}
+
+/// Answers `ListDeviceInvites` (P36): the invites that still wait, by name, with when they were made and lapse. Never a code.
+pub fn handle_list_device_invites(store: &PairingStore, request_id: u64) -> ServerMessage {
+    match store.list_invites() {
+        Ok(invites) => ServerMessage::DeviceInviteList {
+            request_id,
+            invites: invites.into_iter().map(|i| DeviceInviteDto { name: i.name, created_ms: i.created_ms, expires_ms: i.expires_ms }).collect(),
+        },
+        Err(err) => device_error(request_id, format!("failed to read the device registry: {err:#}"), false),
+    }
+}
+
+/// Answers `CancelDeviceInvite` (P36) with the updated list. Asks for the pairing key like `handle_set_device_status`; an invite
+/// that is not there (already used, lapsed or cancelled) is said so, since the person was looking at an old list.
+pub async fn handle_cancel_device_invite(
+    store: &PairingStore,
+    lock: &tokio::sync::Mutex<()>,
+    auth_key: &str,
+    request_id: u64,
+    pairing_key: &str,
+    name: &str,
+) -> ServerMessage {
+    let _serialized = lock.lock().await;
+    if !keys_match(pairing_key, auth_key) {
+        tokio::time::sleep(WRONG_KEY_DELAY).await;
+        return device_error(request_id, "wrong pairing key".to_string(), true);
+    }
+    match store.cancel_invite(name) {
+        Ok(true) => handle_list_device_invites(store, request_id),
+        Ok(false) => device_error(request_id, format!("no invite called '{name}' is waiting"), false),
         Err(err) => device_error(request_id, format!("{err:#}"), false),
     }
 }
@@ -208,6 +241,34 @@ mod tests {
         let reply = handle_create_device_invite(&store, &lock, KEY, 8, "wrong", "x", 15).await;
         assert!(matches!(reply, ServerMessage::DeviceError { auth_rejected: true, .. }), "{reply:?}");
         assert!(started.elapsed() >= WRONG_KEY_DELAY);
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[tokio::test]
+    async fn waiting_invites_are_listed_by_name_without_a_code_and_cancelled_with_the_pairing_key() {
+        let (store, path) = store("waiting");
+        let lock = tokio::sync::Mutex::new(());
+        handle_create_device_invite(&store, &lock, KEY, 1, KEY, "Ana's phone", 15).await;
+        handle_create_device_invite(&store, &lock, KEY, 2, KEY, "Bia's laptop", 15).await;
+
+        let reply = handle_list_device_invites(&store, 3);
+        let ServerMessage::DeviceInviteList { invites, .. } = &reply else { panic!("{reply:?}") };
+        assert_eq!(invites.iter().map(|i| i.name.as_str()).collect::<Vec<_>>(), ["Ana's phone", "Bia's laptop"]);
+        let json = serde_json::to_string(&reply).unwrap();
+        assert!(!json.contains("code") && !json.contains("hash"), "{json}");
+
+        let started = std::time::Instant::now();
+        let reply = handle_cancel_device_invite(&store, &lock, KEY, 4, "wrong", "Ana's phone").await;
+        assert!(matches!(reply, ServerMessage::DeviceError { auth_rejected: true, .. }), "{reply:?}");
+        assert!(started.elapsed() >= WRONG_KEY_DELAY);
+        assert_eq!(store.list_invites().unwrap().len(), 2, "a wrong key cancels nothing");
+
+        let reply = handle_cancel_device_invite(&store, &lock, KEY, 5, KEY, "Ana's phone").await;
+        let ServerMessage::DeviceInviteList { invites, .. } = &reply else { panic!("{reply:?}") };
+        assert_eq!(invites.iter().map(|i| i.name.as_str()).collect::<Vec<_>>(), ["Bia's laptop"]);
+
+        let reply = handle_cancel_device_invite(&store, &lock, KEY, 6, KEY, "Ana's phone").await;
+        assert!(matches!(reply, ServerMessage::DeviceError { auth_rejected: false, .. }), "an invite already gone is said so: {reply:?}");
         std::fs::remove_file(path).unwrap();
     }
 

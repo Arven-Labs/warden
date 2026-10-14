@@ -103,6 +103,30 @@ async fn an_invite_made_over_the_protocol_pairs_a_device() {
     assert!(matches!(reply(&mut admin).await, ServerMessage::DeviceError { auth_rejected: true, .. }));
 }
 
+/// The invites that wait, from any client: made over the protocol, listed without a code, cancelled with the key, and a cancelled
+/// code pairs no one.
+#[tokio::test]
+async fn a_waiting_invite_is_listed_and_a_cancelled_one_pairs_no_one() {
+    let (addr, _, _) = spin_up_server_with_pairing_key_file(MockProvider::replying("unused")).await;
+    let (mut admin, _) = pair(addr, "admin", "test-key").await.unwrap();
+
+    admin.send(&ClientMessage::CreateDeviceInvite { request_id: 1, pairing_key: "test-key".into(), name: "Ana's phone".into(), ttl_minutes: 15 }).await.unwrap();
+    let ServerMessage::DeviceInvite { code, .. } = reply(&mut admin).await else { panic!("no invite") };
+
+    admin.send(&ClientMessage::ListDeviceInvites { request_id: 2 }).await.unwrap();
+    let ServerMessage::DeviceInviteList { invites, .. } = reply(&mut admin).await else { panic!("no list") };
+    assert_eq!(invites.iter().map(|i| i.name.as_str()).collect::<Vec<_>>(), ["Ana's phone"]);
+
+    admin.send(&ClientMessage::CancelDeviceInvite { request_id: 3, pairing_key: "wrong".into(), name: "Ana's phone".into() }).await.unwrap();
+    assert!(matches!(reply(&mut admin).await, ServerMessage::DeviceError { auth_rejected: true, .. }));
+
+    admin.send(&ClientMessage::CancelDeviceInvite { request_id: 4, pairing_key: "test-key".into(), name: "Ana's phone".into() }).await.unwrap();
+    let ServerMessage::DeviceInviteList { invites, .. } = reply(&mut admin).await else { panic!("no list") };
+    assert!(invites.is_empty());
+
+    assert!(pair(addr, "phone", &code).await.is_err(), "a cancelled invite pairs no one");
+}
+
 /// And the key: changed over the protocol, it counts for the very next `Hello`, and the one that changed it is held to the new one.
 #[tokio::test]
 async fn the_pairing_key_rotated_over_the_protocol_counts_at_once() {
