@@ -1530,6 +1530,10 @@ pub enum ClientMessage {
         /// `Server` only builds the remote-tool-dispatch machinery when this is non-empty.
         #[serde(default)]
         tools: Vec<ToolSpec>,
+        /// P122: what each of `tools` says about itself (read-only, destructive, open-world), keyed by tool name,
+        /// for the hub's risk classifier. Left out when the device has nothing to say.
+        #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+        tool_hints: BTreeMap<String, RiskHints>,
         /// P93: this connection is a node (`warden-server node`) lending what it has to the hub's
         /// agents. Absent for every other client.
         #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -2805,6 +2809,7 @@ mod tests {
             auth_key: "secret".into(),
             device_token: None,
             tools: Vec::new(),
+            tool_hints: BTreeMap::new(),
             node: None,
             username: None,
             password: None,
@@ -2858,6 +2863,7 @@ mod tests {
                 description: "List files".into(),
                 parameters: serde_json::json!({"type": "object"}),
             }],
+            tool_hints: BTreeMap::new(),
             node: None,
             username: None,
             password: None,
@@ -3939,6 +3945,17 @@ mod tests {
         let request = ServerMessage::ModelRequest { request_id: 4, model: "ollama".into(), messages: vec![Message::user("oi")], tools: vec![] };
         let back: ServerMessage = serde_json::from_str(&serde_json::to_string(&request).unwrap()).unwrap();
         assert!(matches!(back, ServerMessage::ModelRequest { request_id: 4, ref model, ref messages, .. } if model == "ollama" && messages[0].content == "oi"));
+        // P122: a device's tools can say what they do; one that says nothing sends nothing, and an old client parses as before.
+        let device: ClientMessage = serde_json::from_str(
+            r#"{"type":"hello","deviceId":"d","deviceName":"Phone","authKey":"k","toolHints":{"wipe":{"destructive":true}}}"#,
+        )
+        .unwrap();
+        let ClientMessage::Hello { tool_hints, .. } = device else { panic!("{device:?}") };
+        assert_eq!(tool_hints["wipe"], RiskHints { destructive: Some(true), ..Default::default() });
+        let silent: ClientMessage = serde_json::from_str(r#"{"type":"hello","deviceId":"d","deviceName":"Phone","authKey":"k"}"#).unwrap();
+        assert!(matches!(&silent, ClientMessage::Hello { tool_hints, .. } if tool_hints.is_empty()));
+        assert!(serde_json::to_string(&silent).unwrap().find("toolHints").is_none(), "none to say, none sent");
+
         // A client from before P93 sends no `node` and is no node.
         let plain: ClientMessage = serde_json::from_str(r#"{"type":"hello","deviceId":"p","deviceName":"Phone","authKey":"k"}"#).unwrap();
         assert!(matches!(plain, ClientMessage::Hello { node: None, .. }));

@@ -6,6 +6,15 @@
 
 ---
 
+### 2026-10-14 — Sessão 201 (P122: as tools de dispositivo levam as dicas do MCP)
+
+- **Pedido do usuário**: "vamos com o item 1" (as tools de dispositivo perdem as dicas). Planejado em plan mode.
+- **Feito**: `ClientMessage::Hello.tool_hints` (`BTreeMap<String, RiskHints>`, `serde(default)` e omitido quando vazio, então cliente antigo continua válido). `ConnectionOrchestrator` guarda o mapa e `with_device_tools` entrega a dica de cada tool ao `RemoteTool::with_hints` (construtor em cadeia, para não mexer em `new`). `RemoteTool::risk_hints()` devolve a dica; o `rename_tool` já a repassa. `client.rs` e os testes de `Hello` mandam o campo vazio.
+- **Testes**: protocolo (`toolHints` lido, ausente é vazio, vazio não é enviado), `remote_tool` (sem dica, com dica e renomeada). `cargo test -p warden-server-protocol -p warden-server` verde; clippy sem aviso novo. Duas falhas em `engine_models` na primeira rodada (timeout de 60 s com a máquina carregada) passaram sozinhas na segunda.
+- **Não feito**: nenhum cliente envia dicas (extensão já é coberta pelo mapa por nome; celular só lê), sem espelho TS/Dart, e nenhum teste do `with_device_tools` inteiro (não há orquestrador de teste para ele).
+
+---
+
 ### 2026-10-14 — Sessão 200 (P122: classificar mais tools nas categorias de risco)
 
 - **Pedido do usuário**: "vamos com esse, classificar as tools", entre as opções que sobraram do P122. Planejado em plan mode; o usuário escolheu o escopo (as quatro frentes, mas `spend_money`/`publish_code` só pelo mapa).

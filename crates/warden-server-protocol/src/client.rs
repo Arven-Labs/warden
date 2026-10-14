@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use futures_util::{SinkExt, StreamExt};
@@ -106,6 +107,7 @@ impl ServerConnection {
             auth_key: auth_key.to_string(),
             device_token,
             tools,
+            tool_hints: BTreeMap::new(),
             node,
             username: None,
             password: None,
@@ -151,6 +153,7 @@ impl ServerConnection {
             auth_key: String::new(),
             device_token,
             tools: Vec::new(),
+            tool_hints: BTreeMap::new(),
             node: None,
             username: Some(username.to_string()),
             password: Some(password.to_string()),
@@ -177,6 +180,7 @@ impl ServerConnection {
             auth_key: String::new(),
             device_token: Some(device_token.to_string()),
             tools: Vec::new(),
+            tool_hints: BTreeMap::new(),
             node: None,
             username: None,
             password: None,

@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
@@ -18,7 +18,7 @@ use warden_core::code_engine::{CodeEngine, CodeEvent, CodeMode};
 use warden_core::orchestrator::Orchestrator;
 use warden_core::project::ProjectStore;
 use warden_core::skill::SkillStore;
-use warden_core::tool::ToolSpec;
+use warden_core::tool::{RiskHints, ToolSpec};
 use warden_core::spend::SpendContext;
 use warden_bootstrap::auto_sync::SyncRunner;
 use warden_bootstrap::tasks::TaskStore;
@@ -927,12 +927,13 @@ async fn handle_connection<S: Transport>(ws: WebSocketStream<S>, peer: SocketAdd
             auth_key: provided,
             device_token,
             tools,
+            tool_hints,
             node,
             username,
             password,
             recovery_codes,
             truthid_login,
-        }) => (device_id, device_name, provided, device_token, tools, node, username.zip(password), recovery_codes, truthid_login),
+        }) => (device_id, device_name, provided, device_token, (tools, tool_hints), node, username.zip(password), recovery_codes, truthid_login),
         // Fase 9.1 (redefined): an unauthenticated presence probe from a LAN-discovery sweep —
         // answered and closed right here, before any of the Hello/auth-key/device-registry
         // machinery below runs. Never becomes a "connected device".
@@ -950,7 +951,7 @@ async fn handle_connection<S: Transport>(ws: WebSocketStream<S>, peer: SocketAdd
             return Ok(());
         }
     };
-    let (device_id, device_name, provided_key, device_token, tools, node_offer, credentials, can_show_recovery_code, truthid_login) = hello;
+    let (device_id, device_name, provided_key, device_token, (tools, tool_hints), node_offer, credentials, can_show_recovery_code, truthid_login) = hello;
 
     // P36: the shared key only pairs; a paired device authenticates with its own token. The
     // pairing status itself (Pending/Approved) stays silent here — a `Pending` device still gets a
@@ -1179,7 +1180,7 @@ async fn handle_connection<S: Transport>(ws: WebSocketStream<S>, peer: SocketAdd
     //
     // P78: the hub's orchestrator can be swapped by a settings save, so this is rebuilt whenever the
     // shared one changes (see `ConnectionOrchestrator`).
-    let mut orchestrator = ConnectionOrchestrator::new(shared_orchestrator.clone(), tools, tool_channel.clone(), device_id.clone());
+    let mut orchestrator = ConnectionOrchestrator::new(shared_orchestrator.clone(), tools, tool_hints, tool_channel.clone(), device_id.clone());
     // P46: approvals for this device's turns come back on this connection.
     let approver = WsApprover::new(tx.clone());
     // P122: what the person said "always" to, per conversation and agent. Kept in this device's file when the config lets it (and then
@@ -2041,6 +2042,8 @@ fn scope_chat_agent(
 struct ConnectionOrchestrator {
     shared: SharedOrchestrator,
     tools: Vec<ToolSpec>,
+    /// P122: what the device said about each of `tools`, by the name it advertised.
+    hints: BTreeMap<String, RiskHints>,
     channel: RemoteToolChannel,
     device_id: String,
     /// The shared orchestrator this was built from, and what was built.
@@ -2048,8 +2051,8 @@ struct ConnectionOrchestrator {
 }
 
 impl ConnectionOrchestrator {
-    fn new(shared: SharedOrchestrator, tools: Vec<ToolSpec>, channel: RemoteToolChannel, device_id: String) -> Self {
-        Self { shared, tools, channel, device_id, built: None }
+    fn new(shared: SharedOrchestrator, tools: Vec<ToolSpec>, hints: BTreeMap<String, RiskHints>, channel: RemoteToolChannel, device_id: String) -> Self {
+        Self { shared, tools, hints, channel, device_id, built: None }
     }
 
     fn current(&mut self) -> Arc<Orchestrator> {
@@ -2082,7 +2085,7 @@ impl ConnectionOrchestrator {
             let original = spec.name.clone();
             let existing: Vec<String> = per_connection.tools().iter().map(|t| t.spec().name).collect();
             let resolved = warden_core::tool::dedupe_tool_name(&existing, &self.device_id, &original);
-            let remote = Arc::new(RemoteTool::new(spec.clone(), self.channel.clone(), REMOTE_TOOL_TIMEOUT));
+            let remote = Arc::new(RemoteTool::new(spec.clone(), self.channel.clone(), REMOTE_TOOL_TIMEOUT).with_hints(self.hints.get(&original).copied()));
             if resolved == original {
                 per_connection.register_tool(remote);
             } else {

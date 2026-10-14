@@ -6,7 +6,7 @@ use std::time::Duration;
 use async_trait::async_trait;
 use serde_json::Value;
 use tokio::sync::{mpsc, oneshot};
-use warden_core::tool::{Tool, ToolSpec};
+use warden_core::tool::{RiskHints, Tool, ToolSpec};
 
 use warden_server_protocol::ServerMessage;
 
@@ -93,11 +93,18 @@ pub struct RemoteTool {
     spec: ToolSpec,
     channel: RemoteToolChannel,
     timeout: Duration,
+    hints: Option<RiskHints>,
 }
 
 impl RemoteTool {
     pub fn new(spec: ToolSpec, channel: RemoteToolChannel, timeout: Duration) -> Self {
-        Self { spec, channel, timeout }
+        Self { spec, channel, timeout, hints: None }
+    }
+
+    /// P122: what the device said about this tool when it advertised it.
+    pub fn with_hints(mut self, hints: Option<RiskHints>) -> Self {
+        self.hints = hints;
+        self
     }
 }
 
@@ -105,6 +112,10 @@ impl RemoteTool {
 impl Tool for RemoteTool {
     fn spec(&self) -> ToolSpec {
         self.spec.clone()
+    }
+
+    fn risk_hints(&self) -> Option<RiskHints> {
+        self.hints
     }
 
     async fn call(&self, args: Value) -> anyhow::Result<Value> {
@@ -119,6 +130,21 @@ mod tests {
 
     fn a_spec() -> ToolSpec {
         ToolSpec { name: "echo".to_string(), description: "echoes".to_string(), parameters: json!({"type": "object"}) }
+    }
+
+    #[test]
+    fn a_device_tool_carries_what_the_device_said_about_it_even_renamed() {
+        let (tx, _rx) = mpsc::unbounded_channel();
+        let channel = RemoteToolChannel::new(tx);
+        let silent = RemoteTool::new(a_spec(), channel.clone(), DEFAULT_TIMEOUT);
+        assert_eq!(silent.risk_hints(), None);
+
+        let hints = RiskHints { destructive: Some(true), ..Default::default() };
+        let hinted = RemoteTool::new(a_spec(), channel, DEFAULT_TIMEOUT).with_hints(Some(hints));
+        assert_eq!(hinted.risk_hints(), Some(hints));
+        let renamed = warden_core::tool::rename_tool(Arc::new(hinted), "phone__echo".to_string());
+        assert_eq!(renamed.spec().name, "phone__echo");
+        assert_eq!(renamed.risk_hints(), Some(hints));
     }
 
     #[tokio::test]
