@@ -138,7 +138,8 @@ export default function LoginView({ deviceName, hubAddress, busy, resuming, erro
               <>
                 <p className="login-hint">
                   Para o dono do Warden: conecte este navegador ao hub em <code>{hubAddress}</code>. A chave de pareamento aparece nas configurações
-                  do hub (no desktop, em Workspace). Ela só é pedida uma vez.
+                  do hub (no desktop, em Workspace) e só vale para o primeiro aparelho; os outros entram com um código de convite, que
+                  você cola neste mesmo campo. Ela só é pedida uma vez.
                 </p>
                 <label>
                   Chave de pareamento

@@ -1180,7 +1180,7 @@ function LendSection() {
         {!running && (
           <>
             <ApiKeyField label={status?.paired ? "Hub pairing key (only to pair again)" : "Hub pairing key (only the first time)"} value={authKey} onChange={setAuthKey} />
-            <span className="settings-hint">Used once to join the hub, never saved: the hub gives this computer its own token.</span>
+            <span className="settings-hint">Used once to join the hub, never saved: the hub gives this computer its own token. The key pairs only the hub's first device; to join a hub that already has devices, paste an invite code here instead.</span>
           </>
         )}
         <label className="settings-field">

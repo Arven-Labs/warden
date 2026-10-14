@@ -410,7 +410,11 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
                 controller: _authKeyController,
                 enabled: !_isConnected && !_isBusy,
                 obscureText: true,
-                decoration: const InputDecoration(labelText: 'Auth key'),
+                decoration: const InputDecoration(
+                  labelText: 'Auth key',
+                  helperText: "The pairing key pairs only the hub's first device; any other device pastes an invite code here.",
+                  helperMaxLines: 2,
+                ),
               ),
             const SizedBox(height: 12),
             TextField(

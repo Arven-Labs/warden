@@ -102,7 +102,7 @@ export default function ConnectionForm({ savedSettings, errorMessage, busy, onCo
         <input value={deviceName} onChange={(e) => setDeviceName(e.target.value)} required />
       </label>
       <label>
-        Auth key
+        Auth key ou código de convite
         <input value={authKey} onChange={(e) => setAuthKey(e.target.value)} type="password" required />
       </label>
       {errorMessage && <p className="error-banner">{errorMessage}</p>}
