@@ -9,7 +9,15 @@ O Fabio quer que o **mesmo código** funcione de dois jeitos:
 1. **Self-host, grátis e completo.** Quem quer hospeda o próprio Warden. Nada básico fica trancado ("o grátis sempre funciona com qualidade padrão; o pago é conveniência ou qualidade extra").
 2. **Assinatura.** O Fabio hospeda o Warden inteiro do cliente (hub, agentes, skills, cofre, integrações) nos servidores dele. O cliente só usa.
 
-Dentro da hospedagem, o Fabio também **vende acesso a modelos**: um endpoint de API no servidor dele, no papel de um OpenRouter ou de um NineRouter, só que o cliente pagou a ele e não aos provedores. O cliente escolhe o modelo e usa, sem criar conta em OpenAI, Anthropic ou Google. E há uma **loja** para instalar integrações com poucos cliques. O objetivo de produto é tornar tudo o mais fácil possível para o usuário.
+Dentro da hospedagem, o Fabio também **vende acesso a modelos**: um endpoint de API no servidor dele, no papel de um OpenRouter ou de um NineRouter, só que o cliente pagou a ele e não aos provedores. O cliente escolhe o modelo e usa, sem criar conta em OpenAI, Anthropic ou Google. E há uma **loja** para instalar, com poucos cliques, integrações, skills prontas e **agentes pré-prontos**. O objetivo de produto é tornar tudo o mais fácil possível para o usuário.
+
+**O que é pago e o que não é (esclarecido pelo Fabio na Sessão 220):**
+
+| Gratuito, nos dois modos (self-host e hospedado) | Pago |
+|---|---|
+| O Warden completo. **A loja**: integrações (plugins), skills e agentes prontos, para fazer integrações de forma simples e ter ferramentas prontas à mão. | **O Fabio hospedar o Warden do cliente**, os **créditos de modelo** da nuvem dele e **alguns outros serviços** (a definir, pergunta 13). |
+
+Ou seja: **a loja não é um produto pago.** Quem hospeda por conta própria tem a loja inteira, de graça, sem conta nem assinatura. Quem é hospedado pelo Fabio tem a mesma loja, só que já ligada à instância dele.
 
 ## Decisões do Fabio (2026-10-15)
 
@@ -18,7 +26,7 @@ Dentro da hospedagem, o Fabio também **vende acesso a modelos**: um endpoint de
 | 1 | **Uma instância (contêiner) por cliente** primeiro. O multi-tenant num processo só fica **preparado** para depois. | Funciona com o código de hoje; o custo é RAM por cliente e um orquestrador novo. Os estados globais por processo viram dívida registrada (seção G). |
 | 2 | **O plano de controle mora no "site mãe"** da organização: contas, planos, pagamento, tela de provisionamento. | O site mãe não existe neste repositório. Este documento define só o **contrato** (seção B). Sem repositórios novos; crates novos neste repo são aceitos. |
 | 3 | **Cobrança só por créditos pré-pagos** no início. Planos (e o abatimento entre plano e crédito) são estudados depois; no fim existirão os dois. | A questão ética do abatimento continua aberta e **não é decidida aqui**. |
-| 4 | **Loja curada só pelo Fabio** no início. | Terceiros só depois de existirem sandbox e revisão (seção E). |
+| 4 | **Loja gratuita nos dois modos, curada só pelo Fabio** no início. Contém plugins/integrações, skills e agentes pré-prontos. | Terceiros só depois de existirem sandbox e revisão (seção E). A loja precisa funcionar para o self-host sem conta nem login. |
 
 ## A. Arquitetura-alvo
 
@@ -82,7 +90,7 @@ Dentro da hospedagem, o Fabio também **vende acesso a modelos**: um endpoint de
 
 **B4. Uso:** o registro detalhado fica no gateway. O site mãe recebe só agregados por dia, modelo e chave.
 
-**B5. Loja:** o site mãe mostra a vitrine e o preço, se houver. O catálogo técnico (`index.json` assinado) é servido pelo componente da loja (`GET /v1/store/index`, `GET /v1/store/packages/{id}/{versão}`). **O site mãe nunca é a raiz de confiança dos pacotes**: quem assina é a chave de publicação do Fabio.
+**B5. Loja:** **gratuita**, sem preço. O site mãe só mostra a vitrine (o self-host usa a mesma loja sem passar por ele). O catálogo técnico (`index.json` assinado) é servido pelo componente da loja (`GET /v1/store/index`, `GET /v1/store/packages/{id}/{versão}`). **O site mãe nunca é a raiz de confiança dos pacotes**: quem assina é a chave de publicação do Fabio.
 
 ## C. Créditos e medição
 
@@ -121,7 +129,20 @@ Dentro da hospedagem, o Fabio também **vende acesso a modelos**: um endpoint de
 - **Sair e voltar (sem prender o cliente):** `:export` gera um pacote versionado da pasta do cliente (config, cofre, agentes, skills, conversas, membros), **sem segredos do gateway**, trocando o `Provider::Cloud` por um espaço para o cliente pôr as próprias chaves. A importação faz o caminho inverso (self-host -> hospedado), com validação de versão. **Nenhum formato de exportação existe hoje** (a verificar o que o `warden-sync` já cobre).
 - **Observabilidade:** logs por cliente; RAM, CPU e disco; alarme de contêiner reiniciando.
 
-## E. A loja (fase curada)
+## E. A loja (gratuita, nos dois modos; fase curada)
+
+**Princípio (esclarecido pelo Fabio, Sessão 220):** a loja **não é paga** e **não é exclusiva do hospedado**. Ela existe para quem faz self-host poder montar integrações de forma simples e ter ferramentas prontas, e também para quem é hospedado. Já estava como ideia no P85 (marketplace de plugins e de skills) e no P76 (catálogo de integrações MCP prontas); esta seção dá a primeira forma concreta. O que a loja oferece:
+
+- **Integrações** (plugins): MCP por HTTP, com os presets de hoje (Filesystem, Google Workspace, Notion, GitHub, Slack, hoje fixos no `SettingsView.tsx`) passando a vir do catálogo.
+- **Skills prontas.**
+- **Agentes pré-prontos**: persona, autonomia e tools já configurados, instaláveis com um clique (hoje um agente se cria à mão ou pelo gerador).
+- **Pacotes combinados** (`bundle`): por exemplo um agente com as skills e a integração de que ele precisa.
+
+**Consequências para o desenho**
+- O **catálogo é público e não pede conta nem login**: um self-hoster sem o site mãe baixa o índice assinado e instala. O índice pode ser servido de forma estática (arquivo assinado), sem o gateway nem o orquestrador, e pode ser espelhado.
+- A **verificação de assinatura roda no cliente**, que embute a chave pública de publicação. Nada na loja depende de assinatura paga ou de estar hospedado.
+- Para o cliente hospedado a diferença é só de conveniência: a instância já vem ligada ao catálogo.
+- O que é cobrado continua sendo só a hospedagem, os créditos de modelo e os outros serviços da pergunta 13. A loja entra nos dois lados da tabela do início deste documento, do lado gratuito.
 
 **Pacote `.wpkg`** (tar ou zip) com:
 - `manifest.json`: `id`, `version`, `kind` (`skill`, `agent`, `mcp-http`, `bundle`), `title`, `description`, `min_warden_version`, `requires`, `permissions`, `secrets` (campos que o usuário preenche) e `files` com hash SHA-256.
@@ -203,6 +224,7 @@ Dentro da hospedagem, o Fabio também **vende acesso a modelos**: um endpoint de
 10. Vender só o gateway de modelos a quem faz self-host (sem hospedar a instância)? O `Provider::Cloud` já permite.
 11. Onde fica guardada a chave de publicação da loja e quem pode assinar?
 12. Existe uma meta de preço que limite o RAM por instância (decide `WARDEN_NO_SEMANTIC` e embeddings compartilhados)?
+13. Quais são os **"outros serviços"** pagos além da hospedagem e dos créditos de modelo? (O Fabio disse que existem; ainda não foram nomeados. Pontos de partida que o ROADMAP já menciona: armazenamento, execução, ferramentas premium, automações e recursos empresariais.)
 
 ## O que foi verificado e o que não foi
 
