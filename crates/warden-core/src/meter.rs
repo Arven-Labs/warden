@@ -74,3 +74,61 @@ impl MeterSink for LedgerMeter {
         );
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::spend::{MemoryStore, PriceTable};
+
+    fn guard() -> Arc<SpendGuard> {
+        Arc::new(SpendGuard::new(Arc::new(MemoryStore::default()), Vec::new(), PriceTable::new(Vec::new())))
+    }
+
+    fn event(ok: bool) -> MeterEvent {
+        MeterEvent {
+            mode: MeterMode::Raw,
+            channel: "api-raw".into(),
+            api_key_id: Some("k1".into()),
+            person: Some("ana".into()),
+            provider: Some("spare".into()),
+            combo: Some("fast".into()),
+            model: "m".into(),
+            usage: Usage { prompt_tokens: 7, completion_tokens: 3, total_tokens: 10 },
+            ok,
+        }
+    }
+
+    #[test]
+    fn the_ledger_meter_books_what_the_event_says() {
+        let guard = guard();
+        LedgerMeter::new(guard.clone()).record(&event(true));
+        let booked = guard.events_since(0).remove(0);
+        assert_eq!(
+            (booked.channel.as_str(), booked.api_key.as_deref(), booked.person.as_deref(), booked.provider.as_deref(), booked.combo.as_deref()),
+            ("api-raw", Some("k1"), Some("ana"), Some("spare"), Some("fast"))
+        );
+        assert_eq!((booked.model.as_str(), booked.tokens, booked.input_tokens, booked.output_tokens), ("m", 10, Some(7), Some(3)));
+    }
+
+    #[test]
+    fn a_failed_call_is_booked_for_what_was_counted_and_one_with_nothing_counted_is_not() {
+        let guard = guard();
+        let meter = LedgerMeter::new(guard.clone());
+        meter.record(&event(false));
+        assert_eq!(guard.events_since(0).len(), 1, "tokens were spent even though the call failed");
+        meter.record(&MeterEvent { usage: Usage::default(), ..event(false) });
+        assert_eq!(guard.events_since(0).len(), 1);
+    }
+
+    #[test]
+    fn an_event_with_no_labels_books_without_them_and_the_noop_meter_books_nothing() {
+        let guard = guard();
+        LedgerMeter::new(guard.clone()).record(&MeterEvent { api_key_id: None, person: None, provider: None, combo: None, mode: MeterMode::Agent, ..event(true) });
+        let booked = guard.events_since(0).remove(0);
+        assert_eq!((booked.api_key, booked.person, booked.provider, booked.combo), (None, None, None, None));
+
+        let other = self::guard();
+        NoopMeter.record(&event(true));
+        assert!(other.events_since(0).is_empty());
+    }
+}

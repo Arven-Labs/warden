@@ -3888,6 +3888,75 @@ oauth = true
         ComboConfig { id: id.to_string(), providers: members.iter().map(|m| m.to_string()).collect() }
     }
 
+    fn with_url(kind: Provider, url: Option<&str>) -> ProviderConfig {
+        ProviderConfig { base_url: url.map(str::to_string), ..provider_entry("p", kind) }
+    }
+
+    #[test]
+    fn a_cloud_provider_round_trips_through_toml_and_the_settings_names() {
+        let text = "[[providers]]\nid = \"fabio\"\nkind = \"cloud\"\napi_key = \"wdn_x\"\nmodel = \"combo/fast\"\n";
+        let config: FileConfig = toml::from_str(text).unwrap();
+        assert_eq!(config.providers[0].kind, Provider::Cloud);
+        let again: FileConfig = toml::from_str(&toml::to_string_pretty(&config).unwrap()).unwrap();
+        assert_eq!(again, config);
+        assert_eq!(crate::settings::provider_kind_str(Provider::Cloud), "cloud");
+        assert_eq!(crate::settings::provider_kind_from_str("cloud"), Ok(Provider::Cloud));
+        assert_eq!(default_model_for(Provider::Cloud), None, "a cloud has no model of its own to default to");
+    }
+
+    #[test]
+    fn a_cloud_provider_needs_its_key_but_not_an_address_and_does_not_assume_a_model() {
+        assert!(build_model_provider(&provider_entry("fabio", Provider::Cloud), None).is_ok(), "no base_url: the default address");
+        let mut no_key = provider_entry("fabio", Provider::Cloud);
+        no_key.api_key = None;
+        assert!(format!("{:#}", build_model_provider(&no_key, None).err().unwrap()).contains("API key"));
+        no_key.api_key = Some("  ".into());
+        assert!(build_model_provider(&no_key, None).is_err(), "a blank key is no key");
+        let mut no_model = provider_entry("fabio", Provider::Cloud);
+        no_model.model = None;
+        assert!(build_model_provider(&no_model, None).is_err());
+        assert!(build_model_provider(&with_url(Provider::Cloud, Some("https://my-hub.example/v1")), None).is_ok());
+        assert!(build_model_provider(&with_url(Provider::Cloud, Some("http://example.com/v1")), None).is_err(), "plain http to a public address");
+    }
+
+    #[test]
+    fn a_cloud_provider_sits_in_a_combo_like_any_other() {
+        let config = FileConfig {
+            providers: vec![provider_entry("local", Provider::OpenaiCompatible), provider_entry("fabio", Provider::Cloud)],
+            combos: vec![combo("both", &["local", "fabio"])],
+            ..FileConfig::default()
+        };
+        // `local` has no base_url, so it is left out of the combo with a note; the cloud one is what remains.
+        assert!(build_model_for(&config, "both", None).is_ok());
+        assert!(build_model_for(&config, "fabio", None).is_ok());
+    }
+
+    #[test]
+    fn a_custom_address_is_blank_for_none_and_https_or_a_private_http_for_the_rest() {
+        let url = |kind, u: Option<&str>| custom_base_url(&with_url(kind, u));
+        for blank in [None, Some(""), Some("   ")] {
+            assert_eq!(url(Provider::Openai, blank).unwrap(), None);
+        }
+        assert_eq!(url(Provider::Anthropic, Some(" https://gateway.example/v1 ")).unwrap().as_deref(), Some("https://gateway.example/v1"));
+        for private in ["http://localhost:8080/v1", "http://127.0.0.1/v1", "http://[::1]:9/v1", "http://10.0.0.5/v1", "http://192.168.1.20:11434/v1", "http://172.16.0.1/v1", "http://172.31.255.1/v1", "http://100.64.0.7/v1", "http://100.127.0.1/v1", "http://box.local/v1"] {
+            assert!(url(Provider::Gemini, Some(private)).is_ok(), "{private}");
+        }
+        for public in ["http://example.com/v1", "http://8.8.8.8/v1", "http://172.32.0.1/v1", "http://172.15.0.1/v1", "http://100.128.0.1/v1", "http://100.63.0.1/v1", "http://192.169.0.1/v1", "http://localhost.evil.com/v1", "http://10.0.0.5.evil.com/v1"] {
+            let err = url(Provider::Gemini, Some(public)).unwrap_err();
+            assert!(format!("{err:#}").contains("https://"), "{public}: {err:#}");
+        }
+        assert!(url(Provider::Openai, Some("ftp://x/v1")).is_err());
+        assert!(url(Provider::Openai, Some("gateway.example/v1")).is_err(), "no scheme");
+    }
+
+    #[test]
+    fn every_kind_that_asks_a_maker_can_be_pointed_elsewhere() {
+        for kind in [Provider::Gemini, Provider::Openai, Provider::Anthropic, Provider::Cloud, Provider::OpenaiCompatible] {
+            assert!(build_model_provider(&with_url(kind, Some("https://gateway.example/v1")), None).is_ok(), "{kind:?}");
+        }
+        assert!(build_model_provider(&with_url(Provider::Openai, Some("http://example.com/v1")), None).is_err());
+    }
+
     #[test]
     fn a_model_id_is_a_provider_or_a_combo_and_a_combo_keeps_what_can_be_built() {
         let mut no_key = provider_entry("no-key", Provider::Openai);

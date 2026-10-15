@@ -895,6 +895,42 @@ mod tests {
         assert_eq!(breakdown.by_provider.iter().map(|b| b.calls).sum::<u64>(), 4, "the members still count by provider");
     }
 
+    /// P131: a line from before the split and the key reads with none of them, and a new one keeps what the provider told.
+    #[test]
+    fn a_ledger_line_from_before_the_token_split_and_the_key_still_reads() {
+        let line = r#"{"kind":"spend","ts":1,"channel":"api","user":"k","agent":null,"model":"m","tokens":5,"cost_usd":null}"#;
+        let Entry::Spend(old) = serde_json::from_str::<Entry>(line).unwrap() else { panic!("not a spend line") };
+        assert_eq!((old.input_tokens, old.output_tokens, old.api_key.clone()), (None, None, None));
+        // An old line written back does not grow the new fields.
+        let written = serde_json::to_string(&Entry::Spend(old)).unwrap();
+        assert!(!written.contains("input_tokens") && !written.contains("api_key"), "{written}");
+
+        let (guard, _) = guard(vec![Limit::new("day", Scope::Global, 24).with_max_tokens(100_000)], vec![]);
+        let ctx = SpendContext::new("api-raw").with_user("script").with_api_key("abc123");
+        guard.record(&ctx, "m", &usage(40, 15));
+        let event = guard.events_since(0).remove(0);
+        assert_eq!((event.tokens, event.input_tokens, event.output_tokens), (55, Some(40), Some(15)));
+        assert_eq!(event.input_tokens.unwrap() + event.output_tokens.unwrap(), event.tokens, "the two sides add up to the total");
+        assert_eq!(event.api_key.as_deref(), Some("abc123"));
+        assert_eq!(guard.spent_since("api-raw", 0).calls, 1);
+        // The key id is only a label: it doesn't change which limits apply.
+        assert_eq!(guard.check(&ctx), guard.check(&SpendContext::new("api-raw").with_user("script")));
+    }
+
+    /// P131: a provider that only reported a total says nothing about either side, and the ledger doesn't invent it.
+    #[test]
+    fn a_total_alone_leaves_the_two_sides_unknown() {
+        let (guard, _) = guard(vec![], vec![]);
+        guard.record(&cli(), "m", &Usage { prompt_tokens: 0, completion_tokens: 0, total_tokens: 9 });
+        let event = guard.events_since(0).remove(0);
+        assert_eq!((event.tokens, event.input_tokens, event.output_tokens, event.api_key), (9, None, None, None));
+        // Calls with no tokens at all are still not booked.
+        guard.record(&cli(), "m", &Usage::default());
+        assert_eq!(guard.events_since(0).len(), 1);
+        // And the breakdown reads such a line without trouble.
+        assert_eq!(guard.breakdown().by_model.iter().map(|b| b.tokens).sum::<u64>(), 9);
+    }
+
     #[test]
     fn a_ledger_line_from_before_people_still_reads() {
         let line = r#"{"kind":"spend","ts":1,"channel":"cli","user":null,"agent":null,"model":"m","tokens":5,"cost_usd":null}"#;
