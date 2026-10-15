@@ -501,6 +501,10 @@ pub struct ApiKeyDto {
     /// P84: the member the key belongs to (calls with it run as them); absent for the owner's.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub user: Option<String>,
+    /// P131: the providers and combos (ids from `config.toml`, or `*` for every one that doesn't reach another machine) this
+    /// key may call straight, with no agent. Empty for a key that may not, and for every key from before.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub raw: Vec<String>,
 }
 
 /// One scheduled task (P92), as `[[tasks]]` keeps it. Exactly one of `every`, `cron` and `once`.
@@ -1898,6 +1902,14 @@ pub enum ClientMessage {
         request_id: u64,
         pairing_key: String,
         id: String,
+    },
+    /// P131: replaces the list of providers and combos a key may call straight (`ApiKeyDto::raw`); empty takes the access
+    /// away. Only the owner, and only for a general key of theirs. Answered by the updated `ApiKeyList`.
+    SetApiKeyRaw {
+        request_id: u64,
+        pairing_key: String,
+        id: String,
+        raw: Vec<String>,
     },
     /// Nodes (P93), answered by `NodeList`. Open to any paired device; `SetNodeAccess` asks for the
     /// pairing key again.
@@ -3897,12 +3909,28 @@ mod tests {
         let created = ServerMessage::ApiKeyCreated {
             request_id: 2,
             key: "wdn_x".into(),
-            keys: vec![ApiKeyDto { id: "abc".into(), name: "n8n".into(), shown: "wdn_12345678".into(), created_at_ms: 5, last_used_at_ms: None, agent_id: None , user: None }],
+            keys: vec![ApiKeyDto { id: "abc".into(), name: "n8n".into(), shown: "wdn_12345678".into(), created_at_ms: 5, last_used_at_ms: None, agent_id: None , user: None, raw: Vec::new() }],
         };
         assert_eq!(
             serde_json::to_value(&created).unwrap(),
             serde_json::json!({ "type": "apiKeyCreated", "requestId": 2, "key": "wdn_x", "keys": [{ "id": "abc", "name": "n8n", "shown": "wdn_12345678", "createdAtMs": 5 }] })
         );
+    }
+
+    #[test]
+    fn the_raw_access_of_a_key_travels_in_both_directions() {
+        let set: ClientMessage = serde_json::from_str(r#"{"type":"setApiKeyRaw","requestId":4,"pairingKey":"k","id":"abc","raw":["spare","fast"]}"#).unwrap();
+        assert_eq!(set, ClientMessage::SetApiKeyRaw { request_id: 4, pairing_key: "k".into(), id: "abc".into(), raw: vec!["spare".into(), "fast".into()] });
+        let cleared: ClientMessage = serde_json::from_str(r#"{"type":"setApiKeyRaw","requestId":4,"pairingKey":"k","id":"abc","raw":[]}"#).unwrap();
+        assert!(matches!(cleared, ClientMessage::SetApiKeyRaw { ref raw, .. } if raw.is_empty()));
+        assert_eq!(serde_json::to_value(&set).unwrap()["type"], "setApiKeyRaw");
+
+        // A list from a hub that knows the field keeps it; one that doesn't (an older hub) reads as no access.
+        let key = |raw: Vec<String>| ApiKeyDto { id: "abc".into(), name: "n".into(), shown: "wdn_1".into(), created_at_ms: 1, last_used_at_ms: None, agent_id: None, user: None, raw };
+        assert_eq!(serde_json::to_value(key(vec!["*".into(), "relay".into()])).unwrap()["raw"], serde_json::json!(["*", "relay"]));
+        assert!(serde_json::to_value(key(Vec::new())).unwrap().get("raw").is_none());
+        let old: ApiKeyDto = serde_json::from_str(r#"{"id":"abc","name":"n","shown":"wdn_1","createdAtMs":1}"#).unwrap();
+        assert!(old.raw.is_empty());
     }
 
     #[test]

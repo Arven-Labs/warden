@@ -572,6 +572,10 @@ async fn a_member_keeps_api_keys_of_her_own() {
     assert!(matches!(reply(&mut ana).await, ServerMessage::ApiKeyList { keys, .. } if keys.len() == 1));
     ana.send(&ClientMessage::RevokeApiKey { request_id: 7, pairing_key: "anas-own-pass".into(), id: owners_id }).await.unwrap();
     assert!(matches!(reply(&mut ana).await, ServerMessage::ApiKeyError { .. }), "not hers to revoke");
+    // P131: calling a model directly is the owner's alone, even with her own password and her own key.
+    let anas_id = keys.iter().find(|k| k.name == "anas-script").unwrap().id.clone();
+    ana.send(&ClientMessage::SetApiKeyRaw { request_id: 8, pairing_key: "anas-own-pass".into(), id: anas_id, raw: vec!["*".into()] }).await.unwrap();
+    assert!(matches!(reply(&mut ana).await, ServerMessage::ApiKeyError { auth_rejected: false, ref message, .. } if message.contains("only the owner")));
 
     // Her key speaks as her: the agents she sees, her vault.
     let (status, body) = http(&hub.url, "GET", "/v1/models", &anas_key, None).await;

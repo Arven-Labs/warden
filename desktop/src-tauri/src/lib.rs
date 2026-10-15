@@ -1225,6 +1225,7 @@ pub fn run() {
             api_key_cmds::list_api_keys,
             api_key_cmds::create_api_key,
             api_key_cmds::revoke_api_key,
+            api_key_cmds::set_api_key_raw,
             bot_cmds::get_bots_settings,
             bot_cmds::save_bots_settings,
             bot_cmds::approve_bot_pairing,

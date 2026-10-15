@@ -881,6 +881,13 @@ export class ServerConnection {
     return reply.keys;
   }
 
+  /** P131: replaces which providers and combos a key may call straight (their ids, or "*"); empty takes it away. The owner's, for a general key. */
+  async setApiKeyRaw(pairingKey: string, id: string, raw: string[]): Promise<ApiKey[]> {
+    const reply = await this.request((requestId) => ({ type: "setApiKeyRaw", requestId, pairingKey, id, raw }));
+    if (reply.type !== "apiKeyList") throw new Error("resposta inesperada do hub");
+    return reply.keys;
+  }
+
   /** Nodes (P93): connected or allowed, with what each offers and who may use it. */
   async listNodes(): Promise<NodeInfo[]> {
     const reply = await this.request((requestId) => ({ type: "listNodes", requestId }));

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { ApiKeyError, type ServerConnection } from "../hub/connection";
 import type { ApiKey } from "../hub/messages";
+import { canEditRaw, hasAll, missingIds, RAW_ALL, rawOptions, rawSummary, toggleRaw, type RawOption } from "../hub/rawAccess";
 
 // The Warden API (P12): this hub's agent behind the OpenAI chat-completions format, on the same
 // address as this page, for scripts, n8n or any client that talks to OpenAI. The same list,
@@ -13,7 +14,7 @@ function message(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
 
-type Asking = { kind: "create"; name: string; agentId: string } | { kind: "revoke"; key: ApiKey };
+type Asking = { kind: "create"; name: string; agentId: string } | { kind: "revoke"; key: ApiKey } | { kind: "raw"; key: ApiKey; raw: string[] };
 
 /** `member` (P84): the keys are this member's own, and changes are confirmed with their password. */
 export default function ApiKeysSection({ conn, member = false }: { conn: ServerConnection | null; member?: boolean }) {
@@ -23,6 +24,10 @@ export default function ApiKeysSection({ conn, member = false }: { conn: ServerC
   /** "" = a general key. */
   const [agentId, setAgentId] = useState("");
   const [agentIds, setAgentIds] = useState<string[]>([]);
+  /** P131: the providers and combos the hub has, for the "Chamadas diretas" editor. */
+  const [options, setOptions] = useState<RawOption[]>([]);
+  /** The key whose "Chamadas diretas" is open for editing, with the ticks so far. */
+  const [editing, setEditing] = useState<{ id: string; raw: string[] } | null>(null);
   const [asking, setAsking] = useState<Asking | null>(null);
   const [pairingKey, setPairingKey] = useState("");
   const [keyError, setKeyError] = useState<string | null>(null);
@@ -43,8 +48,10 @@ export default function ApiKeysSection({ conn, member = false }: { conn: ServerC
     try {
       const { settings } = await conn.requestSettings();
       setAgentIds(settings.agents.map((a) => a.id));
+      setOptions(rawOptions(settings.providers, settings.combos));
     } catch {
       setAgentIds([]);
+      setOptions([]);
     }
   }, [conn]);
 
@@ -70,6 +77,9 @@ export default function ApiKeysSection({ conn, member = false }: { conn: ServerC
         setCopied(false);
         setName("");
         setAgentId("");
+      } else if (asking.kind === "raw") {
+        setKeys(await conn.setApiKeyRaw(pairingKey, asking.key.id, asking.raw));
+        setEditing(null);
       } else {
         setKeys(await conn.revokeApiKey(pairingKey, asking.key.id));
       }
@@ -111,7 +121,7 @@ export default function ApiKeysSection({ conn, member = false }: { conn: ServerC
       {keyError && <p className="error-banner">{keyError}</p>}
       <div className="skills-actions">
         <button type="submit" className="primary-button" disabled={busy || pairingKey.trim() === "" || !conn}>
-          {busy ? "Aguarde…" : asking.kind === "create" ? "Criar a chave" : "Revogar"}
+          {busy ? "Aguarde…" : asking.kind === "create" ? "Criar a chave" : asking.kind === "raw" ? "Salvar" : "Revogar"}
         </button>
         <button type="button" className="link-button" disabled={busy} onClick={cancel}>
           Cancelar
@@ -132,7 +142,9 @@ export default function ApiKeysSection({ conn, member = false }: { conn: ServerC
         O agente deste hub no formato da API da OpenAI, para scripts, n8n ou qualquer cliente que fale com a OpenAI. Endereço base{" "}
         <code>{baseUrl}</code>. Uma chave geral escolhe o modelo a cada chamada (<code>warden</code> ou{" "}
         <code>warden/&lt;agente&gt;</code>); uma chave presa a um agente só fala como ele. As tools mandadas pelo cliente são
-        ignoradas, e nada vira conversa; o gasto entra no canal <code>api</code>.
+        ignoradas, e nada vira conversa; o gasto entra no canal <code>api</code>. Uma chave geral do dono também pode chamar um
+        provedor ou combo direto (<code>provider/&lt;id&gt;</code> ou <code>combo/&lt;id&gt;</code>), sem agente, cofre nem
+        ferramentas: o que ela pode é escolhido em "Chamadas diretas" e o gasto entra no canal <code>api-raw</code>.
         {member && " As suas chaves falam como você: a sua memória, os agentes que você vê e as ferramentas que você tem."}
       </p>
 
@@ -177,6 +189,53 @@ export default function ApiKeysSection({ conn, member = false }: { conn: ServerC
                   "Geral: escolhe o agente a cada chamada"
                 )}
               </p>
+              {!member && (
+                <div className="skills-item-description">
+                  {!canEditRaw(key, member) ? (
+                    "Chamadas diretas: só uma chave geral do dono pode."
+                  ) : editing?.id === key.id ? (
+                    <fieldset className="settings-field" disabled={asking !== null}>
+                      <legend>Chamadas diretas: o que esta chave pode chamar sem passar por um agente</legend>
+                      {options.length === 0 && <span className="field-hint">O hub não tem provedores cadastrados.</span>}
+                      <label>
+                        <input type="checkbox" checked={hasAll(editing.raw)} onChange={() => setEditing({ ...editing, raw: toggleRaw(editing.raw, RAW_ALL) })} /> Todos os
+                        modelos locais (<code>*</code>)
+                      </label>
+                      {options.map((o) => (
+                        <label key={o.id}>
+                          <input type="checkbox" checked={editing.raw.includes(o.id)} onChange={() => setEditing({ ...editing, raw: toggleRaw(editing.raw, o.id) })} /> {o.id}{" "}
+                          <span className="field-hint">
+                            {o.kind === "combo" ? "combo" : "provedor"}
+                            {o.far && " · de outra máquina: o * não cobre, só vale marcado aqui"}
+                          </span>
+                        </label>
+                      ))}
+                      {missingIds(editing.raw, options).map((id) => (
+                        <label key={id}>
+                          <input type="checkbox" checked onChange={() => setEditing({ ...editing, raw: toggleRaw(editing.raw, id) })} /> {id}{" "}
+                          <span className="field-hint">não existe mais no hub: desmarque para tirar</span>
+                        </label>
+                      ))}
+                      <div className="skills-actions">
+                        <button type="button" className="primary-button" disabled={!conn || asking !== null} onClick={() => setAsking({ kind: "raw", key, raw: editing.raw })}>
+                          Salvar…
+                        </button>
+                        <button type="button" className="link-button" disabled={asking !== null} onClick={() => setEditing(null)}>
+                          Cancelar
+                        </button>
+                      </div>
+                    </fieldset>
+                  ) : (
+                    <>
+                      Chamadas diretas: <strong>{rawSummary(key.raw)}</strong>{" "}
+                      <button type="button" className="link-button" disabled={asking !== null || editing !== null} onClick={() => setEditing({ id: key.id, raw: key.raw ?? [] })}>
+                        Editar
+                      </button>
+                    </>
+                  )}
+                </div>
+              )}
+              {asking?.kind === "raw" && asking.key.id === key.id && keyPrompt}
               <p className="skills-item-description">
                 Criada em {dateFormatter.format(new Date(key.createdAtMs))} ·{" "}
                 {key.lastUsedAtMs ? `usada por último em ${dateFormatter.format(new Date(key.lastUsedAtMs))}` : "nunca usada"}

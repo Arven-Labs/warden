@@ -1275,14 +1275,7 @@ fn run_api_keys_command(action: ApiKeysAction) -> anyhow::Result<()> {
         ApiKeysAction::Raw { id, models, config } => {
             if !models.is_empty() {
                 let config_path = config.map(PathBuf::from).or_else(warden_bootstrap::default_config_path).context("could not determine the OS config directory")?;
-                let file = warden_bootstrap::load_config_from_path(&config_path, false)?;
-                for model in &models {
-                    anyhow::ensure!(
-                        model == warden_server::api_keys::RAW_ALL || file.providers.iter().any(|p| &p.id == model) || file.combos.iter().any(|c| &c.id == model),
-                        "'{model}' is neither a provider nor a combo of {}",
-                        config_path.display()
-                    );
-                }
+                warden_server::api_key_admin::check_raw_ids(&config_path, &models)?;
             }
             anyhow::ensure!(store.set_raw(&id, models.clone())?, "no API key with id '{id}'");
             if models.is_empty() {

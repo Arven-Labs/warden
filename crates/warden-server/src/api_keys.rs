@@ -43,8 +43,9 @@ pub struct ApiKey {
     /// every key from before) is the owner's.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub user: Option<String>,
-    /// P131: the providers and combos (their ids from `config.toml`) this key may call straight, as `provider/<id>` or
-    /// `combo/<id>`, with no agent in between. Empty (and every key from before) is none: the raw router is opt-in.
+    /// P131: the providers and combos (their bare ids from `config.toml`) this key may call straight, with no agent in
+    /// between — the request then names them as `provider/<id>` or `combo/<id>`. Empty (and every key from before) is none:
+    /// the raw router is opt-in.
     /// `RAW_ALL` stands for every provider and combo except those that reach another machine (`node`, `cloud`), which
     /// have to be named.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]

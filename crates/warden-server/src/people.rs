@@ -242,7 +242,10 @@ pub fn password_gate(message: &ClientMessage) -> Option<ServerMessage> {
         | ClientMessage::EditAgentOrg { request_id, .. } => {
             ServerMessage::SettingsError { request_id: *request_id, message: text, conflict: false, auth_rejected: true }
         }
-        ClientMessage::ListApiKeys { request_id } | ClientMessage::CreateApiKey { request_id, .. } | ClientMessage::RevokeApiKey { request_id, .. } => {
+        ClientMessage::ListApiKeys { request_id }
+        | ClientMessage::CreateApiKey { request_id, .. }
+        | ClientMessage::RevokeApiKey { request_id, .. }
+        | ClientMessage::SetApiKeyRaw { request_id, .. } => {
             ServerMessage::ApiKeyError { request_id: *request_id, message: text, auth_rejected: true }
         }
         ClientMessage::ListSpaces { request_id }

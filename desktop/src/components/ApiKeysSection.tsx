@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import type { EmbeddedServerStatus, Settings } from "../types";
+import { canEditRaw, hasAll, missingIds, RAW_ALL, rawOptions, rawSummary, toggleRaw, type RawOption } from "../lib/rawAccess";
 
 /** Mirrors `api_key_cmds::ApiKeyInfo` — never the key or its hash; `shown` is its start. */
 interface ApiKeyInfo {
@@ -13,6 +14,8 @@ interface ApiKeyInfo {
   agentId: string | null;
   /** P84 — the member it belongs to; null for yours. */
   user: string | null;
+  /** P131 — the providers and combos (ids, or "*") the key may call straight with no agent; empty for none. */
+  raw: string[];
 }
 
 const dateFormatter = new Intl.DateTimeFormat(undefined, { dateStyle: "short", timeStyle: "short" });
@@ -43,6 +46,10 @@ function ApiKeysSection() {
   const [created, setCreated] = useState<{ name: string; key: string } | null>(null);
   const [copied, setCopied] = useState(false);
   const [confirmRevoke, setConfirmRevoke] = useState<string | null>(null);
+  /** P131: the providers and combos the config has, for the "Direct calls" editor. */
+  const [options, setOptions] = useState<RawOption[]>([]);
+  /** The key whose "Direct calls" is open for editing, with the ticks so far. */
+  const [editing, setEditing] = useState<{ id: string; raw: string[] } | null>(null);
 
   function load() {
     invoke<ApiKeyInfo[]>("list_api_keys")
@@ -52,8 +59,24 @@ function ApiKeysSection() {
       .then(setStatus)
       .catch(() => setStatus(null));
     invoke<Settings>("get_settings")
-      .then((settings) => setAgentIds(settings.agents.map((a) => a.id)))
-      .catch(() => setAgentIds([]));
+      .then((settings) => {
+        setAgentIds(settings.agents.map((a) => a.id));
+        setOptions(rawOptions(settings.providers, settings.combos));
+      })
+      .catch(() => {
+        setAgentIds([]);
+        setOptions([]);
+      });
+  }
+
+  async function handleSaveRaw(id: string, raw: string[]) {
+    setError(null);
+    try {
+      setKeys(await invoke<ApiKeyInfo[]>("set_api_key_raw", { id, raw }));
+      setEditing(null);
+    } catch (err) {
+      setError(String(err));
+    }
   }
 
   useEffect(load, []);
@@ -103,7 +126,9 @@ function ApiKeysSection() {
         Your agent in the OpenAI chat-completions format, for scripts, n8n or any client that talks to OpenAI: use one of
         these keys as the API key. A general key picks the model per call (<code>warden</code> or{" "}
         <code>warden/&lt;agent&gt;</code>); a key bound to an agent only speaks as it. Tools the client sends are ignored,
-        nothing is saved as a conversation, and the spend goes to the <code>api</code> channel.
+        nothing is saved as a conversation, and the spend goes to the <code>api</code> channel. A general key can also call a
+        provider or combo straight (<code>provider/&lt;id&gt;</code> or <code>combo/&lt;id&gt;</code>), with no agent, vault or
+        tools: what it may call is chosen under "Direct calls", and the spend goes to the <code>api-raw</code> channel.
       </p>
       <p className="settings-hint">
         {baseUrl ? (
@@ -148,6 +173,48 @@ function ApiKeysSection() {
                     ? `Only speaks as ${key.agentId}${agentIds.length > 0 && !agentIds.includes(key.agentId) ? " (agent removed — this key no longer works)" : ""}`
                     : "General — picks the agent per call"}
                 </div>
+                {!canEditRaw(key) ? (
+                  <div className="settings-hint">Direct calls: only a general key of yours can.</div>
+                ) : editing?.id === key.id ? (
+                  <fieldset className="settings-field">
+                    <legend className="settings-hint">Direct calls: what this key may call without going through an agent</legend>
+                    {options.length === 0 && <span className="settings-hint">No providers are configured.</span>}
+                    <label>
+                      <input type="checkbox" checked={hasAll(editing.raw)} onChange={() => setEditing({ ...editing, raw: toggleRaw(editing.raw, RAW_ALL) })} /> All local
+                      models (<code>*</code>)
+                    </label>
+                    {options.map((o) => (
+                      <label key={o.id}>
+                        <input type="checkbox" checked={editing.raw.includes(o.id)} onChange={() => setEditing({ ...editing, raw: toggleRaw(editing.raw, o.id) })} /> {o.id}{" "}
+                        <span className="settings-hint">
+                          {o.kind}
+                          {o.far && " · on another machine: * doesn't cover it, it only counts ticked here"}
+                        </span>
+                      </label>
+                    ))}
+                    {missingIds(editing.raw, options).map((id) => (
+                      <label key={id}>
+                        <input type="checkbox" checked onChange={() => setEditing({ ...editing, raw: toggleRaw(editing.raw, id) })} /> {id}{" "}
+                        <span className="settings-hint">no longer in the config: untick to drop it</span>
+                      </label>
+                    ))}
+                    <div className="api-key-actions">
+                      <button type="button" className="settings-browse-btn" onClick={() => void handleSaveRaw(key.id, editing.raw)}>
+                        Save
+                      </button>
+                      <button type="button" className="settings-browse-btn" onClick={() => setEditing(null)}>
+                        Cancel
+                      </button>
+                    </div>
+                  </fieldset>
+                ) : (
+                  <div className="settings-hint">
+                    Direct calls: <strong>{rawSummary(key.raw)}</strong>{" "}
+                    <button type="button" className="settings-browse-btn" disabled={editing !== null} onClick={() => setEditing({ id: key.id, raw: key.raw })}>
+                      Edit
+                    </button>
+                  </div>
+                )}
                 <div className="settings-hint">
                   Created {dateFormatter.format(new Date(key.createdAtMs))} ·{" "}
                   {key.lastUsedAtMs ? `last used ${dateFormatter.format(new Date(key.lastUsedAtMs))}` : "never used"}

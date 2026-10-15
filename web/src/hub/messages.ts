@@ -627,6 +627,8 @@ export interface ApiKey {
   agentId?: string;
   /** P84 — the member it belongs to; absent for the owner's. */
   user?: string;
+  /** P131 — the providers and combos (their ids, or "*") the key may call straight with no agent; absent for none. */
+  raw?: string[];
 }
 
 /** Mirrors `NodeOfferDto` (P93): what a node lends, as its operator chose. */
@@ -893,6 +895,7 @@ export type ClientMessage =
   | { type: "listApiKeys"; requestId: number }
   | { type: "createApiKey"; requestId: number; pairingKey: string; name: string; agentId?: string }
   | { type: "revokeApiKey"; requestId: number; pairingKey: string; id: string }
+  | { type: "setApiKeyRaw"; requestId: number; pairingKey: string; id: string; raw: string[] }
   /** P93 — nodes; changing one's access repeats the pairing key. */
   | { type: "listNodes"; requestId: number }
   | { type: "setNodeAccess"; requestId: number; pairingKey: string; deviceId: string; enabled: boolean; agents: string[]; requireApproval: boolean }

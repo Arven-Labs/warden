@@ -1834,6 +1834,9 @@ async fn handle_connection<S: Transport>(ws: WebSocketStream<S>, peer: SocketAdd
                 Ok(ClientMessage::RevokeApiKey { request_id, pairing_key, id }) => {
                     spawn_api_key_change(&api_keys, &settings, &settings_lock, &auth_key, member.as_ref().map(|m| m.id.clone()), &tx, request_id, pairing_key, ApiKeyChange::Revoke { id });
                 }
+                Ok(ClientMessage::SetApiKeyRaw { request_id, pairing_key, id, raw }) => {
+                    spawn_api_key_change(&api_keys, &settings, &settings_lock, &auth_key, member.as_ref().map(|m| m.id.clone()), &tx, request_id, pairing_key, ApiKeyChange::SetRaw { id, raw });
+                }
                 Ok(ClientMessage::ModelEvent { request_id, event }) => {
                     if let Some(models) = &node_models {
                         models.deliver(request_id, event);

@@ -16,7 +16,7 @@ use warden_core::orchestrator::Orchestrator;
 use warden_core::spend::{Limit, MemoryStore, PriceTable, Scope, SpendGuard};
 use warden_core::tool::ToolSpec;
 use warden_server::api_keys::{ApiKeyStore, RAW_ALL};
-use warden_server::{Server, SettingsHost};
+use warden_server::{ClientMessage, Server, ServerConnection, ServerMessage, SettingsHost};
 
 /// Answers every request with `response` (a whole HTTP/1.1 response), then closes.
 async fn fake_http(response: &'static str) -> String {
@@ -298,4 +298,34 @@ async fn a_key_file_from_before_the_raw_list_still_loads_with_no_access() {
     assert!(hub.keys.set_raw("abc123def456", vec!["spare".into(), " spare ".into(), "".into()]).unwrap());
     assert_eq!(hub.keys.list().unwrap()[0].raw, ["spare"], "trimmed, de-duplicated, blanks dropped");
     assert!(!hub.keys.set_raw("missing", vec![]).unwrap());
+}
+
+const PAIRING_KEY: &str = "pairing-key-0123456789-0123456789";
+
+/// P131: the owner edits the list from a client (the web's `SetApiKeyRaw`), and the key's calls follow at once.
+#[tokio::test]
+async fn setting_the_list_from_a_client_lets_the_key_call_straight_and_clearing_it_takes_that_back() {
+    let hub = hub(Vec::new()).await;
+    let key = hub.keys.create("script", None).unwrap();
+    let mut conn = ServerConnection::connect(&format!("ws://{}", hub.addr), "laptop", "Laptop", PAIRING_KEY).await.unwrap();
+
+    assert_eq!(complete(&hub, &key.key, "provider/spare").await.0, 403, "no list yet");
+
+    conn.send(&ClientMessage::SetApiKeyRaw { request_id: 1, pairing_key: PAIRING_KEY.into(), id: key.info.id.clone(), raw: vec!["spare".into()] }).await.unwrap();
+    let Some(ServerMessage::ApiKeyList { keys, .. }) = conn.recv().await.unwrap() else { panic!("expected the key list") };
+    assert_eq!(keys[0].raw, ["spare"]);
+    assert_eq!(complete(&hub, &key.key, "provider/spare").await.0, 200);
+    assert_eq!(complete(&hub, &key.key, "provider/busy").await.0, 403, "only what was listed");
+
+    conn.send(&ClientMessage::SetApiKeyRaw { request_id: 2, pairing_key: "wrong".into(), id: key.info.id.clone(), raw: vec!["*".into()] }).await.unwrap();
+    assert!(matches!(conn.recv().await.unwrap(), Some(ServerMessage::ApiKeyError { auth_rejected: true, .. })));
+    assert_eq!(complete(&hub, &key.key, "provider/busy").await.0, 403, "a wrong pairing key changed nothing");
+
+    conn.send(&ClientMessage::SetApiKeyRaw { request_id: 3, pairing_key: PAIRING_KEY.into(), id: key.info.id.clone(), raw: vec!["ghost".into()] }).await.unwrap();
+    assert!(matches!(conn.recv().await.unwrap(), Some(ServerMessage::ApiKeyError { auth_rejected: false, .. })));
+
+    conn.send(&ClientMessage::SetApiKeyRaw { request_id: 4, pairing_key: PAIRING_KEY.into(), id: key.info.id.clone(), raw: Vec::new() }).await.unwrap();
+    let Some(ServerMessage::ApiKeyList { keys, .. }) = conn.recv().await.unwrap() else { panic!("expected the key list") };
+    assert!(keys[0].raw.is_empty());
+    assert_eq!(complete(&hub, &key.key, "provider/spare").await.0, 403, "taken back");
 }
