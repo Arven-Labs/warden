@@ -199,8 +199,8 @@ Ou seja: **a loja não é um produto pago.** Quem hospeda por conta própria tem
 
 | Fase | Entrega | Depende de | Sai sozinha? |
 |---|---|---|---|
-| 0 | Fechar as decisões da seção I, medir a RAM de uma instância, ligar o `MeterSink` | nada | sim |
-| 1 | Dockerfile, formato de exportação e importação, endpoint de saúde | 0 | sim (ajuda o self-host também) |
+| 0 | Fechar as decisões da seção I, medir a RAM de uma instância, ligar o `MeterSink`, corrigir a espera no `Hello` (P142) | nada | sim |
+| 1 | Dockerfile, `--data-dir`, endpoint de saúde, tratamento de SIGTERM, log estruturado (P143), formato de exportação e importação | 0 | sim (ajuda o self-host também) |
 | 2 | Gateway: token, catálogo de modelos, ledger durável, saldo e `hold`, cotas e rate limit | 0 | sim (testável com a conta criada à mão) |
 | 3 | Contrato B (`warden-hosted-protocol`), recarga idempotente, webhooks de saldo | 2 | com um site mãe falso para teste |
 | 4 | Orquestrador: provisionar, suspender, apagar, backup, upgrade em ondas | 1 e 3 | só tem uso real com o site mãe |
@@ -225,6 +225,37 @@ Ou seja: **a loja não é um produto pago.** Quem hospeda por conta própria tem
 11. Onde fica guardada a chave de publicação da loja e quem pode assinar?
 12. Existe uma meta de preço que limite o RAM por instância (decide `WARDEN_NO_SEMANTIC` e embeddings compartilhados)?
 13. Quais são os **"outros serviços"** pagos além da hospedagem e dos créditos de modelo? (O Fabio disse que existem; ainda não foram nomeados. Pontos de partida que o ROADMAP já menciona: armazenamento, execução, ferramentas premium, automações e recursos empresariais.)
+
+## J. Revisão de arquitetura do código real (Sessão 220)
+
+Pedida pelo Fabio como um design review de engenheiro sênior para o cenário "instância hospedada por usuário + web UI + desktop conectando na conta", feita lendo o código (sem executar). O que ela mostrou, e que muda ou reforça o desenho acima:
+
+**Correções de premissa**
+- O papel servidor ou cliente **não** é uma troca por configuração num app só: são binários diferentes (`warden-server`, e o `desktop`, que **embute** um hub em `desktop/src-tauri/src/server_cmds.rs` e também conecta a hubs remotos em `remote_cmds.rs`).
+- O servidor não é Tauri nem usa framework web: HTTP/1.1 escrito à mão sobre `httparse`, WebSocket por `tokio-tungstenite`, TLS por `rustls`, uma porta só (UI, WebSocket, `/v1`, `/hooks`).
+- `StorageProvider` e `AuthProvider` **não existem** nem como plano pendente: foram removidos de propósito na Sessão 105 (`SESSIONS.md:2626-2631`). O armazenamento e a autenticação são código concreto (`Vault` preso a um caminho, `PairingStore`, `UserConfig`).
+
+**O que já serve ao cenário**
+- O hub **já serve a web UI** embutida no binário (`rust-embed`, `web/dist`, fallback de SPA), e o navegador é "só mais um dispositivo pareado".
+- O desktop **já conecta a um hub remoto** (`remote_client.rs`, chave de pareamento, membro ou TruthID, token de dispositivo em `remote_hub.json`).
+- Um contêiner por cliente funciona com `HOME`/`XDG_CONFIG_HOME` por cliente.
+
+**Os cinco maiores gaps, em ordem de prioridade**
+
+| # | Gap | Pendência | Fase |
+|---|---|---|---|
+| 1 | Operar o hub como serviço: imagem, `--data-dir`, health, SIGTERM, log estruturado | P143 | 1 |
+| 2 | Identidade por conta: o desktop só conecta com chave de pareamento (32+ caracteres, e que pareia só o primeiro dispositivo), senha de membro ou TruthID; falta um login federado em que o `sub` da conta vira o dono e emite um token de dispositivo | P138 (seção B2) | 5 |
+| 3 | Frontend duplicado entre web e desktop, e o desktop remoto preso ao IPC do Tauri | P144 | a debater |
+| 4 | Endpoint público sobre HTTP escrito à mão: sem limite por IP, sem teto de conexões, sem CSP nem compressão, sem keep-alive, **sem espera para chave errada no `Hello`** (P142), TLS só por arquivo ou Tailscale. Um proxy reverso (Caddy, Traefik) resolve quase tudo; migrar para hyper ou axum seria grande e não é necessário | P142, P138 | 0 e 1 |
+| 5 | Isolamento de execução e de segredos: `shell`, MCP stdio e opencode rodam com o usuário do SO do contêiner, sem sandbox; as chaves de provedor ficam dentro da instância; o operador consegue ver o que o agente vê | P139, P138 | 2 |
+
+**Tradeoffs que ficam em aberto**
+- Gap 2: reaproveitar o fluxo do TruthID (menos código, acopla a um emissor) ou OIDC genérico (mais flexível, mais superfície).
+- Gap 3: extrair um pacote TypeScript compartilhado com uma interface de transporte (refatoração grande, acaba com a divergência) ou, no desktop remoto, abrir a web UI do hub (barato, mas o webview não tem comandos Tauri, então microfone, cofre local e ferramentas do aparelho não funcionam ali).
+- Gap 5: o contêiner por cliente isola um cliente do outro, mas não protege o Fabio do código que o agente executa nem o cliente do Fabio.
+
+**Não verificado nessa revisão:** o comportamento das telas do desktop sem wrapper remoto quando `remote` é verdadeiro; o `warden-cli`, o app móvel e a extensão em profundidade; o fluxo completo de convite de membro e `people::password_gate`; a RAM por instância; um sistema de arquivos só de leitura de ponta a ponta. As contagens de mensagens do protocolo (~98 do cliente, ~80 do servidor) saíram de uma regex e são aproximadas.
 
 ## O que foi verificado e o que não foi
 
