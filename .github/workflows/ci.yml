@@ -94,3 +94,32 @@ jobs:
 
       - name: Build
         run: npm run build
+
+  mobile:
+    name: Mobile (Flutter analyze e testes)
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: mobile
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # A mesma versão da máquina de desenvolvimento.
+      - name: Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: 3.47.4
+          channel: stable
+          cache: true
+
+      - name: flutter pub get
+        run: flutter pub get
+
+      # Avisos de estilo (info) não derrubam a rodada; erros e warnings sim.
+      - name: Analyze
+        run: flutter analyze --no-fatal-infos
+
+      # Os testes não carregam a biblioteca Rust (`RustLib`), então não precisam compilá-la.
+      - name: Testes
+        run: flutter test
