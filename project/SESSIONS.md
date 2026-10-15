@@ -2,7 +2,18 @@
 
 > **Nota**: Este log foi criado junto com o projeto. As sessões serão registradas aqui conforme o trabalho avança.
 >
-> Última atualização: 2026-10-15 (Sessão 218)
+> Última atualização: 2026-10-15 (Sessão 219)
+
+---
+
+### 2026-10-15 — Sessão 219 (P131: editar o acesso cru de uma chave pela tela)
+
+- **Pedido do usuário**: seguir com a ponta do P131 que ficou só na CLI, planejado em plan mode: o dono escolher, pela web e pelo desktop, o que cada chave geral pode chamar direto.
+- **Feito**: `ClientMessage::SetApiKeyRaw` e `ApiKeyDto.raw` no protocolo; `ApiKeyChange::SetRaw` e `check_raw_ids` em `api_key_admin.rs` (a CLI passou a usar a mesma validação); despacho no `server.rs` e a recusa de membro travado em `people.rs`; comando `set_api_key_raw` e campo `raw` no desktop; `setApiKeyRaw` e o editor "Chamadas diretas" em `ApiKeysSection.tsx` da web e do desktop, com a lógica pura em `rawAccess.ts` (um em cada cliente).
+- **Corrigido de passagem**: o comentário de `ApiKey.raw` dizia `provider/<id>`, mas o campo guarda ids puros.
+- **Testes** (escritos e passando): protocolo (1), `api_key_admin.rs` (5), `tests/people.rs` (membro recusado, no teste que já existia), `tests/router_raw.rs` (1 ponta a ponta: definir pela mensagem, a chamada passa a valer, prova errada e id inexistente não mudam nada, esvaziar tira o acesso), `api_key_cmds.rs` do desktop (1), `rawAccess.test.mjs` nos dois clientes (10 cada; `npm test` web 78, desktop 136). `cargo test` de protocolo e servidor: 455 passaram; clippy limpo; `tsc` limpo.
+- **Notas**: o `rustc` deu segfault duas vezes (uma no `cargo check`, outra no `cargo test -p desktop`); passou ao repetir, como no P74. As telas nunca foram abertas num navegador.
+- **Sobra do P131**: teto de `max_tokens` por chave, campo de URL base nas telas para Gemini/OpenAI/Anthropic, endereço real da nuvem, testes de override de URL por tipo e de `provider_admin` com `base_url`, e a cobrança (fora de escopo).
 
 ---
 

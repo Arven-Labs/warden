@@ -2116,7 +2116,13 @@ mesma resposta CommonMark via `react-markdown`+`remark-gfm`; faltava o conversor
   agente recebe `403 model_not_allowed` e chave de membro `403 raw_not_allowed_for_members`. `*` não cobre
   provedor `node` nem `cloud` (nem combo que tenha um deles): têm de ser nomeados, para um hub nunca repassar a
   outro sem o dono dizer. Quem não pode chamar um id também não descobre se ele existe (403 antes de 404). O dono
-  edita com `warden-server api-keys raw <id> <modelos…>`.
+  edita com `warden-server api-keys raw <id> <modelos…>` ou pela tela (Sessão 219): a mensagem
+  `SetApiKeyRaw { requestId, pairingKey, id, raw }` (mesma prova das outras mudanças de chave, resposta
+  `ApiKeyList`) na web, e o comando `set_api_key_raw` no desktop, que fala com o `ApiKeyStore` local sem prova. Os
+  ids guardados são **puros** (`spare`, `fast`, `*`), não `provider/spare`. `check_raw_ids` (`api_key_admin.rs`) valida
+  nos três caminhos: cada id é `*` ou um provedor/combo do config. Membro leva erro mesmo para esvaziar a lista. A
+  tela marca como "de outra máquina" o que o `*` não cobre (`farIds`, `web/src/hub/rawAccess.ts` e
+  `desktop/src/lib/rawAccess.ts`); `ApiKeyDto.raw` leva a lista de volta ao cliente.
 - **Gasto**: canal `api-raw`, com o id da chave (`SpendEvent.api_key`) e os tokens de entrada e saída
   (`input_tokens`, `output_tokens`, quando o provedor os separa). Um `[[limits]]` com escopo de canal `api-raw`
   cobre só o tráfego cru. Os turnos de agente pela API também gravam o id da chave.
