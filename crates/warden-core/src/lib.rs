@@ -4,6 +4,7 @@ pub mod budget;
 pub mod code_engine;
 pub mod jobs;
 pub mod memory;
+pub mod meter;
 pub mod model;
 pub mod orchestrator;
 pub mod project;

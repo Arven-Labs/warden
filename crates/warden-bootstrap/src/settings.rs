@@ -48,6 +48,7 @@ pub fn provider_kind_str(kind: Provider) -> &'static str {
         Provider::Anthropic => "anthropic",
         Provider::OpenaiCompatible => "openai_compatible",
         Provider::Node => "node",
+        Provider::Cloud => "cloud",
     }
 }
 
@@ -58,6 +59,7 @@ pub fn provider_kind_from_str(kind: &str) -> Result<Provider, String> {
         "anthropic" => Ok(Provider::Anthropic),
         "openai_compatible" => Ok(Provider::OpenaiCompatible),
         "node" => Ok(Provider::Node),
+        "cloud" => Ok(Provider::Cloud),
         other => Err(format!("unknown provider kind '{other}'")),
     }
 }

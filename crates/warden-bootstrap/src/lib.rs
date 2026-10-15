@@ -47,6 +47,7 @@ pub mod code_turn;
 pub mod learning;
 pub mod machine_settings;
 mod config_file;
+pub mod secrets;
 pub mod manage_agents;
 pub mod manage_tasks;
 pub mod member_crypto;
@@ -91,20 +92,30 @@ pub enum Provider {
     /// A model on a node (P93): `ProviderConfig::node` names the node, `model` its provider there.
     /// Only answers through a hub with that node connected.
     Node,
+    /// The Fabio cloud (P131): a Warden hub that pays the model for the user. Speaks the same wire
+    /// format as `OpenaiCompatible`, but the key (`wdn_...`) is required and `base_url` is optional —
+    /// it defaults to `CLOUD_DEFAULT_BASE_URL`. A self-hoster points `base_url` at their own hub, so
+    /// the same code runs hosted and self-hosted.
+    Cloud,
 }
+
+/// Where a `Provider::Cloud` with no `base_url` of its own goes. A placeholder until the hosted hub has an
+/// address (P131): set `base_url` on the provider to use a real hub meanwhile.
+pub const CLOUD_DEFAULT_BASE_URL: &str = "https://cloud.warden.invalid/v1";
 
 /// One configured model provider (Sessão 35's provider registry) — the desktop Settings screen
 /// lets the user add/edit/delete any number of these, each independently selectable as the
 /// active one. Kept as a flat list rather than a map so ordering is stable for display and `id`
 /// collisions are the user's problem to fix (mirrors `McpServerConfig`'s shape/spirit).
-#[derive(Deserialize, Serialize, Clone, Debug, PartialEq)]
+#[derive(Deserialize, Serialize, Clone, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct ProviderConfig {
     /// User-chosen, unique among `providers` — referenced by `FileConfig::active_provider`.
     pub id: String,
     pub kind: Provider,
     pub api_key: Option<String>,
-    /// Only meaningful (and required) for `Provider::OpenaiCompatible`.
+    /// Required for `Provider::OpenaiCompatible`; optional for `Cloud` (the Fabio cloud when blank) and, since P131, for
+    /// Gemini, OpenAI and Anthropic (a proxy or gateway instead of the maker's address). Not for `Node`.
     pub base_url: Option<String>,
     /// Falls back to `default_model_for(kind)` when unset — `None` for `OpenaiCompatible`,
     /// which has no universal default (depends entirely on what's hosted there). For
@@ -113,6 +124,20 @@ pub struct ProviderConfig {
     /// Only for `Provider::Node` (P93): the device id of the node whose model this is.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub node: Option<String>,
+}
+
+// P131: written by hand so a `{:?}` of a config (a log line, a failed assert) never prints the key.
+impl std::fmt::Debug for ProviderConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ProviderConfig")
+            .field("id", &self.id)
+            .field("kind", &self.kind)
+            .field("api_key", &self.api_key.as_ref().map(|_| "<hidden>"))
+            .field("base_url", &self.base_url)
+            .field("model", &self.model)
+            .field("node", &self.node)
+            .finish()
+    }
 }
 
 /// One named agent (a persona a conversation can pick, alongside its model) — closes P3
@@ -443,7 +468,7 @@ pub fn is_strong_auth_key(key: &str) -> bool {
 
 /// Config file shape (TOML). Every field is optional — overrides and env vars (for API keys)
 /// always win over what's here, and the whole file is optional too.
-#[derive(Deserialize, Serialize, Default, Debug, PartialEq)]
+#[derive(Deserialize, Serialize, Default, Debug, PartialEq, Clone)]
 #[serde(deny_unknown_fields)]
 pub struct FileConfig {
     /// Deprecated as of Sessão 35's provider registry (`providers`/`active_provider` below) —
@@ -675,7 +700,7 @@ impl McpServerConfig {
     }
 }
 
-#[derive(Deserialize, Serialize, Default, Debug, PartialEq)]
+#[derive(Deserialize, Serialize, Default, Debug, PartialEq, Clone)]
 #[serde(deny_unknown_fields)]
 pub struct ApiKeys {
     pub gemini: Option<String>,
@@ -709,7 +734,7 @@ pub fn default_model_for(provider: Provider) -> Option<&'static str> {
         Provider::Gemini => Some("gemini-3.5-flash"),
         Provider::Openai => Some("gpt-4o-mini"),
         Provider::Anthropic => Some("claude-sonnet-4-5"),
-        Provider::OpenaiCompatible | Provider::Node => None,
+        Provider::OpenaiCompatible | Provider::Node | Provider::Cloud => None,
     }
 }
 
@@ -726,8 +751,10 @@ pub fn save_config(path: &Path, config: &FileConfig) -> anyhow::Result<()> {
         Err(err) if err.kind() == std::io::ErrorKind::NotFound => None,
         Err(err) => return Err(err).with_context(|| format!("failed to read config file at {}", path.display())),
     };
-    let contents = render_config(existing.as_deref(), config)?;
-    std::fs::write(path, contents).with_context(|| format!("failed to write config file at {}", path.display()))
+    // P131: the provider keys go to the secrets file first; `config.toml` is written without them.
+    let stripped = secrets::store_and_strip(config, path, existing.as_deref())?;
+    let contents = render_config(existing.as_deref(), &stripped)?;
+    secrets::write_private(path, contents.as_bytes())
 }
 
 pub fn default_config_path() -> Option<PathBuf> {
@@ -1686,6 +1713,7 @@ pub fn load_config_from_path(path: &Path, required: bool) -> anyhow::Result<File
         Ok(contents) => {
             let mut config: FileConfig = toml::from_str(&contents).with_context(|| format!("failed to parse config file at {}", path.display()))?;
             migrate_legacy_fallbacks(&mut config);
+            secrets::merge_into(&mut config, path)?;
             Ok(config)
         }
         Err(err) if err.kind() == io::ErrorKind::NotFound && !required => Ok(FileConfig::default()),
@@ -1878,6 +1906,43 @@ pub fn resolve_generated_path(config: &FileConfig, resolved_vault_path: &Path) -
         .unwrap_or_else(|| resolved_vault_path.parent().unwrap_or_else(|| Path::new(".")).join("generated"))
 }
 
+/// The address a provider was pointed at instead of its maker's (P131): a proxy, a gateway, a hub of the user's own. Blank is
+/// none. It has to be http(s); plain http only for this machine and private networks, because the key travels in every request.
+fn custom_base_url(provider: &ProviderConfig) -> anyhow::Result<Option<String>> {
+    let Some(url) = provider.base_url.as_deref().map(str::trim).filter(|u| !u.is_empty()) else { return Ok(None) };
+    if url.starts_with("https://") {
+        return Ok(Some(url.to_string()));
+    }
+    let Some(rest) = url.strip_prefix("http://") else {
+        anyhow::bail!("provider '{}': base_url has to start with https:// (or http:// for this machine or a private network)", provider.id);
+    };
+    let authority = rest.split('/').next().unwrap_or_default();
+    // `[::1]:11434` keeps its colons inside the brackets.
+    let host = if authority.starts_with('[') { authority.split(']').next().map(|h| format!("{h}]")).unwrap_or_default() } else { authority.split(':').next().unwrap_or_default().to_string() };
+    anyhow::ensure!(
+        plain_http_host(&host),
+        "provider '{}': base_url {url} would send the key without encryption to a public address — use https://",
+        provider.id
+    );
+    Ok(Some(url.to_string()))
+}
+
+/// Whether `host` is this machine or a private network (where plain http is acceptable).
+fn plain_http_host(host: &str) -> bool {
+    let host = host.to_ascii_lowercase();
+    if host == "localhost" || host == "[::1]" || host.ends_with(".local") || host.ends_with(".localhost") {
+        return true;
+    }
+    let octets: Vec<u8> = host.split('.').filter_map(|part| part.parse().ok()).collect();
+    if octets.len() != 4 || host.split('.').count() != 4 {
+        return false;
+    }
+    // 100.64.0.0/10 is the range Tailscale hands out.
+    matches!(octets[..], [127, ..] | [10, ..] | [192, 168, ..])
+        || matches!(octets[..], [172, second, ..] if (16..=31).contains(&second))
+        || matches!(octets[..], [100, second, ..] if (64..=127).contains(&second))
+}
+
 /// Builds the one `ModelProvider` the orchestrator will use, from a resolved `ProviderConfig` —
 /// shared by both the registry path and the legacy-fallback path in `resolve_model_provider`, and
 /// (public since the per-conversation model selector) by the desktop's `send_message` to build a
@@ -1896,7 +1961,10 @@ pub fn build_model_provider(provider: &ProviderConfig, model_override: Option<St
                     provider.id
                 )
             })?;
-            Arc::new(GeminiProvider::new(api_key, model))
+            match custom_base_url(provider)? {
+                Some(url) => Arc::new(GeminiProvider::with_models_url(api_key, model, url)),
+                None => Arc::new(GeminiProvider::new(api_key, model)),
+            }
         }
         Provider::Openai => {
             let api_key = provider.api_key.clone().with_context(|| {
@@ -1906,14 +1974,20 @@ pub fn build_model_provider(provider: &ProviderConfig, model_override: Option<St
                     provider.id
                 )
             })?;
-            Arc::new(OpenAiProvider::new(api_key, model))
+            match custom_base_url(provider)? {
+                Some(url) => Arc::new(OpenAiProvider::with_base_url(api_key, model, url)),
+                None => Arc::new(OpenAiProvider::new(api_key, model)),
+            }
         }
         Provider::Anthropic => {
             let api_key = provider
                 .api_key
                 .clone()
                 .with_context(|| format!("provider '{}' (anthropic) has no API key configured — get one at https://console.anthropic.com", provider.id))?;
-            Arc::new(AnthropicProvider::new(api_key, model))
+            match custom_base_url(provider)? {
+                Some(url) => Arc::new(AnthropicProvider::with_base_url(api_key, model, url)),
+                None => Arc::new(AnthropicProvider::new(api_key, model)),
+            }
         }
         Provider::OpenaiCompatible => {
             let base_url = provider
@@ -1923,6 +1997,15 @@ pub fn build_model_provider(provider: &ProviderConfig, model_override: Option<St
             // Most local/self-hosted OpenAI-compatible servers (Ollama included) don't check the
             // key at all — an empty string is a valid "no key" for them.
             Arc::new(OpenAiProvider::with_base_url(provider.api_key.clone().unwrap_or_default(), model, base_url))
+        }
+        Provider::Cloud => {
+            let api_key = provider
+                .api_key
+                .clone()
+                .filter(|k| !k.trim().is_empty())
+                .with_context(|| format!("provider '{}' (cloud) has no API key configured — the wdn_ key of the hub it talks to", provider.id))?;
+            let base_url = custom_base_url(provider)?.unwrap_or_else(|| CLOUD_DEFAULT_BASE_URL.to_string());
+            Arc::new(OpenAiProvider::with_base_url(api_key, model, base_url))
         }
         Provider::Node => {
             let node = provider
@@ -2138,11 +2221,12 @@ fn resolve_model_provider(config: &FileConfig, overrides: &Overrides) -> anyhow:
         Provider::Anthropic => ("anthropic", None),
         Provider::OpenaiCompatible => ("openai_compatible", None),
         Provider::Node => ("node", None),
+        Provider::Cloud => ("cloud", None),
     };
     let env_var = match kind {
         Provider::Gemini => Some("GEMINI_API_KEY"),
         Provider::Openai => Some("OPENAI_API_KEY"),
-        Provider::Anthropic | Provider::OpenaiCompatible | Provider::Node => None,
+        Provider::Anthropic | Provider::OpenaiCompatible | Provider::Node | Provider::Cloud => None,
     };
     let api_key = resolve_secret(env_var.and_then(|v| std::env::var(v).ok()), api_key_from_config);
 

@@ -147,6 +147,7 @@ const PROVIDER_KIND_OPTIONS: { value: ProviderKind; label: string }[] = [
   { value: "anthropic", label: "Anthropic" },
   { value: "openai_compatible", label: "OpenAI-compatible (Ollama, OpenRouter, Groq, ...)" },
   { value: "node", label: "A node's model (another machine)" },
+  { value: "cloud", label: "Fabio cloud (or a hub of your own)" },
 ];
 
 /** Known-good starting points for popular integrations — researched 2026-08-29 (Sessão 35; see
@@ -296,6 +297,19 @@ function ProviderCard({
             className="settings-input"
             type="text"
             placeholder="http://localhost:11434/v1"
+            value={provider.baseUrl}
+            onChange={(e) => onChange({ ...provider, baseUrl: e.currentTarget.value })}
+          />
+        </label>
+      )}
+
+      {provider.kind === "cloud" && (
+        <label className="settings-field">
+          <span className="settings-label">Base URL (empty = the Fabio cloud; for a hub of your own, its address ending in /v1)</span>
+          <input
+            className="settings-input"
+            type="text"
+            placeholder="https://my-hub.example/v1"
             value={provider.baseUrl}
             onChange={(e) => onChange({ ...provider, baseUrl: e.currentTarget.value })}
           />

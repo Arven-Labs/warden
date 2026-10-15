@@ -178,6 +178,15 @@ pub struct SpendEvent {
     /// combo. Absent in a ledger from before it was kept, and for a call that wasn't made through a combo.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub combo: Option<String>,
+    /// The tokens sent and the tokens answered (P131), when the provider told them apart; `tokens` stays the total. Absent in a
+    /// ledger from before, and when the provider only reported a total.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub input_tokens: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub output_tokens: Option<u64>,
+    /// The id of the API key the call came in through (P131) — never the secret. Absent for a call that didn't come through one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub api_key: Option<String>,
 }
 
 impl SpendEvent {
@@ -196,6 +205,8 @@ pub struct Grant {
     pub cost_usd: f64,
 }
 
+// A `Spend` is by far the common line of the ledger, so boxing it to even out the sizes would only add an allocation to each.
+#[allow(clippy::large_enum_variant)]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum Entry {
@@ -303,11 +314,18 @@ pub struct SpendContext {
     pub agent: Option<String>,
     /// The workspace member (P84) whose turn this is, on whatever channel — `None` for the owner.
     pub person: Option<String>,
+    /// The API key (P131) the call came in through, by id — what the ledger keeps to tell one key's spending from another's.
+    pub api_key: Option<String>,
 }
 
 impl SpendContext {
     pub fn new(channel: impl Into<String>) -> Self {
-        Self { channel: channel.into(), user: None, agent: None, person: None }
+        Self { channel: channel.into(), user: None, agent: None, person: None, api_key: None }
+    }
+
+    pub fn with_api_key(mut self, api_key: impl Into<String>) -> Self {
+        self.api_key = Some(api_key.into());
+        self
     }
 
     pub fn with_person(mut self, person: impl Into<String>) -> Self {
@@ -555,6 +573,10 @@ impl SpendGuard {
             person: ctx.person.clone(),
             provider: Some(provider.to_string()).filter(|p| !p.is_empty()),
             combo: Some(combo.to_string()).filter(|c| !c.is_empty()),
+            // Only when the provider split the total; a total alone says nothing about either side.
+            input_tokens: (usage.prompt_tokens + usage.completion_tokens > 0).then_some(usage.prompt_tokens as u64),
+            output_tokens: (usage.prompt_tokens + usage.completion_tokens > 0).then_some(usage.completion_tokens as u64),
+            api_key: ctx.api_key.clone(),
         };
         self.note(self.store.append(&Entry::Spend(event)));
     }
@@ -1077,7 +1099,7 @@ mod tests {
     fn opening_the_file_store_drops_entries_no_window_needs() {
         let path = temp_ledger("prune");
         std::fs::create_dir_all(path.parent().unwrap()).unwrap();
-        let old = Entry::Spend(SpendEvent { ts: 1, channel: "cli".into(), user: None, agent: None, model: "m".into(), tokens: 5, cost_usd: None, person: None, provider: None, combo: None });
+        let old = Entry::Spend(SpendEvent { ts: 1, channel: "cli".into(), user: None, agent: None, model: "m".into(), tokens: 5, cost_usd: None, person: None, provider: None, combo: None, input_tokens: None, output_tokens: None, api_key: None });
         let fresh = Entry::Spend(SpendEvent { ts: now_millis(), ..match old.clone() { Entry::Spend(e) => e, _ => unreachable!() } });
         let text = format!("{}\n{}\n", serde_json::to_string(&old).unwrap(), serde_json::to_string(&fresh).unwrap());
         std::fs::write(&path, text).unwrap();

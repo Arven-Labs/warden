@@ -68,8 +68,8 @@ pub async fn handle_test_provider(
         SecretEdit::Set(value) => non_empty(value),
         SecretEdit::Clear => None,
     };
-    // Only a compatible server has an address of its own; the others are asked at their provider's.
-    let base_url = if kind == Provider::OpenaiCompatible {
+    // Every kind but a node's model can have an address of its own (P131); without one, it is asked at its provider's.
+    let base_url = if kind != Provider::Node {
         let typed = non_empty(&edit.base_url);
         let saved_url = saved.and_then(|p| p.base_url.as_deref()).and_then(non_empty);
         if typed.is_some() && typed != saved_url {

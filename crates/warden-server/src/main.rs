@@ -467,6 +467,17 @@ enum ApiKeysAction {
         #[arg(long)]
         config: Option<String>,
     },
+    /// Sets which providers and combos key ID may call straight, with no agent in between (P131): the model is then
+    /// `provider/<id>` or `combo/<id>`. Replaces the list; with no MODELS the key can't call any. `*` stands for every provider
+    /// and combo that doesn't reach another machine (a `node` or `cloud` one has to be named). Only a general key of the owner can.
+    Raw {
+        id: String,
+        /// Provider or combo ids from the config, or `*`.
+        models: Vec<String>,
+        /// The config file the ids are checked against, as in `serve`.
+        #[arg(long)]
+        config: Option<String>,
+    },
     /// Removes a key; clients using it get 401 from the next request on.
     Revoke { id: String },
 }
@@ -1243,7 +1254,8 @@ fn run_api_keys_command(action: ApiKeysAction) -> anyhow::Result<()> {
             for key in keys {
                 let used = key.last_used_at_ms.map_or("never used".to_string(), |ms| format!("last used {ms}"));
                 let scope = key.agent_id.as_deref().map_or("any agent".to_string(), |agent| format!("only agent {agent}"));
-                println!("{}\t{}\t{}…\t{scope}\tcreated {}\t{used}", key.id, key.name, key.shown, key.created_at_ms);
+                let raw = if key.raw.is_empty() { String::new() } else { format!("\tdirect: {}", key.raw.join(",")) };
+                println!("{}\t{}\t{}…\t{scope}\tcreated {}\t{used}{raw}", key.id, key.name, key.shown, key.created_at_ms);
             }
         }
         ApiKeysAction::Create { name, agent, config } => {
@@ -1258,6 +1270,26 @@ fn run_api_keys_command(action: ApiKeysAction) -> anyhow::Result<()> {
             match &created.info.agent_id {
                 Some(agent) => eprintln!("it only speaks as agent '{agent}' (model \"warden\" or \"warden/{agent}\"; any other agent is refused)"),
                 None => eprintln!("a general key: model \"warden\", or \"warden/<agent>\" to speak as a configured agent"),
+            }
+        }
+        ApiKeysAction::Raw { id, models, config } => {
+            if !models.is_empty() {
+                let config_path = config.map(PathBuf::from).or_else(warden_bootstrap::default_config_path).context("could not determine the OS config directory")?;
+                let file = warden_bootstrap::load_config_from_path(&config_path, false)?;
+                for model in &models {
+                    anyhow::ensure!(
+                        model == warden_server::api_keys::RAW_ALL || file.providers.iter().any(|p| &p.id == model) || file.combos.iter().any(|c| &c.id == model),
+                        "'{model}' is neither a provider nor a combo of {}",
+                        config_path.display()
+                    );
+                }
+            }
+            anyhow::ensure!(store.set_raw(&id, models.clone())?, "no API key with id '{id}'");
+            if models.is_empty() {
+                println!("key '{id}' can no longer call a model directly");
+            } else {
+                println!("key '{id}' may call: {}", models.join(", "));
+                eprintln!("use the model \"provider/<id>\" or \"combo/<id>\"; the spend goes to the `api-raw` channel, so `[[limits]]` with scope channel `api-raw` covers it alone");
             }
         }
         ApiKeysAction::Revoke { id } => {

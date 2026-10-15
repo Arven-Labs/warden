@@ -110,7 +110,7 @@ export interface ProjectEntry {
 /** Mirrors `warden_bootstrap::Provider`. `openaiCompatible` covers any other server that speaks
  * the OpenAI chat-completions wire format — Ollama (local, no real key needed), OpenRouter,
  * Groq, DeepSeek, etc. — via a configurable `baseUrl` instead of one dedicated kind per company. */
-export type ProviderKind = "gemini" | "openai" | "anthropic" | "openai_compatible" | "node";
+export type ProviderKind = "gemini" | "openai" | "anthropic" | "openai_compatible" | "node" | "cloud";
 
 /** One entry of the provider registry (Sessão 35) — the user can add/edit/delete any number of
  * these in Settings, each independently selectable as the active one. Empty string means

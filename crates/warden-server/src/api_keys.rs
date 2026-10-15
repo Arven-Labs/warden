@@ -43,8 +43,17 @@ pub struct ApiKey {
     /// every key from before) is the owner's.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub user: Option<String>,
+    /// P131: the providers and combos (their ids from `config.toml`) this key may call straight, as `provider/<id>` or
+    /// `combo/<id>`, with no agent in between. Empty (and every key from before) is none: the raw router is opt-in.
+    /// `RAW_ALL` stands for every provider and combo except those that reach another machine (`node`, `cloud`), which
+    /// have to be named.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub raw: Vec<String>,
     hash: String,
 }
+
+/// In `ApiKey::raw`: every provider and combo that doesn't reach another machine.
+pub const RAW_ALL: &str = "*";
 
 #[derive(Debug, Default, Serialize, Deserialize)]
 struct KeysFile {
@@ -133,11 +142,33 @@ impl ApiKeyStore {
             last_used_at_ms: None,
             agent_id,
             user: user.map(str::to_string),
+            raw: Vec::new(),
             hash: hash_key(&key),
         };
         file.keys.push(info.clone());
         self.save(&file)?;
         Ok(CreatedApiKey { key, info })
+    }
+
+    /// Sets which providers and combos key `id` may call straight (P131; see `ApiKey::raw`), replacing the list. `false` when
+    /// there's no key with that id. The store doesn't read the config: the caller checks that the ids exist. A key bound to
+    /// an agent or to a member can't have a list — the raw router is the owner's general keys only.
+    pub fn set_raw(&self, id: &str, raw: Vec<String>) -> anyhow::Result<bool> {
+        let _guard = WRITES.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        let mut file = self.load()?;
+        let Some(key) = file.keys.iter_mut().find(|k| k.id == id) else {
+            return Ok(false);
+        };
+        anyhow::ensure!(raw.is_empty() || (key.agent_id.is_none() && key.user.is_none()), "a key bound to an agent or to a member can't call a model directly");
+        let mut seen = Vec::new();
+        for item in raw.iter().map(|r| r.trim()).filter(|r| !r.is_empty()) {
+            if !seen.iter().any(|s: &String| s == item) {
+                seen.push(item.to_string());
+            }
+        }
+        key.raw = seen;
+        self.save(&file)?;
+        Ok(true)
     }
 
     /// `false` when there's no key with that id.

@@ -194,6 +194,7 @@ pub fn parse_provider_kind(input: &str) -> Option<Provider> {
         "openai" => Some(Provider::Openai),
         "anthropic" => Some(Provider::Anthropic),
         "openai_compatible" | "openai-compatible" => Some(Provider::OpenaiCompatible),
+        "cloud" => Some(Provider::Cloud),
         _ => None,
     }
 }
@@ -206,6 +207,7 @@ pub fn kind_label(kind: Provider) -> &'static str {
         Provider::Anthropic => "anthropic",
         Provider::OpenaiCompatible => "openai_compatible",
         Provider::Node => "node",
+        Provider::Cloud => "cloud",
     }
 }
 

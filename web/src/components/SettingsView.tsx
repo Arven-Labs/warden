@@ -44,6 +44,7 @@ const KINDS: { value: ProviderKind; label: string }[] = [
   { value: "anthropic", label: "Anthropic" },
   { value: "openai_compatible", label: "Compatível com OpenAI (Ollama, OpenRouter…)" },
   { value: "node", label: "Modelo de um nó (outra máquina)" },
+  { value: "cloud", label: "Nuvem do Fabio (ou um hub seu)" },
 ];
 
 const SCOPES: { value: LimitScope; label: string; target: string }[] = [
@@ -630,6 +631,11 @@ export default function SettingsView({ conn }: { conn: ServerConnection | null }
                     onChange={(e) => patchProvider(p.key, { model: e.target.value })}
                   />
                 </Field>
+                {p.kind === "cloud" && (
+                  <Field label="URL base" hint="Em branco usa a nuvem do Fabio. Para um hub seu, o endereço dele terminado em /v1. A chave é a wdn_ desse hub.">
+                    <input value={p.baseUrl} onChange={(e) => patchProvider(p.key, { baseUrl: e.target.value })} />
+                  </Field>
+                )}
                 {p.kind === "node" && (
                   <Field label="Id do nó" hint="Só responde com o nó online, aprovado e liberado (aba Aparelhos). Num combo, cai no próximo quando ele está fora.">
                     <input value={p.node} placeholder="node-casa-pc-1a2b3c4d" onChange={(e) => patchProvider(p.key, { node: e.target.value })} />

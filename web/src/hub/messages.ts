@@ -209,7 +209,7 @@ export interface SecretStatus {
 /** Mirrors `SecretEdit`: what a save does to one secret. `keep` is an untouched field. */
 export type SecretEdit = { action: "keep" } | { action: "set"; value: string } | { action: "clear" };
 
-export type ProviderKind = "gemini" | "openai" | "anthropic" | "openai_compatible" | "node";
+export type ProviderKind = "gemini" | "openai" | "anthropic" | "openai_compatible" | "node" | "cloud";
 
 /** Mirrors `ProviderSettingsDto`. Empty strings mean "not set". */
 export interface ProviderSettings {

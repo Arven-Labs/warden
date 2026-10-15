@@ -106,7 +106,8 @@ async fn route<S: AsyncRead + AsyncWrite + Unpin>(stream: &mut S, head: &Request
     let path = head.path.split('?').next().unwrap_or_default();
     match (head.method.as_str(), path) {
         ("GET", "/v1/models") => {
-            let body = json!({ "object": "list", "data": model_ids(api, &key).into_iter().map(|id| json!({ "id": id, "object": "model", "created": 0, "owned_by": "warden" })).collect::<Vec<_>>() });
+            let raw_only = head.path.split_once('?').is_some_and(|(_, query)| query.split('&').any(|pair| pair == "view=provider"));
+            let body = json!({ "object": "list", "data": model_ids(api, &key, raw_only).into_iter().map(|id| json!({ "id": id, "object": "model", "created": 0, "owned_by": "warden" })).collect::<Vec<_>>() });
             write_json(stream, "200 OK", body.to_string().as_bytes()).await.map_err(io_error)
         }
         ("POST", "/v1/chat/completions") => {
@@ -246,17 +247,25 @@ async fn read_body<S: AsyncRead + Unpin>(stream: &mut S, head: &RequestHead) -> 
 
 /// `warden`, then `warden/<agent>` for every configured agent — or, for a key bound to an agent,
 /// only that agent's.
-fn model_ids(api: &ApiContext, key: &ApiKey) -> Vec<String> {
+///
+/// With `raw_only` (`GET /v1/models?view=provider`, P131) just what the key may call straight — `provider/<id>` and
+/// `combo/<id>` — which is what a `cloud` provider on another hub lists to offer its user a choice of models. Otherwise the
+/// agents come first and those follow.
+fn model_ids(api: &ApiContext, key: &ApiKey, raw_only: bool) -> Vec<String> {
+    let config = api.settings.as_ref().and_then(|host| load_config_from_path(&host.config_path(), false).ok());
+    let raw = config.as_ref().map(|config| raw_model_ids(config, key)).unwrap_or_default();
+    if raw_only {
+        return raw;
+    }
     if let Some(agent) = &key.agent_id {
         return vec![format!("{DEFAULT_MODEL}/{agent}")];
     }
     let mut ids = vec![DEFAULT_MODEL.to_string()];
-    if let Some(host) = &api.settings {
-        if let Ok(config) = load_config_from_path(&host.config_path(), false) {
-            // P84: the agents this key's person sees.
-            ids.extend(config.agents.iter().filter(|a| agent_visible_to(a, key.user.as_deref())).map(|a| format!("{DEFAULT_MODEL}/{}", a.id)));
-        }
+    if let Some(config) = &config {
+        // P84: the agents this key's person sees.
+        ids.extend(config.agents.iter().filter(|a| agent_visible_to(a, key.user.as_deref())).map(|a| format!("{DEFAULT_MODEL}/{}", a.id)));
     }
+    ids.extend(raw);
     ids
 }
 
@@ -461,11 +470,14 @@ fn scope_model(api: &ApiContext, key: &ApiKey, model: &str) -> Result<(Orchestra
     let space = MemberSpace::new(member, users_dir, &api.conversations_root);
     let tools = tools_for(&orchestrator, &config, user);
     mount_member_spaces(&space, &config, orchestrator.vault().root(), &api.space_vaults);
-    Ok((member_orchestrator(&orchestrator, &space, &tools, "api", &key.name), persona))
+    // P131: the ledger also remembers which key the call came in through.
+    let scoped = member_orchestrator(&orchestrator, &space, &tools, "api", &key.name)
+        .with_spend_context(SpendContext::new("api").with_user(key.name.clone()).with_person(space.id.clone()).with_api_key(key.id.clone()));
+    Ok((scoped, persona))
 }
 
 fn scope_agent(api: &ApiContext, key: &ApiKey, model: &str) -> Result<(Orchestrator, Option<String>), ApiError> {
-    let base = api.orchestrator.current().with_spend_context(SpendContext::new("api").with_user(key.name.clone()));
+    let base = api.orchestrator.current().with_spend_context(SpendContext::new("api").with_user(key.name.clone()).with_api_key(key.id.clone()));
     if model == DEFAULT_MODEL {
         return Ok((base, None));
     }
@@ -535,8 +547,122 @@ fn completion_id() -> String {
 }
 
 async fn chat_completions<S: AsyncWrite + Unpin>(stream: &mut S, api: &ApiContext, key: &ApiKey, request: &Value) -> Result<(), ApiError> {
+    if let Some(raw) = request.get("model").and_then(Value::as_str).and_then(parse_raw) {
+        return raw_completion(stream, api, key, request, raw).await;
+    }
     let model = effective_model(key, request.get("model").and_then(Value::as_str))?;
     complete(stream, request, model, key.user.is_some(), |model| scope_model(api, key, model)).await
+}
+
+/// What `model` names when it addresses the router itself (P131) instead of an agent: a provider or a combo of `config.toml`.
+#[derive(Clone, Copy)]
+enum RawRef<'a> {
+    Provider(&'a str),
+    Combo(&'a str),
+}
+
+impl<'a> RawRef<'a> {
+    fn id(self) -> &'static str {
+        match self {
+            RawRef::Provider(_) => "provider",
+            RawRef::Combo(_) => "combo",
+        }
+    }
+
+    fn name(self) -> &'a str {
+        match self {
+            RawRef::Provider(name) | RawRef::Combo(name) => name,
+        }
+    }
+}
+
+fn parse_raw(model: &str) -> Option<RawRef<'_>> {
+    if let Some(id) = model.strip_prefix("provider/") {
+        return Some(RawRef::Provider(id));
+    }
+    model.strip_prefix("combo/").map(RawRef::Combo)
+}
+
+fn permission_denied(code: &'static str, message: impl Into<String>) -> ApiError {
+    let mut err = ApiError::new("403 Forbidden", "permission_error", message);
+    err.code = Some(code.into());
+    err
+}
+
+/// Whether a provider of this kind reaches another machine (a node's model, or another hub): `RAW_ALL` doesn't cover those, so
+/// lending a hub's key never lends a node, and a hub never relays to a hub, without the owner naming it.
+fn reaches_machine(kind: warden_bootstrap::Provider) -> bool {
+    matches!(kind, warden_bootstrap::Provider::Node | warden_bootstrap::Provider::Cloud)
+}
+
+/// Whether `key` may call the provider or combo `id` directly. `far` is true when it reaches another machine.
+fn raw_allowed(key: &ApiKey, id: &str, far: bool) -> bool {
+    key.raw.iter().any(|r| r == id) || (!far && key.raw.iter().any(|r| r == crate::api_keys::RAW_ALL))
+}
+
+/// Whether a combo reaches another machine through any of its members.
+fn combo_reaches_machine(config: &FileConfig, combo: &warden_bootstrap::ComboConfig) -> bool {
+    combo.providers.iter().any(|id| config.providers.iter().any(|p| &p.id == id && reaches_machine(p.kind)))
+}
+
+/// `provider/<id>` and `combo/<id>` for everything `key` may call straight; nothing for a key that is an agent's or a member's.
+fn raw_model_ids(config: &FileConfig, key: &ApiKey) -> Vec<String> {
+    if key.agent_id.is_some() || key.user.is_some() || key.raw.is_empty() {
+        return Vec::new();
+    }
+    let providers = config.providers.iter().filter(|p| raw_allowed(key, &p.id, reaches_machine(p.kind))).map(|p| format!("provider/{}", p.id));
+    let combos = config.combos.iter().filter(|c| raw_allowed(key, &c.id, combo_reaches_machine(config, c))).map(|c| format!("combo/{}", c.id));
+    providers.chain(combos).collect()
+}
+
+/// A model nobody gave its notes to: what the raw router's turns read instead of the owner's vault.
+fn raw_vault() -> Arc<Vault> {
+    static VAULT: std::sync::OnceLock<Arc<Vault>> = std::sync::OnceLock::new();
+    VAULT.get_or_init(|| Arc::new(Vault::new(std::env::temp_dir().join(format!("warden-raw-no-notes-{}", std::process::id()))))).clone()
+}
+
+/// A chat completion straight to a provider or combo (P131): the model alone — no persona, no vault, no tools but the client's —
+/// through the hub's own provider, its fallback and its spending limits. It is the shape the code engine's route already has
+/// (`serve_engine`), booked under the `api-raw` channel with the key's id, so a limit on that channel covers raw traffic alone.
+/// Refused unless the owner listed what the key may call.
+async fn raw_completion<S: AsyncWrite + Unpin>(stream: &mut S, api: &ApiContext, key: &ApiKey, request: &Value, raw: RawRef<'_>) -> Result<(), ApiError> {
+    if key.agent_id.is_some() {
+        return Err(permission_denied("model_not_allowed", "a key bound to an agent only speaks as that agent, it can't call a model directly"));
+    }
+    if key.user.is_some() {
+        return Err(permission_denied("raw_not_allowed_for_members", "only the owner's keys can call a model directly"));
+    }
+    if key.raw.is_empty() {
+        return Err(permission_denied("model_not_allowed", "this key can't call a model directly — the owner lists what it may with `warden-server api-keys raw`"));
+    }
+    let server_error = |message: String| ApiError::new("500 Internal Server Error", "server_error", message);
+    let host = api.settings.as_ref().ok_or_else(|| server_error("this hub can't read its providers".into()))?;
+    let config = load_config_from_path(&host.config_path(), false).map_err(|e| server_error(format!("{e:#}")))?;
+    let name = raw.name();
+    let far = match raw {
+        RawRef::Provider(id) => config.providers.iter().find(|p| p.id == id).map(|p| reaches_machine(p.kind)),
+        RawRef::Combo(id) => config.combos.iter().find(|c| c.id == id).map(|c| combo_reaches_machine(&config, c)),
+    };
+    let not_found = || {
+        let mut err = ApiError::new("404 Not Found", "invalid_request_error", format!("the model '{}/{name}' does not exist — see GET /v1/models", raw.id()));
+        err.code = Some("model_not_found".into());
+        err
+    };
+    // Whether it exists is only said to a key that may call it: a refused key can't list what the hub has.
+    if !raw_allowed(key, name, far.unwrap_or(false)) {
+        return Err(permission_denied("model_not_allowed", format!("this key may not call '{}/{name}'", raw.id())));
+    }
+    far.ok_or_else(not_found)?;
+    let model = build_model_for(&config, name, None).map_err(|e| server_error(format!("'{}/{name}' can't be used: {e:#}", raw.id())))?;
+    let orchestrator = api
+        .orchestrator
+        .current()
+        .with_model(model)
+        .with_spend_context(SpendContext::new("api-raw").with_user(key.name.clone()).with_api_key(key.id.clone()))
+        .with_allowed_tools(Some(&[]))
+        .with_vault(raw_vault());
+    let requested = request.get("model").and_then(Value::as_str).unwrap_or_default().to_string();
+    complete(stream, request, requested, false, |_| Ok((orchestrator, None))).await
 }
 
 /// One chat completion, whoever asked: `scope` picks the orchestrator and persona for `model` — the part that differs
