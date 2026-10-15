@@ -60,7 +60,8 @@ jobs:
         run: cargo clippy --workspace --all-targets
 
       - name: Testes
-        run: cargo test --workspace
+        # Sem parar no primeiro crate que falha, para a rodada mostrar todas as falhas de uma vez.
+        run: cargo test --workspace --no-fail-fast
 
   frontends:
     name: Frontend (${{ matrix.app }})
@@ -79,8 +80,9 @@ jobs:
       - name: Node.js
         uses: actions/setup-node@v4
         with:
-          # Os testes importam `.ts` direto, o que pede um Node que remove os tipos sozinho (22.18+).
-          node-version: 24
+          # A mesma da máquina de desenvolvimento: os testes importam `.ts` direto e `node --test tests/` recebe uma
+          # pasta, e o Node 24 não aceita pasta ali.
+          node-version: 26
           cache: npm
           cache-dependency-path: ${{ matrix.app }}/package-lock.json
 
