@@ -2,7 +2,20 @@
 
 > **Nota**: Este log foi criado junto com o projeto. As sessões serão registradas aqui conforme o trabalho avança.
 >
-> Última atualização: 2026-10-15 (Sessão 221)
+> Última atualização: 2026-10-15 (Sessão 222)
+
+---
+
+### 2026-10-15 — Sessão 222 (RAM por instância medida, debatida e decidida: P145 a P148, `HOSPEDAGEM.md` seção K)
+
+- **Pedido do usuário**: design review de arquitetura para hospedar com a arquitetura mais leve, barata e escalável, com o maior medo na RAM por usuário. Ordem pedida: **medir, debater, fechar**, sem implementar.
+- **Medido** (binário de release, 16 núcleos limitados com `taskset`, modelo de mentira compatível com OpenAI, cofres sintéticos; detalhes e limites em `HOSPEDAGEM.md` K.1 e K.2): hub sem modelos **24,8 MB de RSS (3,5 MB privados)**, aceita conexão em **11 ms**; o warm-up de hoje carrega dois modelos e leva a **960 MB** (cofre ~135 MB, histórico ~820 MB); 100 instâncias enxutas somam 346 MB de PSS; o **1º turno com cofre** deixa o RSS em +0,2 a +2,3 GB (50 a 3000 notas curtas) e até **8,2 GB** com notas longas, sem voltar; `opencode` ocioso 342 MB por projeto; Node vazio 47 MB.
+- **Achados de código**: a indexação embute todos os blocos num `embed(texts, None)` só (`memory/mod.rs:516`); a busca semântica roda em todo turno (`orchestrator/mod.rs:726`); cada `Vault` carrega o próprio embedder e o do membro é criado por conexão (`server.rs:1053`) e por requisição de API (`openai_api.rs:470`); nada descarrega modelo; o warm-up é incondicional (`main.rs:1423`).
+- **Benchmark descartável** (fora do repo, mesmo `fastembed`/`ort` do `Cargo.lock`; reproduziu o servidor em 1680 contra 1703 MB): **lote 16 dá 1685 para 473 MB e 7371 para 1111 MB com vetores idênticos**; fatias de 16 no histórico dão 4490 para 1237 MB (814 MB com arena off); truncar a 256 tokens muda os vetores dos blocos longos (cosseno 0,92); descarregar o modelo do cofre devolve 475 para 76 MB, o do histórico deixa ~560 MB.
+- **Decisões do usuário**: embeddings **lazy e locais + consertar a indexação**; **hub sempre de pé** (sem scale-to-zero); execução pesada em **sidecar sob demanda**; modelo do histórico **lazy, sem descarregar, reciclando a instância ociosa**; **não truncar** os blocos (lote 16 e arena; janela de 40 linhas à parte). Descartados com motivo: scale-to-zero, planos por uptime, serviço de embedding compartilhado (por ora) e multi-tenant num processo.
+- **Registrado**: seção K do `HOSPEDAGEM.md` (método, números, decisões, ordem de implementação, suposições); P145 a P148 no `PENDING.md`; linha no Registro de Decisões do `ARCHITECTURE.md`; nota no `ROADMAP.md` e no `INDEX.md`. Nenhum código do Warden foi alterado.
+- **Notas**: o `rustc` deu segfault duas vezes e SIGBUS uma vez compilando em release; passou ao repetir, como nas outras sessões. O `pkill` de uma medição casou com o próprio shell e a interrompeu; refeita. Os scripts de medição (`measure.py`, `density.py`, crate `embedbench`) ficaram só no scratchpad; entrar no repo (`tools/`) é decisão do usuário.
+- **Sobra**: aplicar P145 a P147 (corrigem o self-host também) e medir de novo com um cofre real, um MCP real e um contêiner real.
 
 ---
 

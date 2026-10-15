@@ -257,7 +257,7 @@ hospedar, os créditos de modelo e alguns outros serviços (a definir). Decidido
 processo só depois), **plano de controle no site mãe**, **só créditos pré-pagos no início** (planos depois) e
 **loja curada só pelo Fabio** no início. Fases: 0 decisões e `MeterSink`; 1 Dockerfile e exportar/importar a
 instância; 2 gateway de modelos com ledger durável; 3 contrato com o site mãe; 4 orquestrador; 5 login
-federado; 6 loja curada (serve o self-host também); 7 endurecimento. Itens: P138 a P141. Adiado: multi-tenant,
+federado; 6 loja curada (serve o self-host também); 7 endurecimento. Itens: P138 a P148 (P142 a P144 vieram da revisão de arquitetura; **P145 a P148 das medições de RAM da Sessão 222**: o hub sem modelos usa 24,8 MB e o warm-up de hoje o leva a 960 MB, a indexação do cofre deixa 0,2 a 8 GB; decidido corrigir a indexação e carregar os modelos sob demanda, manter o hub sempre de pé e mandar a execução pesada para sidecar; ver `HOSPEDAGEM.md` seção K). Adiado: multi-tenant,
 planos, terceiros na loja, agente no aparelho do cliente.
 
 ### "9Router" — API do agente pessoal + OAuth de contas de IA

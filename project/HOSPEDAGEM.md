@@ -136,7 +136,7 @@ Vêm da spec do router (`SPEC-warden-router-e-futuro.md`, de 2026-10-14), que fo
 
 - **Imagem:** Dockerfile em múltiplos estágios com o binário e a web embutida (**não existe hoje**; o CI só constrói o desktop). Usuário sem privilégios, sistema de arquivos só de leitura exceto `/data`.
 - **Por cliente:** volume `/data/<cliente>` com `HOME`, `XDG_CONFIG_HOME` e `XDG_CACHE_HOME` apontando para ele (isso redireciona tudo o que está sob `dirs::config_dir()/warden`; só `config.toml` e o cofre têm flag). `WARDEN_SPEND_LEDGER` explícito. Porta interna fixa; o proxy reverso (Caddy ou Traefik) roteia por subdomínio e faz o ACME, porque o Warden não tem ACME (só `--tailscale-cert` e `--tls-cert`/`--tls-key`). A validar: origem e WebSocket atrás do proxy, e limites diferentes por caminho, já que **uma porta só** serve a UI, o WebSocket, `/v1` e `/hooks`.
-- **RAM:** o modelo de embedding (~120 MB, um por processo) é o maior custo fixo, e `warm_embedding_models` roda em todo `serve`. Opções: limite de memória por contêiner com `WARDEN_NO_SEMANTIC=1` no plano básico, ou um serviço de embeddings compartilhado (exige ponto de extensão novo). **Medir o RSS de uma instância ociosa antes de precificar; esse número não existe ainda.** Escalonar o aquecimento em reinícios em massa.
+- **RAM (medida na Sessão 222, ver a seção K):** o hub sem os modelos custa **24,8 MB de RSS (3,5 MB privados)**; os dois modelos que o `warm_embedding_models` carrega em todo `serve` somam **~935 MB** (cofre ~135 MB, histórico ~820 MB), e o 1º turno com cofre indexa tudo de uma vez e deixa o RSS em 0,2 a 8 GB. Decidido: modelos **lazy e locais**, indexação em lote de 16, hub sempre de pé e execução pesada em sidecar (seção K.5). O serviço de embeddings compartilhado foi descartado por ora.
 - **Backup:** instantâneo do volume por cliente, cifrado, com retenção definida e teste periódico de restauração. SIGTERM gracioso ou instantâneo do sistema de arquivos para consistência.
 - **Upgrades:** imagem versionada, em ondas (canário e depois o resto), com health check (a criar um endpoint de saúde/versão, se não houver) e rollback pela imagem anterior. Formatos de arquivo retrocompatíveis por pelo menos uma versão.
 - **Suspender e apagar:** suspender para o contêiner e mantém o volume; apagar só depois da retenção, incluindo as cópias de backup.
@@ -213,7 +213,7 @@ Vêm da spec do router (`SPEC-warden-router-e-futuro.md`, de 2026-10-14), que fo
 
 | Fase | Entrega | Depende de | Sai sozinha? |
 |---|---|---|---|
-| 0 | Fechar as decisões da seção I, medir a RAM de uma instância, ligar o `MeterSink`, corrigir a espera no `Hello` (P142) | nada | sim |
+| 0 | Fechar as decisões da seção I, ligar o `MeterSink`, corrigir a espera no `Hello` (P142) e os defeitos de memória da seção K (P145 a P147; a RAM já foi medida) | nada | sim (corrige o self-host também) |
 | 1 | Dockerfile, `--data-dir`, endpoint de saúde, tratamento de SIGTERM, log estruturado (P143), formato de exportação e importação | 0 | sim (ajuda o self-host também) |
 | 2 | Gateway: token, catálogo de modelos, ledger durável, saldo e `hold`, cotas e rate limit | 0 | sim (testável com a conta criada à mão) |
 | 3 | Contrato B (`warden-hosted-protocol`), recarga idempotente, webhooks de saldo | 2 | com um site mãe falso para teste |
@@ -237,7 +237,7 @@ Vêm da spec do router (`SPEC-warden-router-e-futuro.md`, de 2026-10-14), que fo
 9. O token da instância é compartilhado com os membros (P84) ou cada membro tem a própria cota?
 10. Vender só o gateway de modelos a quem faz self-host (sem hospedar a instância)? O `Provider::Cloud` já permite.
 11. Onde fica guardada a chave de publicação da loja e quem pode assinar?
-12. Existe uma meta de preço que limite o RAM por instância (decide `WARDEN_NO_SEMANTIC` e embeddings compartilhados)?
+12. Existe uma meta de preço que limite o RAM por instância? (Sessão 222: com os consertos da seção K a pergunta deixou de ser "embeddings compartilhados ou não" e virou **qual teto por perfil de plano**: tamanho do cofre indexado, projetos de código ativos e processos MCP.)
 13. Quais são os **"outros serviços"** pagos além da hospedagem e dos créditos de modelo? (O Fabio disse que existem; ainda não foram nomeados. Pontos de partida que o ROADMAP já menciona: armazenamento, execução, ferramentas premium, automações e recursos empresariais.)
 
 ## J. Revisão de arquitetura do código real (Sessão 220)
@@ -269,8 +269,122 @@ Pedida pelo Fabio como um design review de engenheiro sênior para o cenário "i
 - Gap 3: extrair um pacote TypeScript compartilhado com uma interface de transporte (refatoração grande, acaba com a divergência) ou, no desktop remoto, abrir a web UI do hub (barato, mas o webview não tem comandos Tauri, então microfone, cofre local e ferramentas do aparelho não funcionam ali).
 - Gap 5: o contêiner por cliente isola um cliente do outro, mas não protege o Fabio do código que o agente executa nem o cliente do Fabio.
 
-**Não verificado nessa revisão:** o comportamento das telas do desktop sem wrapper remoto quando `remote` é verdadeiro; o `warden-cli`, o app móvel e a extensão em profundidade; o fluxo completo de convite de membro e `people::password_gate`; a RAM por instância; um sistema de arquivos só de leitura de ponta a ponta. As contagens de mensagens do protocolo (~98 do cliente, ~80 do servidor) saíram de uma regex e são aproximadas.
+**Não verificado nessa revisão:** o comportamento das telas do desktop sem wrapper remoto quando `remote` é verdadeiro; o `warden-cli`, o app móvel e a extensão em profundidade; o fluxo completo de convite de membro e `people::password_gate`; a RAM por instância (medida depois, na seção K); um sistema de arquivos só de leitura de ponta a ponta. As contagens de mensagens do protocolo (~98 do cliente, ~80 do servidor) saíram de uma regex e são aproximadas.
+
+## K. RAM por instância: medições e decisão (Sessão 222)
+
+Pedida pelo Fabio como design review: o maior medo é a RAM por usuário, porque instância cara exige VPS cara e encarece o repasse. Medido primeiro, debatido depois, decidido por último. **Nenhum código do Warden foi alterado**; o que se mediu é o comportamento de hoje, e o conserto proposto foi validado só num benchmark descartável.
+
+### K.1 Como se mediu (e o que isso não cobre)
+
+- **Binário:** `warden-server` em release (82 MB, perfil padrão do cargo) e, para a comparação, o de debug (275 MB). Linux x86_64, **16 núcleos** (limitados com `taskset` a 1, 2 ou 4 quando indicado), 32 GB de RAM, page cache quente.
+- **Ambiente de cada execução:** `HOME`, `XDG_CONFIG_HOME` e `XDG_CACHE_HOME` próprios em `/tmp`, um modelo de mentira compatível com OpenAI (SSE) no lugar do provedor, e o servidor dirigido por WebSocket (`hello`, `chat`, `changePassword`). RSS, PSS e CPU lidos de `/proc/<pid>` (`status`, `smaps_rollup`, `stat`).
+- **Cofre:** notas sintéticas em português (palavras repetidas ao acaso). "Curta" = 2 a 8 linhas de 4 a 10 palavras; "longa" = 10 a 30 linhas de 8 a 18 palavras. **Não é um cofre real**, e a qualidade da busca não foi avaliada, só a similaridade dos vetores.
+- **Benchmark descartável** (fora do repo): um programa Rust com o mesmo `fastembed 6.0.3` e `ort 2.0.0-rc.13` do `Cargo.lock`. Na referência ele reproduziu o servidor: RSS final de 1680 MB contra 1703 MB, 15,5 s contra 15,1 s.
+- **Não cobre:** disco frio (sem root para limpar o page cache), início de contêiner e overhead do Docker (não há Docker na máquina), um MCP stdio real (só um processo Node vazio como proxy), nem a CPU de uma VPS de verdade. O binário de release estava em tmpfs.
+- **Reproduzir:** os scripts (`measure.py`, `density.py`, e o crate `embedbench`) ficaram só no scratchpad da sessão. Se forem úteis para repetir a medição, o Fabio decide se entram no repo (por exemplo em `tools/`).
+
+### K.2 Números medidos
+
+**Instância ociosa, release:**
+
+| Configuração | RSS | Anônima | PSS |
+|---|---|---|---|
+| Sem os modelos (`WARDEN_NO_SEMANTIC=1`) | **24,8 MB** | **3,5 MB** | 21 MB |
+| Só o modelo do cofre (`AllMiniLML6V2`) | 160 MB | 124 MB | 156 MB |
+| Só o modelo do histórico (`ParaphraseMLMiniLML12V2Q`) | 846 MB | 809 MB | 842 MB |
+| **Como está hoje (warm-up carrega os dois)** | **960 MB** | 923 MB | 956 MB |
+
+- **100 instâncias enxutas ao mesmo tempo:** RSS de 23 MB cada, mas **PSS de 3,5 MB cada** (346 MB no total), porque as páginas do binário são compartilhadas. 6 instâncias com modelos: 5,7 GB (956 MB cada).
+- **Partida:** aceita conexão em **11 ms** (resolução de 10 ms), igual com e sem warm-up, em 5 execuções de cada. O warm-up roda em `spawn_blocking` (`main.rs:1423`), não bloqueia o servidor e gasta ~1,5 s de CPU em segundo plano. O primeiro disparo do binário de debug em disco frio levou 1,7 s (indício, não medida).
+- **Modo enxuto em uso:** 30 turnos com um cofre de 300 notas: 24,5 para 29,2 MB, 0,09 s de CPU no total.
+- **Processos de fora:** `opencode serve` ocioso, como o hub o inicia: **342 MB** (266 MB anônimos), por projeto de código. Node vazio (proxy de um MCP stdio): 47 MB.
+
+**O 1º turno com cofre indexa tudo de uma vez e o RSS não volta** (`search_semantic_own` chama `model.embed(texts, None)` com todos os blocos pendentes, `memory/mod.rs:516`; o `fastembed` usa lote de 256 e o pico cresce com `lote × bloco²`). Release, 4 núcleos, notas curtas:
+
+| Notas | RSS depois | Acréscimo | 1º turno | CPU |
+|---|---|---|---|---|
+| 50 | 358 MB | +200 MB | 0,6 s | 2,4 s |
+| 300 | 1,29 GB | +1,13 GB | 4,5 s | 17,5 s |
+| 1000 | 1,70 GB | +1,55 GB | 15 s | 59 s |
+| 3000 | 2,50 GB | +2,34 GB | 45 s | 177 s |
+
+Com **notas longas**, 300 notas chegaram a **8,2 GB** (pico 8,6 GB). O RSS final **não depende dos núcleos** (2,38 GB com 50 notas em 1, 2, 4 ou 16 núcleos); só o tempo muda (7,8 s, 4,6 s, 3,2 s, 3,0 s). Os turnos seguintes são de graça (0,01 s). O histórico tem o mesmo defeito: a 1ª busca depois de 100 turnos soma ~0,87 GB.
+
+**Membros.** O `Vault` de cada membro, com o próprio embedder, é criado **por conexão WebSocket** (`server.rs:1053`) e **por requisição de API** (`openai_api.rs:470`). Medido: o 1º membro eleva o RSS de 157 para 532 MB; os seguintes não somam de forma linear (616 e 598 MB). O custo por requisição de API de membro é inferência do código, **não medido**.
+
+**Benchmark: o que derruba a indexação** (4 núcleos, vetores comparados com a referência pelo cosseno):
+
+| Modelo e corpus | Variante | RSS depois | Tempo | Vetores |
+|---|---|---|---|---|
+| Cofre, 1000 curtas | hoje (1 lote) | 1685 MB | 15,5 s | referência |
+| | **lote 16** | **473 MB** | 10,3 s | idênticos (1,00000) |
+| | lote 16 + arena off | 357 MB | 10,6 s | idênticos |
+| Cofre, 300 longas | hoje | **7371 MB** | 18,9 s | referência |
+| | **lote 16** | 1111 MB | 18,6 s | idênticos |
+| | lote 16 + bloco 256 | 409 MB | 6,8 s | cosseno médio 0,917 |
+| | lote 16 + bloco 256 + arena off | 224 MB | 6,7 s | cosseno médio 0,917 |
+| Histórico, 400 longas (quantizado, lote único forçado) | hoje | **4490 MB** | 42,8 s | referência |
+| | **fatias de 16 chamadas** | 1237 MB | 37,1 s | idênticos (1,00000) |
+| | fatias de 16 + arena off | 814 MB | 37,3 s | idênticos (1,00000) |
+| | fatias 16 + bloco 256 + arena off | 782 MB | 22,5 s | cosseno médio 0,997 |
+
+**Descarregar o modelo** (largar o `TextEmbedding` e medir 2 s depois):
+- Cofre, lote 16, arena ligado: **475 MB para 76 MB.** Funciona. Com o arena desligado sobram 276 MB (provável fragmentação do heap).
+- Histórico: de 754 MB carregado ficam **~560 MB** depois de largar, com ou sem arena. **Causa desconhecida** (retenção do ORT ou fragmentação). Aqui descarregar no processo não resolve.
+
+### K.3 Capacidade (estimativa derivada dos números)
+
+Premissas **minhas**: 1 GB reservado para SO, orquestrador e proxy, e 15% de folga (utilizável: 2,55 / 5,95 / 12,75 GB em VPS de 4 / 8 / 16 GB). É o pior caso, com todas as instâncias no mesmo estado ao mesmo tempo.
+
+| Perfil por instância | 4 GB | 8 GB | 16 GB |
+|---|---|---|---|
+| Enxuta, ~30 MB com folga de contêiner (medido: 3,5 MB privados ociosos; o overhead de contêiner é suposição) | ~85 | ~198 | ~425 |
+| **Padrão de hoje, ocioso (960 MB)** | **2** | **6** | **13** |
+| Hoje, após indexar 300 notas curtas (~2,2 GB, com os dois modelos) | 1 | 2 | 5 |
+| Com as correções, usando o cofre (~500 MB de pico, 1000 notas curtas) | 5 | 11 | 25 |
+| Com as correções, usando cofre e histórico (~1,3 GB) | 1 | 4 | 9 |
+| Com projeto de código ativo, +342 MB cada | somar ao perfil acima | | |
+
+### K.4 O que isso diz sobre as premissas do Fabio
+
+- **O medo está certo, mas o culpado não é o processo.** O hub custa ~3,5 MB privados. O custo está em quatro coisas: o modelo do histórico carregado no warm-up para todos (**820 MB**), o salto da indexação que fica residente (**0,2 a 8 GB**), o `opencode` (**342 MB** por projeto) e os MCP em Node (**47 MB ou mais** cada).
+- **Duas dessas coisas são defeitos de código, não limites do produto**, e afetam o self-host também: a indexação em um lote só e o warm-up incondicional.
+- **Scale-to-zero (B) e planos por uptime (D) ficam fracos**: ocioso o hub custa ~0 de CPU e ~3,5 MB, então 100 clientes parados cabem em ~350 MB. A diferença de custo está no que se *usa*, não em estar de pé.
+- **Multi-tenant num processo (E) não se justifica por RAM**: economizaria ~3,5 MB por cliente contra várias semanas de trabalho e risco de vazamento entre clientes.
+
+### K.5 Decisões (2026-10-15)
+
+| # | Opção | Decisão | Por quê |
+|---|---|---|---|
+| A | Um contêiner por usuário, orquestrado pela API do site mãe | **Mantida** (já decidida na seção "Decisões") | Barato quando o resto estiver consertado. |
+| B | Scale-to-zero do hub | **Descartada.** Hub sempre de pé; só se **recicla** instância ociosa que ficou pesada | Poupa pouco com o hub enxuto e quebra bots (WhatsApp/Telegram), tarefas agendadas, sync e as conexões WebSocket de nós. Reciclar é a única forma comprovada de devolver o modelo do histórico. |
+| C | Embedding fora da instância (serviço compartilhado) | **Descartada por ora.** Escolhido: **modelos lazy e locais + consertar a indexação** | O lazy resolve o caso comum com 3 mudanças pequenas e o serviço compartilhado traria fila, ponto único de falha e texto saindo da instância. Fica como plano B se os números dos cenários reais não fecharem. |
+| D | Planos por uptime | **Descartada** como alavanca de custo | Always-on é funcionalidade (bots e tarefas), não custo. Limites úteis: tamanho do cofre indexado, projetos de código ativos, processos MCP. |
+| E | Multi-tenant num processo | **Descartada** (permanece como dívida da seção G) | Não se paga por RAM. |
+| F1 | Consertar a indexação | **Decidida** | Lote 16 no cofre e fatias de 16 no histórico: sem perda de qualidade (cosseno 1,00000) e de 3,5x a 6,6x menos RSS no cofre e 3,6x a 5,5x no histórico. |
+| F2 | Execução pesada fora do hub | **Decidida: sidecar sob demanda**, fora da instância | Tira 342 MB por projeto do hub e o risco de execução arbitrária do contêiner do cliente. É o maior esforço novo e depende do orquestrador. |
+| F3 | Modelo do histórico só quando alguém usa `search_history` | **Decidida: lazy, sem descarregar**, reciclando a instância ociosa | Descarregar não devolve ~560 MB; um processo auxiliar que sai quando ocioso foi considerado e **adiado** (IPC novo e ~0,7 s de recarga). |
+| – | Truncar blocos a 256 tokens | **Descartada por ora** | Muda os vetores dos blocos longos (cosseno 0,92) e exige reindexar e avaliar a busca; reduzir a janela de 40 linhas (`CHUNK_WINDOW_LINES`) fica como estudo à parte, com teste de qualidade. |
+
+**Detalhe técnico que a decisão deixa a confirmar na implementação.** A resposta do Fabio foi "lote 16 + arena". Pelos números, o arena deve ser **ligado no modelo do cofre** (475 MB que caem para 76 MB ao descarregar; desligado, 357 MB mas sobram 276 MB) e **desligado no modelo do histórico** (que nunca é descarregado: 814 a 1237 MB com fatias de 16 (com e sem arena desligado), contra 4490 MB hoje). Descarregar o modelo do cofre após alguns minutos ociosos devolve a memória.
+
+### K.6 Ordem de implementação
+
+Os itens 1 a 5 corrigem o self-host também e não dependem da hospedagem; os pendentes estão em `PENDING.md` (P145 a P148).
+
+1. **P145, indexação do cofre:** `embed(texts, Some(16))` em `search_semantic_own` (`memory/mod.rs:516`), com teste de que os vetores não mudam e de um teto de RSS num cofre grande.
+2. **P146, modelos sob demanda:** o warm-up (`main.rs:1423`) vira configurável e fica **desligado no perfil hospedado**; fatias de 16 e arena desligado dentro de `embed::embed` (`memory/embed.rs:46`), para todo chamador de `search_history`; o modelo do cofre é descarregado após ociosidade.
+3. **P147, `Vault` de membro:** parar de criar um `Vault` (e um embedder) por conexão (`server.rs:1053`) e por requisição de API (`openai_api.rs:470`).
+4. **P143** (já registrado): `--data-dir`, health, SIGTERM e log estruturado, fase 1 do desenho.
+5. **Reciclagem de instância ociosa pesada**, no orquestrador (fase 4).
+6. **P148, sidecar sob demanda** para `opencode` e MCP stdio, depois do orquestrador.
+7. **Medir de novo** com um cofre real, um MCP real e um contêiner real, e fechar os tetos por perfil de plano (pergunta 12 da seção I).
+
+### K.7 O que ficou como suposição ou sem medir
+
+Overhead de contêiner e do orquestrador; disco frio e a rede para baixar os modelos na primeira execução; um MCP stdio real; o custo por requisição de API de membro; a qualidade real da busca (só se mediu a similaridade dos vetores); por que o modelo do histórico retém ~560 MB depois de descarregado; CPU de VPS de verdade; e a hipótese de que o conserto se mantém em cofres reais maiores e mais variados.
 
 ## O que foi verificado e o que não foi
 
-Conferido no código em 2026-10-15: `MeterSink` e `LedgerMeter` não têm chamador fora de `meter.rs`; `ApiKey` tem `raw`, `agent_id` e `user`, sem cota; `SpendEvent` guarda tokens de entrada e saída, provedor e combo; `Provider::Cloud` existe; `FileStore::open` poda por `retain_hours`; `WARDEN_SPEND_LEDGER` existe. Vindo da leitura do código por exploração, **não executado**: os caminhos de arquivo sob `dirs::config_dir()`, a lista de estados globais, a ausência de Dockerfile e de ACME, e a ausência de import/export de skills e agentes. **Não medido:** RAM por instância. O `SPEC-lume-desmontagem.md` citado pela spec do router não existe no repositório, e o "site mãe" só aparece na spec e no P131.
+Conferido no código em 2026-10-15: `MeterSink` e `LedgerMeter` não têm chamador fora de `meter.rs`; `ApiKey` tem `raw`, `agent_id` e `user`, sem cota; `SpendEvent` guarda tokens de entrada e saída, provedor e combo; `Provider::Cloud` existe; `FileStore::open` poda por `retain_hours`; `WARDEN_SPEND_LEDGER` existe. Vindo da leitura do código por exploração, **não executado**: os caminhos de arquivo sob `dirs::config_dir()`, a lista de estados globais, a ausência de Dockerfile e de ACME, e a ausência de import/export de skills e agentes. **Medido na Sessão 222** (seção K): RAM por instância, tempo de partida, CPU por turno, `opencode` e um Node vazio. **Ainda não medido:** contêiner, disco frio, um MCP real e o cofre de um usuário real. O `SPEC-lume-desmontagem.md` citado pela spec do router não existe no repositório, e o "site mãe" só aparece na spec e no P131.
