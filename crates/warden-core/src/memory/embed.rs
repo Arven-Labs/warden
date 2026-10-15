@@ -41,12 +41,29 @@ pub fn embed(_kind: Kind, texts: Vec<String>) -> anyhow::Result<Vec<Vec<f32>>> {
     }
     let mut guard = MODEL.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
     if guard.is_none() {
+        // P146: the ORT arena off, since this model is never unloaded; with the slices below, 400 long messages
+        // took 814 MB instead of 1237 MB with it on.
+        let cpu = ort::ep::CPU::default().with_arena_allocator(false).build();
         *guard = Some(TextEmbedding::try_new(
-            TextInitOptions::new(EmbeddingModel::ParaphraseMLMiniLML12V2Q).with_cache_dir(super::model_cache_dir()).with_show_download_progress(false),
+            TextInitOptions::new(EmbeddingModel::ParaphraseMLMiniLML12V2Q)
+                .with_cache_dir(super::model_cache_dir())
+                .with_show_download_progress(false)
+                .with_execution_providers(vec![cpu]),
         )?);
     }
-    Ok(guard.as_mut().expect("loaded just above").embed(texts, None)?)
+    // P146: fastembed runs a quantized model in one single batch whatever `batch_size` says, and 400 long messages
+    // reached 4.5 GB that way. Slices of 16 give the same vectors (cosine 1.00000).
+    let model = guard.as_mut().expect("loaded just above");
+    let mut embeddings = Vec::with_capacity(texts.len());
+    for slice in texts.chunks(HISTORY_EMBED_SLICE) {
+        embeddings.extend(model.embed(slice, None)?);
+    }
+    Ok(embeddings)
 }
+
+/// How many texts go through the history model at once (P146, measured in `HOSPEDAGEM.md` K.2).
+#[cfg(feature = "semantic-search")]
+const HISTORY_EMBED_SLICE: usize = 16;
 
 /// Loads the model now (the first `embed` of a process does it), so the first search of the history doesn't wait. An error
 /// (offline with no model yet, or the off switch) is for the caller to log; the first real `embed` will try again.

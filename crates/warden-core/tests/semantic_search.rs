@@ -52,3 +52,23 @@ fn search_semantic_is_incremental_across_calls() {
     assert_eq!(after_edit.len(), 1);
     assert!(after_edit[0].line.contains("budgets"));
 }
+
+/// P145: indexing runs the model 16 chunks at a time, so 40 notes take three batches; the one that answers must still
+/// come out on top, wherever it fell.
+#[test]
+#[ignore = "downloads a real ONNX model from Hugging Face on first run — needs network"]
+fn search_semantic_indexes_a_vault_bigger_than_one_batch() {
+    let vault = temp_vault();
+    for i in 0..40 {
+        if i == 27 {
+            vault.write(&format!("note-{i:02}.md"), "Appointment with the dentist on Friday morning.").unwrap();
+        } else {
+            vault.write(&format!("note-{i:02}.md"), &format!("Grocery list number {i}: eggs, bread and milk.")).unwrap();
+        }
+    }
+
+    let hits = vault.search_semantic("do I have a medical checkup coming up?", 1).unwrap();
+
+    assert_eq!(hits.len(), 1);
+    assert_eq!(hits[0].path, "note-27.md");
+}

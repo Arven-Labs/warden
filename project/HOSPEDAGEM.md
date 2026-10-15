@@ -373,8 +373,8 @@ Premissas **minhas**: 1 GB reservado para SO, orquestrador e proxy, e 15% de fol
 
 Os itens 1 a 5 corrigem o self-host também e não dependem da hospedagem; os pendentes estão em `PENDING.md` (P145 a P148).
 
-1. **P145, indexação do cofre:** `embed(texts, Some(16))` em `search_semantic_own` (`memory/mod.rs:516`), com teste de que os vetores não mudam e de um teto de RSS num cofre grande.
-2. **P146, modelos sob demanda:** o warm-up (`main.rs:1423`) vira configurável e fica **desligado no perfil hospedado**; fatias de 16 e arena desligado dentro de `embed::embed` (`memory/embed.rs:46`), para todo chamador de `search_history`; o modelo do cofre é descarregado após ociosidade.
+1. **P145, indexação do cofre:** `embed(texts, Some(16))` em `search_semantic_own` (`memory/mod.rs:516`), com teste de que os vetores não mudam e de um teto de RSS num cofre grande. **Feito na Sessão 223** (código e teste; rodar o teste e medir de novo ficam para a rodada de testes).
+2. **P146, modelos sob demanda:** o warm-up (`main.rs:1423`) vira configurável e fica **desligado no perfil hospedado**; fatias de 16 e arena desligado dentro de `embed::embed` (`memory/embed.rs:46`), para todo chamador de `search_history`; o modelo do cofre é descarregado após ociosidade. **As fatias e o arena desligado foram feitos na Sessão 223**; faltam o warm-up e o descarregamento.
 3. **P147, `Vault` de membro:** parar de criar um `Vault` (e um embedder) por conexão (`server.rs:1053`) e por requisição de API (`openai_api.rs:470`).
 4. **P143** (já registrado): `--data-dir`, health, SIGTERM e log estruturado, fase 1 do desenho.
 5. **Reciclagem de instância ociosa pesada**, no orquestrador (fase 4).

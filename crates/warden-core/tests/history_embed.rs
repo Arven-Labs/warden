@@ -48,3 +48,18 @@ fn related_text_scores_clearly_above_unrelated_text_across_languages() {
     println!("lowest related {lowest_related:.3}, highest unrelated {highest_unrelated:.3}");
     assert!(lowest_related > highest_unrelated, "the model should separate them: related {lowest_related}, unrelated {highest_unrelated}");
 }
+
+/// P146: `embed` runs the model 16 texts at a time. 40 texts cross two slice borders, and each must come out the same as
+/// embedding it alone.
+#[test]
+#[ignore = "downloads a real ONNX model from Hugging Face on first run — needs network"]
+fn slicing_a_long_list_gives_the_same_vectors_as_one_text_at_a_time() {
+    let texts: Vec<String> = (0..40).map(|i| format!("{} (mensagem {i})", PASSAGES[i % PASSAGES.len()].1)).collect();
+    let together = embed(Kind::Passage, texts.clone()).unwrap();
+    assert_eq!(together.len(), texts.len());
+    for (text, vector) in texts.iter().zip(&together) {
+        let alone = embed(Kind::Passage, vec![text.clone()]).unwrap().remove(0);
+        let similarity = cosine_similarity(vector, &alone);
+        assert!(similarity > 0.99999, "{text}: {similarity}");
+    }
+}

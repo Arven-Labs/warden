@@ -513,7 +513,9 @@ impl Vault {
 
         if !pending.is_empty() {
             let texts: Vec<&str> = pending.iter().map(|&i| wanted[i].3.as_str()).collect();
-            let embeddings = self.with_embedder(|model| Ok(model.embed(texts, None)?))?;
+            // P145: fastembed's own batch is 256 and the peak grows with batch × chunk², so a first turn on a big vault
+            // left RSS at 0.2-8 GB for good. 16 at a time gives the same vectors (cosine 1.00000) at 3.5-6.6x less memory.
+            let embeddings = self.with_embedder(|model| Ok(model.embed(texts, Some(VAULT_EMBED_BATCH))?))?;
             for (slot, embedding) in pending.into_iter().zip(embeddings) {
                 rebuilt[slot].embedding = embedding;
             }
@@ -584,6 +586,10 @@ impl Vault {
         f(guard.as_mut().expect("just initialized above"))
     }
 }
+
+/// How many vault chunks go through the model at once (P145, measured in `HOSPEDAGEM.md` K.2).
+#[cfg(feature = "semantic-search")]
+const VAULT_EMBED_BATCH: usize = 16;
 
 /// Where the (shared, not per-vault) ONNX model file lives once downloaded — not vault content,
 /// so it must not live inside a vault directory or get duplicated per vault.

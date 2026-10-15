@@ -45,6 +45,11 @@ fastembed = { version = "6.0.3", optional = true, default-features = false, feat
     "hf-hub-rustls-tls",
     "image-models",
 ] }
+# P146: only to turn the ORT memory arena off for the history model (`memory/embed.rs`) — fastembed
+# re-exports `ExecutionProviderDispatch` but not the CPU provider that builds one. Pinned to the exact
+# version fastembed 6.0.3 already pulls in, so no second `ort` compiles; no features of its own
+# (fastembed's above turn on the download and TLS ones). Optional for the same Android reason.
+ort = { version = "=2.0.0-rc.13", optional = true, default-features = false }
 # Pinned to 0.10 to match the version already used by warden-sync/warden-truthid (avoids a second
 # sha2 major compiling into the workspace) — `cargo add` defaults to the newest 0.11 otherwise.
 # Not optional since P78: note versions (`memory::content_version`) use it without semantic search.
@@ -77,7 +82,7 @@ default = ["semantic-search"]
 # crate that depends on `warden-core` only for non-model plumbing (e.g. `warden-sync`, which pulls
 # in `Vault` purely for file I/O, not chat) — see the fastembed comment above for why this needs to
 # be optional at all rather than just always-on.
-semantic-search = ["dep:fastembed", "dep:dirs"]
+semantic-search = ["dep:fastembed", "dep:ort", "dep:dirs"]
 
 [dev-dependencies]
 # `transport-io` (plain stdio, used to play the *server* side against a real child process in

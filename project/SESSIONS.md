@@ -2,7 +2,16 @@
 
 > **Nota**: Este log foi criado junto com o projeto. As sessões serão registradas aqui conforme o trabalho avança.
 >
-> Última atualização: 2026-10-15 (Sessão 222)
+> Última atualização: 2026-10-15 (Sessão 223)
+
+---
+
+### 2026-10-15 — Sessão 223 (lote de 16 na indexação do cofre e fatias de 16 no histórico: P145 e P146 b)
+
+- **Pedido do usuário**: continuar. Segui a ordem do `HOSPEDAGEM.md` K.6 com plano aprovado: o item 1 (P145) e a parte (b) do item 2 (P146), que corrigem o self-host também.
+- **Feito**: `search_semantic_own` embute em lotes de `VAULT_EMBED_BATCH = 16` (`memory/mod.rs`), com o arena do ORT ligado; `embed::embed` roda o modelo do histórico em fatias de `HISTORY_EMBED_SLICE = 16` (o `fastembed` ignora o `batch_size` no modelo quantizado) e o carrega com o arena desligado. Para o arena, o `ort` virou dependência direta do `warden-core`, fixada em `=2.0.0-rc.13` e só no feature `semantic-search`: `cargo tree -i ort` mostra uma versão só e o `warden-sync` continua sem `ort`. Dois testes novos, `#[ignore]` como os vizinhos: 40 notas indexadas em três lotes acham a nota certa, e 40 textos do histórico saem iguais (cosseno > 0,99999) a embutir um por um.
+- **Conferido**: `cargo build -p warden-core`, `cargo check -p warden-server` e `-p warden-sync`, e os testes compilam (`--no-run`). **Não rodei** os testes ignorados nem a medição de RSS: ficam para a rodada de testes (P145 e P146).
+- **Sobra**: o resto do P146 (warm-up configurável, descarregar o modelo do cofre), o P147 e a medição com o binário novo.
 
 ---
 
