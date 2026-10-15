@@ -2,7 +2,15 @@
 
 > **Nota**: Este log foi criado junto com o projeto. As sessões serão registradas aqui conforme o trabalho avança.
 >
-> Última atualização: 2026-10-15 (Sessão 220)
+> Última atualização: 2026-10-15 (Sessão 221)
+
+---
+
+### 2026-10-15 — Sessão 221 (spec do router removida da raiz)
+
+- **Pedido do usuário**: remover `SPEC-warden-router-e-futuro.md` da raiz antes do push, conferindo se tudo já estava no `project/`.
+- **Conferência**: as decisões, a visão de futuro em cinco pontos, as ideias a validar, as perguntas abertas e o que está fora de escopo já estavam no P131. **Faltavam** o contexto (o Lume será desfeito, um app central por área, nenhum projeto tem usuários ainda) e as **preferências do Fabio** (poucos repositórios, evitar pontas soltas, arquitetura sem retrabalho para escalar, tradeoffs antes de implementar) com a regra de trabalho da spec (confirmar cada decisão, `[DIREÇÃO]` é ideia a validar). Passaram para uma seção nova no começo do `HOSPEDAGEM.md`.
+- **Feito**: seção "Contexto e preferências do Fabio" no `HOSPEDAGEM.md`; referências à spec acertadas no P131, no `ROADMAP.md` e no `INDEX.md`; `git rm` do arquivo. Ele segue no histórico do git (commit `cf00ff7`, Sessão 215). Nenhum código foi tocado.
 
 ---
 

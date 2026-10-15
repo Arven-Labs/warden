@@ -467,7 +467,7 @@ usar um roteador externo como provedor `openai_compatible`. O que entra no Warde
 nativo entre os provedores já cadastrados**: um provedor falha (503, limite) e o turno tenta o
 próximo. Detalhes em `PENDING.md` P79.
 
-**Spec de 2026-10-14 (`SPEC-warden-router-e-futuro.md`, `PENDING.md` P131), a debater**: o roteador
+**Spec de 2026-10-14 (`SPEC-warden-router-e-futuro.md`, removida da raiz na Sessão 221 e registrada no `PENDING.md` P131 e em `HOSPEDAGEM.md`), a debater**: o roteador
 fica no Warden (o Lume será desfeito, finanças ficam no Anchor) e a visão de futuro tem três formas de
 acesso a modelos, nenhuma obrigatória: chave própria, endpoints/modelos próprios cadastrados e a
 **nuvem do Fabio** (ele paga o modelo, por plano ou tokens, estilo OpenRouter). Também: vários

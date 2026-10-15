@@ -28,6 +28,20 @@ Ou seja: **a loja não é um produto pago.** Quem hospeda por conta própria tem
 | 3 | **Cobrança só por créditos pré-pagos** no início. Planos (e o abatimento entre plano e crédito) são estudados depois; no fim existirão os dois. | A questão ética do abatimento continua aberta e **não é decidida aqui**. |
 | 4 | **Loja gratuita nos dois modos, curada só pelo Fabio** no início. Contém plugins/integrações, skills e agentes pré-prontos. | Terceiros só depois de existirem sandbox e revisão (seção E). A loja precisa funcionar para o self-host sem conta nem login. |
 
+## Contexto e preferências do Fabio que guiam as decisões
+
+Vêm da spec do router (`SPEC-warden-router-e-futuro.md`, de 2026-10-14), que foi removida da raiz na Sessão 221 depois de seu conteúdo ser registrado aqui e no P131 (o arquivo segue no histórico do git, commit `cf00ff7`).
+
+**Contexto.** O Fabio cogitou migrar o roteador de modelos para o Lume, fazendo dele um "centro de APIs". Depois de discutir, a direção mudou: **o Lume será desfeito**, as capacidades financeiras ficam no Anchor e o roteamento de modelos de IA **fica no Warden**. O princípio é um aplicativo central por área (IA no Warden, finanças no Anchor), poucos repositórios e máxima organização. Nenhum projeto dele tem usuários ainda: ele constrói primeiro para uso próprio e quer acertar a arquitetura agora, para não sofrer na hora de escalar. O Warden deve ser cliente das capacidades financeiras do Anchor (a intenção era por MCP; a spec pede para confirmar).
+
+**Preferências que devem guiar as decisões**
+- Mínimo de repositórios possível: centralizar por organização, descentralizar só quando necessário.
+- Evitar "pontas soltas".
+- Arquitetura pensada para o futuro, sem retrabalho para escalar.
+- Tradeoffs apresentados antes de implementar.
+
+**Regra de trabalho da spec.** Não presumir nada: explorar o repositório, mostrar ao Fabio o que existe, **confirmar cada decisão de arquitetura** ("vai ser assim mesmo?") e, quando houver mais de um caminho razoável, apresentar opções com prós e contras. O que a spec marca como **[DIREÇÃO]** é ideia a validar, não decisão. Fora de escopo: mexer no TruthID (o Warden não integra além do login opcional já decidido) e criar novos repositórios.
+
 ## A. Arquitetura-alvo
 
 ```
