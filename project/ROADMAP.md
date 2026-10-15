@@ -249,6 +249,16 @@ usuário hospedando o próprio servidor (VPS ou em casa). Um tier pago ofereceri
 servidor pelo próprio Warden (SaaS), pra quem não quiser cuidar de infraestrutura própria.
 Primeira menção de um modelo de negócio pago no projeto. Ver P50.
 
+**Desenhado na Sessão 220 (só registro, nada implementado): ver `HOSPEDAGEM.md`.** O mesmo código é self-host
+grátis e completo, ou assinatura em que o Fabio hospeda o Warden do cliente e vende acesso a modelos pela nuvem
+dele (um endpoint no servidor dele, no papel de OpenRouter ou NineRouter; o cliente paga a ele e não aos
+provedores), mais uma **loja** de integrações. Decidido: **uma instância por cliente** (multi-tenant num
+processo só depois), **plano de controle no site mãe**, **só créditos pré-pagos no início** (planos depois) e
+**loja curada só pelo Fabio** no início. Fases: 0 decisões e `MeterSink`; 1 Dockerfile e exportar/importar a
+instância; 2 gateway de modelos com ledger durável; 3 contrato com o site mãe; 4 orquestrador; 5 login
+federado; 6 loja curada (serve o self-host também); 7 endurecimento. Itens: P138 a P141. Adiado: multi-tenant,
+planos, terceiros na loja, agente no aparelho do cliente.
+
 ### "9Router" — API do agente pessoal + OAuth de contas de IA
 
 Evolução concreta da ideia "Warden API" abaixo (P12): o usuário quer nomear e detalhar isso como

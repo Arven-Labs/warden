@@ -2,7 +2,18 @@
 
 > **Nota**: Este log foi criado junto com o projeto. As sessões serão registradas aqui conforme o trabalho avança.
 >
-> Última atualização: 2026-10-15 (Sessão 219)
+> Última atualização: 2026-10-15 (Sessão 220)
+
+---
+
+### 2026-10-15 — Sessão 220 (modelo de negócio hospedado registrado: P138 a P141, `HOSPEDAGEM.md`)
+
+- **Pedido do usuário**: confirmar que eu entendi a ideia de negócio e rodar um plano para estudar a estrutura e a arquitetura, **só para criar a ideia e registrar no `project/`, sem implementar**. A ideia: o mesmo código é self-host grátis e completo, ou assinatura em que o Fabio hospeda o Warden do cliente (hub, agentes, skills, cofre, integrações) e vende acesso a modelos pela nuvem dele (um endpoint no servidor dele, no papel de OpenRouter ou NineRouter, que o cliente paga a ele e não aos provedores), mais uma loja de integrações. Eu devolvi o que entendi e o usuário seguiu para o plano.
+- **Decisões do usuário** (perguntadas em plan mode): **uma instância por cliente** primeiro, com o multi-tenant preparado para depois; **plano de controle no "site mãe"**; **só créditos pré-pagos** no início, com planos estudados depois ("quero que tenha os dois, mas primeiro só via créditos"); **loja curada só pelo Fabio** no início.
+- **Feito**: só documentação. Novo `HOSPEDAGEM.md` (arquitetura-alvo, contrato com o site mãe, créditos e medição, operação, loja, privacidade, lacunas, fases e as 12 perguntas abertas); P138 a P141 no `PENDING.md` e notas nos P50, P84, P85, P131 e P133; seção em `ROADMAP.md`; quatro linhas no Registro de Decisões do `ARCHITECTURE.md`; nota e entrada no `INDEX.md`. Nenhum código foi tocado.
+- **Achados da exploração** (leitura do código, não executado): um processo por cliente já funciona com `HOME` e `XDG_CONFIG_HOME` por cliente, mas só `config.toml` e o cofre têm flag; vários clientes num processo não funcionam por estados globais (`node_model::ROUTER`, `member_crypto::KEYRING`, `embed::MODEL` e outros); não há Dockerfile, ACME nem registro de clientes; o `MeterSink` do P131 não tem chamador; o ledger de gasto é podado e usa `f64`, então não serve para cobrança; não existe nada de loja (a skill é um `.md` mais uma pasta, sem import/export); um MCP stdio é um comando arbitrário sem sandbox, o que num servidor compartilhado ameaça todos os clientes; o operador consegue, tecnicamente, ver o que o agente vê.
+- **Notas**: o `SPEC-lume-desmontagem.md` citado pela spec do router não existe no repo, e o "site mãe" só aparecia na spec e no P131. A RAM por instância não foi medida (é o primeiro item da fase 0).
+- **Sobra**: tudo. Próximo passo natural é a fase 0 (fechar as perguntas da seção I, medir a RAM, ligar o `MeterSink`) e a fase 1 (Dockerfile e exportar/importar a instância), que ajuda o self-host também.
 
 ---
 
