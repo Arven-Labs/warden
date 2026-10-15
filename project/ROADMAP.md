@@ -456,6 +456,16 @@ usar um roteador externo como provedor `openai_compatible`. O que entra no Warde
 nativo entre os provedores já cadastrados**: um provedor falha (503, limite) e o turno tenta o
 próximo. Detalhes em `PENDING.md` P79.
 
+**Spec de 2026-10-14 (`SPEC-warden-router-e-futuro.md`, `PENDING.md` P131), a debater**: o roteador
+fica no Warden (o Lume será desfeito, finanças ficam no Anchor) e a visão de futuro tem três formas de
+acesso a modelos, nenhuma obrigatória: chave própria, endpoints/modelos próprios cadastrados e a
+**nuvem do Fabio** (ele paga o modelo, por plano ou tokens, estilo OpenRouter). Também: vários
+provedores atrás de um endpoint só, o mesmo código para self-host e hospedado, e o princípio de que o
+grátis/self-hosted sempre funciona e o pago é conveniência. Ideias a validar: a nuvem como mais um
+provedor, ganchos de metering desde já (o ledger de gasto do P4/P10 é a base), chaves de terceiros
+isoladas e uma fronteira de módulo que permita extrair o router hospedado depois. Cobrança e planos
+seguem em aberto (ligam ao P50, "Tier pago").
+
 ### "Warden API" — chave de API própria, auto-hospedada, opcional
 
 Ideia central: uma chave de API do **Warden**, não do provedor de IA por trás.

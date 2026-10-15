@@ -1,6 +1,8 @@
 # Warden — Estado do Projeto
 
-> Última atualização: 2026-10-14 (Sessão 214)
+> Última atualização: 2026-10-14 (Sessão 215)
+
+> Spec em discussão na raiz do repo: `SPEC-warden-router-e-futuro.md` (router de modelos, nuvem do Fabio; ver `PENDING.md` P131).
 
 ---
 

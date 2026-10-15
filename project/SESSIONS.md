@@ -2,7 +2,16 @@
 
 > **Nota**: Este log foi criado junto com o projeto. As sessões serão registradas aqui conforme o trabalho avança.
 >
-> Última atualização: 2026-10-14 (Sessão 214)
+> Última atualização: 2026-10-14 (Sessão 215)
+
+---
+
+### 2026-10-14 — Sessão 215 (spec do router de modelos e da nuvem do Fabio registrada)
+
+- **Pedido do usuário**: olhar o arquivo novo na raiz (`SPEC-warden-router-e-futuro.md`, não rastreado), extrair o máximo, atualizar o `project/`, commitar e depois discutir.
+- **Feito**: só documentação. P131 novo no `PENDING.md` (decisões da spec, visão em cinco pontos, [DIREÇÃO], questões em aberto, o que a spec supõe e o código não confirma); seção no `ROADMAP.md` ("Roteador de APIs de IA") e nota no `INDEX.md`. A spec foi commitada na raiz, sem mexer no texto.
+- **Achado**: a spec chama o roteador atual de "Nine Router", mas o 9Router nunca foi embutido (P79, Sessão 105); o que existe é fallback nativo e combos (P90), a Warden API compatível com a OpenAI (P12/P91) e o ledger de gasto com limites (P4/P10/P126), que já serve de base para o metering. O lado cliente do Anchor é o P13 (client MCP pronto; falta o Anchor expor o server).
+- **Sem decisão**: nada foi decidido nem implementado; a spec manda confirmar cada decisão de arquitetura com o usuário, e é isso que vem a seguir.
 
 ---
 
