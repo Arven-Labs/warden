@@ -15,7 +15,8 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - os: ubuntu-22.04
+          # 24.04: o ONNX Runtime pronto do `ort` pede glibc 2.38+ (ver ci.yml), então o .deb também pede.
+          - os: ubuntu-24.04
             artifact: '*.deb'
           - os: windows-latest
             artifact: '*.msi'
@@ -31,7 +32,7 @@ jobs:
       - name: Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 24
           cache: npm
           cache-dependency-path: desktop/package-lock.json
 
@@ -39,13 +40,12 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
 
       - name: Cache Rust
+        # O `desktop/src-tauri` é membro do workspace da raiz, então o `target/` (o que se guarda) fica na raiz.
         uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: desktop/src-tauri
 
-      # Dependências nativas do Linux que o Tauri e o keyring precisam
+      # Dependências nativas do Linux que o Tauri, o keyring e o áudio (cpal) precisam
       - name: Linux deps
-        if: matrix.os == 'ubuntu-22.04'
+        if: matrix.os == 'ubuntu-24.04'
         run: |
           sudo apt-get update
           sudo apt-get install -y \
@@ -58,6 +58,7 @@ jobs:
             libsecret-1-dev \
             patchelf \
             libudev-dev \
+            libasound2-dev \
             pkg-config
 
       - name: npm install

@@ -17,7 +17,8 @@ env:
 jobs:
   embeddings:
     name: Modelos de embedding (cofre e histórico)
-    runs-on: ubuntu-22.04
+    # 24.04: o ONNX Runtime pronto do `ort` pede glibc 2.38+ (ver ci.yml).
+    runs-on: ubuntu-24.04
     steps:
       - name: Checkout
         uses: actions/checkout@v4
