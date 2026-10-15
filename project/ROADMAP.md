@@ -466,6 +466,13 @@ provedor, ganchos de metering desde já (o ledger de gasto do P4/P10 é a base),
 isoladas e uma fronteira de módulo que permita extrair o router hospedado depois. Cobrança e planos
 seguem em aberto (ligam ao P50, "Tier pago").
 
+**Primeira rodada feita (Sessão 218, P131)**: tipo de provedor `cloud`, modo cru na Warden API
+(`provider/<id>` e `combo/<id>`, só para chaves do dono que o dono listou), gasto no canal `api-raw` com o id
+da chave e os tokens de entrada e saída, o gancho `MeterSink`, chaves de provedor num arquivo 0600 à parte e
+`base_url` também para Gemini, OpenAI e Anthropic. **Não agendado**: cobrança, planos, créditos e saldo; vários
+modelos por provedor; editar o acesso cru pela tela (hoje só `warden-server api-keys raw`); o endereço real da
+nuvem do Fabio.
+
 ### "Warden API" — chave de API própria, auto-hospedada, opcional
 
 Ideia central: uma chave de API do **Warden**, não do provedor de IA por trás.

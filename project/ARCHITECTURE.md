@@ -2104,6 +2104,39 @@ mesma resposta CommonMark via `react-markdown`+`remark-gfm`; faltava o conversor
 - **Fica de fora**: imagens, `/v1/embeddings` e outros endpoints, e keep-alive. O repasse das tools do
   cliente entrou na Sessão 107 (P91, acima).
 
+### Modo cru do router (P131, Sessão 218)
+
+- **O que é**: com `model: "provider/<id>"` ou `"combo/<id>"` (ids do `config.toml`), a chamada vai direto ao
+  provedor ou ao combo, sem agente: sem persona, sem cofre (`raw_vault()`, vazio) e sem tools além das do
+  cliente. É o mesmo formato da rota do engine de código (`serve_engine`), por isso reaproveita `complete()`:
+  stream, tools do cliente, fallback do combo e limites de gasto, sem código novo de conversão. Não há crate
+  `warden-router`: a fronteira é o ramo `raw_completion` em `openai_api.rs`, que é só um adaptador sobre
+  `build_model_for` (extraível depois, se o router hospedado virar produto).
+- **Autorização** (`ApiKey.raw`, lista de ids, `*` = todos): **padrão negado**. Só chave geral do dono; chave presa a
+  agente recebe `403 model_not_allowed` e chave de membro `403 raw_not_allowed_for_members`. `*` não cobre
+  provedor `node` nem `cloud` (nem combo que tenha um deles): têm de ser nomeados, para um hub nunca repassar a
+  outro sem o dono dizer. Quem não pode chamar um id também não descobre se ele existe (403 antes de 404). O dono
+  edita com `warden-server api-keys raw <id> <modelos…>`.
+- **Gasto**: canal `api-raw`, com o id da chave (`SpendEvent.api_key`) e os tokens de entrada e saída
+  (`input_tokens`, `output_tokens`, quando o provedor os separa). Um `[[limits]]` com escopo de canal `api-raw`
+  cobre só o tráfego cru. Os turnos de agente pela API também gravam o id da chave.
+- **`GET /v1/models`**: uma chave com acesso cru lista também os `provider/<id>` e `combo/<id>`; com
+  `?view=provider` lista só esses (é o que um provedor `cloud` pede para oferecer a escolha de modelo).
+- **Metering** (`warden-core/src/meter.rs`): trait `MeterSink` (+ `MeterEvent`, `LedgerMeter`, `NoopMeter`). É o
+  gancho para uma contabilidade própria da versão hospedada; **hoje nada o chama**, porque o orquestrador já grava
+  no ledger. Cobrança, planos e créditos ficam fora (P131).
+- **`Provider::Cloud`**: o hub de outra pessoa (ou a nuvem do Fabio) como provedor. Fala OpenAI, a chave `wdn_` é
+  obrigatória e `base_url` é opcional (padrão `CLOUD_DEFAULT_BASE_URL`, ainda um endereço de mentira). O mesmo
+  código serve self-host e hospedado: quem hospeda troca só o `base_url`.
+- **`base_url` em Gemini, OpenAI e Anthropic** (`custom_base_url`): para proxy ou gateway. Tem de ser https; http
+  só para a própria máquina e redes privadas (inclui a faixa do Tailscale), porque a chave viaja em cada pedido.
+- **Chaves de provedor** (`warden-bootstrap/src/secrets.rs`): saem do `config.toml` para `config.secrets.toml`, ao
+  lado dele, com modo 0600 (também o `config.toml`), escrita por arquivo temporário e rename. Ao carregar, a chave
+  que ainda estiver no `config.toml` vale mais (migração sem perda); ao salvar, as chaves vão para o secrets
+  (relido para conferir) antes de saírem do config, e o `config.toml` antigo fica em `config.toml.bak` (0600). O
+  `Debug` do `ProviderConfig` esconde a chave. **Ficam de fora**: as chaves da seção legada `[api_keys]` (Tavily,
+  Telegram, voz…), que seguem em texto puro no `config.toml`, e o Windows, onde o chmod não faz nada.
+
 ## Rede de nós no mesmo workspace (P86, estudo da Sessão 107 — nada implementado)
 
 Registro de uma conversa de desenho com o usuário, para quando for construir. A ordem combinada está no

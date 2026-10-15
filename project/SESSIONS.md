@@ -2,7 +2,21 @@
 
 > **Nota**: Este log foi criado junto com o projeto. As sessões serão registradas aqui conforme o trabalho avança.
 >
-> Última atualização: 2026-10-14 (Sessão 217)
+> Última atualização: 2026-10-15 (Sessão 218)
+
+---
+
+### 2026-10-15 — Sessão 218 (P131: nuvem do Fabio, modo cru do router, metering, chaves protegidas)
+
+- **Pedido do usuário**: "vamos de P131", planejado em plan mode. **Decisões do usuário**: tipo `Provider::Cloud` novo; modo cru na mesma Warden API; escopo com as quatro frentes (endpoint cru, ganchos de metering, chaves protegidas, endpoints customizados); cobrança, planos e créditos **fora**, só os ganchos.
+- **Achado que mudou o plano**: a rota do engine de código (`serve_engine`) já entrega "o modelo sozinho" reaproveitando `complete()` (cofre vazio, sem tools), então o modo cru é um ramo fino sobre ela. **Não foi criado o crate `warden-router`** do plano: a fronteira é o ramo `raw_completion` em `openai_api.rs`. Por isso o `MeterSink` ficou em `warden-core/src/meter.rs` e **nada o chama ainda** (o orquestrador já grava no ledger).
+- **S0, chaves protegidas**: `warden-bootstrap/src/secrets.rs`. As chaves de `[[providers]]` vão para `config.secrets.toml` (ao lado do config, não um `secrets.toml` fixo, para dois configs na mesma pasta não dividirem chaves), 0600, com `config.toml` também 0600. Migração no primeiro `save_config`, com `.bak`; `ProviderConfig` ganhou `Debug` que esconde a chave; `FileConfig` e `ApiKeys` ganharam `Clone`. Conferido: o protocolo só leva `SecretStatusDto`, a chave não sai do hub.
+- **S1, `Provider::Cloud`**: variante e todos os `match` (bootstrap, settings, CLI, `provider_admin`), `CLOUD_DEFAULT_BASE_URL` (endereço de mentira até a nuvem existir), chave obrigatória, opção nas telas do desktop e da web. Extensão e celular não espelham o tipo.
+- **S2, metering**: `SpendEvent` com `input_tokens`, `output_tokens` e `api_key` (todos opcionais, linha antiga lê igual); `SpendContext::with_api_key`; os turnos de agente pela API também gravam o id da chave; `MeterSink`, `LedgerMeter`, `NoopMeter`.
+- **S3, modo cru**: `provider/<id>` e `combo/<id>` em `/v1/chat/completions`, `ApiKey.raw` (padrão negado, só chave geral do dono, `*` não cobre `node` nem `cloud`), canal `api-raw`, `/v1/models` e `?view=provider`, comando `warden-server api-keys raw`.
+- **S4, endpoints**: `base_url` para Gemini, OpenAI e Anthropic, https obrigatório, http só para a máquina e redes privadas (inclui o Tailscale).
+- **Verificação**: `cargo check --workspace --tests` limpo e `tsc` do desktop e da web. **Nenhum teste rodado** (rodada em lote depois): a lista está no P131.
+- **Sobra**: o teto de `max_tokens` por chave do plano **não foi feito**; editar o acesso cru pela tela (mensagens do protocolo e UIs) não foi feito; vários modelos por provedor ficou adiado; o campo de URL base só aparece nas telas para `openai_compatible` e `cloud`.
 
 ---
 
