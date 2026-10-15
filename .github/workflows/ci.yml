@@ -2,10 +2,16 @@ name: CI
 
 # A suíte completa roda aqui, não na máquina de desenvolvimento (Sessão 223): na máquina fica só o `cargo check`
 # e um teste pontual. Roda em todo push na main, em PR e pelo botão "Run workflow".
+# Um commit que só mexe na documentação não dispara a rodada.
 on:
   push:
     branches: [main]
+    paths-ignore: &docs
+      - 'project/**'
+      - '**/*.md'
+      - 'LICENSE'
   pull_request:
+    paths-ignore: *docs
   workflow_dispatch:
 
 # Um push novo na mesma branch cancela a rodada que ainda estiver em andamento.
