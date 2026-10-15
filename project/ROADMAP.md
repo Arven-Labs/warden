@@ -732,6 +732,19 @@ Warden como interface de IA para casa inteligente.
 
 ---
 
+## Ideias de 2026-10-14 (Sessão 216), só registradas, nada debatido
+
+Quatro ideias do usuário, cada uma com o detalhe em `PENDING.md`:
+
+- **P132**: estudar modelos novos de tomada de decisão ("JEV" e "Laya", nomes a confirmar) e ver se agregam.
+- **P133**: vários workspaces isolados, com tudo o que o Warden tem dentro de cada um, como o Anchor (atenção: "workspace" já
+  é a rede de nós).
+- **P134**: aproveitar orquestradores de agentes como o Paperclip e, com isso, atender empresas.
+- **P135**: SDK de integração (utilidade incerta, a validar com um caso de uso real).
+
+Ligação entre elas: P133 é o recipiente, P134 é o público que o usaria, P135 é a porta de entrada para esse público e P132 pode
+melhorar como os agentes decidem. Nenhuma é pré-requisito do router (P131).
+
 ## Backlog
 
 | Item | Notas |

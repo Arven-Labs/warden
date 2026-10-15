@@ -2,7 +2,15 @@
 
 > **Nota**: Este log foi criado junto com o projeto. As sessões serão registradas aqui conforme o trabalho avança.
 >
-> Última atualização: 2026-10-14 (Sessão 215)
+> Última atualização: 2026-10-14 (Sessão 216)
+
+---
+
+### 2026-10-14 — Sessão 216 (quatro ideias do usuário registradas: P132 a P135)
+
+- **Pedido do usuário**: só registrar, sem debater: (1) estudar modelos novos de tomada de decisão ("JEV" e "Laya"); (2) workspaces isolados com tudo dentro, como o Anchor; (3) aproveitar orquestradores de agentes como o Paperclip e atender empresas; (4) SDK de integração (sem certeza da utilidade).
+- **Feito**: só documentação. P132, P133, P134 e P135 no `PENDING.md`, seção no `ROADMAP.md`, nota no `INDEX.md`.
+- **Notas**: "JEV" pode ser grafia de outro nome (talvez JEPA); ficou marcado para confirmar. "Workspace" já é o nome da rede de nós no Warden, conflito anotado no P133. Nada pesquisado nem decidido.
 
 ---
 
