@@ -1,0 +1,39 @@
+name: Testes pesados
+
+# Os testes `#[ignore]` que baixam os modelos de embedding de verdade (~120 MB cada) e rodam a busca por
+# significado: a "rodada de testes" que antes ficava pendente na máquina (Sessão 223). Só manual:
+#   gh workflow run heavy-tests.yml
+# Fica de fora o teste do `opencode` (`code_engine/process.rs`), que precisa do programa instalado.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: 0
+
+jobs:
+  embeddings:
+    name: Modelos de embedding (cofre e histórico)
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust
+        uses: Swatinem/rust-cache@v2
+
+      # Onde o `model_cache_dir()` do warden-core guarda os modelos baixados.
+      - name: Cache dos modelos
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/warden/models
+          key: warden-models-${{ hashFiles('crates/warden-core/Cargo.toml') }}
+
+      - name: Testes com modelo real
+        run: cargo test -p warden-core --test semantic_search --test history_embed -- --ignored --nocapture

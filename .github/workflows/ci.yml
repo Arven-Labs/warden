@@ -1,0 +1,91 @@
+name: CI
+
+# A suíte completa roda aqui, não na máquina de desenvolvimento (Sessão 223): na máquina fica só o `cargo check`
+# e um teste pontual. Roda em todo push na main, em PR e pelo botão "Run workflow".
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+# Um push novo na mesma branch cancela a rodada que ainda estiver em andamento.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  # Incremental só ajuda quem recompila a mesma árvore; no CI ele só engorda o cache.
+  CARGO_INCREMENTAL: 0
+
+jobs:
+  rust:
+    name: Rust (clippy e testes)
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      - name: Cache Rust
+        uses: Swatinem/rust-cache@v2
+
+      # O `desktop/src-tauri` é membro do workspace, então o Linux precisa das mesmas libs do build.yml.
+      - name: Linux deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libgtk-3-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            libssl-dev \
+            libdbus-1-dev \
+            libsecret-1-dev \
+            patchelf \
+            libudev-dev \
+            pkg-config
+
+      # Sem `cargo fmt --check`: o repo não segue o rustfmt.
+      - name: Clippy
+        run: cargo clippy --workspace --all-targets
+
+      - name: Testes
+        run: cargo test --workspace
+
+  frontends:
+    name: Frontend (${{ matrix.app }})
+    runs-on: ubuntu-22.04
+    strategy:
+      fail-fast: false
+      matrix:
+        app: [web, desktop, extension]
+    defaults:
+      run:
+        working-directory: ${{ matrix.app }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: ${{ matrix.app }}/package-lock.json
+
+      - name: npm ci
+        run: npm ci
+
+      - name: Testes
+        run: npm test
+
+      - name: Build
+        run: npm run build
