@@ -2,7 +2,15 @@
 
 > **Nota**: Este log foi criado junto com o projeto. As sessões serão registradas aqui conforme o trabalho avança.
 >
-> Última atualização: 2026-10-14 (Sessão 216)
+> Última atualização: 2026-10-14 (Sessão 217)
+
+---
+
+### 2026-10-14 — Sessão 217 (i18n e documentação registrados para o final: P136 e P137)
+
+- **Pedido do usuário**: só registrar, commitar e dar push: ao final do projeto, criar o i18n multi-idioma (tudo em inglês como padrão, depois outras línguas, código também em inglês) e a documentação do projeto.
+- **Feito**: só documentação. P136 e P137 no `PENDING.md`, seção no `ROADMAP.md`, nota no `INDEX.md`.
+- **Notas**: nada levantado no código ainda; não se sabe quanto do texto e dos comentários está em português.
 
 ---
 

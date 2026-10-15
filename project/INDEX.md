@@ -1,6 +1,8 @@
 # Warden — Estado do Projeto
 
-> Última atualização: 2026-10-14 (Sessão 216)
+> Última atualização: 2026-10-14 (Sessão 217)
+
+> Para o final do projeto (Sessão 217): i18n multi-idioma com inglês como padrão e código em inglês (P136), e a documentação do projeto (P137). Ver `PENDING.md`.
 
 > Spec em discussão na raiz do repo: `SPEC-warden-router-e-futuro.md` (router de modelos, nuvem do Fabio; ver `PENDING.md` P131).
 

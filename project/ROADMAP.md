@@ -745,6 +745,13 @@ Quatro ideias do usuário, cada uma com o detalhe em `PENDING.md`:
 Ligação entre elas: P133 é o recipiente, P134 é o público que o usaria, P135 é a porta de entrada para esse público e P132 pode
 melhorar como os agentes decidem. Nenhuma é pré-requisito do router (P131).
 
+## Para o final do projeto (Sessão 217)
+
+Duas tarefas que o usuário pediu para deixar para perto do fim, detalhe em `PENDING.md`:
+
+- **P136**: i18n multi-idioma, com inglês como padrão (interface e código em inglês), depois as outras línguas.
+- **P137**: documentação do projeto, já em inglês, depois do P136.
+
 ## Backlog
 
 | Item | Notas |
