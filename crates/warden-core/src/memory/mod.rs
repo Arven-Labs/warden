@@ -13,18 +13,21 @@ use fastembed::{EmbeddingModel, TextEmbedding, TextInitOptions};
 use std::collections::HashMap;
 use std::path::{Component, Path, PathBuf};
 use std::sync::{Arc, Mutex, RwLock};
+#[cfg(feature = "semantic-search")]
+use std::time::{Duration, Instant};
 
 /// Markdown vault on local disk (Obsidian-compatible). IPFS mirroring lands in Phase 4.
 pub struct Vault {
     root: PathBuf,
     /// Lazily loaded on first semantic search (downloads the ONNX model on first-ever use) and
     /// reused after that — `Vault` is held behind `Arc` for the life of the process, so this loads
-    /// at most once per process, not once per turn. Behind the `semantic-search` feature (default
+    /// at most once per process, not once per turn, unless `unload_idle_embedder` lets it go after a
+    /// pause (P146). Behind the `semantic-search` feature (default
     /// on) — off for crates that only need `Vault` for file I/O (e.g. `warden-sync`), since `ort`
     /// (fastembed's ONNX runtime) has no prebuilt binary for some cross-compile targets those
     /// crates build for (Android's `armv7-linux-androideabi`, via `warden-mobile-bridge`).
     #[cfg(feature = "semantic-search")]
-    embedder: Mutex<Option<TextEmbedding>>,
+    embedder: Mutex<EmbedderSlot>,
     /// Guards the read-refresh-write cycle of the on-disk semantic index (`.warden/semantic_index.json`)
     /// against two turns (e.g. two channels sharing one `warden-server` vault) racing each other.
     #[cfg(feature = "semantic-search")]
@@ -49,6 +52,13 @@ pub struct Vault {
     /// an ordinary vault; `false` for the vault of a project's folder (`subvault`), where a `projects/` of the
     /// person's own making is just a folder. `search_everywhere` and `list_all_files` ignore it.
     hide_projects: bool,
+}
+
+/// The vault's embedding model and when it was last used, under one lock so that using it and unloading it can't race.
+#[cfg(feature = "semantic-search")]
+struct EmbedderSlot {
+    model: Option<TextEmbedding>,
+    last_used: Instant,
 }
 
 /// What a locked vault (or conversation folder) answers.
@@ -108,7 +118,7 @@ impl Vault {
             hide_projects: true,
             root,
             #[cfg(feature = "semantic-search")]
-            embedder: Mutex::new(None),
+            embedder: Mutex::new(EmbedderSlot { model: None, last_used: Instant::now() }),
             #[cfg(feature = "semantic-search")]
             index_lock: Mutex::new(()),
             note_lock: Mutex::new(()),
@@ -575,15 +585,35 @@ impl Vault {
             anyhow::bail!("search by meaning is turned off ({} is set)", embed::OFF_SWITCH);
         }
         let mut guard = self.embedder.lock().unwrap();
-        if guard.is_none() {
+        if guard.model.is_none() {
             let model = TextEmbedding::try_new(
                 TextInitOptions::new(EmbeddingModel::AllMiniLML6V2)
                     .with_cache_dir(model_cache_dir())
                     .with_show_download_progress(false),
             )?;
-            *guard = Some(model);
+            guard.model = Some(model);
         }
-        f(guard.as_mut().expect("just initialized above"))
+        let result = f(guard.model.as_mut().expect("just initialized above"));
+        guard.last_used = Instant::now();
+        result
+    }
+
+    /// Lets the embedding model go if nothing has used it for `idle` (P146): an idle hub then weighs ~76 MB instead of ~475 MB,
+    /// and the next search loads it again. Returns whether it unloaded one. Waits for a search in progress rather than
+    /// taking the model from under it.
+    #[cfg(feature = "semantic-search")]
+    pub fn unload_idle_embedder(&self, idle: Duration) -> bool {
+        let mut guard = self.embedder.lock().unwrap();
+        if guard.model.is_some() && guard.last_used.elapsed() >= idle {
+            guard.model = None;
+            return true;
+        }
+        false
+    }
+
+    #[cfg(not(feature = "semantic-search"))]
+    pub fn unload_idle_embedder(&self, _idle: std::time::Duration) -> bool {
+        false
     }
 }
 
@@ -954,7 +984,34 @@ mod tests {
         assert!(vault.search_semantic("anything", 8).unwrap().is_empty());
         vault.write("blank.md", "").unwrap();
         assert!(vault.search_semantic("anything", 8).unwrap().is_empty());
-        assert!(vault.embedder.lock().unwrap().is_none(), "nothing to rank, so the model was never needed");
+        assert!(vault.embedder.lock().unwrap().model.is_none(), "nothing to rank, so the model was never needed");
+    }
+
+    #[cfg(feature = "semantic-search")]
+    #[test]
+    fn unloading_an_idle_embedder_does_nothing_when_none_was_loaded() {
+        let vault = temp_vault();
+        assert!(!vault.unload_idle_embedder(Duration::ZERO));
+    }
+
+    /// P146 (c): needs the real model (downloaded once), so it runs with the other `--ignored` embedding tests.
+    #[cfg(feature = "semantic-search")]
+    #[test]
+    #[ignore = "loads the real embedding model"]
+    fn an_idle_embedder_is_unloaded_and_the_next_search_loads_it_again() {
+        let vault = temp_vault();
+        vault.write("feijao.md", "arroz e feijão para o almoço").unwrap();
+        vault.write("other.md", "the quarterly tax return").unwrap();
+        vault.warm_up().unwrap();
+        assert!(!vault.unload_idle_embedder(Duration::from_secs(3600)), "used just now, so it stays");
+        assert!(vault.embedder.lock().unwrap().model.is_some());
+
+        assert!(vault.unload_idle_embedder(Duration::ZERO), "idle long enough, so it goes");
+        assert!(vault.embedder.lock().unwrap().model.is_none());
+
+        let hits = vault.search_semantic("lunch with rice and beans", 1).unwrap();
+        assert_eq!(hits.first().map(|h| h.path.as_str()), Some("feijao.md"), "loaded again and found the right note");
+        assert!(vault.embedder.lock().unwrap().model.is_some());
     }
 
     #[cfg(feature = "semantic-search")]

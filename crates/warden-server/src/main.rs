@@ -562,6 +562,12 @@ struct ServeArgs {
     /// instances wants; the cost is that the first turn that searches waits for the model.
     #[arg(long)]
     no_embedding_warm_up: bool,
+
+    /// Let go of the vault's search model after this many seconds without a search (P146): an idle hub then weighs
+    /// ~76 MB instead of ~475 MB, and the next search loads it again (~135 MB, ~1.5 s of CPU). 0 keeps it for good.
+    /// Doesn't touch the history search's model, which stays loaded once used.
+    #[arg(long, default_value_t = 600)]
+    embedding_idle_secs: u64,
 }
 
 /// Same fallback warden-telegram/the desktop app use — a background process launched by a
@@ -1326,6 +1332,9 @@ async fn run_serve(args: ServeArgs) -> anyhow::Result<()> {
     } else {
         warm_embedding_models(orchestrator.vault().clone());
     }
+    if args.embedding_idle_secs > 0 {
+        unload_idle_embedder_periodically(orchestrator.vault().clone(), std::time::Duration::from_secs(args.embedding_idle_secs));
+    }
     let settings =args.config.as_ref().map(PathBuf::from).or_else(warden_bootstrap::default_config_path).map(|config_path| ServeSettings {
         config_path,
         explicit_config: args.config.clone(),
@@ -1441,6 +1450,24 @@ fn warm_embedding_models(vault: Arc<warden_core::memory::Vault>) {
         if std::env::var_os(warden_core::memory::embed::OFF_SWITCH).is_none_or(|v| v.is_empty()) {
             if let Err(err) = warden_core::memory::embed::warm_up() {
                 eprintln!("warden-server: could not load the history search model ({err:#}); it will try again when it is used");
+            }
+        }
+    });
+}
+
+/// Every so often, lets the vault's search model go if nothing has searched for `idle` (P146). The check runs on a blocking
+/// thread because it waits for a search in progress before it can take the lock.
+fn unload_idle_embedder_periodically(vault: Arc<warden_core::memory::Vault>, idle: std::time::Duration) {
+    // A quarter of the idle time, so the model never outlives it by much; at most a minute, at least a second.
+    let every = (idle / 4).clamp(std::time::Duration::from_secs(1), std::time::Duration::from_secs(60));
+    tokio::spawn(async move {
+        let mut ticker = tokio::time::interval(every);
+        ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+        loop {
+            ticker.tick().await;
+            let vault = vault.clone();
+            if let Ok(true) = tokio::task::spawn_blocking(move || vault.unload_idle_embedder(idle)).await {
+                eprintln!("warden-server: the vault's search model was idle for {}s and was unloaded; the next search loads it again", idle.as_secs());
             }
         }
     });
