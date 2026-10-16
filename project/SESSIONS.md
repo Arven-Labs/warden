@@ -23,6 +23,12 @@
 - **Conferido**: `cargo check --workspace --all-targets` sem avisos; 9 testes da política, 5 unitários do hub e 4 de `/status` por socket real passam (inclui `in_flight == 1` durante um turno lento); com o binário, `/status` dá 401 sem chave e, com chave, 47,67 MB contra 47,14 MB do `/proc`. **Não rodei** a suíte completa nem o clippy (CI).
 - **Sobra**: o laço que consulta e reinicia (precisa do runtime de contêiner), olhar o próximo horário de tarefa agendada antes de reciclar, medir o RSS que volta num cofre real.
 
+**Imagem do hub e raiz só de leitura (P143 e)**: plano aprovado em modo de plano (a 1ª tentativa de apresentá-lo falhou porque eu não tinha entrado nele; entrei e apresentei antes de criar qualquer arquivo).
+- **Feito**: `Dockerfile` (3 estágios), `.dockerignore`, `scripts/image-smoke.sh` e `.github/workflows/image.yml` (só quando a imagem muda ou à mão; sem publicar). O `cargo tree -p warden-server` mostrou que não precisa de `alsa`, `dbus`, `openssl` nem `webkit`, então o runtime só tem `ca-certificates`, `curl` e `git`. A porta é a 7420 (o padrão do `serve`); o plano dizia 8787 por engano.
+- **Conferido**: `docker build --check` sem avisos e `bash -n` no script, aqui; o build de release e a fumaça só no CI, **na 1ª tentativa, verde** (run 38904513832): `/health`, `/status` (401 sem chave, RSS de 23,9 MB com), raiz recusando escrita, SIGTERM com saída 0.
+- **Limite**: a prova é do hub parado. Nenhum turno, tarefa, busca semântica, sync ou MCP rodou sob a raiz só de leitura, então uma escrita fora de `/data` num desses caminhos ainda pode aparecer. Próximo passo barato: estender a fumaça com um turno contra um modelo de mentira e uma busca.
+- **Sobra**: publicar a imagem, arm64, TLS dentro do contêiner (o `HEALTHCHECK` assume HTTP) e o `tailscale` na imagem.
+
 ---
 
 ### 2026-10-15 — Sessão 224 (limpeza de caches e CI por área: P149)
