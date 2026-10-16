@@ -113,12 +113,12 @@ impl ResolvesServerCert for ReloadingCertResolver {
         if changed {
             match load_cert(&self.cert_path, &self.key_path, &self.provider) {
                 Ok(fresh) => {
-                    eprintln!("warden-server: reloaded TLS certificate from {}", self.cert_path.display());
+                    tracing::info!(cert = %self.cert_path.display(), "reloaded TLS certificate");
                     *current = fresh;
                 }
                 // Also possible mid-rewrite (cert already new, key still old); the next handshake
                 // tries again since `mtimes` wasn't updated.
-                Err(err) => eprintln!("warden-server: TLS certificate changed but couldn't be reloaded, keeping the old one: {err:#}"),
+                Err(err) => tracing::warn!("TLS certificate changed but couldn't be reloaded, keeping the old one: {err:#}"),
             }
         }
         Some(current.key.clone())
@@ -201,7 +201,7 @@ pub async fn tailscale_cert_renewal(domain: String, cert_path: PathBuf, key_path
     loop {
         interval.tick().await;
         if let Err(err) = fetch_tailscale_cert(&domain, &cert_path, &key_path).await {
-            eprintln!("warden-server: TLS certificate renewal failed, will retry in a day: {err:#}");
+            tracing::error!("TLS certificate renewal failed, will retry in a day: {err:#}");
         }
     }
 }

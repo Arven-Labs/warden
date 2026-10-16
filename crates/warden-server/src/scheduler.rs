@@ -55,12 +55,12 @@ impl TaskRunner {
         let now = now_millis();
         if manual {
             if let Err(err) = self.store.mark_started(&task, now) {
-                eprintln!("warden-server: task '{}': can't save its run state: {err:#}", task.id);
+                tracing::error!(task = %task.id, "can't save the task's run state: {err:#}");
             }
         }
         let this = self.clone();
         tokio::spawn(async move {
-            eprintln!("warden-server: running task '{}'", task.id);
+            tracing::info!(task = %task.id, "running task");
             // P121: an agent that messages the person during the run changes its channel, which the connected devices should hear about.
             let changes = this.changes.clone();
             let on_changed: warden_bootstrap::ConversationsChanged = Arc::new(move |id: &str| {
@@ -69,16 +69,16 @@ impl TaskRunner {
             let result = run_task_notifying(&base, &config, Some(&config_path), &task, &this.store.conversations_dir(), now, Some(on_changed)).await;
             let error = match &result {
                 Ok(_) => {
-                    eprintln!("warden-server: task '{}' done", task.id);
+                    tracing::info!(task = %task.id, "task done");
                     None
                 }
                 Err(err) => {
-                    eprintln!("warden-server: task '{}' failed: {err:#}", task.id);
+                    tracing::warn!(task = %task.id, "task failed: {err:#}");
                     Some(format!("{err:#}"))
                 }
             };
             if let Err(err) = this.store.record_finish(&task.id, now_millis(), error) {
-                eprintln!("warden-server: task '{}': can't save its run state: {err:#}", task.id);
+                tracing::error!(task = %task.id, "can't save the task's run state: {err:#}");
             }
             this.running.lock().unwrap_or_else(|e| e.into_inner()).remove(&task.id);
             // Nobody may be connected; that's fine.
@@ -103,14 +103,14 @@ fn run_due(runner: &TaskRunner, settings: &dyn SettingsHost, shared: &SharedOrch
     let config = match load_config_from_path(&config_path, false) {
         Ok(config) => config,
         Err(err) => {
-            eprintln!("warden-server: scheduled tasks: can't read {}: {err:#}", config_path.display());
+            tracing::error!(config = %config_path.display(), "scheduled tasks: can't read the config: {err:#}");
             return;
         }
     };
     let due = match runner.store.claim_due(&config.tasks, now_millis()) {
         Ok(due) => due,
         Err(err) => {
-            eprintln!("warden-server: scheduled tasks: can't update the run state: {err:#}");
+            tracing::error!("scheduled tasks: can't update the run state: {err:#}");
             return;
         }
     };
@@ -122,7 +122,7 @@ fn run_due(runner: &TaskRunner, settings: &dyn SettingsHost, shared: &SharedOrch
     for task in due {
         let id = task.id.clone();
         if !runner.start(base.clone(), config.clone(), config_path.clone(), task, false) {
-            eprintln!("warden-server: task '{id}' is due but its last run hasn't finished, skipping this one");
+            tracing::warn!(task = %id, "task is due but its last run hasn't finished, skipping this one");
         }
     }
 }

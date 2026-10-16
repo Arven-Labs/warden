@@ -122,16 +122,16 @@ pub async fn handle_sync_action(access: &SyncAccess<'_>, request_id: u64, pairin
 /// file the hub can't start with leaves the running orchestrator in place.
 pub async fn reload_orchestrator(settings: Option<&dyn SettingsHost>, shared: &SharedOrchestrator) {
     let Some(host) = settings else {
-        eprintln!("warden-server: sync brought a new config.toml; restart the hub to use it");
+        tracing::warn!("sync brought a new config.toml; restart the hub to use it");
         return;
     };
     match host.build().await {
         Ok(orchestrator) => {
             host.installed(&orchestrator);
             shared.replace(orchestrator);
-            eprintln!("warden-server: sync brought a new config.toml; reloaded");
+            tracing::info!("sync brought a new config.toml; reloaded");
         }
-        Err(err) => eprintln!("warden-server: sync brought a config.toml this hub can't start with, kept the old one: {err:#}"),
+        Err(err) => tracing::warn!("sync brought a config.toml this hub can't start with, kept the old one: {err:#}"),
     }
 }
 

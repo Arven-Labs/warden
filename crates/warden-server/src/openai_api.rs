@@ -146,7 +146,7 @@ impl EngineRoute {
         match (choices.resolve)(id) {
             Ok(model) => Some(model),
             Err(err) => {
-                eprintln!("warden-server: the model '{id}' for a code task can't be built, the hub's default answers instead: {err:#}");
+                tracing::warn!(model = %id, "the model for a code task can't be built, the hub's default answers instead: {err:#}");
                 None
             }
         }

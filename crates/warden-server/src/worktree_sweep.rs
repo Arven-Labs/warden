@@ -27,7 +27,7 @@ pub(crate) async fn worktree_sweep_loop(shared: SharedOrchestrator, every: Durat
         interval.tick().await;
         let removed = sweep_once(&shared).await;
         if !removed.is_empty() {
-            eprintln!("warden-server: tidied away {} empty worktree(s): {}", removed.len(), removed.join(", "));
+            tracing::info!(count = removed.len(), "tidied away empty worktree(s): {}", removed.join(", "));
         }
     }
 }

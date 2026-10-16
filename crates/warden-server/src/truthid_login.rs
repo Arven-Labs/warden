@@ -95,7 +95,7 @@ pub(crate) async fn handle_callback<S: AsyncRead + AsyncWrite + Unpin>(stream: &
     };
     // One try per challenge, taken before anything else is checked.
     let Some(pending) = logins.take(&response.nonce) else {
-        eprintln!("warden-server: a TruthID answer for a challenge nobody is waiting on (used, expired or made up)");
+        tracing::warn!("a TruthID answer for a challenge nobody is waiting on (used, expired or made up)");
         return reply(stream, "400 Bad Request", "invalid").await;
     };
     let Some(settings) = settings else {
@@ -104,14 +104,14 @@ pub(crate) async fn handle_callback<S: AsyncRead + AsyncWrite + Unpin>(stream: &
     let device = match verify_auth_response(&pending.challenge, &response, ANSWER_WINDOW_MS, now_ms()) {
         Ok(address) => address,
         Err(why) => {
-            eprintln!("warden-server: a TruthID answer was refused: {why}");
+            tracing::warn!("a TruthID answer was refused: {why}");
             return reply(stream, "401 Unauthorized", "invalid").await;
         }
     };
     let config = match load_config_from_path(&settings.config_path(), false) {
         Ok(config) => config,
         Err(err) => {
-            eprintln!("warden-server: couldn't read the config to check a TruthID: {err:#}");
+            tracing::error!("couldn't read the config to check a TruthID: {err:#}");
             return reply(stream, "500 Internal Server Error", "invalid").await;
         }
     };
@@ -119,23 +119,23 @@ pub(crate) async fn handle_callback<S: AsyncRead + AsyncWrite + Unpin>(stream: &
     let identity = match device_identity(&rpc_url, config.truthid_network, &device).await {
         Ok(Some(identity)) => identity,
         Ok(None) => {
-            eprintln!("warden-server: a TruthID answer came from a device the registry doesn't know or has revoked ({device})");
+            tracing::warn!(%device, "a TruthID answer came from a device the registry doesn't know or has revoked");
             return reply(stream, "401 Unauthorized", "invalid").await;
         }
         Err(err) => {
-            eprintln!("warden-server: couldn't ask the TruthID registry about a device: {err:#}");
+            tracing::error!("couldn't ask the TruthID registry about a device: {err:#}");
             return reply(stream, "502 Bad Gateway", "invalid").await;
         }
     };
     let Some(member) = config.users.iter().find(|u| u.truthid.as_ref().is_some_and(|t| t.identity_id == identity)) else {
-        eprintln!("warden-server: a TruthID answer was for an identity ({identity}) no member linked");
+        tracing::warn!(%identity, "a TruthID answer was for an identity no member linked");
         return reply(stream, "401 Unauthorized", "invalid").await;
     };
     // The connection may have given up meanwhile; then the answer has nowhere to go.
     if pending.done.send(member.id.clone()).is_err() {
         return reply(stream, "410 Gone", "invalid").await;
     }
-    eprintln!("warden-server: '{}' signed in with their TruthID", member.id);
+    tracing::info!(member = %member.id, "signed in with their TruthID");
     reply(stream, "200 OK", "ok").await
 }
 

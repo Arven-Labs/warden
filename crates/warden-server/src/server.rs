@@ -449,8 +449,8 @@ impl Server {
         // once, before any connection can read them.
         match migrate_device_conversations(&ctx.conversations_dir) {
             Ok(0) => {}
-            Ok(moved) => eprintln!("warden-server: moved {moved} conversation(s) from each device's folder into the owner's"),
-            Err(err) => eprintln!("warden-server: failed to move the devices' conversations into the owner's: {err:#}"),
+            Ok(moved) => tracing::info!(moved, "moved conversation(s) from each device's folder into the owner's"),
+            Err(err) => tracing::error!("failed to move the devices' conversations into the owner's: {err:#}"),
         }
         // P93: the node tools join the hub's orchestrator — chat, the Warden API and scheduled tasks
         // all get them. They read `[[nodes]]` from the settings file, so a hub without one has none.
@@ -472,7 +472,7 @@ impl Server {
                 Some(AbortOnDrop(tokio::spawn(scheduler_loop(runner.clone(), settings.clone(), ctx.orchestrator.clone(), self.task_tick))))
             }
             (Some(_), true, None) => {
-                eprintln!("warden-server: scheduled tasks need a config file to read them from — not running any");
+                tracing::warn!("scheduled tasks need a config file to read them from — not running any");
                 None
             }
             _ => None,
@@ -495,7 +495,7 @@ impl Server {
                     let web_ui = web_ui.clone();
                     tokio::spawn(async move {
                         if let Err(err) = route_connection(stream, peer, tls, web_ui, ctx).await {
-                            eprintln!("warden-server: connection from {peer} ended with error: {err:#}");
+                            tracing::warn!(%peer, "connection ended with error: {err:#}");
                         }
                     });
                 }
@@ -920,7 +920,7 @@ fn unload_idle_embedders_periodically(orchestrator: SharedOrchestrator, space_va
             .await
             .unwrap_or(0);
             if unloaded > 0 {
-                eprintln!("warden-server: {unloaded} vault search model(s) idle for {}s were unloaded; the next search loads them again", idle.as_secs());
+                tracing::info!(unloaded, idle_secs = idle.as_secs(), "vault search model(s) idle were unloaded; the next search loads them again");
             }
         }
     });
@@ -971,7 +971,7 @@ async fn handle_connection<S: Transport>(ws: WebSocketStream<S>, peer: SocketAdd
     };
     let first = first?;
     let Message::Text(text) = first else {
-        eprintln!("warden-server: {peer} sent a non-text first frame, closing");
+        tracing::warn!(%peer, "sent a non-text first frame, closing");
         return Ok(());
     };
     let hello = match serde_json::from_str::<ClientMessage>(&text) {
@@ -997,11 +997,11 @@ async fn handle_connection<S: Transport>(ws: WebSocketStream<S>, peer: SocketAdd
             return Ok(());
         }
         Ok(_) => {
-            eprintln!("warden-server: {peer} didn't send Hello first, closing");
+            tracing::warn!(%peer, "didn't send Hello first, closing");
             return Ok(());
         }
         Err(err) => {
-            eprintln!("warden-server: {peer} sent an unparseable first frame: {err}");
+            tracing::warn!(%peer, "sent an unparseable first frame: {err}");
             return Ok(());
         }
     };
@@ -1041,7 +1041,7 @@ async fn handle_connection<S: Transport>(ws: WebSocketStream<S>, peer: SocketAdd
             // A device coming back with its token may still send what it paired with; the token decides.
             None if device_token.is_some() => PairingProof::Nothing,
             None => {
-                eprintln!("warden-server: wrong username or password from '{device_id}' at {peer}");
+                tracing::warn!(%device_id, %peer, "wrong username or password");
                 tokio::time::sleep(crate::settings::WRONG_KEY_DELAY).await;
                 return reject(&mut sink, "wrong username or password").await;
             }
@@ -1063,11 +1063,11 @@ async fn handle_connection<S: Transport>(ws: WebSocketStream<S>, peer: SocketAdd
     let (issued_token, owner) = match store.authenticate_as(&device_id, &device_name, device_token.as_deref(), proof) {
         Ok(Ok(outcome)) => (outcome.issued_token, outcome.user),
         Ok(Err(rejection)) => {
-            eprintln!("warden-server: rejected Hello from '{device_id}' at {peer}: {rejection}");
+            tracing::warn!(%device_id, %peer, "rejected Hello: {rejection}");
             return reject(&mut sink, &rejection.to_string()).await;
         }
         Err(err) => {
-            eprintln!("warden-server: failed to read the pairing registry for '{device_id}': {err:#}");
+            tracing::error!(%device_id, "failed to read the pairing registry: {err:#}");
             return reject(&mut sink, "server could not check this device's pairing").await;
         }
     };
@@ -1079,7 +1079,7 @@ async fn handle_connection<S: Transport>(ws: WebSocketStream<S>, peer: SocketAdd
         let dirs = DataDirs { users_dir, conversations_root: &conversations_dir };
         match open_member_data_at_sign_in(settings.as_deref(), &settings_lock, dirs, id, password, can_show_recovery_code).await {
             Ok(code) => recovery_code_to_show = code,
-            Err(err) => eprintln!("warden-server: couldn't open {id}'s data at sign-in: {err:#}"),
+            Err(err) => tracing::error!(member = %id, "couldn't open the member's data at sign-in: {err:#}"),
         }
         // A key may have just been created: show them the file as it is now.
         if let Some(host) = settings.as_deref() {
@@ -1115,8 +1115,8 @@ async fn handle_connection<S: Transport>(ws: WebSocketStream<S>, peer: SocketAdd
     };
 
     match &person {
-        Person::Root => eprintln!("warden-server: {device_name} ({device_id}) connected from {peer}"),
-        Person::Member(member) => eprintln!("warden-server: {device_name} ({device_id}) connected from {peer} as {}", member.id),
+        Person::Root => tracing::info!(%device_name, %device_id, %peer, "device connected"),
+        Person::Member(member) => tracing::info!(%device_name, %device_id, %peer, member = %member.id, "device connected"),
     }
 
     // Every person's conversations, for `RequestUsage`'s hub-wide totals.
@@ -1221,7 +1221,7 @@ async fn handle_connection<S: Transport>(ws: WebSocketStream<S>, peer: SocketAdd
     // P93: a node lends its shell, files, MCP tools and models to the hub's agents over this connection.
     let node_models = node_offer.as_ref().map(|_| ModelChannel::new(&tx));
     if let (Some(offer), Some(models)) = (node_offer, &node_models) {
-        eprintln!("warden-server: {device_name} ({device_id}) is a node offering {}", describe_offer(&offer));
+        tracing::info!(%device_name, %device_id, "device is a node offering {}", describe_offer(&offer));
         nodes.connect(&device_id, ConnectedNode { name: device_name.clone(), offer, channel: tool_channel.clone(), models: models.clone() });
         refresh_node_mcp_tools(&shared_orchestrator, node_tools.as_ref());
     }
@@ -1251,7 +1251,7 @@ async fn handle_connection<S: Transport>(ws: WebSocketStream<S>, peer: SocketAdd
             frame = stream.next() => frame,
             _ = revocation_check.tick() => {
                 if matches!(store.status(&device_id), Ok(Some(PairingStatus::Revoked))) {
-                    eprintln!("warden-server: {device_id} was revoked, closing its connection");
+                    tracing::warn!(%device_id, "device was revoked, closing its connection");
                     let _ = tx.send(ServerMessage::AuthError { reason: AuthRejection::Revoked.to_string() });
                     break;
                 }
@@ -1268,7 +1268,7 @@ async fn handle_connection<S: Transport>(ws: WebSocketStream<S>, peer: SocketAdd
         let frame = match frame {
             Ok(frame) => frame,
             Err(err) => {
-                eprintln!("warden-server: {device_id}'s connection broke: {err}");
+                tracing::warn!(%device_id, "connection broke: {err}");
                 break;
             }
         };
@@ -2014,17 +2014,17 @@ async fn handle_connection<S: Transport>(ws: WebSocketStream<S>, peer: SocketAdd
                     }
                 }
                 Ok(ClientMessage::Goodbye { reason }) => {
-                    eprintln!("warden-server: {device_id} said goodbye ({reason:?})");
+                    tracing::info!(%device_id, ?reason, "device said goodbye");
                     break;
                 }
                 Ok(ClientMessage::Hello { .. }) => {
-                    eprintln!("warden-server: {device_id} sent a second Hello, ignoring");
+                    tracing::debug!(%device_id, "sent a second Hello, ignoring");
                 }
                 Ok(ClientMessage::Discover) => {
-                    eprintln!("warden-server: {device_id} sent Discover after Hello, ignoring");
+                    tracing::debug!(%device_id, "sent Discover after Hello, ignoring");
                 }
                 Err(err) => {
-                    eprintln!("warden-server: {device_id} sent an unparseable message: {err}");
+                    tracing::warn!(%device_id, "sent an unparseable message: {err}");
                     break;
                 }
             },
@@ -2146,10 +2146,7 @@ impl ConnectionOrchestrator {
             if resolved == original {
                 per_connection.register_tool(remote);
             } else {
-                eprintln!(
-                    "warden-server: {}'s tool '{original}' collides with an already-registered tool — renamed to '{resolved}'\n",
-                    self.device_id
-                );
+                tracing::warn!(device_id = %self.device_id, "tool '{original}' collides with an already-registered tool — renamed to '{resolved}'");
                 per_connection.register_tool(warden_core::tool::rename_tool(remote, resolved));
             }
         }

@@ -41,6 +41,7 @@ pub mod projects;
 pub mod devices;
 pub mod engine_models;
 pub mod folders;
+pub mod logging;
 pub mod member_backup;
 pub mod node_client;
 pub mod node_tools;

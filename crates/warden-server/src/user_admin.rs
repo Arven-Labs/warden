@@ -128,7 +128,7 @@ pub async fn handle_user_change(
             UserChange::UnlinkTruthId { id } => unlink_truthid(&mut config, &id)?,
             UserChange::Recover { id, recovery_key, code } => {
                 let recovered = recover_member(&mut config, &id, &recovery_key, code.as_deref())?;
-                eprintln!("warden-server: the owner recovered '{id}' under the {} policy", recovered.kind.as_str());
+                tracing::warn!(member = %id, policy = recovered.kind.as_str(), "the owner recovered a member");
                 temp = Some(recovered.temp_password);
             }
         }

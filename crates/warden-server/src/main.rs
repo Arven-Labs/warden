@@ -570,6 +570,12 @@ struct ServeArgs {
     #[arg(long)]
     no_embedding_warm_up: bool,
 
+    /// How the hub writes its log to stderr (P143): `text` for a person, `json` for one object per line, which a
+    /// collector reads. `RUST_LOG` filters either one (`RUST_LOG=warn`); without it, `info` and above. Falls back to
+    /// WARDEN_LOG_FORMAT.
+    #[arg(long, value_enum, env = "WARDEN_LOG_FORMAT", default_value = "text")]
+    log_format: warden_server::logging::LogFormat,
+
     /// On SIGTERM or SIGINT (Ctrl+C) the hub stops accepting connections and, for this many seconds, lets the ones open
     /// finish what they are doing before it exits (P143); anything still running then is cut. 0 exits at once.
     #[arg(long, default_value_t = 5)]
@@ -1322,6 +1328,7 @@ fn run_api_keys_command(action: ApiKeysAction) -> anyhow::Result<()> {
 }
 
 async fn run_serve(args: ServeArgs) -> anyhow::Result<()> {
+    warden_server::logging::init(args.log_format);
     let auth_key = std::env::var("WARDEN_SERVER_AUTH_KEY")
         .ok()
         .or(args.auth_key.clone())
@@ -1344,7 +1351,7 @@ async fn run_serve(args: ServeArgs) -> anyhow::Result<()> {
     let engine_model_slot = warden_server::openai_api::EngineModelSlot::default();
     let orchestrator = bootstrap_hub(args.config.as_deref(), overrides.clone(), &code_engine, &engine_model_slot).await?;
     if args.no_embedding_warm_up {
-        eprintln!("warden-server: search models are not preloaded (--no-embedding-warm-up); each loads at its first search");
+        tracing::info!("search models are not preloaded (--no-embedding-warm-up); each loads at its first search");
     } else {
         warm_embedding_models(orchestrator.vault().clone());
     }
@@ -1404,7 +1411,7 @@ async fn run_serve(args: ServeArgs) -> anyhow::Result<()> {
         server = server.with_embedding_idle(std::time::Duration::from_secs(args.embedding_idle_secs));
     }
     if args.allow_machine_settings {
-        eprintln!("warden-server: --allow-machine-settings is on: whoever holds the pairing key can change this machine's shell, MCP servers, SSH hosts and folders from the web (encrypted or local connections only)");
+        tracing::warn!("--allow-machine-settings is on: whoever holds the pairing key can change this machine's shell, MCP servers, SSH hosts and folders from the web (encrypted or local connections only)");
     }
     let task_count = args
         .config
@@ -1414,9 +1421,9 @@ async fn run_serve(args: ServeArgs) -> anyhow::Result<()> {
         .and_then(|path| load_config_from_path(&path, false).ok())
         .map_or(0, |config| config.tasks.len());
     match (args.run_tasks, task_count) {
-        (true, n) => eprintln!("warden-server: running scheduled tasks on this hub ({n} configured)"),
+        (true, n) => tracing::info!(configured = n, "running scheduled tasks on this hub"),
         (false, 0) => {}
-        (false, n) => eprintln!("warden-server: {n} scheduled task(s) configured, but this hub doesn't run them (start it with --run-tasks)"),
+        (false, n) => tracing::warn!(configured = n, "scheduled task(s) configured, but this hub doesn't run them (start it with --run-tasks)"),
     }
     if let Some(settings) = settings {
         server = server.with_settings(Arc::new(settings));
@@ -1434,33 +1441,33 @@ async fn run_serve(args: ServeArgs) -> anyhow::Result<()> {
     match tls {
         Some(tls) => {
             match tls.secure_url(addr.port()) {
-                Some(url) => eprintln!("warden-server: listening on {addr} as '{server_name}' — TLS only, clients connect to {url}"),
-                None => eprintln!("warden-server: listening on {addr} as '{server_name}' — TLS only"),
+                Some(url) => tracing::info!(%addr, %server_name, "listening — TLS only, clients connect to {url}"),
+                None => tracing::info!(%addr, %server_name, "listening — TLS only"),
             }
             server = server.with_tls(tls);
         }
-        None => eprintln!("warden-server: listening on {addr} as '{server_name}' — plain ws://, not encrypted (see --tailscale-cert)"),
+        None => tracing::warn!(%addr, %server_name, "listening — plain ws://, not encrypted (see --tailscale-cert)"),
     }
     if !args.no_web_ui {
         if EmbeddedWebUi.get("index.html").is_some() {
-            eprintln!("warden-server: web interface at {page_url}");
+            tracing::info!(url = %page_url, "web interface");
         } else {
-            eprintln!("warden-server: this build has no web interface (run `npm run build` in web/ and rebuild) — pages answer 503");
+            tracing::warn!("this build has no web interface (run `npm run build` in web/ and rebuild) — pages answer 503");
         }
         server = server.with_web_ui(Arc::new(EmbeddedWebUi));
     }
-    eprintln!("warden-server: Warden API (OpenAI-compatible) at {}/v1 — keys: `warden-server api-keys create <name>`", page_url.trim_end_matches('/'));
+    tracing::info!("Warden API (OpenAI-compatible) at {}/v1 — keys: `warden-server api-keys create <name>`", page_url.trim_end_matches('/'));
     // P143: a stop signal ends the accept loop and frees the port; the open connections get a grace period, and the
     // children (`kill_on_drop`) are collected when the process exits normally rather than being cut by the signal.
     server.serve_until(stop_signal()).await?;
     if args.shutdown_grace_secs > 0 {
-        eprintln!("warden-server: not accepting connections; exiting in {}s (or now, with a second signal)", args.shutdown_grace_secs);
+        tracing::info!(grace_secs = args.shutdown_grace_secs, "not accepting connections; exiting after the grace period (or now, with a second signal)");
         tokio::select! {
             _ = tokio::time::sleep(std::time::Duration::from_secs(args.shutdown_grace_secs)) => {}
             _ = stop_signal() => {}
         }
     }
-    eprintln!("warden-server: stopped");
+    tracing::info!("stopped");
     Ok(())
 }
 
@@ -1494,13 +1501,13 @@ fn warm_embedding_models(vault: Arc<warden_core::memory::Vault>) {
     // Two tasks, not one after the other: they don't share a lock, and a first turn may wait for either.
     tokio::task::spawn_blocking(move || {
         if let Err(err) = vault.warm_up() {
-            eprintln!("warden-server: could not load the vault's search model ({err:#}); searching by meaning will try again when it is used");
+            tracing::warn!("could not load the vault's search model ({err:#}); searching by meaning will try again when it is used");
         }
     });
     tokio::task::spawn_blocking(|| {
         if std::env::var_os(warden_core::memory::embed::OFF_SWITCH).is_none_or(|v| v.is_empty()) {
             if let Err(err) = warden_core::memory::embed::warm_up() {
-                eprintln!("warden-server: could not load the history search model ({err:#}); it will try again when it is used");
+                tracing::warn!("could not load the history search model ({err:#}); it will try again when it is used");
             }
         }
     });

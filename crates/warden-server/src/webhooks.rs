@@ -93,7 +93,7 @@ impl WebhookRunner {
         }
         let this = self.clone();
         tokio::spawn(async move {
-            eprintln!("warden-server: running webhook '{}'", hook.id);
+            tracing::info!(webhook = %hook.id, "running webhook");
             let request = WebhookRequest { content_type: content_type.as_deref(), body: &body };
             // P121: an agent that messages the person during the run changes its channel, which the connected devices should hear about.
             let changes = this.changes.clone();
@@ -101,8 +101,8 @@ impl WebhookRunner {
                 let _ = changes.send(id.to_string());
             });
             match run_webhook_notifying(&base, &config, Some(&config_path), &hook, &this.conversations_dir, request, now_millis(), Some(on_changed)).await {
-                Ok(_) => eprintln!("warden-server: webhook '{}' done", hook.id),
-                Err(err) => eprintln!("warden-server: webhook '{}' failed: {err:#}", hook.id),
+                Ok(_) => tracing::info!(webhook = %hook.id, "webhook done"),
+                Err(err) => tracing::warn!(webhook = %hook.id, "webhook failed: {err:#}"),
             }
             this.running.lock().unwrap_or_else(|e| e.into_inner()).remove(&hook.id);
             // Nobody may be connected; that's fine.

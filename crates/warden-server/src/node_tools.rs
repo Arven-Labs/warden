@@ -119,7 +119,7 @@ impl NodeContext {
             "error": result.as_ref().err().map(|e| format!("{e:#}")),
         });
         if let Err(err) = audit.record(&entry) {
-            eprintln!("warden-server: can't write the node audit log: {err}");
+            tracing::error!("can't write the node audit log: {err}");
         }
     }
 }

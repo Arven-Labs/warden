@@ -272,7 +272,7 @@ pub async fn handle_save_settings(
     // Now it is in force: say so in the hub's log, naming what changed and never a value.
     if let Some(before) = before {
         let from = access.peer.map(|ip| ip.to_string()).unwrap_or_else(|| "an unknown peer".to_string());
-        eprintln!("warden-server: machine settings changed from {from}: {}", warden_bootstrap::machine_settings::machine_change_summary(&before, &config));
+        tracing::warn!(%from, "machine settings changed: {}", warden_bootstrap::machine_settings::machine_change_summary(&before, &config));
     }
     let settings = view(host, &config, &orchestrator, access);
     host.installed(&orchestrator);
