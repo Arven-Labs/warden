@@ -1,0 +1,9 @@
+[package]
+name = "warden-orchestrator"
+version.workspace = true
+edition.workspace = true
+
+# The hosted-instances orchestrator (P138, HOSPEDAGEM.md phase 4). Today only the policy that decides when an idle,
+# heavy instance is recycled (K.6 item 5); it holds no Docker, no network and no clock, so everything in it is testable.
+[dependencies]
+warden-server-protocol = { path = "../warden-server-protocol" }

@@ -23,6 +23,8 @@
 
 use std::collections::{HashSet, VecDeque};
 use std::path::PathBuf;
+
+use crate::activity::HubActivity;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -56,6 +58,8 @@ pub struct WebhookRunner {
     changes: broadcast::Sender<String>,
     /// The signed deliveries that already ran, newest last, with when (so a repeat can be told).
     deliveries: Arc<Mutex<VecDeque<(String, Instant)>>>,
+    /// Counts a webhook run as work in progress for `GET /status`; `None` where nobody asks.
+    activity: Option<HubActivity>,
 }
 
 /// How long a delivery id is remembered, and how many at most: a service that repeats a call does it within minutes.
@@ -66,7 +70,12 @@ impl WebhookRunner {
     /// `conversations_dir`: where the task conversations live (`TaskStore::conversations_dir`); `changes`: where a
     /// finished run is announced.
     pub fn new(conversations_dir: PathBuf, changes: broadcast::Sender<String>) -> Self {
-        Self { conversations_dir, running: Arc::default(), changes, deliveries: Arc::default() }
+        Self { conversations_dir, running: Arc::default(), changes, deliveries: Arc::default(), activity: None }
+    }
+
+    pub fn with_activity(mut self, activity: HubActivity) -> Self {
+        self.activity = Some(activity);
+        self
     }
 
     /// Whether this webhook already ran for this delivery id, within the last hour.
@@ -92,7 +101,9 @@ impl WebhookRunner {
             return false;
         }
         let this = self.clone();
+        let busy = self.activity.as_ref().map(HubActivity::begin);
         tokio::spawn(async move {
+            let _busy = busy;
             tracing::info!(webhook = %hook.id, "running webhook");
             let request = WebhookRequest { content_type: content_type.as_deref(), body: &body };
             // P121: an agent that messages the person during the run changes its channel, which the connected devices should hear about.

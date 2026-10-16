@@ -21,6 +21,7 @@
 //! `CallDeviceTool` checks pairing status. See `device_registry.rs`'s module docs for why the
 //! store is a thin, stateless-between-calls wrapper over a JSON file instead of anything cached.
 
+pub mod activity;
 pub mod activity_list;
 pub mod ssh_audit_list;
 pub mod agent_task_list;
@@ -52,6 +53,7 @@ pub mod scheduler;
 pub mod server;
 pub mod settings;
 pub mod skills;
+pub mod status;
 pub mod sync;
 pub mod task_admin;
 pub mod tls;

@@ -25,6 +25,7 @@ use warden_bootstrap::tasks::TaskStore;
 use warden_bootstrap::code_turn::{code_project, CodeTurn};
 use warden_bootstrap::{build_model_for, load_config_from_path, scope_to_agent, AgentExtras, TurnAgent};
 
+use crate::activity::HubActivity;
 use crate::approval::WsApprover;
 use crate::bot_admin::{handle_list_bot_pairings, handle_resolve_bot_pairing};
 use crate::provider_admin::handle_test_provider;
@@ -144,6 +145,8 @@ pub struct Server {
     /// conversations say so instead of running the ordinary turn with a shell.
     code_engine: Option<Arc<dyn CodeEngine>>,
     code_turns: CodeTurns,
+    /// What the hub is doing now, for `GET /status` (K.6 item 5): the orchestrator recycles an instance only when it is idle.
+    activity: HubActivity,
 }
 
 /// How often an open connection re-reads the pairing registry to notice it was revoked (P36).
@@ -191,6 +194,7 @@ impl Server {
             embedding_idle: None,
             code_engine: None,
             code_turns: CodeTurns::default(),
+            activity: HubActivity::default(),
         })
     }
 
@@ -247,7 +251,7 @@ impl Server {
     /// this hub also runs them — re-reading `[[tasks]]` from the settings file, so it needs
     /// `with_settings` too. Off by default: the config syncs, and only one hub should run them.
     pub fn with_tasks(mut self, store: TaskStore, run: bool) -> Self {
-        self.tasks = Some(TaskRunner::new(store, self.changes.clone(), run));
+        self.tasks = Some(TaskRunner::new(store, self.changes.clone(), run).with_activity(self.activity.clone()));
         self
     }
 
@@ -407,7 +411,7 @@ impl Server {
             orchestrator: self.orchestrator.clone(),
             settings: self.settings.clone(),
             tokens_path,
-            runner: self.tasks.as_ref().map(|tasks| WebhookRunner::new(tasks.store().conversations_dir(), self.changes.clone())),
+            runner: self.tasks.as_ref().map(|tasks| WebhookRunner::new(tasks.store().conversations_dir(), self.changes.clone()).with_activity(self.activity.clone())),
         });
         let space_vaults = SpaceVaults::default();
         let member_vaults = MemberVaults::default();
@@ -444,6 +448,7 @@ impl Server {
             allow_machine_settings: self.allow_machine_settings,
             code_engine: self.code_engine,
             code_turns: self.code_turns,
+            activity: self.activity,
         };
         // P84: conversations are a person's, not a device's — every device's move to the root's,
         // once, before any connection can read them.
@@ -553,11 +558,13 @@ struct ConnectionContext {
     code_engine: Option<Arc<dyn CodeEngine>>,
     /// The code tasks running, shared by every connection so a stop can come from another device.
     code_turns: CodeTurns,
+    activity: HubActivity,
 }
 
 impl ConnectionContext {
     fn api(&self) -> ApiContext {
         ApiContext {
+            activity: self.activity.clone(),
             orchestrator: self.orchestrator.clone(),
             settings: self.settings.clone(),
             keys_path: self.api_keys.clone(),
@@ -847,6 +854,10 @@ async fn serve_web_or_ws<S: Transport>(mut stream: S, peer: SocketAddr, secure: 
         web_ui::health(&mut stream, &head).await?;
         return Ok(());
     }
+    if head.path.split('?').next() == Some(warden_server_protocol::status::STATUS_PATH) {
+        crate::status::serve(&mut stream, &head, &ctx.auth_key, &ctx.activity).await?;
+        return Ok(());
+    }
     if head.path.split('?').next() == Some(truthid_login::CALLBACK_PATH) {
         truthid_login::handle_callback(&mut stream, &head, &ctx.truthid_logins, ctx.settings.as_deref()).await?;
         return Ok(());
@@ -962,7 +973,10 @@ async fn handle_connection<S: Transport>(ws: WebSocketStream<S>, peer: SocketAdd
         allow_machine_settings,
         code_engine,
         code_turns,
+        activity,
     } = ctx;
+    // Counted from the first frame to the last, so `/status` knows how many devices are connected.
+    let _connected = activity.connection();
     let tasks_dir = tasks.as_ref().map(|runner| Arc::new(runner.store().conversations_dir()));
     let (mut sink, mut stream) = ws.split();
 
@@ -1273,7 +1287,11 @@ async fn handle_connection<S: Transport>(ws: WebSocketStream<S>, peer: SocketAdd
             }
         };
         match frame {
-            Message::Text(text) => match serde_json::from_str::<ClientMessage>(&text) {
+            // Anything a device says means the hub is in use.
+            Message::Text(text) => match {
+                activity.touch();
+                serde_json::from_str::<ClientMessage>(&text)
+            } {
                 // P84: a member on a provisional password may only change it; a member never
                 // reaches the hub's administration.
                 Ok(message) if must_change_password && password_gate(&message).is_some() => {
@@ -1570,7 +1588,10 @@ async fn handle_connection<S: Transport>(ws: WebSocketStream<S>, peer: SocketAdd
                             continue;
                         };
                         let (reply_tx, turns, approver) = (tx.clone(), code_turns.clone(), Arc::new(approver.clone()));
+                        // Taken before the spawn, so there is no moment when the turn exists and `/status` says nothing runs.
+                        let busy = activity.begin();
                         tokio::spawn(async move {
+                            let _busy = busy;
                             let running = turns.hold(&conversation_id, project.workdir.as_deref().unwrap_or_default());
                             let (events_tx, events_turns, events_id) = (reply_tx.clone(), turns.clone(), conversation_id.clone());
                             let mut on_event = move |event: CodeEvent| match event {
@@ -1599,7 +1620,9 @@ async fn handle_connection<S: Transport>(ws: WebSocketStream<S>, peer: SocketAdd
                     let learning_settings = settings.clone();
                     let learn_member = member.as_ref().map(|m| m.id.clone());
                     let thread = thread_of.map(|link| warden_bootstrap::ThreadParent { conversation_id: link.conversation_id, message_id: link.message_id });
+                    let busy = activity.begin();
                     tokio::spawn(async move {
+                        let _busy = busy;
                         let learn_id = conversation_id.clone();
                         let agent = agent_id.as_deref().zip(persona.as_deref()).map(|(id, persona)| TurnAgent { id, persona });
                         // P124: what a tool says about its work while it runs (a `code_task` editing and running commands) is shown live. The

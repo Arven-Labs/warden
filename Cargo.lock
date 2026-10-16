@@ -8263,6 +8263,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "warden-orchestrator"
+version = "0.1.0"
+dependencies = [
+ "warden-server-protocol",
+]
+
+[[package]]
 name = "warden-server"
 version = "0.1.0"
 dependencies = [

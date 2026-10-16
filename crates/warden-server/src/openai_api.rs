@@ -68,6 +68,8 @@ pub(crate) struct ApiContext {
     pub space_vaults: SpaceVaults,
     /// The members' own vaults, one each for the hub's life (P147).
     pub member_vaults: MemberVaults,
+    /// A request counts as work in progress while it is served (`GET /status`).
+    pub activity: crate::activity::HubActivity,
 }
 
 /// A failure, answered in OpenAI's error format.
@@ -94,6 +96,7 @@ impl ApiError {
 
 /// Answers one request under `API_PREFIX`; the connection is done afterwards.
 pub(crate) async fn serve<S: AsyncRead + AsyncWrite + Unpin>(stream: &mut S, head: &RequestHead, api: &ApiContext) -> std::io::Result<()> {
+    let _busy = api.activity.begin();
     match route(stream, head, api).await {
         Ok(()) => Ok(()),
         Err(err) => write_json(stream, err.status, &err.body()).await,

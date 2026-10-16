@@ -14,6 +14,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use tokio::sync::broadcast;
+use crate::activity::HubActivity;
 use warden_bootstrap::tasks::{conversation_id, run_task_notifying, TaskStore};
 use warden_bootstrap::{load_config_from_path, FileConfig, TaskConfig};
 use warden_core::orchestrator::Orchestrator;
@@ -30,11 +31,18 @@ pub struct TaskRunner {
     running: Arc<Mutex<HashSet<String>>>,
     changes: broadcast::Sender<String>,
     runs_here: bool,
+    /// Counts a task as work in progress for `GET /status`; `None` where nobody asks (tests, the desktop's hub).
+    activity: Option<HubActivity>,
 }
 
 impl TaskRunner {
     pub fn new(store: TaskStore, changes: broadcast::Sender<String>, runs_here: bool) -> Self {
-        Self { store, running: Arc::default(), changes, runs_here }
+        Self { store, running: Arc::default(), changes, runs_here, activity: None }
+    }
+
+    pub fn with_activity(mut self, activity: HubActivity) -> Self {
+        self.activity = Some(activity);
+        self
     }
 
     pub fn store(&self) -> &TaskStore {
@@ -59,7 +67,9 @@ impl TaskRunner {
             }
         }
         let this = self.clone();
+        let busy = self.activity.as_ref().map(HubActivity::begin);
         tokio::spawn(async move {
+            let _busy = busy;
             tracing::info!(task = %task.id, "running task");
             // P121: an agent that messages the person during the run changes its channel, which the connected devices should hear about.
             let changes = this.changes.clone();

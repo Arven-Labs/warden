@@ -17,6 +17,12 @@
 - **2ª fatia do log** (plano aprovado em modo de plano): `warden-bootstrap` e `warden-core`, ~45 `eprintln!` → `tracing`. O risco do desenho era o silêncio: esses crates servem todos os binários e evento sem subscriber some, então o subscriber foi para `warden_bootstrap::logging` (`init(json)` e `init_compact()`) e `warden-cli`, `warden-telegram`, `warden-whatsapp` e o desktop o instalam no início. O `warden-server` ficou só com o flag. `cargo check --workspace --all-targets` sem avisos, 3 testes de `logging` passam e o `serve --log-format json` agora só tem JSON (fora o `pairing:`, `println!` de propósito). O 1º check deu SIGSEGV do `rustc` em `cssparser` e `axum_core`, de novo hardware, e passou ao repetir. **Não rodei** o CLI e os bots de verdade (só `check`); o CI cobre a suíte.
 - **Sobra**: P143 (e) raiz só de leitura, o `node_client.rs` (modo nó sem subscriber) e a medição de RSS.
 
+**Reciclagem de instância ociosa (K.6 item 5)**: o item depende do orquestrador, que não existe; o usuário escolheu o recorte "sinal no hub + política pura" (sem Docker), com plano aprovado em modo de plano.
+- **Hub**: `HubActivity` (`activity.rs`) conta trabalho com guards (`BusyGuard` nos turnos de chat e de código, em cada requisição da API, em `TaskRunner::start` e `WebhookRunner::start`, tomado antes do `spawn`), conexões WebSocket e a última atividade; `GET /status` (`status.rs`) devolve o `HubStatus` (novo, em `warden-server-protocol`) e exige a chave de pareamento (401 com o atraso de sempre, comparação por `keys_match`). O RSS vem de `/proc/self/status`.
+- **Política**: crate novo `warden-orchestrator` (só lib), `RecyclePolicy::decide`; padrões 512 MiB, 15 min parado, 1 h de vida.
+- **Conferido**: `cargo check --workspace --all-targets` sem avisos; 9 testes da política, 5 unitários do hub e 4 de `/status` por socket real passam (inclui `in_flight == 1` durante um turno lento); com o binário, `/status` dá 401 sem chave e, com chave, 47,67 MB contra 47,14 MB do `/proc`. **Não rodei** a suíte completa nem o clippy (CI).
+- **Sobra**: o laço que consulta e reinicia (precisa do runtime de contêiner), olhar o próximo horário de tarefa agendada antes de reciclar, medir o RSS que volta num cofre real.
+
 ---
 
 ### 2026-10-15 — Sessão 224 (limpeza de caches e CI por área: P149)
