@@ -17,7 +17,9 @@
 - **P146 (c), descarregar o modelo do cofre**: plano aprovado em modo de plano. `Vault::unload_idle_embedder` e `EmbedderSlot` (`memory/mod.rs`), flag `--embedding-idle-secs` (padrão 600, `0` = nunca) e tarefa periódica no `serve`. `cargo check` de `warden-core` (com e sem o feature `semantic-search`) e de `warden-server` passa, e o teste sem modelo também. **Não rodei** o teste com modelo (`#[ignore]`) nem a medição de RSS: ficam para o `heavy-tests` e para uma medição com o binário novo.
 - **P146 (c) no CI**: o teste com modelo (`an_idle_embedder_is_unloaded_and_the_next_search_loads_it_again`) passou no `heavy-tests`. Tive de movê-lo de `memory/mod.rs` para `tests/semantic_search.rs`, porque o `heavy-tests` só roda os testes de integração `semantic_search` e `history_embed`.
 - **P147, `Vault` de membro guardado**: plano aprovado em modo de plano. `MemberVaults` em `people.rs`; `MemberSpace::new` e `reopened` usam o cache e só abrem outro `Vault` quando o estado da pasta muda. Fiação em `server.rs` e `openai_api.rs`. O descarregamento ocioso saiu do `main.rs` para `Server::with_embedding_idle` e cobre o dono, as pastas compartilhadas e os membros. `cargo check --all-targets` passa, os dois testes novos de `people.rs` e os 35 de `tests/people.rs` também. **Não medi** o RSS nem a requisição de API de membro.
-- **Sobra**: a medição de RSS com o binário novo (P145, P146, P147) e o resto do P149 (ver `PENDING.md`).
+- **CI do P147** (commit `1fcb70c`): Rust verde; mobile e frontends pulados.
+- **P143 (a), (b), (c)**: plano aprovado em modo de plano. `--data-dir` (módulo `warden_core::paths`, ~23 caminhos migrados), `GET /health` e `serve_until(stop_signal())` com `--shutdown-grace-secs` (padrão 5). Dois testes em `paths.rs`, dois em `tests/web_ui.rs`, um em `tests/graceful_shutdown.rs`; `cargo check --all-targets` passa. Ficam abertos no P143: (d) log estruturado e (e) raiz só de leitura. **Não conferi** o build do `warden-mobile-bridge` para Android depois de tornar o `dirs` obrigatório no `warden-core`.
+- **Sobra**: a medição de RSS com o binário novo (P145, P146, P147), o P143 (d) e (e), e o resto do P149 (ver `PENDING.md`).
 
 ---
 
