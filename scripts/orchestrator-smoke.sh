@@ -44,7 +44,11 @@ fail() {
 }
 
 started_at() { docker inspect -f '{{.State.StartedAt}}' "$CONTAINER"; }
-running() { docker inspect -f '{{.State.Running}}' "$CONTAINER" 2>/dev/null || echo "gone"; }
+# "true", "false" ou "gone" (o docker inspect de um contêiner que não existe sai com erro, mas imprime uma linha em branco).
+running() {
+  local out
+  if out="$(docker inspect -f '{{.State.Running}}' "$CONTAINER" 2>/dev/null)"; then echo "$out"; else echo "gone"; fi
+}
 
 wait_health() {
   local url="http://127.0.0.1:$PORT/health"
