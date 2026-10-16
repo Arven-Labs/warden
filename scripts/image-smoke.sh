@@ -46,7 +46,10 @@ base_url = "http://$GATEWAY:$FAKE_PORT/v1"
 model = "fake"
 EOF
 docker run -d --name "$NAME" --read-only --tmpfs /tmp -v "$VOLUME":/data -p "$PORT":7420 \
-  -e WARDEN_SERVER_AUTH_KEY="$KEY" "$IMAGE" >/dev/null
+  -e WARDEN_SERVER_AUTH_KEY="$KEY" "$IMAGE" serve --no-embedding-warm-up --run-tasks >/dev/null
+
+# Atalho para os comandos do próprio hub, rodando dentro do contêiner como o usuário dele.
+warden() { docker exec "$NAME" warden-server --data-dir /data "$@"; }
 
 # 1. /health responde sem chave.
 up=""
@@ -65,6 +68,10 @@ body="$(curl -fsS -H "Authorization: Bearer $KEY" "http://127.0.0.1:$PORT/status
 echo "$body" | grep -q '"rss_bytes"' || fail "/status sem rss_bytes: $body"
 echo "status: $body"
 
+# 2b. Uma tarefa agendada, criada já: o hub a vê no próximo tick (30 s) e a roda 1 min depois; o resultado é conferido
+#     no fim, enquanto os outros passos andam.
+warden tasks add smoke-task --prompt "Say pong." --every 1m >/dev/null || fail "tasks add falhou (a config.toml em /data não aceitou escrita?)"
+
 # 3. O que o hub gravou foi para /data; a raiz continua só de leitura.
 docker exec "$NAME" sh -c 'touch /etc/warden-write-test' 2>/dev/null && fail "a raiz do contêiner aceitou escrita"
 docker exec "$NAME" sh -c 'ls -A /data | head -n 1' | grep -q . || echo "aviso: /data está vazio (o hub ainda não gravou nada)"
@@ -73,7 +80,7 @@ docker exec "$NAME" sh -c 'ls -A /data | head -n 1' | grep -q . || echo "aviso: 
 #    índice em /data e, na primeira busca por significado, baixa o modelo de busca para /data/models.
 docker exec "$NAME" sh -c 'mkdir -p /data/vault && echo "The rotation of the signing keys happens every Friday." > /data/vault/keys.md' \
   || fail "não consegui gravar uma nota no cofre em /data"
-API_KEY="$(docker exec "$NAME" warden-server --data-dir /data api-keys create smoke 2>/dev/null)" || fail "api-keys create falhou"
+API_KEY="$(warden api-keys create smoke 2>/dev/null)" || fail "api-keys create falhou"
 [ -n "$API_KEY" ] || fail "api-keys create não devolveu a chave"
 reply="$(curl -fsS --max-time 600 -H "Authorization: Bearer $API_KEY" -H 'Content-Type: application/json' \
   -d '{"model":"warden","messages":[{"role":"user","content":"When are the signing keys rotated?"}]}' \
@@ -87,6 +94,44 @@ body="$(curl -fsS -H "Authorization: Bearer $KEY" "http://127.0.0.1:$PORT/status
 echo "status depois do turno: $body"
 echo "$body" | grep -q '"in_flight":0' || fail "o turno acabou mas /status ainda diz que há trabalho: $body"
 
+# 4b. Um webhook: o token vai para webhook_tokens.json em /data e a chamada de fora dispara um turno sem conexão aberta.
+warden webhooks add smoke-hook --prompt "Say pong about this event." >/dev/null || fail "webhooks add falhou"
+HOOK_TOKEN="$(warden webhooks token smoke-hook 2>/dev/null)" || fail "webhooks token falhou"
+[ -n "$HOOK_TOKEN" ] || fail "webhooks token não devolveu o token"
+code="$(curl -s -o /dev/null -w '%{http_code}' -X POST -H "Authorization: Bearer $HOOK_TOKEN" --data '{"event":"smoke"}' \
+  "http://127.0.0.1:$PORT/hooks/smoke-hook")"
+case "$code" in 200|202) ;; *) fail "o webhook respondeu $code, esperava 200 ou 202" ;; esac
+hook_seen=""
+for _ in $(seq 1 30); do
+  if docker exec "$NAME" sh -c 'find /data -name "*task-hook-smoke-hook*" | head -n 1' | grep -q .; then hook_seen=1; break; fi
+  sleep 1
+done
+[ -n "$hook_seen" ] || fail "o webhook respondeu $code mas a conversa dele não apareceu em /data em 30 s"
+echo "webhook: ok ($code, conversa gravada em /data)"
+
+# 4c. Sync por git, contra um remoto local em /data: o git roda dentro do contêiner com HOME=/tmp, e o repositório local, o
+#     manifesto e a chave do cofre ficam em /data.
+docker exec "$NAME" git init --bare -q /data/remote.git || fail "git init --bare falhou em /data"
+docker exec "$NAME" sh -c 'printf "\n[git_sync]\nremote_url = \"/data/remote.git\"\ntoken = \"smoke\"\n" >> /data/config.toml' \
+  || fail "não consegui acrescentar [git_sync] à config"
+warden sync init >/dev/null || fail "sync init falhou"
+sync_out="$(warden sync now 2>&1)" || fail "sync now falhou: $sync_out"
+echo "$sync_out" | grep -q 'pushed' || fail "sync now não enviou nada ao remoto: $sync_out"
+echo "sync: ok ($(echo "$sync_out" | tr '\n' ' '))"
+
+# 4d. A tarefa agendada rodou (a conferência que ficou para o fim, para o 1,5 a 2 min de espera andar junto com o resto).
+task_line=""
+for _ in $(seq 1 90); do
+  task_line="$(warden tasks list 2>/dev/null | grep smoke-task || true)"
+  case "$task_line" in *"last ran"*) break ;; esac
+  sleep 2
+done
+case "$task_line" in
+  *"failed"*) fail "a tarefa agendada rodou e falhou: $task_line" ;;
+  *"last ran"*) echo "tarefa agendada: ok ($task_line)" ;;
+  *) fail "a tarefa agendada não rodou em 3 min: $task_line" ;;
+esac
+
 # 5. SIGTERM: sai com 0 e diz que parou.
 docker stop -t 15 "$NAME" >/dev/null
 exit_code="$(docker inspect -f '{{.State.ExitCode}}' "$NAME")"
@@ -98,4 +143,4 @@ if docker logs "$NAME" 2>&1 | grep -Ei 'read-only file system|permission denied'
   fail "o log tem erro de escrita: a raiz só de leitura quebrou alguma coisa"
 fi
 
-echo "OK: a imagem sobe com a raiz só de leitura, responde /health e /status e para com SIGTERM."
+echo "OK: com a raiz só de leitura a imagem responde /health e /status, roda um turno com busca por significado, uma tarefa agendada, um webhook e um sync por git, e para com SIGTERM."
