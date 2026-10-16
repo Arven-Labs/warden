@@ -2,7 +2,13 @@ name: CI
 
 # A suíte completa roda aqui, não na máquina de desenvolvimento (Sessão 223): na máquina fica só o `cargo check`
 # e um teste pontual. Roda em todo push na main, em PR e pelo botão "Run workflow".
-# Um commit que só mexe na documentação não dispara a rodada.
+# Um commit que só mexe na documentação não dispara a rodada, e cada job só roda se a sua área mudou (job `changes`):
+#   rust       <- crates/**, desktop/src-tauri/**, Cargo.toml, Cargo.lock
+#   web        <- web/**
+#   desktop    <- desktop/**
+#   extension  <- extension/**
+#   mobile     <- mobile/** e crates/warden-mobile-bridge/** (o Dart gerado pelo flutter_rust_bridge sai desse crate)
+# Mexer no próprio ci.yml roda tudo, e o botão "Run workflow" também.
 on:
   push:
     branches: [main]
@@ -28,8 +34,63 @@ env:
   CARGO_INCREMENTAL: 0
 
 jobs:
+  changes:
+    name: Áreas alteradas
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      rust: ${{ steps.out.outputs.rust }}
+      mobile: ${{ steps.out.outputs.mobile }}
+      # Lista JSON dos frontends alterados, usada como matriz (`[]` = nenhum).
+      frontends: ${{ steps.out.outputs.frontends }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Filtro por pasta
+        id: filter
+        uses: dorny/paths-filter@v3
+        with:
+          filters: |
+            rust:
+              - 'crates/**'
+              - 'desktop/src-tauri/**'
+              - 'Cargo.toml'
+              - 'Cargo.lock'
+              - '.github/workflows/ci.yml'
+            web:
+              - 'web/**'
+              - '.github/workflows/ci.yml'
+            desktop:
+              - 'desktop/**'
+              - '.github/workflows/ci.yml'
+            extension:
+              - 'extension/**'
+              - '.github/workflows/ci.yml'
+            mobile:
+              - 'mobile/**'
+              - 'crates/warden-mobile-bridge/**'
+              - '.github/workflows/ci.yml'
+
+      - name: Resultado
+        id: out
+        env:
+          EVENT: ${{ github.event_name }}
+          MATCHED: ${{ steps.filter.outputs.changes }}
+        run: |
+          if [ "$EVENT" = "workflow_dispatch" ]; then
+            MATCHED='["rust","web","desktop","extension","mobile"]'
+          fi
+          echo "rust=$(jq -r 'index("rust") != null' <<<"$MATCHED")" >> "$GITHUB_OUTPUT"
+          echo "mobile=$(jq -r 'index("mobile") != null' <<<"$MATCHED")" >> "$GITHUB_OUTPUT"
+          echo "frontends=$(jq -c '[.[] | select(IN("web","desktop","extension"))]' <<<"$MATCHED")" >> "$GITHUB_OUTPUT"
+
   rust:
     name: Rust (clippy e testes)
+    needs: changes
+    if: needs.changes.outputs.rust == 'true'
     # 24.04 e não 22.04: o ONNX Runtime pronto que o `ort` baixa pede glibc 2.38+ (o 22.04 tem a 2.35 e o link falha).
     runs-on: ubuntu-24.04
     steps:
@@ -71,11 +132,13 @@ jobs:
 
   frontends:
     name: Frontend (${{ matrix.app }})
+    needs: changes
+    if: needs.changes.outputs.frontends != '[]'
     runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
       matrix:
-        app: [web, desktop, extension]
+        app: ${{ fromJSON(needs.changes.outputs.frontends) }}
     defaults:
       run:
         working-directory: ${{ matrix.app }}
@@ -103,6 +166,8 @@ jobs:
 
   mobile:
     name: Mobile (Flutter analyze e testes)
+    needs: changes
+    if: needs.changes.outputs.mobile == 'true'
     runs-on: ubuntu-24.04
     defaults:
       run:
