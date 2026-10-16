@@ -556,6 +556,12 @@ struct ServeArgs {
     /// connection, and the hub logs each change. Turn it on only for a hub you reach over TLS.
     #[arg(long)]
     allow_machine_settings: bool,
+
+    /// Don't load the two search models (the vault's and the history's) when the hub starts: each loads at its first
+    /// search instead. An idle hub then weighs ~25 MB rather than ~960 MB (P146), which is what a hub hosting many
+    /// instances wants; the cost is that the first turn that searches waits for the model.
+    #[arg(long)]
+    no_embedding_warm_up: bool,
 }
 
 /// Same fallback warden-telegram/the desktop app use — a background process launched by a
@@ -1315,7 +1321,11 @@ async fn run_serve(args: ServeArgs) -> anyhow::Result<()> {
     let code_engine = CodeEngineSlot::default();
     let engine_model_slot = warden_server::openai_api::EngineModelSlot::default();
     let orchestrator = bootstrap_hub(args.config.as_deref(), overrides.clone(), &code_engine, &engine_model_slot).await?;
-    warm_embedding_models(orchestrator.vault().clone());
+    if args.no_embedding_warm_up {
+        eprintln!("warden-server: search models are not preloaded (--no-embedding-warm-up); each loads at its first search");
+    } else {
+        warm_embedding_models(orchestrator.vault().clone());
+    }
     let settings =args.config.as_ref().map(PathBuf::from).or_else(warden_bootstrap::default_config_path).map(|config_path| ServeSettings {
         config_path,
         explicit_config: args.config.clone(),
