@@ -570,6 +570,11 @@ struct ServeArgs {
     #[arg(long)]
     no_embedding_warm_up: bool,
 
+    /// On SIGTERM or SIGINT (Ctrl+C) the hub stops accepting connections and, for this many seconds, lets the ones open
+    /// finish what they are doing before it exits (P143); anything still running then is cut. 0 exits at once.
+    #[arg(long, default_value_t = 5)]
+    shutdown_grace_secs: u64,
+
     /// Let go of the vault's search model after this many seconds without a search (P146): an idle hub then weighs
     /// ~76 MB instead of ~475 MB, and the next search loads it again (~135 MB, ~1.5 s of CPU). 0 keeps it for good.
     /// Doesn't touch the history search's model, which stays loaded once used.
@@ -1445,7 +1450,41 @@ async fn run_serve(args: ServeArgs) -> anyhow::Result<()> {
         server = server.with_web_ui(Arc::new(EmbeddedWebUi));
     }
     eprintln!("warden-server: Warden API (OpenAI-compatible) at {}/v1 — keys: `warden-server api-keys create <name>`", page_url.trim_end_matches('/'));
-    server.serve().await
+    // P143: a stop signal ends the accept loop and frees the port; the open connections get a grace period, and the
+    // children (`kill_on_drop`) are collected when the process exits normally rather than being cut by the signal.
+    server.serve_until(stop_signal()).await?;
+    if args.shutdown_grace_secs > 0 {
+        eprintln!("warden-server: not accepting connections; exiting in {}s (or now, with a second signal)", args.shutdown_grace_secs);
+        tokio::select! {
+            _ = tokio::time::sleep(std::time::Duration::from_secs(args.shutdown_grace_secs)) => {}
+            _ = stop_signal() => {}
+        }
+    }
+    eprintln!("warden-server: stopped");
+    Ok(())
+}
+
+/// Resolves when the process is asked to stop: SIGTERM (what systemd and `docker stop` send) or SIGINT (Ctrl+C).
+async fn stop_signal() {
+    #[cfg(unix)]
+    {
+        use tokio::signal::unix::{signal, SignalKind};
+        match signal(SignalKind::terminate()) {
+            Ok(mut terminate) => {
+                tokio::select! {
+                    _ = terminate.recv() => {}
+                    _ = tokio::signal::ctrl_c() => {}
+                }
+            }
+            Err(_) => {
+                let _ = tokio::signal::ctrl_c().await;
+            }
+        }
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = tokio::signal::ctrl_c().await;
+    }
 }
 
 /// Loads the two embedding models (the vault's and the history search's) in the background, so the first turn after the hub
