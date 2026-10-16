@@ -72,3 +72,21 @@ fn search_semantic_indexes_a_vault_bigger_than_one_batch() {
     assert_eq!(hits.len(), 1);
     assert_eq!(hits[0].path, "note-27.md");
 }
+
+/// P146 (c): a model nobody has used for a while is let go, and the next search loads it again and still answers.
+#[test]
+#[ignore = "downloads a real ONNX model from Hugging Face on first run — needs network"]
+fn an_idle_embedder_is_unloaded_and_the_next_search_loads_it_again() {
+    let vault = temp_vault();
+    vault.write("dentist.md", "Appointment with the dentist on Friday morning.").unwrap();
+    vault.write("groceries.md", "Buy eggs, bread and milk at the store.").unwrap();
+    vault.warm_up().unwrap();
+
+    assert!(!vault.unload_idle_embedder(std::time::Duration::from_secs(3600)), "used just now, so it stays");
+    assert!(vault.unload_idle_embedder(std::time::Duration::ZERO), "idle long enough, so it goes");
+    assert!(!vault.unload_idle_embedder(std::time::Duration::ZERO), "and there is nothing left to unload");
+
+    let hits = vault.search_semantic("do I have a medical checkup coming up?", 1).unwrap();
+    assert_eq!(hits.first().map(|h| h.path.as_str()), Some("dentist.md"), "loaded again and found the right note");
+    assert!(vault.unload_idle_embedder(std::time::Duration::ZERO), "the search loaded it again");
+}

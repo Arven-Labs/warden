@@ -994,26 +994,6 @@ mod tests {
         assert!(!vault.unload_idle_embedder(Duration::ZERO));
     }
 
-    /// P146 (c): needs the real model (downloaded once), so it runs with the other `--ignored` embedding tests.
-    #[cfg(feature = "semantic-search")]
-    #[test]
-    #[ignore = "loads the real embedding model"]
-    fn an_idle_embedder_is_unloaded_and_the_next_search_loads_it_again() {
-        let vault = temp_vault();
-        vault.write("feijao.md", "arroz e feijão para o almoço").unwrap();
-        vault.write("other.md", "the quarterly tax return").unwrap();
-        vault.warm_up().unwrap();
-        assert!(!vault.unload_idle_embedder(Duration::from_secs(3600)), "used just now, so it stays");
-        assert!(vault.embedder.lock().unwrap().model.is_some());
-
-        assert!(vault.unload_idle_embedder(Duration::ZERO), "idle long enough, so it goes");
-        assert!(vault.embedder.lock().unwrap().model.is_none());
-
-        let hits = vault.search_semantic("lunch with rice and beans", 1).unwrap();
-        assert_eq!(hits.first().map(|h| h.path.as_str()), Some("feijao.md"), "loaded again and found the right note");
-        assert!(vault.embedder.lock().unwrap().model.is_some());
-    }
-
     #[cfg(feature = "semantic-search")]
     #[test]
     fn the_semantic_index_of_an_encrypted_vault_is_encrypted_too() {
