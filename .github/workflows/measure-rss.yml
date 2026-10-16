@@ -1,0 +1,50 @@
+name: Medir RSS
+
+# Repete a medição de memória da Sessão 222 (HOSPEDAGEM.md seção K) com o binário de release atual: hub ocioso sem e com os
+# modelos de busca, e o 1º turno com cofres de 50 a 1000 notas curtas e 300 longas (P145, P146). Só manual:
+#   gh workflow run measure-rss.yml
+# A tabela sai no resumo do run. O runner tem 4 núcleos e o RSS final não depende deles (seção K.3).
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: 0
+
+jobs:
+  measure:
+    name: RSS do hub em release
+    # 24.04: o ONNX Runtime pronto do `ort` pede glibc 2.38+ (ver ci.yml).
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust
+        uses: Swatinem/rust-cache@v2
+
+      # O script liga a pasta de modelos de cada cenário a esta, então os dois modelos baixam uma vez só.
+      - name: Cache dos modelos
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/warden/models
+          key: warden-models-${{ hashFiles('crates/warden-core/Cargo.toml') }}
+
+      - name: Build de release
+        run: cargo build --release -p warden-server
+
+      - name: Medir
+        run: |
+          python3 scripts/measure-rss.py | tee rss.md
+          {
+            echo "## RSS do warden-server em release"
+            echo
+            cat rss.md
+          } >> "$GITHUB_STEP_SUMMARY"
