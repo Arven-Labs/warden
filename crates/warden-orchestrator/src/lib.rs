@@ -1,10 +1,30 @@
 //! The orchestrator of hosted Warden instances (P138, `HOSPEDAGEM.md` phase 4).
 //!
-//! What exists so far is the recycling policy (K.6 item 5). A hub that once loaded the history search model keeps
-//! ~560 MB of resident memory even after unloading it (K.2), and scale-to-zero was ruled out (it would break the bots,
-//! the scheduled tasks, the sync and the nodes' connections). So an instance that is idle *and* heavy is stopped and
-//! started again, which is the only way proven to give the memory back.
+//! One container per customer, driven through the `docker` CLI: `manager` provisions, suspends, resumes and deletes, each
+//! idempotent by customer id; `recycler` restarts the instance that is idle *and* heavy, on the verdict of `recycle`.
+//!
+//! Why recycle (K.6 item 5): a hub that once loaded the history search model keeps ~560 MB of resident memory even after
+//! unloading it (K.2), and scale-to-zero was ruled out (it would break the bots, the scheduled tasks, the sync and the
+//! nodes' connections). So an instance that is idle *and* heavy is stopped and started again, which is the only way proven
+//! to give the memory back.
+//!
+//! Everything that touches the world sits behind a trait (`ContainerRuntime`, `StatusSource`), so the rest is tested with
+//! `fake::FakeRuntime` and a canned status. Not here yet: the site mother's HTTP contract (B1), the reverse proxy with
+//! TLS and a domain per customer, backup, rolling upgrades.
 
+pub mod fake;
+pub mod instance;
+pub mod manager;
 pub mod recycle;
+pub mod recycler;
+pub mod runtime;
+pub mod status;
+pub mod store;
 
+pub use instance::{Instance, InstanceSpec, State};
+pub use manager::InstanceManager;
 pub use recycle::{Decision, Reason, RecyclePolicy};
+pub use recycler::{recycle_pass, Outcome};
+pub use runtime::{ContainerRuntime, DockerCli};
+pub use status::{HttpStatus, StatusSource};
+pub use store::InstanceStore;

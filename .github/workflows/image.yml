@@ -11,6 +11,8 @@ on:
       - '.dockerignore'
       - 'scripts/image-smoke.sh'
       - 'scripts/fake-openai.py'
+      - 'scripts/orchestrator-smoke.sh'
+      - 'crates/warden-orchestrator/**'
       - '.github/workflows/image.yml'
   workflow_dispatch:
   # Chamado por `image-publish.yml` (a publicação numa tag `v*`), que só publica se esta fumaça passar.
@@ -44,3 +46,17 @@ jobs:
 
       - name: Teste de fumaça (raiz só de leitura)
         run: bash scripts/image-smoke.sh warden-server:smoke
+
+      # O orquestrador (P138, fase 4) contra Docker de verdade, com a imagem que acabou de passar na fumaça: provisionar,
+      # suspender, retomar, reciclar e apagar uma instância.
+      - name: Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust
+        uses: Swatinem/rust-cache@v2
+
+      - name: Build do orquestrador
+        run: cargo build --release --locked -p warden-orchestrator
+
+      - name: Teste de fumaça do orquestrador
+        run: bash scripts/orchestrator-smoke.sh warden-server:smoke target/release/warden-orchestrator

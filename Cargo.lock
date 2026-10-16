@@ -8267,6 +8267,15 @@ dependencies = [
 name = "warden-orchestrator"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
+ "async-trait",
+ "clap",
+ "reqwest 0.12.28",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
  "warden-server-protocol",
 ]
 

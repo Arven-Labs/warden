@@ -3,7 +3,22 @@ name = "warden-orchestrator"
 version.workspace = true
 edition.workspace = true
 
-# The hosted-instances orchestrator (P138, HOSPEDAGEM.md phase 4). Today only the policy that decides when an idle,
-# heavy instance is recycled (K.6 item 5); it holds no Docker, no network and no clock, so everything in it is testable.
+[[bin]]
+name = "warden-orchestrator"
+path = "src/main.rs"
+
+# The hosted-instances orchestrator (P138, HOSPEDAGEM.md phase 4): the policy that decides when an idle, heavy instance is
+# recycled (K.6 item 5), and what acts on it, one container per customer through the `docker` CLI. The Docker and the
+# HTTP sides sit behind traits (`ContainerRuntime`, `StatusSource`), so the rest is testable with fakes. It doesn't depend
+# on `warden-bootstrap` or `warden-core`: it only needs the status type the hub answers with.
 [dependencies]
+anyhow.workspace = true
+async-trait.workspace = true
+clap = { version = "4", features = ["derive", "env"] }
+reqwest.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
 warden-server-protocol = { path = "../warden-server-protocol" }
