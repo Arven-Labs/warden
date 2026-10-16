@@ -57,6 +57,14 @@ pub fn check_agent_exists(config_path: &std::path::Path, agent_id: Option<&str>,
     Ok(())
 }
 
+/// A key can only belong to a member the config at `config_path` has. For `warden-server api-keys create --user`, where
+/// the operator makes the key on a member's behalf (a member signed in on the web makes their own through the message).
+pub fn check_member_exists(config_path: &std::path::Path, user: &str) -> anyhow::Result<()> {
+    let config = warden_bootstrap::load_config_from_path(config_path, false)?;
+    anyhow::ensure!(config.users.iter().any(|u| u.id == user), "there is no member '{user}'");
+    Ok(())
+}
+
 fn api_key_error(request_id: u64, message: String, auth_rejected: bool) -> ServerMessage {
     ServerMessage::ApiKeyError { request_id, message, auth_rejected }
 }
@@ -173,6 +181,24 @@ mod tests {
 
     fn store(name: &str) -> ApiKeyStore {
         ApiKeyStore::new(std::env::temp_dir().join(format!("warden-hub-api-keys-{name}-{}", std::process::id())).join("api_keys.json"))
+    }
+
+    #[test]
+    fn a_key_for_a_member_needs_the_member_in_the_config() {
+        let dir = std::env::temp_dir().join(format!("warden-hub-api-keys-member-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let config_path = dir.join("config.toml");
+        let mut config = warden_bootstrap::FileConfig::default();
+        warden_bootstrap::users::add_user(&mut config, "ana", "Ana", "provisional-pass").unwrap();
+        warden_bootstrap::save_config(&config_path, &config).unwrap();
+
+        check_member_exists(&config_path, "ana").unwrap();
+        assert!(check_member_exists(&config_path, "ghost").is_err());
+
+        let store = store("member");
+        let created = store.create_for("ana-script", None, Some("ana")).unwrap();
+        let found = store.authenticate(&created.key).unwrap().expect("the key works");
+        assert_eq!(found.user.as_deref(), Some("ana"), "a call with it runs as the member");
     }
 
     #[tokio::test]

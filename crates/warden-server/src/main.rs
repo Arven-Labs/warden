@@ -492,7 +492,11 @@ enum ApiKeysAction {
         /// agent>` both mean it, any other agent is refused). Without it the key is general.
         #[arg(long)]
         agent: Option<String>,
-        /// The config file the agent is checked against, as in `serve`.
+        /// Makes the key a member's (P84): a call with it runs in their space, with their vault and conversations. The
+        /// member has to exist (`users add`).
+        #[arg(long)]
+        user: Option<String>,
+        /// The config file the agent and the member are checked against, as in `serve`.
         #[arg(long)]
         config: Option<String>,
     },
@@ -1344,12 +1348,16 @@ fn run_api_keys_command(action: ApiKeysAction) -> anyhow::Result<()> {
                 println!("{}\t{}\t{}…\t{scope}\tcreated {}\t{used}{raw}", key.id, key.name, key.shown, key.created_at_ms);
             }
         }
-        ApiKeysAction::Create { name, agent, config } => {
-            if agent.as_deref().is_some_and(|a| !a.trim().is_empty()) {
+        ApiKeysAction::Create { name, agent, user, config } => {
+            let user = user.as_deref().map(str::trim).filter(|u| !u.is_empty());
+            if agent.as_deref().is_some_and(|a| !a.trim().is_empty()) || user.is_some() {
                 let config_path = config.map(PathBuf::from).or_else(warden_bootstrap::default_config_path).context("could not determine the OS config directory")?;
-                warden_server::api_key_admin::check_agent_exists(&config_path, agent.as_deref(), None)?;
+                if let Some(user) = user {
+                    warden_server::api_key_admin::check_member_exists(&config_path, user)?;
+                }
+                warden_server::api_key_admin::check_agent_exists(&config_path, agent.as_deref(), user)?;
             }
-            let created = store.create(&name, agent.as_deref())?;
+            let created = store.create_for(&name, agent.as_deref(), user)?;
             println!("{}", created.key);
             eprintln!("key '{}' created (id {}) — copy it now, it isn't shown again", created.info.name, created.info.id);
             eprintln!("use it as the bearer token with base URL http(s)://<this hub>:<port>/v1");
