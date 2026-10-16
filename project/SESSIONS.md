@@ -11,7 +11,9 @@
 - **Pedido do usuário**: depois do `git pull`, remover todos os caches desta máquina (o CI já foi feito em outra) e garantir que cada teste só rode quando a sua área muda.
 - **Limpeza**: `target/debug` e `target/tmp` (~15 GB), cache do npm (`_cacache`), `~/.cargo/registry/{cache,src}` e, em `~/.cache`, `paru`, `ort.pyke.io`, `warden`, `BraveSoftware`, `spotify`, `flatpak` e `mesa_shader_cache`. `/home` foi de 131 GB para 114 GB usados. **Não mexi** em Docker (28 GB de volumes e 6,3 GB de imagens liberáveis) nem no cache do pacman (pede `sudo`). O ONNX Runtime e o modelo de embedding serão baixados de novo no 1º uso da busca semântica.
 - **CI por área**: `ci.yml` ganhou o job `changes` (`dorny/paths-filter@v3`) e os jobs `rust`, `frontends` (matriz dinâmica) e `mobile` só rodam se a sua área mudou. O `mobile` também dispara com `crates/warden-mobile-bridge/**`, porque o Dart gerado pelo `flutter_rust_bridge` sai desse crate. Commit `e49fc2c`, run 38841846742 verde nos cinco jobs; como mexeu no `ci.yml`, rodou tudo. **O corte por área ainda não foi visto** num push de uma pasta só.
-- **Sobra**: P146 (a), P147, P150 e o resto do P149 (ver `PENDING.md`).
+- **P150 (teste instável)**: plano aprovado em modo de plano. A mensagem do teste `a_conversation_created_in_a_folder_keeps_it_and_is_told_about_it` virou `"diary"` (casa por significado e por palavra); passa com `WARDEN_NO_SEMANTIC=1`. Commit `78658ef`. A confirmar no CI.
+- **P146 (a), warm-up**: novo flag `warden-server serve --no-embedding-warm-up` (`main.rs`); `cargo check -p warden-server` e o `--help` conferem. Sem teste automatizado nem a medição de RSS (ficam para a rodada de testes). Diferença do plano: não extraí uma função pura só para testar um `if`.
+- **Sobra**: P146 (c) (descarregar o modelo do cofre), P147 e o resto do P149 (ver `PENDING.md`).
 
 ---
 
