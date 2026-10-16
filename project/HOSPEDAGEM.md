@@ -416,7 +416,25 @@ Repetida no CI (`gh workflow run measure-rss.yml`, run 38968961049, runner Ubunt
 
 - **P145 confirmado**: 1000 notas curtas caem de 1,7 GB para 483 MB (o alvo era ~470 MB) e 300 longas de 8,2 GB para 419 MB. O pico fica a poucos MB do RSS final, ou seja, o salto do lote único sumiu. Os dois ficaram abaixo do benchmark de lote 16 (1111 MB nas longas), provavelmente porque o ORT e o runner diferem do ambiente da Sessão 222; a causa não foi investigada. O tempo do 1º turno com 1000 notas (18,2 s em 4 núcleos) é parecido com o de antes (15 s): o conserto tirou memória, não tempo.
 - **P146 (a) confirmado**: com `--no-embedding-warm-up` a instância ociosa tem 23 MB; com o warm-up, 880 MB.
-- **Não coberto**: o descarregamento por ociosidade (P146 c, 475 para 76 MB) e o modelo do histórico (não há busca no histórico nesses turnos); o custo por requisição de membro (P147); cofre real; disco frio e overhead de contêiner. Os alvos de 50 e 300 notas curtas não vinham do benchmark, então a tabela não os compara.
+- **Não coberto**: o modelo do histórico (não há busca no histórico nesses turnos; o modelo de mentira não pede a tool); cofre real; disco frio e overhead de contêiner. Os alvos de 50 e 300 notas curtas não vinham do benchmark, então a tabela não os compara.
+
+**Segunda rodada (mesmo dia, run 38970343728): descarregamento e membros.** O script ganhou os dois cenários e o `warden-server api-keys create --user <membro>` (P84), que faltava para criar a chave de um membro sem falar WebSocket.
+
+| Cenário | RSS | Pico | Tempo |
+|---|---:|---:|---:|
+| 1000 notas curtas, depois do 1º turno | 486 MB | 489 MB | 18,7 s |
+| … 15 s ocioso (`--embedding-idle-secs 5`) | **113 MB** | - | - |
+| … 2º turno (recarrega o modelo) | 177 MB | 489 MB | 0,2 s |
+
+| Membro (50 notas curtas cada) | RSS depois do 1º | 1ª requisição | CPU da 1ª | 5 seguintes (média) | CPU das seguintes |
+|---|---:|---:|---:|---:|---:|
+| m1 | 245 MB | 1,03 s | 3,60 s | 0,01 s | 0,01 s |
+| m2 | 425 MB | 1,04 s | 3,72 s | 0,01 s | 0,01 s |
+| m3 | 596 MB | 1,05 s | 3,79 s | 0,01 s | 0,01 s |
+
+- **P146 (c) confirmado**: o modelo do cofre é descarregado (486 para 113 MB; os 76 MB da K.2 eram só o modelo, e o hub sozinho pesa ~24 MB) e o 2º turno o recarrega sem reindexar (0,2 s).
+- **P147 confirmado no que ele prometia**: as requisições seguintes de um membro custam 0,01 s de CPU, ou seja, o `Vault` e o modelo vivem entre as requisições. Não há binário antigo para comparar na mesma máquina, então o "antes" continua sendo a inferência do código, não uma medição.
+- **Achado novo (P153)**: o RSS cresce **linearmente, cerca de 175 MB por membro ativo** (245, 425 e 596 MB), porque cada membro guarda o seu `Vault` com uma cópia própria do modelo de ~135 MB. A Sessão 222 viu 532, 616 e 598 MB, que não era linear porque o modelo morria com a conexão. Com o cache, o custo fica enquanto o membro estiver ativo e some só depois de `--embedding-idle-secs` (padrão 600) sem busca. Num hub com muitos membros ativos ao mesmo tempo, isso é a RAM que importa.
 
 ## O que foi verificado e o que não foi
 
