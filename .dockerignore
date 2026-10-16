@@ -1,0 +1,14 @@
+# O contexto do build da imagem do hub (Dockerfile). O que o `cargo build -p warden-server` não lê fica de fora: o
+# `target` sozinho tem dezenas de GB.
+.git
+target
+**/target
+**/node_modules
+**/dist
+**/dist-firefox
+mobile
+extension
+project
+desktop/src-tauri/target
+*.md
+!README.md

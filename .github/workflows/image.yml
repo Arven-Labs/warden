@@ -1,0 +1,43 @@
+name: Imagem do hub
+
+# Constrói a imagem (Dockerfile) e roda o teste de fumaça com a raiz só de leitura (P143 e). Não publica nada.
+# O build de release é pesado, então não roda a cada push de código: só quando a própria imagem muda, ou à mão
+# ("Run workflow"). Quem muda o hub e quer ver a imagem de pé dispara à mão.
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'Dockerfile'
+      - '.dockerignore'
+      - 'scripts/image-smoke.sh'
+      - '.github/workflows/image.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: image-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  image:
+    name: Imagem e teste de fumaça
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          load: true
+          tags: warden-server:smoke
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Teste de fumaça (raiz só de leitura)
+        run: bash scripts/image-smoke.sh warden-server:smoke
