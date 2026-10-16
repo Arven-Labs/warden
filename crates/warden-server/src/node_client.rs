@@ -350,7 +350,7 @@ impl NodeIdentity {
 }
 
 pub fn default_node_identity_path() -> Option<PathBuf> {
-    dirs::config_dir().map(|dir| dir.join("warden").join("node.json"))
+    warden_core::paths::warden_dir().map(|dir| dir.join("node.json"))
 }
 
 /// Everything one connection needs.

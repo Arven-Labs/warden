@@ -999,7 +999,7 @@ fn find_mut<'a>(config: &'a mut FileConfig, id: &str) -> anyhow::Result<&'a mut 
 /// Where each member's own things live on the hub: `~/.config/warden/users/<id>/` — outside the
 /// root's vault, which syncs and which the root's agents read.
 pub fn default_users_dir() -> Option<PathBuf> {
-    dirs::config_dir().map(|dir| dir.join("warden").join("users"))
+    warden_core::paths::warden_dir().map(|dir| dir.join("users"))
 }
 
 /// A member's vault under `users_dir`.

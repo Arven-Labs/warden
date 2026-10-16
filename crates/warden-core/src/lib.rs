@@ -7,6 +7,7 @@ pub mod memory;
 pub mod meter;
 pub mod model;
 pub mod orchestrator;
+pub mod paths;
 pub mod project;
 pub mod skill;
 pub mod speech;

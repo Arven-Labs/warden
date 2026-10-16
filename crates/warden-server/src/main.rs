@@ -30,6 +30,13 @@ impl From<Provider> for warden_bootstrap::Provider {
 #[derive(Parser, Debug)]
 #[command(name = "warden-server", version, about)]
 struct Cli {
+    /// Keep every Warden file (config, devices, API keys, members, conversations, the downloaded models and, unless
+    /// `--vault-path` says otherwise, the vault) in this one folder instead of the OS config folder (P143): what a
+    /// service or a container wants, so one volume holds all of it. Falls back to WARDEN_DATA_DIR. Applies to every
+    /// command, since `devices`, `api-keys` and `sync` read the same files `serve` writes.
+    #[arg(long, global = true)]
+    data_dir: Option<PathBuf>,
+
     #[command(subcommand)]
     command: Command,
 }
@@ -573,6 +580,10 @@ struct ServeArgs {
 /// Same fallback warden-telegram/the desktop app use — a background process launched by a
 /// terminal, systemd unit, etc. has no cwd a user would recognize either.
 fn default_vault_path() -> PathBuf {
+    // With a data dir (P143) the vault lives in it too, so one volume holds everything.
+    if let Some(dir) = warden_core::paths::data_dir() {
+        return dir.join("vault");
+    }
     dirs::home_dir().unwrap_or_default().join("Warden").join("vault")
 }
 
@@ -1474,6 +1485,10 @@ async fn resolve_tls(args: &ServeArgs) -> anyhow::Result<Option<HubTls>> {
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
+    // Before anything asks where a file lives (P143).
+    if let Some(dir) = cli.data_dir.or_else(|| std::env::var_os("WARDEN_DATA_DIR").filter(|v| !v.is_empty()).map(PathBuf::from)) {
+        warden_core::paths::set_data_dir(dir);
+    }
     match cli.command {
         Command::Serve(args) => run_serve(args).await,
         Command::Devices { action } => run_devices_command(action),

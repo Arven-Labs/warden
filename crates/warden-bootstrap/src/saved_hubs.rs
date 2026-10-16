@@ -35,7 +35,7 @@ struct HubsFile {
 
 /// `hubs.json` in the OS config dir, beside `config.toml`.
 pub fn default_saved_hubs_path() -> Option<PathBuf> {
-    dirs::config_dir().map(|dir| dir.join("warden").join("hubs.json"))
+    warden_core::paths::warden_dir().map(|dir| dir.join("hubs.json"))
 }
 
 /// The address of a hub's web interface, from whatever was typed: `http`/`https` stay, `ws`/`wss` (the address

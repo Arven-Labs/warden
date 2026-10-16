@@ -162,7 +162,7 @@ fn clip(text: &str, max: usize) -> String {
 
 /// Where the log lives, next to `config.toml`.
 pub fn default_agent_tasks_path() -> Option<PathBuf> {
-    dirs::config_dir().map(|dir| dir.join("warden").join("agent_tasks.jsonl"))
+    warden_core::paths::warden_dir().map(|dir| dir.join("agent_tasks.jsonl"))
 }
 
 /// The counter at the end of a task's id. One per process, not per recorder: the registry that lets a person pause or stop a task

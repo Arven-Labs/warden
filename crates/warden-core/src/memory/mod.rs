@@ -625,7 +625,7 @@ const VAULT_EMBED_BATCH: usize = 16;
 /// so it must not live inside a vault directory or get duplicated per vault.
 #[cfg(feature = "semantic-search")]
 fn model_cache_dir() -> PathBuf {
-    dirs::cache_dir().unwrap_or_else(std::env::temp_dir).join("warden").join("models")
+    crate::paths::model_cache_dir()
 }
 
 #[cfg(test)]

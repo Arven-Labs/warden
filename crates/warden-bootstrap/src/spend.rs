@@ -203,7 +203,7 @@ fn usable_prices(prices: &[Price]) -> (Vec<Price>, Vec<String>) {
 /// Where the ledger of what was spent lives, next to `config.toml`. Shared by every Warden process
 /// on the machine (desktop, CLI, Telegram bot...) so they draw from one account.
 pub fn default_spend_ledger_path() -> Option<PathBuf> {
-    dirs::config_dir().map(|dir| dir.join("warden").join("spend_ledger.jsonl"))
+    warden_core::paths::warden_dir().map(|dir| dir.join("spend_ledger.jsonl"))
 }
 
 /// `WARDEN_SPEND_LEDGER` (a file path) wins over the default location.

@@ -511,7 +511,7 @@ pub struct LendConfig {
 }
 
 pub fn default_hub_local_path() -> Option<PathBuf> {
-    dirs::config_dir().map(|dir| dir.join("warden").join("hub-local.json"))
+    warden_core::paths::warden_dir().map(|dir| dir.join("hub-local.json"))
 }
 
 /// A missing file is the default: nothing switched on.

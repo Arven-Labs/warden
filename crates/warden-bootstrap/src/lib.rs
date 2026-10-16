@@ -758,7 +758,7 @@ pub fn save_config(path: &Path, config: &FileConfig) -> anyhow::Result<()> {
 }
 
 pub fn default_config_path() -> Option<PathBuf> {
-    dirs::config_dir().map(|dir| dir.join("warden").join("config.toml"))
+    warden_core::paths::warden_dir().map(|dir| dir.join("config.toml"))
 }
 
 /// Propagates a provider id rename to everything in `config` that referenced the old id —
@@ -967,7 +967,7 @@ pub fn oauth_credential_store_path(server_name: &str) -> PathBuf {
 
 /// The folder every `oauth_credential_store_path` file lives in, and what the sync carries between devices (P54).
 pub fn oauth_credentials_dir() -> PathBuf {
-    dirs::config_dir().unwrap_or_else(std::env::temp_dir).join("warden").join("mcp_oauth")
+    warden_core::paths::warden_dir().unwrap_or_else(|| std::env::temp_dir().join("warden")).join("mcp_oauth")
 }
 
 /// Chat message roles as persisted to disk — mirrors the frontend's `ChatRole`
@@ -1088,7 +1088,7 @@ pub struct Conversation {
 /// Conversations are opaque app data (unlike the human-browsable markdown vault), so — like
 /// the config file — they live under the OS config dir, not the vault.
 pub fn default_conversations_dir() -> Option<PathBuf> {
-    dirs::config_dir().map(|dir| dir.join("warden").join("conversations"))
+    warden_core::paths::warden_dir().map(|dir| dir.join("conversations"))
 }
 
 /// Writes `conversation` as pretty JSON, one file per conversation named by id — an overwrite
@@ -1175,51 +1175,51 @@ pub fn load_conversation(dir: &Path, id: &str) -> anyhow::Result<Option<Conversa
 /// Telegram chat (keyed by numeric `chat_id`, no client-side title) isn't meant to show up
 /// there. A unified cross-channel conversation view is a bigger product question left for later.
 pub fn default_telegram_conversations_dir() -> Option<PathBuf> {
-    dirs::config_dir().map(|dir| dir.join("warden").join("conversations-telegram"))
+    warden_core::paths::warden_dir().map(|dir| dir.join("conversations-telegram"))
 }
 
 /// Same reasoning as `default_telegram_conversations_dir` — WhatsApp chats are keyed by JID, not
 /// a client-side title, and shouldn't show up in the desktop sidebar's `default_conversations_dir`.
 pub fn default_whatsapp_conversations_dir() -> Option<PathBuf> {
-    dirs::config_dir().map(|dir| dir.join("warden").join("conversations-whatsapp"))
+    warden_core::paths::warden_dir().map(|dir| dir.join("conversations-whatsapp"))
 }
 
 /// Same reasoning as `default_telegram_conversations_dir`/`default_whatsapp_conversations_dir` —
 /// `warden-server` (Fase 7.3) keys conversations by `device_id`, not a client-side title, and
 /// shouldn't show up in the desktop sidebar's `default_conversations_dir`.
 pub fn default_server_conversations_dir() -> Option<PathBuf> {
-    dirs::config_dir().map(|dir| dir.join("warden").join("conversations-server"))
+    warden_core::paths::warden_dir().map(|dir| dir.join("conversations-server"))
 }
 
 /// Where `warden-server` keeps its scheduled tasks' conversations and run state (P92). Not under
 /// `default_server_conversations_dir`, whose subdirectories are device ids a client picks.
 pub fn default_server_tasks_dir() -> Option<PathBuf> {
-    dirs::config_dir().map(|dir| dir.join("warden").join("tasks-server"))
+    warden_core::paths::warden_dir().map(|dir| dir.join("tasks-server"))
 }
 
 /// Where `warden-server`'s persistent device pairing registry lives (Fase 9.3) — same
 /// `dirs::config_dir()` base as `default_server_conversations_dir`, not overridable via CLI yet
 /// (same posture that function already has).
 pub fn default_server_devices_path() -> Option<PathBuf> {
-    dirs::config_dir().map(|dir| dir.join("warden").join("devices.json"))
+    warden_core::paths::warden_dir().map(|dir| dir.join("devices.json"))
 }
 
 /// Where a hub keeps the Warden API's keys (P12) — only their hashes, never a key itself. Shared by
 /// the standalone hub and the desktop's embedded one, like `devices.json`.
 pub fn default_api_keys_path() -> Option<PathBuf> {
-    dirs::config_dir().map(|dir| dir.join("warden").join("api_keys.json"))
+    warden_core::paths::warden_dir().map(|dir| dir.join("api_keys.json"))
 }
 
 /// Where a hub keeps its webhooks' tokens (P105) — only their hashes, and outside the synced config: a token belongs to
 /// the hub whose URL the caller knows, and only that one runs the call.
 pub fn default_webhook_tokens_path() -> Option<PathBuf> {
-    dirs::config_dir().map(|dir| dir.join("warden").join("webhook_tokens.json"))
+    warden_core::paths::warden_dir().map(|dir| dir.join("webhook_tokens.json"))
 }
 
 /// Where a hub keeps the TLS certificate it fetches with `tailscale cert` (P36) — shared by
 /// `warden-server serve --tailscale-cert` and the desktop's embedded hub.
 pub fn default_tls_dir() -> Option<PathBuf> {
-    dirs::config_dir().map(|dir| dir.join("warden").join("tls"))
+    warden_core::paths::warden_dir().map(|dir| dir.join("tls"))
 }
 
 /// What the desktop's Workspace screen embeds in the QR code a new client scans (Fase 9.7) — the
@@ -1242,19 +1242,19 @@ pub struct HubPairingConfig {
 /// call, same `dirs::config_dir()` base as the other Warden files. `None` when there's no config
 /// directory (the tools then simply run without an audit log).
 pub fn default_ssh_audit_log_path() -> Option<PathBuf> {
-    dirs::config_dir().map(|dir| dir.join("warden").join("ssh_audit.jsonl"))
+    warden_core::paths::warden_dir().map(|dir| dir.join("ssh_audit.jsonl"))
 }
 
 /// Where the hub logs every call its agents make on a node (P93) — same format as the SSH log.
 pub fn default_node_audit_log_path() -> Option<PathBuf> {
-    dirs::config_dir().map(|dir| dir.join("warden").join("node_audit.jsonl"))
+    warden_core::paths::warden_dir().map(|dir| dir.join("node_audit.jsonl"))
 }
 
 /// Where `HubPairingConfig` lives (Fase 9.7) — same `dirs::config_dir()` base as
 /// `default_server_devices_path`, separate file since it's JSON (no reason to force it into TOML)
 /// and has nothing to do with `devices.json`'s pairing *records*.
 pub fn default_hub_pairing_config_path() -> Option<PathBuf> {
-    dirs::config_dir().map(|dir| dir.join("warden").join("hub_pairing.json"))
+    warden_core::paths::warden_dir().map(|dir| dir.join("hub_pairing.json"))
 }
 
 /// `None` when the file doesn't exist yet (the operator hasn't filled in the Workspace form) —
