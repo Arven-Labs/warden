@@ -54,6 +54,7 @@ fn default_vault_path() -> PathBuf {
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
+    warden_bootstrap::logging::init_compact();
     let cli = Cli::parse();
 
     // bootstrap() loads the config file internally but only returns the Orchestrator — the bot

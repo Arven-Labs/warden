@@ -225,7 +225,7 @@ pub fn build_spend_guard_with(config: &FileConfig, limits_env: Option<String>, l
     let (prices, price_notes) = usable_prices(&config.prices);
     notes.extend(price_notes);
     for note in &notes {
-        eprintln!("note: {note}\n");
+        tracing::warn!("{note}");
     }
     if limits.is_empty() {
         return None;
@@ -234,7 +234,7 @@ pub fn build_spend_guard_with(config: &FileConfig, limits_env: Option<String>, l
     let store: Arc<dyn SpendStore> = match ledger {
         Some(path) => Arc::new(FileStore::open(path, longest)),
         None => {
-            eprintln!("note: no config directory found — spending is counted for this run only, not remembered\n");
+            tracing::warn!("no config directory found — spending is counted for this run only, not remembered");
             Arc::new(MemoryStore::default())
         }
     };

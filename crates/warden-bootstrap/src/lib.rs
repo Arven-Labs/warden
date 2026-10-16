@@ -33,6 +33,7 @@ use warden_core::tool::spend_tool::BudgetTool;
 use warden_core::tool::ssh::{ssh_tools, AuditLog, SshHost};
 use warden_core::tool::{Tool, ToolProvider};
 
+pub mod logging;
 pub mod agent_changes;
 pub mod agent_scope;
 pub mod agent_tasks;
@@ -1831,15 +1832,15 @@ pub fn add_mcp_tools(base_tools: &mut Vec<Arc<dyn Tool>>, name: &str, tools: any
                 if resolved == original {
                     base_tools.push(tool);
                 } else {
-                    eprintln!(
-                        "note: MCP server '{name}' tool '{original}' collides with an already-registered tool — \
-                         renamed to '{resolved}' (use this name in allowed_tools)\n"
+                    tracing::warn!(
+                        "MCP server '{name}' tool '{original}' collides with an already-registered tool — \
+                         renamed to '{resolved}' (use this name in allowed_tools)"
                     );
                     base_tools.push(warden_core::tool::rename_tool(tool, resolved));
                 }
             }
         }
-        Err(err) => eprintln!("note: MCP server '{name}' unavailable, skipping: {err:#}\n"),
+        Err(err) => tracing::warn!("MCP server '{name}' unavailable, skipping: {err:#}"),
     }
 }
 
@@ -1854,17 +1855,17 @@ async fn register_mcp_tools<P: ToolProvider>(base_tools: &mut Vec<Arc<dyn Tool>>
                     if resolved == original {
                         base_tools.push(tool);
                     } else {
-                        eprintln!(
-                            "note: MCP server '{name}' tool '{original}' collides with an already-registered tool — \
-                             renamed to '{resolved}' (use this name in allowed_tools)\n"
+                        tracing::warn!(
+                            "MCP server '{name}' tool '{original}' collides with an already-registered tool — \
+                             renamed to '{resolved}' (use this name in allowed_tools)"
                         );
                         base_tools.push(warden_core::tool::rename_tool(tool, resolved));
                     }
                 }
             }
-            Err(err) => eprintln!("note: MCP server '{name}' connected but failed to list tools: {err:#}\n"),
+            Err(err) => tracing::warn!("MCP server '{name}' connected but failed to list tools: {err:#}"),
         },
-        Err(err) => eprintln!("note: MCP server '{name}' unavailable, skipping: {err:#}\n"),
+        Err(err) => tracing::warn!("MCP server '{name}' unavailable, skipping: {err:#}"),
     }
 }
 
@@ -2065,12 +2066,12 @@ fn combo_chain(config: &FileConfig, combo: &ComboConfig) -> Vec<(String, Arc<dyn
             continue;
         }
         let Some(provider) = config.providers.iter().find(|p| &p.id == id) else {
-            eprintln!("note: combo '{}' names '{id}', which isn't a configured provider — skipped\n", combo.id);
+            tracing::warn!(combo = %combo.id, "combo names '{id}', which isn't a configured provider — skipped");
             continue;
         };
         match build_model_provider(provider, None) {
             Ok(model) => chain.push((id.clone(), model)),
-            Err(err) => eprintln!("note: combo '{}' can't use '{id}' — skipped: {err:#}\n", combo.id),
+            Err(err) => tracing::warn!(combo = %combo.id, "combo can't use '{id}' — skipped: {err:#}"),
         }
     }
     chain
@@ -2093,7 +2094,7 @@ fn combo_chain(config: &FileConfig, combo: &ComboConfig) -> Vec<(String, Arc<dyn
 /// same spirit as `DELEGATE_MAX_DEPTH`/`delegate_max_depth` for `delegate_task`).
 ///
 /// Returns `None` when there's nothing to delegate to — no agents configured, or every one of
-/// them failed to resolve a valid provider (logged via `eprintln!`, not fatal — one broken agent
+/// them failed to resolve a valid provider (logged as a warning, not fatal — one broken agent
 /// shouldn't take down every other agent's ability to delegate).
 fn delegate_targets(config: &FileConfig, orchestrator: &Orchestrator, caller: Option<&str>) -> Vec<NamedSubAgent> {
     let mut targets = Vec::new();
@@ -2109,7 +2110,7 @@ fn delegate_targets(config: &FileConfig, orchestrator: &Orchestrator, caller: Op
                 match build_model_for(config, provider_id, None) {
                     Ok(model) => orchestrator.with_model(model),
                     Err(err) => {
-                        eprintln!("note: agent '{}' has an invalid provider — delegate_to_agent won't be able to reach it: {err:#}\n", agent.id);
+                        tracing::warn!(agent = %agent.id, "agent has an invalid provider — delegate_to_agent won't be able to reach it: {err:#}");
                         continue;
                     }
                 }
@@ -2283,17 +2284,15 @@ pub async fn bootstrap(
             .await;
             register_mcp_tools(&mut base_tools, "tavily", connect).await;
         }
-        None => eprintln!(
-            "note: TAVILY_API_KEY not set — web search (via tavily-mcp) disabled (get a free key at https://tavily.com)\n"
-        ),
+        None => tracing::info!("TAVILY_API_KEY not set — web search (via tavily-mcp) disabled (get a free key at https://tavily.com)"),
     }
 
     if resolve_flag(std::env::var("WARDEN_ENABLE_SHELL").ok(), config.enable_shell) {
         base_tools.push(Arc::new(ShellTool::new(vault.clone())));
     } else {
-        eprintln!(
-            "note: shell tool disabled — set WARDEN_ENABLE_SHELL=1 (or enable_shell = true in config.toml) to \
-             enable it. It lets the model run arbitrary commands on this machine, with no sandboxing.\n"
+        tracing::info!(
+            "shell tool disabled — set WARDEN_ENABLE_SHELL=1 (or enable_shell = true in config.toml) to \
+             enable it. It lets the model run arbitrary commands on this machine, with no sandboxing."
         );
     }
 
@@ -2342,7 +2341,7 @@ fn build_ssh_tools(entries: &[SshHostConfig], base_dir: PathBuf, audit_log: Opti
         let host = entry.to_host();
         match host.validate() {
             Ok(()) => hosts.push(host),
-            Err(err) => eprintln!("note: ssh host skipped — {err:#}\n"),
+            Err(err) => tracing::warn!("ssh host skipped — {err:#}"),
         }
     }
     if hosts.is_empty() {
@@ -2422,7 +2421,7 @@ pub fn model_choices_for(config: &FileConfig, agent: Option<&AgentConfig>) -> Op
     let mut choices = all_model_choices(config)?;
     let allowed: Vec<String> = agent.delegation_models.iter().filter(|id| choices.ids.contains(id)).cloned().collect();
     if allowed.is_empty() {
-        eprintln!("note: agent '{}' may only delegate with {}, which no longer exist — it gets no choice of model\n", agent.id, agent.delegation_models.join(", "));
+        tracing::warn!(agent = %agent.id, "agent may only delegate with {}, which no longer exist — it gets no choice of model", agent.delegation_models.join(", "));
         return None;
     }
     choices.hints.retain(|(id, _)| allowed.contains(id));
@@ -2443,7 +2442,7 @@ fn all_model_choices(config: &FileConfig) -> Option<ModelChoices> {
     for policy in &config.model_policies {
         let clashes = ids.contains(&policy.id) || policies.iter().any(|p| p.id == policy.id);
         if clashes || !ids.contains(&policy.model) {
-            eprintln!("note: model policy '{}' clashes with another model or names '{}', which isn't a provider or combo — skipped\n", policy.id, policy.model);
+            tracing::warn!(policy = %policy.id, "model policy clashes with another model or names '{}', which isn't a provider or combo — skipped", policy.model);
             continue;
         }
         policies.push(policy);

@@ -36,7 +36,7 @@ const DAY: Duration = Duration::from_secs(24 * 60 * 60);
 /// effort: a listing or a new task doesn't fail because the tidying did.
 pub(crate) async fn tidy(workdir: &Path) {
     if let Err(err) = worktree::sweep_empty(workdir, EMPTY_GRACE, SystemTime::now(), |path| folder_busy(&path.to_string_lossy())).await {
-        eprintln!("warden: couldn't tidy the worktrees of {}: {err:#}", workdir.display());
+        tracing::warn!(workdir = %workdir.display(), "couldn't tidy the worktrees: {err:#}");
     }
 }
 
@@ -55,7 +55,7 @@ pub async fn tidy_projects(projects: &ProjectStore, now: SystemTime, grace: Dura
         }
         match worktree::sweep_empty(&workdir, grace, now, busy).await {
             Ok(mut ids) => removed.append(&mut ids),
-            Err(err) => eprintln!("warden: couldn't tidy the worktrees of {}: {err:#}", workdir.display()),
+            Err(err) => tracing::warn!(workdir = %workdir.display(), "couldn't tidy the worktrees: {err:#}"),
         }
     }
     removed

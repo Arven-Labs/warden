@@ -524,7 +524,7 @@ impl AuditLog {
         }
         // A rotation that fails must not cost the line: it goes into the current file, which then just stays big.
         if let Err(err) = self.rotate_if_full() {
-            eprintln!("note: could not rotate the audit log ({}): {err}", self.path.display());
+            tracing::error!(path = %self.path.display(), "could not rotate the ssh audit log: {err}");
         }
         let mut options = std::fs::OpenOptions::new();
         options.create(true).append(true);
@@ -637,7 +637,7 @@ impl SshContext {
             entry.extend(target.clone());
         }
         if let Err(err) = audit.record(&entry) {
-            eprintln!("note: could not write the ssh audit log ({}): {err}", audit.path().display());
+            tracing::error!(path = %audit.path().display(), "could not write the ssh audit log: {err}");
         }
     }
 

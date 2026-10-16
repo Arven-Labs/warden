@@ -1084,6 +1084,8 @@ fn sync_manifest_path() -> PathBuf {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // The events from warden-core and warden-bootstrap (P143 d) go nowhere without a subscriber.
+    warden_bootstrap::logging::init_compact();
     // Made first: the orchestrator's `code_task` looks for the engine in the slots it holds (P124).
     let code = code_cmds::CodeState::default();
     let (engine_slot, engine_models) = code.slots();

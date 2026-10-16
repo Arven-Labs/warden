@@ -188,7 +188,7 @@ impl HubMemberChat {
         match crate::bot_access::read_config(&self.config_path) {
             Ok(config) => config.bot_hub.map(|hub| hub.url.trim().to_string()).filter(|url| !url.is_empty()),
             Err(err) => {
-                eprintln!("can't read the config from {}: {err:#}", self.config_path.display());
+                tracing::error!(config = %self.config_path.display(), "can't read the config: {err:#}");
                 None
             }
         }
@@ -245,7 +245,7 @@ impl MemberChat for HubMemberChat {
             Ok(Some(linked)) => linked,
             Ok(None) => return MemberReply::Failed(NOT_LINKED_REPLY.to_string()),
             Err(err) => {
-                eprintln!("can't read the hub links: {err:#}");
+                tracing::error!("can't read the hub links: {err:#}");
                 return MemberReply::Failed(HUB_DOWN_REPLY.to_string());
             }
         };
@@ -260,7 +260,7 @@ impl MemberChat for HubMemberChat {
                     Ok(conn) => *connection = Some(conn),
                     Err(err) if err.downcast_ref::<AuthRejected>().is_some() => return MemberReply::Failed(NOT_LINKED_REPLY.to_string()),
                     Err(err) => {
-                        eprintln!("can't reach the hub at {url} for {member}: {err:#}");
+                        tracing::warn!(%url, %member, "can't reach the hub: {err:#}");
                         return MemberReply::Failed(HUB_DOWN_REPLY.to_string());
                     }
                 }
@@ -270,13 +270,13 @@ impl MemberChat for HubMemberChat {
                 Ok(reply) => return reply,
                 Err(Lost::TimedOut) => {
                     *connection = None;
-                    eprintln!("the hub took too long to answer {member}");
+                    tracing::warn!(%member, "the hub took too long to answer");
                     return MemberReply::Failed(HUB_DOWN_REPLY.to_string());
                 }
                 Err(Lost::Dropped) => {
                     *connection = None;
                     if fresh || !reused {
-                        eprintln!("the hub dropped the connection while answering {member}");
+                        tracing::warn!(%member, "the hub dropped the connection while answering");
                         return MemberReply::Failed(HUB_DOWN_REPLY.to_string());
                     }
                 }

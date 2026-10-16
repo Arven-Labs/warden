@@ -274,7 +274,7 @@ pub async fn learn_with_config(
         Some(id) => match crate::build_model_for(config, id, None) {
             Ok(model) => orchestrator.with_model(model),
             Err(err) => {
-                eprintln!("{who}: learning can't use '{id}', so it uses the conversation's own model: {err:#}");
+                tracing::warn!(%who, "learning can't use '{id}', so it uses the conversation's own model: {err:#}");
                 orchestrator.clone()
             }
         },
@@ -284,11 +284,11 @@ pub async fn learn_with_config(
     let orchestrator = orchestrator.with_spend_channel(LEARNING_CHANNEL);
     let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis() as i64).unwrap_or(0);
     match learn_from_conversation(&orchestrator, &config.learning, conversations_dir, conversation_id, agent_id, now).await {
-        Ok(Outcome::Revised(name)) => eprintln!("{who}: suggested a change to a skill, as '{name}', from conversation '{conversation_id}'"),
-        Ok(Outcome::Proposed(name)) => eprintln!("{who}: suggested the skill '{name}' from conversation '{conversation_id}'"),
-        Ok(Outcome::Blocked(reason)) => eprintln!("{who}: threw away a suggestion from conversation '{conversation_id}' because it had {reason}"),
+        Ok(Outcome::Revised(name)) => tracing::info!(%who, conversation = %conversation_id, "suggested a change to a skill, as '{name}'"),
+        Ok(Outcome::Proposed(name)) => tracing::info!(%who, conversation = %conversation_id, "suggested the skill '{name}'"),
+        Ok(Outcome::Blocked(reason)) => tracing::warn!(%who, conversation = %conversation_id, "threw away a suggestion because it had {reason}"),
         Ok(_) => {}
-        Err(err) => eprintln!("{who}: learning from '{conversation_id}' failed: {err:#}"),
+        Err(err) => tracing::warn!(%who, conversation = %conversation_id, "learning failed: {err:#}"),
     }
 }
 

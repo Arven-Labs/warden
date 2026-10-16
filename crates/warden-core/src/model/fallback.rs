@@ -122,7 +122,7 @@ impl ModelProvider for FallbackProvider {
             Err(err) if is_transient(&err) && self.providers.len() > 1 => err,
             Err(err) => return Err(err),
         };
-        eprintln!("model: provider '{first_id}' failed ({}), trying the fallbacks", short_reason(&first_err));
+        tracing::warn!(provider = %first_id, "provider failed ({}), trying the fallbacks", short_reason(&first_err));
 
         let mut others = Vec::new();
         for (id, provider) in &self.providers[1..] {
@@ -138,7 +138,7 @@ impl ModelProvider for FallbackProvider {
                     return Ok(Box::pin(head.chain(stream)));
                 }
                 Err(err) => {
-                    eprintln!("model: fallback provider '{id}' failed too ({})", short_reason(&err));
+                    tracing::warn!(provider = %id, "fallback provider failed too ({})", short_reason(&err));
                     others.push(format!("{id}: {}", short_reason(&err)));
                 }
             }

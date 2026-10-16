@@ -264,7 +264,7 @@ impl SyncRunner {
             ticker.tick().await;
             let report = self.run_once().await;
             if let Some(err) = &report.error {
-                eprintln!("auto-sync: {err}");
+                tracing::warn!("auto-sync: {err}");
             }
             on_report(&report).await;
         }

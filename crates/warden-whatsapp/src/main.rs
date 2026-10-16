@@ -71,6 +71,7 @@ fn default_sidecar_script_path() -> PathBuf {
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
+    warden_bootstrap::logging::init_compact();
     let cli = Cli::parse();
 
     let config = load_config(cli.config.as_deref())?;

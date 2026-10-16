@@ -32,7 +32,6 @@ tokio-tungstenite = "0.30"
 toml.workspace = true
 # P143 (d): the hub's diagnostics (`logging.rs`) — levels, time and fields instead of bare `eprintln!`.
 tracing.workspace = true
-tracing-subscriber.workspace = true
 warden-bootstrap = { path = "../warden-bootstrap" }
 warden-truthid = { path = "../warden-truthid" }
 warden-core = { path = "../warden-core" }

@@ -67,6 +67,7 @@ fn history_path() -> Option<PathBuf> {
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
+    warden_bootstrap::logging::init_compact();
     let cli = Cli::parse();
 
     // Same path `bootstrap()`/`load_config` resolve internally — kept here too so the interactive

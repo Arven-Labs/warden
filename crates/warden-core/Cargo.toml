@@ -30,6 +30,8 @@ reqwest-oauth = { package = "reqwest", version = "0.13.2" }
 serde.workspace = true
 serde_json.workspace = true
 tokio.workspace = true
+# P143 (d): diagnostics are `tracing` events; the binary installs the subscriber (`warden_bootstrap::logging`).
+tracing.workspace = true
 # All three optional, gated behind the `semantic-search` feature below (default-on) — `ort` (fastembed's
 # ONNX runtime) has no prebuilt binary for `armv7-linux-androideabi`, so any crate that cross-
 # compiles for Android (`warden-mobile-bridge`, via `warden-sync`) needs a way to depend on

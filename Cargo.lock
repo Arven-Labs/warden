@@ -8184,6 +8184,8 @@ dependencies = [
  "tokio",
  "toml 0.8.2",
  "toml_edit 0.25.14+spec-1.1.0",
+ "tracing",
+ "tracing-subscriber",
  "url",
  "warden-core",
  "warden-server-protocol",
@@ -8243,6 +8245,7 @@ dependencies = [
  "sha2 0.10.9",
  "tokio",
  "tokio-util",
+ "tracing",
 ]
 
 [[package]]
@@ -8283,7 +8286,6 @@ dependencies = [
  "tokio-tungstenite",
  "toml 0.8.2",
  "tracing",
- "tracing-subscriber",
  "warden-bootstrap",
  "warden-core",
  "warden-server-protocol",

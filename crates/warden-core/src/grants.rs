@@ -64,7 +64,7 @@ impl Inner {
     fn save(&self, entries: &Entries) {
         let Some(path) = self.keeping().path.clone() else { return };
         if let Err(err) = write_file(&path, entries) {
-            eprintln!("warden: could not save the permissions given with \"always\" to {}: {err}", path.display());
+            tracing::error!(path = %path.display(), "could not save the permissions given with \"always\": {err}");
         }
     }
 }
@@ -123,7 +123,7 @@ fn read_file(path: &Path) -> Entries {
         Ok(text) => text,
         Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Entries::new(),
         Err(err) => {
-            eprintln!("warden: could not read {}: {err}; starting with no \"always\" permissions", path.display());
+            tracing::warn!(path = %path.display(), "could not read the permissions file: {err}; starting with no \"always\" permissions");
             return Entries::new();
         }
     };
@@ -137,7 +137,7 @@ fn read_file(path: &Path) -> Entries {
         }
         Err(err) => {
             let aside = path.with_extension("json.bad");
-            eprintln!("warden: {} is not valid ({err}); kept as {} and starting with no \"always\" permissions", path.display(), aside.display());
+            tracing::warn!(path = %path.display(), kept_as = %aside.display(), "the permissions file is not valid ({err}); starting with no \"always\" permissions");
             let _ = std::fs::rename(path, aside);
             Entries::new()
         }
@@ -223,7 +223,7 @@ impl GrantBook {
         if let Some(old) = before.filter(|old| Some(old) != after.as_ref()) {
             if let Err(err) = std::fs::remove_file(&old) {
                 if err.kind() != std::io::ErrorKind::NotFound {
-                    eprintln!("warden: could not remove {}: {err}", old.display());
+                    tracing::warn!(path = %old.display(), "could not remove the old permissions file: {err}");
                 }
             }
         }

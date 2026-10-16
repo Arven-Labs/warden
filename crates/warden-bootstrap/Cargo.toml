@@ -18,6 +18,9 @@ dirs.workspace = true
 rand = "0.8"
 serde.workspace = true
 serde_json.workspace = true
+# P143 (d): `logging.rs` installs the subscriber every binary needs; the events come from this crate and warden-core.
+tracing.workspace = true
+tracing-subscriber.workspace = true
 # `time` only: the approval prompt in `manage_agents` gives up after a deadline.
 tokio = { workspace = true, features = ["time"] }
 toml.workspace = true

@@ -147,7 +147,7 @@ impl Tool for MessageUserTool {
             for channel in channels.iter().filter(|c| matches!(c.as_str(), bot_pairing::TELEGRAM | bot_pairing::WHATSAPP)) {
                 match outbox.push(channel, &text, bot_access::unix_now()) {
                     Ok(()) => forwarded.push(channel.clone()),
-                    Err(err) => eprintln!("could not leave the message of agent '{}' for {channel}: {err:#}", self.agent),
+                    Err(err) => tracing::error!(agent = %self.agent, %channel, "could not leave the agent's message: {err:#}"),
                 }
             }
         }
