@@ -1078,6 +1078,11 @@ async fn handle_connection<S: Transport>(ws: WebSocketStream<S>, peer: SocketAdd
         Ok(Ok(outcome)) => (outcome.issued_token, outcome.user),
         Ok(Err(rejection)) => {
             tracing::warn!(%device_id, %peer, "rejected Hello: {rejection}");
+            // P142: a wrong pairing key, invite or token waits like every other wrong key, so guessing one is slow. A revoked
+            // device isn't a guess, so it hears back at once.
+            if rejection == crate::device_registry::AuthRejection::InvalidCredentials {
+                tokio::time::sleep(crate::settings::WRONG_KEY_DELAY).await;
+            }
             return reject(&mut sink, &rejection.to_string()).await;
         }
         Err(err) => {

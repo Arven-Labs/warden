@@ -18,6 +18,23 @@ async fn hello_handshake_and_heartbeat_round_trip() {
     assert!(matches!(reply, Some(ServerMessage::Pong { nonce: 42 })));
 }
 
+/// P142: a wrong pairing key waits `WRONG_KEY_DELAY` before the rejection, like every other place a key is checked; a
+/// right one does not wait.
+#[tokio::test]
+async fn a_wrong_pairing_key_waits_before_it_is_turned_away_and_a_right_one_does_not() {
+    let addr = spin_up_server(MockProvider::replying("unused")).await;
+
+    let started = std::time::Instant::now();
+    let wrong = ServerConnection::connect(&format!("ws://{addr}"), "dev-1", "Test Device", "wrong-key").await;
+    assert!(wrong.is_err());
+    assert!(started.elapsed() >= warden_server::settings::WRONG_KEY_DELAY, "rejected after only {:?}", started.elapsed());
+
+    let started = std::time::Instant::now();
+    let right = ServerConnection::connect(&format!("ws://{addr}"), "dev-2", "Test Device", "test-key").await;
+    assert!(right.is_ok());
+    assert!(started.elapsed() < warden_server::settings::WRONG_KEY_DELAY, "a right key waited {:?}", started.elapsed());
+}
+
 #[tokio::test]
 async fn wrong_auth_key_is_rejected() {
     let addr = spin_up_server(MockProvider::replying("unused")).await;
