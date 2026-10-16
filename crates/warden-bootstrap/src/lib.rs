@@ -1935,7 +1935,8 @@ fn plain_http_host(host: &str) -> bool {
     if host == "localhost" || host == "[::1]" || host.ends_with(".local") || host.ends_with(".localhost") {
         return true;
     }
-    let octets: Vec<u8> = host.split('.').filter_map(|part| part.parse().ok()).collect();
+    // `parse::<u8>`: on Windows `encode_unicode` adds another `FromIterator` for `Vec<u8>`, and the type can't be inferred from `Vec<u8>` alone.
+    let octets: Vec<u8> = host.split('.').filter_map(|part| part.parse::<u8>().ok()).collect();
     if octets.len() != 4 || host.split('.').count() != 4 {
         return false;
     }
