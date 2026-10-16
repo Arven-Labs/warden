@@ -7,7 +7,7 @@ use std::io::Read;
 
 use anyhow::{bail, Context};
 
-use crate::instance::{validate_customer_id, Instance, InstanceSpec, State};
+use crate::instance::{validate_customer_id, volume_name, Instance, InstanceSpec, State};
 use crate::runtime::ContainerRuntime;
 use crate::store::{free_port, InstanceStore};
 
@@ -87,9 +87,14 @@ impl<R: ContainerRuntime> InstanceManager<R> {
 
     /// Removes the instance: the container and the record. The volume, with the customer's data, stays unless
     /// `purge_data` (how long to keep it is still open, `HOSPEDAGEM.md` question 4). Deleting what is not there is not an
-    /// error; the answer says whether there was anything.
+    /// error; the answer says whether there was an instance. A purge still removes the volume of a customer already
+    /// deleted without it: that is how the data is erased once the time to keep it is over.
     pub async fn delete(&self, customer_id: &str, purge_data: bool) -> anyhow::Result<bool> {
         let Some(instance) = self.store.get(customer_id)? else {
+            if purge_data {
+                validate_customer_id(customer_id)?;
+                self.runtime.remove_volume(&volume_name(customer_id)).await?;
+            }
             return Ok(false);
         };
         self.runtime.remove(&instance.container_name()).await?;
@@ -298,7 +303,11 @@ mod tests {
         assert!(m.delete("beta", true).await.unwrap());
         assert!(!m.runtime().has_volume("warden-data-beta"), "purged");
 
-        assert!(!m.delete("acme", true).await.unwrap(), "already gone");
+        assert!(!m.delete("acme", false).await.unwrap(), "already gone");
+        assert!(m.runtime().has_volume("warden-data-acme"), "and deleting again without a purge leaves the data");
+        assert!(!m.delete("acme", true).await.unwrap(), "no instance to delete");
+        assert!(!m.runtime().has_volume("warden-data-acme"), "but a purge afterwards erases the data kept earlier");
+        assert!(m.delete("Not Valid", true).await.is_err(), "a purge of something that is not a customer id is refused");
         // The port of a deleted instance is free again.
         assert_eq!(m.provision(spec("gamma")).await.unwrap().port, 20000);
     }
