@@ -27,6 +27,8 @@ struct FakeState {
     /// Names for which every call fails, to see one instance's failure not stopping the others.
     broken: BTreeSet<String>,
     restarts: Vec<String>,
+    /// Volumes a starting config was put in, in order.
+    seeded: Vec<String>,
 }
 
 impl FakeRuntime {
@@ -41,6 +43,11 @@ impl FakeRuntime {
     /// Container names restarted so far, in order.
     pub fn restarts(&self) -> Vec<String> {
         self.state.lock().unwrap().restarts.clone()
+    }
+
+    /// Volumes the starting config was put in so far, in order.
+    pub fn seeded(&self) -> Vec<String> {
+        self.state.lock().unwrap().seeded.clone()
     }
 
     /// A container that vanished behind the orchestrator's back (the host was rebuilt, someone ran `docker rm`).
@@ -61,6 +68,16 @@ impl FakeRuntime {
 
 #[async_trait]
 impl ContainerRuntime for FakeRuntime {
+    async fn seed_config(&self, instance: &Instance) -> anyhow::Result<()> {
+        let mut state = self.state.lock().unwrap();
+        Self::check(&state, &instance.container_name())?;
+        if instance.spec.config.is_some() {
+            state.volumes.insert(instance.volume_name());
+            state.seeded.push(instance.volume_name());
+        }
+        Ok(())
+    }
+
     async fn run(&self, instance: &Instance) -> anyhow::Result<()> {
         let mut state = self.state.lock().unwrap();
         let name = instance.container_name();

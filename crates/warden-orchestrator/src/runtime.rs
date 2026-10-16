@@ -25,6 +25,9 @@ pub struct ContainerInfo {
 
 #[async_trait]
 pub trait ContainerRuntime: Send + Sync {
+    /// Puts the instance's starting `config.toml` (if its spec has one) in its volume, creating the volume if need be. A
+    /// config already in the volume is left alone: the customer's own changes win over the spec.
+    async fn seed_config(&self, instance: &Instance) -> anyhow::Result<()>;
     /// Creates the container (and its volume, the first time) and starts it.
     async fn run(&self, instance: &Instance) -> anyhow::Result<()>;
     /// Stops a running container. Stopping one that is already stopped, or missing, is not an error.
@@ -116,8 +119,41 @@ fn strings(args: &[&str]) -> Vec<String> {
     args.iter().map(|a| a.to_string()).collect()
 }
 
+/// The arguments of the throwaway container that writes the starting config into the volume (everything after `docker`):
+/// the hub's own image, as the user it runs as, with the shell as entrypoint, no network and nothing writable but `/data`.
+/// The file is only written when absent.
+pub fn seed_args(instance: &Instance) -> Vec<String> {
+    let mut args: Vec<String> = ["run", "--rm", "-i", "--network", "none", "--read-only", "--cap-drop", "ALL", "--entrypoint", "sh", "-v"].map(String::from).into();
+    args.push(format!("{}:/data", instance.volume_name()));
+    args.push(instance.spec.image.clone());
+    args.push("-c".into());
+    args.push("[ -e /data/config.toml ] || cat > /data/config.toml".into());
+    args
+}
+
 #[async_trait]
 impl ContainerRuntime for DockerCli {
+    async fn seed_config(&self, instance: &Instance) -> anyhow::Result<()> {
+        let Some(config) = &instance.spec.config else {
+            return Ok(());
+        };
+        let mut child = Command::new(&self.binary)
+            .args(seed_args(instance))
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::piped())
+            .spawn()
+            .with_context(|| format!("could not run `{}` (is Docker installed and on the PATH?)", self.binary))?;
+        let mut stdin = child.stdin.take().context("no stdin on the seeding container")?;
+        tokio::io::AsyncWriteExt::write_all(&mut stdin, config.as_bytes()).await?;
+        drop(stdin); // the end of the input is what lets `cat` finish
+        let output = child.wait_with_output().await?;
+        if !output.status.success() {
+            bail!("could not put the starting config in {}: {}", instance.volume_name(), String::from_utf8_lossy(&output.stderr).trim());
+        }
+        Ok(())
+    }
+
     async fn run(&self, instance: &Instance) -> anyhow::Result<()> {
         self.docker(&run_args(instance), Some(&instance.pairing_key), None).await.map(|_| ())
     }
@@ -162,7 +198,7 @@ mod tests {
 
     fn instance(memory_mb: Option<u64>, cpus: Option<f64>) -> Instance {
         Instance {
-            spec: InstanceSpec { customer_id: "acme".into(), image: "ghcr.io/arven-labs/warden-server:0.1.0".into(), memory_mb, cpus },
+            spec: InstanceSpec { customer_id: "acme".into(), image: "ghcr.io/arven-labs/warden-server:0.1.0".into(), memory_mb, cpus, config: Some("token = \"s3cret\"".into()) },
             state: State::Active,
             port: 20001,
             pairing_key: "secret-key-that-must-not-be-an-argument".into(),
@@ -196,6 +232,17 @@ mod tests {
         assert_eq!(&args[image + 1..], ["serve", "--no-embedding-warm-up", "--run-tasks"]);
         assert!(has_pair(&args, "-e", KEY_ENV), "the variable is named, with no value");
         assert!(!args.iter().any(|a| a.contains("secret-key")), "the key never becomes an argument");
+    }
+
+    #[test]
+    fn the_seeding_container_has_no_network_writes_only_the_volume_and_never_overwrites() {
+        let args = seed_args(&instance(None, None));
+        assert!(has_pair(&args, "--network", "none"));
+        assert!(has_pair(&args, "--entrypoint", "sh"));
+        assert!(has_pair(&args, "-v", "warden-data-acme:/data"));
+        assert!(args.contains(&"--read-only".to_string()));
+        assert_eq!(args.last().unwrap(), "[ -e /data/config.toml ] || cat > /data/config.toml");
+        assert!(!args.iter().any(|a| a.contains("s3cret")), "the config goes in through stdin, not as an argument");
     }
 
     #[test]

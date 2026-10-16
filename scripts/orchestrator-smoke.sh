@@ -12,6 +12,20 @@ CONTAINER="warden-$CUSTOMER"
 VOLUME="warden-data-$CUSTOMER"
 STATE_DIR="$(mktemp -d)"
 
+# Um hub sem provedor de modelo se recusa a subir, então a instância nasce com uma config (o provedor nunca é chamado
+# aqui: o endereço não existe). É o que o `provision --config-file` põe no volume.
+CONFIG_FILE="$STATE_DIR/start-config.toml"
+cat > "$CONFIG_FILE" <<'EOF'
+active_provider = "main"
+
+[[providers]]
+id = "main"
+kind = "openai"
+api_key = "smoke"
+base_url = "http://127.0.0.1:1/v1"
+model = "fake"
+EOF
+
 orch() { "$ORCH" --state-dir "$STATE_DIR" "$@"; }
 
 cleanup() {
@@ -42,7 +56,7 @@ wait_health() {
 }
 
 # 1. Provisionar: o contêiner sobe, publicado só no loopback, com a raiz só de leitura e sem capacidades.
-out="$(orch provision "$CUSTOMER" --image "$IMAGE")" || fail "provision falhou"
+out="$(orch provision "$CUSTOMER" --image "$IMAGE" --config-file "$CONFIG_FILE")" || fail "provision falhou"
 echo "provision: $out"
 PORT="${out##*:}"
 wait_health
@@ -61,10 +75,10 @@ echo "/status com a chave: ok"
 
 # 3. Pedir de novo, igual, não muda nada; pedir diferente é recusado.
 first_start="$(started_at)"
-again="$(orch provision "$CUSTOMER" --image "$IMAGE")" || fail "o segundo provision, igual, falhou"
+again="$(orch provision "$CUSTOMER" --image "$IMAGE" --config-file "$CONFIG_FILE")" || fail "o segundo provision, igual, falhou"
 [ "$again" = "$out" ] || fail "o segundo provision mudou a resposta: '$again' contra '$out'"
 [ "$(started_at)" = "$first_start" ] || fail "o segundo provision reiniciou o contêiner"
-if orch provision "$CUSTOMER" --image "$IMAGE" --memory-mb 256 >/dev/null 2>&1; then
+if orch provision "$CUSTOMER" --image "$IMAGE" --config-file "$CONFIG_FILE" --memory-mb 256 >/dev/null 2>&1; then
   fail "provision com outro corpo para o mesmo cliente deveria ser recusado"
 fi
 echo "provision idempotente: ok"

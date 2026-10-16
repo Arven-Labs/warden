@@ -46,6 +46,10 @@ enum Command {
         /// CPU limit of the container, in cores.
         #[arg(long)]
         cpus: Option<f64>,
+        /// A `config.toml` for the new instance to start with (it needs a model provider: a hub without one refuses to
+        /// start). Put in the volume before the first start, never over a config already there. May hold secrets.
+        #[arg(long)]
+        config_file: Option<PathBuf>,
     },
     /// Stops the instance and keeps its data.
     Suspend { customer_id: String },
@@ -87,8 +91,11 @@ async fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
     let manager = InstanceManager::new(InstanceStore::new(&cli.state_dir), DockerCli::new());
     match cli.command {
-        Command::Provision { customer_id, image, memory_mb, cpus } => {
-            let instance = manager.provision(InstanceSpec { customer_id, image, memory_mb, cpus }).await?;
+        Command::Provision { customer_id, image, memory_mb, cpus, config_file } => {
+            let config = config_file
+                .map(|path| std::fs::read_to_string(&path).with_context(|| format!("could not read {}", path.display())))
+                .transpose()?;
+            let instance = manager.provision(InstanceSpec { customer_id, image, memory_mb, cpus, config }).await?;
             println!("{} {:?} 127.0.0.1:{}", instance.spec.customer_id, instance.state, instance.port);
         }
         Command::Suspend { customer_id } => {

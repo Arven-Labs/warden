@@ -94,7 +94,7 @@ mod tests {
 
     fn instance(id: &str, port: u16) -> Instance {
         Instance {
-            spec: InstanceSpec { customer_id: id.into(), image: "img".into(), memory_mb: None, cpus: None },
+            spec: InstanceSpec { customer_id: id.into(), image: "img".into(), memory_mb: None, cpus: None, config: None },
             state: State::Active,
             port,
             pairing_key: "k".repeat(64),

@@ -45,9 +45,9 @@ impl<R: ContainerRuntime> InstanceManager<R> {
             if let Some(existing) = all.iter().find(|i| i.spec.customer_id == candidate.customer_id) {
                 anyhow::ensure!(
                     existing.spec == candidate,
-                    "'{}' already exists with a different spec ({:?}); delete it first, or ask for the same spec",
+                    "'{}' already exists with a different spec (differs in: {}); delete it first, or ask for the same spec",
                     candidate.customer_id,
-                    existing.spec
+                    existing.spec.differs_from(&candidate).join(", ")
                 );
                 return Ok((existing.clone(), false));
             }
@@ -56,7 +56,7 @@ impl<R: ContainerRuntime> InstanceManager<R> {
             Ok((instance, true))
         })?;
         if created {
-            if let Err(err) = self.runtime.run(&instance).await {
+            if let Err(err) = self.create(&instance).await {
                 // Nothing runs, so nothing should be remembered: asking again starts clean.
                 self.store.update(|all| Ok(all.retain(|i| i.spec.customer_id != instance.spec.customer_id)))?;
                 return Err(err).with_context(|| format!("could not start the instance of '{}'", instance.spec.customer_id));
@@ -109,10 +109,17 @@ impl<R: ContainerRuntime> InstanceManager<R> {
     async fn reconcile(&self, instance: &Instance) -> anyhow::Result<()> {
         let name = instance.container_name();
         match self.runtime.inspect(&name).await? {
-            None => self.runtime.run(instance).await,
+            None => self.create(instance).await,
             Some(info) if !info.running => self.runtime.start(&name).await,
             Some(_) => Ok(()),
         }
+    }
+
+    /// A new container: the starting config goes into the volume first (not over one already there), because a hub with no
+    /// model provider refuses to start.
+    async fn create(&self, instance: &Instance) -> anyhow::Result<()> {
+        self.runtime.seed_config(instance).await?;
+        self.runtime.run(instance).await
     }
 
     fn require(&self, customer_id: &str) -> anyhow::Result<Instance> {
@@ -154,7 +161,34 @@ mod tests {
     }
 
     fn spec(id: &str) -> InstanceSpec {
-        InstanceSpec { customer_id: id.into(), image: "img:1".into(), memory_mb: None, cpus: None }
+        InstanceSpec { customer_id: id.into(), image: "img:1".into(), memory_mb: None, cpus: None, config: None }
+    }
+
+    #[tokio::test]
+    async fn the_starting_config_goes_into_the_volume_before_the_container_and_again_for_a_recreated_one() {
+        let m = manager("seed");
+        let with_config = InstanceSpec { config: Some("active_provider = \"main\"".into()), ..spec("acme") };
+        m.provision(with_config.clone()).await.unwrap();
+        assert_eq!(m.runtime().seeded(), ["warden-data-acme"]);
+
+        m.provision(with_config.clone()).await.unwrap();
+        assert_eq!(m.runtime().seeded().len(), 1, "a container that is there is not seeded again");
+
+        m.runtime().lose_container("warden-acme");
+        m.provision(with_config).await.unwrap();
+        assert_eq!(m.runtime().seeded().len(), 2, "a recreated one is (the runtime leaves a config already in the volume alone)");
+
+        m.provision(spec("plain")).await.unwrap();
+        assert_eq!(m.runtime().seeded().len(), 2, "no config in the spec, nothing to seed");
+    }
+
+    #[tokio::test]
+    async fn a_refused_spec_names_what_differs_and_does_not_print_the_config() {
+        let m = manager("refused");
+        m.provision(InstanceSpec { config: Some("token = \"s3cret\"".into()), ..spec("acme") }).await.unwrap();
+        let err = m.provision(InstanceSpec { config: Some("token = \"other\"".into()), ..spec("acme") }).await.unwrap_err().to_string();
+        assert!(err.contains("differs in: config"), "{err}");
+        assert!(!err.contains("s3cret") && !err.contains("other"), "{err}");
     }
 
     #[tokio::test]

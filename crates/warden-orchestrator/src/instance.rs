@@ -18,6 +18,32 @@ pub struct InstanceSpec {
     /// CPU limit of the container, in cores. `None`: no limit.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cpus: Option<f64>,
+    /// The `config.toml` a new instance starts with, put in its volume before the first start and never over one that is
+    /// already there. A hub with no model provider configured refuses to start, so an instance needs one from the first
+    /// run (later: the gateway's `Provider::Cloud`, P139). It may hold secrets: never printed, see `differs_from`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub config: Option<String>,
+}
+
+impl InstanceSpec {
+    /// Which settings differ from `other`, by name. For the message of a refused provision: the spec itself is not printed,
+    /// because the config in it can carry a token.
+    pub fn differs_from(&self, other: &InstanceSpec) -> Vec<&'static str> {
+        let mut names = Vec::new();
+        if self.image != other.image {
+            names.push("image");
+        }
+        if self.memory_mb != other.memory_mb {
+            names.push("memory_mb");
+        }
+        if self.cpus != other.cpus {
+            names.push("cpus");
+        }
+        if self.config != other.config {
+            names.push("config");
+        }
+        names
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -83,6 +109,16 @@ mod tests {
         for bad in ["", "-a", "_a", "Acme", "a b", "a/b", "a.b", "é", &"x".repeat(41)] {
             assert!(validate_customer_id(bad).is_err(), "{bad}");
         }
+    }
+
+    #[test]
+    fn the_differences_are_named_and_the_config_is_never_in_them() {
+        let base = InstanceSpec { customer_id: "acme".into(), image: "img:1".into(), memory_mb: None, cpus: None, config: Some("token = \"s3cret\"".into()) };
+        assert!(base.differs_from(&base.clone()).is_empty());
+        let other = InstanceSpec { image: "img:2".into(), memory_mb: Some(256), config: None, ..base.clone() };
+        let names = base.differs_from(&other);
+        assert_eq!(names, ["image", "memory_mb", "config"]);
+        assert!(!format!("{names:?}").contains("s3cret"));
     }
 
     #[test]

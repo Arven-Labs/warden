@@ -72,7 +72,7 @@ mod tests {
     }
 
     fn spec(id: &str) -> InstanceSpec {
-        InstanceSpec { customer_id: id.into(), image: "img".into(), memory_mb: None, cpus: None }
+        InstanceSpec { customer_id: id.into(), image: "img".into(), memory_mb: None, cpus: None, config: None }
     }
 
     fn policy() -> RecyclePolicy {
