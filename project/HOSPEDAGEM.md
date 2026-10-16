@@ -234,11 +234,11 @@ Vêm da spec do router (`SPEC-warden-router-e-futuro.md`, de 2026-10-14), que fo
 | Log estruturado | `tracing`, `--log-format text\|json`, `RUST_LOG`, subscriber em todo binário (P143 d) | testes de `logging.rs`; `serve --log-format json` só emite JSON (fora o `pairing:`, `println!` de propósito) |
 | Imagem e raiz só de leitura | `Dockerfile`, `scripts/image-smoke.sh`, `image.yml` (P143 e) | CI verde: `/health`, `/status`, turno com busca, tarefa agendada, webhook, sync por git e SIGTERM com a raiz só de leitura |
 | Exportar e importar | `warden-server export` e `import`, pacote em pasta v1 (P141) | 10 testes e a fumaça (export no contêiner, import num volume novo) |
-| Publicar a imagem | `image-publish.yml` numa tag `v*` (GHCR, pública) | **preparada e validada só sem publicar; nenhuma tag existe, então nada foi publicado** |
+| Publicar a imagem | `image-publish.yml` numa tag `v*` (GHCR) | **publicada** com a tag `v0.1.0` (run 38921092961): `ghcr.io/arven-labs/warden-server:0.1.0`, `:0.1` e `:latest`. **Nasceu privada**: tornar pública é um passo manual de dono da organização (Package settings), ainda por fazer |
 
 Além do que a fase pedia, saíram `GET /status` (a atividade do hub) e a política de reciclagem (`warden-orchestrator`, K.6 item 5), a espera no `Hello` (P142) e a correção do registro de dispositivos (P151).
 
-**O que a fase 1 não prova**: a busca no histórico (o modelo de ~820 MB) e o MCP stdio sob a raiz só de leitura; a medição de RSS do binário novo (P145 a P147); a publicação de fato (falta a primeira tag); arm64; e o limite de tentativas por IP (P142), que fica para o proxy da fase 4.
+**O que a fase 1 não prova**: a busca no histórico (o modelo de ~820 MB) e o MCP stdio sob a raiz só de leitura; a medição de RSS do binário novo (P145 a P147); que alguém de fora consiga puxar a imagem (ela foi publicada, mas está privada até o dono da organização torná-la pública); arm64; e o limite de tentativas por IP (P142), que fica para o proxy da fase 4.
 
 ## I. Perguntas ainda abertas (do Fabio)
 
