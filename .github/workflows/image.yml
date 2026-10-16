@@ -13,6 +13,8 @@ on:
       - 'scripts/fake-openai.py'
       - '.github/workflows/image.yml'
   workflow_dispatch:
+  # Chamado por `image-publish.yml` (a publicação numa tag `v*`), que só publica se esta fumaça passar.
+  workflow_call:
 
 concurrency:
   group: image-${{ github.ref }}
