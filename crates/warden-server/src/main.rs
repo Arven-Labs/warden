@@ -853,6 +853,8 @@ fn now_millis() -> i64 {
 }
 
 async fn run_node_command(args: NodeArgs) -> anyhow::Result<()> {
+    // The node's reconnection notes are `tracing` events, which go nowhere without a subscriber (P143 d).
+    warden_bootstrap::logging::init_compact();
     anyhow::ensure!(
         args.shell || args.files.is_some() || !args.mcp.is_empty() || !args.models.is_empty(),
         "a node has to lend something — pass --shell, --files <folder>, --mcp <server>, --model <provider>, or a mix"

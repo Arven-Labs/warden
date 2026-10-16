@@ -213,8 +213,8 @@ Vêm da spec do router (`SPEC-warden-router-e-futuro.md`, de 2026-10-14), que fo
 
 | Fase | Entrega | Depende de | Sai sozinha? |
 |---|---|---|---|
-| 0 | Fechar as decisões da seção I, ligar o `MeterSink`, corrigir a espera no `Hello` (P142) e os defeitos de memória da seção K (P145 a P147; a RAM já foi medida) | nada | sim (corrige o self-host também) |
-| 1 | Dockerfile, `--data-dir`, endpoint de saúde, tratamento de SIGTERM, log estruturado (P143), formato de exportação e importação | 0 | sim (ajuda o self-host também) |
+| 0 | Fechar as decisões da seção I, ligar o `MeterSink`, corrigir a espera no `Hello` (P142) e os defeitos de memória da seção K (P145 a P147; a RAM já foi medida) | nada | sim (corrige o self-host também). **Estado (Sessão 225)**: P142, P145, P146 e P147 corrigidos (falta medir o RSS com o binário novo); **faltam** o `MeterSink` e as decisões da seção I |
+| 1 | Dockerfile, `--data-dir`, endpoint de saúde, tratamento de SIGTERM, log estruturado (P143), formato de exportação e importação | 0 | sim (ajuda o self-host também). **Feita na Sessão 225**, ver "Estado da fase 1" abaixo |
 | 2 | Gateway: token, catálogo de modelos, ledger durável, saldo e `hold`, cotas e rate limit | 0 | sim (testável com a conta criada à mão) |
 | 3 | Contrato B (`warden-hosted-protocol`), recarga idempotente, webhooks de saldo | 2 | com um site mãe falso para teste |
 | 4 | Orquestrador: provisionar, suspender, apagar, backup, upgrade em ondas | 1 e 3 | só tem uso real com o site mãe |
@@ -223,6 +223,22 @@ Vêm da spec do router (`SPEC-warden-router-e-futuro.md`, de 2026-10-14), que fo
 | 7 | Endurecimento: auditoria de acesso do operador, chave por cliente, teste de restauração | 4 | aos poucos |
 
 **Adiado de propósito:** multi-tenant num processo, planos, terceiros na loja, agente no aparelho do cliente, embeddings compartilhados.
+
+**Estado da fase 1 (Sessão 225): entregue, com estas provas e estes limites**
+
+| Entrega | Onde | Prova |
+|---|---|---|
+| Uma pasta para tudo (`--data-dir`, `WARDEN_DATA_DIR`) | `warden_core::paths` (P143 a) | testes de `paths.rs`; a fumaça da imagem grava tudo em `/data` |
+| Endpoint de saúde | `GET /health`, público e mínimo (P143 b) | testes de `tests/web_ui.rs`; é o `HEALTHCHECK` da imagem |
+| Parada graciosa | SIGTERM e SIGINT com `--shutdown-grace-secs` (P143 c) | `tests/graceful_shutdown.rs`; a fumaça confere saída 0 e `stopped` no log |
+| Log estruturado | `tracing`, `--log-format text\|json`, `RUST_LOG`, subscriber em todo binário (P143 d) | testes de `logging.rs`; `serve --log-format json` só emite JSON (fora o `pairing:`, `println!` de propósito) |
+| Imagem e raiz só de leitura | `Dockerfile`, `scripts/image-smoke.sh`, `image.yml` (P143 e) | CI verde: `/health`, `/status`, turno com busca, tarefa agendada, webhook, sync por git e SIGTERM com a raiz só de leitura |
+| Exportar e importar | `warden-server export` e `import`, pacote em pasta v1 (P141) | 10 testes e a fumaça (export no contêiner, import num volume novo) |
+| Publicar a imagem | `image-publish.yml` numa tag `v*` (GHCR, pública) | **preparada e validada só sem publicar; nenhuma tag existe, então nada foi publicado** |
+
+Além do que a fase pedia, saíram `GET /status` (a atividade do hub) e a política de reciclagem (`warden-orchestrator`, K.6 item 5), a espera no `Hello` (P142) e a correção do registro de dispositivos (P151).
+
+**O que a fase 1 não prova**: a busca no histórico (o modelo de ~820 MB) e o MCP stdio sob a raiz só de leitura; a medição de RSS do binário novo (P145 a P147); a publicação de fato (falta a primeira tag); arm64; e o limite de tentativas por IP (P142), que fica para o proxy da fase 4.
 
 ## I. Perguntas ainda abertas (do Fabio)
 
@@ -258,10 +274,10 @@ Pedida pelo Fabio como um design review de engenheiro sênior para o cenário "i
 
 | # | Gap | Pendência | Fase |
 |---|---|---|---|
-| 1 | Operar o hub como serviço: imagem, `--data-dir`, health, SIGTERM, log estruturado | P143 | 1 |
+| 1 | Operar o hub como serviço: imagem, `--data-dir`, health, SIGTERM, log estruturado | P143 | 1 (**feito na Sessão 225**) |
 | 2 | Identidade por conta: o desktop só conecta com chave de pareamento (32+ caracteres, e que pareia só o primeiro dispositivo), senha de membro ou TruthID; falta um login federado em que o `sub` da conta vira o dono e emite um token de dispositivo | P138 (seção B2) | 5 |
 | 3 | Frontend duplicado entre web e desktop, e o desktop remoto preso ao IPC do Tauri | P144 | a debater |
-| 4 | Endpoint público sobre HTTP escrito à mão: sem limite por IP, sem teto de conexões, sem CSP nem compressão, sem keep-alive, **sem espera para chave errada no `Hello`** (P142), TLS só por arquivo ou Tailscale. Um proxy reverso (Caddy, Traefik) resolve quase tudo; migrar para hyper ou axum seria grande e não é necessário | P142, P138 | 0 e 1 |
+| 4 | Endpoint público sobre HTTP escrito à mão: sem limite por IP, sem teto de conexões, sem CSP nem compressão, sem keep-alive, sem espera para chave errada no `Hello` (P142, **corrigido na Sessão 225**; o limite por IP continua faltando), TLS só por arquivo ou Tailscale. Um proxy reverso (Caddy, Traefik) resolve quase tudo; migrar para hyper ou axum seria grande e não é necessário | P142, P138 | 0 e 1 |
 | 5 | Isolamento de execução e de segredos: `shell`, MCP stdio e opencode rodam com o usuário do SO do contêiner, sem sandbox; as chaves de provedor ficam dentro da instância; o operador consegue ver o que o agente vê | P139, P138 | 2 |
 
 **Tradeoffs que ficam em aberto**

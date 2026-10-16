@@ -461,7 +461,7 @@ pub async fn run_node(session: NodeSession, mut identity: NodeIdentity, local: A
         set(NodeState::Connecting);
         let error = match serve_once_watched(&session, &mut identity, local.clone(), status.as_ref()).await {
             Ok(()) => {
-                eprintln!("warden-server node: the hub closed the connection, reconnecting");
+                tracing::warn!("the hub closed the connection, reconnecting");
                 backoff = Duration::from_secs(1);
                 "the hub closed the connection".to_string()
             }
@@ -470,7 +470,7 @@ pub async fn run_node(session: NodeSession, mut identity: NodeIdentity, local: A
                 return Err(err);
             }
             Err(err) => {
-                eprintln!("warden-server node: {err:#} — trying again in {}s", backoff.as_secs());
+                tracing::warn!(retry_in_secs = backoff.as_secs(), "{err:#}");
                 format!("{err:#}")
             }
         };
