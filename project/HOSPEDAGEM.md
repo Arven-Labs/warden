@@ -401,6 +401,23 @@ Os itens 1 a 5 corrigem o self-host também e não dependem da hospedagem; os pe
 
 Overhead de contêiner e do orquestrador; disco frio e a rede para baixar os modelos na primeira execução; um MCP stdio real; o custo por requisição de API de membro; a qualidade real da busca (só se mediu a similaridade dos vetores); por que o modelo do histórico retém ~560 MB depois de descarregado; CPU de VPS de verdade; e a hipótese de que o conserto se mantém em cofres reais maiores e mais variados.
 
+### K.8 Medição com o binário novo (Sessão 225)
+
+Repetida no CI (`gh workflow run measure-rss.yml`, run 38968961049, runner Ubuntu 24.04 de 4 núcleos), com o `scripts/measure-rss.py` (versionado, só biblioteca padrão): `warden-server` em release, um hub novo por cenário, modelo de mentira no lugar do provedor, notas sintéticas com semente fixa (mesma definição da K.1), o turno pela API compatível com a OpenAI e o RSS lido de `/proc`, conferido com o `/status`.
+
+| Cenário | RSS depois | Pico | 1º turno | Sessão 222 | Alvo do benchmark |
+|---|---:|---:|---:|---:|---:|
+| Ocioso, sem modelos | 23 MB | 23 MB | - | 24,8 MB | ~25 MB |
+| Ocioso, warm-up dos dois modelos | 880 MB | 894 MB | - | 960 MB | ~960 MB |
+| 1º turno, 50 notas curtas | 279 MB | 279 MB | 1,1 s | 358 MB | - |
+| 1º turno, 300 notas curtas | 294 MB | 297 MB | 5,7 s | 1290 MB | - |
+| 1º turno, 1000 notas curtas | 483 MB | 490 MB | 18,2 s | 1700 MB | ~470 MB |
+| 1º turno, 300 notas longas | 419 MB | 419 MB | 10,2 s | 8200 MB | ~1111 MB |
+
+- **P145 confirmado**: 1000 notas curtas caem de 1,7 GB para 483 MB (o alvo era ~470 MB) e 300 longas de 8,2 GB para 419 MB. O pico fica a poucos MB do RSS final, ou seja, o salto do lote único sumiu. Os dois ficaram abaixo do benchmark de lote 16 (1111 MB nas longas), provavelmente porque o ORT e o runner diferem do ambiente da Sessão 222; a causa não foi investigada. O tempo do 1º turno com 1000 notas (18,2 s em 4 núcleos) é parecido com o de antes (15 s): o conserto tirou memória, não tempo.
+- **P146 (a) confirmado**: com `--no-embedding-warm-up` a instância ociosa tem 23 MB; com o warm-up, 880 MB.
+- **Não coberto**: o descarregamento por ociosidade (P146 c, 475 para 76 MB) e o modelo do histórico (não há busca no histórico nesses turnos); o custo por requisição de membro (P147); cofre real; disco frio e overhead de contêiner. Os alvos de 50 e 300 notas curtas não vinham do benchmark, então a tabela não os compara.
+
 ## O que foi verificado e o que não foi
 
 Conferido no código em 2026-10-15: `MeterSink` e `LedgerMeter` não têm chamador fora de `meter.rs`; `ApiKey` tem `raw`, `agent_id` e `user`, sem cota; `SpendEvent` guarda tokens de entrada e saída, provedor e combo; `Provider::Cloud` existe; `FileStore::open` poda por `retain_hours`; `WARDEN_SPEND_LEDGER` existe. Vindo da leitura do código por exploração, **não executado**: os caminhos de arquivo sob `dirs::config_dir()`, a lista de estados globais, a ausência de Dockerfile e de ACME, e a ausência de import/export de skills e agentes. **Medido na Sessão 222** (seção K): RAM por instância, tempo de partida, CPU por turno, `opencode` e um Node vazio. **Ainda não medido:** contêiner, disco frio, um MCP real e o cofre de um usuário real. O `SPEC-lume-desmontagem.md` citado pela spec do router não existe no repositório, e o "site mãe" só aparece na spec e no P131.

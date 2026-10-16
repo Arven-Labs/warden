@@ -38,8 +38,8 @@ WORDS = (
 SCENARIOS = [
     ("ocioso, sem modelos", 0, "short", False, False, "24,8", "~25"),
     ("ocioso, warm-up dos dois modelos", 0, "short", True, False, "960", "~960"),
-    ("1º turno, 50 notas curtas", 50, "short", False, True, "358", "~200"),
-    ("1º turno, 300 notas curtas", 300, "short", False, True, "1290", "~400"),
+    ("1º turno, 50 notas curtas", 50, "short", False, True, "358", "-"),
+    ("1º turno, 300 notas curtas", 300, "short", False, True, "1290", "-"),
     ("1º turno, 1000 notas curtas", 1000, "short", False, True, "1700", "~470"),
     ("1º turno, 300 notas longas", 300, "long", False, True, "8200", "~1111"),
 ]
