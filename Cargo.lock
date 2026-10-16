@@ -1879,7 +1879,7 @@ dependencies = [
 
 [[package]]
 name = "desktop"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -8167,7 +8167,7 @@ dependencies = [
 
 [[package]]
 name = "warden-bootstrap"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "argon2",
@@ -8197,7 +8197,7 @@ dependencies = [
 
 [[package]]
 name = "warden-cli"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -8217,7 +8217,7 @@ dependencies = [
 
 [[package]]
 name = "warden-core"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "aes-gcm",
  "aes-gcm-siv",
@@ -8251,7 +8251,7 @@ dependencies = [
 
 [[package]]
 name = "warden-mcp-server"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "clap",
@@ -8265,7 +8265,7 @@ dependencies = [
 
 [[package]]
 name = "warden-orchestrator"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -8281,7 +8281,7 @@ dependencies = [
 
 [[package]]
 name = "warden-server"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -8311,7 +8311,7 @@ dependencies = [
 
 [[package]]
 name = "warden-server-protocol"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "futures-util",
@@ -8327,7 +8327,7 @@ dependencies = [
 
 [[package]]
 name = "warden-sync"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "axum",
@@ -8351,7 +8351,7 @@ dependencies = [
 
 [[package]]
 name = "warden-telegram"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -8369,7 +8369,7 @@ dependencies = [
 
 [[package]]
 name = "warden-truthid"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "aes-gcm",
  "anyhow",
@@ -8391,7 +8391,7 @@ dependencies = [
 
 [[package]]
 name = "warden-whatsapp"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -8406,7 +8406,7 @@ dependencies = [
 
 [[package]]
 name = "warden_mobile_bridge"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "flutter_rust_bridge",
