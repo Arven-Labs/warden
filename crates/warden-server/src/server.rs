@@ -843,6 +843,10 @@ async fn serve_web_or_ws<S: Transport>(mut stream: S, peer: SocketAddr, secure: 
         let ws = tokio_tungstenite::accept_async(Rewind::new(head.raw, stream)).await?;
         return handle_connection(ws, peer, secure, ctx).await;
     }
+    if head.path.split('?').next() == Some(web_ui::HEALTH_PATH) {
+        web_ui::health(&mut stream, &head).await?;
+        return Ok(());
+    }
     if head.path.split('?').next() == Some(truthid_login::CALLBACK_PATH) {
         truthid_login::handle_callback(&mut stream, &head, &ctx.truthid_logins, ctx.settings.as_deref()).await?;
         return Ok(());

@@ -174,6 +174,21 @@ pub(crate) async fn not_found<S: AsyncWrite + Unpin>(stream: &mut S, head_only: 
     write_response(stream, "404 Not Found", &[], "text/plain; charset=utf-8", b"not found", head_only).await
 }
 
+/// Where a probe (a container's healthcheck, a load balancer, systemd) asks whether the hub is up (P143).
+pub(crate) const HEALTH_PATH: &str = "/health";
+
+/// Answers `GET`/`HEAD` `HEALTH_PATH` with the hub's version, to anyone: nothing about its content, devices or people —
+/// only that the process is serving and which build it is. Any other method is refused.
+pub(crate) async fn health<S: AsyncWrite + Unpin>(stream: &mut S, head: &RequestHead) -> io::Result<()> {
+    match head.method.as_str() {
+        "GET" | "HEAD" => {
+            let body = format!("{{\"status\":\"ok\",\"version\":\"{}\"}}", env!("CARGO_PKG_VERSION"));
+            write_response(stream, "200 OK", &[("Cache-Control", "no-store")], "application/json", body.as_bytes(), head.method == "HEAD").await
+        }
+        _ => write_response(stream, "405 Method Not Allowed", &[("Allow", "GET, HEAD")], "text/plain; charset=utf-8", b"method not allowed", false).await,
+    }
+}
+
 enum Resolved {
     Index,
     File(String),

@@ -53,6 +53,30 @@ async fn only_get_and_head_are_allowed() {
     assert!(head.ends_with("\r\n\r\n"), "HEAD must not carry a body: {head}");
 }
 
+/// P143: a probe asks `/health` without a key and learns only that the hub is up and which version it is.
+#[tokio::test]
+async fn health_answers_anyone_with_the_version_and_nothing_else() {
+    let addr = spin_up_server_with_web_ui(MockProvider::replying("unused"), test_web_ui(), None).await;
+    let get = http_get(addr, "GET", "/health").await;
+    assert!(get.starts_with("HTTP/1.1 200 OK\r\n"), "{get}");
+    assert!(get.contains("Content-Type: application/json\r\n"), "{get}");
+    assert!(get.ends_with(&format!("{{\"status\":\"ok\",\"version\":\"{}\"}}", env!("CARGO_PKG_VERSION"))), "{get}");
+
+    let head = http_get(addr, "HEAD", "/health").await;
+    assert!(head.starts_with("HTTP/1.1 200 OK\r\n") && head.ends_with("\r\n\r\n"), "HEAD must not carry a body: {head}");
+
+    let post = http_get(addr, "POST", "/health").await;
+    assert!(post.starts_with("HTTP/1.1 405 Method Not Allowed\r\n") && post.contains("Allow: GET, HEAD\r\n"), "{post}");
+}
+
+/// P143: the probe works on a hub with no web interface too.
+#[tokio::test]
+async fn health_does_not_need_a_web_interface() {
+    let addr = spin_up_server(MockProvider::replying("unused")).await;
+    let get = http_get(addr, "GET", "/health").await;
+    assert!(get.starts_with("HTTP/1.1 200 OK\r\n"), "{get}");
+}
+
 #[tokio::test]
 async fn an_empty_build_explains_itself_with_503() {
     let addr = spin_up_server_with_web_ui(MockProvider::replying("unused"), std::sync::Arc::new(StaticWebUi::default()), None).await;
