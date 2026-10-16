@@ -2,7 +2,17 @@
 
 > **Nota**: Este log foi criado junto com o projeto. As sessões serão registradas aqui conforme o trabalho avança.
 >
-> Última atualização: 2026-10-15 (Sessão 224)
+> Última atualização: 2026-10-16 (Sessão 225)
+
+---
+
+### 2026-10-16 — Sessão 225 (log estruturado do hub: P143 d)
+
+- **Pedido do usuário**: continuar. Segui o `HOSPEDAGEM.md` K.6 item 4, o que faltava do P143 sem depender da imagem: o log estruturado. Plano aprovado em modo de plano.
+- **Feito**: `tracing` e `tracing-subscriber` (`fmt`, `env-filter`, `json`) no workspace; módulo `warden_server::logging` com `init(LogFormat)`, chamado só por `serve`; flag `--log-format text|json` (`WARDEN_LOG_FORMAT`, o `clap` ganhou o feature `env`); `RUST_LOG` filtra, padrão `info`; saída em stderr. Cerca de 50 `eprintln!` de diagnóstico viraram eventos com nível e campos em 12 arquivos do `warden-server`.
+- **Conferido**: `cargo check -p warden-server --all-targets` sem avisos; os 2 testes de `logging.rs` passam; `serve --log-format json` imprime uma linha JSON com `level`, `fields` e `target`, `text` imprime hora e nível, e `RUST_LOG=warn` esconde as linhas `info`. **Não rodei** a suíte completa nem o clippy: ficam para o CI.
+- **De fora, de propósito**: saídas de comando para a pessoa, `node_client.rs` (o desktop não instala subscriber) e os outros crates; o `warden-bootstrap` ainda escreve linhas soltas (`note: ...`, `pairing: ...`) no `serve`.
+- **Sobra**: P143 (e) raiz só de leitura, a 2ª fatia do log (`warden-bootstrap`), a conferência do `warden-mobile-bridge` no CI e a medição de RSS.
 
 ---
 
