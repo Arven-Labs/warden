@@ -13,7 +13,9 @@
 - **CI por área**: `ci.yml` ganhou o job `changes` (`dorny/paths-filter@v3`) e os jobs `rust`, `frontends` (matriz dinâmica) e `mobile` só rodam se a sua área mudou. O `mobile` também dispara com `crates/warden-mobile-bridge/**`, porque o Dart gerado pelo `flutter_rust_bridge` sai desse crate. Commit `e49fc2c`, run 38841846742 verde nos cinco jobs; como mexeu no `ci.yml`, rodou tudo. **O corte por área ainda não foi visto** num push de uma pasta só.
 - **P150 (teste instável)**: plano aprovado em modo de plano. A mensagem do teste `a_conversation_created_in_a_folder_keeps_it_and_is_told_about_it` virou `"diary"` (casa por significado e por palavra); passa com `WARDEN_NO_SEMANTIC=1`. Commit `78658ef`. A confirmar no CI.
 - **P146 (a), warm-up**: novo flag `warden-server serve --no-embedding-warm-up` (`main.rs`); `cargo check -p warden-server` e o `--help` conferem. Sem teste automatizado nem a medição de RSS (ficam para a rodada de testes). Diferença do plano: não extraí uma função pura só para testar um `if`.
-- **Sobra**: P146 (c) (descarregar o modelo do cofre), P147 e o resto do P149 (ver `PENDING.md`).
+- **CI na rodada do P150/P146 (a)** (commit `e62cd6c`): Rust verde; mobile e frontends **pulados**, o que confirma o corte por área.
+- **P146 (c), descarregar o modelo do cofre**: plano aprovado em modo de plano. `Vault::unload_idle_embedder` e `EmbedderSlot` (`memory/mod.rs`), flag `--embedding-idle-secs` (padrão 600, `0` = nunca) e tarefa periódica no `serve`. `cargo check` de `warden-core` (com e sem o feature `semantic-search`) e de `warden-server` passa, e o teste sem modelo também. **Não rodei** o teste com modelo (`#[ignore]`) nem a medição de RSS: ficam para o `heavy-tests` e para uma medição com o binário novo.
+- **Sobra**: P147 e o resto do P149 (ver `PENDING.md`).
 
 ---
 
