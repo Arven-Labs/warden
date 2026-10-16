@@ -36,28 +36,53 @@ pub struct MemberSpace {
 impl MemberSpace {
     /// The same member with their vault opened again from the folder's current state — after their
     /// data key was created or opened (a connection's first vault was plain, or locked).
-    pub fn reopened(&self, users_dir: &Path, conversations_root: &Path) -> Self {
+    pub fn reopened(&self, users_dir: &Path, conversations_root: &Path, cache: &MemberVaults) -> Self {
         let user = UserConfig { id: self.id.clone(), name: self.name.clone(), role: UserRole::Member, password_hash: String::new(), must_change_password: false, tools: None, key: None, key_needs_recovery: false, recoveries: Vec::new(), truthid: None, invite: None, learning_opt_out: false, learning_provider: None, workdirs: Vec::new(), node_workdirs: Vec::new(), org_access: Default::default(), models: Vec::new() };
-        Self::new(&user, users_dir, conversations_root)
+        Self::new(&user, users_dir, conversations_root, cache)
     }
 
-    /// `users_dir` holds every member's folder (`warden_bootstrap::users::default_users_dir`).
-    pub fn new(user: &UserConfig, users_dir: &Path, conversations_root: &Path) -> Self {
+    /// `users_dir` holds every member's folder (`warden_bootstrap::users::default_users_dir`). The vault comes from `cache`
+    /// (P147): the same one for every connection and API call of the member, so its search model loads once, not once
+    /// per connection; it is opened again only when the folder's state changes (the key was created, opened or lost).
+    pub fn new(user: &UserConfig, users_dir: &Path, conversations_root: &Path, cache: &MemberVaults) -> Self {
         let vault_path = user_vault_path(users_dir, &user.id);
         // P84 fatia 4: an encrypted member's vault opens with the key the hub holds, and is locked
         // (refuses everything) when it doesn't — never a plain vault beside encrypted files.
-        let vault = match member_crypto::dir_state(&users_dir.join(&user.id)) {
-            DirState::Plain => Vault::new(vault_path),
-            DirState::Unlocked(cipher) => Vault::new_encrypted(vault_path, cipher),
-            DirState::Locked => Vault::new_locked(vault_path),
+        let state = member_crypto::dir_state(&users_dir.join(&user.id));
+        let mut cached = cache.lock().unwrap_or_else(|e| e.into_inner());
+        let vault = match cached.get(&vault_path) {
+            Some((seen, vault)) if same_state(seen, &state) => vault.clone(),
+            _ => {
+                let vault = Arc::new(match &state {
+                    DirState::Plain => Vault::new(vault_path.clone()),
+                    DirState::Unlocked(cipher) => Vault::new_encrypted(vault_path.clone(), cipher.clone()),
+                    DirState::Locked => Vault::new_locked(vault_path.clone()),
+                });
+                cached.insert(vault_path, (state, vault.clone()));
+                vault
+            }
         };
         Self {
             id: user.id.clone(),
             name: user.name.clone(),
-            vault: Arc::new(vault),
+            vault,
             generated: user_generated_path(users_dir, &user.id),
             conversations: user_conversations_dir(conversations_root, &user.id),
         }
+    }
+}
+
+/// One `Vault` per member (P147), by the folder it opens, with the state of that folder when it was opened. Kept for the
+/// hub's life like `SpaceVaults`, so a member's search model isn't loaded again by each connection or API call.
+pub type MemberVaults = Arc<Mutex<HashMap<PathBuf, (DirState, Arc<Vault>)>>>;
+
+/// Whether a vault opened for folder state `seen` still fits the folder as it is now: same kind, and for an unlocked one
+/// the very same key (a new `unlock` makes a new one).
+fn same_state(seen: &DirState, now: &DirState) -> bool {
+    match (seen, now) {
+        (DirState::Plain, DirState::Plain) | (DirState::Locked, DirState::Locked) => true,
+        (DirState::Unlocked(a), DirState::Unlocked(b)) => Arc::ptr_eq(a, b),
+        _ => false,
     }
 }
 
@@ -407,6 +432,53 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("warden-people-{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
         std::fs::create_dir_all(&dir).unwrap();
         dir
+    }
+
+    fn member(id: &str) -> UserConfig {
+        UserConfig { id: id.into(), name: id.into(), role: UserRole::Member, password_hash: String::new(), must_change_password: false, tools: None, key: None, key_needs_recovery: false, recoveries: Vec::new(), truthid: None, invite: None, learning_opt_out: false, learning_provider: None, workdirs: Vec::new(), node_workdirs: Vec::new(), org_access: Default::default(), models: Vec::new() }
+    }
+
+    /// P147: every connection and API call of a member gets the one `Vault`, so its search model loads once.
+    #[test]
+    fn a_member_has_one_vault_across_connections_and_each_member_their_own() {
+        let root = temp_dir();
+        let (users, conversations) = (root.join("users"), root.join("conversations"));
+        let cache = MemberVaults::default();
+
+        let first = MemberSpace::new(&member("ana"), &users, &conversations, &cache);
+        let second = MemberSpace::new(&member("ana"), &users, &conversations, &cache);
+        let other = MemberSpace::new(&member("bia"), &users, &conversations, &cache);
+
+        assert!(Arc::ptr_eq(&first.vault, &second.vault), "the same member shares a vault");
+        assert!(!Arc::ptr_eq(&first.vault, &other.vault), "another member has their own");
+        assert!(Arc::ptr_eq(&first.vault, &first.reopened(&users, &conversations, &cache).vault), "reopening an unchanged folder keeps it");
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    /// P147: the shared vault follows the folder's key — locked, then open with the key, then locked again.
+    #[test]
+    fn a_members_shared_vault_is_opened_again_when_their_key_comes_or_goes() {
+        let root = temp_dir();
+        let (users, conversations) = (root.join("users"), root.join("conversations"));
+        let folder = users.join("cat");
+        std::fs::create_dir_all(&folder).unwrap();
+        std::fs::write(folder.join(member_crypto::MARKER), b"1").unwrap();
+        let cache = MemberVaults::default();
+
+        let locked = MemberSpace::new(&member("cat"), &users, &conversations, &cache);
+        assert!(locked.vault.write("a.md", "x").is_err(), "encrypted and no key held: refused");
+
+        member_crypto::unlock(&[folder.as_path()], &member_crypto::new_key());
+        let open = MemberSpace::new(&member("cat"), &users, &conversations, &cache);
+        assert!(!Arc::ptr_eq(&locked.vault, &open.vault), "the key arrived, so the vault is a new, open one");
+        open.vault.write("a.md", "x").unwrap();
+        assert!(Arc::ptr_eq(&open.vault, &MemberSpace::new(&member("cat"), &users, &conversations, &cache).vault), "and it is kept while the key stays");
+
+        member_crypto::lock(&[folder.as_path()]);
+        let again = MemberSpace::new(&member("cat"), &users, &conversations, &cache);
+        assert!(!Arc::ptr_eq(&open.vault, &again.vault), "the key went, so it is locked again");
+        assert!(again.vault.write("b.md", "x").is_err());
+        std::fs::remove_dir_all(&root).ok();
     }
 
     fn conversation(id: &str, text: &str) -> Conversation {

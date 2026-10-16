@@ -34,7 +34,7 @@ use crate::conversations::{handle_conversation_request_in, handle_history_reques
 use crate::truthid_login::{self, TruthIdLogins};
 use crate::device_registry::{AuthRejection, PairingProof, PairingStatus, PairingStore};
 use crate::pairing_key::PairingKey;
-use crate::people::{member_orchestrator, member_refusal, member_settings_view, migrate_device_conversations, mount_member_spaces, password_gate, tools_for, user_info, MemberSpace, Person, SpaceVaults};
+use crate::people::{member_orchestrator, member_refusal, member_settings_view, migrate_device_conversations, mount_member_spaces, password_gate, tools_for, user_info, MemberSpace, MemberVaults, Person, SpaceVaults};
 use crate::user_admin::{
     handle_redeem_invite, handle_accept_recovery_policy, handle_ack_recovery_notices, handle_set_learning, handle_change_password, handle_list_spaces, handle_list_users, handle_regenerate_recovery_code, handle_set_recovery_policy,
     handle_space_change, handle_user_change, open_member_data_at_sign_in, DataDirs, SpaceChange, UserChange,
@@ -138,6 +138,8 @@ pub struct Server {
     /// Whether a settings save may change what reaches this machine (P119): the shell, MCP servers,
     /// SSH hosts, folders and the embedded hub. Off unless the hub was started to allow it.
     allow_machine_settings: bool,
+    /// How long a vault's search model may sit unused before it is let go (P146 c). `None`: never.
+    embedding_idle: Option<std::time::Duration>,
     /// The engine that drives a code project's conversations (P103 b). `None`: this hub has none, and those
     /// conversations say so instead of running the ordinary turn with a shell.
     code_engine: Option<Arc<dyn CodeEngine>>,
@@ -186,6 +188,7 @@ impl Server {
             node_audit: warden_bootstrap::default_node_audit_log_path(),
             users_dir: None,
             allow_machine_settings: false,
+            embedding_idle: None,
             code_engine: None,
             code_turns: CodeTurns::default(),
         })
@@ -210,6 +213,14 @@ impl Server {
     /// run over the network because the code learned how.
     pub fn with_machine_settings(mut self, allow: bool) -> Self {
         self.allow_machine_settings = allow;
+        self
+    }
+
+    /// Lets go of a vault's search model after `idle` without a search (P146 c), for the owner's vault, every member's
+    /// (P147) and every shared folder's: an idle hub then weighs far less, and the next search loads the model again.
+    /// Never, unless asked for.
+    pub fn with_embedding_idle(mut self, idle: std::time::Duration) -> Self {
+        self.embedding_idle = Some(idle);
         self
     }
 
@@ -398,6 +409,11 @@ impl Server {
             tokens_path,
             runner: self.tasks.as_ref().map(|tasks| WebhookRunner::new(tasks.store().conversations_dir(), self.changes.clone())),
         });
+        let space_vaults = SpaceVaults::default();
+        let member_vaults = MemberVaults::default();
+        if let Some(idle) = self.embedding_idle {
+            unload_idle_embedders_periodically(self.orchestrator.clone(), space_vaults.clone(), member_vaults.clone(), idle);
+        }
         let mut ctx = ConnectionContext {
             auth_key: self.auth_key,
             server_name: self.server_name,
@@ -422,7 +438,8 @@ impl Server {
             nodes: self.nodes.clone(),
             node_tools: None,
             users_dir: self.users_dir.map(Arc::new),
-            space_vaults: SpaceVaults::default(),
+            space_vaults,
+            member_vaults,
             truthid_logins: Arc::new(TruthIdLogins::default()),
             allow_machine_settings: self.allow_machine_settings,
             code_engine: self.code_engine,
@@ -527,6 +544,8 @@ struct ConnectionContext {
     users_dir: Option<Arc<PathBuf>>,
     /// The owner's shared folders' vaults (P84 fatia 3), shared by every connection and the API.
     space_vaults: SpaceVaults,
+    /// The members' own vaults (P147), shared by every connection and the API so a member's search model loads once.
+    member_vaults: MemberVaults,
     /// The TruthID logins waiting for a phone (P84 fatia 5, P113).
     truthid_logins: Arc<TruthIdLogins>,
     /// See `Server::with_machine_settings`.
@@ -545,6 +564,7 @@ impl ConnectionContext {
             users_dir: self.users_dir.clone(),
             conversations_root: self.conversations_dir.clone(),
             space_vaults: self.space_vaults.clone(),
+            member_vaults: self.member_vaults.clone(),
         }
     }
 }
@@ -873,6 +893,35 @@ async fn serve_plain_discover<S: Transport>(stream: S, ctx: ConnectionContext) -
     Ok(())
 }
 
+/// Every so often, lets go of the search model of each vault that lives for the hub's life and sat unused for `idle`
+/// (P146 c, P147): the owner's, every shared folder's and every member's. The check runs on a blocking thread because it
+/// waits for a search in progress before it can take a vault's lock.
+fn unload_idle_embedders_periodically(orchestrator: SharedOrchestrator, space_vaults: SpaceVaults, member_vaults: MemberVaults, idle: std::time::Duration) {
+    // A quarter of the idle time, so a model never outlives it by much; at most a minute, at least a second.
+    let every = (idle / 4).clamp(std::time::Duration::from_secs(1), std::time::Duration::from_secs(60));
+    tokio::spawn(async move {
+        let mut ticker = tokio::time::interval(every);
+        ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+        loop {
+            ticker.tick().await;
+            // The orchestrator can be swapped by a settings save, so ask for the current owner's vault each time.
+            let owner = orchestrator.current().vault().clone();
+            let (spaces, members) = (space_vaults.clone(), member_vaults.clone());
+            let unloaded = tokio::task::spawn_blocking(move || {
+                let mut vaults = vec![owner];
+                vaults.extend(spaces.lock().unwrap_or_else(|e| e.into_inner()).values().cloned());
+                vaults.extend(members.lock().unwrap_or_else(|e| e.into_inner()).values().map(|(_, vault)| vault.clone()));
+                vaults.iter().filter(|vault| vault.unload_idle_embedder(idle)).count()
+            })
+            .await
+            .unwrap_or(0);
+            if unloaded > 0 {
+                eprintln!("warden-server: {unloaded} vault search model(s) idle for {}s were unloaded; the next search loads them again", idle.as_secs());
+            }
+        }
+    });
+}
+
 fn discover_ack(ctx: &ConnectionContext) -> ServerMessage {
     ServerMessage::DiscoverAck { server_name: ctx.server_name.to_string(), secure_url: ctx.secure_url.as_deref().map(str::to_string) }
 }
@@ -904,6 +953,7 @@ async fn handle_connection<S: Transport>(ws: WebSocketStream<S>, peer: SocketAdd
         node_tools,
         users_dir,
         space_vaults,
+        member_vaults,
         truthid_logins,
         allow_machine_settings,
         code_engine,
@@ -1050,7 +1100,7 @@ async fn handle_connection<S: Transport>(ws: WebSocketStream<S>, peer: SocketAdd
         (None, _) => (Person::Root, false, None),
         (Some(id), Some(users_dir)) => match members.iter().find(|u| &u.id == id) {
             Some(member) => {
-                let space = MemberSpace::new(member, users_dir, &conversations_dir);
+                let space = MemberSpace::new(member, users_dir, &conversations_dir, &member_vaults);
                 // Encrypted, and the hub doesn't hold the key (it restarted): they have to sign in.
                 let locked = matches!(warden_bootstrap::member_crypto::dir_state(&users_dir.join(&member.id)), warden_bootstrap::member_crypto::DirState::Locked);
                 (Person::Member(space), member.must_change_password, Some(warden_server_protocol::protocol::UserInfoDto { locked, recovery_policy: workspace_recovery.as_str().to_string(), learning_enabled: workspace_learning, ..user_info(member, &[], workspace_recovery) }))
@@ -1245,7 +1295,7 @@ async fn handle_connection<S: Transport>(ws: WebSocketStream<S>, peer: SocketAdd
                                 // Their data key may have just been created or opened: from now on the
                                 // connection's vault is the encrypted one, not the plain one it began with.
                                 if let Some((users_dir, conversations_root)) = &data_dirs {
-                                    member = Some(current.reopened(users_dir, conversations_root));
+                                    member = Some(current.reopened(users_dir, conversations_root, &member_vaults));
                                 }
                             }
                             let _ = tx.send(reply);

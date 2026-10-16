@@ -36,7 +36,7 @@ use warden_core::spend::SpendContext;
 use warden_core::tool::ToolSpec;
 
 use crate::api_keys::{ApiKey, ApiKeyStore};
-use crate::people::{member_orchestrator, mount_member_spaces, tools_for, MemberSpace, SpaceVaults};
+use crate::people::{member_orchestrator, mount_member_spaces, tools_for, MemberSpace, MemberVaults, SpaceVaults};
 use crate::settings::{keys_match, SettingsHost, SharedOrchestrator, WRONG_KEY_DELAY};
 use crate::usage::{member_limit_message, spend_limit_id};
 use crate::web_ui::{write_response, RequestHead};
@@ -66,6 +66,8 @@ pub(crate) struct ApiContext {
     pub conversations_root: Arc<PathBuf>,
     /// The owner's shared folders' vaults (P84 fatia 3), for a member's key.
     pub space_vaults: SpaceVaults,
+    /// The members' own vaults, one each for the hub's life (P147).
+    pub member_vaults: MemberVaults,
 }
 
 /// A failure, answered in OpenAI's error format.
@@ -467,7 +469,7 @@ fn scope_model(api: &ApiContext, key: &ApiKey, model: &str) -> Result<(Orchestra
     let users_dir = api.users_dir.as_ref().ok_or_else(gone)?;
     let config: FileConfig = load_config_from_path(&host.config_path(), false).map_err(|e| ApiError::new("500 Internal Server Error", "server_error", format!("{e:#}")))?;
     let member = config.users.iter().find(|u| &u.id == user).ok_or_else(gone)?;
-    let space = MemberSpace::new(member, users_dir, &api.conversations_root);
+    let space = MemberSpace::new(member, users_dir, &api.conversations_root, &api.member_vaults);
     let tools = tools_for(&orchestrator, &config, user);
     mount_member_spaces(&space, &config, orchestrator.vault().root(), &api.space_vaults);
     // P131: the ledger also remembers which key the call came in through.
