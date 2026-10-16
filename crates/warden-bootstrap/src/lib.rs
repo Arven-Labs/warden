@@ -3607,7 +3607,8 @@ oauth = true
         std::fs::create_dir_all(&other).unwrap();
         let (folder, other) = (folder.to_str().unwrap(), other.to_str().unwrap());
 
-        let first = handle_agent_turn(&orchestrator, &dir, "c1", "hi", "plan", Vec::new(), None, None, Some(folder)).await.unwrap();
+        // "diary" matches the note by words as well as by meaning, so the test doesn't hang on the search model being there.
+        let first = handle_agent_turn(&orchestrator, &dir, "c1", "hi", "diary", Vec::new(), None, None, Some(folder)).await.unwrap();
         assert!(first.content.contains(&format!("works in the folder '{folder}'")), "the model is told the folder: {}", first.content);
         assert!(first.content.contains("the diary"), "the person's own vault is still in its context: {}", first.content);
         assert_eq!(load_conversation(&dir, "c1").unwrap().unwrap().workdir.as_deref(), Some(folder));
