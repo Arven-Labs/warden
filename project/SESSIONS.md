@@ -2,7 +2,16 @@
 
 > **Nota**: Este log foi criado junto com o projeto. As sessões serão registradas aqui conforme o trabalho avança.
 >
-> Última atualização: 2026-10-15 (Sessão 223)
+> Última atualização: 2026-10-15 (Sessão 224)
+
+---
+
+### 2026-10-15 — Sessão 224 (limpeza de caches e CI por área: P149)
+
+- **Pedido do usuário**: depois do `git pull`, remover todos os caches desta máquina (o CI já foi feito em outra) e garantir que cada teste só rode quando a sua área muda.
+- **Limpeza**: `target/debug` e `target/tmp` (~15 GB), cache do npm (`_cacache`), `~/.cargo/registry/{cache,src}` e, em `~/.cache`, `paru`, `ort.pyke.io`, `warden`, `BraveSoftware`, `spotify`, `flatpak` e `mesa_shader_cache`. `/home` foi de 131 GB para 114 GB usados. **Não mexi** em Docker (28 GB de volumes e 6,3 GB de imagens liberáveis) nem no cache do pacman (pede `sudo`). O ONNX Runtime e o modelo de embedding serão baixados de novo no 1º uso da busca semântica.
+- **CI por área**: `ci.yml` ganhou o job `changes` (`dorny/paths-filter@v3`) e os jobs `rust`, `frontends` (matriz dinâmica) e `mobile` só rodam se a sua área mudou. O `mobile` também dispara com `crates/warden-mobile-bridge/**`, porque o Dart gerado pelo `flutter_rust_bridge` sai desse crate. Commit `e49fc2c`, run 38841846742 verde nos cinco jobs; como mexeu no `ci.yml`, rodou tudo. **O corte por área ainda não foi visto** num push de uma pasta só.
+- **Sobra**: P146 (a), P147, P150 e o resto do P149 (ver `PENDING.md`).
 
 ---
 
