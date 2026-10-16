@@ -13,7 +13,8 @@
 - **Conferido**: `cargo check -p warden-server --all-targets` sem avisos; os 2 testes de `logging.rs` passam; `serve --log-format json` imprime uma linha JSON com `level`, `fields` e `target`, `text` imprime hora e nível, e `RUST_LOG=warn` esconde as linhas `info`. **Não rodei** a suíte completa nem o clippy: ficam para o CI.
 - **De fora, de propósito**: saídas de comando para a pessoa, `node_client.rs` (o desktop não instala subscriber) e os outros crates; o `warden-bootstrap` ainda escreve linhas soltas (`note: ...`, `pairing: ...`) no `serve`.
 - **CI vermelho, causa fora do log**: o CI resolvia as dependências sem `Cargo.lock` (estava no `.gitignore`) e falhava em `zip`: `rust_xlsxwriter` 0.95 exige `zip ^7.2` e 0.99.1 exige `zip ^8.3`, e todas essas versões estão retiradas (yanked) do crates.io. A rodada anterior (`11ed178`) já falhava igual; a máquina local compilava porque o lock local tinha a `zip 7.2.0`. Escolha do usuário: **versionar o `Cargo.lock`** (saiu do `.gitignore`), assim o CI usa as versões da máquina de desenvolvimento. Se um dia o lock for regenerado, o `rust_xlsxwriter` precisa de uma versão com `zip` válido.
-- **Sobra**: P143 (e) raiz só de leitura, a 2ª fatia do log (`warden-bootstrap`), a conferência do `warden-mobile-bridge` no CI e a medição de RSS.
+- **CI verde**: o commit `4634d76` passou no job Rust; o CI rodado à mão (`gh workflow run ci.yml`, run 38898330785) passou nas cinco áreas, inclusive o `mobile`, o que fecha a conferência do `warden-mobile-bridge` depois do `dirs` obrigatório (sem build de APK).
+- **Sobra**: P143 (e) raiz só de leitura, a 2ª fatia do log (`warden-bootstrap`) e a medição de RSS.
 
 ---
 
