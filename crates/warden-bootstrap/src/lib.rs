@@ -34,6 +34,7 @@ use warden_core::tool::ssh::{ssh_tools, AuditLog, SshHost};
 use warden_core::tool::{Tool, ToolProvider};
 
 pub mod logging;
+pub mod instance_export;
 pub mod agent_changes;
 pub mod agent_scope;
 pub mod agent_tasks;

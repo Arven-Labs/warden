@@ -10,13 +10,14 @@ NAME="warden-smoke-$$"
 PORT="${PORT:-17420}"
 KEY="$(head -c 24 /dev/urandom | od -An -tx1 | tr -d ' \n')"
 VOLUME="warden-smoke-data-$$"
+VOLUME2="warden-smoke-import-$$"
 FAKE_PORT="${FAKE_PORT:-17421}"
 FAKE_PID=""
 
 cleanup() {
   [ -z "$FAKE_PID" ] || kill "$FAKE_PID" >/dev/null 2>&1 || true
   docker rm -f "$NAME" >/dev/null 2>&1 || true
-  docker volume rm "$VOLUME" >/dev/null 2>&1 || true
+  docker volume rm "$VOLUME" "$VOLUME2" >/dev/null 2>&1 || true
 }
 trap cleanup EXIT
 
@@ -131,6 +132,19 @@ case "$task_line" in
   *"last ran"*) echo "tarefa agendada: ok ($task_line)" ;;
   *) fail "a tarefa agendada não rodou em 3 min: $task_line" ;;
 esac
+
+# 4e. Exportar e importar (P141): o pacote sai de /data, não leva o que é do operador, e entra inteiro num volume novo.
+warden export /data/export >/dev/null || fail "export falhou"
+docker exec "$NAME" sh -c 'test -f /data/export/warden-export.json && test -f /data/export/config.toml && test -f /data/export/vault/keys.md' \
+  || fail "o pacote exportado não tem o manifesto, a config e o cofre"
+docker exec "$NAME" sh -c 'test ! -e /data/export/devices.json && test ! -e /data/export/api_keys.json && test ! -e /data/export/webhook_tokens.json && test ! -e /data/export/config.secrets.toml' \
+  || fail "o pacote exportado leva algo que é do operador ou um segredo sem --with-secrets"
+docker volume create "$VOLUME2" >/dev/null
+docker run --rm --read-only --tmpfs /tmp -v "$VOLUME":/src:ro -v "$VOLUME2":/data --entrypoint warden-server "$IMAGE" \
+  --data-dir /data import /src/export >/dev/null || fail "import num volume novo falhou"
+docker run --rm --entrypoint sh -v "$VOLUME2":/data "$IMAGE" -c 'test -f /data/config.toml && test -f /data/vault/keys.md && test ! -e /data/devices.json' \
+  || fail "o volume importado não tem a config e o cofre, ou tem os pareamentos do outro"
+echo "export e import: ok"
 
 # 5. SIGTERM: sai com 0 e diz que parou.
 docker stop -t 15 "$NAME" >/dev/null

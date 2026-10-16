@@ -144,6 +144,28 @@ enum Command {
         #[arg(long)]
         config: Option<String>,
     },
+    /// Copies everything that is yours (P141) into a folder: the config, the vault, the conversations, the members
+    /// (still encrypted), the MCP logins and the scheduled tasks. What belongs to the operator or the destination stays out:
+    /// paired devices, API keys, webhook tokens, the sync key, the spend ledger and the audit logs. Use it to leave a hosted
+    /// instance for a self-hosted one, or the other way round. Stop the hub first, so no file changes while it's copied.
+    Export {
+        /// An empty folder (or one that doesn't exist yet) to write the export into. `tar czf` makes it one file.
+        out: PathBuf,
+        /// Take the providers' API keys along (`config.secrets.toml`). Not the hosted gateway's, ever. Without it you
+        /// enter your own keys at the destination. The config can hold other tokens (bots, git sync, MCP variables);
+        /// this doesn't remove them, so keep the export private.
+        #[arg(long)]
+        with_secrets: bool,
+    },
+    /// Puts an export made by `export` into this hub's folder (`--data-dir`), checking its version and every checksum first.
+    /// Refuses a folder that already has a config or a vault unless `--force`. Stop the hub first.
+    Import {
+        /// The folder `export` wrote.
+        package: PathBuf,
+        /// Write over a folder that already has a config or a vault.
+        #[arg(long)]
+        force: bool,
+    },
 }
 
 #[derive(Subcommand, Debug)]
@@ -1074,6 +1096,34 @@ fn run_restore_command(from: &std::path::Path, user: Option<&str>, force: bool, 
     Ok(())
 }
 
+fn run_export_command(out: &std::path::Path, with_secrets: bool) -> anyhow::Result<()> {
+    let data_dir = warden_core::paths::warden_dir().context("could not determine the OS config directory")?;
+    let options = warden_bootstrap::instance_export::ExportOptions { with_secrets };
+    let report = warden_bootstrap::instance_export::export_instance(&data_dir, out, &options)?;
+    println!("exported {} file(s), {} bytes, from {} to {}", report.files, report.bytes, data_dir.display(), out.display());
+    if report.with_secrets {
+        println!("the providers' API keys are in it (config.secrets.toml): keep the export private");
+    } else {
+        println!("the providers' API keys are not in it: enter your own at the destination");
+    }
+    if !report.needs_keys.is_empty() {
+        println!("needs a key of your own at the destination: {}", report.needs_keys.join(", "));
+    }
+    println!("the config can hold other tokens (bots, git sync, MCP variables): keep the export private");
+    Ok(())
+}
+
+fn run_import_command(package: &std::path::Path, force: bool) -> anyhow::Result<()> {
+    let data_dir = warden_core::paths::warden_dir().context("could not determine the OS config directory")?;
+    let report = warden_bootstrap::instance_export::import_instance(package, &data_dir, &warden_bootstrap::instance_export::ImportOptions { force })?;
+    println!("imported {} file(s) into {}", report.files, data_dir.display());
+    if !report.needs_keys.is_empty() {
+        println!("these providers need a key of your own before they work: {}", report.needs_keys.join(", "));
+    }
+    println!("paired devices, API keys and webhook tokens are not carried over: pair the devices again and create new keys");
+    Ok(())
+}
+
 fn run_nodes_command(action: NodesAction, config: Option<String>) -> anyhow::Result<()> {
     let config_path = config.as_ref().map(PathBuf::from).or_else(warden_bootstrap::default_config_path).context("could not determine the OS config directory")?;
     match action {
@@ -1549,6 +1599,8 @@ async fn main() -> anyhow::Result<()> {
         Command::Recovery { action, config } => run_recovery_command(action, config),
         Command::Backup { out, user, config } => run_backup_command(&out, user.as_deref(), config),
         Command::Restore { from, user, force, config } => run_restore_command(&from, user.as_deref(), force, config),
+        Command::Export { out, with_secrets } => run_export_command(&out, with_secrets),
+        Command::Import { package, force } => run_import_command(&package, force),
         Command::GenKey => {
             println!("{}", warden_bootstrap::generate_auth_key());
             Ok(())

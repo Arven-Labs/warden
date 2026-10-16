@@ -8181,6 +8181,7 @@ dependencies = [
  "rand 0.8.8",
  "serde",
  "serde_json",
+ "sha2 0.10.9",
  "tokio",
  "toml 0.8.2",
  "toml_edit 0.25.14+spec-1.1.0",
