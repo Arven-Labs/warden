@@ -141,12 +141,23 @@ fn load(path: &Path) -> anyhow::Result<RegistryFile> {
     }
 }
 
+/// Written to a temporary file and renamed over the registry (and readable by its owner only: it holds the devices'
+/// token hashes), so a read never sees half of it (P151).
 fn save(path: &Path, file: &RegistryFile) -> anyhow::Result<()> {
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)?;
     }
-    std::fs::write(path, serde_json::to_string_pretty(file)?)?;
-    Ok(())
+    warden_bootstrap::secrets::write_private(path, serde_json::to_string_pretty(file)?.as_bytes())
+}
+
+/// Held for the whole read-change-write of the registry (P151). Without it two `Hello`s at the same moment both read the
+/// same state and the last to write erases the pairing of the other, which is what happens when every client reconnects after
+/// a restart. It is per process; another process (`warden-server devices approve`) can still race, but the atomic write means
+/// it never reads half a file. A panic elsewhere must not lock everyone out, hence the poisoned lock is taken as it is.
+static REGISTRY_WRITE: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+fn lock_registry() -> std::sync::MutexGuard<'static, ()> {
+    REGISTRY_WRITE.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
 /// Handle onto the on-disk registry at `path` — see module docs for why this holds no in-memory
@@ -202,6 +213,7 @@ impl PairingStore {
         device_token: Option<&str>,
         proof: PairingProof,
     ) -> anyhow::Result<Result<HelloOutcome, AuthRejection>> {
+        let _lock = lock_registry();
         let mut file = load(&self.path)?;
         let existing = file.devices.get(device_id);
         if existing.is_some_and(|d| d.status == PairingStatus::Revoked) {
@@ -272,6 +284,7 @@ impl PairingStore {
     }
 
     fn set_status(&self, device_id: &str, status: PairingStatus) -> anyhow::Result<()> {
+        let _lock = lock_registry();
         let mut file = load(&self.path)?;
         let device = file
             .devices
@@ -283,6 +296,7 @@ impl PairingStore {
 
     /// Revokes every device of member `user` (P84: removing them). Returns how many.
     pub fn revoke_user_devices(&self, user: &str) -> anyhow::Result<usize> {
+        let _lock = lock_registry();
         let mut file = load(&self.path)?;
         let mut revoked = 0;
         for device in file.devices.values_mut().filter(|d| d.user.as_deref() == Some(user) && d.status != PairingStatus::Revoked) {
@@ -297,6 +311,7 @@ impl PairingStore {
     /// not kept anywhere (only its hash is): the caller shows it once. Another invite with the same name is replaced,
     /// so a lost code is cancelled by asking for a new one.
     pub fn create_invite(&self, name: &str, ttl: std::time::Duration) -> anyhow::Result<String> {
+        let _lock = lock_registry();
         let mut file = load(&self.path)?;
         let now = now_millis();
         file.invites.retain(|_, invite| invite.expires_ms > now && invite.name != name);
@@ -316,6 +331,7 @@ impl PairingStore {
 
     /// Cancels the unused invite called `name`; whether there was one.
     pub fn cancel_invite(&self, name: &str) -> anyhow::Result<bool> {
+        let _lock = lock_registry();
         let mut file = load(&self.path)?;
         let before = file.invites.len();
         file.invites.retain(|_, invite| invite.name != name);
@@ -590,5 +606,40 @@ mod tests {
         let store = PairingStore::new(path);
         assert_eq!(store.status("old").unwrap(), Some(PairingStatus::Approved));
         assert!(store.list_invites().unwrap().is_empty());
+    }
+
+    /// P151: every client reconnects at once after the hub restarts. Many `Hello`s at the same moment must each be
+    /// recorded, and the file must always parse: nobody reads half of it, nobody's pairing is written over.
+    #[test]
+    fn many_hellos_at_once_are_all_recorded_and_the_file_always_reads() {
+        const DEVICES: usize = 40;
+        let path = temp_path();
+        let readers_ok = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(true));
+        let writers: Vec<_> = (0..DEVICES)
+            .map(|n| {
+                let path = path.clone();
+                std::thread::spawn(move || {
+                    let store = PairingStore::new(path).with_open_key_pairing(true);
+                    store.authenticate(&format!("dev-{n}"), "Device", None, true).unwrap().unwrap();
+                })
+            })
+            .collect();
+        // Meanwhile someone keeps reading, the way `list`, `status` and the connections' revocation checks do.
+        let reader = {
+            let (path, readers_ok) = (path.clone(), readers_ok.clone());
+            std::thread::spawn(move || {
+                for _ in 0..400 {
+                    if PairingStore::new(path.clone()).list().is_err() {
+                        readers_ok.store(false, std::sync::atomic::Ordering::SeqCst);
+                    }
+                }
+            })
+        };
+        for writer in writers {
+            writer.join().unwrap();
+        }
+        reader.join().unwrap();
+        assert!(readers_ok.load(std::sync::atomic::Ordering::SeqCst), "a read saw the registry half-written");
+        assert_eq!(PairingStore::new(path).list().unwrap().len(), DEVICES, "a pairing was lost");
     }
 }
