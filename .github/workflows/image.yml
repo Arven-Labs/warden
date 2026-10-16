@@ -10,6 +10,7 @@ on:
       - 'Dockerfile'
       - '.dockerignore'
       - 'scripts/image-smoke.sh'
+      - 'scripts/fake-openai.py'
       - '.github/workflows/image.yml'
   workflow_dispatch:
 
