@@ -65,6 +65,67 @@ pub fn embed(_kind: Kind, texts: Vec<String>) -> anyhow::Result<Vec<Vec<f32>>> {
 #[cfg(feature = "semantic-search")]
 const HISTORY_EMBED_SLICE: usize = 16;
 
+/// The vault's search model (`AllMiniLML6V2`) and when it was last used, under one lock so that using it and unloading it can't race.
+#[cfg(feature = "semantic-search")]
+struct LoadedVaultModel {
+    model: fastembed::TextEmbedding,
+    last_used: std::time::Instant,
+}
+
+/// P153: one vault model for the whole process, not one per `Vault`: a hub keeps a `Vault` for each active member, and a copy
+/// of the ~135 MB model in each cost ~175 MB of RSS per member. Searches of different vaults take turns on it.
+#[cfg(feature = "semantic-search")]
+static VAULT_MODEL: std::sync::Mutex<Option<LoadedVaultModel>> = std::sync::Mutex::new(None);
+
+/// Lazily loads the vault's embedding model (downloads it on first-ever use — the one part of "local" search that needs
+/// network, exactly once per machine) and runs `f` against it. Callers with a lot to embed call this once per slice, so
+/// the model is free for someone else's search in between.
+#[cfg(feature = "semantic-search")]
+pub(super) fn with_vault_model<T>(f: impl FnOnce(&mut fastembed::TextEmbedding) -> anyhow::Result<T>) -> anyhow::Result<T> {
+    use fastembed::{EmbeddingModel, TextEmbedding, TextInitOptions};
+
+    if std::env::var_os(OFF_SWITCH).is_some_and(|v| !v.is_empty()) {
+        anyhow::bail!("search by meaning is turned off ({OFF_SWITCH} is set)");
+    }
+    let mut guard = VAULT_MODEL.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    if guard.is_none() {
+        let model = TextEmbedding::try_new(
+            TextInitOptions::new(EmbeddingModel::AllMiniLML6V2)
+                .with_cache_dir(super::model_cache_dir())
+                .with_show_download_progress(false),
+        )?;
+        *guard = Some(LoadedVaultModel { model, last_used: std::time::Instant::now() });
+    }
+    let loaded = guard.as_mut().expect("loaded just above");
+    let result = f(&mut loaded.model);
+    loaded.last_used = std::time::Instant::now();
+    result
+}
+
+/// Lets the vault model go if nothing has used it for `idle` (P146 c): an idle hub then weighs ~76 MB instead of ~475 MB,
+/// and the next search loads it again. Returns whether it unloaded it. Waits for a search in progress rather than taking
+/// the model from under it.
+#[cfg(feature = "semantic-search")]
+pub fn unload_idle_vault_model(idle: std::time::Duration) -> bool {
+    let mut guard = VAULT_MODEL.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    if guard.as_ref().is_some_and(|loaded| loaded.last_used.elapsed() >= idle) {
+        *guard = None;
+        return true;
+    }
+    false
+}
+
+#[cfg(not(feature = "semantic-search"))]
+pub fn unload_idle_vault_model(_idle: std::time::Duration) -> bool {
+    false
+}
+
+/// Whether the vault model is in memory right now.
+#[cfg(all(feature = "semantic-search", test))]
+pub(super) fn vault_model_loaded() -> bool {
+    VAULT_MODEL.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).is_some()
+}
+
 /// Loads the model now (the first `embed` of a process does it), so the first search of the history doesn't wait. An error
 /// (offline with no model yet, or the off switch) is for the caller to log; the first real `embed` will try again.
 pub fn warm_up() -> anyhow::Result<()> {

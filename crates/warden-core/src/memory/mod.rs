@@ -8,26 +8,21 @@ pub use cipher::{base32_decode, base32_encode, VaultCipher, MAX_NAME_BYTES};
 pub use notes::{content_version, NoteConflict, NoteFile, MAX_NOTE_BYTES};
 
 #[cfg(feature = "semantic-search")]
-use fastembed::{EmbeddingModel, TextEmbedding, TextInitOptions};
+use fastembed::TextEmbedding;
 #[cfg(feature = "semantic-search")]
 use std::collections::HashMap;
 use std::path::{Component, Path, PathBuf};
 use std::sync::{Arc, Mutex, RwLock};
 #[cfg(feature = "semantic-search")]
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 /// Markdown vault on local disk (Obsidian-compatible). IPFS mirroring lands in Phase 4.
 pub struct Vault {
     root: PathBuf,
-    /// Lazily loaded on first semantic search (downloads the ONNX model on first-ever use) and
-    /// reused after that — `Vault` is held behind `Arc` for the life of the process, so this loads
-    /// at most once per process, not once per turn, unless `unload_idle_embedder` lets it go after a
-    /// pause (P146). Behind the `semantic-search` feature (default
-    /// on) — off for crates that only need `Vault` for file I/O (e.g. `warden-sync`), since `ort`
-    /// (fastembed's ONNX runtime) has no prebuilt binary for some cross-compile targets those
-    /// crates build for (Android's `armv7-linux-androideabi`, via `warden-mobile-bridge`).
-    #[cfg(feature = "semantic-search")]
-    embedder: Mutex<EmbedderSlot>,
+    // The search model is not here: one for the whole process, in `embed` (P153). It is behind the `semantic-search`
+    // feature (default on) — off for crates that only need `Vault` for file I/O (e.g. `warden-sync`), since `ort`
+    // (fastembed's ONNX runtime) has no prebuilt binary for some cross-compile targets those crates build for
+    // (Android's `armv7-linux-androideabi`, via `warden-mobile-bridge`).
     /// Guards the read-refresh-write cycle of the on-disk semantic index (`.warden/semantic_index.json`)
     /// against two turns (e.g. two channels sharing one `warden-server` vault) racing each other.
     #[cfg(feature = "semantic-search")]
@@ -52,13 +47,6 @@ pub struct Vault {
     /// an ordinary vault; `false` for the vault of a project's folder (`subvault`), where a `projects/` of the
     /// person's own making is just a folder. `search_everywhere` and `list_all_files` ignore it.
     hide_projects: bool,
-}
-
-/// The vault's embedding model and when it was last used, under one lock so that using it and unloading it can't race.
-#[cfg(feature = "semantic-search")]
-struct EmbedderSlot {
-    model: Option<TextEmbedding>,
-    last_used: Instant,
 }
 
 /// What a locked vault (or conversation folder) answers.
@@ -117,8 +105,6 @@ impl Vault {
             locked: false,
             hide_projects: true,
             root,
-            #[cfg(feature = "semantic-search")]
-            embedder: Mutex::new(EmbedderSlot { model: None, last_used: Instant::now() }),
             #[cfg(feature = "semantic-search")]
             index_lock: Mutex::new(()),
             note_lock: Mutex::new(()),
@@ -525,9 +511,15 @@ impl Vault {
             let texts: Vec<&str> = pending.iter().map(|&i| wanted[i].3.as_str()).collect();
             // P145: fastembed's own batch is 256 and the peak grows with batch × chunk², so a first turn on a big vault
             // left RSS at 0.2-8 GB for good. 16 at a time gives the same vectors (cosine 1.00000) at 3.5-6.6x less memory.
-            let embeddings = self.with_embedder(|model| Ok(model.embed(texts, Some(VAULT_EMBED_BATCH))?))?;
-            for (slot, embedding) in pending.into_iter().zip(embeddings) {
-                rebuilt[slot].embedding = embedding;
+            // P153: one `with_embedder` per slice of 16, so the model (shared by every vault) is free for another member's
+            // search between slices instead of being held for the whole indexing.
+            let mut done = 0;
+            for slice in texts.chunks(VAULT_EMBED_BATCH) {
+                let embeddings = self.with_embedder(|model| Ok(model.embed(slice, Some(VAULT_EMBED_BATCH))?))?;
+                for embedding in embeddings {
+                    rebuilt[pending[done]].embedding = embedding;
+                    done += 1;
+                }
             }
         }
 
@@ -577,38 +569,17 @@ impl Vault {
         Ok(())
     }
 
-    /// Lazily loads the local embedding model (downloads it on first-ever use — the one part of
-    /// "local" search that needs network, exactly once per machine) and runs `f` against it.
+    /// Runs `f` against the process's one vault search model, loading it first if need be (see `embed::with_vault_model`).
     #[cfg(feature = "semantic-search")]
     fn with_embedder<T>(&self, f: impl FnOnce(&mut TextEmbedding) -> anyhow::Result<T>) -> anyhow::Result<T> {
-        if std::env::var_os(embed::OFF_SWITCH).is_some_and(|v| !v.is_empty()) {
-            anyhow::bail!("search by meaning is turned off ({} is set)", embed::OFF_SWITCH);
-        }
-        let mut guard = self.embedder.lock().unwrap();
-        if guard.model.is_none() {
-            let model = TextEmbedding::try_new(
-                TextInitOptions::new(EmbeddingModel::AllMiniLML6V2)
-                    .with_cache_dir(model_cache_dir())
-                    .with_show_download_progress(false),
-            )?;
-            guard.model = Some(model);
-        }
-        let result = f(guard.model.as_mut().expect("just initialized above"));
-        guard.last_used = Instant::now();
-        result
+        embed::with_vault_model(f)
     }
 
-    /// Lets the embedding model go if nothing has used it for `idle` (P146): an idle hub then weighs ~76 MB instead of ~475 MB,
-    /// and the next search loads it again. Returns whether it unloaded one. Waits for a search in progress rather than
-    /// taking the model from under it.
+    /// Lets the vault search model go if nothing has used it for `idle` (P146, P153). The model is the process's, shared by every
+    /// vault, so this acts on all of them at once. Returns whether it unloaded it.
     #[cfg(feature = "semantic-search")]
     pub fn unload_idle_embedder(&self, idle: Duration) -> bool {
-        let mut guard = self.embedder.lock().unwrap();
-        if guard.model.is_some() && guard.last_used.elapsed() >= idle {
-            guard.model = None;
-            return true;
-        }
-        false
+        embed::unload_idle_vault_model(idle)
     }
 
     #[cfg(not(feature = "semantic-search"))]
@@ -984,7 +955,7 @@ mod tests {
         assert!(vault.search_semantic("anything", 8).unwrap().is_empty());
         vault.write("blank.md", "").unwrap();
         assert!(vault.search_semantic("anything", 8).unwrap().is_empty());
-        assert!(vault.embedder.lock().unwrap().model.is_none(), "nothing to rank, so the model was never needed");
+        assert!(!embed::vault_model_loaded(), "nothing to rank, so the model was never needed");
     }
 
     #[cfg(feature = "semantic-search")]

@@ -416,7 +416,7 @@ impl Server {
         let space_vaults = SpaceVaults::default();
         let member_vaults = MemberVaults::default();
         if let Some(idle) = self.embedding_idle {
-            unload_idle_embedders_periodically(self.orchestrator.clone(), space_vaults.clone(), member_vaults.clone(), idle);
+            unload_idle_embedders_periodically(idle);
         }
         let mut ctx = ConnectionContext {
             auth_key: self.auth_key,
@@ -908,10 +908,10 @@ async fn serve_plain_discover<S: Transport>(stream: S, ctx: ConnectionContext) -
     Ok(())
 }
 
-/// Every so often, lets go of the search model of each vault that lives for the hub's life and sat unused for `idle`
-/// (P146 c, P147): the owner's, every shared folder's and every member's. The check runs on a blocking thread because it
-/// waits for a search in progress before it can take a vault's lock.
-fn unload_idle_embedders_periodically(orchestrator: SharedOrchestrator, space_vaults: SpaceVaults, member_vaults: MemberVaults, idle: std::time::Duration) {
+/// Every so often, lets go of the vault search model if it sat unused for `idle` (P146 c, P153). It is one model for the whole
+/// process, shared by the owner's vault, every shared folder's and every member's. The check runs on a blocking thread because
+/// it waits for a search in progress before it can take the model.
+fn unload_idle_embedders_periodically(idle: std::time::Duration) {
     // A quarter of the idle time, so a model never outlives it by much; at most a minute, at least a second.
     let every = (idle / 4).clamp(std::time::Duration::from_secs(1), std::time::Duration::from_secs(60));
     tokio::spawn(async move {
@@ -919,19 +919,9 @@ fn unload_idle_embedders_periodically(orchestrator: SharedOrchestrator, space_va
         ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
         loop {
             ticker.tick().await;
-            // The orchestrator can be swapped by a settings save, so ask for the current owner's vault each time.
-            let owner = orchestrator.current().vault().clone();
-            let (spaces, members) = (space_vaults.clone(), member_vaults.clone());
-            let unloaded = tokio::task::spawn_blocking(move || {
-                let mut vaults = vec![owner];
-                vaults.extend(spaces.lock().unwrap_or_else(|e| e.into_inner()).values().cloned());
-                vaults.extend(members.lock().unwrap_or_else(|e| e.into_inner()).values().map(|(_, vault)| vault.clone()));
-                vaults.iter().filter(|vault| vault.unload_idle_embedder(idle)).count()
-            })
-            .await
-            .unwrap_or(0);
-            if unloaded > 0 {
-                tracing::info!(unloaded, idle_secs = idle.as_secs(), "vault search model(s) idle were unloaded; the next search loads them again");
+            let unloaded = tokio::task::spawn_blocking(move || warden_core::memory::embed::unload_idle_vault_model(idle)).await.unwrap_or(false);
+            if unloaded {
+                tracing::info!(idle_secs = idle.as_secs(), "vault search model was idle and was unloaded; the next search loads it again");
             }
         }
     });

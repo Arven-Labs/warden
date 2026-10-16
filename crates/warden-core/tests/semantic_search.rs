@@ -6,7 +6,14 @@
 //! project (see PENDING.md P29/P30/P31/P38). Run explicitly with:
 //!   cargo test -p warden-core --test semantic_search -- --ignored
 
+use std::sync::{Mutex, MutexGuard};
 use warden_core::memory::Vault;
+
+/// The vault model is one for the whole process (P153), so tests that load and unload it can't overlap.
+fn one_at_a_time() -> MutexGuard<'static, ()> {
+    static LOCK: Mutex<()> = Mutex::new(());
+    LOCK.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+}
 
 fn temp_vault() -> Vault {
     let dir = std::env::temp_dir().join(format!(
@@ -19,6 +26,7 @@ fn temp_vault() -> Vault {
 #[test]
 #[ignore = "downloads a real ONNX model from Hugging Face on first run — needs network"]
 fn search_semantic_ranks_by_meaning_not_substring() {
+    let _turn = one_at_a_time();
     let vault = temp_vault();
     vault.write("dentist.md", "Appointment with the dentist on Friday morning.").unwrap();
     vault.write("groceries.md", "Buy eggs, bread and milk at the store.").unwrap();
@@ -34,6 +42,7 @@ fn search_semantic_ranks_by_meaning_not_substring() {
 #[test]
 #[ignore = "downloads a real ONNX model from Hugging Face on first run — needs network"]
 fn search_semantic_is_incremental_across_calls() {
+    let _turn = one_at_a_time();
     let vault = temp_vault();
     vault.write("a.md", "The quick brown fox jumps over the lazy dog.").unwrap();
 
@@ -58,6 +67,7 @@ fn search_semantic_is_incremental_across_calls() {
 #[test]
 #[ignore = "downloads a real ONNX model from Hugging Face on first run — needs network"]
 fn search_semantic_indexes_a_vault_bigger_than_one_batch() {
+    let _turn = one_at_a_time();
     let vault = temp_vault();
     for i in 0..40 {
         if i == 27 {
@@ -77,6 +87,7 @@ fn search_semantic_indexes_a_vault_bigger_than_one_batch() {
 #[test]
 #[ignore = "downloads a real ONNX model from Hugging Face on first run — needs network"]
 fn an_idle_embedder_is_unloaded_and_the_next_search_loads_it_again() {
+    let _turn = one_at_a_time();
     let vault = temp_vault();
     vault.write("dentist.md", "Appointment with the dentist on Friday morning.").unwrap();
     vault.write("groceries.md", "Buy eggs, bread and milk at the store.").unwrap();
@@ -89,4 +100,25 @@ fn an_idle_embedder_is_unloaded_and_the_next_search_loads_it_again() {
     let hits = vault.search_semantic("do I have a medical checkup coming up?", 1).unwrap();
     assert_eq!(hits.first().map(|h| h.path.as_str()), Some("dentist.md"), "loaded again and found the right note");
     assert!(vault.unload_idle_embedder(std::time::Duration::ZERO), "the search loaded it again");
+}
+
+/// P153: every vault of the process uses the same model, so a second vault doesn't load another copy, still ranks right,
+/// and a model one vault loaded is the one another vault unloads.
+#[test]
+#[ignore = "downloads a real ONNX model from Hugging Face on first run — needs network"]
+fn two_vaults_share_one_model() {
+    let _turn = one_at_a_time();
+    let (first, second) = (temp_vault(), temp_vault());
+    first.write("dentist.md", "Appointment with the dentist on Friday morning.").unwrap();
+    first.write("groceries.md", "Buy eggs, bread and milk at the store.").unwrap();
+    second.write("invoice.md", "Pay the electricity invoice before the end of the month.").unwrap();
+    second.write("garden.md", "Water the tomato plants every morning.").unwrap();
+
+    let hits = first.search_semantic("do I have a medical checkup coming up?", 1).unwrap();
+    assert_eq!(hits.first().map(|h| h.path.as_str()), Some("dentist.md"));
+    let hits = second.search_semantic("what bill do I owe?", 1).unwrap();
+    assert_eq!(hits.first().map(|h| h.path.as_str()), Some("invoice.md"), "the second vault answered with the same model");
+
+    assert!(second.unload_idle_embedder(std::time::Duration::ZERO), "the model the first vault loaded is the one the second unloads");
+    assert!(!first.unload_idle_embedder(std::time::Duration::ZERO), "and it was the only one");
 }
