@@ -312,6 +312,63 @@ body {
   background-color: var(--color-accent-soft);
 }
 
+.conversation-row {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.conversation-row-actions {
+  position: absolute;
+  right: 0.25rem;
+  display: none;
+  gap: 0.1rem;
+  background-color: var(--color-accent-soft);
+  border-radius: 6px;
+}
+
+.conversation-row:hover .conversation-row-actions,
+.conversation-row:focus-within .conversation-row-actions {
+  display: flex;
+}
+
+.conversation-row-action {
+  background: transparent;
+  border: none;
+  border-radius: 6px;
+  padding: 0.25em 0.45em;
+  font-size: 0.8em;
+  font-family: inherit;
+  color: var(--color-text);
+  cursor: pointer;
+}
+
+.conversation-row-action:hover:not(:disabled) {
+  color: var(--color-accent-dark);
+}
+
+.conversation-row-action:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.conversation-rename-input,
+.conversation-search {
+  width: 100%;
+  box-sizing: border-box;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  padding: 0.45em 0.65em;
+  font-size: 0.87em;
+  font-family: inherit;
+  color: var(--color-text);
+  background: transparent;
+}
+
+.conversation-search {
+  margin-bottom: 0.4rem;
+}
+
 .conversation-list-item--active {
   background-color: var(--color-accent-soft);
   color: var(--color-accent-dark);

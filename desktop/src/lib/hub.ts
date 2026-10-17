@@ -124,6 +124,14 @@ export async function hubMoveConversation(conversationId: string, projectId: str
   await ask({ type: "moveConversation", conversationId, ...(projectId ? { projectId } : {}) }, "conversationOk");
 }
 
+export async function hubRenameConversation(conversationId: string, title: string): Promise<void> {
+  await ask({ type: "renameConversation", conversationId, title }, "conversationOk");
+}
+
+export async function hubDeleteConversation(conversationId: string): Promise<void> {
+  await ask({ type: "deleteConversation", conversationId }, "conversationOk");
+}
+
 /** Runs a turn on the hub. Throws a `HubTurnError` with the hub's words when it answers with an error. */
 export async function hubChat(args: {
   content: string;

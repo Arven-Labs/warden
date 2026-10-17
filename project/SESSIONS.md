@@ -2,9 +2,17 @@
 
 > **Nota**: Este log foi criado junto com o projeto. As sessões serão registradas aqui conforme o trabalho avança.
 >
-> Última atualização: 2026-10-17 (Sessão 240)
+> Última atualização: 2026-10-17 (Sessão 241)
 
 ---
+
+### 2026-10-17 — Sessão 241 (sidebar do desktop: renomear, apagar e buscar conversas: P157, item 5)
+
+- **Pedido do usuário**: "MANDA BALA", depois de eu listar as opções de por onde continuar e recomendar o item 5. Planejado em modo de plano (plano aprovado).
+- **Achado na leitura**: `rename_conversation` e `delete_conversation` já existiam em `warden-bootstrap` e o hub já aceita `renameConversation`/`deleteConversation` (o web usa); faltavam só os comandos Tauri locais e a interface. Nenhuma mensagem de protocolo nova.
+- **Feito**: `lib.rs` com `rename_conversation` e `delete_conversation` (moldados em `move_conversation`; as funções `_in` ficam testáveis sem janela; apagar recusa a conversa com turno ou tarefa em andamento, por `state.code.is_running`); `hub.ts` com `hubRenameConversation`/`hubDeleteConversation`; `conversationSearch.ts` (todas as palavras no título, sem acento e sem diferenciar maiúsculas); `Sidebar.tsx` com o campo de busca, o ✎ (caixa de texto: Enter salva, Esc ou perder o foco cancela, vazio ou igual só fecha) e o ✕ (`window.confirm`) que aparecem ao passar o mouse; `App.tsx` com `handleRenameConversation`/`handleDeleteConversation` (hub: recarrega a lista; local: atualiza o estado; apagar a conversa aberta volta ao chat novo).
+- **Testes**: `a_conversation_is_renamed_and_deleted_and_nothing_else_will_do` (Rust), duas linhas na tabela de `remote_cmds.rs`, `conversationSearch.test.mjs` (4). Só rodei aqui o `npm test` do desktop: 149 passam. O `tsc` local acusa `rehype-highlight` ausente em `node_modules` (não instalado depois do pull; não é desta mudança). **O Rust não foi compilado**: a prova é o `ci.yml`.
+- **Não provado**: o Rust no CI; a aparência (hover, caixa de rename, campo de busca) numa janela (P129); o caminho do hub (inferido de `remote_request` aceitar qualquer `ClientMessage`, coberto só pelo teste de parsing). Busca só no título. O título automático (40 caracteres) segue como estava.
 
 ### 2026-10-17 — Sessão 240 (copiar e realce de sintaxe no chat: P157, item 4 da auditoria)
 

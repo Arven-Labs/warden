@@ -1035,6 +1035,45 @@ fn move_conversation(state: State<'_, AppState>, conversation_id: String, projec
     move_conversation_in(&dir, &store, &conversation_id, project_id.as_deref())
 }
 
+/// Gives conversation `id` a new title (the sidebar's rename) and returns it as saved. Split from the command so it can
+/// be tested without a window.
+fn rename_conversation_in(dir: &std::path::Path, id: &str, title: &str) -> Result<Conversation, String> {
+    if !warden_server::conversations::is_valid_id(id) {
+        return Err(format!("invalid conversation id '{id}'"));
+    }
+    if !warden_bootstrap::rename_conversation(dir, id, title).map_err(|e| format!("{e:#}"))? {
+        return Err(format!("no conversation with id '{id}'"));
+    }
+    warden_bootstrap::load_conversation(dir, id).map_err(|e| format!("{e:#}"))?.ok_or_else(|| format!("no conversation with id '{id}'"))
+}
+
+/// Deletes conversation `id` and the threads opened from it (P125). A conversation with a turn or a task running is
+/// refused: the turn would save into a conversation that is gone.
+fn delete_conversation_in(dir: &std::path::Path, id: &str, running: bool) -> Result<(), String> {
+    if !warden_server::conversations::is_valid_id(id) {
+        return Err(format!("invalid conversation id '{id}'"));
+    }
+    if running {
+        return Err("a turn is running in this conversation: stop it first".to_string());
+    }
+    if !warden_bootstrap::delete_conversation(dir, id).map_err(|e| format!("{e:#}"))? {
+        return Err(format!("no conversation with id '{id}'"));
+    }
+    Ok(())
+}
+
+#[tauri::command]
+fn rename_conversation(conversation_id: String, title: String) -> Result<Conversation, String> {
+    let dir = share_cmds::conversation_dir(&conversation_id)?;
+    rename_conversation_in(&dir, &conversation_id, &title)
+}
+
+#[tauri::command]
+fn delete_conversation(state: State<'_, AppState>, conversation_id: String) -> Result<(), String> {
+    let dir = share_cmds::conversation_dir(&conversation_id)?;
+    delete_conversation_in(&dir, &conversation_id, state.code.is_running(&conversation_id))
+}
+
 /// Whether the last of `messages` is the assistant's: the turn was answered, so there's something to look at.
 fn ends_with_an_answer(messages: &[ConversationMessage]) -> bool {
     messages.last().is_some_and(|m| m.role == SavedRole::Assistant)
@@ -1210,6 +1249,8 @@ pub fn run() {
             ssh_cmds::list_ssh_audit,
             provider_cmds::test_provider_key,
             move_conversation,
+            rename_conversation,
+            delete_conversation,
             share_cmds::share_conversation,
             share_cmds::shared_conversation_ids,
             share_cmds::share_all_conversations,
@@ -1404,6 +1445,29 @@ mod tests {
             assert!(move_conversation_in(&dir, &store, id, project).is_err(), "{what}");
         }
         assert_eq!(warden_bootstrap::load_conversation(&dir, "c1").unwrap().unwrap().project_id, None, "a refused move changes nothing");
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn a_conversation_is_renamed_and_deleted_and_nothing_else_will_do() {
+        let root = std::env::temp_dir().join(format!("warden-desktop-rename-{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
+        let dir = root.join("conversations");
+        let options = AppendOptions { title_seed: "t", create: true, ..Default::default() };
+        append_messages(&dir, "c1", options, vec![said(SavedRole::User)]).unwrap();
+
+        assert_eq!(rename_conversation_in(&dir, "c1", "  Trip to Rome  ").unwrap().title, "Trip to Rome");
+        assert_eq!(rename_conversation_in(&dir, "c1", &"x".repeat(300)).unwrap().title.chars().count(), 120);
+        for (what, id, title) in [("an empty title", "c1", "   "), ("a conversation that isn't there", "ghost", "A"), ("a bad conversation id", "../c1", "A")] {
+            assert!(rename_conversation_in(&dir, id, title).is_err(), "{what}");
+        }
+        assert_eq!(warden_bootstrap::load_conversation(&dir, "c1").unwrap().unwrap().title.chars().count(), 120, "a refused rename changes nothing");
+
+        assert!(delete_conversation_in(&dir, "c1", true).is_err(), "a running turn keeps its conversation");
+        assert!(warden_bootstrap::load_conversation(&dir, "c1").unwrap().is_some());
+        delete_conversation_in(&dir, "c1", false).unwrap();
+        assert!(warden_bootstrap::load_conversation(&dir, "c1").unwrap().is_none());
+        assert!(delete_conversation_in(&dir, "c1", false).is_err(), "it is gone now");
+        assert!(delete_conversation_in(&dir, "../c1", false).is_err());
         std::fs::remove_dir_all(&root).ok();
     }
 }

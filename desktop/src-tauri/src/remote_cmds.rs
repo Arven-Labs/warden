@@ -369,6 +369,8 @@ mod tests {
             (json!({ "type": "requestHistory", "conversationId": "c1" }), ClientMessage::RequestHistory { request_id: 5, limit: None, conversation_id: Some("c1".into()) }),
             (json!({ "type": "moveConversation", "conversationId": "c1", "projectId": "tax" }), ClientMessage::MoveConversation { request_id: 5, conversation_id: "c1".into(), project_id: Some("tax".into()) }),
             (json!({ "type": "moveConversation", "conversationId": "c1" }), ClientMessage::MoveConversation { request_id: 5, conversation_id: "c1".into(), project_id: None }),
+            (json!({ "type": "renameConversation", "conversationId": "c1", "title": "Trip" }), ClientMessage::RenameConversation { request_id: 5, conversation_id: "c1".into(), title: "Trip".into() }),
+            (json!({ "type": "deleteConversation", "conversationId": "c1" }), ClientMessage::DeleteConversation { request_id: 5, conversation_id: "c1".into() }),
         ];
         for (sent, wanted) in sends {
             assert_eq!(message_with_request_id(sent.clone(), 5).unwrap(), wanted, "{sent}");

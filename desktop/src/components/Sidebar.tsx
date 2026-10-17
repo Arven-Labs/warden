@@ -1,3 +1,5 @@
+import { useState } from "react";
+import { searchConversations } from "../lib/conversationSearch";
 import type { Conversation, ProjectEntry } from "../types";
 import { ActivityIcon, AgentsIcon, ChartIcon, ChevronIcon, ClockIcon, DevicesIcon, LogoMark, OrgIcon, PlusIcon, ProjectsIcon, SettingsIcon, SkillsIcon, SyncIcon, VaultIcon, WebhookIcon } from "./Icons";
 
@@ -7,6 +9,10 @@ interface SidebarProps {
   projects: ProjectEntry[];
   activeConversationId: string | null;
   onSelectConversation: (id: string) => void;
+  /** Gives a conversation a new title; the window shows the reason when it can't. */
+  onRenameConversation: (id: string, title: string) => Promise<void>;
+  /** Deletes a conversation (and its threads); the window shows the reason when it can't. */
+  onDeleteConversation: (id: string) => Promise<void>;
   onNewConversation: () => void;
   onOpenSettings: () => void;
   onOpenUsage: () => void;
@@ -38,6 +44,8 @@ function Sidebar({
   projects,
   activeConversationId,
   onSelectConversation,
+  onRenameConversation,
+  onDeleteConversation,
   onNewConversation,
   onOpenSettings,
   onOpenUsage,
@@ -58,27 +66,100 @@ function Sidebar({
   onToggleCollapsed,
   machine,
 }: SidebarProps) {
+  const [query, setQuery] = useState("");
+  // The conversation being renamed and what is typed so far; `busyId` is the one a rename or delete is working on.
+  const [editing, setEditing] = useState<{ id: string; title: string } | null>(null);
+  const [busyId, setBusyId] = useState<string | null>(null);
+
+  const shown = searchConversations(conversations, query);
   // A conversation whose project no longer exists (removed since) is listed with the others, as an ordinary one.
   const projectIds = new Set(projects.map((p) => p.id));
-  const loose = conversations.filter((c) => !c.projectId || !projectIds.has(c.projectId));
+  const loose = shown.filter((c) => !c.projectId || !projectIds.has(c.projectId));
   const groups = projects
-    .map((project) => ({ project, items: conversations.filter((c) => c.projectId === project.id) }))
+    .map((project) => ({ project, items: shown.filter((c) => c.projectId === project.id) }))
     .filter((group) => group.items.length > 0);
 
-  const renderItem = (conversation: Conversation) => (
-    <li key={conversation.id}>
-      <button
-        type="button"
-        className={
-          "conversation-list-item" +
-          (view === "chat" && conversation.id === activeConversationId ? " conversation-list-item--active" : "")
-        }
-        onClick={() => onSelectConversation(conversation.id)}
-      >
-        {conversation.title}
-      </button>
-    </li>
-  );
+  async function saveRename(conversation: Conversation, title: string) {
+    const trimmed = title.trim();
+    setEditing(null);
+    // An empty or unchanged title only closes the box.
+    if (trimmed === "" || trimmed === conversation.title) return;
+    setBusyId(conversation.id);
+    try {
+      await onRenameConversation(conversation.id, trimmed);
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  async function remove(conversation: Conversation) {
+    if (!window.confirm(`Delete "${conversation.title}"? This can't be undone.`)) return;
+    setBusyId(conversation.id);
+    try {
+      await onDeleteConversation(conversation.id);
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  const renderItem = (conversation: Conversation) => {
+    if (editing?.id === conversation.id) {
+      return (
+        <li key={conversation.id}>
+          <input
+            className="conversation-rename-input"
+            value={editing.title}
+            maxLength={120}
+            autoFocus
+            aria-label="Conversation title"
+            onChange={(e) => setEditing({ id: conversation.id, title: e.target.value })}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") void saveRename(conversation, editing.title);
+              if (e.key === "Escape") setEditing(null);
+            }}
+            onBlur={() => setEditing(null)}
+          />
+        </li>
+      );
+    }
+    const busy = busyId === conversation.id;
+    return (
+      <li key={conversation.id} className="conversation-row">
+        <button
+          type="button"
+          className={
+            "conversation-list-item" +
+            (view === "chat" && conversation.id === activeConversationId ? " conversation-list-item--active" : "")
+          }
+          onClick={() => onSelectConversation(conversation.id)}
+        >
+          {conversation.title}
+        </button>
+        <span className="conversation-row-actions">
+          <button
+            type="button"
+            className="conversation-row-action"
+            title="Rename"
+            aria-label={`Rename ${conversation.title}`}
+            disabled={busy}
+            onClick={() => setEditing({ id: conversation.id, title: conversation.title })}
+          >
+            ✎
+          </button>
+          <button
+            type="button"
+            className="conversation-row-action"
+            title="Delete"
+            aria-label={`Delete ${conversation.title}`}
+            disabled={busy}
+            onClick={() => void remove(conversation)}
+          >
+            ✕
+          </button>
+        </span>
+      </li>
+    );
+  };
 
   return (
     <div className={`sidebar${collapsed ? " sidebar--collapsed" : ""}`}>
@@ -107,8 +188,23 @@ function Sidebar({
 
       {!collapsed && (
         <div className="conversation-list-scroll">
+          {conversations.length > 0 && (
+            <input
+              type="search"
+              className="conversation-search"
+              placeholder="Search conversations"
+              aria-label="Search conversations"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Escape") setQuery("");
+              }}
+            />
+          )}
           {conversations.length === 0 ? (
             <p className="conversation-list-empty">No conversations yet.</p>
+          ) : shown.length === 0 ? (
+            <p className="conversation-list-empty">Nothing matches.</p>
           ) : (
             <>
               {groups.map(({ project, items }) => (

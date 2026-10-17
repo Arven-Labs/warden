@@ -33,8 +33,10 @@ import {
   hubListDirs,
   hubListNodes,
   hubListProjects,
+  hubDeleteConversation,
   hubMoveConversation,
   hubOpenAgentChannel,
+  hubRenameConversation,
   hubSend,
   needsSignIn,
   type HubCredential,
@@ -471,6 +473,44 @@ function App() {
     try {
       const saved = await invoke<Conversation>("move_conversation", { conversationId: activeConversationId, projectId: projectId || null });
       setConversations((prev) => replaceWithSaved(prev, saved));
+    } catch (err) {
+      setSendError(String(err));
+    }
+  }
+
+  /** The sidebar's rename: the saved copy replaces the one listed; a refusal shows as the send error. */
+  async function handleRenameConversation(id: string, title: string) {
+    setSendError(null);
+    try {
+      if (remote) {
+        await hubRenameConversation(id, title);
+        loadConversations();
+      } else {
+        const saved = await invoke<Conversation>("rename_conversation", { conversationId: id, title });
+        setConversations((prev) => replaceWithSaved(prev, saved));
+      }
+    } catch (err) {
+      setSendError(String(err));
+    }
+  }
+
+  /** The sidebar's delete: the conversation goes with its threads; if it was the open one, the window goes back to a new chat. */
+  async function handleDeleteConversation(id: string) {
+    setSendError(null);
+    try {
+      if (remote) {
+        await hubDeleteConversation(id);
+        loadConversations();
+      } else {
+        await invoke("delete_conversation", { conversationId: id });
+        setConversations((prev) => prev.filter((c) => c.id !== id && c.parent?.conversationId !== id));
+      }
+      if (activeConversationId === id) {
+        setNewChatAgent("");
+        setActiveConversationId(null);
+        setSelectedProjectId("");
+        setSelectedWorkdir("");
+      }
     } catch (err) {
       setSendError(String(err));
     }
@@ -943,6 +983,8 @@ function App() {
         projects={projects}
         activeConversationId={activeConversationId}
         onSelectConversation={selectConversation}
+        onRenameConversation={handleRenameConversation}
+        onDeleteConversation={handleDeleteConversation}
         onNewConversation={() => {
           setNewChatAgent("");
           setActiveConversationId(null);
