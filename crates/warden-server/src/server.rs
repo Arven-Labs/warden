@@ -867,7 +867,12 @@ async fn serve_web_or_ws<S: Transport>(mut stream: S, peer: SocketAddr, secure: 
         return Ok(());
     }
     if head.path.split('?').next() == Some(warden_server_protocol::status::STATUS_PATH) {
-        crate::status::serve(&mut stream, &head, &ctx.auth_key, &ctx.activity).await?;
+        let Some(attempt) = ctx.attempts.reserve(peer.ip()) else {
+            return too_many_attempts(&mut stream, &ctx.attempts, &head).await;
+        };
+        if !crate::status::serve(&mut stream, &head, &ctx.auth_key, &ctx.activity, &attempt).await? {
+            attempt.release();
+        }
         return Ok(());
     }
     if head.path.split('?').next() == Some(truthid_login::CALLBACK_PATH) {
@@ -875,13 +880,25 @@ async fn serve_web_or_ws<S: Transport>(mut stream: S, peer: SocketAddr, secure: 
         return Ok(());
     }
     if head.path.starts_with(openai_api::API_PREFIX) {
-        openai_api::serve(&mut stream, &head, &ctx.api()).await?;
+        let Some(attempt) = ctx.attempts.reserve(peer.ip()) else {
+            return too_many_attempts(&mut stream, &ctx.attempts, &head).await;
+        };
+        if !openai_api::serve(&mut stream, &head, &ctx.api(), &attempt).await? {
+            attempt.release();
+        }
         return Ok(());
     }
     if head.path.starts_with(webhooks::HOOKS_PREFIX) {
         // Not left to the web page: its fallback would answer a caller's POST with a 200.
         match &ctx.webhooks {
-            Some(webhooks) => webhooks::serve(&mut stream, &head, webhooks).await?,
+            Some(webhooks) => {
+                let Some(attempt) = ctx.attempts.reserve(peer.ip()) else {
+                    return too_many_attempts(&mut stream, &ctx.attempts, &head).await;
+                };
+                if !webhooks::serve(&mut stream, &head, webhooks, &attempt).await? {
+                    attempt.release();
+                }
+            }
             None => web_ui::not_found(&mut stream, head.method == "HEAD").await?,
         }
         return Ok(());
@@ -890,6 +907,14 @@ async fn serve_web_or_ws<S: Transport>(mut stream: S, peer: SocketAddr, secure: 
         Some(assets) => web_ui::serve(&mut stream, &head, assets.as_ref()).await?,
         None => web_ui::not_found(&mut stream, head.method == "HEAD").await?,
     }
+    Ok(())
+}
+
+/// The answer to a request that carries a key from an address that used its attempts up (P142): given before anything is
+/// checked and without the wait of a wrong key, since the lockout is the cost.
+async fn too_many_attempts<S: Transport>(stream: &mut S, attempts: &AttemptLimiter, head: &web_ui::RequestHead) -> anyhow::Result<()> {
+    let retry_after = attempts.lockout().as_secs().max(1).to_string();
+    web_ui::write_response(stream, "429 Too Many Requests", &[("Retry-After", &retry_after)], "text/plain; charset=utf-8", b"too many attempts, try again later", head.method == "HEAD").await?;
     Ok(())
 }
 

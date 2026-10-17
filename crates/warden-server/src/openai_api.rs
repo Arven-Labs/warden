@@ -36,6 +36,7 @@ use warden_core::spend::SpendContext;
 use warden_core::tool::ToolSpec;
 
 use crate::api_keys::{ApiKey, ApiKeyStore};
+use crate::attempt_limit::Reservation;
 use crate::people::{member_orchestrator, mount_member_spaces, tools_for, MemberSpace, MemberVaults, SpaceVaults};
 use crate::settings::{keys_match, SettingsHost, SharedOrchestrator, WRONG_KEY_DELAY};
 use crate::usage::{member_limit_message, spend_limit_id};
@@ -95,19 +96,25 @@ impl ApiError {
 }
 
 /// Answers one request under `API_PREFIX`; the connection is done afterwards.
-pub(crate) async fn serve<S: AsyncRead + AsyncWrite + Unpin>(stream: &mut S, head: &RequestHead, api: &ApiContext) -> std::io::Result<()> {
+/// `true`: the key was wrong or missing, a guess the caller counts (P142). `attempt` is released as soon as the key is
+/// accepted, not when a long reply ends.
+pub(crate) async fn serve<S: AsyncRead + AsyncWrite + Unpin>(stream: &mut S, head: &RequestHead, api: &ApiContext, attempt: &Reservation) -> std::io::Result<bool> {
     let _busy = api.activity.begin();
-    match route(stream, head, api).await {
-        Ok(()) => Ok(()),
-        Err(err) => write_json(stream, err.status, &err.body()).await,
+    match route(stream, head, api, attempt).await {
+        Ok(()) => Ok(false),
+        Err(err) => {
+            write_json(stream, err.status, &err.body()).await?;
+            Ok(err.status.starts_with("401"))
+        }
     }
 }
 
-async fn route<S: AsyncRead + AsyncWrite + Unpin>(stream: &mut S, head: &RequestHead, api: &ApiContext) -> Result<(), ApiError> {
+async fn route<S: AsyncRead + AsyncWrite + Unpin>(stream: &mut S, head: &RequestHead, api: &ApiContext, attempt: &Reservation) -> Result<(), ApiError> {
     let Some(keys_path) = &api.keys_path else {
         return Err(ApiError::new("404 Not Found", "invalid_request_error", "this hub doesn't offer the Warden API"));
     };
     let key = authenticate(head, &ApiKeyStore::new(keys_path.as_ref().clone())).await?;
+    attempt.release();
     let path = head.path.split('?').next().unwrap_or_default();
     match (head.method.as_str(), path) {
         ("GET", "/v1/models") => {

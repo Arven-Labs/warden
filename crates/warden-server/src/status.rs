@@ -6,22 +6,29 @@ use tokio::io::{self, AsyncWrite};
 use warden_server_protocol::HubStatus;
 
 use crate::activity::HubActivity;
+use crate::attempt_limit::Reservation;
 use crate::pairing_key::PairingKey;
 use crate::settings::{keys_match, WRONG_KEY_DELAY};
 use crate::web_ui::{write_response, RequestHead};
 
-pub(crate) async fn serve<S: AsyncWrite + Unpin>(stream: &mut S, head: &RequestHead, key: &PairingKey, activity: &HubActivity) -> io::Result<()> {
+/// `true`: the key was wrong or missing, a guess the caller counts (P142).
+pub(crate) async fn serve<S: AsyncWrite + Unpin>(stream: &mut S, head: &RequestHead, key: &PairingKey, activity: &HubActivity, attempt: &Reservation) -> io::Result<bool> {
     let head_only = match head.method.as_str() {
         "GET" => false,
         "HEAD" => true,
-        _ => return write_response(stream, "405 Method Not Allowed", &[("Allow", "GET, HEAD")], "text/plain; charset=utf-8", b"method not allowed", false).await,
+        _ => {
+            write_response(stream, "405 Method Not Allowed", &[("Allow", "GET, HEAD")], "text/plain; charset=utf-8", b"method not allowed", false).await?;
+            return Ok(false);
+        }
     };
     let presented = head.header("authorization").and_then(|v| v.strip_prefix("Bearer ").or_else(|| v.strip_prefix("bearer "))).map(str::trim);
     if !presented.is_some_and(|presented| keys_match(presented, &key.current())) {
         // A missing or wrong key waits first, like every other place a key is checked, so guessing is slow.
         tokio::time::sleep(WRONG_KEY_DELAY).await;
-        return write_response(stream, "401 Unauthorized", &[("WWW-Authenticate", "Bearer")], "text/plain; charset=utf-8", b"unauthorized", head_only).await;
+        write_response(stream, "401 Unauthorized", &[("WWW-Authenticate", "Bearer")], "text/plain; charset=utf-8", b"unauthorized", head_only).await?;
+        return Ok(true);
     }
+    attempt.release();
     let snapshot = activity.snapshot();
     let status = HubStatus {
         version: env!("CARGO_PKG_VERSION").to_string(),
@@ -32,7 +39,8 @@ pub(crate) async fn serve<S: AsyncWrite + Unpin>(stream: &mut S, head: &RequestH
         idle_secs: snapshot.idle_secs,
     };
     let body = serde_json::to_vec(&status).unwrap_or_default();
-    write_response(stream, "200 OK", &[("Cache-Control", "no-store")], "application/json", &body, head_only).await
+    write_response(stream, "200 OK", &[("Cache-Control", "no-store")], "application/json", &body, head_only).await?;
+    Ok(false)
 }
 
 /// Resident memory of this process, or `None` where it can't be read (anywhere but Linux).

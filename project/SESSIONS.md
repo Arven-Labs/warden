@@ -2,7 +2,17 @@
 
 > **Nota**: Este log foi criado junto com o projeto. As sessões serão registradas aqui conforme o trabalho avança.
 >
-> Última atualização: 2026-10-17 (Sessão 230)
+> Última atualização: 2026-10-17 (Sessão 231)
+
+---
+
+### 2026-10-17 — Sessão 231 (limite por IP nos endpoints HTTP: P142)
+
+- **Pedido do usuário**: "podemos seguir"; escolheu o resto do P142 e, entre as opções, só os endpoints HTTP. Planejei em modo de plano.
+- **Feito**: `Reservation` e `AttemptLimiter::reserve`/`lockout` em `src/attempt_limit.rs`; `status::serve`, `openai_api::serve` e `webhooks::serve` recebem a reserva, soltam quando a chave é aceita e devolvem se foi 401; `serve_web_or_ws` reserva por IP e responde 429 com `Retry-After` quando o endereço está bloqueado. `tests/http_attempt_limit.rs` (6 casos) e um unitário.
+- **Correção de rumo do usuário**: no meio do trabalho ele perguntou "tá rodando build local? não combinamos de fazer isso no CI do github?". Tinha razão: o P149 é justamente tirar compilação e testes da máquina, e eu rodei `cargo` local a sessão toda (P155 e P142). Parei o build, e daqui em diante a verificação é só o `ci.yml`. Registrei na memória do Claude.
+- **Conferido**: nada ainda. Esta sessão não compilei o código novo; o que vale é o CI do commit.
+- **Sobra**: ver o CI do commit; `/hooks` sem teste próprio; as mensagens de admin do WebSocket; `X-Forwarded-For`.
 
 ---
 

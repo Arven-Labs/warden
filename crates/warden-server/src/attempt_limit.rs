@@ -4,6 +4,7 @@
 
 use std::collections::HashMap;
 use std::net::{IpAddr, Ipv6Addr};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -62,6 +63,17 @@ impl AttemptLimiter {
         }
     }
 
+    /// `try_attempt` for a request that proves itself later: the attempt it counted is given back by `Reservation::release`,
+    /// which the request calls as soon as its key is accepted. `None`: the address is turned away.
+    pub fn reserve(&self, ip: IpAddr) -> Option<Reservation> {
+        self.try_attempt(ip).then(|| Reservation { limiter: self.clone(), ip, released: AtomicBool::new(false) })
+    }
+
+    /// How long a turned-away address waits, for a `Retry-After`.
+    pub fn lockout(&self) -> Duration {
+        self.limit.lockout
+    }
+
     fn try_attempt_at(&self, ip: IpAddr, now: Instant) -> bool {
         let mut entries = self.entries.lock().unwrap();
         if entries.len() > PRUNE_ABOVE {
@@ -83,6 +95,22 @@ impl AttemptLimiter {
         }
         entry.attempts += 1;
         true
+    }
+}
+
+/// An attempt `AttemptLimiter::reserve` counted, kept until the request is known not to be a wrong guess. Releasing it more
+/// than once gives back only the one attempt.
+pub struct Reservation {
+    limiter: AttemptLimiter,
+    ip: IpAddr,
+    released: AtomicBool,
+}
+
+impl Reservation {
+    pub fn release(&self) {
+        if !self.released.swap(true, Ordering::SeqCst) {
+            self.limiter.forgive(self.ip);
+        }
     }
 }
 
@@ -141,6 +169,19 @@ mod tests {
         limiter.forgive(ip("10.0.0.1"));
         assert!(limiter.try_attempt_at(ip("10.0.0.1"), now));
         assert!(!limiter.try_attempt_at(ip("10.0.0.1"), now), "forgiving one gives back only one");
+    }
+
+    #[test]
+    fn a_reservation_is_refused_when_blocked_and_released_only_once() {
+        let limiter = AttemptLimiter::new(LIMIT);
+        let ip = ip("10.0.0.1");
+        let held: Vec<_> = (0..3).map(|_| limiter.reserve(ip).expect("under the cap")).collect();
+        assert!(limiter.reserve(ip).is_none(), "the cap is reached");
+
+        held[0].release();
+        held[0].release();
+        assert!(limiter.reserve(ip).is_some(), "releasing gave one back");
+        assert!(limiter.reserve(ip).is_none(), "releasing twice gave back only one");
     }
 
     #[test]

@@ -25,6 +25,7 @@ use std::collections::{HashSet, VecDeque};
 use std::path::PathBuf;
 
 use crate::activity::HubActivity;
+use crate::attempt_limit::Reservation;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -147,15 +148,17 @@ impl Refusal {
 }
 
 /// Answers one request under `HOOKS_PREFIX`; the connection is done afterwards.
-pub(crate) async fn serve<S: AsyncRead + AsyncWrite + Unpin>(stream: &mut S, head: &RequestHead, ctx: &WebhookContext) -> std::io::Result<()> {
-    let (status, body) = match route(stream, head, ctx).await {
+/// `true`: the credential was wrong or missing, a guess the caller counts (P142).
+pub(crate) async fn serve<S: AsyncRead + AsyncWrite + Unpin>(stream: &mut S, head: &RequestHead, ctx: &WebhookContext, attempt: &Reservation) -> std::io::Result<bool> {
+    let (status, body) = match route(stream, head, ctx, attempt).await {
         Ok(body) => ("202 Accepted", body),
         Err(refusal) => (refusal.status, json!({ "error": { "code": refusal.code, "message": refusal.message } })),
     };
-    write_response(stream, status, &[], "application/json", body.to_string().as_bytes(), false).await
+    write_response(stream, status, &[], "application/json", body.to_string().as_bytes(), false).await?;
+    Ok(status.starts_with("401"))
 }
 
-async fn route<S: AsyncRead + Unpin>(stream: &mut S, head: &RequestHead, ctx: &WebhookContext) -> Result<Value, Refusal> {
+async fn route<S: AsyncRead + Unpin>(stream: &mut S, head: &RequestHead, ctx: &WebhookContext, attempt: &Reservation) -> Result<Value, Refusal> {
     let Some(runner) = &ctx.runner else {
         return Err(Refusal::new("404 Not Found", "no_webhooks", "this hub doesn't offer webhooks"));
     };
@@ -215,6 +218,7 @@ async fn route<S: AsyncRead + Unpin>(stream: &mut S, head: &RequestHead, ctx: &W
     if Some(hook.auth) != kind {
         return Err(unauthorized().await);
     }
+    attempt.release();
     if !hook.enabled {
         return Err(Refusal::new("403 Forbidden", "webhook_paused", format!("webhook '{id}' is paused")));
     }
