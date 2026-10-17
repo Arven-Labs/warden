@@ -71,6 +71,15 @@ impl InstanceStore {
         Ok(self.load()?.instances.into_iter().find(|i| i.spec.customer_id == customer_id))
     }
 
+    /// Records that the customer's instance now runs `image`.
+    pub fn set_image(&self, customer_id: &str, image: &str) -> anyhow::Result<()> {
+        self.update(|all| {
+            let instance = all.iter_mut().find(|i| i.spec.customer_id == customer_id).with_context(|| format!("there is no instance for '{customer_id}'"))?;
+            instance.spec.image = image.to_string();
+            Ok(())
+        })
+    }
+
     /// Reads, lets `change` alter the list, and writes it back, all under the lock. Nothing is written if `change` fails.
     pub fn update<T>(&self, change: impl FnOnce(&mut Vec<Instance>) -> anyhow::Result<T>) -> anyhow::Result<T> {
         let _guard = WRITES.lock().unwrap_or_else(|poisoned| poisoned.into_inner());

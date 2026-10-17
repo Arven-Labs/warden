@@ -33,6 +33,7 @@ cleanup() {
   orch delete "$CUSTOMER" --purge-data >/dev/null 2>&1 || true
   docker rm -f "$CONTAINER" >/dev/null 2>&1 || true
   docker volume rm "$VOLUME" >/dev/null 2>&1 || true
+  docker rmi "$IMAGE-next" "$IMAGE-bad" >/dev/null 2>&1 || true
   rm -rf "$STATE_DIR"
 }
 trap cleanup EXIT
@@ -150,7 +151,33 @@ wait_health
 docker exec "$CONTAINER" cat /data/marker | grep -q guardado || fail "o dado do cliente não voltou com o restore"
 echo "restore: ok"
 
-# 9. Apagar: o contêiner e o registro vão embora, o volume fica; com --purge-data, o volume também. Apagar de novo é ok.
+# 9. Upgrade: a imagem nova (a mesma, com outra etiqueta) entra no lugar da antiga no mesmo volume, com backup antes; pedir de
+# novo não faz nada. Uma imagem que nunca fica saudável é desfeita: o contêiner volta à imagem anterior, de pé e com os dados.
+NEXT="$IMAGE-next"
+BAD="$IMAGE-bad"
+docker tag "$IMAGE" "$NEXT"
+upgrade_out="$(orch upgrade --image "$NEXT" --soak-secs 2 2>&1)" || fail "upgrade para a imagem nova falhou: $upgrade_out"
+echo "$upgrade_out" | grep -q 'upgraded' || fail "o upgrade não disse 'upgraded': $upgrade_out"
+[ "$(docker inspect -f '{{.Config.Image}}' "$CONTAINER")" = "$NEXT" ] || fail "o contêiner não está na imagem nova"
+wait_health
+docker exec "$CONTAINER" cat /data/marker | grep -q guardado || fail "o dado do cliente não sobreviveu ao upgrade"
+[ "$(orch backups "$CUSTOMER" | wc -l)" -ge 2 ] || fail "o upgrade não tirou um backup antes"
+again_out="$(orch upgrade --image "$NEXT" 2>&1)" || fail "o segundo upgrade, igual, falhou: $again_out"
+echo "$again_out" | grep -q 'already on' || fail "o segundo upgrade devia dizer que está tudo na imagem: $again_out"
+echo "upgrade: ok"
+
+printf 'FROM %s\nENTRYPOINT ["sh","-c","exit 1"]\n' "$NEXT" | docker build -q -t "$BAD" - >/dev/null || fail "não consegui montar a imagem ruim"
+if bad_out="$(orch upgrade --image "$BAD" --soak-secs 0 --health-timeout-secs 15 2>&1)"; then
+  fail "o upgrade para uma imagem que não sobe deveria sair com erro: $bad_out"
+fi
+echo "$bad_out" | grep -q 'rolled back' || fail "o upgrade ruim devia dizer 'rolled back': $bad_out"
+[ "$(docker inspect -f '{{.Config.Image}}' "$CONTAINER")" = "$NEXT" ] || fail "depois do rollback o contêiner não voltou à imagem anterior"
+[ "$(running)" = "true" ] || fail "o hub não está de pé depois do rollback"
+wait_health
+docker exec "$CONTAINER" cat /data/marker | grep -q guardado || fail "o dado do cliente não sobreviveu ao rollback"
+echo "rollback de uma imagem que não sobe: ok"
+
+# 10. Apagar: o contêiner e o registro vão embora, o volume fica; com --purge-data, o volume também. Apagar de novo é ok.
 orch delete "$CUSTOMER" >/dev/null || fail "delete falhou"
 [ "$(running)" = "gone" ] || fail "o contêiner continua existindo depois do delete"
 docker volume inspect "$VOLUME" >/dev/null 2>&1 || fail "o delete apagou o volume sem --purge-data"
@@ -160,4 +187,4 @@ if docker volume inspect "$VOLUME" >/dev/null 2>&1; then fail "o volume continua
 orch delete "$CUSTOMER" >/dev/null || fail "apagar de novo deveria dar certo"
 echo "delete: ok"
 
-echo "OK: o orquestrador provisiona, suspende, retoma, recicla, faz backup cifrado, verifica, restaura e apaga uma instância de verdade, sem perder os dados do cliente."
+echo "OK: o orquestrador provisiona, suspende, retoma, recicla, faz backup cifrado, verifica, restaura, faz upgrade com rollback e apaga uma instância de verdade, sem perder os dados do cliente."

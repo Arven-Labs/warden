@@ -17,6 +17,7 @@ aes-gcm = { version = "0.10", features = ["stream"] }
 anyhow.workspace = true
 async-trait.workspace = true
 clap = { version = "4", features = ["derive", "env"] }
+futures-util = "0.3"
 reqwest.workspace = true
 serde.workspace = true
 serde_json.workspace = true

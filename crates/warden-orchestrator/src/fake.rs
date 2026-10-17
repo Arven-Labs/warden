@@ -15,6 +15,8 @@ pub struct FakeContainer {
     pub running: bool,
     /// How many times it has started: one per `run`, `start` and `restart`. Stands in for Docker's `StartedAt`.
     pub starts: u32,
+    /// The image it was created from.
+    pub image: String,
 }
 
 #[derive(Default)]
@@ -41,6 +43,10 @@ struct FakeState {
     isolated: Vec<String>,
     /// Every hub answers `/health` with a failure while this is set.
     unhealthy: bool,
+    /// Images whose hubs never answer `/health`.
+    unhealthy_images: BTreeSet<String>,
+    /// Every `run`, in order: the container name and the image.
+    run_log: Vec<(String, String)>,
 }
 
 impl FakeRuntime {
@@ -86,6 +92,16 @@ impl FakeRuntime {
     /// From now on no hub answers `/health`.
     pub fn make_unhealthy(&self) {
         self.state.lock().unwrap().unhealthy = true;
+    }
+
+    /// From now on a hub made from `image` never answers `/health`.
+    pub fn make_image_unhealthy(&self, image: &str) {
+        self.state.lock().unwrap().unhealthy_images.insert(image.to_string());
+    }
+
+    /// Every `run` so far, in order: the container name and the image it was made from.
+    pub fn run_log(&self) -> Vec<(String, String)> {
+        self.state.lock().unwrap().run_log.clone()
     }
 
     /// Containers started with `run_isolated`, in order.
@@ -137,7 +153,8 @@ impl ContainerRuntime for FakeRuntime {
         Self::check(&state, &name)?;
         anyhow::ensure!(!state.containers.contains_key(&name), "the name '{name}' is already in use");
         state.volumes.insert(instance.volume_name());
-        state.containers.insert(name, FakeContainer { running: true, starts: 1 });
+        state.run_log.push((name.clone(), instance.spec.image.clone()));
+        state.containers.insert(name, FakeContainer { running: true, starts: 1, image: instance.spec.image.clone() });
         Ok(())
     }
 
@@ -196,13 +213,13 @@ impl ContainerRuntime for FakeRuntime {
         anyhow::ensure!(!state.containers.contains_key(&name), "the name '{name}' is already in use");
         anyhow::ensure!(state.volumes.contains(&instance.volume_name()), "no such volume: {}", instance.volume_name());
         state.isolated.push(name.clone());
-        state.containers.insert(name, FakeContainer { running: true, starts: 1 });
+        state.containers.insert(name, FakeContainer { running: true, starts: 1, image: instance.spec.image.clone() });
         Ok(())
     }
 
     async fn is_healthy(&self, name: &str) -> anyhow::Result<bool> {
         let state = self.state.lock().unwrap();
-        Ok(state.containers.get(name).is_some_and(|c| c.running) && !state.unhealthy)
+        Ok(state.containers.get(name).is_some_and(|c| c.running && !state.unhealthy_images.contains(&c.image)) && !state.unhealthy)
     }
 
     async fn volume_exists(&self, volume: &str) -> anyhow::Result<bool> {

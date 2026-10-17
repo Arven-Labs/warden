@@ -9,9 +9,10 @@
 //! to give the memory back.
 //!
 //! Everything that touches the world sits behind a trait (`ContainerRuntime`, `StatusSource`), so the rest is tested with
-//! `fake::FakeRuntime` and a canned status. `backup` takes the encrypted copies of a volume and restores and checks them.
+//! `fake::FakeRuntime` and a canned status. `backup` takes the encrypted copies of a volume and restores and checks them;
+//! `upgrade` moves instances to a new image in waves, putting the old one back where the new one does not come up.
 //! Not here yet: the site mother's HTTP contract (B1), the reverse proxy with TLS and a domain per customer, the
-//! retention before a delete, rolling upgrades.
+//! retention before a delete.
 
 pub mod backup;
 pub mod fake;
@@ -22,6 +23,7 @@ pub mod recycler;
 pub mod runtime;
 pub mod status;
 pub mod store;
+pub mod upgrade;
 
 pub use backup::BackupKey;
 pub use instance::{Instance, InstanceSpec, State};
@@ -30,4 +32,5 @@ pub use recycle::{Decision, Reason, RecyclePolicy};
 pub use recycler::{recycle_pass, Outcome};
 pub use runtime::{ContainerRuntime, DockerCli};
 pub use status::{HttpStatus, StatusSource};
+pub use upgrade::{UpgradeOptions, UpgradeOutcome};
 pub use store::InstanceStore;

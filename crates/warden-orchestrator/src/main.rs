@@ -5,6 +5,7 @@
 //!   warden-orchestrator resume acme
 //!   warden-orchestrator recycle --every 300
 //!   warden-orchestrator backup acme            # or --all [--every 86400]; encrypted, in <state-dir>/backups/acme/
+//!   warden-orchestrator upgrade --image ghcr.io/arven-labs/warden-server:0.2.0   # canary, then waves; rolls back what fails
 //!   warden-orchestrator verify acme            # restores the newest backup into a scratch volume and starts a hub on it
 //!   warden-orchestrator delete acme --purge-data
 //!   warden-orchestrator restore acme latest    # into a volume that is not there; then `provision` again
@@ -19,7 +20,7 @@ use anyhow::Context;
 use clap::{Parser, Subcommand};
 use tracing_subscriber::EnvFilter;
 use warden_orchestrator::{
-    recycle_pass, DockerCli, HttpStatus, InstanceManager, InstanceSpec, InstanceStore, Outcome, RecyclePolicy,
+    recycle_pass, DockerCli, HttpStatus, InstanceManager, InstanceSpec, InstanceStore, Outcome, RecyclePolicy, UpgradeOptions,
 };
 
 /// The image a customer gets when none is named: the hub published on every tag.
@@ -87,6 +88,33 @@ enum Command {
         #[arg(long, requires = "all")]
         every: Option<u64>,
         /// How many backups of a customer to keep; older ones are deleted after a new one succeeds.
+        #[arg(long, default_value_t = DEFAULT_KEEP)]
+        keep: usize,
+    },
+    /// Moves every instance to a new hub image, a few at a time: the canary first, alone, then waves. Each instance is backed
+    /// up, its container replaced by one from the new image on the same volume, and `/health` awaited; one that does not
+    /// come up healthy gets the old image back, and the waves not yet begun are skipped. Exits with an error unless every
+    /// instance ended on the new image. Running it again after a fix picks up where it stopped.
+    Upgrade {
+        /// The hub image to move to.
+        #[arg(long)]
+        image: String,
+        /// How many instances go first, alone.
+        #[arg(long, default_value_t = 1)]
+        canary: usize,
+        /// How many go together in each wave after the canary.
+        #[arg(long, default_value_t = 5)]
+        wave_size: usize,
+        /// How long the new hub must go on answering `/health` after it first does.
+        #[arg(long, default_value_t = 30)]
+        soak_secs: u64,
+        /// How long the new hub gets to answer `/health` the first time.
+        #[arg(long, default_value_t = 60)]
+        health_timeout_secs: u64,
+        /// Do not take a backup of each instance before changing its image.
+        #[arg(long)]
+        no_backup: bool,
+        /// How many backups of a customer to keep.
         #[arg(long, default_value_t = DEFAULT_KEEP)]
         keep: usize,
     },
@@ -190,6 +218,24 @@ async fn main() -> anyhow::Result<()> {
                     }
                 },
             }
+        }
+        Command::Upgrade { image, canary, wave_size, soak_secs, health_timeout_secs, no_backup, keep } => {
+            let options = UpgradeOptions {
+                backup: !no_backup,
+                keep,
+                canary,
+                wave_size,
+                soak: Duration::from_secs(soak_secs),
+                health_timeout: Duration::from_secs(health_timeout_secs),
+            };
+            let report = manager.upgrade(&image, &options).await?;
+            for (customer, outcome) in &report {
+                println!("{customer}\t{outcome}");
+            }
+            if report.is_empty() {
+                println!("every instance is already on {image}");
+            }
+            anyhow::ensure!(report.iter().all(|(_, outcome)| outcome.is_fine()), "not every instance ended on {image}");
         }
         Command::Backups { customer_id } => {
             for path in manager.backups(&customer_id)? {

@@ -13,6 +13,7 @@ use crate::backup::{self, BackupKey};
 use crate::instance::{validate_customer_id, volume_name, Instance, InstanceSpec, State};
 use crate::runtime::ContainerRuntime;
 use crate::store::{free_port, InstanceStore};
+use crate::upgrade::{UpgradeOptions, UpgradeOutcome};
 
 pub struct InstanceManager<R: ContainerRuntime> {
     store: InstanceStore,
@@ -199,16 +200,7 @@ impl<R: ContainerRuntime> InstanceManager<R> {
         let checked = async {
             self.restore_into(&scratch.volume_name(), &scratch.spec.image, &file, &key).await?;
             self.runtime.run_isolated(&scratch).await?;
-            let deadline = tokio::time::Instant::now() + timeout;
-            loop {
-                if self.runtime.is_healthy(&scratch.container_name()).await? {
-                    return Ok(());
-                }
-                if tokio::time::Instant::now() >= deadline {
-                    bail!("the hub started from {} did not answer /health within {}s", file.display(), timeout.as_secs());
-                }
-                tokio::time::sleep(Duration::from_secs(1)).await;
-            }
+            self.wait_healthy(&scratch.container_name(), timeout, &format!("the hub started from {}", file.display())).await
         }
         .await;
         let gone = self.runtime.remove(&scratch.container_name()).await;
@@ -216,6 +208,101 @@ impl<R: ContainerRuntime> InstanceManager<R> {
         checked?;
         gone.and(gone_volume).with_context(|| format!("the backup is good, but the scratch '{}' was not cleaned up", scratch.spec.customer_id))?;
         Ok(file)
+    }
+
+    /// Waits up to `timeout` for the hub in the container to answer `/health` (asked from inside it); `what` names it in the
+    /// error.
+    async fn wait_healthy(&self, container: &str, timeout: Duration, what: &str) -> anyhow::Result<()> {
+        let deadline = tokio::time::Instant::now() + timeout;
+        loop {
+            if self.runtime.is_healthy(container).await? {
+                return Ok(());
+            }
+            if tokio::time::Instant::now() >= deadline {
+                bail!("{what} did not answer /health within {}s", timeout.as_secs());
+            }
+            tokio::time::sleep(Duration::from_secs(1)).await;
+        }
+    }
+
+    /// Moves every instance that is not on `image` to it: the first `canary` alone, then waves of `wave_size` (each wave's
+    /// instances at the same time). The first one that has to be rolled back (or is down) stops the waves that have not
+    /// begun: they come back as `Skipped`. Instances already on the image are left out of the report.
+    pub async fn upgrade(&self, image: &str, options: &UpgradeOptions) -> anyhow::Result<Vec<(String, UpgradeOutcome)>> {
+        anyhow::ensure!(!image.trim().is_empty(), "the image is empty");
+        anyhow::ensure!(options.canary >= 1 && options.wave_size >= 1, "the canary and the waves need at least one instance each");
+        let todo: Vec<String> = self.store.list()?.into_iter().filter(|i| i.spec.image != image).map(|i| i.spec.customer_id).collect();
+        let (canary, rest) = todo.split_at(options.canary.min(todo.len()));
+        let waves = std::iter::once(canary).chain(rest.chunks(options.wave_size)).filter(|wave| !wave.is_empty());
+
+        let mut report = Vec::new();
+        let mut halted = false;
+        for wave in waves {
+            if halted {
+                report.extend(wave.iter().map(|customer| (customer.clone(), UpgradeOutcome::Skipped)));
+                continue;
+            }
+            let outcomes = futures_util::future::join_all(wave.iter().map(|customer| self.upgrade_one(customer, image, options))).await;
+            for (customer, outcome) in wave.iter().zip(outcomes) {
+                halted |= !outcome.is_fine();
+                report.push((customer.clone(), outcome));
+            }
+        }
+        Ok(report)
+    }
+
+    /// Moves one instance to `image` (see the module `upgrade`). Never an `Err`: whatever went wrong is the outcome.
+    pub async fn upgrade_one(&self, customer_id: &str, image: &str, options: &UpgradeOptions) -> UpgradeOutcome {
+        match self.try_upgrade(customer_id, image, options).await {
+            Ok(outcome) => outcome,
+            Err(err) => UpgradeOutcome::Failed(format!("{err:#}")),
+        }
+    }
+
+    async fn try_upgrade(&self, customer_id: &str, image: &str, options: &UpgradeOptions) -> anyhow::Result<UpgradeOutcome> {
+        let instance = self.require(customer_id)?;
+        if instance.spec.image == image {
+            return Ok(UpgradeOutcome::AlreadyThere);
+        }
+        if instance.state == State::Suspended {
+            // Nothing runs: the stopped container goes and `resume` makes a new one from the recorded image.
+            self.runtime.remove(&instance.container_name()).await?;
+            self.store.set_image(customer_id, image)?;
+            return Ok(UpgradeOutcome::Upgraded { backup: None });
+        }
+        let old_image = instance.spec.image.clone();
+        let backup = if options.backup {
+            Some(self.backup(customer_id, options.keep).await.context("could not take the backup before the upgrade; nothing was changed")?)
+        } else {
+            None
+        };
+        let Err(reason) = self.swap_image(customer_id, image, options.health_timeout, options.soak).await else {
+            return Ok(UpgradeOutcome::Upgraded { backup });
+        };
+        let reason = format!("{reason:#}");
+        // The way back: the old image on the same volume, held to the same first check but without the soak.
+        Ok(match self.swap_image(customer_id, &old_image, options.health_timeout, Duration::ZERO).await {
+            Ok(()) => UpgradeOutcome::RolledBack { reason, backup },
+            Err(rollback) => UpgradeOutcome::RollbackFailed { reason, rollback: format!("{rollback:#}"), backup },
+        })
+    }
+
+    /// Replaces the instance's container with one from `image` on the same volume, and returns once the hub in it has
+    /// answered `/health` and gone on answering for `soak`.
+    async fn swap_image(&self, customer_id: &str, image: &str, health_timeout: Duration, soak: Duration) -> anyhow::Result<()> {
+        let mut instance = self.require(customer_id)?;
+        let name = instance.container_name();
+        self.runtime.stop(&name).await?;
+        self.runtime.remove(&name).await?;
+        self.store.set_image(customer_id, image)?;
+        instance.spec.image = image.to_string();
+        self.create(&instance).await?;
+        self.wait_healthy(&name, health_timeout, &format!("the hub on {image}")).await?;
+        if !soak.is_zero() {
+            tokio::time::sleep(soak).await;
+            anyhow::ensure!(self.runtime.is_healthy(&name).await?, "the hub on {image} stopped answering /health during the {}s soak", soak.as_secs());
+        }
+        Ok(())
     }
 
     fn image_for(&self, customer_id: &str, image: Option<&str>) -> anyhow::Result<String> {
@@ -625,6 +712,139 @@ mod tests {
         assert!(started[0].starts_with("warden-verify-"), "{started:?}");
         assert_eq!((m.runtime().volumes(), m.runtime().containers()), before, "the scratch container and volume are gone");
         assert_eq!(m.runtime().data("warden-data-acme").as_deref(), Some(DATA), "the customer's own volume was not touched");
+    }
+
+    fn quick() -> UpgradeOptions {
+        UpgradeOptions { soak: Duration::ZERO, health_timeout: Duration::ZERO, ..UpgradeOptions::default() }
+    }
+
+    fn image_of(m: &InstanceManager<FakeRuntime>, customer: &str) -> (String, String) {
+        (m.get(customer).unwrap().unwrap().spec.image, m.runtime().container(&format!("warden-{customer}")).unwrap().image)
+    }
+
+    #[tokio::test]
+    async fn an_upgrade_backs_up_then_runs_the_new_image_on_the_same_volume() {
+        let m = with_data("upgrade", "acme").await;
+        let outcome = m.upgrade_one("acme", "img:2", &quick()).await;
+
+        let UpgradeOutcome::Upgraded { backup: Some(backup) } = outcome else { panic!("{outcome:?}") };
+        assert_eq!(m.backups("acme").unwrap(), [backup], "the backup was taken first");
+        assert_eq!(image_of(&m, "acme"), ("img:2".into(), "img:2".into()), "recorded and running");
+        assert!(m.runtime().container("warden-acme").unwrap().running);
+        assert_eq!(m.runtime().data("warden-data-acme").as_deref(), Some(DATA), "the customer's data stayed");
+    }
+
+    #[tokio::test]
+    async fn an_upgrade_can_skip_the_backup_and_the_same_image_again_does_nothing() {
+        let m = with_data("upgrade-twice", "acme").await;
+        let options = UpgradeOptions { backup: false, ..quick() };
+        assert!(matches!(m.upgrade_one("acme", "img:2", &options).await, UpgradeOutcome::Upgraded { backup: None }));
+        assert!(m.backups("acme").unwrap().is_empty());
+
+        let runs = m.runtime().run_log().len();
+        assert_eq!(m.upgrade_one("acme", "img:2", &quick()).await, UpgradeOutcome::AlreadyThere);
+        assert_eq!(m.runtime().run_log().len(), runs, "nothing was recreated");
+        assert!(m.backups("acme").unwrap().is_empty(), "and no backup was taken");
+    }
+
+    #[tokio::test]
+    async fn a_suspended_instance_stays_suspended_and_comes_back_on_the_new_image() {
+        let m = with_data("upgrade-suspended", "acme").await;
+        m.suspend("acme").await.unwrap();
+        assert!(matches!(m.upgrade_one("acme", "img:2", &quick()).await, UpgradeOutcome::Upgraded { backup: None }));
+        assert!(m.runtime().container("warden-acme").is_none(), "no container runs the old image");
+        assert_eq!(m.get("acme").unwrap().unwrap().state, State::Suspended);
+
+        m.resume("acme").await.unwrap();
+        assert_eq!(image_of(&m, "acme"), ("img:2".into(), "img:2".into()));
+    }
+
+    #[tokio::test]
+    async fn a_new_image_that_does_not_come_up_is_rolled_back_to_the_old_one() {
+        let m = with_data("upgrade-rollback", "acme").await;
+        m.runtime().make_image_unhealthy("img:bad");
+        let outcome = m.upgrade_one("acme", "img:bad", &quick()).await;
+
+        let UpgradeOutcome::RolledBack { reason, backup: Some(backup) } = outcome else { panic!("{outcome:?}") };
+        assert!(reason.contains("did not answer /health"), "{reason}");
+        assert!(backup.is_file(), "the way back for the data is named");
+        assert_eq!(image_of(&m, "acme"), ("img:1".into(), "img:1".into()), "the old image is recorded and running again");
+        assert_eq!(m.runtime().data("warden-data-acme").as_deref(), Some(DATA));
+    }
+
+    #[tokio::test]
+    async fn when_the_old_image_does_not_come_back_either_the_outcome_says_so_and_names_the_backup() {
+        let m = with_data("upgrade-down", "acme").await;
+        m.runtime().make_image_unhealthy("img:1");
+        m.runtime().make_image_unhealthy("img:bad");
+        let outcome = m.upgrade_one("acme", "img:bad", &quick()).await;
+
+        let UpgradeOutcome::RollbackFailed { backup: Some(backup), .. } = &outcome else { panic!("{outcome:?}") };
+        assert!(outcome.to_string().contains(&backup.display().to_string()), "{outcome}");
+        assert!(!outcome.is_fine());
+    }
+
+    #[tokio::test]
+    async fn a_backup_that_fails_before_an_upgrade_changes_nothing() {
+        let m = with_data("upgrade-no-backup", "acme").await;
+        m.runtime().fail_archiving("warden-data-acme");
+        let outcome = m.upgrade_one("acme", "img:2", &quick()).await;
+
+        let UpgradeOutcome::Failed(why) = outcome else { panic!("{outcome:?}") };
+        assert!(why.contains("nothing was changed"), "{why}");
+        assert_eq!(image_of(&m, "acme"), ("img:1".into(), "img:1".into()));
+        assert!(m.runtime().container("warden-acme").unwrap().running);
+    }
+
+    #[tokio::test]
+    async fn an_upgrade_goes_canary_first_then_in_waves_and_leaves_out_those_already_there() {
+        let m = manager("upgrade-waves");
+        for customer in ["a", "b", "c", "d", "e"] {
+            m.provision(spec(customer)).await.unwrap();
+            m.runtime().put_data(&volume_name(customer), b"x");
+        }
+        m.provision(InstanceSpec { image: "img:2".into(), ..spec("f") }).await.unwrap();
+        m.runtime().put_data("warden-data-f", b"x");
+        let before = m.runtime().run_log().len();
+
+        let options = UpgradeOptions { canary: 1, wave_size: 2, backup: false, ..quick() };
+        let report = m.upgrade("img:2", &options).await.unwrap();
+
+        let customers: Vec<_> = report.iter().map(|(customer, _)| customer.as_str()).collect();
+        assert_eq!(customers, ["a", "b", "c", "d", "e"], "'f' is already there and not in the report");
+        assert!(report.iter().all(|(_, outcome)| outcome.is_fine()));
+        let log = m.runtime().run_log();
+        let order: Vec<_> = log[before..].iter().map(|(name, _)| name.as_str()).collect();
+        assert_eq!(order[0], "warden-a", "the canary is first, alone");
+        assert!(order.iter().all(|name| *name != "warden-f"));
+    }
+
+    #[tokio::test]
+    async fn the_first_rollback_stops_the_waves_that_have_not_begun() {
+        let m = manager("upgrade-halt");
+        for customer in ["a", "b", "c", "d"] {
+            m.provision(spec(customer)).await.unwrap();
+            m.runtime().put_data(&volume_name(customer), b"x");
+        }
+        m.runtime().make_image_unhealthy("img:bad");
+
+        let options = UpgradeOptions { canary: 1, wave_size: 2, backup: false, ..quick() };
+        let report = m.upgrade("img:bad", &options).await.unwrap();
+
+        assert!(matches!(report[0], (ref customer, UpgradeOutcome::RolledBack { .. }) if customer == "a"), "{report:?}");
+        assert!(report[1..].iter().all(|(_, outcome)| *outcome == UpgradeOutcome::Skipped), "{report:?}");
+        for customer in ["a", "b", "c", "d"] {
+            assert_eq!(image_of(&m, customer), ("img:1".into(), "img:1".into()), "{customer} stays on the old image");
+        }
+    }
+
+    #[tokio::test]
+    async fn an_upgrade_needs_an_image_and_a_canary() {
+        let m = manager("upgrade-bad-args");
+        assert!(m.upgrade(" ", &quick()).await.is_err());
+        assert!(m.upgrade("img:2", &UpgradeOptions { canary: 0, ..quick() }).await.is_err());
+        assert!(m.upgrade("img:2", &UpgradeOptions { wave_size: 0, ..quick() }).await.is_err());
+        assert!(matches!(m.upgrade_one("ghost", "img:2", &quick()).await, UpgradeOutcome::Failed(_)));
     }
 
     #[tokio::test]
