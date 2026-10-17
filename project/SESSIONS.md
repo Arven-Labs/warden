@@ -2,7 +2,17 @@
 
 > **Nota**: Este log foi criado junto com o projeto. As sessões serão registradas aqui conforme o trabalho avança.
 >
-> Última atualização: 2026-10-16 (Sessão 227)
+> Última atualização: 2026-10-17 (Sessão 228)
+
+---
+
+### 2026-10-17 — Sessão 228 (actions em Node 24 e badge: P149)
+
+- **Pedido do usuário**: "commita e segue pro P149". Commitei o P150 (`4705378`) e planejei o P149 em modo de plano; o APK Android ficou de fora, por ser um item grande à parte.
+- **Feito** (`99de9ef`): conferi no `action.yml` de cada action em que runtime a major nova roda e subi as que ainda eram `node20`: `checkout` v4→v7, `setup-node` v4→v7, `cache` v4→v6, `paths-filter` v3→v4, `setup-buildx` v3→v4, `build-push` v6→v7, `metadata` v5→v6, `login` v3→v4. `rust-cache`, `tauri-action` (já `node24`), `rust-toolchain` e `flutter-action` (composite) ficaram. Badge do CI no `README.md`.
+- **Conferido no CI**: `ci.yml` (todas as cinco áreas), `image.yml`, `heavy-tests` e `measure-rss` verdes e sem o aviso de Node 20.
+- **Não provado**: `build.yml` e `login`/`metadata` do `image-publish.yml` (só em tag), e o `windows-check.yml`.
+- **Sobra**: APK Android no CI, o corte por área num push de uma pasta só, o modelo do histórico no P154, o `.msi` e a imagem `:0.1.1` do P152.
 
 ---
 
