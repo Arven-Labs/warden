@@ -2,7 +2,17 @@
 
 > **Nota**: Este log foi criado junto com o projeto. As sessões serão registradas aqui conforme o trabalho avança.
 >
-> Última atualização: 2026-10-17 (Sessão 233)
+> Última atualização: 2026-10-17 (Sessão 234)
+
+---
+
+### 2026-10-17 — Sessão 234 (upgrade em ondas das instâncias: P138)
+
+- **Pedido do usuário**: "vamos com o orquestrador então". Entre as fatias que sobraram escolhi, e disse isso, o upgrade em ondas (o backup já era a rede de segurança). Planejei em modo de plano e o usuário decidiu duas coisas: backup antes de cada upgrade, por padrão, e voltar a imagem antiga parando as ondas se a nova não ficar saudável.
+- **Feito** (`crates/warden-orchestrator`): `upgrade.rs` (opções e resultados), `InstanceStore::set_image`, `InstanceManager::upgrade`, `upgrade_one`, `swap_image` e `wait_healthy` (o `verify` passou a usar o mesmo), e a CLI `upgrade`. Sem mudar o trait `ContainerRuntime`; o `FakeRuntime` ganhou a imagem de cada contêiner, a lista de criações e imagens que nunca ficam saudáveis.
+- **Verificação só pelo CI**: `cargo check` local. Os 9 testes novos passaram no `ci.yml` (run 39059764877) e a fumaça com Docker (run 39059764940) passou de primeira, com o upgrade no mesmo volume, o repetir sem efeito e o rollback de uma imagem que sai com erro.
+- **Registro**: `sed` em `lib.rs` e no `Cargo.toml` (as linhas dos módulos e da dependência) não apareceram como diff na tela; o resto foi por Edit/Write.
+- **Sobra** (no P138): voltar os dados num upgrade que migrou o formato (hoje o `restore` manual), escolher clientes, janela de manutenção, imagem por plano, cópia de backup para fora do host, retenção antes de apagar (pergunta 4), API HTTP do contrato B1, proxy com TLS.
 
 ---
 
