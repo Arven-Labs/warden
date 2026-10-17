@@ -850,9 +850,11 @@ impl Orchestrator {
                 .await
             };
             let answered = match &self.stop {
+                // The stop is looked at first: a turn the person has stopped does not read one more piece because it was ready.
                 Some(token) => tokio::select! {
-                    result = call => Some(result),
+                    biased;
                     _ = token.cancelled() => None,
+                    result = call => Some(result),
                 },
                 None => Some(call.await),
             };
@@ -926,9 +928,10 @@ impl Orchestrator {
                     tokio::pin!(call);
                     loop {
                         tokio::select! {
+                            biased;
+                            _ = stop_signal(&self.stop) => stopped!(String::new()),
                             result = &mut call => break result,
                             Some(said) = next_progress(&mut progress) => on_event(&StreamEvent::ToolProgress { tool: said.tool, event: said.event }),
-                            _ = stop_signal(&self.stop) => stopped!(String::new()),
                         }
                     }
                 };
@@ -2497,7 +2500,12 @@ mod tests {
         async fn chat_stream(&self, _messages: Vec<Message>, _tools: Vec<ToolSpec>) -> anyhow::Result<ChatStream> {
             use futures_util::StreamExt;
             let events: Vec<anyhow::Result<StreamEvent>> = self.pieces.iter().map(|p| Ok(StreamEvent::ContentDelta(p.to_string()))).collect();
-            Ok(Box::pin(futures_util::stream::iter(events).chain(futures_util::stream::pending())))
+            // Gives the turn a chance to notice a stop between two pieces, as the network does between two chunks.
+            let written = futures_util::stream::iter(events).then(|event| async move {
+                tokio::task::yield_now().await;
+                event
+            });
+            Ok(Box::pin(written.chain(futures_util::stream::pending())))
         }
     }
 
