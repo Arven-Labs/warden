@@ -52,6 +52,10 @@ fastembed = { version = "6.0.3", optional = true, default-features = false, feat
 # version fastembed 6.0.3 already pulls in, so no second `ort` compiles; no features of its own
 # (fastembed's above turn on the download and TLS ones). Optional for the same Android reason.
 ort = { version = "=2.0.0-rc.13", optional = true, default-features = false }
+# P154: the one vault search model is shared by every member's vault, and the standard library's `Mutex` is not fair, so an
+# indexing that kept re-taking it made other members' questions wait seconds; `FairMutex` hands it to the next in line.
+# 0.12.5 is what `crossterm` and `tao` already compile, so no second version. Optional for the same Android reason.
+parking_lot = { version = "0.12", optional = true }
 # Pinned to 0.10 to match the version already used by warden-sync/warden-truthid (avoids a second
 # sha2 major compiling into the workspace) — `cargo add` defaults to the newest 0.11 otherwise.
 # Not optional since P78: note versions (`memory::content_version`) use it without semantic search.
@@ -85,7 +89,7 @@ default = ["semantic-search"]
 # crate that depends on `warden-core` only for non-model plumbing (e.g. `warden-sync`, which pulls
 # in `Vault` purely for file I/O, not chat) — see the fastembed comment above for why this needs to
 # be optional at all rather than just always-on.
-semantic-search = ["dep:fastembed", "dep:ort"]
+semantic-search = ["dep:fastembed", "dep:ort", "dep:parking_lot"]
 
 [dev-dependencies]
 # `transport-io` (plain stdio, used to play the *server* side against a real child process in

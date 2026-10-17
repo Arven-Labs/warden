@@ -74,8 +74,10 @@ struct LoadedVaultModel {
 
 /// P153: one vault model for the whole process, not one per `Vault`: a hub keeps a `Vault` for each active member, and a copy
 /// of the ~135 MB model in each cost ~175 MB of RSS per member. Searches of different vaults take turns on it.
+/// P154: a fair lock, in order of arrival. With the standard library's `Mutex` an indexing that took the model once per
+/// slice of 16 chunks got it back before anyone waiting woke up, and another member's question waited up to 14 s.
 #[cfg(feature = "semantic-search")]
-static VAULT_MODEL: std::sync::Mutex<Option<LoadedVaultModel>> = std::sync::Mutex::new(None);
+static VAULT_MODEL: parking_lot::FairMutex<Option<LoadedVaultModel>> = parking_lot::FairMutex::new(None);
 
 /// Lazily loads the vault's embedding model (downloads it on first-ever use — the one part of "local" search that needs
 /// network, exactly once per machine) and runs `f` against it. Callers with a lot to embed call this once per slice, so
@@ -87,7 +89,7 @@ pub(super) fn with_vault_model<T>(f: impl FnOnce(&mut fastembed::TextEmbedding) 
     if std::env::var_os(OFF_SWITCH).is_some_and(|v| !v.is_empty()) {
         anyhow::bail!("search by meaning is turned off ({OFF_SWITCH} is set)");
     }
-    let mut guard = VAULT_MODEL.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    let mut guard = VAULT_MODEL.lock();
     if guard.is_none() {
         let model = TextEmbedding::try_new(
             TextInitOptions::new(EmbeddingModel::AllMiniLML6V2)
@@ -107,7 +109,7 @@ pub(super) fn with_vault_model<T>(f: impl FnOnce(&mut fastembed::TextEmbedding) 
 /// the model from under it.
 #[cfg(feature = "semantic-search")]
 pub fn unload_idle_vault_model(idle: std::time::Duration) -> bool {
-    let mut guard = VAULT_MODEL.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    let mut guard = VAULT_MODEL.lock();
     if guard.as_ref().is_some_and(|loaded| loaded.last_used.elapsed() >= idle) {
         *guard = None;
         return true;
@@ -123,7 +125,7 @@ pub fn unload_idle_vault_model(_idle: std::time::Duration) -> bool {
 /// Whether the vault model is in memory right now.
 #[cfg(all(feature = "semantic-search", test))]
 pub(super) fn vault_model_loaded() -> bool {
-    VAULT_MODEL.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).is_some()
+    VAULT_MODEL.lock().is_some()
 }
 
 /// Loads the model now (the first `embed` of a process does it), so the first search of the history doesn't wait. An error
