@@ -440,6 +440,7 @@ Repetida no CI (`gh workflow run measure-rss.yml`, run 38968961049, runner Ubunt
   - **1ª requisição de 4 membros**: 4,44 s no total, tanto em sequência quanto ao mesmo tempo; ao mesmo tempo, todas esperam o lote (a pior 4,44 s, contra 1,22 s). Sem ganho do paralelismo, porque o ORT já usa os núcleos.
   - **Enquanto um membro indexa 1000 notas** (turno de 21,7 s): 5 requisições de membros já indexados levaram **3,9 s em média e 14,1 s na pior**, contra 0,008 s sem indexação. A fatia de 16 chunks **não** deu a vez aos outros como esperado (**P154**). A causa não foi verificada: a hipótese é o `Mutex` da biblioteca padrão não ser justo, mas a CPU do runner também pode ser a limitação.
   - O RSS no fim foi 273 MB (4 membros) e 322 MB (com o membro grande).
+- **P154 corrigido (Sessão 226)**: o lock do modelo do cofre passou de `std::sync::Mutex` para `parking_lot::FairMutex` (ordem de chegada). Mesma medição (run 38986614742): durante a indexação de 1000 notas (17,0 s), 58 requisições de outros membros levaram **0,26 s em média e 0,34 s na pior** (antes, 3,9 s e 14,1 s). Com os cofres indexados, 0,014 s por requisição; RSS 274 e 322 MB. A 1ª requisição de 4 membros ao mesmo tempo continua esperando o lote (a pior 3,42 s contra 0,98 s em sequência). Uma rodada de cada, num runner de 4 núcleos. Não separei a CPU como causa à parte: o que se sabe é que trocar o lock bastou. O modelo do histórico tem outro `Mutex` da mesma forma, não medido.
 
 ## O que foi verificado e o que não foi
 
