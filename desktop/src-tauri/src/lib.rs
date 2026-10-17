@@ -1364,9 +1364,11 @@ mod tests {
         assert!(LiveFeed::new().on_event(&from_tool(CodeEvent::Session("ses_1".into()))).is_empty(), "the session is not for showing");
         // The model's own words are shown as it writes them (P157); enough of them to be worth sending go out without waiting.
         let words = "the model's own words ".repeat(20);
+        let mut feed = LiveFeed::new();
+        assert!(feed.on_event(&StreamEvent::ContentDelta("Hello ".into())).is_empty(), "the first words wait for more");
         assert_eq!(
-            LiveFeed::new().on_event(&StreamEvent::ContentDelta(words.clone())),
-            vec![ChatEventDto::Text { text: words, source: None }]
+            feed.on_event(&StreamEvent::ContentDelta(words.clone())),
+            vec![ChatEventDto::Text { text: format!("Hello {words}"), source: None }]
         );
     }
 

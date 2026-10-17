@@ -154,9 +154,12 @@ impl LiveFeed {
     fn on_event_at(&mut self, event: &StreamEvent, now: std::time::Instant) -> Vec<ChatEventDto> {
         match event {
             StreamEvent::ContentDelta(text) => {
+                // Size alone does not send the first piece: an answer that arrives whole is the answer, and its event would only
+                // run ahead of it.
+                let had_words = !self.held.is_empty();
                 self.held.push_str(text);
                 let since = *self.last_sent.get_or_insert(now);
-                if self.held.len() >= LIVE_FLUSH_BYTES || now.duration_since(since) >= LIVE_FLUSH_AFTER {
+                if (had_words && self.held.len() >= LIVE_FLUSH_BYTES) || now.duration_since(since) >= LIVE_FLUSH_AFTER {
                     self.flush(now)
                 } else {
                     Vec::new()
@@ -2924,6 +2927,12 @@ mod tests {
         // Enough bytes make it worth sending sooner.
         let long = "x".repeat(LIVE_FLUSH_BYTES);
         assert_eq!(feed.on_event_at(&said(&long), ms(315)), vec![ChatEventDto::Text { text: format!("wor{long}"), source: None }]);
+    }
+
+    #[test]
+    fn an_answer_that_arrives_whole_makes_no_event_ahead_of_itself() {
+        let mut feed = LiveFeed::new();
+        assert!(feed.on_event(&said(&"x".repeat(LIVE_FLUSH_BYTES * 4))).is_empty(), "one big piece is the answer, not a live word");
     }
 
     #[test]
