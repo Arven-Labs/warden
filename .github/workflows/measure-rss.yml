@@ -22,7 +22,7 @@ jobs:
     timeout-minutes: 60
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Rust
         uses: dtolnay/rust-toolchain@stable
@@ -32,7 +32,7 @@ jobs:
 
       # O script liga a pasta de modelos de cada cenário a esta, então os dois modelos baixam uma vez só.
       - name: Cache dos modelos
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ~/.cache/warden/models
           key: warden-models-${{ hashFiles('crates/warden-core/Cargo.toml') }}

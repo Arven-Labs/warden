@@ -1,5 +1,7 @@
 # Warden
 
+[![CI](https://github.com/Arven-Labs/warden/actions/workflows/ci.yml/badge.svg)](https://github.com/Arven-Labs/warden/actions/workflows/ci.yml)
+
 Warden is a personal AI agent that lives on your own devices, remembers things in a plain markdown
 vault you fully own, and reaches you wherever you already are — desktop, phone, terminal, browser,
 Telegram, or WhatsApp.

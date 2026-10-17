@@ -21,7 +21,7 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Rust
         uses: dtolnay/rust-toolchain@stable
@@ -31,7 +31,7 @@ jobs:
 
       # Onde o `model_cache_dir()` do warden-core guarda os modelos baixados.
       - name: Cache dos modelos
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ~/.cache/warden/models
           key: warden-models-${{ hashFiles('crates/warden-core/Cargo.toml') }}
