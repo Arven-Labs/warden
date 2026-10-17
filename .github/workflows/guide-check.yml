@@ -1,0 +1,34 @@
+name: Guia de uso (o .deb instala?)
+
+# Confere o caminho A do GUIA-DE-USO.md: o `.deb` do último release instala num Ubuntu 24.04 limpo (as dependências
+# declaradas bastam) e o app abre numa tela virtual. O caminho B (a imagem do hub e o `config.toml` do guia) é conferido
+# pelo `image.yml`, em `scripts/image-smoke.sh`. Sem teste manual: roda quando o guia ou este script mudam, ou à mão:
+#   gh workflow run guide-check.yml
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'GUIA-DE-USO.md'
+      - 'scripts/deb-check.sh'
+      - '.github/workflows/guide-check.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  deb:
+    name: .deb num Ubuntu limpo
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Baixa o .deb do último release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release download --repo "$GITHUB_REPOSITORY" --pattern '*_amd64.deb' --dir deb
+
+      - name: Instala e abre
+        run: bash scripts/deb-check.sh deb/*_amd64.deb

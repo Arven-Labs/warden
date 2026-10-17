@@ -10,6 +10,7 @@ on:
       - 'Dockerfile'
       - '.dockerignore'
       - 'scripts/image-smoke.sh'
+      - 'GUIA-DE-USO.md'
       - 'scripts/fake-openai.py'
       - 'scripts/orchestrator-smoke.sh'
       - 'crates/warden-orchestrator/**'

@@ -146,6 +146,17 @@ docker run --rm --entrypoint sh -v "$VOLUME2":/data "$IMAGE" -c 'test -f /data/c
   || fail "o volume importado não tem a config e o cofre, ou tem os pareamentos do outro"
 echo "export e import: ok"
 
+# 4f. O exemplo de config.toml do GUIA-DE-USO.md (o primeiro bloco ```toml) é o que o usuário copia: o hub tem de aceitá-lo.
+#     `deny_unknown_fields` recusa um campo inventado ou com o nome errado, então um exemplo que apodrece derruba a fumaça.
+GUIDE="$(dirname "$0")/../GUIA-DE-USO.md"
+guide_config="$(awk '/^```toml/{ if (!done) { on=1; next } } on && /^```/{ on=0; done=1 } on' "$GUIDE")"
+[ -n "$guide_config" ] || fail "não achei o bloco \`\`\`toml em GUIA-DE-USO.md"
+printf '%s\n' "$guide_config" | sed 's/SUA_CHAVE_DE_MODELO/chave-de-teste/' \
+  | docker exec -i "$NAME" sh -c 'cat > /data/guide-config.toml' || fail "não consegui gravar o exemplo do guia em /data"
+guide_out="$(warden tasks list --config /data/guide-config.toml 2>&1)" \
+  || fail "o hub recusou o config.toml do GUIA-DE-USO.md: $guide_out"
+echo "config do guia: ok"
+
 # 5. SIGTERM: sai com 0 e diz que parou.
 docker stop -t 15 "$NAME" >/dev/null
 exit_code="$(docker inspect -f '{{.State.ExitCode}}' "$NAME")"

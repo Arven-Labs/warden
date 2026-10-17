@@ -11,6 +11,8 @@ by default, and every piece of it is built to work without depending on a compan
 memory is just files, sync is optional and decentralized, and any device you own can act as the hub
 for the others.
 
+**Just want to use it?** See [GUIA-DE-USO.md](GUIA-DE-USO.md) (in Portuguese): install the app or run an always-on hub, step by step.
+
 ## Highlights
 
 - **Memory you can read** — the agent's long-term memory is a folder of markdown files (Obsidian-
