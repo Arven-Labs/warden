@@ -1688,6 +1688,12 @@ pub enum ClientMessage {
         /// isn't there, or one that is itself in a thread, is a `ChatError`.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         thread_of: Option<ThreadParentDto>,
+        /// Redo the conversation from this message of its own (P157): the model sees only what came before it, and the
+        /// turn replaces it and everything after it (and the threads of those) in the one write that saves the turn —
+        /// "regenerate" sends the last message of the person's again, "edit" sends it changed. A message that isn't there,
+        /// a thread and a conversation with a code session are a `ChatError`, and nothing is dropped.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        replace_from: Option<String>,
     },
     /// The person's answer to a `ServerMessage::ApprovalRequest` (P46 `manage_agents`, SSH hosts
     /// that need approval). An id with no pending request is ignored.
@@ -2358,7 +2364,7 @@ pub enum ClientMessage {
 impl ClientMessage {
     /// A plain text `Chat` turn to the default conversation, with no attachments.
     pub fn chat(message: impl Into<String>) -> Self {
-        ClientMessage::Chat { message: message.into(), conversation_id: None, attachments: Vec::new(), agent_id: None, project_id: None, workdir: None, thread_of: None }
+        ClientMessage::Chat { message: message.into(), conversation_id: None, attachments: Vec::new(), agent_id: None, project_id: None, workdir: None, thread_of: None, replace_from: None }
     }
 }
 
@@ -3226,10 +3232,22 @@ mod tests {
         assert_eq!(msg, ClientMessage::chat("hi"));
         assert_eq!(serde_json::to_string(&msg).unwrap(), r#"{"type":"chat","message":"hi"}"#);
 
-        let with = ClientMessage::Chat { message: "hi".into(), conversation_id: Some("c1".into()), attachments: Vec::new(), agent_id: None, project_id: None, workdir: None, thread_of: None };
+        let with = ClientMessage::Chat { message: "hi".into(), conversation_id: Some("c1".into()), attachments: Vec::new(), agent_id: None, project_id: None, workdir: None, thread_of: None, replace_from: None };
         let json = serde_json::to_string(&with).unwrap();
         assert_eq!(json, r#"{"type":"chat","message":"hi","conversationId":"c1"}"#);
         assert_eq!(serde_json::from_str::<ClientMessage>(&json).unwrap(), with);
+    }
+
+    /// P157: a chat can redo the conversation from one of its messages; a chat from before it has no such field, and nothing is written
+    /// when there is none.
+    #[test]
+    fn a_chat_can_name_the_message_to_redo_from() {
+        let redo = ClientMessage::Chat { message: "hi".into(), conversation_id: Some("c1".into()), attachments: Vec::new(), agent_id: None, project_id: None, workdir: None, thread_of: None, replace_from: Some("170002".into()) };
+        let json = serde_json::to_string(&redo).unwrap();
+        assert_eq!(json, r#"{"type":"chat","message":"hi","conversationId":"c1","replaceFrom":"170002"}"#);
+        assert_eq!(serde_json::from_str::<ClientMessage>(&json).unwrap(), redo);
+        let old = serde_json::from_str::<ClientMessage>(r#"{"type":"chat","message":"hi","conversationId":"c1"}"#).unwrap();
+        assert!(matches!(old, ClientMessage::Chat { replace_from: None, .. }));
     }
 
     /// P125: a chat names the message it is a thread of; the history carries each message's id and the summary of a thread its link and
@@ -3237,7 +3255,7 @@ mod tests {
     #[test]
     fn threads_ride_on_the_chat_the_history_and_the_summary() {
         let link = ThreadParentDto { conversation_id: "c1".into(), message_id: "170000".into() };
-        let chat = ClientMessage::Chat { message: "hi".into(), conversation_id: Some("t1".into()), attachments: Vec::new(), agent_id: None, project_id: None, workdir: None, thread_of: Some(link.clone()) };
+        let chat = ClientMessage::Chat { message: "hi".into(), conversation_id: Some("t1".into()), attachments: Vec::new(), agent_id: None, project_id: None, workdir: None, thread_of: Some(link.clone()), replace_from: None };
         let json = serde_json::to_string(&chat).unwrap();
         assert_eq!(json, r#"{"type":"chat","message":"hi","conversationId":"t1","threadOf":{"conversationId":"c1","messageId":"170000"}}"#);
         assert_eq!(serde_json::from_str::<ClientMessage>(&json).unwrap(), chat);
@@ -3278,7 +3296,7 @@ mod tests {
     /// the web and the desktop expect, and everything from before projects (no field) still reads.
     #[test]
     fn projects_travel_with_the_names_the_clients_expect_and_old_peers_still_read() {
-        let chat = ClientMessage::Chat { message: "hi".into(), conversation_id: Some("c1".into()), attachments: Vec::new(), agent_id: None, project_id: Some("tax".into()), workdir: None, thread_of: None };
+        let chat = ClientMessage::Chat { message: "hi".into(), conversation_id: Some("c1".into()), attachments: Vec::new(), agent_id: None, project_id: Some("tax".into()), workdir: None, thread_of: None, replace_from: None };
         let json = serde_json::to_string(&chat).unwrap();
         assert_eq!(json, r#"{"type":"chat","message":"hi","conversationId":"c1","projectId":"tax"}"#);
         assert_eq!(serde_json::from_str::<ClientMessage>(&json).unwrap(), chat);
@@ -3316,7 +3334,7 @@ mod tests {
     /// folders (no field) still reads.
     #[test]
     fn working_folders_travel_with_the_names_the_clients_expect_and_old_peers_still_read() {
-        let chat = ClientMessage::Chat { message: "hi".into(), conversation_id: Some("c1".into()), attachments: Vec::new(), agent_id: None, project_id: None, workdir: Some("/srv/work".into()), thread_of: None };
+        let chat = ClientMessage::Chat { message: "hi".into(), conversation_id: Some("c1".into()), attachments: Vec::new(), agent_id: None, project_id: None, workdir: Some("/srv/work".into()), thread_of: None, replace_from: None };
         let json = serde_json::to_string(&chat).unwrap();
         assert_eq!(json, r#"{"type":"chat","message":"hi","conversationId":"c1","workdir":"/srv/work"}"#);
         assert_eq!(serde_json::from_str::<ClientMessage>(&json).unwrap(), chat);
@@ -3461,7 +3479,7 @@ mod tests {
 
     #[test]
     fn a_chat_can_name_an_agent_and_approvals_round_trip() {
-        let chat = ClientMessage::Chat { message: "hi".into(), conversation_id: None, attachments: Vec::new(), agent_id: Some("chief".into()), project_id: None, workdir: None, thread_of: None };
+        let chat = ClientMessage::Chat { message: "hi".into(), conversation_id: None, attachments: Vec::new(), agent_id: Some("chief".into()), project_id: None, workdir: None, thread_of: None, replace_from: None };
         let json = serde_json::to_string(&chat).unwrap();
         assert_eq!(json, r#"{"type":"chat","message":"hi","agentId":"chief"}"#);
         assert_eq!(serde_json::from_str::<ClientMessage>(&json).unwrap(), chat);
@@ -3524,6 +3542,7 @@ mod tests {
             project_id: None,
             workdir: None,
             thread_of: None,
+            replace_from: None,
         };
         let json = serde_json::to_string(&chat).unwrap();
         assert_eq!(json, r#"{"type":"chat","message":"","attachments":[{"mimeType":"application/pdf","data":"JVBE"}]}"#);

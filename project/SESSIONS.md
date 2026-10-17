@@ -2,17 +2,26 @@
 
 > **Nota**: Este log foi criado junto com o projeto. As sessões serão registradas aqui conforme o trabalho avança.
 >
-> Última atualização: 2026-10-17 (Sessão 241)
+> Última atualização: 2026-10-17 (Sessão 242)
 
 ---
+
+### 2026-10-17 — Sessão 242 (regenerar a resposta e editar uma mensagem: P157, item 3)
+
+- **Pedido do usuário**: "sim, manda bala", depois da Sessão 241. Planejado em modo de plano; respondeu duas perguntas: **desktop (local e hub) primeiro**, a web depois; **threads presas às mensagens cortadas são apagadas junto**.
+- **Desenho**: não havia como cortar mensagens de uma conversa salva. Em vez de um comando de cortar à parte (que deixaria a conversa truncada se o modelo falhasse), o turno sai como sempre com um campo a mais, `replace_from` = id da mensagem: o corte (dela e do que veio depois) acontece **dentro do `append_messages`, sob o `ConversationWriteGuard`**, junto com a gravação do par novo. Regenerar manda de novo a última mensagem do usuário; editar manda a mensagem mudada.
+- **Feito**: `AppendOptions.replace_from`, `redo_point` (erro se o id não existe, se é thread ou se há sessão do motor de código) e `remove_threads` (o laço de `delete_conversation`, agora compartilhado) em `warden-bootstrap`; `handle_agent_turn_in_with` ganha `replace_from` (o modelo vê só o que veio antes; erro antes de chamar o modelo); `ClientMessage::Chat.replace_from` no protocolo (omitido quando vazio); o hub repassa e recusa projeto de código; o comando do desktop `append_conversation_messages` repassa; `chatMessage`/`hubChat` também. Telas do desktop: `lib/regenerate.ts` (funções puras), botão **Regenerar** na última resposta e **Editar** nas mensagens do usuário (caixa com Enviar/Cancelar, Ctrl+Enter envia, aviso quando o corte leva mensagens depois), tudo desabilitado durante o turno e fora de canal, thread e projeto de código. No hub, se o turno falha, a tela busca o histórico de volta.
+- **Churn**: o campo novo no `Chat` obrigou a editar os ~30 pontos que montam um `ClientMessage::Chat` (quase todos testes), por Edit com `replace_all` em cada arquivo.
+- **Testes**: 2 no bootstrap (`a_redo_drops_the_message_and_what_followed_and_the_threads_of_what_was_dropped`, `a_redo_that_cannot_be_done_changes_nothing`), 1 do protocolo, 1 do hub (`a_turn_sent_with_replace_from_takes_the_place_of_that_message_and_what_followed`), `regenerate.test.mjs` e um caso no `hubMap.test.mjs`. Só rodei aqui o `npm test` do desktop (156 passam; o `tsc` segue acusando `rehype-highlight` não instalado, de antes); **o Rust não foi compilado**, a prova é o `ci.yml`.
+- **Não provado / fora**: a aparência numa janela (P129); a web e o celular; guardar a versão antiga da resposta; o painel de Usage deixa de contar a resposta cortada, mas o registro de gastos a mantém.
 
 ### 2026-10-17 — Sessão 241 (sidebar do desktop: renomear, apagar e buscar conversas: P157, item 5)
 
 - **Pedido do usuário**: "MANDA BALA", depois de eu listar as opções de por onde continuar e recomendar o item 5. Planejado em modo de plano (plano aprovado).
 - **Achado na leitura**: `rename_conversation` e `delete_conversation` já existiam em `warden-bootstrap` e o hub já aceita `renameConversation`/`deleteConversation` (o web usa); faltavam só os comandos Tauri locais e a interface. Nenhuma mensagem de protocolo nova.
 - **Feito**: `lib.rs` com `rename_conversation` e `delete_conversation` (moldados em `move_conversation`; as funções `_in` ficam testáveis sem janela; apagar recusa a conversa com turno ou tarefa em andamento, por `state.code.is_running`); `hub.ts` com `hubRenameConversation`/`hubDeleteConversation`; `conversationSearch.ts` (todas as palavras no título, sem acento e sem diferenciar maiúsculas); `Sidebar.tsx` com o campo de busca, o ✎ (caixa de texto: Enter salva, Esc ou perder o foco cancela, vazio ou igual só fecha) e o ✕ (`window.confirm`) que aparecem ao passar o mouse; `App.tsx` com `handleRenameConversation`/`handleDeleteConversation` (hub: recarrega a lista; local: atualiza o estado; apagar a conversa aberta volta ao chat novo).
-- **Testes**: `a_conversation_is_renamed_and_deleted_and_nothing_else_will_do` (Rust), duas linhas na tabela de `remote_cmds.rs`, `conversationSearch.test.mjs` (4). Só rodei aqui o `npm test` do desktop: 149 passam. O `tsc` local acusa `rehype-highlight` ausente em `node_modules` (não instalado depois do pull; não é desta mudança). **O Rust não foi compilado**: a prova é o `ci.yml`.
-- **Não provado**: o Rust no CI; a aparência (hover, caixa de rename, campo de busca) numa janela (P129); o caminho do hub (inferido de `remote_request` aceitar qualquer `ClientMessage`, coberto só pelo teste de parsing). Busca só no título. O título automático (40 caracteres) segue como estava.
+- **Testes**: `a_conversation_is_renamed_and_deleted_and_nothing_else_will_do` (Rust), duas linhas na tabela de `remote_cmds.rs`, `conversationSearch.test.mjs` (4). Só rodei aqui o `npm test` do desktop: 149 passam. O `tsc` local acusa `rehype-highlight` ausente em `node_modules` (não instalado depois do pull; não é desta mudança). O Rust não foi compilado aqui; a prova é o `ci.yml`: **run 39079264525 verde** (Rust com clippy e testes, Frontend do desktop; Android e Mobile pulados por não terem mudado).
+- **Não provado**: a aparência (hover, caixa de rename, campo de busca) numa janela (P129); o caminho do hub (inferido de `remote_request` aceitar qualquer `ClientMessage`, coberto só pelo teste de parsing). Busca só no título. O título automático (40 caracteres) segue como estava.
 
 ### 2026-10-17 — Sessão 240 (copiar e realce de sintaxe no chat: P157, item 4 da auditoria)
 

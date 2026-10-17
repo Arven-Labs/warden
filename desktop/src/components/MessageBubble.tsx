@@ -13,6 +13,10 @@ interface MessageBubbleProps {
   message: ChatMessage;
   /** The thread of this message on a hub (P125): `replies` is how many messages the person sent in it, or null when there is none yet. */
   thread?: { replies: number | null; onOpen: () => void };
+  /** Regenerate the answer (P157): only given to the last answer, when the conversation can be redone. */
+  onRegenerate?: () => void;
+  /** Edit this message of the person's and send it again (P157): `after` is how many messages follow it, which the edit drops. */
+  edit?: { after: number; onSend: (content: string) => void };
 }
 
 /** "Reply in thread", or the chip with the replies a thread already has. */
@@ -133,7 +137,46 @@ export function MarkdownLink(props: AnchorHTMLAttributes<HTMLAnchorElement>) {
   );
 }
 
-function MessageBubble({ message, thread }: MessageBubbleProps) {
+/** The message of the person's turned into a box to change it (P157). Send asks first when the edit also drops what followed. */
+function EditBox({ message, after, onSend, onCancel }: { message: ChatMessage; after: number; onSend: (content: string) => void; onCancel: () => void }) {
+  const [text, setText] = useState(message.content);
+  const hasMedia = (message.attachments?.length ?? 0) > 0;
+
+  function send() {
+    const content = text.trim();
+    if (content === "" && !hasMedia) return;
+    if (after > 0 && !window.confirm(`Sending this drops the ${after} message${after === 1 ? "" : "s"} after it, and the threads on them. Continue?`)) return;
+    onSend(content);
+  }
+
+  return (
+    <div className="message-edit">
+      <textarea
+        className="message-edit-input"
+        value={text}
+        autoFocus
+        aria-label="Edit your message"
+        rows={Math.min(10, Math.max(2, text.split("\n").length))}
+        onChange={(e) => setText(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === "Escape") onCancel();
+          if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) send();
+        }}
+      />
+      <div className="message-edit-actions">
+        <button type="button" className="message-edit-btn" onClick={onCancel}>
+          Cancel
+        </button>
+        <button type="button" className="message-edit-btn message-edit-btn--send" onClick={send}>
+          Send
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function MessageBubble({ message, thread, onRegenerate, edit }: MessageBubbleProps) {
+  const [editing, setEditing] = useState(false);
   if (message.role === "assistant") {
     return (
       <div className="message-row message-row--assistant">
@@ -166,7 +209,12 @@ function MessageBubble({ message, thread }: MessageBubbleProps) {
           <div className="message-bubble-footer">
             <SpeakButton text={message.content} />
             <CopyButton text={message.content} className="message-copy-btn" />
-            {message.usage && <span className="message-bubble-usage">{message.usage.totalTokens} tokens</span>}
+            {onRegenerate && (
+              <button type="button" className="message-redo-btn" onClick={onRegenerate}>
+                Regenerate
+              </button>
+            )}
+            {message.usage &&<span className="message-bubble-usage">{message.usage.totalTokens} tokens</span>}
             {thread && <ThreadButton thread={thread} />}
           </div>
         </div>
@@ -184,14 +232,31 @@ function MessageBubble({ message, thread }: MessageBubbleProps) {
             ))}
           </div>
         )}
-        {message.content && (
-          <div className="message-bubble-content">
-            <Markdown link={MarkdownLink}>{message.content}</Markdown>
-          </div>
+        {editing && edit ? (
+          <EditBox
+            message={message}
+            after={edit.after}
+            onSend={(content) => {
+              setEditing(false);
+              edit.onSend(content);
+            }}
+            onCancel={() => setEditing(false)}
+          />
+        ) : (
+          message.content && (
+            <div className="message-bubble-content">
+              <Markdown link={MarkdownLink}>{message.content}</Markdown>
+            </div>
+          )
         )}
-        {thread && (
+        {!editing && (thread || edit) && (
           <div className="message-bubble-footer">
-            <ThreadButton thread={thread} />
+            {edit && (
+              <button type="button" className="message-redo-btn" onClick={() => setEditing(true)}>
+                Edit
+              </button>
+            )}
+            {thread && <ThreadButton thread={thread} />}
           </div>
         )}
       </div>

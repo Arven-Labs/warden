@@ -187,7 +187,7 @@ async fn reply(conn: &mut ServerConnection) -> ServerMessage {
 }
 
 async fn chat(conn: &mut ServerConnection, message: &str, conversation: &str) -> ServerMessage {
-    conn.send(&ClientMessage::Chat { message: message.into(), conversation_id: Some(conversation.into()), attachments: Vec::new(), agent_id: Some("helper".into()), project_id: None, workdir: None, thread_of: None }).await.unwrap();
+    conn.send(&ClientMessage::Chat { message: message.into(), conversation_id: Some(conversation.into()), attachments: Vec::new(), agent_id: Some("helper".into()), project_id: None, workdir: None, thread_of: None, replace_from: None }).await.unwrap();
     reply(conn).await
 }
 
@@ -331,7 +331,7 @@ async fn the_owner_creates_and_resets_members_with_a_password_shown_once() {
 }
 
 async fn chat_as(conn: &mut ServerConnection, message: &str, conversation: &str, agent: &str) -> ServerMessage {
-    conn.send(&ClientMessage::Chat { message: message.into(), conversation_id: Some(conversation.into()), attachments: Vec::new(), agent_id: Some(agent.into()), project_id: None, workdir: None, thread_of: None }).await.unwrap();
+    conn.send(&ClientMessage::Chat { message: message.into(), conversation_id: Some(conversation.into()), attachments: Vec::new(), agent_id: Some(agent.into()), project_id: None, workdir: None, thread_of: None, replace_from: None }).await.unwrap();
     reply(conn).await
 }
 
@@ -1962,7 +1962,7 @@ async fn project_names(conn: &mut ServerConnection) -> Vec<String> {
 }
 
 async fn chat_in(conn: &mut ServerConnection, message: &str, conversation: &str, project: Option<&str>) -> ServerMessage {
-    conn.send(&ClientMessage::Chat { message: message.into(), conversation_id: Some(conversation.into()), attachments: Vec::new(), agent_id: Some("helper".into()), project_id: project.map(String::from), workdir: None, thread_of: None }).await.unwrap();
+    conn.send(&ClientMessage::Chat { message: message.into(), conversation_id: Some(conversation.into()), attachments: Vec::new(), agent_id: Some("helper".into()), project_id: project.map(String::from), workdir: None, thread_of: None, replace_from: None }).await.unwrap();
     reply(conn).await
 }
 

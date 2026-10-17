@@ -257,6 +257,8 @@ export function chatMessage(args: {
   /** The message this conversation is a thread of (P125): carried only by the turn that creates it, and then the thread works in
    * the project and the folder of that conversation, so none is sent here. */
   threadOf?: { conversationId: string; messageId: string };
+  /** The message to redo the conversation from (P157): the turn takes the place of that message and of all that followed. */
+  replaceFrom?: string;
 }): Record<string, unknown> {
   const thread = args.creating ? args.threadOf : undefined;
   return {
@@ -268,6 +270,7 @@ export function chatMessage(args: {
     ...(!thread && args.creating && args.projectId ? { projectId: args.projectId } : {}),
     ...(!thread && args.creating && !args.projectId && args.workdir ? { workdir: args.workdir } : {}),
     ...(thread ? { threadOf: thread } : {}),
+    ...(args.replaceFrom ? { replaceFrom: args.replaceFrom } : {}),
   };
 }
 

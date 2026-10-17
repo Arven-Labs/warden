@@ -2795,7 +2795,8 @@ body {
 }
 
 .copy-btn,
-.message-copy-btn {
+.message-copy-btn,
+.message-redo-btn {
   padding: 0.15rem 0.5rem;
   border: none;
   border-radius: 6px;
@@ -2807,9 +2808,52 @@ body {
 }
 
 .copy-btn:hover,
-.message-copy-btn:hover {
+.message-copy-btn:hover,
+.message-redo-btn:hover {
   color: var(--color-accent);
   background: var(--color-accent-soft);
+}
+
+.message-edit {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  min-width: min(32rem, 70vw);
+}
+
+.message-edit-input {
+  width: 100%;
+  box-sizing: border-box;
+  resize: vertical;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  padding: 0.5em 0.65em;
+  font: inherit;
+  color: var(--color-text);
+  background: var(--color-bg);
+}
+
+.message-edit-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.4rem;
+}
+
+.message-edit-btn {
+  padding: 0.25rem 0.8rem;
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--color-text);
+  font: inherit;
+  font-size: 0.82rem;
+  cursor: pointer;
+}
+
+.message-edit-btn--send {
+  border-color: var(--color-accent);
+  background: var(--color-accent);
+  color: #fff;
 }
 
 :root {

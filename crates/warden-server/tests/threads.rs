@@ -9,7 +9,7 @@ use warden_server::{ClientMessage, ServerConnection, ServerMessage};
 use warden_server_protocol::protocol::{ConversationSummary, HistoryMessage, ThreadParentDto};
 
 fn chat(text: &str, conversation: &str, thread_of: Option<ThreadParentDto>) -> ClientMessage {
-    ClientMessage::Chat { message: text.into(), conversation_id: Some(conversation.into()), attachments: Vec::new(), agent_id: None, project_id: None, workdir: None, thread_of }
+    ClientMessage::Chat { message: text.into(), conversation_id: Some(conversation.into()), attachments: Vec::new(), agent_id: None, project_id: None, workdir: None, thread_of, replace_from: None }
 }
 
 fn link(conversation: &str, message: &str) -> Option<ThreadParentDto> {

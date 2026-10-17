@@ -149,6 +149,12 @@ describe("the chat message", () => {
     assert.deepEqual(chatMessage({ ...base, agentId: "poet" }).agentId, "poet");
   });
 
+  test("a redo names the message it starts from, and an ordinary turn says nothing of it (P157)", () => {
+    assert.equal(chatMessage({ ...base, replaceFrom: "170002" }).replaceFrom, "170002");
+    assert.equal("replaceFrom" in chatMessage(base), false);
+    assert.equal("replaceFrom" in chatMessage({ ...base, replaceFrom: "" }), false);
+  });
+
   test("a project or a folder travels only with the message that creates the conversation, and never both", () => {
     assert.equal("projectId" in chatMessage({ ...base, projectId: "tax" }), false, "an existing conversation keeps its own");
     assert.equal("workdir" in chatMessage({ ...base, workdir: "/srv" }), false);

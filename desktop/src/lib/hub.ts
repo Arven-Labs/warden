@@ -143,6 +143,8 @@ export async function hubChat(args: {
   creating: boolean;
   /** The message this conversation is a thread of (P125), said only by the turn that creates it. */
   threadOf?: { conversationId: string; messageId: string };
+  /** The message to redo the conversation from (P157), for "regenerate" and "edit". */
+  replaceFrom?: string;
 }): Promise<{ content: string } & TurnExtras> {
   return turnFromReply(await invoke<unknown>("remote_chat", { message: chatMessage(args) }));
 }

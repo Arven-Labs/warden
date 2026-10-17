@@ -1392,11 +1392,15 @@ pub async fn handle_agent_turn_in(
     workdir: Option<&str>,
     thread_of: Option<&ThreadParent>,
 ) -> anyhow::Result<MessageOutcome> {
-    handle_agent_turn_in_with(orchestrator, conversations_dir, conversation_id, title_seed, user_input, attachments, agent, project, workdir, thread_of, |_| {}).await
+    handle_agent_turn_in_with(orchestrator, conversations_dir, conversation_id, title_seed, user_input, attachments, agent, project, workdir, thread_of, None, |_| {}).await
 }
 
 /// `handle_agent_turn_in` that also hands every `StreamEvent` of the turn to `on_event` as it happens (P124: what a tool says about its
 /// work while it runs, which the hub sends to the client watching). Everything else is the same, down to what is saved.
+///
+/// `replace_from` (P157) redoes the conversation from that message: the model sees only what came before it, and the save drops
+/// it and all that followed (and their threads) while adding this turn, in one write — so a turn that fails leaves the conversation
+/// as it was. A message that isn't there, a thread and a conversation with a code session are errors, before the model is called.
 #[allow(clippy::too_many_arguments)]
 pub async fn handle_agent_turn_in_with(
     orchestrator: &Orchestrator,
@@ -1409,10 +1413,17 @@ pub async fn handle_agent_turn_in_with(
     project: Option<&str>,
     workdir: Option<&str>,
     thread_of: Option<&ThreadParent>,
+    replace_from: Option<&str>,
     on_event: impl FnMut(&warden_core::model::StreamEvent) + Send,
 ) -> anyhow::Result<MessageOutcome> {
     let existing = load_conversation(conversations_dir, conversation_id)?;
     let existed = existing.is_some();
+    // How many of the saved messages the model sees: all of them, or the ones before the message being redone.
+    let kept = match (replace_from, &existing) {
+        (Some(from), Some(conversation)) => redo_point(conversation, from)?,
+        (Some(from), None) => anyhow::bail!("there is no message '{from}' in this conversation"),
+        (None, _) => usize::MAX,
+    };
     // P125: the message this is a thread of, from the file when it exists and from the request when it is being created.
     let parent: Option<ThreadParent> = match &existing {
         Some(conversation) => conversation.parent.clone(),
@@ -1442,7 +1453,7 @@ pub async fn handle_agent_turn_in_with(
     if let (Some(link), Some(from)) = (&parent, &anchor) {
         history.extend(thread_context(from, &link.message_id).iter().map(to_message));
     }
-    history.extend(existing.iter().flat_map(|c| &c.messages).map(to_message));
+    history.extend(existing.iter().flat_map(|c| c.messages.iter().take(kept)).map(to_message));
     // P103: a conversation's project is the one it was created in; what a client sends later doesn't move it.
     let project_id = match &existing {
         Some(conversation) => conversation.project_id.clone(),
@@ -1488,6 +1499,7 @@ pub async fn handle_agent_turn_in_with(
         project_id: project_id.as_deref().filter(|_| !existed),
         workdir: workdir.as_deref().filter(|_| !existed),
         thread_of: parent.as_ref().filter(|_| !existed),
+        replace_from,
         create: !existed,
         ..Default::default()
     };
@@ -1546,6 +1558,10 @@ pub struct AppendOptions<'a> {
     pub workdir: Option<&'a str>,
     /// The message a conversation this call creates is a thread of (P125): like `project_id`, only read on creation.
     pub thread_of: Option<&'a ThreadParent>,
+    /// Redo from this message: it and everything after it are dropped, and the threads opened from them, in the same
+    /// write that adds `messages` (regenerate an answer, edit a message of the person's). A message that isn't there,
+    /// a thread, or a conversation a code engine has a session in (it can't be rewound) is an error and nothing is saved.
+    pub replace_from: Option<&'a str>,
     /// Create the file when it's missing. Otherwise a missing file was deleted meanwhile and stays
     /// deleted.
     pub create: bool,
@@ -1579,6 +1595,11 @@ pub fn append_messages(dir: &Path, id: &str, options: AppendOptions<'_>, message
             }
         }
     };
+    let mut cut_ids: Vec<String> = Vec::new();
+    if let Some(from) = options.replace_from {
+        let at = redo_point(&conversation, from)?;
+        cut_ids = conversation.messages.drain(at..).map(|m| m.id).collect();
+    }
     let stamp = |mut message: ConversationMessage| {
         // Only an answer that spent tokens is counted anywhere (P126); what the turn already said about itself stays.
         if message.role == ChatRole::Assistant && message.usage.is_some() {
@@ -1598,7 +1619,32 @@ pub fn append_messages(dir: &Path, id: &str, options: AppendOptions<'_>, message
     }
     conversation.updated_at = now_millis();
     save_conversation(dir, &conversation)?;
+    // After the save: if it fails the threads are still there, and if this fails the conversation is already right.
+    remove_threads(dir, id, |message_id| cut_ids.iter().any(|cut| cut == message_id))?;
     Ok(Some(conversation))
+}
+
+/// Where in `conversation` a redo from message `from` cuts (P157): the index of that message. An error when it isn't there,
+/// when the conversation is a thread (its context is another conversation's), or when a code engine has a session in it, which
+/// can't be rewound to an earlier message.
+fn redo_point(conversation: &Conversation, from: &str) -> anyhow::Result<usize> {
+    anyhow::ensure!(conversation.parent.is_none(), "a thread can't be redone from a message");
+    anyhow::ensure!(conversation.engine_session_id.is_none(), "a conversation with a code session can't be rewound");
+    conversation.messages.iter().position(|m| m.id == from).ok_or_else(|| anyhow::anyhow!("there is no message '{from}' in this conversation"))
+}
+
+/// Deletes the threads of conversation `parent_id` whose message `is_cut` says is gone. A folder that can't be read (locked,
+/// say) leaves them.
+fn remove_threads(dir: &Path, parent_id: &str, is_cut: impl Fn(&str) -> bool) -> anyhow::Result<()> {
+    for thread in list_conversations(dir).unwrap_or_default().into_iter().filter(|c| c.parent.as_ref().is_some_and(|p| p.conversation_id == parent_id && is_cut(&p.message_id))) {
+        let thread_path = dir.join(format!("{}.json", thread.id));
+        if let Err(err) = std::fs::remove_file(&thread_path) {
+            if err.kind() != io::ErrorKind::NotFound {
+                return Err(err).with_context(|| format!("failed to delete thread file at {}", thread_path.display()));
+            }
+        }
+    }
+    Ok(())
 }
 
 fn append_to_conversation(
@@ -1691,14 +1737,7 @@ pub fn delete_conversation(dir: &Path, id: &str) -> anyhow::Result<bool> {
     };
     if deleted {
         // A folder that can't be read (locked, say) leaves the threads: the conversation is gone either way.
-        for thread in list_conversations(dir).unwrap_or_default().into_iter().filter(|c| c.parent.as_ref().is_some_and(|p| p.conversation_id == id)) {
-            let thread_path = dir.join(format!("{}.json", thread.id));
-            if let Err(err) = std::fs::remove_file(&thread_path) {
-                if err.kind() != io::ErrorKind::NotFound {
-                    return Err(err).with_context(|| format!("failed to delete thread file at {}", thread_path.display()));
-                }
-            }
-        }
+        remove_threads(dir, id, |_| true)?;
     }
     Ok(deleted)
 }
@@ -3329,7 +3368,7 @@ oauth = true
                 stop.cancel();
             }
         };
-        let outcome = handle_agent_turn_in_with(&orchestrator, &dir, "c1", "hi", "question", Vec::new(), None, None, None, None, on_event).await.unwrap();
+        let outcome = handle_agent_turn_in_with(&orchestrator, &dir, "c1", "hi", "question", Vec::new(), None, None, None, None, None, on_event).await.unwrap();
         assert!(outcome.stopped);
         let saved = load_conversation(&dir, "c1").unwrap().unwrap();
         let said: Vec<_> = saved.messages.iter().map(|m| (m.role, m.content.as_str())).collect();
@@ -3366,7 +3405,7 @@ oauth = true
         let orchestrator = Orchestrator::new(Arc::new(SpendsTokens), Arc::new(Vault::new(root.join("vault"))));
 
         let seen = std::sync::Mutex::new(Vec::new());
-        let streamed = handle_agent_turn_in_with(&orchestrator, &dir, "s1", "hi", "hello", Vec::new(), None, None, None, None, |event| seen.lock().unwrap().push(event.clone())).await.unwrap();
+        let streamed = handle_agent_turn_in_with(&orchestrator, &dir, "s1", "hi", "hello", Vec::new(), None, None, None, None, None, |event| seen.lock().unwrap().push(event.clone())).await.unwrap();
         assert!(seen.lock().unwrap().iter().any(|e| matches!(e, warden_core::model::StreamEvent::ContentDelta(text) if text == "ok")), "{:?}", seen.lock().unwrap());
 
         let plain = handle_agent_turn_in(&orchestrator, &dir, "s2", "hi", "hello", Vec::new(), None, None, None, None).await.unwrap();
@@ -3615,6 +3654,55 @@ oauth = true
         assert!(delete_conversation(&dir, "c1").unwrap());
         assert!(load_conversation(&dir, "t1").unwrap().is_none(), "its thread went with it");
         assert!(load_conversation(&dir, "c2").unwrap().is_some(), "another conversation is untouched");
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    /// P157: a redo drops the message and all that followed in the same write that adds the new turn, the model sees only what came
+    /// before, and the threads of the dropped messages go with them while the others stay.
+    #[tokio::test]
+    async fn a_redo_drops_the_message_and_what_followed_and_the_threads_of_what_was_dropped() {
+        let (root, orchestrator) = project_setup("redo");
+        let dir = root.join("conversations");
+        three_turns(&orchestrator, &dir, "c1", None).await;
+        let before = load_conversation(&dir, "c1").unwrap().unwrap();
+        let (kept_anchor, cut_anchor, from) = (before.messages[1].id.clone(), before.messages[3].id.clone(), before.messages[2].id.clone());
+        let kept = ThreadParent { conversation_id: "c1".into(), message_id: kept_anchor };
+        let cut = ThreadParent { conversation_id: "c1".into(), message_id: cut_anchor };
+        handle_agent_turn_in(&orchestrator, &dir, "t-kept", "", "in the first answer", Vec::new(), None, None, None, Some(&kept)).await.unwrap();
+        handle_agent_turn_in(&orchestrator, &dir, "t-cut", "", "in the second answer", Vec::new(), None, None, None, Some(&cut)).await.unwrap();
+
+        let outcome = handle_agent_turn_in_with(&orchestrator, &dir, "c1", "hi", "edited question", Vec::new(), None, None, None, None, Some(&from), |_| {}).await.unwrap();
+        assert!(outcome.content.contains("alpha question"), "the model still sees what came before: {}", outcome.content);
+        assert!(!outcome.content.contains("beta question") && !outcome.content.contains("gamma question"), "and nothing from the dropped messages: {}", outcome.content);
+
+        let saved = load_conversation(&dir, "c1").unwrap().unwrap();
+        let said: Vec<&str> = saved.messages.iter().map(|m| m.content.as_str()).collect();
+        assert_eq!(said.len(), 4, "{said:?}");
+        assert_eq!(&said[..1], &["alpha question"]);
+        assert_eq!(said[2], "edited question");
+        assert_eq!(saved.messages[..2], before.messages[..2], "what came before is untouched");
+        assert!(load_conversation(&dir, "t-cut").unwrap().is_none(), "the thread of a dropped message went with it");
+        assert!(load_conversation(&dir, "t-kept").unwrap().is_some(), "the thread of a message that stayed is still there");
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    /// P157: a redo that can't be done saves nothing, and says so before the model is called.
+    #[tokio::test]
+    async fn a_redo_that_cannot_be_done_changes_nothing() {
+        let (root, orchestrator) = project_setup("redo-refused");
+        let dir = root.join("conversations");
+        let anchor = three_turns(&orchestrator, &dir, "c1", None).await;
+        let link = ThreadParent { conversation_id: "c1".into(), message_id: anchor.clone() };
+        handle_agent_turn_in(&orchestrator, &dir, "t1", "", "in the thread", Vec::new(), None, None, None, Some(&link)).await.unwrap();
+        append_messages(&dir, "coded", AppendOptions { title_seed: "x", engine_session_id: Some("ses_1"), create: true, ..Default::default() }, vec![sample_conversation("x", 1).messages.remove(0)]).unwrap();
+        let (c1, t1, coded) = (load_conversation(&dir, "c1").unwrap(), load_conversation(&dir, "t1").unwrap(), load_conversation(&dir, "coded").unwrap());
+
+        for (why, id, from) in [("a message that isn't there", "c1", "nope"), ("a conversation that isn't there", "ghost", "m1"), ("a thread", "t1", "m1"), ("a conversation with a code session", "coded", "m1")] {
+            let result = handle_agent_turn_in_with(&orchestrator, &dir, id, "hi", "again", Vec::new(), None, None, None, None, Some(from), |_| {}).await;
+            assert!(result.is_err(), "{why}");
+        }
+        assert!(append_messages(&dir, "c1", AppendOptions { replace_from: Some("nope"), ..Default::default() }, Vec::new()).is_err(), "the save refuses it too");
+        assert_eq!((load_conversation(&dir, "c1").unwrap(), load_conversation(&dir, "t1").unwrap(), load_conversation(&dir, "coded").unwrap()), (c1, t1, coded));
         std::fs::remove_dir_all(&root).ok();
     }
 

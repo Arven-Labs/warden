@@ -991,12 +991,14 @@ async fn append_conversation_messages(
     project_id: Option<String>,
     workdir: Option<String>,
     thread_of: Option<ThreadParent>,
+    replace_from: Option<String>,
 ) -> Result<Conversation, String> {
     let dir = share_cmds::conversation_dir(&conversation_id)?;
     let answered = ends_with_an_answer(&messages);
     // `project_id`, `workdir` and `thread_of` only count when this call creates the conversation (P103, P102, P125): an
-    // existing one keeps its own, and a conversation in a project has no folder.
-    let options = AppendOptions { title_seed: &title_seed, agent_id: agent_id.as_deref(), provider_id: Some(provider_id.as_deref()), project_id: project_id.as_deref(), workdir: workdir.as_deref(), thread_of: thread_of.as_ref(), create: true, ..Default::default() };
+    // existing one keeps its own, and a conversation in a project has no folder. `replace_from` (P157) drops that message
+    // and all that followed in this same write, for "regenerate" and "edit".
+    let options = AppendOptions { title_seed: &title_seed, agent_id: agent_id.as_deref(), provider_id: Some(provider_id.as_deref()), project_id: project_id.as_deref(), workdir: workdir.as_deref(), thread_of: thread_of.as_ref(), replace_from: replace_from.as_deref(), create: true, ..Default::default() };
     let conversation = append_messages(&dir, &conversation_id, options, messages)
         .map_err(|e| format!("{e:#}"))?
         .ok_or_else(|| "the conversation could not be created".to_string())?;

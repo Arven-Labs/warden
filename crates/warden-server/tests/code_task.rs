@@ -110,7 +110,7 @@ async fn save_code_project(conn: &mut ServerConnection) {
 }
 
 async fn ask_for_the_task(conn: &mut ServerConnection) {
-    conn.send(&ClientMessage::Chat { message: "get the repo tested".into(), conversation_id: Some("c1".into()), attachments: Vec::new(), agent_id: None, project_id: None, workdir: None, thread_of: None }).await.unwrap();
+    conn.send(&ClientMessage::Chat { message: "get the repo tested".into(), conversation_id: Some("c1".into()), attachments: Vec::new(), agent_id: None, project_id: None, workdir: None, thread_of: None, replace_from: None }).await.unwrap();
 }
 
 #[tokio::test]

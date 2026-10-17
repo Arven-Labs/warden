@@ -45,6 +45,7 @@ import {
 } from "./lib/hub";
 import { isPermissionGranted, requestPermission, sendNotification } from "@tauri-apps/plugin-notification";
 import { decorateLastAnswer, mergeConversations, type HubConversationSummary, type TruthIdChallengePayload } from "./lib/hubMap";
+import { historyBefore, withoutFrom } from "./lib/regenerate";
 import { isAgentChannel, threadHistory, threadsOf, visibleConversations } from "./lib/threads";
 import { baseline, isUnread, loadSeen, markSeen, notificationBody, saveSeen, unreadIds, type SeenMap } from "./lib/unread";
 import AgentContacts from "./components/AgentContacts";
@@ -590,7 +591,7 @@ function App() {
   }
 
   /** `persist` false only shows the message: a code project's turn saves the whole exchange itself (P103 b). */
-  function appendMessage(conversationId: string, message: ChatMessage, titleSeed?: string, persist = true, thread?: LocalThread) {
+  function appendMessage(conversationId: string, message: ChatMessage, titleSeed?: string, persist = true, thread?: LocalThread, replaceFrom?: string) {
     // A thread (P125) speaks as the agent picked in it, and works in the project and folder of the conversation it came from.
     const agentId = (thread ? thread.agentId : selectedAgentId) || undefined;
     const providerId = selectedProviderId || undefined;
@@ -633,6 +634,8 @@ function App() {
       workdir: workdir ?? null,
       // Same rule for the message a thread comes from (P125).
       threadOf: thread?.parent ?? null,
+      // A redo (P157): this message takes the place of that one and of all that followed, in the same write.
+      replaceFrom: replaceFrom ?? null,
     })
       .then((onDisk) => setConversations((prev) => replaceWithSaved(prev, onDisk)))
       .catch((err) => console.error("failed to persist conversation:", err));
@@ -764,12 +767,14 @@ function App() {
   }
 
   /** A turn on a hub (P102): it keeps the conversation, so nothing is saved from here and its copy replaces what is shown. */
-  async function handleSendRemote(content: string, attachments: Attachment[]) {
+  async function handleSendRemote(content: string, attachments: Attachment[], replaceFrom?: string) {
     if (!remoteReady) {
       setSendError("Not connected to the hub right now.");
       return;
     }
     const conversationId = activeConversationId ?? crypto.randomUUID();
+    // A redo (P157) shows the conversation cut at once; the hub cuts it when it saves the turn, so a refusal puts it back below.
+    if (replaceFrom) setConversations((prev) => withoutFrom(prev, conversationId, replaceFrom));
     // Only the message that creates the conversation carries its project or folder.
     const creating = activeConversation === undefined;
     const userMessage: ChatMessage = {
@@ -800,11 +805,19 @@ function App() {
         projectId: currentProjectId,
         workdir: currentWorkdir,
         creating,
+        replaceFrom,
       });
       const messages = decorateLastAnswer(await hubHistory(conversationId), reply);
       setConversations((prev) => prev.map((c) => (c.id === conversationId ? { ...c, messages } : c)));
     } catch (err) {
       setSendError(err instanceof HubTurnError ? err.message : String(err));
+      // The hub drops nothing when a turn fails, so what it has is what the screen shows again.
+      if (replaceFrom) {
+        await hubHistory(conversationId).then(
+          (messages) => setConversations((prev) => prev.map((c) => (c.id === conversationId ? { ...c, messages } : c))),
+          () => undefined,
+        );
+      }
     } finally {
       setIsSending(false);
       setLiveTurns(({ [conversationId]: _done, ...rest }) => rest);
@@ -814,10 +827,13 @@ function App() {
     }
   }
 
-  async function handleSendMessage(content: string, attachments: Attachment[] = []) {
-    if (remote) return handleSendRemote(content, attachments);
+  /** `replaceFrom` (P157) is the id of the message the turn takes the place of, with all that followed: "regenerate" sends the last
+   * message of the person's again and "edit" sends it changed. The model sees only what came before it. */
+  async function handleSendMessage(content: string, attachments: Attachment[] = [], replaceFrom?: string) {
+    if (remote) return handleSendRemote(content, attachments, replaceFrom);
     const conversationId = activeConversationId ?? crypto.randomUUID();
-    const history = (activeConversation?.messages ?? []).map(({ role, content, attachments }) => ({
+    const kept = replaceFrom ? historyBefore(activeConversation?.messages ?? [], replaceFrom) : (activeConversation?.messages ?? []);
+    const history = kept.map(({ role, content, attachments }) => ({
       role,
       content,
       attachments: attachments ?? [],
@@ -833,7 +849,9 @@ function App() {
     // A code project's turn saves the exchange itself, with the engine's session; saving the message here first would
     // leave it twice in the file.
     const isCodeTurn = projects.some((p) => p.id === currentProjectId && p.code);
-    appendMessage(conversationId, userMessage, content || "Image", !isCodeTurn);
+    // A redo shows the conversation cut first: the saved copy that comes back keeps whatever this screen still shows.
+    if (replaceFrom) setConversations((prev) => withoutFrom(prev, conversationId, replaceFrom));
+    appendMessage(conversationId, userMessage, content || "Image", !isCodeTurn, undefined, replaceFrom);
     if (activeConversationId === null) {
       // The mode picked before the first message goes with the conversation that message starts.
       setCodeModes(({ new: _started, ...rest }) => ({ ...rest, [conversationId]: codeMode }));
@@ -1108,6 +1126,7 @@ function App() {
           }
           activeConversation={activeConversation}
           onSendMessage={handleSendMessage}
+          onRedo={handleSendMessage}
           isSending={isSending}
           live={activeConversationId === null ? undefined : liveTurns[activeConversationId]}
           onCancel={handleCancel}

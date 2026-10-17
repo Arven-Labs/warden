@@ -380,11 +380,11 @@ mod tests {
             (json!({ "type": "cancelTurn", "conversationId": "c1" }), ClientMessage::CancelTurn { conversation_id: "c1".into() }),
             (
                 json!({ "type": "chat", "message": "hello", "conversationId": "c1", "attachments": [], "agentId": "poet", "projectId": "tax" }),
-                ClientMessage::Chat { message: "hello".into(), conversation_id: Some("c1".into()), attachments: Vec::new(), agent_id: Some("poet".into()), project_id: Some("tax".into()), workdir: None, thread_of: None },
+                ClientMessage::Chat { message: "hello".into(), conversation_id: Some("c1".into()), attachments: Vec::new(), agent_id: Some("poet".into()), project_id: Some("tax".into()), workdir: None, thread_of: None, replace_from: None },
             ),
             (
                 json!({ "type": "chat", "message": "hi", "conversationId": "c2", "attachments": [], "workdir": "/srv/work" }),
-                ClientMessage::Chat { message: "hi".into(), conversation_id: Some("c2".into()), attachments: Vec::new(), agent_id: None, project_id: None, workdir: Some("/srv/work".into()), thread_of: None },
+                ClientMessage::Chat { message: "hi".into(), conversation_id: Some("c2".into()), attachments: Vec::new(), agent_id: None, project_id: None, workdir: Some("/srv/work".into()), thread_of: None, replace_from: None },
             ),
             // P125: the first turn of a thread says which message of which conversation it comes from.
             (
@@ -397,6 +397,7 @@ mod tests {
                     project_id: None,
                     workdir: None,
                     thread_of: Some(warden_server_protocol::protocol::ThreadParentDto { conversation_id: "c1".into(), message_id: "170002".into() }),
+                    replace_from: None,
                 },
             ),
         ];

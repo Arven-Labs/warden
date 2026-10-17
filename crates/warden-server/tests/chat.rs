@@ -62,7 +62,7 @@ async fn stopping_an_ordinary_turn_keeps_what_was_written_as_the_answer() {
     let addr = spin_up_server(MockProvider::streaming_then_hanging(&["Hel", "lo ", &long])).await;
     let mut conn = ServerConnection::connect(&format!("ws://{addr}"), "dev-1", "Test Device", "test-key").await.unwrap();
 
-    conn.send(&ClientMessage::Chat { message: "hello".into(), conversation_id: Some("c1".into()), attachments: Vec::new(), agent_id: None, project_id: None, workdir: None, thread_of: None }).await.unwrap();
+    conn.send(&ClientMessage::Chat { message: "hello".into(), conversation_id: Some("c1".into()), attachments: Vec::new(), agent_id: None, project_id: None, workdir: None, thread_of: None, replace_from: None }).await.unwrap();
     // The words are on the way: the model is still going (it never ends by itself).
     match conn.recv().await.unwrap() {
         Some(ServerMessage::ChatEvent { event: ChatEventDto::Text { .. }, .. }) => {}
@@ -98,7 +98,7 @@ async fn a_turn_stopped_before_any_word_leaves_only_the_question() {
     let addr = spin_up_server(MockProvider::streaming_then_hanging(&[])).await;
     let mut conn = ServerConnection::connect(&format!("ws://{addr}"), "dev-1", "Test Device", "test-key").await.unwrap();
 
-    conn.send(&ClientMessage::Chat { message: "hello".into(), conversation_id: Some("c1".into()), attachments: Vec::new(), agent_id: None, project_id: None, workdir: None, thread_of: None }).await.unwrap();
+    conn.send(&ClientMessage::Chat { message: "hello".into(), conversation_id: Some("c1".into()), attachments: Vec::new(), agent_id: None, project_id: None, workdir: None, thread_of: None, replace_from: None }).await.unwrap();
     // Messages of one connection are handled in order, so the stop finds the turn the line above started.
     conn.send(&ClientMessage::CancelTurn { conversation_id: "c1".into() }).await.unwrap();
     match conn.recv().await.unwrap() {
@@ -174,7 +174,7 @@ async fn a_device_keeps_several_conversations_apart() {
     let mut conn = ServerConnection::connect(&format!("ws://{addr}"), "dev-1", "Test Device", "test-key").await.unwrap();
 
     for (id, text) in [("trip", "plan a trip"), ("work", "draft an email")] {
-        conn.send(&ClientMessage::Chat { message: text.to_string(), conversation_id: Some(id.to_string()), attachments: Vec::new(), agent_id: None, project_id: None, workdir: None, thread_of: None })
+        conn.send(&ClientMessage::Chat { message: text.to_string(), conversation_id: Some(id.to_string()), attachments: Vec::new(), agent_id: None, project_id: None, workdir: None, thread_of: None, replace_from: None })
             .await
             .unwrap();
         match conn.recv().await.unwrap() {
@@ -210,7 +210,7 @@ async fn a_device_keeps_several_conversations_apart() {
         other => panic!("expected ChatResponse, got {other:?}"),
     }
 
-    conn.send(&ClientMessage::Chat { message: "hello".to_string(), conversation_id: Some("../escape".into()), attachments: Vec::new(), agent_id: None, project_id: None, workdir: None, thread_of: None })
+    conn.send(&ClientMessage::Chat { message: "hello".to_string(), conversation_id: Some("../escape".into()), attachments: Vec::new(), agent_id: None, project_id: None, workdir: None, thread_of: None, replace_from: None })
         .await
         .unwrap();
     match conn.recv().await.unwrap() {
@@ -223,6 +223,61 @@ async fn a_device_keeps_several_conversations_apart() {
     }
 }
 
+/// P157: "regenerate" and "edit" send the turn again with `replace_from`: the conversation keeps what came before that message, has
+/// the new pair instead of it and what followed, and a message that isn't there is a `ChatError` that drops nothing.
+#[tokio::test]
+async fn a_turn_sent_with_replace_from_takes_the_place_of_that_message_and_what_followed() {
+    let addr = spin_up_server(MockProvider::replying("ahoy")).await;
+    let mut conn = ServerConnection::connect(&format!("ws://{addr}"), "dev-1", "Test Device", "test-key").await.unwrap();
+    let chat = |text: &str, replace_from: Option<&str>| ClientMessage::Chat {
+        message: text.to_string(),
+        conversation_id: Some("c1".into()),
+        attachments: Vec::new(),
+        agent_id: None,
+        project_id: None,
+        workdir: None,
+        thread_of: None,
+        replace_from: replace_from.map(str::to_string),
+    };
+
+    for text in ["first", "second", "third"] {
+        conn.send(&chat(text, None)).await.unwrap();
+        assert!(matches!(conn.recv().await.unwrap(), Some(ServerMessage::ChatResponse { .. })));
+    }
+    let history = |request_id: u64| ClientMessage::RequestHistory { request_id, limit: None, conversation_id: Some("c1".into()) };
+    conn.send(&history(1)).await.unwrap();
+    let before = match conn.recv().await.unwrap() {
+        Some(ServerMessage::History { messages, .. }) => messages,
+        other => panic!("expected History, got {other:?}"),
+    };
+    assert_eq!(before.len(), 6);
+
+    // A message that isn't there: an error, and the conversation is as it was.
+    conn.send(&chat("again", Some("nope"))).await.unwrap();
+    match conn.recv().await.unwrap() {
+        Some(ServerMessage::ChatError { message, .. }) => assert!(message.contains("no message 'nope'"), "{message}"),
+        other => panic!("expected ChatError, got {other:?}"),
+    }
+    conn.send(&history(2)).await.unwrap();
+    match conn.recv().await.unwrap() {
+        Some(ServerMessage::History { messages, .. }) => assert_eq!(messages, before),
+        other => panic!("expected History, got {other:?}"),
+    }
+
+    // Edit the second question: the first pair stays, the second and third are gone, the new pair is last.
+    conn.send(&chat("second, reworded", Some(&before[2].id))).await.unwrap();
+    assert!(matches!(conn.recv().await.unwrap(), Some(ServerMessage::ChatResponse { .. })));
+    conn.send(&history(3)).await.unwrap();
+    match conn.recv().await.unwrap() {
+        Some(ServerMessage::History { messages, .. }) => {
+            let said: Vec<_> = messages.iter().map(|m| m.content.as_str()).collect();
+            assert_eq!(said, vec!["first", "ahoy", "second, reworded", "ahoy"]);
+            assert_eq!(messages[..2], before[..2], "what came before is the same messages");
+        }
+        other => panic!("expected History, got {other:?}"),
+    }
+}
+
 /// P78: a turn can carry images/PDFs, even with no words — they're saved on the user's turn (so
 /// history shows them); anything that isn't an image or a PDF is refused before the model.
 #[tokio::test]
@@ -231,7 +286,7 @@ async fn attachments_ride_along_with_a_turn_and_other_types_are_refused() {
     let mut conn = ServerConnection::connect(&format!("ws://{addr}"), "dev-1", "Test Device", "test-key").await.unwrap();
     let pdf = warden_core::model::Attachment { mime_type: "application/pdf".into(), data: "JVBERi0=".into() };
 
-    conn.send(&ClientMessage::Chat { message: String::new(), conversation_id: None, attachments: vec![pdf.clone()], agent_id: None, project_id: None, workdir: None, thread_of: None }).await.unwrap();
+    conn.send(&ClientMessage::Chat { message: String::new(), conversation_id: None, attachments: vec![pdf.clone()], agent_id: None, project_id: None, workdir: None, thread_of: None, replace_from: None }).await.unwrap();
     assert!(matches!(conn.recv().await.unwrap(), Some(ServerMessage::ChatResponse { .. })));
 
     conn.send(&ClientMessage::RequestHistory { request_id: 1, limit: None, conversation_id: None }).await.unwrap();
@@ -249,7 +304,7 @@ async fn attachments_ride_along_with_a_turn_and_other_types_are_refused() {
     }
 
     let html = warden_core::model::Attachment { mime_type: "text/html".into(), data: "PGgxPg==".into() };
-    conn.send(&ClientMessage::Chat { message: "look".into(), conversation_id: None, attachments: vec![html], agent_id: None, project_id: None, workdir: None, thread_of: None }).await.unwrap();
+    conn.send(&ClientMessage::Chat { message: "look".into(), conversation_id: None, attachments: vec![html], agent_id: None, project_id: None, workdir: None, thread_of: None, replace_from: None }).await.unwrap();
     match conn.recv().await.unwrap() {
         Some(ServerMessage::ChatError { message, .. }) => assert!(message.contains("text/html"), "message was: {message}"),
         other => panic!("expected ChatError, got {other:?}"),

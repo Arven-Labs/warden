@@ -1541,7 +1541,7 @@ async fn handle_connection<S: Transport>(ws: WebSocketStream<S>, peer: SocketAdd
                 Ok(ClientMessage::Ping { nonce }) => {
                     let _ = tx.send(ServerMessage::Pong { nonce });
                 }
-                Ok(ClientMessage::Chat { message, conversation_id, attachments, agent_id, project_id, workdir, thread_of }) => {
+                Ok(ClientMessage::Chat { message, conversation_id, attachments, agent_id, project_id, workdir, thread_of, replace_from }) => {
                     // P125: the message this is a thread of. Its conversation id becomes a file name, so it follows the same rules as
                     // any other id before anything reads it.
                     let thread_check = thread_of.as_ref().map_or(Ok(()), |link| {
@@ -1650,6 +1650,12 @@ async fn handle_connection<S: Transport>(ws: WebSocketStream<S>, peer: SocketAdd
                         let _ = tx.send(ServerMessage::ChatError { message, conversation_id: Some(conversation_id), spend_limit_id: None });
                         continue;
                     }
+                    if code.is_some() && replace_from.is_some() {
+                        // The same reason: the engine's session can't be rewound to an earlier message.
+                        let message = "a code project's conversation can't be redone from a message".to_string();
+                        let _ = tx.send(ServerMessage::ChatError { message, conversation_id: Some(conversation_id), spend_limit_id: None });
+                        continue;
+                    }
                     if let Some(project) = code {
                         let Some(engine) = code_engine.clone() else {
                             let message = "this hub has no code engine, so this project's conversations can't run here".to_string();
@@ -1717,6 +1723,7 @@ async fn handle_connection<S: Transport>(ws: WebSocketStream<S>, peer: SocketAdd
                             project_id.as_deref(),
                             workdir.as_deref(),
                             thread.as_ref(),
+                            replace_from.as_deref(),
                             on_event,
                         )
                         .await;

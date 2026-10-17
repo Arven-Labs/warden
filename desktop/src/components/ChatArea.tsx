@@ -3,6 +3,7 @@ import { open } from "@tauri-apps/plugin-dialog";
 import { nextCodeMode } from "../types";
 import type { AgentEntry, Attachment, CodeMode, Combo, Conversation, ProjectEntry, ProviderEntry } from "../types";
 import type { LiveTurn } from "../lib/liveTurn";
+import { canRedo, lastUserMessage, messagesAfter } from "../lib/regenerate";
 import { threadAnchor, type ThreadInfo } from "../lib/threads";
 import { folderLabel, folderPlace, nodesWithFolders, type DirListing, type NodeInfo } from "../lib/workdir";
 import FolderPicker from "./FolderPicker";
@@ -14,6 +15,9 @@ import MessageInput from "./MessageInput";
 interface ChatAreaProps {
   activeConversation: Conversation | undefined;
   onSendMessage: (content: string, attachments: Attachment[]) => void;
+  /** Sends a turn that takes the place of a message of the conversation and of all that followed (P157): "regenerate" and "edit".
+   * Absent where a conversation can't be redone. */
+  onRedo?: (content: string, attachments: Attachment[], replaceFrom: string) => void;
   isSending: boolean;
   /** What the code engine is doing in the turn being sent (P103 b), or the tools of the tasks an agent started (P124); none until it says something. */
   live?: LiveTurn;
@@ -123,6 +127,7 @@ function LiveBubble({ live }: { live: LiveTurn }) {
 function ChatArea({
   activeConversation,
   onSendMessage,
+  onRedo,
   isSending,
   live,
   onCancel,
@@ -426,13 +431,26 @@ function ChatArea({
           </div>
         ) : (
           <div className="chat-messages-column">
-            {activeConversation!.messages.map((message) => {
+            {activeConversation!.messages.map((message, index, all) => {
               const anchor = onOpenThread ? threadAnchor(message, !remote) : null;
+              // Regenerate and edit (P157): not in a channel, a thread or a code project, and not while a turn is answered.
+              const redoable = onRedo !== undefined && !channel && canRedo(activeConversation, projects.some((p) => p.id === selectedProjectId && p.code), isSending);
+              const lastUser = lastUserMessage(all);
               return (
                 <MessageBubble
                   key={message.id}
                   message={message}
                   thread={anchor ? { replies: threads?.[anchor]?.replies ?? null, onOpen: () => onOpenThread!(anchor) } : undefined}
+                  onRegenerate={
+                    redoable && message.role === "assistant" && index === all.length - 1 && lastUser
+                      ? () => onRedo(lastUser.content, lastUser.attachments ?? [], lastUser.id)
+                      : undefined
+                  }
+                  edit={
+                    redoable && message.role === "user"
+                      ? { after: messagesAfter(all, message.id), onSend: (content) => onRedo(content, message.attachments ?? [], message.id) }
+                      : undefined
+                  }
                 />
               );
             })}
