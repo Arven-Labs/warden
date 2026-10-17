@@ -2,7 +2,17 @@
 
 > **Nota**: Este log foi criado junto com o projeto. As sessões serão registradas aqui conforme o trabalho avança.
 >
-> Última atualização: 2026-10-16 (Sessão 225)
+> Última atualização: 2026-10-16 (Sessão 226)
+
+---
+
+### 2026-10-16 — Sessão 226 (`v0.1.1` e um só modelo de busca: P152, P153)
+
+- **Pedido do usuário**: depois de um `git pull`, "por onde continuamos?". Propus fechar o P152 com a `v0.1.1` e depois o P153; o usuário respondeu "pode fazer desse jeito".
+- **`v0.1.1`**: versão 0.1.1 no `Cargo.toml` (e no `Cargo.lock`, 13 crates), `desktop/package.json` e `tauri.conf.json`; o `web` e a `extension` ficaram em 0.1.0 (privados, como na `v0.1.0`). Commit `597d81e`, tag anotada. `build.yml` e `image-publish.yml` verdes; o release `Warden v0.1.1` (rascunho) tem o `.msi`. Não instalei nada nem publiquei o rascunho. Sem modo de plano (só a troca de versão, com a proposta aprovada).
+- **P153**: plano aprovado em modo de plano. Um modelo do cofre por processo em `memory/embed.rs`, `Vault` sem `embedder`, `with_embedder` por fatia de 16 na indexação e o laço de descarregamento do servidor sem percorrer os `Vault`s. Testes de `semantic_search.rs` serializados por um mutex (o modelo agora é global) e `two_vaults_share_one_model` novo. Commit `2cf5e03`.
+- **Conferido**: `cargo check --workspace --all-targets` e `cargo check -p warden-core --no-default-features`, sem avisos. No CI: `heavy-tests` (run 38983866096) e `measure-rss` (run 38983869046) verdes. Membros: **246, 247 e 275 MB** (antes 245, 425 e 596). Não rodei `cargo test` nem clippy aqui; o CI do push (run 38983846787) passou.
+- **Sobra**: medir buscas de membros diferentes ao mesmo tempo (a fila por modelo), instalar o `.msi`, publicar o rascunho do release e conferir a imagem `:0.1.1` com `docker pull`.
 
 ---
 
