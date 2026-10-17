@@ -64,11 +64,9 @@ async fn stopping_an_ordinary_turn_keeps_what_was_written_as_the_answer() {
 
     conn.send(&ClientMessage::Chat { message: "hello".into(), conversation_id: Some("c1".into()), attachments: Vec::new(), agent_id: None, project_id: None, workdir: None, thread_of: None }).await.unwrap();
     // The words are on the way: the model is still going (it never ends by itself).
-    loop {
-        match conn.recv().await.unwrap() {
-            Some(ServerMessage::ChatEvent { event: ChatEventDto::Text { .. }, .. }) => break,
-            other => panic!("expected the first words, got {other:?}"),
-        }
+    match conn.recv().await.unwrap() {
+        Some(ServerMessage::ChatEvent { event: ChatEventDto::Text { .. }, .. }) => {}
+        other => panic!("expected the first words, got {other:?}"),
     }
     conn.send(&ClientMessage::CancelTurn { conversation_id: "c1".into() }).await.unwrap();
 
