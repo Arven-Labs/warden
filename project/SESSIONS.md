@@ -2,9 +2,19 @@
 
 > **Nota**: Este log foi criado junto com o projeto. As sessões serão registradas aqui conforme o trabalho avança.
 >
-> Última atualização: 2026-10-17 (Sessão 237)
+> Última atualização: 2026-10-17 (Sessão 238)
 
 ---
+
+### 2026-10-17 — Sessão 238 (streaming da resposta no chat: P157, item 1 da auditoria)
+
+- **Pedido do usuário**: substituir o ChatGPT por completo é o primeiro objetivo ("só de ter o chat funcionando 100% já podemos lançar o MVP"), depois diferenciar pela biblioteca (skills, agentes, plugins, MCPs). Pedi uma auditoria do chat (lendo `ChatArea`, `MessageBubble`, `MessageInput`, `Sidebar`) e o usuário mandou começar pelo streaming. Planejado em modo de plano.
+- **Auditoria** (P157): a resposta só aparecia inteira no fim (três pontinhos até lá); sem Stop no chat comum, sem regenerar/editar, sem copiar nem realce de código, sidebar do desktop sem renomear/apagar/buscar (o web renomeia e apaga), título = 40 primeiros caracteres, anexo só de imagem no desktop (o hub aceita PDF).
+- **Causa**: os provedores e o orquestrador já emitiam `ContentDelta`; os dois adaptadores (`live_event` no desktop, o `on_event` do hub) o descartavam de propósito (P124 só queria as ferramentas ao vivo). Os três clientes já montavam uma linha do tempo ao vivo a partir de `ChatEvent::Text`, então **o protocolo não ganhou mensagem nova**.
+- **Feito**: `LiveFeed` em `warden-server-protocol` (junta as palavras e envia no máximo a cada 40 ms contados da primeira; o que está em espera vai antes de uma ferramenta; uma resposta que chega inteira, numa peça só, não gera evento à frente dela); usado no desktop (`lib.rs`) e no hub (`server.rs`); `LIVE_TEXT_LIMIT` de 4000 para 100 000 nos três clientes (uma resposta de chat longa perdia o começo); `MockProvider::streaming` nos testes do hub.
+- **Erros no caminho** (CI): 1ª versão enviava a primeira palavra na hora e contava o relógio do início do turno; 3 testes do hub que esperavam `ChatResponse` como primeira mensagem passaram a receber um `ChatEvent` antes (a resposta era lenta ou longa). Mudei o relógio para começar na primeira palavra e a regra de tamanho para só valer com algo já em espera; os testes não precisaram mudar. Rodada final do `ci.yml` verde (run 39068428860); a anterior, com web, mobile e Android, também (39066791993, só o Rust falhou).
+- **Testes**: 5 unitários do `LiveFeed` com relógio injetado (sem depender da velocidade da máquina), 1 de integração no hub (`the_models_words_arrive_as_chat_events_before_the_answer`), teste do `LiveFeed` no desktop, resposta longa no TypeScript (desktop e web) e no Dart.
+- **Não provado**: a aparência real do texto aparecendo numa janela (P129). Ainda faltam, da auditoria: Stop no chat comum (precisa de cancelamento no backend e de uma decisão: guardar o pedaço escrito?), copiar e realce de sintaxe, sidebar do desktop, regenerar/editar. Usei `python3` via Bash em parte das edições (contra a preferência por Edit); as principais foram por Edit.
 
 ### 2026-10-17 — Sessão 237 (três arestas do primeiro uso: P156)
 
