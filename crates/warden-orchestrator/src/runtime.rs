@@ -5,6 +5,7 @@
 
 use anyhow::{bail, Context};
 use async_trait::async_trait;
+use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use tokio::process::Command;
 
 use crate::instance::{Instance, HUB_PORT};
@@ -42,6 +43,17 @@ pub trait ContainerRuntime: Send + Sync {
     async fn remove_volume(&self, volume: &str) -> anyhow::Result<()>;
     /// `None` when there is no such container.
     async fn inspect(&self, name: &str) -> anyhow::Result<Option<ContainerInfo>>;
+    /// Starts the hub of `instance` with no network, no published port and no scheduled tasks (see `isolated_args`).
+    async fn run_isolated(&self, instance: &Instance) -> anyhow::Result<()>;
+    /// Whether the hub in the container answers `/health` right now, asked from inside it (the isolated one has no port).
+    async fn is_healthy(&self, name: &str) -> anyhow::Result<bool>;
+    /// Whether the volume exists.
+    async fn volume_exists(&self, volume: &str) -> anyhow::Result<bool>;
+    /// Writes the volume's contents to `out` as a `tar.gz`, without `models/` (a cache the hub downloads again). Read from a
+    /// throwaway container with the volume mounted read-only; the caller stops the instance first, so the files are still.
+    async fn archive_volume(&self, volume: &str, image: &str, out: &mut (dyn AsyncWrite + Send + Unpin)) -> anyhow::Result<()>;
+    /// The inverse: unpacks a `tar.gz` read from `input` into the volume (made if it isn't there).
+    async fn extract_volume(&self, volume: &str, image: &str, input: &mut (dyn AsyncRead + Send + Unpin)) -> anyhow::Result<()>;
 }
 
 /// The arguments of `docker run` for an instance (everything after `docker`). The shape of the container, kept in one
@@ -49,18 +61,34 @@ pub trait ContainerRuntime: Send + Sync {
 /// privileges, published on the loopback only. The command is the hosted profile of the image (`--no-embedding-warm-up`,
 /// P146) with the scheduled tasks on, as `scripts/image-smoke.sh` runs it.
 pub fn run_args(instance: &Instance) -> Vec<String> {
+    container_args(instance, false)
+}
+
+/// Like `run_args`, for the hub that proves a restored backup starts (`ContainerRuntime::run_isolated`): no network at all
+/// (the data is a customer's, and the hub on it must not sync, call a model or reach anything), so no published port;
+/// no scheduled tasks; and it is not restarted by Docker.
+pub fn isolated_args(instance: &Instance) -> Vec<String> {
+    container_args(instance, true)
+}
+
+fn container_args(instance: &Instance, isolated: bool) -> Vec<String> {
     let mut args: Vec<String> = ["run", "-d", "--name"].map(String::from).into();
     args.push(instance.container_name());
-    for (flag, value) in [
+    let mut flags = vec![
         ("--label", format!("warden.customer={}", instance.spec.customer_id)),
-        ("--restart", "unless-stopped".to_string()),
         ("--tmpfs", "/tmp".to_string()),
         ("-v", format!("{}:/data", instance.volume_name())),
-        ("-p", format!("127.0.0.1:{}:{HUB_PORT}", instance.port)),
         ("--cap-drop", "ALL".to_string()),
         ("--security-opt", "no-new-privileges".to_string()),
         ("--pids-limit", "512".to_string()),
-    ] {
+    ];
+    if isolated {
+        flags.push(("--network", "none".to_string()));
+    } else {
+        flags.push(("--restart", "unless-stopped".to_string()));
+        flags.push(("-p", format!("127.0.0.1:{}:{HUB_PORT}", instance.port)));
+    }
+    for (flag, value) in flags {
         args.push(flag.into());
         args.push(value);
     }
@@ -76,7 +104,10 @@ pub fn run_args(instance: &Instance) -> Vec<String> {
     args.push("-e".into());
     args.push(KEY_ENV.into());
     args.push(instance.spec.image.clone());
-    args.extend(["serve", "--no-embedding-warm-up", "--run-tasks"].map(String::from));
+    args.extend(["serve", "--no-embedding-warm-up"].map(String::from));
+    if !isolated {
+        args.push("--run-tasks".into());
+    }
     args
 }
 
@@ -128,6 +159,27 @@ pub fn seed_args(instance: &Instance) -> Vec<String> {
     args.push(instance.spec.image.clone());
     args.push("-c".into());
     args.push("[ -e /data/config.toml ] || cat > /data/config.toml".into());
+    args
+}
+
+/// The arguments of the throwaway container that archives a volume (everything after `docker`): the hub's own image with
+/// `tar` as the entrypoint, no network, nothing writable, the volume mounted read-only. The archive goes to stdout.
+/// `models/` stays out: it is the embedding models cache, downloaded again on first use, not the customer's data.
+pub fn archive_args(volume: &str, image: &str) -> Vec<String> {
+    let mut args: Vec<String> = ["run", "--rm", "--network", "none", "--read-only", "--cap-drop", "ALL", "--security-opt", "no-new-privileges", "--entrypoint", "tar", "-v"].map(String::from).into();
+    args.push(format!("{volume}:/data:ro"));
+    args.push(image.to_string());
+    args.extend(["-C", "/data", "--exclude=./models", "-czf", "-", "."].map(String::from));
+    args
+}
+
+/// The arguments of the throwaway container that unpacks an archive read from stdin into a volume. As the user the hub
+/// runs as, so the files belong to it; the only writable thing is the volume.
+pub fn extract_args(volume: &str, image: &str) -> Vec<String> {
+    let mut args: Vec<String> = ["run", "--rm", "-i", "--network", "none", "--read-only", "--cap-drop", "ALL", "--security-opt", "no-new-privileges", "--entrypoint", "tar", "-v"].map(String::from).into();
+    args.push(format!("{volume}:/data"));
+    args.push(image.to_string());
+    args.extend(["-C", "/data", "-xzf", "-"].map(String::from));
     args
 }
 
@@ -189,6 +241,77 @@ impl ContainerRuntime for DockerCli {
         let (running, started_at) = out.split_once('|').with_context(|| format!("unexpected `docker inspect` output: {out}"))?;
         Ok(Some(ContainerInfo { running: running == "true", started_at: started_at.to_string() }))
     }
+
+    async fn run_isolated(&self, instance: &Instance) -> anyhow::Result<()> {
+        self.docker(&isolated_args(instance), Some(&instance.pairing_key), None).await.map(|_| ())
+    }
+
+    async fn is_healthy(&self, name: &str) -> anyhow::Result<bool> {
+        // The image has `curl` (it is its own HEALTHCHECK). A failure to answer is "not yet", not an error.
+        let url = format!("http://127.0.0.1:{HUB_PORT}/health");
+        let output = Command::new(&self.binary).args(["exec", name, "curl", "-fsS", "-o", "/dev/null", &url]).output().await.with_context(|| format!("could not run `{}`", self.binary))?;
+        Ok(output.status.success())
+    }
+
+    async fn volume_exists(&self, volume: &str) -> anyhow::Result<bool> {
+        let out = self.docker(&strings(&["volume", "inspect", "-f", "{{.Name}}", volume]), None, Some("No such volume")).await?;
+        Ok(!out.is_empty())
+    }
+
+    async fn archive_volume(&self, volume: &str, image: &str, out: &mut (dyn AsyncWrite + Send + Unpin)) -> anyhow::Result<()> {
+        let mut child = Command::new(&self.binary)
+            .args(archive_args(volume, image))
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .kill_on_drop(true)
+            .spawn()
+            .with_context(|| format!("could not run `{}` (is Docker installed and on the PATH?)", self.binary))?;
+        let mut stdout = child.stdout.take().context("no stdout on the archiving container")?;
+        let mut stderr = child.stderr.take().context("no stderr on the archiving container")?;
+        // stderr is read on the side so a chatty `tar` can never fill the pipe while this waits on stdout.
+        let errors = tokio::spawn(async move {
+            let mut text = String::new();
+            let _ = stderr.read_to_string(&mut text).await;
+            text
+        });
+        let copied = tokio::io::copy(&mut stdout, out).await;
+        let status = child.wait().await?;
+        let errors = errors.await.unwrap_or_default();
+        if !status.success() {
+            bail!("could not archive {volume}: {}", errors.trim());
+        }
+        copied.with_context(|| format!("could not hand on the archive of {volume}"))?;
+        out.flush().await?;
+        Ok(())
+    }
+
+    async fn extract_volume(&self, volume: &str, image: &str, input: &mut (dyn AsyncRead + Send + Unpin)) -> anyhow::Result<()> {
+        let mut child = Command::new(&self.binary)
+            .args(extract_args(volume, image))
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::piped())
+            .kill_on_drop(true)
+            .spawn()
+            .with_context(|| format!("could not run `{}` (is Docker installed and on the PATH?)", self.binary))?;
+        let mut stdin = child.stdin.take().context("no stdin on the unpacking container")?;
+        let mut stderr = child.stderr.take().context("no stderr on the unpacking container")?;
+        let errors = tokio::spawn(async move {
+            let mut text = String::new();
+            let _ = stderr.read_to_string(&mut text).await;
+            text
+        });
+        let copied = tokio::io::copy(input, &mut stdin).await;
+        drop(stdin); // the end of the input is what lets `tar` finish
+        let status = child.wait().await?;
+        let errors = errors.await.unwrap_or_default();
+        if !status.success() {
+            bail!("could not unpack into {volume}: {}", errors.trim());
+        }
+        copied.with_context(|| format!("could not hand the archive to {volume}"))?;
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -243,6 +366,35 @@ mod tests {
         assert!(args.contains(&"--read-only".to_string()));
         assert_eq!(args.last().unwrap(), "[ -e /data/config.toml ] || cat > /data/config.toml");
         assert!(!args.iter().any(|a| a.contains("s3cret")), "the config goes in through stdin, not as an argument");
+    }
+
+    #[test]
+    fn the_archiving_container_reads_the_volume_only_and_leaves_the_models_out() {
+        let args = archive_args("warden-data-acme", "img:1");
+        assert!(has_pair(&args, "--network", "none"));
+        assert!(has_pair(&args, "--entrypoint", "tar"));
+        assert!(has_pair(&args, "-v", "warden-data-acme:/data:ro"));
+        assert!(args.contains(&"--read-only".to_string()));
+        assert!(args.contains(&"--exclude=./models".to_string()));
+        assert_eq!(&args[args.len() - 6..], ["-C", "/data", "--exclude=./models", "-czf", "-", "."]);
+    }
+
+    #[test]
+    fn the_unpacking_container_has_no_network_and_writes_only_the_volume() {
+        let args = extract_args("warden-data-acme", "img:1");
+        assert!(has_pair(&args, "--network", "none"));
+        assert!(has_pair(&args, "-v", "warden-data-acme:/data"));
+        assert!(args.contains(&"-i".to_string()) && args.contains(&"--read-only".to_string()));
+        assert_eq!(&args[args.len() - 4..], ["-C", "/data", "-xzf", "-"]);
+    }
+
+    #[test]
+    fn the_container_that_checks_a_restore_has_no_network_no_port_and_runs_no_tasks() {
+        let args = isolated_args(&instance(None, None));
+        assert!(has_pair(&args, "--network", "none"));
+        assert!(!args.iter().any(|a| a == "-p" || a == "--restart" || a == "--run-tasks"), "{args:?}");
+        assert!(args.contains(&"--read-only".to_string()) && has_pair(&args, "--cap-drop", "ALL"));
+        assert_eq!(&args[args.len() - 2..], ["serve", "--no-embedding-warm-up"]);
     }
 
     #[test]

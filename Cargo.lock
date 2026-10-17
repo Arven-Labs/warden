@@ -8268,6 +8268,7 @@ dependencies = [
 name = "warden-orchestrator"
 version = "0.1.1"
 dependencies = [
+ "aes-gcm",
  "anyhow",
  "async-trait",
  "clap",

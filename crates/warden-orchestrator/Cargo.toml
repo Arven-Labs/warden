@@ -12,6 +12,8 @@ path = "src/main.rs"
 # HTTP sides sit behind traits (`ContainerRuntime`, `StatusSource`), so the rest is testable with fakes. It doesn't depend
 # on `warden-bootstrap` or `warden-core`: it only needs the status type the hub answers with.
 [dependencies]
+# Backups are encrypted as a stream (`backup.rs`). The same `aes-gcm` the rest of the workspace uses, plus its `stream` feature.
+aes-gcm = { version = "0.10", features = ["stream"] }
 anyhow.workspace = true
 async-trait.workspace = true
 clap = { version = "4", features = ["derive", "env"] }

@@ -9,9 +9,11 @@
 //! to give the memory back.
 //!
 //! Everything that touches the world sits behind a trait (`ContainerRuntime`, `StatusSource`), so the rest is tested with
-//! `fake::FakeRuntime` and a canned status. Not here yet: the site mother's HTTP contract (B1), the reverse proxy with
-//! TLS and a domain per customer, backup, rolling upgrades.
+//! `fake::FakeRuntime` and a canned status. `backup` takes the encrypted copies of a volume and restores and checks them.
+//! Not here yet: the site mother's HTTP contract (B1), the reverse proxy with TLS and a domain per customer, the
+//! retention before a delete, rolling upgrades.
 
+pub mod backup;
 pub mod fake;
 pub mod instance;
 pub mod manager;
@@ -21,6 +23,7 @@ pub mod runtime;
 pub mod status;
 pub mod store;
 
+pub use backup::BackupKey;
 pub use instance::{Instance, InstanceSpec, State};
 pub use manager::InstanceManager;
 pub use recycle::{Decision, Reason, RecyclePolicy};

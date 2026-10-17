@@ -34,6 +34,11 @@ impl InstanceStore {
         Self { path: state_dir.as_ref().join("instances.json") }
     }
 
+    /// The folder everything of the orchestrator's lives in: the record, the backup key and the backups.
+    pub fn state_dir(&self) -> &Path {
+        self.path.parent().unwrap_or(Path::new("."))
+    }
+
     fn load(&self) -> anyhow::Result<File> {
         match std::fs::read_to_string(&self.path) {
             Ok(text) => serde_json::from_str(&text).with_context(|| format!("{} is not a valid instance list", self.path.display())),

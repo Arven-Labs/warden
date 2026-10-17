@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Teste de fumaça do orquestrador (P138, fase 4) com Docker de verdade: provisiona uma instância a partir da imagem do hub,
-# suspende, retoma, recicla e apaga, conferindo em cada passo o que o Docker mostra e que os dados do cliente sobrevivem.
+# suspende, retoma, recicla, faz backup cifrado, verifica e restaura, e apaga, conferindo em cada passo o que o Docker mostra
+# e que os dados do cliente sobrevivem.
 # Uso: scripts/orchestrator-smoke.sh [imagem] [binário]   (padrões: warden-server:smoke e target/release/warden-orchestrator).
 # Precisa de docker e curl. A imagem é a mesma da fumaça da imagem (scripts/image-smoke.sh).
 set -euo pipefail
@@ -116,7 +117,40 @@ wait_health
 docker exec "$CONTAINER" cat /data/marker | grep -q guardado || fail "o dado do cliente não sobreviveu à reciclagem"
 echo "reciclagem: ok"
 
-# 8. Apagar: o contêiner e o registro vão embora, o volume fica; com --purge-data, o volume também. Apagar de novo é ok.
+# 8. Backup: o hub para durante a cópia e volta, o arquivo é cifrado (o marcador não aparece em claro), e a verificação
+# sobe um hub descartável (sem rede) num volume novo, sem deixar nada para trás. Um arquivo adulterado é recusado.
+backup_file="$(orch backup "$CUSTOMER")" || fail "backup falhou"
+[ -f "$backup_file" ] || fail "o backup não criou o arquivo ($backup_file)"
+orch backups "$CUSTOMER" | grep -q "$backup_file" || fail "o backup não aparece em 'backups'"
+if grep -a -q guardado "$backup_file"; then fail "o marcador aparece em claro no arquivo do backup"; fi
+[ "$(running)" = "true" ] || fail "o hub não voltou depois do backup"
+wait_health
+docker exec "$CONTAINER" cat /data/marker | grep -q guardado || fail "o dado do cliente se perdeu no backup"
+echo "backup cifrado, hub de volta: ok"
+
+orch verify "$CUSTOMER" || fail "verify de um backup bom falhou"
+[ -z "$(docker ps -a -q --filter name=warden-verify-)" ] || fail "o verify deixou um contêiner de teste"
+[ -z "$(docker volume ls -q --filter name=warden-data-verify-)" ] || fail "o verify deixou um volume de teste"
+bad_file="$STATE_DIR/adulterado.wbk"
+cp "$backup_file" "$bad_file"
+printf '\377' | dd of="$bad_file" bs=1 seek=40 conv=notrunc 2>/dev/null
+if orch verify "$CUSTOMER" "$bad_file" >/dev/null 2>&1; then fail "um backup adulterado foi aceito"; fi
+[ -z "$(docker volume ls -q --filter name=warden-data-verify-)" ] || fail "o verify de um backup ruim deixou um volume de teste"
+echo "verify (bom aceito, adulterado recusado, sem sobras): ok"
+
+# Restaurar: apagar os dados do cliente, trazer de volta do backup e provisionar igual; o marcador volta.
+orch delete "$CUSTOMER" --purge-data >/dev/null || fail "delete --purge-data falhou antes do restore"
+if docker volume inspect "$VOLUME" >/dev/null 2>&1; then fail "o volume continua existindo antes do restore"; fi
+orch restore "$CUSTOMER" latest --image "$IMAGE" >/dev/null || fail "restore falhou"
+docker volume inspect "$VOLUME" >/dev/null 2>&1 || fail "o restore não criou o volume"
+if orch restore "$CUSTOMER" latest --image "$IMAGE" >/dev/null 2>&1; then fail "restore sobre um volume que já existe deveria ser recusado"; fi
+out="$(orch provision "$CUSTOMER" --image "$IMAGE" --config-file "$CONFIG_FILE")" || fail "provision depois do restore falhou"
+PORT="${out##*:}"
+wait_health
+docker exec "$CONTAINER" cat /data/marker | grep -q guardado || fail "o dado do cliente não voltou com o restore"
+echo "restore: ok"
+
+# 9. Apagar: o contêiner e o registro vão embora, o volume fica; com --purge-data, o volume também. Apagar de novo é ok.
 orch delete "$CUSTOMER" >/dev/null || fail "delete falhou"
 [ "$(running)" = "gone" ] || fail "o contêiner continua existindo depois do delete"
 docker volume inspect "$VOLUME" >/dev/null 2>&1 || fail "o delete apagou o volume sem --purge-data"
@@ -126,4 +160,4 @@ if docker volume inspect "$VOLUME" >/dev/null 2>&1; then fail "o volume continua
 orch delete "$CUSTOMER" >/dev/null || fail "apagar de novo deveria dar certo"
 echo "delete: ok"
 
-echo "OK: o orquestrador provisiona, suspende, retoma, recicla e apaga uma instância de verdade, sem perder os dados do cliente."
+echo "OK: o orquestrador provisiona, suspende, retoma, recicla, faz backup cifrado, verifica, restaura e apaga uma instância de verdade, sem perder os dados do cliente."

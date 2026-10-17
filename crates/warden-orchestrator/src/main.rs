@@ -4,9 +4,13 @@
 //!   warden-orchestrator suspend acme      # stops the container, keeps the data
 //!   warden-orchestrator resume acme
 //!   warden-orchestrator recycle --every 300
+//!   warden-orchestrator backup acme            # or --all [--every 86400]; encrypted, in <state-dir>/backups/acme/
+//!   warden-orchestrator verify acme            # restores the newest backup into a scratch volume and starts a hub on it
 //!   warden-orchestrator delete acme --purge-data
+//!   warden-orchestrator restore acme latest    # into a volume that is not there; then `provision` again
 //!
 //! One orchestrator per state folder. The hubs are published on 127.0.0.1 only; a reverse proxy with TLS is another slice.
+//! Keep a copy of `<state-dir>/backup.key` somewhere else: without it the backups cannot be opened.
 
 use std::path::PathBuf;
 use std::time::Duration;
@@ -20,6 +24,9 @@ use warden_orchestrator::{
 
 /// The image a customer gets when none is named: the hub published on every tag.
 const DEFAULT_IMAGE: &str = "ghcr.io/arven-labs/warden-server:latest";
+
+/// How many backups of a customer stay when `--keep` is not given: a week of daily ones.
+const DEFAULT_KEEP: usize = 7;
 
 #[derive(Parser, Debug)]
 #[command(name = "warden-orchestrator", about = "Runs hosted Warden instances, one Docker container per customer")]
@@ -66,6 +73,49 @@ enum Command {
     List,
     /// Prints an instance's pairing key (for the operator: it is how the hub is reached and how its status is read).
     Key { customer_id: String },
+    /// Takes a backup of one instance (or, with --all, of every active one): the hub is stopped for the copy, the volume is
+    /// archived and encrypted with the orchestrator's `backup.key` into `<state-dir>/backups/<customer>/`, and the hub is
+    /// started again. The embedding models cache (`models/`) is left out.
+    Backup {
+        /// The customer to back up (or --all).
+        #[arg(required_unless_present = "all", conflicts_with = "all")]
+        customer_id: Option<String>,
+        /// Back up every active instance, one after the other.
+        #[arg(long)]
+        all: bool,
+        /// With --all: keep going, one round every this many seconds.
+        #[arg(long, requires = "all")]
+        every: Option<u64>,
+        /// How many backups of a customer to keep; older ones are deleted after a new one succeeds.
+        #[arg(long, default_value_t = DEFAULT_KEEP)]
+        keep: usize,
+    },
+    /// A customer's backups, oldest first.
+    Backups { customer_id: String },
+    /// Puts a backup in the customer's volume, which must not exist (delete the data first with `delete --purge-data`).
+    Restore {
+        customer_id: String,
+        /// A backup file, or `latest`.
+        #[arg(default_value = "latest")]
+        backup: String,
+        /// The hub image to unpack with, when the customer is not an instance any more.
+        #[arg(long)]
+        image: Option<String>,
+    },
+    /// Proves a backup is good: restores it into a scratch volume, starts a hub on it with no network and no scheduled tasks,
+    /// waits for `/health`, and removes the scratch. Nothing of the customer's own is touched.
+    Verify {
+        customer_id: String,
+        /// A backup file, or `latest`.
+        #[arg(default_value = "latest")]
+        backup: String,
+        /// The hub image, when the customer is not an instance any more.
+        #[arg(long)]
+        image: Option<String>,
+        /// How long the restored hub gets to answer `/health`.
+        #[arg(long, default_value_t = 60)]
+        timeout_secs: u64,
+    },
     /// Restarts the instances that are idle and heavy, so the memory the hub holds comes back (K.6 item 5).
     Recycle {
         /// Keep going, one pass every this many seconds. Without it, one pass and done.
@@ -121,6 +171,38 @@ async fn main() -> anyhow::Result<()> {
         Command::Key { customer_id } => {
             let instance = manager.get(&customer_id)?.with_context(|| format!("there is no instance for '{customer_id}'"))?;
             println!("{}", instance.pairing_key);
+        }
+        Command::Backup { customer_id, all, every, keep } => {
+            let _ = all;
+            match customer_id {
+                Some(customer) => println!("{}", manager.backup(&customer, keep).await?.display()),
+                None => loop {
+                    for (customer, result) in manager.backup_all(keep).await? {
+                        match result {
+                            Ok(path) => tracing::info!(%customer, path = %path.display(), "backed up"),
+                            Err(err) => tracing::warn!(%customer, error = format!("{err:#}"), "could not back up"),
+                        }
+                    }
+                    let Some(secs) = every else { break };
+                    tokio::select! {
+                        _ = tokio::time::sleep(Duration::from_secs(secs)) => {}
+                        _ = tokio::signal::ctrl_c() => break,
+                    }
+                },
+            }
+        }
+        Command::Backups { customer_id } => {
+            for path in manager.backups(&customer_id)? {
+                println!("{}\t{} bytes", path.display(), std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0));
+            }
+        }
+        Command::Restore { customer_id, backup, image } => {
+            let file = manager.restore(&customer_id, &backup, image.as_deref()).await?;
+            println!("{customer_id} restored from {}; `provision` it again to run it", file.display());
+        }
+        Command::Verify { customer_id, backup, image, timeout_secs } => {
+            let file = manager.verify(&customer_id, &backup, image.as_deref(), Duration::from_secs(timeout_secs)).await?;
+            println!("{} is good: a hub started on it and answered /health", file.display());
         }
         Command::Recycle { every, rss_threshold_mb, min_idle_secs, min_uptime_secs } => {
             let defaults = RecyclePolicy::default();
