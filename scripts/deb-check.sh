@@ -16,6 +16,8 @@ bins="$(dpkg -L "$pkg" | grep -E "^/usr/bin/" || true)"
 [ -n "$bins" ] || { echo "FALHOU: o pacote $pkg não instala nada em /usr/bin" >&2; exit 1; }
 bin="$(echo "$bins" | head -n 1)"
 echo "pacote: $pkg, executável: $bin"
+# O release v0.1.1 ainda instala `desktop`; a partir da próxima tag o nome é `warden-desktop` (tauri.conf.json).
+case "$bin" in /usr/bin/desktop|/usr/bin/warden-desktop) ;; *) echo "FALHOU: executável inesperado: $bin" >&2; exit 1 ;; esac
 
 if ldd "$bin" | grep "not found"; then
   echo "FALHOU: $bin tem bibliotecas que o pacote não puxou (acima)" >&2

@@ -75,3 +75,57 @@ jobs:
           releaseName: Warden ${{ github.ref_name }}
           releaseDraft: true
           includeDebug: false
+
+  # O APK do Android no mesmo release (rascunho) dos instaladores, para o GUIA-DE-USO.md poder mandar baixar em vez de
+  # construir. Assinado com a chave de DEBUG do `build.gradle.kts`, que muda a cada runner: instala (com "fontes
+  # desconhecidas" permitidas), mas uma versão nova só entra por cima depois de desinstalar a antiga. Uma chave fixa
+  # (segredo do repositório) é decisão pendente (P156). `needs: build` porque o `tauri-action` é quem cria o rascunho.
+  android:
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    defaults:
+      run:
+        working-directory: mobile
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Java
+        uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: 3.47.4
+          channel: stable
+          cache: true
+
+      - name: flutter pub get
+        run: flutter pub get
+
+      - name: APK
+        run: flutter build apk --release --target-platform android-arm64
+
+      # `gh release upload` por tag não enxerga um rascunho; pelo id, a API envia o arquivo ao rascunho.
+      - name: Anexa o APK ao release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.ref_name }}
+        working-directory: .
+        run: |
+          id="$(gh api "repos/$GITHUB_REPOSITORY/releases" --paginate --jq ".[] | select(.tag_name == \"$TAG\") | .id" | head -n 1)"
+          [ -n "$id" ] || { echo "não achei o release da tag $TAG" >&2; exit 1; }
+          name="Warden_${TAG#v}_android-arm64.apk"
+          curl -fsS -X POST \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Content-Type: application/vnd.android.package-archive" \
+            --data-binary @mobile/build/app/outputs/flutter-apk/app-release.apk \
+            "https://uploads.github.com/repos/$GITHUB_REPOSITORY/releases/$id/assets?name=$name" >/dev/null
+          echo "anexado: $name"

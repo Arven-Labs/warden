@@ -43,6 +43,12 @@ autor é desconhecido. É esperado; confirme que o arquivo veio do release acima
 As chaves ficam em `config.secrets.toml` (só o seu usuário lê), e não no `config.toml`, que é o arquivo
 que se copia e se cola por aí.
 
+### Node.js (opcional)
+
+A busca na web e a integração Google rodam por `npx`: instale o [Node.js](https://nodejs.org) se quiser essas duas. Sem
+ele o resto funciona, e o erro diz o que falta. (A imagem Docker do hub não traz o Node.js; ali essas duas ferramentas
+ficam de fora.)
+
 ### Onde ficam as coisas
 
 | O quê | Onde (Linux) |
@@ -121,8 +127,10 @@ warden tasks list
 - **Navegador**: abra `http://<endereço do hub>:7420`. A primeira entrada pede a chave de pareamento (`$KEY`).
 - **App desktop**: em **Workspace → Hubs → Add hub** informe o endereço (`ws://<endereço>:7420`) e a chave. Na mesma
   rede, o botão de descoberta acha o hub sozinho.
-- **Celular**: o app Flutter se conecta do mesmo jeito. O release ainda não traz o APK; hoje ele é construído com
-  `cd mobile && flutter build apk`.
+- **Celular (Android)**: baixe `Warden_<versão>_android-arm64.apk` do release (a partir da v0.1.2; antes, construa com
+  `cd mobile && flutter build apk`) e conecte do mesmo jeito. O APK não é assinado com uma chave da loja: o Android pede
+  para permitir "fontes desconhecidas", e para instalar uma versão nova você **desinstala a antiga antes**. iPhone: ainda
+  não testado.
 
 ### 3.3 Fora de casa: use TLS
 
@@ -200,7 +208,7 @@ No caminho A, baixe a nova versão no release e instale por cima; a configuraç�
 | O contêiner morre ao subir | falta `WARDEN_SERVER_AUTH_KEY` (mínimo de 32 caracteres) ou o `config.toml` tem um campo que não existe |
 | "no API key configured" | a chave do provedor ativo não foi preenchida em Settings, ou está vazia no `config.toml` |
 | O navegador não pede/aceita a chave | confira se é a chave do `WARDEN_SERVER_AUTH_KEY` e se o endereço é `http://` (sem TLS) ou `https://` |
-| O app não abre no Linux | instale pelo `.deb`/`.rpm` (puxam as bibliotecas) e rode no terminal para ver a mensagem de erro (o executável do `.deb` se chama `desktop`; o AppImage, o próprio arquivo) |
+| O app não abre no Linux | instale pelo `.deb`/`.rpm` (puxam as bibliotecas) e rode no terminal para ver a mensagem de erro (o executável do `.deb` é `warden-desktop`, e `desktop` no release v0.1.1; o AppImage, o próprio arquivo) |
 | Respostas lentas na primeira busca | o modelo de busca por significado baixa na primeira vez e fica em `/data/models` |
 
 ## 7. O que ainda não foi conferido com um modelo de verdade

@@ -2,9 +2,16 @@
 
 > **Nota**: Este log foi criado junto com o projeto. As sessões serão registradas aqui conforme o trabalho avança.
 >
-> Última atualização: 2026-10-17 (Sessão 236)
+> Última atualização: 2026-10-17 (Sessão 237)
 
 ---
+
+### 2026-10-17 — Sessão 237 (três arestas do primeiro uso: P156)
+
+- **Pedido do usuário**: seguir na frente "uso diário". Propus os testes instáveis P150, P151 e P155 e errei pela terceira vez na sessão: **os três já estavam corrigidos** (li só o título da linha). Depois de ler as linhas inteiras, propus e o usuário aprovou ("pode ser manda bala") três arestas pequenas: o nome do executável do `.deb`, o APK no release e o Node.js no guia.
+- **Feito**: `tauri.conf.json` com `mainBinaryName = "warden-desktop"` (o `.deb` instalava `/usr/bin/desktop`); `build.yml` com o job `android` (`needs: build`) que compila o APK arm64 e o anexa ao rascunho do release pelo id (a API de uploads, porque `gh release upload` por tag não enxerga rascunho); `GUIA-DE-USO.md` com a seção do Node.js, a linha do APK (com o aviso: assinado com a chave de debug, desinstalar antes de atualizar) e o nome do executável; `deb-check.sh` aceita `desktop` (v0.1.1) ou `warden-desktop`.
+- **Não provado**: `mainBinaryName` e o job `android` do `build.yml` só rodam numa tag `v*`, e uma tag nova republica a imagem e gera instaladores de três sistemas; **não criei tag**. Conferi só que o YAML e o JSON são válidos e que o schema do Tauri tem o campo. O comando do APK é o mesmo que o job `android` do `ci.yml` já roda verde. **A confirmar na `v0.1.2`** (P156).
+- **Pendência nova**: chave de assinatura fixa para o APK (um segredo do repositório; decisão do usuário), para a atualização por cima funcionar.
 
 ### 2026-10-17 — Sessão 236 (guia de uso: a frente "deixar o app pronto para o Fabio usar")
 
