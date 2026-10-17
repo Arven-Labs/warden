@@ -122,16 +122,16 @@ const LIVE_FLUSH_BYTES: usize = 256;
 /// What a window is shown of a turn while it runs: the model's own words as it writes them and what a tool says about its work.
 ///
 /// A model sends a few characters at a time; one `ChatEvent` for each would flood the socket and make the client lay out the
-/// markdown again for every letter, so the words are gathered and sent at most once every 40 ms, counted from the turn's start (a
-/// real model takes longer than that to say its first word, so that one goes out at once; an answer that is ready in an instant,
-/// like a test double's, goes out whole with the turn's end and no event before it). Before a tool's row goes out, what is held
-/// goes first, to keep the order "words, tool, words". What is still held when the turn ends is not sent: the answer that closes the
-/// turn has the whole text and takes the live bubble's place.
+/// markdown again for every letter, so the words are gathered and sent at most once every 40 ms, counted from the first word. That
+/// first word stays held until the next one comes (a few milliseconds later with a real model), and an answer that arrives whole, in
+/// one piece, goes out with the turn's end and no event before it. Before a tool's row goes out, what is held goes first, to keep the
+/// order "words, tool, words". What is still held when the turn ends is not sent: the answer that closes the turn has the whole text
+/// and takes the live bubble's place.
 #[derive(Debug)]
 pub struct LiveFeed {
     held: String,
-    /// When something was last sent, or the turn began.
-    last_sent: std::time::Instant,
+    /// When the words were last sent, or the first of them arrived; `None` before any.
+    last_sent: Option<std::time::Instant>,
 }
 
 impl Default for LiveFeed {
@@ -142,11 +142,7 @@ impl Default for LiveFeed {
 
 impl LiveFeed {
     pub fn new() -> Self {
-        Self::starting_at(std::time::Instant::now())
-    }
-
-    fn starting_at(start: std::time::Instant) -> Self {
-        Self { held: String::new(), last_sent: start }
+        Self { held: String::new(), last_sent: None }
     }
 
     /// The events to send for one thing the turn did: none, or the held words, or the held words and then a tool's row.
@@ -159,7 +155,8 @@ impl LiveFeed {
         match event {
             StreamEvent::ContentDelta(text) => {
                 self.held.push_str(text);
-                if self.held.len() >= LIVE_FLUSH_BYTES || now.duration_since(self.last_sent) >= LIVE_FLUSH_AFTER {
+                let since = *self.last_sent.get_or_insert(now);
+                if self.held.len() >= LIVE_FLUSH_BYTES || now.duration_since(since) >= LIVE_FLUSH_AFTER {
                     self.flush(now)
                 } else {
                     Vec::new()
@@ -180,7 +177,7 @@ impl LiveFeed {
         if self.held.is_empty() {
             return Vec::new();
         }
-        self.last_sent = now;
+        self.last_sent = Some(now);
         vec![ChatEventDto::Text { text: std::mem::take(&mut self.held), source: None }]
     }
 }
@@ -2916,11 +2913,11 @@ mod tests {
     #[test]
     fn the_models_words_are_gathered_and_sent_at_most_every_40_ms() {
         let t0 = std::time::Instant::now();
-        let (mut feed, ms) = (LiveFeed::starting_at(t0), |n: u64| t0 + std::time::Duration::from_millis(n));
-        // A model that is quick to answer: nothing goes out before 40 ms from the turn's start.
+        let (mut feed, ms) = (LiveFeed::new(), |n: u64| t0 + std::time::Duration::from_millis(n));
+        // The first word starts the clock: nothing goes out within 40 ms of it.
         assert!(feed.on_event_at(&said("Hel"), ms(5)).is_empty());
         assert!(feed.on_event_at(&said("lo"), ms(10)).is_empty());
-        // The first word of a real model comes later than that: what is held goes out with it, in one event.
+        // Once the time has passed, what is held goes out with the next words, in one event.
         assert_eq!(feed.on_event_at(&said(", "), ms(300)), vec![ChatEventDto::Text { text: "Hello, ".into(), source: None }]);
         // Straight after, a few more characters wait again.
         assert!(feed.on_event_at(&said("wor"), ms(310)).is_empty());
@@ -2932,9 +2929,9 @@ mod tests {
     #[test]
     fn held_words_wait_for_the_pause_and_nothing_is_lost() {
         let t0 = std::time::Instant::now();
-        let mut feed = LiveFeed::starting_at(t0);
+        let mut feed = LiveFeed::new();
         assert!(feed.on_event_at(&said("a"), t0 + std::time::Duration::from_millis(10)).is_empty());
-        let later = t0 + LIVE_FLUSH_AFTER;
+        let later = t0 + std::time::Duration::from_millis(10) + LIVE_FLUSH_AFTER;
         assert_eq!(text_of(&feed.on_event_at(&said("b"), later)), "ab", "once the time has passed the held words go with the next ones");
     }
 
@@ -2942,7 +2939,7 @@ mod tests {
     fn words_come_before_the_tool_that_follows_them() {
         use warden_core::code_engine::{CodeEvent, ToolEvent, ToolStatus};
         let t0 = std::time::Instant::now();
-        let mut feed = LiveFeed::starting_at(t0);
+        let mut feed = LiveFeed::new();
         assert!(feed.on_event_at(&said("I will look."), t0).is_empty());
         assert!(feed.on_event_at(&said(" Checking"), t0).is_empty(), "held");
         let row = ToolEvent { call_id: "c1".into(), tool: "bash".into(), title: "ls".into(), status: ToolStatus::Running };
