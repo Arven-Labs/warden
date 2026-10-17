@@ -84,6 +84,11 @@ impl BackupKey {
         }
     }
 
+    /// The key as it is in the file: 64 hexadecimal characters.
+    pub fn to_hex(&self) -> String {
+        self.0.iter().map(|b| format!("{b:02x}")).collect()
+    }
+
     fn parse(text: &str) -> anyhow::Result<Self> {
         let text = text.trim();
         anyhow::ensure!(text.len() == 64 && text.is_ascii(), "expected 64 hex characters");

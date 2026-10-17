@@ -14,13 +14,14 @@
 //! Keep a copy of `<state-dir>/backup.key` somewhere else: without it the backups cannot be opened.
 
 use std::path::PathBuf;
+use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::Context;
 use clap::{Parser, Subcommand};
 use tracing_subscriber::EnvFilter;
 use warden_orchestrator::{
-    recycle_pass, DockerCli, HttpStatus, InstanceManager, InstanceSpec, InstanceStore, Outcome, RecyclePolicy, UpgradeOptions,
+    recycle_pass, BackupKey, CommandSink, DockerCli, HttpStatus, InstanceManager, InstanceSpec, InstanceStore, Outcome, RecyclePolicy, UpgradeOptions,
 };
 
 /// The image a customer gets when none is named: the hub published on every tag.
@@ -35,6 +36,17 @@ struct Cli {
     /// Where the orchestrator keeps its record of the instances (`instances.json`, with their pairing keys, mode 0600).
     #[arg(long, env = "WARDEN_ORCHESTRATOR_DIR", default_value = "/var/lib/warden-orchestrator", global = true)]
     state_dir: PathBuf,
+
+    /// A command to run after each backup that `backup` and `upgrade` take, to get the file off this host (rclone, scp, rsync,
+    /// aws s3 cp...). Split into arguments first, no shell; `{file}`, `{customer}` and `{name}` are filled in inside each
+    /// argument, and `WARDEN_BACKUP_FILE` and `WARDEN_BACKUP_CUSTOMER` are in its environment. The file is already
+    /// encrypted. The key is not sent: see `backup-key`.
+    #[arg(long, env = "WARDEN_AFTER_BACKUP", global = true)]
+    after_backup: Option<String>,
+
+    /// How long the --after-backup command may run before it is stopped.
+    #[arg(long, default_value_t = 600, global = true)]
+    after_backup_timeout_secs: u64,
 
     #[command(subcommand)]
     command: Command,
@@ -118,6 +130,9 @@ enum Command {
         #[arg(long, default_value_t = DEFAULT_KEEP)]
         keep: usize,
     },
+    /// Prints the key the backups are encrypted with (64 hexadecimal characters, the content of `<state-dir>/backup.key`).
+    /// Without it no backup can be opened, so keep a copy somewhere other than where the backups go.
+    BackupKey,
     /// A customer's backups, oldest first.
     Backups { customer_id: String },
     /// Puts a backup in the customer's volume, which must not exist (delete the data first with `delete --purge-data`).
@@ -167,7 +182,10 @@ async fn main() -> anyhow::Result<()> {
     tracing_subscriber::fmt().with_env_filter(filter).with_writer(std::io::stderr).without_time().with_target(false).init();
 
     let cli = Cli::parse();
-    let manager = InstanceManager::new(InstanceStore::new(&cli.state_dir), DockerCli::new());
+    let mut manager = InstanceManager::new(InstanceStore::new(&cli.state_dir), DockerCli::new());
+    if let Some(command) = &cli.after_backup {
+        manager = manager.with_sink(Arc::new(CommandSink::new(command, Duration::from_secs(cli.after_backup_timeout_secs))?));
+    }
     match cli.command {
         Command::Provision { customer_id, image, memory_mb, cpus, config_file } => {
             let config = config_file
@@ -236,6 +254,15 @@ async fn main() -> anyhow::Result<()> {
                 println!("every instance is already on {image}");
             }
             anyhow::ensure!(report.iter().all(|(_, outcome)| outcome.is_fine()), "not every instance ended on {image}");
+        }
+        Command::BackupKey => {
+            let key = BackupKey::load(&cli.state_dir)?;
+            eprintln!(
+                "This is the key of {}/backup.key. Without it the backups cannot be opened; with it and a backup, anyone can read the \
+                 customer's data. Keep it apart from where the backups go. On a new host, write it back to <state-dir>/backup.key (mode 0600).",
+                cli.state_dir.display()
+            );
+            println!("{}", key.to_hex());
         }
         Command::Backups { customer_id } => {
             for path in manager.backups(&customer_id)? {

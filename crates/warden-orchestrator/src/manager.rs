@@ -5,6 +5,7 @@
 
 use std::io::Read;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::{bail, Context};
@@ -12,17 +13,26 @@ use anyhow::{bail, Context};
 use crate::backup::{self, BackupKey};
 use crate::instance::{validate_customer_id, volume_name, Instance, InstanceSpec, State};
 use crate::runtime::ContainerRuntime;
+use crate::ship::BackupSink;
 use crate::store::{free_port, InstanceStore};
 use crate::upgrade::{UpgradeOptions, UpgradeOutcome};
 
 pub struct InstanceManager<R: ContainerRuntime> {
     store: InstanceStore,
     runtime: R,
+    /// Where a finished backup goes next (off the host); `None`: nowhere, it stays where it was made.
+    sink: Option<Arc<dyn BackupSink>>,
 }
 
 impl<R: ContainerRuntime> InstanceManager<R> {
     pub fn new(store: InstanceStore, runtime: R) -> Self {
-        Self { store, runtime }
+        Self { store, runtime, sink: None }
+    }
+
+    /// Hands every backup that `backup` takes to `sink` too (see `ship`).
+    pub fn with_sink(mut self, sink: Arc<dyn BackupSink>) -> Self {
+        self.sink = Some(sink);
+        self
     }
 
     pub fn runtime(&self) -> &R {
@@ -120,10 +130,26 @@ impl<R: ContainerRuntime> InstanceManager<R> {
         backup::list(self.store.state_dir(), customer_id)
     }
 
+    /// A backup on the host and, if a sink is set (`with_sink`), off it: the file `backup_local` makes is handed to the sink.
+    /// A failure to hand it over is an error that names the file: the backup is there on the host, just not safe from the host.
+    pub async fn backup(&self, customer_id: &str, keep: usize) -> anyhow::Result<PathBuf> {
+        let path = self.backup_local(customer_id, keep).await?;
+        self.ship(customer_id, &path).await?;
+        Ok(path)
+    }
+
+    /// Hands a backup file to the sink, if there is one.
+    async fn ship(&self, customer_id: &str, path: &Path) -> anyhow::Result<()> {
+        let Some(sink) = &self.sink else {
+            return Ok(());
+        };
+        sink.ship(customer_id, path).await.map_err(|err| anyhow::anyhow!("the backup is at {}, but it could not be shipped off the host: {err:#}", path.display()))
+    }
+
     /// Takes a backup of the customer's volume: the instance is stopped (SIGTERM, so the hub closes its files), the volume
     /// archived and encrypted into `backups/<customer>/<time>.wbk`, and the instance started again, whatever happened in
     /// between. One that was suspended is left suspended. Afterwards all but the `keep` newest backups go.
-    pub async fn backup(&self, customer_id: &str, keep: usize) -> anyhow::Result<PathBuf> {
+    pub async fn backup_local(&self, customer_id: &str, keep: usize) -> anyhow::Result<PathBuf> {
         anyhow::ensure!(keep >= 1, "keeping no backups at all would delete the one just taken");
         let instance = self.require(customer_id)?;
         let key = BackupKey::load_or_create(self.store.state_dir())?;
@@ -272,7 +298,12 @@ impl<R: ContainerRuntime> InstanceManager<R> {
         }
         let old_image = instance.spec.image.clone();
         let backup = if options.backup {
-            Some(self.backup(customer_id, options.keep).await.context("could not take the backup before the upgrade; nothing was changed")?)
+            let path = self.backup_local(customer_id, options.keep).await.context("could not take the backup before the upgrade; nothing was changed")?;
+            // The copy on the host is the way back for the customer; one that does not leave the host is not a reason to stop.
+            if let Err(err) = self.ship(customer_id, &path).await {
+                tracing::warn!(customer = %customer_id, error = format!("{err:#}"), "the backup before the upgrade was not shipped off the host");
+            }
+            Some(path)
         } else {
             None
         };
@@ -712,6 +743,82 @@ mod tests {
         assert!(started[0].starts_with("warden-verify-"), "{started:?}");
         assert_eq!((m.runtime().volumes(), m.runtime().containers()), before, "the scratch container and volume are gone");
         assert_eq!(m.runtime().data("warden-data-acme").as_deref(), Some(DATA), "the customer's own volume was not touched");
+    }
+
+    /// A sink that remembers what it was handed (and whether the file was there to be handed over), and can be made to fail.
+    #[derive(Default)]
+    struct RecordingSink {
+        calls: std::sync::Mutex<Vec<(String, PathBuf, bool)>>,
+        fails: bool,
+    }
+
+    #[async_trait::async_trait]
+    impl BackupSink for RecordingSink {
+        async fn ship(&self, customer: &str, file: &Path) -> anyhow::Result<()> {
+            self.calls.lock().unwrap().push((customer.to_string(), file.to_path_buf(), file.is_file()));
+            anyhow::ensure!(!self.fails, "the bucket said no");
+            Ok(())
+        }
+    }
+
+    async fn with_sink(name: &str, customer: &str, fails: bool) -> (InstanceManager<FakeRuntime>, Arc<RecordingSink>) {
+        let sink = Arc::new(RecordingSink { fails, ..RecordingSink::default() });
+        let m = with_data(name, customer).await.with_sink(sink.clone());
+        (m, sink)
+    }
+
+    #[tokio::test]
+    async fn a_finished_backup_is_handed_to_the_sink_and_only_a_finished_one() {
+        let (m, sink) = with_sink("ship", "acme", false).await;
+        let path = m.backup("acme", 7).await.unwrap();
+
+        let calls = sink.calls.lock().unwrap().clone();
+        assert_eq!(calls, [("acme".to_string(), path, true)], "the right customer and file, already in place");
+        assert!(m.runtime().container("warden-acme").unwrap().running);
+
+        m.runtime().fail_archiving("warden-data-acme");
+        assert!(m.backup("acme", 7).await.is_err());
+        assert_eq!(sink.calls.lock().unwrap().len(), 1, "a backup that failed has nothing to hand over");
+    }
+
+    #[tokio::test]
+    async fn a_backup_that_could_not_be_shipped_stays_on_the_host_and_says_so() {
+        let (m, sink) = with_sink("ship-fails", "acme", true).await;
+        let err = m.backup("acme", 7).await.unwrap_err().to_string();
+
+        let file = m.backups("acme").unwrap().pop().expect("the backup is still on the host");
+        assert!(err.contains(&file.display().to_string()), "{err}");
+        assert!(err.contains("could not be shipped off the host") && err.contains("the bucket said no"), "{err}");
+        assert_eq!(sink.calls.lock().unwrap().len(), 1);
+    }
+
+    #[tokio::test]
+    async fn a_local_backup_is_not_handed_to_anyone() {
+        let (m, sink) = with_sink("ship-local", "acme", false).await;
+        m.backup_local("acme", 7).await.unwrap();
+        assert!(sink.calls.lock().unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn backing_up_everyone_reports_each_customer_and_ships_each_one() {
+        let (m, sink) = with_sink("ship-all", "acme", false).await;
+        m.provision(spec("beta")).await.unwrap();
+        m.runtime().put_data("warden-data-beta", b"beta");
+
+        let results = m.backup_all(7).await.unwrap();
+        assert!(results.iter().all(|(_, result)| result.is_ok()));
+        let shipped: Vec<_> = sink.calls.lock().unwrap().iter().map(|(customer, _, _)| customer.clone()).collect();
+        assert_eq!(shipped, ["acme", "beta"]);
+    }
+
+    #[tokio::test]
+    async fn an_upgrade_goes_on_when_its_backup_cannot_be_shipped() {
+        let (m, sink) = with_sink("ship-upgrade", "acme", true).await;
+        let outcome = m.upgrade_one("acme", "img:2", &quick()).await;
+
+        assert!(matches!(outcome, UpgradeOutcome::Upgraded { backup: Some(_) }), "{outcome:?}");
+        assert_eq!(sink.calls.lock().unwrap().len(), 1, "it was tried");
+        assert_eq!(image_of(&m, "acme"), ("img:2".into(), "img:2".into()));
     }
 
     fn quick() -> UpgradeOptions {

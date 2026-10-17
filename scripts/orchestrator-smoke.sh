@@ -129,6 +129,27 @@ wait_health
 docker exec "$CONTAINER" cat /data/marker | grep -q guardado || fail "o dado do cliente se perdeu no backup"
 echo "backup cifrado, hub de volta: ok"
 
+# Fora do host: o comando do operador roda depois do backup e a cópia é idêntica e passa no verify; se ele falha, o backup
+# continua aqui e o comando sai com erro dizendo que não foi enviado. A chave sai por um comando à parte.
+OFFSITE="$STATE_DIR/offsite"
+mkdir -p "$OFFSITE"
+shipped="$(orch --after-backup "cp {file} $OFFSITE/" backup "$CUSTOMER")" || fail "backup com --after-backup falhou"
+copy="$OFFSITE/$(basename "$shipped")"
+[ -f "$copy" ] || fail "o comando do operador não deixou a cópia em $copy"
+cmp "$shipped" "$copy" || fail "a cópia de fora não é idêntica ao backup"
+orch verify "$CUSTOMER" "$copy" >/dev/null || fail "o verify recusou a cópia de fora"
+if ship_out="$(orch --after-backup false backup "$CUSTOMER" 2>&1)"; then
+  fail "um --after-backup que falha deveria fazer o backup sair com erro: $ship_out"
+fi
+echo "$ship_out" | grep -q 'could not be shipped' || fail "o erro não diz que o backup não foi enviado: $ship_out"
+echo "$ship_out" | grep -q '\.wbk' || fail "o erro não diz onde o backup ficou: $ship_out"
+[ "$(running)" = "true" ] || fail "o hub não voltou depois de um envio que falhou"
+wait_health
+key_hex="$(orch backup-key 2>/dev/null)"
+[ "${#key_hex}" -eq 64 ] || fail "o backup-key não imprimiu 64 caracteres: '$key_hex'"
+[ "$key_hex" = "$(cat "$STATE_DIR/backup.key")" ] || fail "o backup-key difere do arquivo backup.key"
+echo "backup fora do host (cópia idêntica e válida, falha dita, chave à parte): ok"
+
 orch verify "$CUSTOMER" || fail "verify de um backup bom falhou"
 [ -z "$(docker ps -a -q --filter name=warden-verify-)" ] || fail "o verify deixou um contêiner de teste"
 [ -z "$(docker volume ls -q --filter name=warden-data-verify-)" ] || fail "o verify deixou um volume de teste"
