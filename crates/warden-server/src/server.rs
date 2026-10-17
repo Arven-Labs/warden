@@ -918,6 +918,20 @@ async fn too_many_attempts<S: Transport>(stream: &mut S, attempts: &AttemptLimit
     Ok(())
 }
 
+/// Counts the pairing key an administration message carries as an attempt of `ip` (P142). A right key gives the attempt
+/// back; a wrong one stays counted and the handler goes on to wait and refuse it. `Some(reply)` when the address has used
+/// its attempts up: the message is answered with that and goes no further, whatever key it carries.
+fn spend_admin_attempt(attempts: &AttemptLimiter, ip: std::net::IpAddr, auth_key: &str, message: &ClientMessage) -> Option<ServerMessage> {
+    let proof = crate::people::admin_proof(message)?;
+    let Some(attempt) = attempts.reserve(ip) else {
+        return crate::people::too_many_attempts_reply(message);
+    };
+    if crate::settings::keys_match(&proof, auth_key) {
+        attempt.release();
+    }
+    None
+}
+
 /// A plain `ws://` connection to a TLS-only hub: upgraded only on `DISCOVER_PATH` (refused with
 /// `426 Upgrade Required` anywhere else, so no `Hello` can follow), and answers a single
 /// `Discover` with where to connect instead.
@@ -1334,7 +1348,16 @@ async fn handle_connection<S: Transport>(ws: WebSocketStream<S>, peer: SocketAdd
             // Anything a device says means the hub is in use.
             Message::Text(text) => match {
                 activity.touch();
-                serde_json::from_str::<ClientMessage>(&text)
+                let parsed = serde_json::from_str::<ClientMessage>(&text);
+                // P142: the owner's administration asks for the pairing key on every message, which makes each one a chance
+                // to guess it. Counted here, before any handler waits, so a burst of guesses can't all get through.
+                if let (Ok(message), None) = (&parsed, &member) {
+                    if let Some(reply) = spend_admin_attempt(&attempts, peer.ip(), &auth_key, message) {
+                        let _ = tx.send(reply);
+                        continue;
+                    }
+                }
+                parsed
             } {
                 // P84: a member on a provisional password may only change it; a member never
                 // reaches the hub's administration.

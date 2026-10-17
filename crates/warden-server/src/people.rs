@@ -174,7 +174,13 @@ const ROOT_ONLY: &str = "only the workspace's owner can do this";
 /// The reply that turns a member away from a request that's the root's — administration and
 /// hub-wide views — or `None` when a member may make it.
 pub fn member_refusal(message: &ClientMessage) -> Option<ServerMessage> {
-    let message_text = ROOT_ONLY.to_string();
+    refusal_with(message, ROOT_ONLY)
+}
+
+/// The error reply of the kind `message` is answered with, saying `text`; `None` for a message that has no error of its
+/// own to answer with.
+fn refusal_with(message: &ClientMessage, text: &str) -> Option<ServerMessage> {
+    let message_text = text.to_string();
     Some(match message {
         // `EditAgentOrg` and `ListAgentOrg` are not here: whether a member may is the access the owner gave them, which only the
         // handler can read (P120).
@@ -237,7 +243,27 @@ const CHANGE_PASSWORD_FIRST: &str = "choose your own password first — you're s
 /// While a member is on a provisional password, everything but changing it (and keeping the
 /// connection up) is turned away with this reply. `None` lets the message through.
 pub fn password_gate(message: &ClientMessage) -> Option<ServerMessage> {
-    let text = CHANGE_PASSWORD_FIRST.to_string();
+    gate_with(message, CHANGE_PASSWORD_FIRST)
+}
+
+const TOO_MANY_ATTEMPTS: &str = "too many attempts, try again later";
+
+/// The pairing key an administration message asks for (`pairing_key`, the one field they all share), or `None` for a
+/// message that doesn't ask for one. Read from the message's own JSON so a new variant is covered without being listed.
+pub fn admin_proof(message: &ClientMessage) -> Option<String> {
+    let value = serde_json::to_value(message).ok()?;
+    value.get("pairing_key").or_else(|| value.get("pairingKey"))?.as_str().map(str::to_string)
+}
+
+/// The reply to an administration message from an address that used its attempts up (P142), of the kind that message is
+/// answered with; `None` if it has none, and the handler then answers as always.
+pub fn too_many_attempts_reply(message: &ClientMessage) -> Option<ServerMessage> {
+    gate_with(message, TOO_MANY_ATTEMPTS)
+}
+
+/// Like `password_gate`, but every message that can be answered with an error is, saying `text`.
+fn gate_with(message: &ClientMessage, text: &str) -> Option<ServerMessage> {
+    let text = text.to_string();
     Some(match message {
         ClientMessage::ChangePassword { .. } | ClientMessage::Ping { .. } | ClientMessage::Goodbye { .. } | ClientMessage::Hello { .. } => return None,
         ClientMessage::Chat { conversation_id, .. } => ServerMessage::ChatError { message: text, conversation_id: conversation_id.clone(), spend_limit_id: None },
@@ -280,7 +306,7 @@ pub fn password_gate(message: &ClientMessage) -> Option<ServerMessage> {
         | ClientMessage::SetLearning { request_id, .. } => {
             ServerMessage::UserError { request_id: *request_id, message: text, auth_rejected: true }
         }
-        other => return member_refusal(other),
+        other => return refusal_with(other, &text),
     })
 }
 
@@ -573,5 +599,21 @@ mod tests {
         // and giving the access is the owner's.
         let give = ClientMessage::SetUserOrgAccess { request_id: 3, pairing_key: "k".into(), id: "ana".into(), access: "edit".into() };
         assert!(matches!(member_refusal(&give), Some(ServerMessage::UserError { auth_rejected: true, .. })));
+    }
+
+    #[test]
+    fn an_administration_message_is_told_apart_by_the_key_it_carries_and_answered_in_its_own_kind_when_turned_away() {
+        use warden_server_protocol::protocol::DeviceAction;
+        let set = ClientMessage::SetDeviceStatus { request_id: 1, pairing_key: "guess".into(), device_id: "phone".into(), action: DeviceAction::Approve };
+        let create = ClientMessage::CreateApiKey { request_id: 2, pairing_key: "guess".into(), name: "n8n".into(), agent_id: None };
+        let rotate = ClientMessage::RotatePairingKey { request_id: 3, pairing_key: "guess".into() };
+        for message in [&set, &create, &rotate] {
+            assert_eq!(admin_proof(message).as_deref(), Some("guess"), "{message:?}");
+        }
+        assert_eq!(admin_proof(&ClientMessage::ListDevices { request_id: 4 }), None, "listing asks for no key");
+
+        assert!(matches!(too_many_attempts_reply(&set), Some(ServerMessage::DeviceError { auth_rejected: true, ref message, .. }) if message.contains("too many attempts")));
+        assert!(matches!(too_many_attempts_reply(&create), Some(ServerMessage::ApiKeyError { auth_rejected: true, ref message, .. }) if message.contains("too many attempts")));
+        assert!(matches!(too_many_attempts_reply(&rotate), Some(ServerMessage::DeviceError { auth_rejected: true, .. })));
     }
 }
