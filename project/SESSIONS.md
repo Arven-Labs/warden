@@ -11,8 +11,8 @@
 - **Pedido do usuário**: "podemos seguir"; escolheu o resto do P142 e, entre as opções, só os endpoints HTTP. Planejei em modo de plano.
 - **Feito**: `Reservation` e `AttemptLimiter::reserve`/`lockout` em `src/attempt_limit.rs`; `status::serve`, `openai_api::serve` e `webhooks::serve` recebem a reserva, soltam quando a chave é aceita e devolvem se foi 401; `serve_web_or_ws` reserva por IP e responde 429 com `Retry-After` quando o endereço está bloqueado. `tests/http_attempt_limit.rs` (6 casos) e um unitário.
 - **Correção de rumo do usuário**: no meio do trabalho ele perguntou "tá rodando build local? não combinamos de fazer isso no CI do github?". Tinha razão: o P149 é justamente tirar compilação e testes da máquina, e eu rodei `cargo` local a sessão toda (P155 e P142). Parei o build, e daqui em diante a verificação é só o `ci.yml`. Registrei na memória do Claude.
-- **Conferido**: nada ainda. Esta sessão não compilei o código novo; o que vale é o CI do commit.
-- **Sobra**: ver o CI do commit; `/hooks` sem teste próprio; as mensagens de admin do WebSocket; `X-Forwarded-For`.
+- **Conferido no CI, sem compilar nada local**: o 1º run (`827f4c9`, 39050347705) compilou, passou no clippy e falhou em 1 teste unitário meu (`a_reservation_is_refused_when_blocked_and_released_only_once`: a `reserve` recusada já inicia o bloqueio, então a vaga devolvida depois não adianta; o erro era do teste, não do código). Corrigi a ordem das asserções (`7b14341`) e o run 39050943651 ficou verde (Rust: clippy e testes). Os 6 casos de `tests/http_attempt_limit.rs` passaram nos dois runs. Apaguei a pasta `target/` local (33 GB) a pedido do usuário.
+- **Sobra**: `/hooks` sem teste próprio; as mensagens de admin do WebSocket; `X-Forwarded-For`.
 
 ---
 
