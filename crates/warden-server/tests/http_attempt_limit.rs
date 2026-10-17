@@ -9,6 +9,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use support::{raw_http, spin_up_server_with_attempt_limit, unique_temp_dir, MockProvider};
+use warden_bootstrap::tasks::TaskStore;
 use warden_core::memory::Vault;
 use warden_core::orchestrator::Orchestrator;
 use warden_server::api_keys::ApiKeyStore;
@@ -137,6 +138,7 @@ async fn hooks_hub(limit: AttemptLimit) -> (SocketAddr, String) {
     let server = Server::bind("127.0.0.1:0".parse().unwrap(), "test-key", "Test Hub", Arc::new(orchestrator), dir.join("conversations"), dir.join("devices.json"))
         .await
         .unwrap()
+        .with_tasks(TaskStore::new(dir.join("tasks")), false)
         .with_webhooks(tokens_path)
         .with_attempt_limit(limit);
     let addr = server.local_addr().unwrap();
