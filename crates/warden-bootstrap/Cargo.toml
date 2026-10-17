@@ -42,3 +42,6 @@ warden-sync = { path = "../warden-sync" }
 
 [dev-dependencies]
 tokio.workspace = true
+# A model that goes quiet after some words and a token to stop its turn (the Stop button, `Orchestrator::with_stop`).
+futures-util = "0.3"
+tokio-util = "0.7"

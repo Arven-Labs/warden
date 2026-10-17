@@ -587,7 +587,7 @@ export default function App() {
     }
   }
 
-  /** Stops the code task this conversation is running (P103 b); the turn still ends with the engine's answer so far. */
+  /** The Stop button: the turn ends where it is, with what the engine or the model had written by then (P103 b, P157). */
   function handleCancel() {
     connRef.current?.cancelTurn(activeIdRef.current);
   }
@@ -1126,7 +1126,7 @@ export default function App() {
                 entries={entries}
                 pending={activeId in pendingTurns}
                 live={liveTurns[activeId]}
-                onCancel={projects.some((p) => p.id === projectId && p.code) ? handleCancel : undefined}
+                onCancel={handleCancel}
                 disabled={!phase.connected}
                 onSend={handleSend}
                 onTranscribe={handleTranscribe}

@@ -52,6 +52,72 @@ async fn the_models_words_arrive_as_chat_events_before_the_answer() {
     assert!(live.len() >= 6 + long.len(), "the long piece, and the ones held before it, went out");
 }
 
+/// P157: the Stop button. An ordinary turn ends where it is: the answer is what the model had written, it is saved as the
+/// conversation's answer, and a turn stopped before any word leaves only the person's question.
+#[tokio::test]
+async fn stopping_an_ordinary_turn_keeps_what_was_written_as_the_answer() {
+    use warden_server_protocol::protocol::ChatEventDto;
+
+    let long = "x".repeat(300);
+    let addr = spin_up_server(MockProvider::streaming_then_hanging(&["Hel", "lo ", &long])).await;
+    let mut conn = ServerConnection::connect(&format!("ws://{addr}"), "dev-1", "Test Device", "test-key").await.unwrap();
+
+    conn.send(&ClientMessage::Chat { message: "hello".into(), conversation_id: Some("c1".into()), attachments: Vec::new(), agent_id: None, project_id: None, workdir: None, thread_of: None }).await.unwrap();
+    // The words are on the way: the model is still going (it never ends by itself).
+    loop {
+        match conn.recv().await.unwrap() {
+            Some(ServerMessage::ChatEvent { event: ChatEventDto::Text { .. }, .. }) => break,
+            other => panic!("expected the first words, got {other:?}"),
+        }
+    }
+    conn.send(&ClientMessage::CancelTurn { conversation_id: "c1".into() }).await.unwrap();
+
+    let content = loop {
+        match conn.recv().await.unwrap() {
+            Some(ServerMessage::ChatEvent { .. }) => {}
+            Some(ServerMessage::ChatResponse { content, .. }) => break content,
+            other => panic!("expected the answer that ends the stopped turn, got {other:?}"),
+        }
+    };
+    assert_eq!(content, format!("Hello {long}"), "the answer is what had been written");
+
+    conn.send(&ClientMessage::RequestHistory { request_id: 1, limit: None, conversation_id: Some("c1".into()) }).await.unwrap();
+    match conn.recv().await.unwrap() {
+        Some(ServerMessage::History { messages, .. }) => {
+            let turns: Vec<_> = messages.iter().map(|m| (m.role, m.content.as_str())).collect();
+            assert_eq!(turns, vec![(HistoryRole::User, "hello"), (HistoryRole::Assistant, format!("Hello {long}").as_str())]);
+        }
+        other => panic!("expected History, got {other:?}"),
+    }
+
+    // The connection works for the next question after a stop.
+    conn.ping(3).await.unwrap();
+    assert!(matches!(conn.recv().await.unwrap(), Some(ServerMessage::Pong { nonce: 3 })));
+}
+
+#[tokio::test]
+async fn a_turn_stopped_before_any_word_leaves_only_the_question() {
+    let addr = spin_up_server(MockProvider::streaming_then_hanging(&[])).await;
+    let mut conn = ServerConnection::connect(&format!("ws://{addr}"), "dev-1", "Test Device", "test-key").await.unwrap();
+
+    conn.send(&ClientMessage::Chat { message: "hello".into(), conversation_id: Some("c1".into()), attachments: Vec::new(), agent_id: None, project_id: None, workdir: None, thread_of: None }).await.unwrap();
+    // Messages of one connection are handled in order, so the stop finds the turn the line above started.
+    conn.send(&ClientMessage::CancelTurn { conversation_id: "c1".into() }).await.unwrap();
+    match conn.recv().await.unwrap() {
+        Some(ServerMessage::ChatResponse { content, .. }) => assert_eq!(content, ""),
+        other => panic!("expected an empty answer, got {other:?}"),
+    }
+
+    conn.send(&ClientMessage::RequestHistory { request_id: 1, limit: None, conversation_id: Some("c1".into()) }).await.unwrap();
+    match conn.recv().await.unwrap() {
+        Some(ServerMessage::History { messages, .. }) => {
+            let turns: Vec<_> = messages.iter().map(|m| (m.role, m.content.as_str())).collect();
+            assert_eq!(turns, vec![(HistoryRole::User, "hello")], "no empty answer is saved");
+        }
+        other => panic!("expected History, got {other:?}"),
+    }
+}
+
 #[tokio::test]
 async fn a_failing_model_call_comes_back_as_a_chat_error_not_a_dropped_connection() {
     let addr = spin_up_server(MockProvider::failing()).await;

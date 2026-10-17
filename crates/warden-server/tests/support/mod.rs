@@ -40,12 +40,14 @@ pub struct MockProvider {
     pub tool_call: Option<(String, Value)>,
     /// When not empty, `chat_stream` answers with these pieces as separate `ContentDelta`s, the way a real provider streams (P157).
     pub pieces: Vec<String>,
+    /// With `pieces`: after the last one the stream goes quiet for good, like a model still going when the person presses Stop (P157).
+    pub hangs: bool,
     calls: AtomicUsize,
 }
 
 impl MockProvider {
     pub fn replying(reply: impl Into<String>) -> Self {
-        Self { reply: reply.into(), delay: Duration::ZERO, fail: false, tool_call: None, pieces: Vec::new(), calls: AtomicUsize::new(0) }
+        Self { reply: reply.into(), delay: Duration::ZERO, fail: false, tool_call: None, pieces: Vec::new(), hangs: false, calls: AtomicUsize::new(0) }
     }
 
     /// Answers with `pieces` one after the other, as separate stream events (P157); the reply is all of them put together.
@@ -53,12 +55,17 @@ impl MockProvider {
         Self { pieces: pieces.iter().map(|p| p.to_string()).collect(), ..Self::replying(pieces.concat()) }
     }
 
+    /// Writes `pieces` and then goes quiet for good: the turn only ends when it is stopped (P157).
+    pub fn streaming_then_hanging(pieces: &[&str]) -> Self {
+        Self { hangs: true, ..Self::streaming(pieces) }
+    }
+
     pub fn failing() -> Self {
-        Self { reply: String::new(), delay: Duration::ZERO, fail: true, tool_call: None, pieces: Vec::new(), calls: AtomicUsize::new(0) }
+        Self { reply: String::new(), delay: Duration::ZERO, fail: true, tool_call: None, pieces: Vec::new(), hangs: false, calls: AtomicUsize::new(0) }
     }
 
     pub fn replying_after(reply: impl Into<String>, delay: Duration) -> Self {
-        Self { reply: reply.into(), delay, fail: false, tool_call: None, pieces: Vec::new(), calls: AtomicUsize::new(0) }
+        Self { reply: reply.into(), delay, fail: false, tool_call: None, pieces: Vec::new(), hangs: false, calls: AtomicUsize::new(0) }
     }
 
     /// First `chat_stream` call requests `tool(arguments)`; the *second* call's reply is derived
@@ -67,7 +74,7 @@ impl MockProvider {
     /// the client's real tool result made it all the way back through the model, not just that a
     /// request/response pair of frames was exchanged.
     pub fn calling_tool_then_replying(tool: impl Into<String>, arguments: Value) -> Self {
-        Self { reply: String::new(), delay: Duration::ZERO, fail: false, tool_call: Some((tool.into(), arguments)), pieces: Vec::new(), calls: AtomicUsize::new(0) }
+        Self { reply: String::new(), delay: Duration::ZERO, fail: false, tool_call: Some((tool.into(), arguments)), pieces: Vec::new(), hangs: false, calls: AtomicUsize::new(0) }
     }
 }
 
@@ -82,9 +89,11 @@ impl ModelProvider for MockProvider {
         }
 
         let call = self.calls.fetch_add(1, Ordering::SeqCst);
-        if !self.pieces.is_empty() {
+        if !self.pieces.is_empty() || self.hangs {
+            use futures_util::StreamExt;
             let events: Vec<_> = self.pieces.iter().map(|piece| Ok(StreamEvent::ContentDelta(piece.clone()))).collect();
-            return Ok(Box::pin(futures_util::stream::iter(events)));
+            let written = futures_util::stream::iter(events);
+            return Ok(if self.hangs { Box::pin(written.chain(futures_util::stream::pending())) } else { Box::pin(written) });
         }
         if let Some((name, arguments)) = &self.tool_call {
             if call == 0 {

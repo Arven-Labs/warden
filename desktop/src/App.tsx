@@ -835,6 +835,8 @@ function App() {
         if (saved) setConversations((prev) => replaceWithSaved(prev, saved));
         return;
       }
+      // Stopped before the model wrote anything: the question stays and there is no empty answer after it.
+      if (reply.content === "" && !(reply.attachments && reply.attachments.length > 0) && !(reply.generatedFiles && reply.generatedFiles.length > 0)) return;
       appendMessage(conversationId, {
         id: crypto.randomUUID(),
         role: "assistant",
@@ -927,10 +929,9 @@ function App() {
     }
   }
 
-  /** The Stop button: the turn ends on its own, with what the engine had by then or an error to show. */
+  /** The Stop button: the turn ends where it is, with what the engine or the model had written by then, which is kept as the answer. */
   function handleCancel() {
     if (activeConversationId === null) return;
-    // A hub can only stop a code project's task; an ordinary turn there runs to its answer.
     const sent = remote ? hubSend({ type: "cancelTurn", conversationId: activeConversationId }) : invoke("cancel_turn", { conversationId: activeConversationId });
     sent.catch((err) => setSendError(String(err)));
   }
@@ -1067,7 +1068,7 @@ function App() {
           onSendMessage={handleSendMessage}
           isSending={isSending}
           live={activeConversationId === null ? undefined : liveTurns[activeConversationId]}
-          onCancel={projects.some((p) => p.id === currentProjectId && p.code) ? handleCancel : undefined}
+          onCancel={handleCancel}
           codeMode={codeMode}
           onCodeMode={handleCodeMode}
           sendError={sendError}

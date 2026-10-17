@@ -93,6 +93,7 @@ impl CodeTurn<'_> {
             combo_id: None,
             client_tool_calls: Vec::new(),
             tools_used: outcome.tools_used,
+            stopped: false,
         })
     }
 }

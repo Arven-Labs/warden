@@ -4,6 +4,7 @@ use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde_json::Value;
+use tokio_util::sync::CancellationToken;
 
 use crate::autonomy::{Autonomy, Category, Classifier};
 use crate::budget::{SpendTurn, TurnBudget, UsageSlice};
@@ -61,6 +62,9 @@ pub struct MessageOutcome {
     /// Names of the tools this turn actually ran (P115), each once, in the order first called. Only names — never
     /// arguments or results. Lets the learning step tell work that used tools from a claim that it did.
     pub tools_used: Vec<String>,
+    /// The turn was stopped before the model finished (`with_stop`): `content` is what had been written of the last call by then, which
+    /// may be nothing. A caller keeps it as the answer, and saves no empty one.
+    pub stopped: bool,
 }
 
 #[derive(Clone)]
@@ -116,6 +120,9 @@ pub struct Orchestrator {
     /// Looked at before each model call (P123), so a person can pause the turn of a task: set with `task_link` on the turn of a
     /// background task, and alone (`with_pause_gate`) on a delegation the caller waits for.
     pause_gate: Option<PauseGate>,
+    /// When it is cancelled the turn ends where it is, with what the model had written so far (`MessageOutcome::stopped`). `None` on every
+    /// channel that has no way to stop a turn.
+    stop: Option<CancellationToken>,
 }
 
 /// How many levels of background tasks a turn can start: the root's tasks, and the subtasks of those, and no further (P123).
@@ -145,7 +152,14 @@ impl Orchestrator {
             task_recorder: None,
             task_link: None,
             pause_gate: None,
+            stop: None,
         }
+    }
+
+    /// Returns a copy whose turn ends where it is when `token` is cancelled (the Stop button): the model call or the tool in progress is
+    /// dropped and the turn returns `Ok` with what had been written of the answer, `stopped` set. Sub-agents are not stopped by it.
+    pub fn with_stop(&self, token: CancellationToken) -> Self {
+        Self { stop: Some(token), ..self.clone() }
     }
 
     /// Returns a copy that is the turn of a background task (P123): it may start subtasks of its own, recorded under `link`'s task, in its
@@ -763,7 +777,29 @@ impl Orchestrator {
         let client_tools: &[ToolSpec] = if self.charged { &[] } else { &self.client_tools };
         let is_client_tool = |name: &str| client_tools.iter().any(|spec| spec.name == name);
 
+        // The turn ends here when it is stopped: what it has counted so far, and the text given.
+        macro_rules! stopped {
+            ($content:expr) => {
+                return Ok(MessageOutcome {
+                    content: $content,
+                    usage: has_usage.then_some(usage),
+                    usage_slices,
+                    attachments,
+                    generated_files,
+                    fallbacks,
+                    provider_id: None,
+                    combo_id: self.model.combo_id().map(str::to_string),
+                    client_tool_calls: Vec::new(),
+                    tools_used,
+                    stopped: true,
+                })
+            };
+        }
+
         for _ in 0..MAX_TOOL_ITERATIONS {
+            if self.stop.as_ref().is_some_and(|token| token.is_cancelled()) {
+                stopped!(String::new());
+            }
             // What a background task said while the model was answering (P124) goes out before the next call starts.
             drain_progress(&mut progress, &mut on_event);
             // The turn of a task a person paused (P123) waits here, between two calls, until it is resumed.
@@ -795,16 +831,35 @@ impl Orchestrator {
             if let Some(notice) = meter {
                 call_messages.push(Message::system(notice));
             }
-            let stream = self.model.chat_stream(call_messages, tool_specs).await?;
             // A reserve that answered in place of the turn's provider (P79) says so first.
             let mut switched: Option<ProviderFallback> = None;
-            let response = crate::model::drain_chat_stream(stream, |event| {
-                if let StreamEvent::ProviderFallback(switch) = event {
-                    switched = Some(switch.clone());
-                }
-                on_event(event)
-            })
-            .await?;
+            // What this call has written so far: the answer if the turn is stopped now. Words before a tool call are not part of the
+            // answer, as in the message that ends a turn.
+            let written = std::sync::Mutex::new(String::new());
+            let call = async {
+                let stream = self.model.chat_stream(call_messages, tool_specs).await?;
+                crate::model::drain_chat_stream(stream, |event| {
+                    match event {
+                        StreamEvent::ContentDelta(text) => written.lock().unwrap_or_else(|e| e.into_inner()).push_str(text),
+                        StreamEvent::ToolCallDelta { .. } => written.lock().unwrap_or_else(|e| e.into_inner()).clear(),
+                        StreamEvent::ProviderFallback(switch) => switched = Some(switch.clone()),
+                        _ => {}
+                    }
+                    on_event(event)
+                })
+                .await
+            };
+            let answered = match &self.stop {
+                Some(token) => tokio::select! {
+                    result = call => Some(result),
+                    _ = token.cancelled() => None,
+                },
+                None => Some(call.await),
+            };
+            let Some(response) = answered else {
+                stopped!(written.into_inner().unwrap_or_else(|e| e.into_inner()));
+            };
+            let response = response?;
             let served_model = switched.as_ref().map_or_else(|| self.model.model_id().to_string(), |s| s.model.clone());
             // The provider that answered, for the ledger (P10): in a combo that fell back, the member that took over.
             let served_provider = switched.as_ref().map_or_else(|| self.model.provider_id().to_string(), |s| s.to.clone());
@@ -858,6 +913,7 @@ impl Orchestrator {
                     combo_id: answering_combo,
                     client_tool_calls,
                     tools_used,
+                    stopped: false,
                 });
             }
 
@@ -872,6 +928,7 @@ impl Orchestrator {
                         tokio::select! {
                             result = &mut call => break result,
                             Some(said) = next_progress(&mut progress) => on_event(&StreamEvent::ToolProgress { tool: said.tool, event: said.event }),
+                            _ = stop_signal(&self.stop) => stopped!(String::new()),
                         }
                     }
                 };
@@ -916,6 +973,14 @@ impl Orchestrator {
         };
         crate::autonomy::authorize(self.autonomy, &self.read_only_tools, &self.approval_required, category, self.approver.as_ref(), tool_call).await?;
         tool.call(tool_call.arguments.clone()).await
+    }
+}
+
+/// Resolves when the turn is stopped, and never when it has no way to be.
+async fn stop_signal(stop: &Option<CancellationToken>) {
+    match stop {
+        Some(token) => token.cancelled().await,
+        None => std::future::pending().await,
     }
 }
 
@@ -2420,6 +2485,135 @@ mod tests {
         assert!(matches!(&observed[0], StreamEvent::ContentDelta(s) if s == "Hel"));
         assert!(matches!(&observed[1], StreamEvent::ContentDelta(s) if s == "lo"));
         assert!(matches!(&observed[2], StreamEvent::Usage(_)));
+    }
+
+    /// Writes `pieces` and then goes quiet for good, like a model that is still going when the person presses Stop.
+    struct WritesThenHangs {
+        pieces: Vec<&'static str>,
+    }
+
+    #[async_trait]
+    impl ModelProvider for WritesThenHangs {
+        async fn chat_stream(&self, _messages: Vec<Message>, _tools: Vec<ToolSpec>) -> anyhow::Result<ChatStream> {
+            use futures_util::StreamExt;
+            let events: Vec<anyhow::Result<StreamEvent>> = self.pieces.iter().map(|p| Ok(StreamEvent::ContentDelta(p.to_string()))).collect();
+            Ok(Box::pin(futures_util::stream::iter(events).chain(futures_util::stream::pending())))
+        }
+    }
+
+    #[tokio::test]
+    async fn a_stopped_turn_ends_with_what_the_model_had_written() {
+        let stop = CancellationToken::new();
+        let orchestrator = Orchestrator::new(Arc::new(WritesThenHangs { pieces: vec!["one ", "two ", "three"] }), temp_vault()).with_stop(stop.clone());
+        // Stop as the second piece arrives: the third is never read.
+        let outcome = orchestrator
+            .handle_message_streaming(&[], "hi", |event| {
+                if matches!(event, StreamEvent::ContentDelta(text) if text == "two ") {
+                    stop.cancel();
+                }
+            })
+            .await
+            .unwrap();
+        assert!(outcome.stopped);
+        assert_eq!(outcome.content, "one two ");
+    }
+
+    #[tokio::test]
+    async fn a_turn_stopped_before_it_begins_makes_no_model_call_and_says_nothing() {
+        let stop = CancellationToken::new();
+        stop.cancel();
+        let orchestrator = Orchestrator::new(Arc::new(WritesThenHangs { pieces: vec!["never"] }), temp_vault()).with_stop(stop);
+        let outcome = orchestrator.handle_message(&[], "hi").await.unwrap();
+        assert!(outcome.stopped);
+        assert_eq!(outcome.content, "");
+    }
+
+    #[tokio::test]
+    async fn a_turn_nobody_can_stop_is_not_marked_stopped() {
+        let orchestrator = Orchestrator::new(Arc::new(MultiDeltaModel), temp_vault());
+        assert!(!orchestrator.handle_message(&[], "hi").await.unwrap().stopped);
+        // A token that is never cancelled changes nothing either.
+        let with_token = orchestrator.with_stop(CancellationToken::new());
+        let outcome = with_token.handle_message(&[], "hi").await.unwrap();
+        assert!(!outcome.stopped);
+        assert_eq!(outcome.content, "Hello");
+    }
+
+    /// Its first call writes a sentence and asks for the `hang` tool; the second writes a little and goes quiet.
+    struct CallsTheHangingToolThenWrites {
+        calls: std::sync::atomic::AtomicUsize,
+    }
+
+    #[async_trait]
+    impl ModelProvider for CallsTheHangingToolThenWrites {
+        async fn chat_stream(&self, _messages: Vec<Message>, _tools: Vec<ToolSpec>) -> anyhow::Result<ChatStream> {
+            use futures_util::StreamExt;
+            let call = self.calls.fetch_add(1, Ordering::SeqCst);
+            if call == 0 {
+                let events: Vec<anyhow::Result<StreamEvent>> = vec![
+                    Ok(StreamEvent::ContentDelta("Let me check. ".into())),
+                    Ok(StreamEvent::ToolCallDelta { index: 0, id: Some("c1".into()), name: Some("hang".into()), arguments_delta: Some("{}".into()), thought_signature: None }),
+                ];
+                return Ok(Box::pin(futures_util::stream::iter(events)));
+            }
+            let events: Vec<anyhow::Result<StreamEvent>> = vec![Ok(StreamEvent::ContentDelta("Found it".into()))];
+            Ok(Box::pin(futures_util::stream::iter(events).chain(futures_util::stream::pending())))
+        }
+    }
+
+    struct HangingTool {
+        finish: Arc<tokio::sync::Notify>,
+        /// Cancelled as the tool starts, so the stop comes while it runs.
+        stop_when_called: Option<CancellationToken>,
+    }
+
+    #[async_trait]
+    impl Tool for HangingTool {
+        fn spec(&self) -> ToolSpec {
+            ToolSpec { name: "hang".to_string(), description: "never ends on its own".to_string(), parameters: json!({}) }
+        }
+
+        async fn call(&self, _args: serde_json::Value) -> anyhow::Result<serde_json::Value> {
+            if let Some(stop) = &self.stop_when_called {
+                stop.cancel();
+            }
+            self.finish.notified().await;
+            Ok(json!("done"))
+        }
+    }
+
+    #[tokio::test]
+    async fn stopping_while_a_tool_runs_ends_the_turn_without_the_words_before_the_call() {
+        let stop = CancellationToken::new();
+        let model = CallsTheHangingToolThenWrites { calls: std::sync::atomic::AtomicUsize::new(0) };
+        let tool = HangingTool { finish: Arc::new(tokio::sync::Notify::new()), stop_when_called: Some(stop.clone()) };
+        let orchestrator = Orchestrator::new(Arc::new(model), temp_vault()).with_tool(Arc::new(tool)).with_stop(stop);
+        // The tool never finishes by itself and stops the turn as it starts: the turn ends while the tool runs.
+        let outcome = orchestrator.handle_message(&[], "hi").await.unwrap();
+        assert!(outcome.stopped);
+        assert_eq!(outcome.content, "", "the words before a tool call are not the answer");
+        assert!(outcome.tools_used.is_empty(), "a tool that did not finish is not counted");
+    }
+
+    #[tokio::test]
+    async fn stopping_in_the_call_after_a_tool_keeps_only_that_calls_words() {
+        let stop = CancellationToken::new();
+        let model = CallsTheHangingToolThenWrites { calls: std::sync::atomic::AtomicUsize::new(0) };
+        let finish = Arc::new(tokio::sync::Notify::new());
+        // The tool finishes at once (its permit is stored before the call waits for it).
+        finish.notify_one();
+        let orchestrator = Orchestrator::new(Arc::new(model), temp_vault()).with_tool(Arc::new(HangingTool { finish, stop_when_called: None })).with_stop(stop.clone());
+        let outcome = orchestrator
+            .handle_message_streaming(&[], "hi", |event| {
+                if matches!(event, StreamEvent::ContentDelta(text) if text == "Found it") {
+                    stop.cancel();
+                }
+            })
+            .await
+            .unwrap();
+        assert!(outcome.stopped);
+        assert_eq!(outcome.content, "Found it", "not 'Let me check. Found it'");
+        assert_eq!(outcome.tools_used, vec!["hang".to_string()]);
     }
 
     /// A non-streaming caller (`handle_message`, no-op sink) must still get exactly the same

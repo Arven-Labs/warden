@@ -1289,6 +1289,8 @@ async fn handle_connection<S: Transport>(ws: WebSocketStream<S>, peer: SocketAdd
     // not it advertised any `Hello.tools` — registered before the loop starts so a routed call
     // arriving right after this device's own Hello can never race the registration.
     let tool_channel = RemoteToolChannel::new(tx.clone());
+    // The ordinary turns this connection is running, by conversation, for the Stop button. Per connection, so a person can only stop their own.
+    let plain_stops: Arc<Mutex<HashMap<String, tokio_util::sync::CancellationToken>>> = Arc::default();
     devices.lock().unwrap().insert(device_id.clone(), tool_channel.clone());
     // P93: a node lends its shell, files, MCP tools and models to the hub's agents over this connection.
     let node_models = node_offer.as_ref().map(|_| ModelChannel::new(&tx));
@@ -1688,6 +1690,9 @@ async fn handle_connection<S: Transport>(ws: WebSocketStream<S>, peer: SocketAdd
                     let learn_member = member.as_ref().map(|m| m.id.clone());
                     let thread = thread_of.map(|link| warden_bootstrap::ThreadParent { conversation_id: link.conversation_id, message_id: link.message_id });
                     let busy = activity.begin();
+                    let stop = tokio_util::sync::CancellationToken::new();
+                    plain_stops.lock().unwrap_or_else(|e| e.into_inner()).insert(conversation_id.clone(), stop.clone());
+                    let (orchestrator, stops) = (orchestrator.with_stop(stop), plain_stops.clone());
                     tokio::spawn(async move {
                         let _busy = busy;
                         let learn_id = conversation_id.clone();
@@ -1701,7 +1706,7 @@ async fn handle_connection<S: Transport>(ws: WebSocketStream<S>, peer: SocketAdd
                                 let _ = events_tx.send(ServerMessage::ChatEvent { conversation_id: events_id.clone(), event });
                             }
                         };
-                        let reply = match warden_bootstrap::handle_agent_turn_in_with(
+                        let result = warden_bootstrap::handle_agent_turn_in_with(
                             &orchestrator,
                             &conversations_dir,
                             &conversation_id,
@@ -1714,15 +1719,20 @@ async fn handle_connection<S: Transport>(ws: WebSocketStream<S>, peer: SocketAdd
                             thread.as_ref(),
                             on_event,
                         )
-                        .await
-                        {
-                            Ok(outcome) => ServerMessage::ChatResponse {
-                                content: outcome.content,
-                                usage: outcome.usage,
-                                attachments: outcome.attachments,
-                                conversation_id: Some(conversation_id),
-                                fallbacks: outcome.fallbacks.into_iter().map(Into::into).collect(),
-                            },
+                        .await;
+                        stops.lock().unwrap_or_else(|e| e.into_inner()).remove(&learn_id);
+                        let mut stopped = false;
+                        let reply = match result {
+                            Ok(outcome) => {
+                                stopped = outcome.stopped;
+                                ServerMessage::ChatResponse {
+                                    content: outcome.content,
+                                    usage: outcome.usage,
+                                    attachments: outcome.attachments,
+                                    conversation_id: Some(conversation_id),
+                                    fallbacks: outcome.fallbacks.into_iter().map(Into::into).collect(),
+                                }
+                            }
                             // A member can't allow more, so the pause tells them to ask, with nothing to extend.
                             Err(err) => match is_member.then(|| member_limit_message(&err)).flatten() {
                                 Some(message) => ServerMessage::ChatError { message, conversation_id: Some(conversation_id), spend_limit_id: None },
@@ -1731,8 +1741,9 @@ async fn handle_connection<S: Transport>(ws: WebSocketStream<S>, peer: SocketAdd
                         };
                         let answered = matches!(reply, ServerMessage::ChatResponse { .. });
                         let _ = reply_tx.send(reply);
-                        // P104: once the person has their answer, the assistant may look for something to learn from it.
-                        if answered {
+                        // P104: once the person has their answer, the assistant may look for something to learn from it. Not from one
+                        // they cut short.
+                        if answered && !stopped {
                             learn_after_turn(&orchestrator, learning_settings.as_deref(), &conversations_dir, &learn_id, agent_id.as_deref(), learn_member.as_deref()).await;
                         }
                     });
@@ -1740,13 +1751,18 @@ async fn handle_connection<S: Transport>(ws: WebSocketStream<S>, peer: SocketAdd
                 Ok(ClientMessage::ResolveApproval { approval_id, approved, always }) => {
                     approver.resolve_always(approval_id, approved, always);
                 }
-                // P103 b: stops a code task. Never for a member: the tasks are the owner's, and a conversation id is
-                // all it takes to name one.
+                // P103 b: stops a code task, or an ordinary turn (P157). A code task is never a member's to stop: the tasks are the owner's,
+                // and a conversation id is all it takes to name one.
                 Ok(ClientMessage::CancelTurn { conversation_id }) => {
                     if let (None, Some(engine), Some((workdir, session))) = (&member, code_engine.clone(), code_turns.session_of(&conversation_id)) {
                         tokio::spawn(async move {
                             let _ = engine.abort(&workdir, &session).await;
                         });
+                    }
+                    // An ordinary turn of this connection ends where it is, with what the model had written (P157). Anyone can stop theirs:
+                    // the map is this connection's, so a conversation id names only their own.
+                    if let Some(stop) = plain_stops.lock().unwrap_or_else(|e| e.into_inner()).get(&conversation_id) {
+                        stop.cancel();
                     }
                 }
                 // P103 b: how much a code conversation asks, changeable while its task runs. Also the owner's alone.

@@ -301,6 +301,12 @@ async fn send_message(
     let asks = Arc::new(approval::TauriApprover { app, broker: state.approvals.clone() });
     let grants = state.grants.of(conversation_id.as_deref().unwrap_or(""), agent_id.as_deref());
     let orchestrator = orchestrator.with_approver(Arc::new(warden_core::autonomy::RememberingApprover::new(asks, grants)));
+    // The Stop button (P157): `cancel_turn` ends this turn where it is, and what the model had written is the answer.
+    let orchestrator = match conversation_id.as_deref() {
+        Some(id) => orchestrator.with_stop(state.code.register_stop(id)),
+        None => orchestrator,
+    };
+    let stop_id = conversation_id.clone();
     // P124: what a tool says about its work while it runs (a `code_task` editing and running commands) reaches the window as it happens,
     // and so do the model's own words as it writes them (P157). The answer that ends the turn has the whole text and replaces them.
     let on_live = conversation_id.map(|id| {
@@ -314,8 +320,11 @@ async fn send_message(
     let outcome = match on_live {
         Some(on_event) => orchestrator.handle_turn_streaming(&history, &content, attachments, persona.as_deref(), on_event).await,
         None => orchestrator.handle_turn(&history, &content, attachments, persona.as_deref()).await,
+    };
+    if let Some(id) = &stop_id {
+        state.code.finish_stop(id);
     }
-    .map_err(|e| format!("{e:#}"))?;
+    let outcome = outcome.map_err(|e| format!("{e:#}"))?;
     Ok(SendMessageResult {
         content: outcome.content,
         usage: outcome.usage,

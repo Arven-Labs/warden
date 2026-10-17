@@ -1491,7 +1491,12 @@ pub async fn handle_agent_turn_in_with(
         create: !existed,
         ..Default::default()
     };
-    append_messages(conversations_dir, conversation_id, options, vec![user, assistant_message(&outcome)])?;
+    // A turn stopped before the model had written anything leaves only the person's message, not an empty answer.
+    let mut saved = vec![user];
+    if !(outcome.stopped && outcome.content.is_empty()) {
+        saved.push(assistant_message(&outcome));
+    }
+    append_messages(conversations_dir, conversation_id, options, saved)?;
     Ok(outcome)
 }
 
@@ -3298,6 +3303,50 @@ oauth = true
         }
     }
 
+    /// Writes some words and then goes quiet for good, like a model still going when the person presses Stop.
+    struct WritesThenHangs(&'static str);
+
+    #[async_trait::async_trait]
+    impl ModelProvider for WritesThenHangs {
+        async fn chat_stream(&self, _messages: Vec<Message>, _tools: Vec<warden_core::tool::ToolSpec>) -> anyhow::Result<warden_core::model::ChatStream> {
+            use futures_util::StreamExt;
+            let words: Vec<anyhow::Result<warden_core::model::StreamEvent>> = vec![Ok(warden_core::model::StreamEvent::ContentDelta(self.0.to_string()))];
+            Ok(Box::pin(futures_util::stream::iter(words).chain(futures_util::stream::pending())))
+        }
+    }
+
+    /// The Stop button: what the model had written is the saved answer, and a turn stopped before any word saves only the question.
+    #[tokio::test]
+    async fn a_stopped_turn_saves_what_was_written_and_nothing_when_nothing_was() {
+        let root = temp_dir("stopped-turn");
+        let dir = root.join("conversations");
+        let vault = Arc::new(Vault::new(root.join("vault")));
+
+        let stop = tokio_util::sync::CancellationToken::new();
+        let orchestrator = Orchestrator::new(Arc::new(WritesThenHangs("Half an ans")), vault.clone()).with_stop(stop.clone());
+        let on_event = |event: &warden_core::model::StreamEvent| {
+            if matches!(event, warden_core::model::StreamEvent::ContentDelta(_)) {
+                stop.cancel();
+            }
+        };
+        let outcome = handle_agent_turn_in_with(&orchestrator, &dir, "c1", "hi", "question", Vec::new(), None, None, None, None, on_event).await.unwrap();
+        assert!(outcome.stopped);
+        let saved = load_conversation(&dir, "c1").unwrap().unwrap();
+        let said: Vec<_> = saved.messages.iter().map(|m| (m.role, m.content.as_str())).collect();
+        assert_eq!(said, vec![(ChatRole::User, "question"), (ChatRole::Assistant, "Half an ans")]);
+
+        // Stopped before the first word: the person's message stays, with no empty answer after it.
+        let early = tokio_util::sync::CancellationToken::new();
+        early.cancel();
+        let orchestrator = Orchestrator::new(Arc::new(WritesThenHangs("never")), vault).with_stop(early);
+        let outcome = handle_agent_turn(&orchestrator, &dir, "c2", "hi", "another", Vec::new(), None, None, None).await.unwrap();
+        assert!(outcome.stopped && outcome.content.is_empty());
+        let saved = load_conversation(&dir, "c2").unwrap().unwrap();
+        let said: Vec<_> = saved.messages.iter().map(|m| (m.role, m.content.as_str())).collect();
+        assert_eq!(said, vec![(ChatRole::User, "another")]);
+        std::fs::remove_dir_all(&root).ok();
+    }
+
     /// Answers "ok" and says it spent tokens, so the turn's answer is one `answered_by` stamps.
     struct SpendsTokens;
 
@@ -3369,6 +3418,7 @@ oauth = true
             combo_id: None,
             client_tool_calls: Vec::new(),
             tools_used: Vec::new(),
+            stopped: false,
         };
 
         let one = assistant_message(&outcome(Some("main"), vec![slice("main", 16)]));

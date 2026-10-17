@@ -9,6 +9,7 @@ use async_trait::async_trait;
 use serde_json::json;
 use tauri::{AppHandle, Emitter, State};
 use tokio::sync::OnceCell;
+use tokio_util::sync::CancellationToken;
 use warden_bootstrap::code_turn::CodeTurn;
 use warden_core::code_engine::{CodeEngine, CodeEvent, CodeMode, CodeModes, TurnOutcome, TurnRequest};
 use warden_core::model::Attachment;
@@ -44,6 +45,8 @@ pub struct CodeState {
     slot: CodeEngineSlot,
     /// The hub's models a task may name, refilled by every build so the engine's route follows the settings.
     models: EngineModelSlot,
+    /// The ordinary turns this window is running, by conversation, for the Stop button (P157): `cancel_turn` ends the one it names.
+    plain_stops: Mutex<std::collections::HashMap<String, CancellationToken>>,
 }
 
 /// The engine as the agents' `code_task` sees it: it asks for the real one, and for the model route it needs, only when a task comes.
@@ -101,6 +104,28 @@ pub async fn bootstrap_desktop(engine: &CodeEngineSlot, engine_models: &EngineMo
 }
 
 impl CodeState {
+    /// A token that ends the ordinary turn of `conversation_id` where it is, when `cancel_turn` names it. `finish_stop` drops it.
+    pub fn register_stop(&self, conversation_id: &str) -> CancellationToken {
+        let token = CancellationToken::new();
+        self.plain_stops.lock().unwrap_or_else(|e| e.into_inner()).insert(conversation_id.to_string(), token.clone());
+        token
+    }
+
+    pub fn finish_stop(&self, conversation_id: &str) {
+        self.plain_stops.lock().unwrap_or_else(|e| e.into_inner()).remove(conversation_id);
+    }
+
+    /// Cancels the ordinary turn of `conversation_id`, if it is running one. True when there was one.
+    fn stop_plain(&self, conversation_id: &str) -> bool {
+        match self.plain_stops.lock().unwrap_or_else(|e| e.into_inner()).get(conversation_id) {
+            Some(token) => {
+                token.cancel();
+                true
+            }
+            None => false,
+        }
+    }
+
     /// Puts the engine where `code_task` looks for it, once the orchestrator it follows exists. Nothing is started until a task.
     pub fn install_engine(&self, orchestrator: Arc<Mutex<Result<Orchestrator, String>>>) {
         let engine: Arc<dyn CodeEngine> = Arc::new(LazyEngine { orchestrator, runtime: self.runtime.clone(), models: self.models.clone() });
@@ -184,9 +209,14 @@ pub fn set_code_mode(state: State<'_, AppState>, conversation_id: String, mode: 
     state.code.set_mode(&conversation_id, &mode);
 }
 
-/// The Stop button: asks the engine to stop the task this conversation is running. Harmless when it isn't running one.
+/// The Stop button: ends the ordinary turn this conversation is running where it is, or asks the engine to stop its code task. Harmless when
+/// it isn't running either.
 #[tauri::command]
 pub async fn cancel_turn(state: State<'_, AppState>, conversation_id: String) -> Result<(), String> {
+    // An ordinary turn ends where it is, with what the model had written (P157).
+    if state.code.stop_plain(&conversation_id) {
+        return Ok(());
+    }
     let (Some((workdir, session)), Some(runtime)) = (state.code.turns.session_of(&conversation_id), state.code.runtime.get()) else {
         return Ok(());
     };

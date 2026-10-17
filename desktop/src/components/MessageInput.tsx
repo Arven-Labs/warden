@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
 import { invoke } from "@tauri-apps/api/core";
-import { AttachIcon, CloseIcon, MicIcon, SendIcon } from "./Icons";
+import { AttachIcon, CloseIcon, MicIcon, SendIcon, StopIcon } from "./Icons";
 import type { Attachment } from "../types";
 
 interface MessageInputProps {
@@ -9,11 +9,13 @@ interface MessageInputProps {
   /** Bumped by the parent whenever the active conversation changes, so the composer refocuses. */
   focusKey?: string | null;
   disabled?: boolean;
+  /** Given while a turn is being answered: the send button becomes a Stop button that ends it where it is (P157). */
+  onStop?: () => void;
   /** Shift+Tab in the box, as in Claude Code: the next mode of a code conversation. Absent when there is no mode to change. */
   onCycleMode?: () => void;
 }
 
-function MessageInput({ onSend, focusKey, disabled, onCycleMode }: MessageInputProps) {
+function MessageInput({ onSend, focusKey, disabled, onStop, onCycleMode }: MessageInputProps) {
   const [draft, setDraft] = useState("");
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [attachError, setAttachError] = useState<string | null>(null);
@@ -145,14 +147,20 @@ function MessageInput({ onSend, focusKey, disabled, onCycleMode }: MessageInputP
           disabled={disabled || isTranscribing}
           rows={1}
         />
-        <button
-          type="submit"
-          className="chat-send-btn"
-          aria-label="Send message"
-          disabled={disabled || (draft.trim() === "" && attachments.length === 0)}
-        >
-          <SendIcon size={17} />
-        </button>
+        {onStop ? (
+          <button type="button" className="chat-send-btn chat-stop-btn" aria-label="Stop" title="Stop: keeps what has been written" onClick={onStop}>
+            <StopIcon size={15} />
+          </button>
+        ) : (
+          <button
+            type="submit"
+            className="chat-send-btn"
+            aria-label="Send message"
+            disabled={disabled || (draft.trim() === "" && attachments.length === 0)}
+          >
+            <SendIcon size={17} />
+          </button>
+        )}
       </form>
       <p className="chat-input-hint">Warden can make mistakes. Check important info.</p>
     </div>

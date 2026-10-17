@@ -38,6 +38,8 @@ cpal = "0.18"
 hound = "3.5"
 qrcode = "0.14"
 tokio = { workspace = true, features = ["sync"] }
+# `CancellationToken`: the Stop button ends an ordinary turn where it is (`Orchestrator::with_stop`).
+tokio-util = "0.7"
 warden-bootstrap = { path = "../../crates/warden-bootstrap" }
 warden-core = { path = "../../crates/warden-core" }
 warden-server = { path = "../../crates/warden-server" }

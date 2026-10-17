@@ -13,7 +13,7 @@ interface Props {
   pending: boolean;
   /** What a code engine has done so far in this conversation's running task (P103 b), or the tools of the tasks an agent started (P124), shown instead of the dots. */
   live?: LiveTurn;
-  /** Stops that task. Only a code conversation has one: for any other the live bubble has no stop button. */
+  /** The Stop button (P157): ends the turn being answered where it is; what was written is kept as the answer. Shown while it runs. */
   onCancel?: () => void;
   /** The connection is down — typing is fine, sending isn't. */
   disabled: boolean;
@@ -99,8 +99,8 @@ function PendingChip({ item, onRemove }: { item: PendingAttachment; onRemove: ()
 
 const TOOL_MARK = { running: "…", completed: "✓", failed: "✗" } as const;
 
-/** The task a code engine is running: its words and its tools in the order they happened, and the way to stop it. */
-function LiveBubble({ live, onCancel }: { live: LiveTurn; onCancel?: () => void }) {
+/** What a turn has done so far: its words and its tools in the order they happened. */
+function LiveBubble({ live }: { live: LiveTurn }) {
   return (
     <li className="bubble bubble--assistant bubble--live" aria-label="Em andamento" aria-live="polite">
       {live.items.map((item, i) =>
@@ -123,12 +123,6 @@ function LiveBubble({ live, onCancel }: { live: LiveTurn; onCancel?: () => void 
         ),
       )}
       {live.notice && <p className="live-notice">{live.notice}</p>}
-      {/* Only a code conversation has a task of its own to stop; a manager's chat shows its tasks' tools but stopping is not this button's. */}
-      {onCancel && (
-        <button type="button" className="live-stop" onClick={onCancel}>
-          Parar
-        </button>
-      )}
     </li>
   );
 }
@@ -267,7 +261,7 @@ export default function ChatView({ entries, pending, live, onCancel, disabled, o
                 )}
               </li>
             ))}
-            {pending && live && <LiveBubble live={live} onCancel={onCancel} />}
+            {pending && live && <LiveBubble live={live} />}
             {pending && !live && (
               <li className="bubble bubble--assistant bubble--pending" aria-label="Pensando">
                 <span className="dot" />
@@ -347,9 +341,15 @@ export default function ChatView({ entries, pending, live, onCancel, disabled, o
             placeholder={voice.kind === "recording" ? "Gravando… toque em ■ para parar" : "Mensagem (Shift+Enter quebra a linha)"}
             rows={1}
           />
-          <button type="submit" className="primary-button" disabled={!canSend}>
-            Enviar
-          </button>
+          {pending && onCancel ? (
+            <button type="button" className="primary-button" onClick={onCancel} title="Parar: mantém o que já foi escrito">
+              Parar
+            </button>
+          ) : (
+            <button type="submit" className="primary-button" disabled={!canSend}>
+              Enviar
+            </button>
+          )}
         </div>
       </form>
     </div>
