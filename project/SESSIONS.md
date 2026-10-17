@@ -2,7 +2,18 @@
 
 > **Nota**: Este log foi criado junto com o projeto. As sessões serão registradas aqui conforme o trabalho avança.
 >
-> Última atualização: 2026-10-17 (Sessão 234)
+> Última atualização: 2026-10-17 (Sessão 235)
+
+---
+
+### 2026-10-17 — Sessão 235 (backup fora do host: P138)
+
+- **Pedido do usuário**: "vamos no ultimo", das fatias que listei (o backup fora do host). Planejei em modo de plano; o usuário escolheu, entre comando livre, S3 nativo e SSH embutido, **um comando do operador rodado depois de cada backup**.
+- **Feito** (`crates/warden-orchestrator`): `ship.rs` (`BackupSink`, `CommandSink`, o separador de argumentos), `InstanceManager::with_sink`, `backup` = `backup_local` + envio (o `upgrade` usa o local e só avisa se o envio falha), as opções globais `--after-backup` e `--after-backup-timeout-secs`, e o comando `backup-key`.
+- **Decisão de segurança**: o modelo do comando é separado em argumentos antes da substituição e roda sem shell, e o erro nunca traz os argumentos (podem ter credencial). A chave não segue pelo mesmo comando, para o destino não ter o cofre e a chave juntos.
+- **Verificação só pelo CI**: `cargo check` local. Passou de primeira: testes no `ci.yml` (run 39061672022) e a fumaça com Docker (run 39061671980) com cópia idêntica, `verify` da cópia, falha de envio e `backup-key`.
+- **Registro**: `sed` em `lib.rs` (linhas dos módulos) não apareceu como diff na tela; o resto foi por Edit/Write.
+- **Sobra** (no P138): retenção antes de apagar (pergunta 4) e apagar os backups com `--purge-data`, agendamento como serviço, API HTTP do contrato B1, proxy com TLS e domínio por cliente.
 
 ---
 
