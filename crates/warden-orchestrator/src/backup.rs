@@ -3,7 +3,7 @@
 //! A backup is the volume's `tar.gz` (made by a throwaway container, see `ContainerRuntime::archive_volume`) encrypted
 //! as it streams, so a volume of gigabytes is never held in memory. The format (`.wbk`):
 //!
-//! - 4 bytes of magic (`WBK1`) and an 8-byte random prefix for the nonces: the header, 12 bytes, bound to every chunk as
+//! - 4 bytes of magic (`WBK1`) and a 7-byte random prefix for the nonces: the header, 11 bytes, bound to every chunk as
 //!   associated data;
 //! - then frames, each a 4-byte big-endian length and that many bytes of AES-256-GCM ciphertext of up to 1 MiB of the
 //!   archive. It is the STREAM construction (`aead::stream`): the chunk's position and whether it is the last one are in
@@ -24,7 +24,8 @@ use anyhow::{bail, Context};
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 
 const MAGIC: &[u8; 4] = b"WBK1";
-const PREFIX_LEN: usize = 8;
+/// AES-GCM's nonce is 12 bytes; the STREAM construction (`BE32`) spends 5 on the chunk counter and the last-chunk flag.
+const PREFIX_LEN: usize = 12 - 5;
 const HEADER_LEN: usize = MAGIC.len() + PREFIX_LEN;
 /// How much of the archive goes in one frame.
 const CHUNK: usize = 1024 * 1024;
