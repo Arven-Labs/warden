@@ -115,6 +115,76 @@ impl ChatEventDto {
     }
 }
 
+/// How long the model's words are held back before the next `ChatEvent`, and how many bytes make it worth sending sooner.
+const LIVE_FLUSH_AFTER: std::time::Duration = std::time::Duration::from_millis(40);
+const LIVE_FLUSH_BYTES: usize = 256;
+
+/// What a window is shown of a turn while it runs: the model's own words as it writes them and what a tool says about its work.
+///
+/// A model sends a few characters at a time; one `ChatEvent` for each would flood the socket and make the client lay out the
+/// markdown again for every letter, so the words are gathered and sent at most once every 40 ms, counted from the turn's start (a
+/// real model takes longer than that to say its first word, so that one goes out at once; an answer that is ready in an instant,
+/// like a test double's, goes out whole with the turn's end and no event before it). Before a tool's row goes out, what is held
+/// goes first, to keep the order "words, tool, words". What is still held when the turn ends is not sent: the answer that closes the
+/// turn has the whole text and takes the live bubble's place.
+#[derive(Debug)]
+pub struct LiveFeed {
+    held: String,
+    /// When something was last sent, or the turn began.
+    last_sent: std::time::Instant,
+}
+
+impl Default for LiveFeed {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl LiveFeed {
+    pub fn new() -> Self {
+        Self::starting_at(std::time::Instant::now())
+    }
+
+    fn starting_at(start: std::time::Instant) -> Self {
+        Self { held: String::new(), last_sent: start }
+    }
+
+    /// The events to send for one thing the turn did: none, or the held words, or the held words and then a tool's row.
+    pub fn on_event(&mut self, event: &StreamEvent) -> Vec<ChatEventDto> {
+        self.on_event_at(event, std::time::Instant::now())
+    }
+
+    /// `on_event` with the clock given, so a test does not depend on how fast the machine runs.
+    fn on_event_at(&mut self, event: &StreamEvent, now: std::time::Instant) -> Vec<ChatEventDto> {
+        match event {
+            StreamEvent::ContentDelta(text) => {
+                self.held.push_str(text);
+                if self.held.len() >= LIVE_FLUSH_BYTES || now.duration_since(self.last_sent) >= LIVE_FLUSH_AFTER {
+                    self.flush(now)
+                } else {
+                    Vec::new()
+                }
+            }
+            StreamEvent::ToolProgress { event, .. } => {
+                let mut out = self.flush(now);
+                out.extend(ChatEventDto::from_code(event.clone()));
+                out
+            }
+            // The model has moved on to calling a tool: the words it wrote first are complete.
+            StreamEvent::ToolCallDelta { .. } => self.flush(now),
+            StreamEvent::Usage(_) | StreamEvent::ProviderFallback(_) => Vec::new(),
+        }
+    }
+
+    fn flush(&mut self, now: std::time::Instant) -> Vec<ChatEventDto> {
+        if self.held.is_empty() {
+            return Vec::new();
+        }
+        self.last_sent = now;
+        vec![ChatEventDto::Text { text: std::mem::take(&mut self.held), source: None }]
+    }
+}
+
 /// Who said a message in a `History` reply (P40) — the same two roles the persisted conversation
 /// ever holds (`warden_bootstrap::ChatRole`, which this crate can't depend on without a cycle).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -2834,6 +2904,68 @@ pub enum ServerMessage {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn said(text: &str) -> StreamEvent {
+        StreamEvent::ContentDelta(text.to_string())
+    }
+
+    fn text_of(events: &[ChatEventDto]) -> String {
+        events.iter().map(|e| if let ChatEventDto::Text { text, .. } = e { text.as_str() } else { "" }).collect()
+    }
+
+    #[test]
+    fn the_models_words_are_gathered_and_sent_at_most_every_40_ms() {
+        let t0 = std::time::Instant::now();
+        let (mut feed, ms) = (LiveFeed::starting_at(t0), |n: u64| t0 + std::time::Duration::from_millis(n));
+        // A model that is quick to answer: nothing goes out before 40 ms from the turn's start.
+        assert!(feed.on_event_at(&said("Hel"), ms(5)).is_empty());
+        assert!(feed.on_event_at(&said("lo"), ms(10)).is_empty());
+        // The first word of a real model comes later than that: what is held goes out with it, in one event.
+        assert_eq!(feed.on_event_at(&said(", "), ms(300)), vec![ChatEventDto::Text { text: "Hello, ".into(), source: None }]);
+        // Straight after, a few more characters wait again.
+        assert!(feed.on_event_at(&said("wor"), ms(310)).is_empty());
+        // Enough bytes make it worth sending sooner.
+        let long = "x".repeat(LIVE_FLUSH_BYTES);
+        assert_eq!(feed.on_event_at(&said(&long), ms(315)), vec![ChatEventDto::Text { text: format!("wor{long}"), source: None }]);
+    }
+
+    #[test]
+    fn held_words_wait_for_the_pause_and_nothing_is_lost() {
+        let t0 = std::time::Instant::now();
+        let mut feed = LiveFeed::starting_at(t0);
+        assert!(feed.on_event_at(&said("a"), t0 + std::time::Duration::from_millis(10)).is_empty());
+        let later = t0 + LIVE_FLUSH_AFTER;
+        assert_eq!(text_of(&feed.on_event_at(&said("b"), later)), "ab", "once the time has passed the held words go with the next ones");
+    }
+
+    #[test]
+    fn words_come_before_the_tool_that_follows_them() {
+        use warden_core::code_engine::{CodeEvent, ToolEvent, ToolStatus};
+        let t0 = std::time::Instant::now();
+        let mut feed = LiveFeed::starting_at(t0);
+        assert!(feed.on_event_at(&said("I will look."), t0).is_empty());
+        assert!(feed.on_event_at(&said(" Checking"), t0).is_empty(), "held");
+        let row = ToolEvent { call_id: "c1".into(), tool: "bash".into(), title: "ls".into(), status: ToolStatus::Running };
+        let out = feed.on_event_at(&StreamEvent::ToolProgress { tool: "code_task".into(), event: CodeEvent::Tool(row) }, t0);
+        assert_eq!(out.len(), 2);
+        assert_eq!(out[0], ChatEventDto::Text { text: "I will look. Checking".into(), source: None }, "the held words first");
+        assert!(matches!(out[1], ChatEventDto::Tool { .. }));
+        // The model calling a tool closes the words before it as well.
+        feed.on_event_at(&said("one"), t0);
+        assert!(feed.on_event_at(&said(" more"), t0).is_empty());
+        let call = StreamEvent::ToolCallDelta { index: 0, id: Some("k".into()), name: Some("web_search".into()), arguments_delta: None, thought_signature: None };
+        assert_eq!(text_of(&feed.on_event_at(&call, t0)), "one more");
+        assert!(feed.on_event_at(&call, t0).is_empty(), "nothing held, nothing to send");
+    }
+
+    #[test]
+    fn what_is_not_words_or_a_tools_work_says_nothing() {
+        let mut feed = LiveFeed::new();
+        assert!(feed.on_event(&StreamEvent::Usage(Usage::default())).is_empty());
+        assert!(feed.on_event(&said("")).is_empty(), "an empty piece makes no event");
+        let later = std::time::Instant::now() + LIVE_FLUSH_AFTER;
+        assert!(feed.on_event_at(&said(""), later).is_empty(), "even when it is time to send");
+    }
 
     #[test]
     fn client_hello_round_trips_through_json() {

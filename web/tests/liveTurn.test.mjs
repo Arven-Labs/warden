@@ -46,6 +46,16 @@ describe("the words of a turn", () => {
     assert.equal(turn.items.length, 2);
   });
 
+  test("a long chat answer written bit by bit keeps its start (P157)", () => {
+    // The model's words come with no source, a few hundred characters at a time; a long answer must not lose its beginning.
+    const piece = "word ".repeat(100);
+    let turn;
+    for (let i = 0; i < 60; i++) turn = say(turn, piece);
+    assert.equal(turn.items.length, 1);
+    assert.equal(turn.items[0].text.length, piece.length * 60, "6000 characters, past the old 4000 limit");
+    assert.ok(turn.items[0].text.startsWith("word word"));
+  });
+
   test("a task that writes a lot keeps only the latest words of it", () => {
     let turn = say(undefined, "x".repeat(LIVE_TEXT_LIMIT), "Repo");
     turn = say(turn, "END", "Repo");

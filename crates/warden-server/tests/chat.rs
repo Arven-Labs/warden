@@ -21,6 +21,37 @@ async fn chat_message_gets_answered_by_the_hosted_orchestrator() {
     }
 }
 
+/// P157: the model's words reach the client as it writes them, in `ChatEvent`s before the answer that closes the turn; the answer
+/// has the whole text and what the events carried is the start of it.
+#[tokio::test]
+async fn the_models_words_arrive_as_chat_events_before_the_answer() {
+    use warden_server_protocol::protocol::ChatEventDto;
+
+    // The long piece makes the words held so far worth sending at once, so at least one event comes whatever the machine's speed.
+    let long = "x".repeat(300);
+    let addr = spin_up_server(MockProvider::streaming(&["Hel", "lo ", &long, "!"])).await;
+    let mut conn = ServerConnection::connect(&format!("ws://{addr}"), "dev-1", "Test Device", "test-key").await.unwrap();
+
+    conn.send(&ClientMessage::chat("hello")).await.unwrap();
+
+    let mut live = String::new();
+    let mut events = 0;
+    let content = loop {
+        match conn.recv().await.unwrap() {
+            Some(ServerMessage::ChatEvent { event: ChatEventDto::Text { text, source: None }, .. }) => {
+                live.push_str(&text);
+                events += 1;
+            }
+            Some(ServerMessage::ChatResponse { content, .. }) => break content,
+            other => panic!("expected ChatEvent or ChatResponse, got {other:?}"),
+        }
+    };
+    assert_eq!(content, format!("Hello {long}!"), "the answer has the whole text");
+    assert!(events >= 1, "the words were shown before the answer");
+    assert!(content.starts_with(&live), "what was shown is the start of the answer, in order: {live:?}");
+    assert!(live.len() >= 6 + long.len(), "the long piece, and the ones held before it, went out");
+}
+
 #[tokio::test]
 async fn a_failing_model_call_comes_back_as_a_chat_error_not_a_dropped_connection() {
     let addr = spin_up_server(MockProvider::failing()).await;

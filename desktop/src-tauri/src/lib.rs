@@ -48,7 +48,7 @@ use warden_bootstrap::{
 use warden_core::model::{Attachment, Message};
 use warden_core::orchestrator::Orchestrator;
 use warden_core::spend::SpendContext;
-use warden_server_protocol::protocol::{ChatEventDto, LimitSettingsDto, PriceSettingsDto};
+use warden_server_protocol::protocol::{LimitSettingsDto, PriceSettingsDto};
 
 /// The file of this computer's own "always" (P122) in the `grants/` folder beside the config.
 const DESKTOP_GRANTS_FILE: &str = "desktop.json";
@@ -301,11 +301,12 @@ async fn send_message(
     let asks = Arc::new(approval::TauriApprover { app, broker: state.approvals.clone() });
     let grants = state.grants.of(conversation_id.as_deref().unwrap_or(""), agent_id.as_deref());
     let orchestrator = orchestrator.with_approver(Arc::new(warden_core::autonomy::RememberingApprover::new(asks, grants)));
-    // P124: what a tool says about its work while it runs (a `code_task` editing and running commands) reaches the window as it happens.
-    // The model's own words still arrive with the answer.
+    // P124: what a tool says about its work while it runs (a `code_task` editing and running commands) reaches the window as it happens,
+    // and so do the model's own words as it writes them (P157). The answer that ends the turn has the whole text and replaces them.
     let on_live = conversation_id.map(|id| {
+        let mut feed = warden_server_protocol::protocol::LiveFeed::new();
         move |event: &warden_core::model::StreamEvent| {
-            if let Some(event) = live_event(event) {
+            for event in feed.on_event(event) {
                 let _ = live.emit("chat-event", json!({ "conversationId": id, "event": event }));
             }
         }
@@ -326,15 +327,6 @@ async fn send_message(
         usage_slices: if outcome.usage_slices.len() > 1 { outcome.usage_slices } else { Vec::new() },
         already_saved: false,
     })
-}
-
-/// What the window is shown of a turn while it runs: the rows and notices a tool reports about its own work. Not the model's words, which
-/// arrive with the answer (the hub does the same).
-fn live_event(event: &warden_core::model::StreamEvent) -> Option<ChatEventDto> {
-    match event {
-        warden_core::model::StreamEvent::ToolProgress { event, .. } => ChatEventDto::from_code(event.clone()),
-        _ => None,
-    }
 }
 
 /// Names of every tool the running orchestrator has, for the Settings screen's per-agent tool list
@@ -1352,25 +1344,30 @@ mod tests {
     }
 
     #[test]
-    fn the_window_is_shown_what_a_tool_and_its_task_say_about_their_work_and_not_the_models_words() {
+    fn the_window_is_shown_what_a_tool_and_its_task_say_about_their_work_and_the_models_words() {
         use warden_core::code_engine::{CodeEvent, ToolEvent, ToolStatus};
         use warden_core::model::StreamEvent;
-        use warden_server_protocol::protocol::ToolStatusDto;
+        use warden_server_protocol::protocol::{ChatEventDto, LiveFeed, ToolStatusDto};
 
         let row = ToolEvent { call_id: "repo:c1".into(), tool: "bash".into(), title: "Repo: cargo test".into(), status: ToolStatus::Running };
         let from_tool = |event| StreamEvent::ToolProgress { tool: "code_task".into(), event };
         assert_eq!(
-            live_event(&from_tool(CodeEvent::Tool(row))),
-            Some(ChatEventDto::Tool { call_id: "repo:c1".into(), tool: "bash".into(), title: "Repo: cargo test".into(), status: ToolStatusDto::Running })
+            LiveFeed::new().on_event(&from_tool(CodeEvent::Tool(row))),
+            vec![ChatEventDto::Tool { call_id: "repo:c1".into(), tool: "bash".into(), title: "Repo: cargo test".into(), status: ToolStatusDto::Running }]
         );
-        assert_eq!(live_event(&from_tool(CodeEvent::Notice("Repo: retrying".into()))), Some(ChatEventDto::Notice { text: "Repo: retrying".into() }));
+        assert_eq!(LiveFeed::new().on_event(&from_tool(CodeEvent::Notice("Repo: retrying".into()))), vec![ChatEventDto::Notice { text: "Repo: retrying".into() }]);
         assert_eq!(
-            live_event(&from_tool(CodeEvent::TaskText { source: "Repo".into(), text: "running the tests".into() })),
-            Some(ChatEventDto::Text { text: "running the tests".into(), source: Some("Repo".into()) }),
+            LiveFeed::new().on_event(&from_tool(CodeEvent::TaskText { source: "Repo".into(), text: "running the tests".into() })),
+            vec![ChatEventDto::Text { text: "running the tests".into(), source: Some("Repo".into()) }],
             "a task's words are shown, told apart from another task's"
         );
-        assert_eq!(live_event(&from_tool(CodeEvent::Session("ses_1".into()))), None, "the session is not for showing");
-        assert_eq!(live_event(&StreamEvent::ContentDelta("the model's own words".into())), None, "they arrive with the answer");
+        assert!(LiveFeed::new().on_event(&from_tool(CodeEvent::Session("ses_1".into()))).is_empty(), "the session is not for showing");
+        // The model's own words are shown as it writes them (P157); enough of them to be worth sending go out without waiting.
+        let words = "the model's own words ".repeat(20);
+        assert_eq!(
+            LiveFeed::new().on_event(&StreamEvent::ContentDelta(words.clone())),
+            vec![ChatEventDto::Text { text: words, source: None }]
+        );
     }
 
     #[test]

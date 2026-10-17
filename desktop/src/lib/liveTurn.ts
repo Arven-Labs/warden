@@ -10,8 +10,9 @@ export type ChatEventDto =
   | { type: "tool"; callId: string; tool: string; title: string; status: "running" | "completed" | "failed" }
   | { type: "notice"; text: string };
 
-/** How much of one task's words a live bubble keeps: the latest, so a task that writes a lot doesn't grow the bubble without end. */
-export const LIVE_TEXT_LIMIT = 4000;
+/** How much of one block of words a live bubble keeps: the latest, so a task that writes a lot doesn't grow the bubble without end.
+ * Large enough for any chat answer (P157: the model's words are shown as it writes them), which would otherwise lose its start. */
+export const LIVE_TEXT_LIMIT = 100_000;
 
 export type LiveItem =
   | { kind: "text"; text: string; source?: string }

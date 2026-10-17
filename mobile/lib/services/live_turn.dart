@@ -4,8 +4,9 @@ import '../protocol/messages.dart';
 /// from the hub's `chatEvent`s and shown in place of the "Thinking…" line until the turn's answer comes. A timeline, because
 /// the work and the words alternate: some text, a tool, more text. Same rules as the web's `liveTurn.ts`.
 
-/// How much of one task's words a live bubble keeps: the latest, so a task that writes a lot doesn't grow it without end.
-const liveTextLimit = 4000;
+/// How much of one block of words a live bubble keeps: the latest, so a task that writes a lot doesn't grow it without end.
+/// Large enough for any chat answer (P157: the model's words are shown as it writes them), which would otherwise lose its start.
+const liveTextLimit = 100000;
 
 sealed class LiveItem {
   const LiveItem();

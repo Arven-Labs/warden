@@ -9,7 +9,7 @@ use std::time::Duration;
 use async_trait::async_trait;
 use serde_json::Value;
 use warden_core::memory::Vault;
-use warden_core::model::{response_stream, ChatStream, Message, ModelProvider, Response, Role, ToolCall};
+use warden_core::model::{response_stream, ChatStream, Message, ModelProvider, Response, Role, StreamEvent, ToolCall};
 use warden_core::orchestrator::Orchestrator;
 use warden_core::tool::{Tool, ToolSpec};
 use warden_server::Server;
@@ -38,20 +38,27 @@ pub struct MockProvider {
     /// `Orchestrator::handle_turn`'s own tool-calling loop expects (see `warden-core`'s
     /// `orchestrator::tests::MockModel`).
     pub tool_call: Option<(String, Value)>,
+    /// When not empty, `chat_stream` answers with these pieces as separate `ContentDelta`s, the way a real provider streams (P157).
+    pub pieces: Vec<String>,
     calls: AtomicUsize,
 }
 
 impl MockProvider {
     pub fn replying(reply: impl Into<String>) -> Self {
-        Self { reply: reply.into(), delay: Duration::ZERO, fail: false, tool_call: None, calls: AtomicUsize::new(0) }
+        Self { reply: reply.into(), delay: Duration::ZERO, fail: false, tool_call: None, pieces: Vec::new(), calls: AtomicUsize::new(0) }
+    }
+
+    /// Answers with `pieces` one after the other, as separate stream events (P157); the reply is all of them put together.
+    pub fn streaming(pieces: &[&str]) -> Self {
+        Self { pieces: pieces.iter().map(|p| p.to_string()).collect(), ..Self::replying(pieces.concat()) }
     }
 
     pub fn failing() -> Self {
-        Self { reply: String::new(), delay: Duration::ZERO, fail: true, tool_call: None, calls: AtomicUsize::new(0) }
+        Self { reply: String::new(), delay: Duration::ZERO, fail: true, tool_call: None, pieces: Vec::new(), calls: AtomicUsize::new(0) }
     }
 
     pub fn replying_after(reply: impl Into<String>, delay: Duration) -> Self {
-        Self { reply: reply.into(), delay, fail: false, tool_call: None, calls: AtomicUsize::new(0) }
+        Self { reply: reply.into(), delay, fail: false, tool_call: None, pieces: Vec::new(), calls: AtomicUsize::new(0) }
     }
 
     /// First `chat_stream` call requests `tool(arguments)`; the *second* call's reply is derived
@@ -60,7 +67,7 @@ impl MockProvider {
     /// the client's real tool result made it all the way back through the model, not just that a
     /// request/response pair of frames was exchanged.
     pub fn calling_tool_then_replying(tool: impl Into<String>, arguments: Value) -> Self {
-        Self { reply: String::new(), delay: Duration::ZERO, fail: false, tool_call: Some((tool.into(), arguments)), calls: AtomicUsize::new(0) }
+        Self { reply: String::new(), delay: Duration::ZERO, fail: false, tool_call: Some((tool.into(), arguments)), pieces: Vec::new(), calls: AtomicUsize::new(0) }
     }
 }
 
@@ -75,6 +82,10 @@ impl ModelProvider for MockProvider {
         }
 
         let call = self.calls.fetch_add(1, Ordering::SeqCst);
+        if !self.pieces.is_empty() {
+            let events: Vec<_> = self.pieces.iter().map(|piece| Ok(StreamEvent::ContentDelta(piece.clone()))).collect();
+            return Ok(Box::pin(futures_util::stream::iter(events)));
+        }
         if let Some((name, arguments)) = &self.tool_call {
             if call == 0 {
                 return Ok(response_stream(Response {

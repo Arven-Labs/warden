@@ -61,7 +61,7 @@ use crate::openai_api::{self, ApiContext};
 use crate::webhook_admin::{handle_list_webhooks, handle_webhook_change, WebhookAccess, WebhookChange};
 use crate::webhooks::{self, WebhookContext, WebhookRunner};
 use crate::web_ui::{self, Rewind, WebAssets};
-use warden_server_protocol::protocol::ChatEventDto;
+use warden_server_protocol::protocol::{ChatEventDto, LiveFeed};
 use warden_server_protocol::tls::DISCOVER_PATH;
 use warden_server_protocol::{ClientMessage, ServerMessage};
 
@@ -1692,14 +1692,13 @@ async fn handle_connection<S: Transport>(ws: WebSocketStream<S>, peer: SocketAdd
                         let _busy = busy;
                         let learn_id = conversation_id.clone();
                         let agent = agent_id.as_deref().zip(persona.as_deref()).map(|(id, persona)| TurnAgent { id, persona });
-                        // P124: what a tool says about its work while it runs (a `code_task` editing and running commands) is shown live. The
-                        // model's own words still arrive with the answer, as they always did.
+                        // P124: what a tool says about its work while it runs (a `code_task` editing and running commands) is shown live,
+                        // and so are the model's own words as it writes them (P157). The answer that ends the turn has the whole text.
                         let (events_tx, events_id) = (reply_tx.clone(), conversation_id.clone());
+                        let mut feed = LiveFeed::new();
                         let on_event = move |event: &warden_core::model::StreamEvent| {
-                            if let warden_core::model::StreamEvent::ToolProgress { event, .. } = event {
-                                if let Some(event) = ChatEventDto::from_code(event.clone()) {
-                                    let _ = events_tx.send(ServerMessage::ChatEvent { conversation_id: events_id.clone(), event });
-                                }
+                            for event in feed.on_event(event) {
+                                let _ = events_tx.send(ServerMessage::ChatEvent { conversation_id: events_id.clone(), event });
                             }
                         };
                         let reply = match warden_bootstrap::handle_agent_turn_in_with(
