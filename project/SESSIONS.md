@@ -12,7 +12,8 @@
 - **Feito**: `unique_temp_dir(prefix)` em `crates/warden-server/tests/support/mod.rs` (pid + contador + ns) no lugar do nome só por ns, nos 6 construtores do `support`, em `tls.rs` e em `org_edit.rs`.
 - **Conferido**: `cargo test -p warden-server --no-fail-fast` verde; `tls`, `org_edit` e `threads` 6 vezes seguidas verdes.
 - **Não provado**: a falha nunca reproduziu local, então só o CI da `main` mostra se era essa a causa.
-- **Sobra**: commit e push, vários runs do `ci.yml`, e os cerca de 40 outros usos de `as_nanos()` (fora do escopo combinado).
+- **Commit e CI** (`38883d0`): o run do push ficou verde, e só o job Rust rodou (os outros foram pulados pelo corte por área, o que prova o corte num push de uma pasta só do P149). O `ci.yml` tem `cancel-in-progress`, então três disparos seguidos cancelam os anteriores; disparei em sequência: 3 runs à mão, todos verdes em todos os jobs (inclusive o APK). Total 4 verdes, evidência e não prova, por a falha ser intermitente.
+- **Sobra**: os cerca de 40 outros usos de `as_nanos()` (fora do escopo combinado), só se o CI voltar a falhar.
 
 ---
 
