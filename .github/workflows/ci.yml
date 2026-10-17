@@ -8,6 +8,7 @@ name: CI
 #   desktop    <- desktop/**
 #   extension  <- extension/**
 #   mobile     <- mobile/** e crates/warden-mobile-bridge/** (o Dart gerado pelo flutter_rust_bridge sai desse crate)
+#   android    <- o mesmo filtro do mobile (compila o APK arm64, o que o `mobile` não faz)
 # Mexer no próprio ci.yml roda tudo, e o botão "Run workflow" também.
 on:
   push:
@@ -194,3 +195,49 @@ jobs:
       # Os testes não carregam a biblioteca Rust (`RustLib`), então não precisam compilá-la.
       - name: Testes
         run: flutter test
+
+  # O `mobile` acima não compila o Rust nem roda o Gradle; este prova que o APK Android sai (NDK, cargokit e a ponte
+  # `warden-mobile-bridge`). Só arm64 (uma ABI em vez de quatro) e assinado com a chave de debug do `build.gradle.kts`:
+  # é uma checagem de compilação, não um release.
+  android:
+    name: Android (APK arm64)
+    needs: changes
+    if: needs.changes.outputs.mobile == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    defaults:
+      run:
+        working-directory: mobile
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Java
+        uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: 17
+
+      # O cargokit (Gradle) usa o `rustup` para instalar o alvo Android e compilar `warden-mobile-bridge`.
+      - name: Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: 3.47.4
+          channel: stable
+          cache: true
+
+      - name: flutter pub get
+        run: flutter pub get
+
+      - name: APK
+        run: flutter build apk --release --target-platform android-arm64
+
+      - name: Guarda o APK
+        uses: actions/upload-artifact@v7
+        with:
+          name: warden-android-arm64
+          path: mobile/build/app/outputs/flutter-apk/app-release.apk
+          retention-days: 7
