@@ -12,7 +12,9 @@
 - **Feito** (`99de9ef`): conferi no `action.yml` de cada action em que runtime a major nova roda e subi as que ainda eram `node20`: `checkout` v4→v7, `setup-node` v4→v7, `cache` v4→v6, `paths-filter` v3→v4, `setup-buildx` v3→v4, `build-push` v6→v7, `metadata` v5→v6, `login` v3→v4. `rust-cache`, `tauri-action` (já `node24`), `rust-toolchain` e `flutter-action` (composite) ficaram. Badge do CI no `README.md`.
 - **Conferido no CI**: `ci.yml` (todas as cinco áreas), `image.yml`, `heavy-tests` e `measure-rss` verdes e sem o aviso de Node 20.
 - **Não provado**: `build.yml` e `login`/`metadata` do `image-publish.yml` (só em tag), e o `windows-check.yml`.
-- **Sobra**: APK Android no CI, o corte por área num push de uma pasta só, o modelo do histórico no P154, o `.msi` e a imagem `:0.1.1` do P152.
+- **APK Android no CI** (o usuário perguntou "ocupa disco? não é no CI?": eu tinha escrito de forma enganosa, o build roda no runner; plano em modo de plano, escopo "só checar que compila" e assinatura de debug, por escolha do usuário): job `android` no `ci.yml`. No run 38994734238 compilou a ponte para `aarch64-linux-android` e gerou `app-release.apk` de 65,6 MB em cerca de 12 min, sem cache. Usei `setup-java@v6`, não a v5 do plano, por ser a mais nova (também `node24`).
+- **CI vermelho, causa fora do APK (P155)**: o job Rust do mesmo run falhou nas duas tentativas, com testes diferentes (TLS, `org_edit`, `threads`). Causa provável: os testes do `warden-server` nomeiam a pasta de dados só pelo timestamp em ns, e dois testes no mesmo instante dividem a pasta. Não reproduzi nem corrigi; registrado como P155 e a decidir com o usuário. **Até corrigir, o badge do README fica vermelho.**
+- **Sobra**: P155 (corrigir os testes), cache do Rust no job `android`, instalar o APK, o corte por área num push de uma pasta só, o modelo do histórico no P154, o `.msi` e a imagem `:0.1.1` do P152.
 
 ---
 
