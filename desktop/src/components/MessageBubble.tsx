@@ -1,13 +1,13 @@
 import { useRef, useState } from "react";
 import type { AnchorHTMLAttributes } from "react";
-import ReactMarkdown from "react-markdown";
-import remarkGfm from "remark-gfm";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { invoke } from "@tauri-apps/api/core";
 import type { Attachment, ChatMessage } from "../types";
 import { LogoMark, SpeakerIcon, StopIcon } from "./Icons";
 import { stripMarkdown } from "../lib/stripMarkdown";
 import { repliesLabel } from "../lib/threads";
+import CopyButton from "./CopyButton";
+import Markdown from "./Markdown";
 
 interface MessageBubbleProps {
   message: ChatMessage;
@@ -154,9 +154,7 @@ function MessageBubble({ message, thread }: MessageBubbleProps) {
             </div>
           )}
           <div className="message-bubble-content">
-            <ReactMarkdown remarkPlugins={[remarkGfm]} components={{ a: MarkdownLink }}>
-              {message.content}
-            </ReactMarkdown>
+            <Markdown link={MarkdownLink}>{message.content}</Markdown>
           </div>
           {message.generatedFiles && message.generatedFiles.length > 0 && (
             <div className="message-bubble-files">
@@ -167,6 +165,7 @@ function MessageBubble({ message, thread }: MessageBubbleProps) {
           )}
           <div className="message-bubble-footer">
             <SpeakButton text={message.content} />
+            <CopyButton text={message.content} className="message-copy-btn" />
             {message.usage && <span className="message-bubble-usage">{message.usage.totalTokens} tokens</span>}
             {thread && <ThreadButton thread={thread} />}
           </div>
@@ -187,9 +186,7 @@ function MessageBubble({ message, thread }: MessageBubbleProps) {
         )}
         {message.content && (
           <div className="message-bubble-content">
-            <ReactMarkdown remarkPlugins={[remarkGfm]} components={{ a: MarkdownLink }}>
-              {message.content}
-            </ReactMarkdown>
+            <Markdown link={MarkdownLink}>{message.content}</Markdown>
           </div>
         )}
         {thread && (

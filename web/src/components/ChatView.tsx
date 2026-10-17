@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState, type AnchorHTMLAttributes } from "react";
-import ReactMarkdown from "react-markdown";
-import remarkGfm from "remark-gfm";
 import { AttachmentError, checkLimits, composeMessage, mediaOf, prepareFile, type PendingAttachment } from "../hub/attachments";
 import type { ChatEntry } from "../hub/connection";
 import type { LiveTurn } from "../hub/liveTurn";
+import CopyButton from "./CopyButton";
+import Markdown from "./Markdown";
 import type { Attachment } from "../hub/messages";
 import { canRecord, VoiceRecorder } from "../hub/recorder";
 import { repliesLabel, type ThreadInfo } from "../hub/threads";
@@ -108,9 +108,7 @@ function LiveBubble({ live }: { live: LiveTurn }) {
           <div key={i} className="bubble-markdown">
             {/* Words of a manager's task say which one, since several can be writing at once. */}
             {item.source && <p className="live-source">{item.source}</p>}
-            <ReactMarkdown remarkPlugins={[remarkGfm]} components={{ a: ExternalLink }}>
-              {item.text}
-            </ReactMarkdown>
+            <Markdown link={ExternalLink}>{item.text}</Markdown>
           </div>
         ) : (
           <p key={i} className={`live-tool live-tool--${item.status}`}>
@@ -243,15 +241,18 @@ export default function ChatView({ entries, pending, live, onCancel, disabled, o
                     <p className="bubble-plain">{entry.content}</p>
                   ) : (
                     <div className="bubble-markdown">
-                      <ReactMarkdown remarkPlugins={[remarkGfm]} components={{ a: ExternalLink }}>
-                        {entry.content}
-                      </ReactMarkdown>
+                      <Markdown link={ExternalLink}>{entry.content}</Markdown>
                     </div>
                   ))}
                 {entry.attachments.map((attachment, j) => (
                   <AttachmentView key={j} attachment={attachment} />
                 ))}
                 {entry.spendLimitId && <ExtendLimitAction limitId={entry.spendLimitId} onExtend={onExtendLimit} />}
+                {entry.role === "assistant" && entry.content !== "" && (
+                  <div className="bubble-actions">
+                    <CopyButton text={entry.content} className="link-button copy-message-button" />
+                  </div>
+                )}
                 {entry.id && onOpenThread && (
                   <div className="bubble-actions">
                     <button type="button" className="link-button thread-button" onClick={() => onOpenThread(entry.id!)}>

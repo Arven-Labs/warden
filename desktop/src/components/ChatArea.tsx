@@ -1,6 +1,4 @@
 import { useEffect, useRef, useState } from "react";
-import ReactMarkdown from "react-markdown";
-import remarkGfm from "remark-gfm";
 import { open } from "@tauri-apps/plugin-dialog";
 import { nextCodeMode } from "../types";
 import type { AgentEntry, Attachment, CodeMode, Combo, Conversation, ProjectEntry, ProviderEntry } from "../types";
@@ -9,6 +7,7 @@ import { threadAnchor, type ThreadInfo } from "../lib/threads";
 import { folderLabel, folderPlace, nodesWithFolders, type DirListing, type NodeInfo } from "../lib/workdir";
 import FolderPicker from "./FolderPicker";
 import { LogoMark } from "./Icons";
+import Markdown from "./Markdown";
 import MessageBubble, { MarkdownLink } from "./MessageBubble";
 import MessageInput from "./MessageInput";
 
@@ -103,9 +102,7 @@ function LiveBubble({ live }: { live: LiveTurn }) {
             <div key={i} className="message-bubble-content">
               {/* Words of a manager's task say which one, since several can be writing at once. */}
               {item.source && <p className="live-source">{item.source}</p>}
-              <ReactMarkdown remarkPlugins={[remarkGfm]} components={{ a: MarkdownLink }}>
-                {item.text}
-              </ReactMarkdown>
+              <Markdown link={MarkdownLink}>{item.text}</Markdown>
             </div>
           ) : (
             <p key={i} className={`live-tool live-tool--${item.status}`}>
