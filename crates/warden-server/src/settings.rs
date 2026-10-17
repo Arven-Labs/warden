@@ -27,6 +27,12 @@ use warden_server_protocol::ServerMessage;
 /// How long a wrong pairing key waits before its answer, so guessing one over the socket is slow.
 pub const WRONG_KEY_DELAY: Duration = Duration::from_secs(1);
 
+/// How many sign-in attempts (a `Hello`) one address gets in `SIGN_IN_ATTEMPT_WINDOW` before it is turned away for
+/// `SIGN_IN_LOCKOUT` (P142). A sign-in that works gives its attempt back, so only wrong guesses use these up.
+pub const MAX_SIGN_IN_ATTEMPTS: u32 = 10;
+pub const SIGN_IN_ATTEMPT_WINDOW: Duration = Duration::from_secs(10 * 60);
+pub const SIGN_IN_LOCKOUT: Duration = Duration::from_secs(5 * 60);
+
 /// The hub's orchestrator, which a settings save replaces while connections stay open. Each turn
 /// takes `current()` once and keeps it for the whole turn.
 ///

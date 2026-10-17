@@ -2,9 +2,17 @@
 
 > **Nota**: Este log foi criado junto com o projeto. As sessões serão registradas aqui conforme o trabalho avança.
 >
-> Última atualização: 2026-10-17 (Sessão 229)
+> Última atualização: 2026-10-17 (Sessão 230)
 
 ---
+
+### 2026-10-17 — Sessão 230 (limite de tentativas por IP no `Hello`: P142)
+
+- **Pedido do usuário**: "faz o P142". Planejei em modo de plano e o usuário escolheu: limite no hub, pelo IP da conexão (sem ler `X-Forwarded-For`), e bloqueio curto que recusa sem avaliar a chave.
+- **Feito**: `src/attempt_limit.rs` (`AttemptLimiter`: conta a tentativa antes de checar a chave, devolve a vaga no sucesso sem zerar, IPv6 por /64, poda das vencidas), constantes em `settings.rs` (10 em 10 min, bloqueio de 5 min), `Server::with_attempt_limit`, e a checagem em `handle_connection` logo depois de ler o `Hello`.
+- **Testes**: 5 unitários e 3 em `tests/handshake.rs`; `cargo test -p warden-server` com 428 passando e 0 falhas; clippy só com o aviso antigo (`blocks_in_conditions`).
+- **Não cobre**: atrás de proxy o IP é o do proxy; os outros caminhos de chave só têm a espera de 1 s.
+- **Sobra**: ver o CI da `main` com esse commit.
 
 ### 2026-10-17 — Sessão 229 (testes que dividiam a pasta: P155)
 

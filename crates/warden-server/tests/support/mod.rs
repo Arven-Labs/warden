@@ -149,6 +149,23 @@ pub async fn spin_up_server_with_pairing_key_file(provider: MockProvider) -> (st
     (addr, devices_path, key_file)
 }
 
+/// Same as `spin_up_server`, with the sign-in attempts per address capped at `limit` (P142) — small in tests so the cap
+/// is reached without waiting on `WRONG_KEY_DELAY` many times.
+pub async fn spin_up_server_with_attempt_limit(provider: MockProvider, limit: warden_server::attempt_limit::AttemptLimit) -> std::net::SocketAddr {
+    let temp_dir = unique_temp_dir("warden-server-test");
+    let vault = Arc::new(Vault::new(temp_dir.join("vault")));
+    let orchestrator = Orchestrator::new(Arc::new(provider), vault);
+
+    let server = Server::bind("127.0.0.1:0".parse().unwrap(), "test-key", "Test Hub", Arc::new(orchestrator), temp_dir.join("conversations"), temp_dir.join("devices.json"))
+        .await
+        .unwrap()
+        .with_open_key_pairing()
+        .with_attempt_limit(limit);
+    let addr = server.local_addr().unwrap();
+    tokio::spawn(server.serve());
+    addr
+}
+
 /// Same as `spin_up_server`, but the shared `Orchestrator` already has `base_tool` registered —
 /// needed by any test that exercises P42 (a connecting client's `Hello.tools` colliding with a
 /// tool the server already has, not with another client's — each connection gets its own clone of

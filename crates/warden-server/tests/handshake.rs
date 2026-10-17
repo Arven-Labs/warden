@@ -35,6 +35,61 @@ async fn a_wrong_pairing_key_waits_before_it_is_turned_away_and_a_right_one_does
     assert!(started.elapsed() < warden_server::settings::WRONG_KEY_DELAY, "a right key waited {:?}", started.elapsed());
 }
 
+fn small_limit() -> warden_server::attempt_limit::AttemptLimit {
+    warden_server::attempt_limit::AttemptLimit { max_attempts: 3, window: Duration::from_secs(60), lockout: Duration::from_secs(60) }
+}
+
+/// P142: an address that used up its attempts on wrong keys is turned away even with the right one, until the lockout ends.
+#[tokio::test]
+async fn an_address_that_guessed_wrong_too_often_is_turned_away_even_with_the_right_key() {
+    let addr = support::spin_up_server_with_attempt_limit(MockProvider::replying("unused"), small_limit()).await;
+    let url = format!("ws://{addr}");
+
+    for n in 0..3 {
+        let wrong = ServerConnection::connect(&url, &format!("dev-{n}"), "Test Device", "wrong-key").await;
+        let error = wrong.err().expect("a wrong key is never let in");
+        assert!(!error.to_string().contains("too many attempts"), "the first three are checked, not counted out");
+    }
+
+    let right = ServerConnection::connect(&url, "dev-9", "Test Device", "test-key").await;
+    assert!(right.err().expect("turned away").to_string().contains("too many attempts"));
+}
+
+/// P142: signing in over and over with the right key never uses the attempts up, and a discovery probe is not an attempt.
+#[tokio::test]
+async fn right_keys_and_discovery_probes_do_not_use_the_attempts_up() {
+    let addr = support::spin_up_server_with_attempt_limit(MockProvider::replying("unused"), small_limit()).await;
+    let url = format!("ws://{addr}");
+
+    for n in 0..10 {
+        ServerConnection::connect(&url, &format!("dev-{n}"), "Test Device", "test-key").await.unwrap();
+        warden_server::discover_hubs_on(vec![std::net::Ipv4Addr::LOCALHOST], addr.port(), DISCOVERY_TIMEOUT).await.unwrap();
+    }
+}
+
+/// P142: wrong guesses sent all at once are capped too — each is counted before its key is checked, so the burst does not
+/// all get past before the first wrong one is noticed.
+#[tokio::test]
+async fn a_burst_of_wrong_guesses_is_capped_at_the_attempts_allowed() {
+    let addr = support::spin_up_server_with_attempt_limit(MockProvider::replying("unused"), small_limit()).await;
+    let url = format!("ws://{addr}");
+
+    let guesses: Vec<_> = (0..10)
+        .map(|n| {
+            let url = url.clone();
+            tokio::spawn(async move { ServerConnection::connect(&url, &format!("dev-{n}"), "Test Device", "wrong-key").await.err().map(|e| e.to_string()) })
+        })
+        .collect();
+    let mut checked = 0;
+    for guess in guesses {
+        let error = guess.await.unwrap().expect("a wrong key is never let in");
+        if !error.contains("too many attempts") {
+            checked += 1;
+        }
+    }
+    assert_eq!(checked, 3, "only the attempts allowed had their key checked");
+}
+
 #[tokio::test]
 async fn wrong_auth_key_is_rejected() {
     let addr = spin_up_server(MockProvider::replying("unused")).await;

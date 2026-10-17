@@ -238,7 +238,7 @@ Vêm da spec do router (`SPEC-warden-router-e-futuro.md`, de 2026-10-14), que fo
 
 Além do que a fase pedia, saíram `GET /status` (a atividade do hub) e a política de reciclagem (`warden-orchestrator`, K.6 item 5), a espera no `Hello` (P142) e a correção do registro de dispositivos (P151).
 
-**O que a fase 1 não prova**: a busca no histórico (o modelo de ~820 MB) e o MCP stdio sob a raiz só de leitura; a medição de RSS do binário novo (P145 a P147); que alguém de fora consiga puxar a imagem (ela foi publicada, mas está privada até o dono da organização torná-la pública); arm64; e o limite de tentativas por IP (P142), que fica para o proxy da fase 4.
+**O que a fase 1 não prova**: a busca no histórico (o modelo de ~820 MB) e o MCP stdio sob a raiz só de leitura; a medição de RSS do binário novo (P145 a P147); que alguém de fora consiga puxar a imagem (ela foi publicada, mas está privada até o dono da organização torná-la pública); arm64; e o limite de tentativas por IP atrás de um proxy (P142): o hub já limita o `Hello` pelo IP da conexão (Sessão 230), mas atrás do proxy esse IP é o do proxy, então o limite por cliente final fica para o proxy da fase 4.
 
 ## I. Perguntas ainda abertas (do Fabio)
 
@@ -277,7 +277,7 @@ Pedida pelo Fabio como um design review de engenheiro sênior para o cenário "i
 | 1 | Operar o hub como serviço: imagem, `--data-dir`, health, SIGTERM, log estruturado | P143 | 1 (**feito na Sessão 225**) |
 | 2 | Identidade por conta: o desktop só conecta com chave de pareamento (32+ caracteres, e que pareia só o primeiro dispositivo), senha de membro ou TruthID; falta um login federado em que o `sub` da conta vira o dono e emite um token de dispositivo | P138 (seção B2) | 5 |
 | 3 | Frontend duplicado entre web e desktop, e o desktop remoto preso ao IPC do Tauri | P144 | a debater |
-| 4 | Endpoint público sobre HTTP escrito à mão: sem limite por IP, sem teto de conexões, sem CSP nem compressão, sem keep-alive, sem espera para chave errada no `Hello` (P142, **corrigido na Sessão 225**; o limite por IP continua faltando), TLS só por arquivo ou Tailscale. Um proxy reverso (Caddy, Traefik) resolve quase tudo; migrar para hyper ou axum seria grande e não é necessário | P142, P138 | 0 e 1 |
+| 4 | Endpoint público sobre HTTP escrito à mão: sem limite por IP nos outros caminhos (o `Hello` já tem um por IP da conexão, P142, Sessão 230), sem teto de conexões, sem CSP nem compressão, sem keep-alive, sem espera para chave errada no `Hello` (P142, **corrigido na Sessão 225**; o limite por IP continua faltando), TLS só por arquivo ou Tailscale. Um proxy reverso (Caddy, Traefik) resolve quase tudo; migrar para hyper ou axum seria grande e não é necessário | P142, P138 | 0 e 1 |
 | 5 | Isolamento de execução e de segredos: `shell`, MCP stdio e opencode rodam com o usuário do SO do contêiner, sem sandbox; as chaves de provedor ficam dentro da instância; o operador consegue ver o que o agente vê | P139, P138 | 2 |
 
 **Tradeoffs que ficam em aberto**

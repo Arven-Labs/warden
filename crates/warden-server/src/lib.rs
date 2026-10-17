@@ -29,6 +29,7 @@ pub mod grant_registry;
 pub mod api_key_admin;
 pub mod api_keys;
 pub mod approval;
+pub mod attempt_limit;
 pub mod bot_admin;
 pub mod chat_input;
 pub mod code_turns;

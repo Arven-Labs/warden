@@ -27,6 +27,7 @@ use warden_bootstrap::{build_model_for, load_config_from_path, scope_to_agent, A
 
 use crate::activity::HubActivity;
 use crate::approval::WsApprover;
+use crate::attempt_limit::{AttemptLimit, AttemptLimiter};
 use crate::bot_admin::{handle_list_bot_pairings, handle_resolve_bot_pairing};
 use crate::provider_admin::handle_test_provider;
 use crate::chat_input::{handle_transcribe, title_seed, validate_attachments, Transcriber};
@@ -147,6 +148,8 @@ pub struct Server {
     code_turns: CodeTurns,
     /// What the hub is doing now, for `GET /status` (K.6 item 5): the orchestrator recycles an instance only when it is idle.
     activity: HubActivity,
+    /// The sign-in attempts per address (P142).
+    attempts: AttemptLimiter,
 }
 
 /// How often an open connection re-reads the pairing registry to notice it was revoked (P36).
@@ -195,6 +198,7 @@ impl Server {
             code_engine: None,
             code_turns: CodeTurns::default(),
             activity: HubActivity::default(),
+            attempts: AttemptLimiter::default(),
         })
     }
 
@@ -384,6 +388,12 @@ impl Server {
         self
     }
 
+    /// Overrides the default cap on sign-in attempts per address (P142) — tests use a small one.
+    pub fn with_attempt_limit(mut self, limit: AttemptLimit) -> Self {
+        self.attempts = AttemptLimiter::new(limit);
+        self
+    }
+
     /// Actual bound address — useful when `bind` was called with port 0 (OS-assigned), e.g. in tests.
     pub fn local_addr(&self) -> anyhow::Result<SocketAddr> {
         Ok(self.listener.local_addr()?)
@@ -449,6 +459,7 @@ impl Server {
             code_engine: self.code_engine,
             code_turns: self.code_turns,
             activity: self.activity,
+            attempts: self.attempts,
         };
         // P84: conversations are a person's, not a device's — every device's move to the root's,
         // once, before any connection can read them.
@@ -559,6 +570,7 @@ struct ConnectionContext {
     /// The code tasks running, shared by every connection so a stop can come from another device.
     code_turns: CodeTurns,
     activity: HubActivity,
+    attempts: AttemptLimiter,
 }
 
 impl ConnectionContext {
@@ -964,6 +976,7 @@ async fn handle_connection<S: Transport>(ws: WebSocketStream<S>, peer: SocketAdd
         code_engine,
         code_turns,
         activity,
+        attempts,
     } = ctx;
     // Counted from the first frame to the last, so `/status` knows how many devices are connected.
     let _connected = activity.connection();
@@ -1010,6 +1023,14 @@ async fn handle_connection<S: Transport>(ws: WebSocketStream<S>, peer: SocketAdd
         }
     };
     let (device_id, device_name, provided_key, device_token, (tools, tool_hints), node_offer, credentials, can_show_recovery_code, truthid_login) = hello;
+
+    // P142: counted before anything is checked, so parallel guesses can't all get past; a sign-in that works gives it back
+    // below. An address past its cap is turned away without looking at what it sent, and without the wait — the lockout is
+    // the cost.
+    if !attempts.try_attempt(peer.ip()) {
+        tracing::warn!(%device_id, %peer, "too many sign-in attempts from this address");
+        return reject(&mut sink, "too many attempts, try again later").await;
+    }
 
     // P36: the shared key only pairs; a paired device authenticates with its own token. The
     // pairing status itself (Pending/Approved) stays silent here — a `Pending` device still gets a
@@ -1065,7 +1086,10 @@ async fn handle_connection<S: Transport>(ws: WebSocketStream<S>, peer: SocketAdd
     };
     let store = PairingStore::new(devices_path.as_ref().clone()).with_open_key_pairing(pairing_key.open_pairing());
     let (issued_token, owner) = match store.authenticate_as(&device_id, &device_name, device_token.as_deref(), proof) {
-        Ok(Ok(outcome)) => (outcome.issued_token, outcome.user),
+        Ok(Ok(outcome)) => {
+            attempts.forgive(peer.ip());
+            (outcome.issued_token, outcome.user)
+        }
         Ok(Err(rejection)) => {
             tracing::warn!(%device_id, %peer, "rejected Hello: {rejection}");
             // P142: a wrong pairing key, invite or token waits like every other wrong key, so guessing one is slow. A revoked
