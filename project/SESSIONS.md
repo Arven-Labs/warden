@@ -2,7 +2,18 @@
 
 > **Nota**: Este log foi criado junto com o projeto. As sessões serão registradas aqui conforme o trabalho avança.
 >
-> Última atualização: 2026-10-17 (Sessão 231)
+> Última atualização: 2026-10-17 (Sessão 232)
+
+---
+
+### 2026-10-17 — Sessão 232 (fecha o P142: mensagens de admin do WebSocket e `/hooks`)
+
+- **Pedido do usuário**: "continuamos no p142". Li o que sobrou da Sessão 231, planejei em modo de plano e o plano foi aprovado.
+- **Feito**: `spend_admin_attempt` no laço de mensagens do dono (`server.rs`), `admin_proof` e `too_many_attempts_reply` em `people.rs` (com `gate_with` e `refusal_with` extraídos de `password_gate` e `member_refusal`, que seguem iguais por fora). Só o dono conta: o membro manda a senha no campo `pairing_key`.
+- **Testes**: `tests/ws_admin_attempt_limit.rs` (3), 3 casos de `/hooks` em `tests/http_attempt_limit.rs`, 1 unitário em `people.rs`.
+- **Verificação só pelo CI**, sem `cargo test` local (só `cargo check`): o 1º run (`f23a781`) falhou só no teste de `/hooks`, por erro do teste (sem `with_tasks` não há runner e a resposta era 404); corrigi e o run 39053408394 ficou verde em tudo.
+- **Registro**: nesta sessão editei alguns arquivos por script (`python`, `sed`, `cat >>`) e eles não apareceram na tela como diff; o resto foi por Edit/Write.
+- **Sobra**: `X-Forwarded-For` é decisão e não pendência; a senha de membro nas mensagens de admin e a rota `serve_engine` só se aparecer uso real. O próximo de maior valor é o P143 (operar o hub como serviço).
 
 ---
 
