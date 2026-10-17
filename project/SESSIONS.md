@@ -2,9 +2,16 @@
 
 > **Nota**: Este log foi criado junto com o projeto. As sessões serão registradas aqui conforme o trabalho avança.
 >
-> Última atualização: 2026-10-17 (Sessão 239)
+> Última atualização: 2026-10-17 (Sessão 240)
 
 ---
+
+### 2026-10-17 — Sessão 240 (copiar e realce de sintaxe no chat: P157, item 4 da auditoria)
+
+- **Pedido do usuário**: "sim", para eu planejar o copiar e o realce depois do botão Parar. Planejado em modo de plano.
+- **Feito, em cada app** (desktop e web; sem pacote compartilhado, P144): `Markdown.tsx` único para as mensagens do chat (antes eram 4 cópias da configuração do `ReactMarkdown`): `rehype-highlight` (conjunto comum de linguagens, `detect: false` e `ignoreMissing`, então só um bloco cuja cerca nomeia a linguagem é pintado, sem adivinhar), e o `pre` virou um bloco com a linguagem e o botão **Copiar** (o texto copiado sai da árvore do markdown, sem os `<span>` do realce); `CopyButton.tsx` (Copiado / Não copiou por 1,5 s); botão de copiar a mensagem do assistente no rodapé (desktop, ao lado do botão de voz) e em `.bubble-actions` (web, só para `role === "assistant"`: a bolha de erro tem o mesmo `content`). `lib/clipboard.ts`: `copyText` (API moderna, e, onde não há — a web por `http://` na rede local não é contexto seguro —, um `textarea` + `execCommand`), `codeLanguage`, `hastText`. Cores `.hljs-*` por variáveis `--hl-*` no claro e no escuro. Dependência nova: `rehype-highlight` nos dois `package.json` e nos dois `package-lock.json`.
+- **Testes**: `clipboard.test.mjs` nos dois apps (linguagem da cerca, texto de uma árvore realçada, `copyText` com `navigator`/`document` de mentira: API, fallback, recusa, falha total). `tsc`, `npm test` (145 e 87 passam) e `vite build` rodados aqui só como verificação rápida; a prova é o `ci.yml` (run 39072580982: Frontend desktop e web verdes).
+- **Não provado**: a aparência (cores, cabeçalho do bloco, botões) numa janela (P129); o bloco incompleto durante o streaming (o `rehype-highlight` roda a cada atualização e aguenta uma cerca aberta, mas não vi). O cofre (`VaultView`), o celular e as threads ficaram de fora. O tamanho do pacote do web (que entra no binário do hub) cresceu com o `highlight.js`; não medi.
 
 ### 2026-10-17 — Sessão 239 (botão Parar no chat comum: P157, item 2 da auditoria)
 
