@@ -2,7 +2,16 @@
 
 > **Nota**: Este log foi criado junto com o projeto. As sessões serão registradas aqui conforme o trabalho avança.
 >
-> Última atualização: 2026-10-16 (Sessão 226)
+> Última atualização: 2026-10-16 (Sessão 227)
+
+---
+
+### 2026-10-16 — Sessão 227 (P150 confirmado no CI)
+
+- **Pedido do usuário**: depois de um `git pull`, "bora continuar?" e, entre as opções que listei, "vamos de p150 ent". Plano aprovado em modo de plano.
+- **Feito**: só leitura do histórico do CI (`gh run list` e `gh run view --log-failed`). Desde o conserto (`78658ef`), 19 runs de push com o job Rust completo, todos verdes, e 3 rodadas à mão verdes. As duas falhas do período foram `zip = "^7.2"` sem resolver (corrigida em `4634d76`), não o teste do P150. P150 marcado como ✅ no `PENDING.md`.
+- **Sem código**: nada mudou fora de `project/`, então o CI não dispara.
+- **Sobra**: P149 (APK Android no CI, badge, actions em Node 20, corte por área ainda não visto num push de uma pasta só), o modelo do histórico no P154, e o `.msi` e a imagem `:0.1.1` do P152.
 
 ---
 
