@@ -133,7 +133,8 @@ impl DockerCli {
             return Ok(String::from_utf8_lossy(&output.stdout).trim().to_string());
         }
         let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
-        if tolerate.is_some_and(|text| stderr.contains(text)) {
+        // Docker is not consistent about the case of these ("No such container", but "get <name>: no such volume").
+        if tolerate.is_some_and(|text| stderr.to_lowercase().contains(&text.to_lowercase())) {
             return Ok(String::new());
         }
         bail!("`docker {}` failed: {stderr}", args.first().map(String::as_str).unwrap_or(""));
