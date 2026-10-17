@@ -2,9 +2,18 @@
 
 > **Nota**: Este log foi criado junto com o projeto. As sessões serão registradas aqui conforme o trabalho avança.
 >
-> Última atualização: 2026-10-17 (Sessão 238)
+> Última atualização: 2026-10-17 (Sessão 239)
 
 ---
+
+### 2026-10-17 — Sessão 239 (botão Parar no chat comum: P157, item 2 da auditoria)
+
+- **Pedido do usuário**: "pode seguir" (depois do streaming), com a decisão que eu propus: ao parar, **o pedaço já escrito fica salvo como a resposta**. Planejado em modo de plano.
+- **Abordagem**: o próprio `Orchestrator` sabe parar (`with_stop(CancellationToken)`, `MessageOutcome.stopped`): a chamada ao modelo e a ferramenta em curso competem com o token num `select!` com `biased` (a parada é olhada primeiro) e o turno devolve `Ok` com o texto da chamada em curso (o texto antes de uma chamada de ferramenta não conta, como na resposta final). Assim hub, desktop e bootstrap salvam e respondem pelo caminho de sempre, sem um segundo caminho de gravação. `handle_agent_turn_in_with` não grava resposta vazia de um turno parado antes da primeira palavra.
+- **Hub**: um mapa por conexão `conversa -> token`; o `CancelTurn` (que já parava tarefas de código) também cancela o turno comum, e um membro só alcança as suas conversas. Não se aprende (P104) com uma resposta cortada. **Desktop**: o mesmo mapa em `CodeState`; `cancel_turn` o consulta antes do motor de código. **Telas**: o botão Enviar vira **Parar** enquanto o turno corre (desktop `MessageInput`, web `ChatView`); o botão `live-stop` da bolha e o CSS morto saíram; no desktop local, resposta vazia parada não vira balão.
+- **Testes** (todos verdes no CI): 5 no núcleo (parar no meio, antes de começar, durante uma ferramenta, na chamada depois de uma ferramenta, sem token), 1 no bootstrap (com texto salva as duas mensagens, sem texto só a pergunta), 2 no hub (`stopping_an_ordinary_turn_keeps_what_was_written_as_the_answer`, `a_turn_stopped_before_any_word_leaves_only_the_question`). Erros no caminho: um laço que nunca repete recusado pelo clippy; e o 1º teste do núcleo esperava parar no meio de pedaços todos prontos, o que não acontece sem ponto de espera (a rede cede entre pedaços; o modelo de teste agora cede com `yield_now`, e o `select!` ficou `biased`).
+- **CI**: a rodada final falhou uma vez em três testes de outro lugar (`warden-sync` e `warden-truthid`, `FAKE_PHONE_PORT: Address already in use`), sem relação com a mudança; passou ao repetir só o job. Virou o P158.
+- **Fora desta fatia / não provado**: o botão e a aparência numa janela (P129); o **celular** ainda sem botão (o protocolo é o mesmo, entra sem mexer no hub); o processo-filho de uma ferramenta já iniciada não é morto (o futuro é largado). Uso de `python3` via Bash em parte das edições, como antes.
 
 ### 2026-10-17 — Sessão 238 (streaming da resposta no chat: P157, item 1 da auditoria)
 
