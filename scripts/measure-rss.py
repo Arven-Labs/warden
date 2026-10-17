@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Mede o RSS do `warden-server` em release (P145, P146, P147): ocioso sem e com os modelos de busca, depois do 1º turno
 com cofres de tamanhos diferentes, depois de o modelo do cofre ser descarregado por ociosidade e com vários membros, contra
-o que a Sessão 222 mediu (HOSPEDAGEM.md seção K). Só biblioteca padrão, Linux.
+o que a Sessão 222 mediu (HOSPEDAGEM.md seção K). Também mede a espera de buscas de membros diferentes ao mesmo tempo,
+já que o modelo do cofre é um só por processo (P153). Só biblioteca padrão, Linux.
 
 Cada cenário sobe um hub novo numa pasta de dados nova, com um modelo de mentira (scripts/fake-openai.py) no lugar do
 provedor; o turno vai pela API compatível com a OpenAI e o RSS vem de /proc/<pid>/status (conferido com GET /status), o
@@ -22,6 +23,7 @@ import sys
 import tempfile
 import time
 import urllib.request
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
@@ -32,6 +34,9 @@ CLK_TCK = os.sysconf("SC_CLK_TCK")
 MEMBERS = 3
 MEMBER_NOTES = 50
 MEMBER_FOLLOW_UPS = 5
+CONCURRENT_MEMBERS = 4  # membros do cenário de buscas simultâneas (P153), cada um com MEMBER_NOTES notas
+BIG_NOTES = 1000  # o membro que indexa um cofre grande enquanto os outros perguntam
+CONCURRENT_ROUNDS = 5
 IDLE_SECS = 5  # --embedding-idle-secs do cenário de descarregamento
 
 WORDS = (
@@ -246,6 +251,76 @@ def run_members(binary, models_dir):
     return rows
 
 
+def add_members(hub, members):
+    """Cria os membros `(nome, notas, semente)` com as suas notas e uma chave cada; devolve {nome: chave}."""
+    keys = {}
+    for member, notes, seed in members:
+        hub.cli("users", "add", member, "--name", f"Membro {member}")
+        write_notes(hub.data / "users" / member / "vault", notes, "short", seed=seed)
+        keys[member] = hub.cli("api-keys", "create", f"key-{member}", "--user", member)
+    return keys
+
+
+def wall_secs(hub, key):
+    return hub.turn(key)[0]
+
+
+def average(values):
+    return sum(values) / len(values) if values else None
+
+
+def run_concurrency(binary, models_dir):
+    """P153: o modelo do cofre é um só, então buscas de membros diferentes esperam a vez. Mede a espera: (1) a 1ª requisição de
+    vários membros em sequência e ao mesmo tempo, (2) requisições de cofres já indexados, em sequência e ao mesmo tempo, e (3) as
+    requisições desses membros enquanto outro indexa um cofre grande (a indexação solta o modelo a cada fatia de 16 chunks)."""
+    small = [(f"m{i}", MEMBER_NOTES, i) for i in range(1, CONCURRENT_MEMBERS + 1)]
+    with Hub(binary, models_dir) as hub:
+        keys = add_members(hub, small)
+        hub.start()
+        sequential_first = [wall_secs(hub, key) for key in keys.values()]
+        wait_settled(hub.pid, 2, 30)
+        rss_sequential = rss_mb(hub.pid)[0]
+        log(f"  1ª requisição em sequência: {sum(sequential_first):.2f} s no total, RSS {rss_sequential:.0f} MB")
+    with Hub(binary, models_dir) as hub:
+        keys = add_members(hub, small + [("big", BIG_NOTES, 99)])
+        big_key = keys.pop("big")
+        hub.start()
+        with ThreadPoolExecutor(max_workers=len(keys)) as pool:
+            started = time.time()
+            parallel_first = list(pool.map(lambda key: wall_secs(hub, key), keys.values()))
+            parallel_total = time.time() - started
+            wait_settled(hub.pid, 2, 30)
+            log(f"  1ª requisição ao mesmo tempo: {parallel_total:.2f} s no total, a mais lenta {max(parallel_first):.2f} s")
+            sequential_warm = [wall_secs(hub, key) for _ in range(CONCURRENT_ROUNDS) for key in keys.values()]
+            concurrent_warm = []
+            for _ in range(CONCURRENT_ROUNDS):
+                concurrent_warm += pool.map(lambda key: wall_secs(hub, key), keys.values())
+            log(f"  já indexados: média {average(sequential_warm):.3f} s em sequência, {average(concurrent_warm):.3f} s ao mesmo tempo")
+        during = []
+        with ThreadPoolExecutor(max_workers=1) as pool:
+            big = pool.submit(wall_secs, hub, big_key)
+            time.sleep(2)  # o turno do membro grande já está indexando
+            while not big.done():
+                for key in keys.values():
+                    if big.done():
+                        break
+                    during.append(wall_secs(hub, key))
+            big_secs = big.result()
+        wait_settled(hub.pid, 2, 30)
+        rss_concurrent = rss_mb(hub.pid)[0]
+        log(f"  durante a indexação de {BIG_NOTES} notas ({big_secs:.1f} s): {len(during)} requisições, a mais lenta {max(during, default=0):.2f} s")
+    return {
+        "sequential_first": sequential_first,
+        "parallel_first": parallel_first,
+        "parallel_total": parallel_total,
+        "sequential_warm": sequential_warm,
+        "concurrent_warm": concurrent_warm,
+        "during": during,
+        "big_secs": big_secs,
+        "rss": (rss_sequential, rss_concurrent),
+    }
+
+
 def table(header, aligns, rows):
     print("| " + " | ".join(header) + " |")
     print("|" + "|".join("---:" if a == "r" else "---" for a in aligns) + "|")
@@ -304,6 +379,29 @@ def main():
             ["Membro", "RSS depois do 1º (MB)", "1ª requisição (s)", "CPU da 1ª (s)", f"Média das {MEMBER_FOLLOW_UPS} seguintes (s)", "CPU média das seguintes (s)"],
             "lrrrrr",
             member_rows,
+        )
+
+    if wanted("simultâneas"):
+        log("cenário: buscas simultâneas")
+        r = run_concurrency(binary, models)
+        warm = r["sequential_warm"]
+        print(
+            f"Buscas simultâneas ({CONCURRENT_MEMBERS} membros de {MEMBER_NOTES} notas curtas e um com {BIG_NOTES}; "
+            "segundos por requisição, num runner que pode ter outros núcleos que a sua máquina):\n"
+        )
+        table(
+            ["Medida", "Sequencial (s)", "Simultâneo (s)"],
+            "lrr",
+            [
+                [f"1ª requisição dos {CONCURRENT_MEMBERS} membros, tempo total", fmt(sum(r["sequential_first"]), 2), fmt(r["parallel_total"], 2)],
+                ["1ª requisição, a mais lenta", fmt(max(r["sequential_first"]), 2), fmt(max(r["parallel_first"]), 2)],
+                ["cofre já indexado, média por requisição", fmt(average(warm), 3), fmt(average(r["concurrent_warm"]), 3)],
+                ["cofre já indexado, a mais lenta", fmt(max(warm), 3), fmt(max(r["concurrent_warm"]), 3)],
+                [f"durante a indexação de {BIG_NOTES} notas de outro membro, média", fmt(average(warm), 3), fmt(average(r["during"]), 3)],
+                [f"durante a indexação de {BIG_NOTES} notas de outro membro, a mais lenta", fmt(max(warm), 3), fmt(max(r["during"], default=None), 3)],
+                [f"turno do membro com {BIG_NOTES} notas ({len(r['during'])} requisições dos outros no meio)", "-", fmt(r["big_secs"], 1)],
+                ["RSS no fim (MB; o do simultâneo inclui o membro grande)", fmt(r["rss"][0]), fmt(r["rss"][1])],
+            ],
         )
 
 
