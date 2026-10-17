@@ -14,6 +14,15 @@ use warden_core::orchestrator::Orchestrator;
 use warden_core::tool::{Tool, ToolSpec};
 use warden_server::Server;
 
+/// A data directory path no other test shares (P155). A timestamp alone collides when two tests start in the same
+/// instant, so the process id (parallel test binaries) and a process-wide counter (parallel tests) go in too. The
+/// directory is not created: the server and `create_dir_all` callers already do that.
+pub fn unique_temp_dir(prefix: &str) -> std::path::PathBuf {
+    static COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let nanos = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
+    std::env::temp_dir().join(format!("{prefix}-{}-{}-{nanos}", std::process::id(), COUNTER.fetch_add(1, Ordering::SeqCst)))
+}
+
 /// Per-host timeout for `discover_hubs_on` in tests — far above the real 800 ms, since a debug
 /// build on a busy machine can take seconds to answer a local probe (P81).
 pub const DISCOVERY_TIMEOUT: Duration = Duration::from_secs(10);
@@ -107,10 +116,7 @@ pub async fn spin_up_server_with_devices_path(provider: MockProvider) -> (std::n
 /// Same as `spin_up_server_with_devices_path`, with the open-connection revocation check (P36)
 /// running every `interval` — short in tests so a revocation shows up without waiting seconds.
 pub async fn spin_up_server_with_revocation_check(provider: MockProvider, interval: Duration) -> (std::net::SocketAddr, std::path::PathBuf) {
-    let temp_dir = std::env::temp_dir().join(format!(
-        "warden-server-test-{}",
-        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
-    ));
+    let temp_dir = unique_temp_dir("warden-server-test");
     let vault = Arc::new(Vault::new(temp_dir.join("vault")));
     let orchestrator = Orchestrator::new(Arc::new(provider), vault);
     let devices_path = temp_dir.join("devices.json");
@@ -128,10 +134,7 @@ pub async fn spin_up_server_with_revocation_check(provider: MockProvider, interv
 /// Same as `spin_up_server_with_devices_path`, with the pairing key allowed to change while the hub runs (P36 c): the file it
 /// reads sits beside the registry, at the path this also hands back. The key it starts with is `test-key`.
 pub async fn spin_up_server_with_pairing_key_file(provider: MockProvider) -> (std::net::SocketAddr, std::path::PathBuf, std::path::PathBuf) {
-    let temp_dir = std::env::temp_dir().join(format!(
-        "warden-server-test-{}",
-        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
-    ));
+    let temp_dir = unique_temp_dir("warden-server-test");
     let vault = Arc::new(Vault::new(temp_dir.join("vault")));
     let orchestrator = Orchestrator::new(Arc::new(provider), vault);
     let devices_path = temp_dir.join("devices.json");
@@ -151,10 +154,7 @@ pub async fn spin_up_server_with_pairing_key_file(provider: MockProvider) -> (st
 /// tool the server already has, not with another client's — each connection gets its own clone of
 /// the shared orchestrator, so two different clients never collide with each other).
 pub async fn spin_up_server_with_base_tool(provider: MockProvider, base_tool: Arc<dyn Tool>) -> std::net::SocketAddr {
-    let temp_dir = std::env::temp_dir().join(format!(
-        "warden-server-test-{}",
-        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
-    ));
+    let temp_dir = unique_temp_dir("warden-server-test");
     let vault = Arc::new(Vault::new(temp_dir.join("vault")));
     let mut orchestrator = Orchestrator::new(Arc::new(provider), vault);
     orchestrator.register_tool(base_tool);
@@ -177,10 +177,7 @@ pub async fn spin_up_server_with_base_tool(provider: MockProvider, base_tool: Ar
 
 /// Same as `spin_up_server`, but TLS-only (P36) with `tls`. Returns the bound address.
 pub async fn spin_up_tls_server(provider: MockProvider, tls: warden_server::HubTls) -> std::net::SocketAddr {
-    let temp_dir = std::env::temp_dir().join(format!(
-        "warden-server-test-{}",
-        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
-    ));
+    let temp_dir = unique_temp_dir("warden-server-test");
     let vault = Arc::new(Vault::new(temp_dir.join("vault")));
     let orchestrator = Orchestrator::new(Arc::new(provider), vault);
 
@@ -204,10 +201,7 @@ pub async fn spin_up_tls_server(provider: MockProvider, tls: warden_server::HubT
 /// Same as `spin_up_server`, but runs `serve_until` (not `serve`) so the caller can stop it — the
 /// returned `oneshot::Sender` is what a graceful-shutdown test fires.
 pub async fn spin_up_server_with_shutdown(provider: MockProvider) -> (std::net::SocketAddr, tokio::sync::oneshot::Sender<()>) {
-    let temp_dir = std::env::temp_dir().join(format!(
-        "warden-server-test-{}",
-        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
-    ));
+    let temp_dir = unique_temp_dir("warden-server-test");
     let vault = Arc::new(Vault::new(temp_dir.join("vault")));
     let orchestrator = Orchestrator::new(Arc::new(provider), vault);
 
@@ -249,10 +243,7 @@ pub fn test_web_ui() -> Arc<dyn warden_server::WebAssets> {
 
 /// Same as `spin_up_server` (or `spin_up_tls_server`, given `tls`), also serving `web_ui` (P78).
 pub async fn spin_up_server_with_web_ui(provider: MockProvider, web_ui: Arc<dyn warden_server::WebAssets>, tls: Option<warden_server::HubTls>) -> std::net::SocketAddr {
-    let temp_dir = std::env::temp_dir().join(format!(
-        "warden-server-test-{}",
-        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
-    ));
+    let temp_dir = unique_temp_dir("warden-server-test");
     let vault = Arc::new(Vault::new(temp_dir.join("vault")));
     let orchestrator = Orchestrator::new(Arc::new(provider), vault);
 

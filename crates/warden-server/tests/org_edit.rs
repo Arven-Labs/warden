@@ -1,6 +1,8 @@
 //! P120 on the hub: `EditAgentOrg` changes the organization of the agents from the tree, with the pairing key, and answers like a
 //! settings save — the new settings — after the hub's orchestrator was started again with the change in place.
 
+mod support;
+
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
@@ -71,7 +73,7 @@ async fn spin_up() -> (String, PathBuf, Arc<AtomicUsize>) {
 }
 
 async fn spin_up_with(config: FileConfig) -> (String, PathBuf, Arc<AtomicUsize>) {
-    let dir = std::env::temp_dir().join(format!("warden-server-org-edit-{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
+    let dir = support::unique_temp_dir("warden-server-org-edit");
     std::fs::create_dir_all(&dir).unwrap();
     let path = dir.join("config.toml");
     save_config(&path, &config).unwrap();

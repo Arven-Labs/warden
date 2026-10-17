@@ -49,10 +49,7 @@ impl TestCa {
 }
 
 fn temp_dir() -> PathBuf {
-    std::env::temp_dir().join(format!(
-        "warden-server-tls-test-{}",
-        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
-    ))
+    support::unique_temp_dir("warden-server-tls-test")
 }
 
 async fn hello(url: &str, tls: Arc<ClientConfig>) -> anyhow::Result<ServerConnection> {

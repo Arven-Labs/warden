@@ -2,7 +2,17 @@
 
 > **Nota**: Este log foi criado junto com o projeto. As sessões serão registradas aqui conforme o trabalho avança.
 >
-> Última atualização: 2026-10-17 (Sessão 228)
+> Última atualização: 2026-10-17 (Sessão 229)
+
+---
+
+### 2026-10-17 — Sessão 229 (testes que dividiam a pasta: P155)
+
+- **Pedido do usuário**: "bora continuar?". Li o `INDEX.md` e o último Fica/Falta; o P155 era o único aberto e deixava o CI vermelho. Planejei em modo de plano e o plano foi aprovado.
+- **Feito**: `unique_temp_dir(prefix)` em `crates/warden-server/tests/support/mod.rs` (pid + contador + ns) no lugar do nome só por ns, nos 6 construtores do `support`, em `tls.rs` e em `org_edit.rs`.
+- **Conferido**: `cargo test -p warden-server --no-fail-fast` verde; `tls`, `org_edit` e `threads` 6 vezes seguidas verdes.
+- **Não provado**: a falha nunca reproduziu local, então só o CI da `main` mostra se era essa a causa.
+- **Sobra**: commit e push, vários runs do `ci.yml`, e os cerca de 40 outros usos de `as_nanos()` (fora do escopo combinado).
 
 ---
 
