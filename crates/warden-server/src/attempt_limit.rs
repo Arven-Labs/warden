@@ -176,12 +176,14 @@ mod tests {
         let limiter = AttemptLimiter::new(LIMIT);
         let ip = ip("10.0.0.1");
         let held: Vec<_> = (0..3).map(|_| limiter.reserve(ip).expect("under the cap")).collect();
-        assert!(limiter.reserve(ip).is_none(), "the cap is reached");
 
         held[0].release();
         held[0].release();
         assert!(limiter.reserve(ip).is_some(), "releasing gave one back");
+        // Refused: the cap is reached again, which also starts the lockout, so nothing is given back after this.
         assert!(limiter.reserve(ip).is_none(), "releasing twice gave back only one");
+        held[1].release();
+        assert!(limiter.reserve(ip).is_none(), "an address in its lockout is turned away");
     }
 
     #[test]
