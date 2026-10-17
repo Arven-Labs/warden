@@ -200,7 +200,7 @@ No caminho A, baixe a nova versão no release e instale por cima; a configuraç�
 | O contêiner morre ao subir | falta `WARDEN_SERVER_AUTH_KEY` (mínimo de 32 caracteres) ou o `config.toml` tem um campo que não existe |
 | "no API key configured" | a chave do provedor ativo não foi preenchida em Settings, ou está vazia no `config.toml` |
 | O navegador não pede/aceita a chave | confira se é a chave do `WARDEN_SERVER_AUTH_KEY` e se o endereço é `http://` (sem TLS) ou `https://` |
-| O app não abre no Linux | instale pelo `.deb`/`.rpm` (puxam as bibliotecas) ou rode o AppImage no terminal para ver a mensagem de erro |
+| O app não abre no Linux | instale pelo `.deb`/`.rpm` (puxam as bibliotecas) e rode no terminal para ver a mensagem de erro (o executável do `.deb` se chama `desktop`; o AppImage, o próprio arquivo) |
 | Respostas lentas na primeira busca | o modelo de busca por significado baixa na primeira vez e fica em `/data/models` |
 
 ## 7. O que ainda não foi conferido com um modelo de verdade

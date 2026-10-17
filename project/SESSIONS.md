@@ -2,9 +2,16 @@
 
 > **Nota**: Este log foi criado junto com o projeto. As sessões serão registradas aqui conforme o trabalho avança.
 >
-> Última atualização: 2026-10-17 (Sessão 235)
+> Última atualização: 2026-10-17 (Sessão 236)
 
 ---
+
+### 2026-10-17 — Sessão 236 (guia de uso: a frente "deixar o app pronto para o Fabio usar")
+
+- **Pedido do usuário**: mudar de frente, "focar na parte que não é produto", deixar o app pronto para ele usar. Levantei o que falta (release v0.1.1 pronto; falta o caminho do primeiro uso, testes com modelo real, memória ociosa), ele escolheu "levantar o que falta" e depois "pode começar pelo guia de uso". Planejado em modo de plano.
+- **Feito**: `GUIA-DE-USO.md` na raiz (dois caminhos: A, o app no computador; B, hub sempre ligado em Docker, com TLS, systemd, backup do volume, atualização, defeitos comuns e o que ainda não foi conferido com modelo real). Link no `README.md`. Cada caminho de tela, flag e arquivo foi conferido no código; achei e corrigi três erros meus antes de commitar: `Hubs` fica em Workspace (não em Settings), `/agents` é do terminal, e `warden-server backup` copia só os dados dos **membros**, não o hub (o guia ensina `tar` do volume).
+- **Prova no CI** (commit `ade6f84`): `guide-check.yml` + `scripts/deb-check.sh` instalam o `.deb` do release num Ubuntu 24.04 limpo, `ldd` sem biblioteca faltando, e o app fica de pé 20 s sob `xvfb` (run 39063203418 verde; o executável se chama `/usr/bin/desktop`). A fumaça da imagem (`image-smoke.sh`, passo 4f) extrai o bloco `toml` do guia e o hub o aceita (run 39063203439 verde, "config do guia: ok"), então o exemplo não apodrece.
+- **Limite**: o app abrir sob `xvfb` não prova que uma conversa com modelo real funciona; isso é a próxima fatia (P156).
 
 ### 2026-10-17 — Sessão 235 (backup fora do host: P138)
 
