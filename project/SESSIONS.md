@@ -2,7 +2,18 @@
 
 > **Nota**: Este log foi criado junto com o projeto. As sessões serão registradas aqui conforme o trabalho avança.
 >
-> Última atualização: 2026-10-17 (Sessão 232)
+> Última atualização: 2026-10-17 (Sessão 233)
+
+---
+
+### 2026-10-17 — Sessão 233 (backup cifrado por cliente no orquestrador: P138)
+
+- **Pedido do usuário**: "sim" ao P143 como próximo. Antes de planejar, li a linha inteira do P143 e vi que ele já estava feito (a), (b), (c), (d) e (e); a minha sugestão partiu de ler só os primeiros 400 caracteres da linha. Disse isso ao usuário. O mesmo aconteceu com o P117 (pronto, falta só teste com bot real) e o P149 (só falta o cache do Rust no job `android`). O usuário escolheu o P138 e, nele, o **backup do volume**. Planejei em modo de plano e o plano foi aprovado.
+- **Decisões do usuário**: parar o hub durante a cópia (consistência); chave do orquestrador em arquivo 0600; a verificação sobe um hub num volume novo.
+- **Feito** (`crates/warden-orchestrator`): `backup.rs` (chave, formato `.wbk` com AES-256-GCM em blocos de 1 MiB, listar, podar, resolver `latest`), `ContainerRuntime` com `archive_volume`, `extract_volume`, `volume_exists`, `run_isolated` e `is_healthy`, `InstanceManager::backup`, `backup_all`, `restore` e `verify`, e a CLI `backup | backups | restore | verify`. O hub restaurado da verificação roda **sem rede e sem tarefas agendadas**, para não sincronizar nem chamar nada em nome do cliente.
+- **Verificação só pelo CI**: `cargo check` local. O 1º run falhou em 18 testes por erro meu (o prefixo do nonce do STREAM BE32 tem 7 bytes, não 8, e o `generic-array` dá `panic`; o `cargo check` não pega isso). O 2º passou nos testes e a fumaça com Docker de verdade pegou o "no such volume" em minúsculas no `restore`. O 3º ficou verde nos dois: `ci.yml` (39057977635) e a fumaça do orquestrador (39057977702, passos de backup, verify e restore).
+- **Registro**: usei `python` e `sed` em alguns arquivos (a mudança do `run_args` em `runtime.rs` e a documentação do `lib.rs`), que não apareceram como diff na tela; o resto foi por Edit/Write.
+- **Sobra** (no P138): cópia para fora do host, apagar os backups com `--purge-data` e o prazo de retenção (pergunta 4), agendamento como serviço, upgrade em ondas, API HTTP do contrato B1, proxy com TLS.
 
 ---
 
