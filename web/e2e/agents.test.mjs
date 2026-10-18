@@ -58,7 +58,12 @@ describe("the channel of an agent", () => {
       await contacts(page).getByRole("button", { name: /ops/ }).click();
       await page.locator(".chat-title", { hasText: "ops" }).waitFor();
       await contacts(page).getByRole("button", { name: /writer/ }).click();
-      await page.getByText("oi, writer").first().waitFor();
+      await page.locator(".chat-title", { hasText: "writer" }).waitFor();
+      // The message itself may not be back: the hub saves a turn when it ends, and this one fails (fake key). The channel is what must be the same.
+      await page.getByRole("textbox").fill("de novo, writer");
+      await page.getByRole("button", { name: "Enviar" }).click();
+      for (let waited = 0; waited < 5000 && chatFrames(sent).length < 2; waited += 100) await new Promise((r) => setTimeout(r, 100));
+      assert.equal(chatFrames(sent)[1]?.conversationId, frame.conversationId, "the same channel, not a second one");
 
       // The chat screen does not list it with the loose conversations.
       await page.getByRole("button", { name: "Chat", exact: true }).click();
