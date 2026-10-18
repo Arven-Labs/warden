@@ -65,11 +65,14 @@ jobs:
         working-directory: web
         run: npx playwright-core install --with-deps chromium
 
+      # Um teste que trava falha sozinho em 4 minutos e o passo todo em 25, em vez de a rodada ficar parada até o limite do job
+      # sem log (a primeira rodada, na Sessão 261, ficou 42 minutos aqui sem dizer nada).
       - name: Testes de navegador
         working-directory: web
+        timeout-minutes: 25
         env:
           WARDEN_E2E_SCREENS: ${{ github.workspace }}/e2e-screens
-        run: npm run test:e2e
+        run: npm run test:e2e -- --test-timeout=240000
 
       # Sempre, não só em falha: as fotos são para olhar mesmo com tudo verde.
       - name: Fotos das telas
