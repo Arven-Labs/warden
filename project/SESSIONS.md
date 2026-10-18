@@ -2,9 +2,16 @@
 
 > **Nota**: Este log foi criado junto com o projeto. As sessões serão registradas aqui conforme o trabalho avança.
 >
-> Última atualização: 2026-10-18 (Sessão 259)
+> Última atualização: 2026-10-18 (Sessão 260)
 
 ---
+
+### 2026-10-18 — Sessão 260 (instalar uma skill por endereço ar://: P160, passo 3)
+
+- **Pedido do usuário**: "sim" a seguir com a instalação por `ar://` depois do botão Publicar. Planejado em modo de plano.
+- **Feito**: `parse_address` e `fetch_tx_data_capped` no cliente do Arweave, `fetch_skill_package` no bootstrap, mensagem `FetchSkillPackage` no hub, comando Tauri e o campo de endereço no painel de importar (desktop e web). O endereço é só um id e o host é sempre o gateway, então não há SSRF; o corpo tem teto de 96 KiB.
+- **CI**: verde no `fa5ed29` (Rust com clippy e testes, frontends do desktop e da web).
+- **Não provado**: nunca falou com o Arweave de verdade; telas não abertas (P129).
 
 ### 2026-10-18 — Sessão 259 (botão Publicar: skill no Arweave pelo pin do TruthID: P160, passo 2)
 
