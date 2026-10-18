@@ -12,6 +12,13 @@ on:
   schedule:
     - cron: '0 6 * * 1'
   workflow_dispatch:
+    inputs:
+      limit:
+        description: 'Fração que o RSS pode subir (0.10 = 10%). Só se muda para provar o alerta, ex.: -1 com floor_mb 0'
+        default: '0.10'
+      floor_mb:
+        description: 'Subida mínima em MB para contar'
+        default: '5'
 
 permissions:
   contents: read
@@ -59,9 +66,12 @@ jobs:
       # Sai com 1 quando algum cenário passou do limite; o passo da issue roda de qualquer jeito (`if: always()`) e só age se `regressed`.
       - name: Comparar com a referência
         id: compare
+        env:
+          LIMIT: ${{ inputs.limit || '0.10' }}
+          FLOOR_MB: ${{ inputs.floor_mb || '5' }}
         run: |
           set +e
-          python3 scripts/compare-rss.py scripts/rss-baseline.json rss.json | tee compare.md
+          python3 scripts/compare-rss.py scripts/rss-baseline.json rss.json --limit "$LIMIT" --floor-mb "$FLOOR_MB" | tee compare.md
           status=${PIPESTATUS[0]}
           set -e
           {

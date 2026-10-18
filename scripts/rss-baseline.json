@@ -5,7 +5,7 @@
   "1º turno, 300 notas curtas": { "rss": 284, "peak": 284 },
   "1º turno, 1000 notas curtas": { "rss": 294, "peak": 297 },
   "1º turno, 300 notas longas": { "rss": 413, "peak": 413 },
-  "1000 notas curtas, depois do 1º turno": { "rss": 96, "peak": 294 },
-  "… 15 s ocioso (`--embedding-idle-secs 5`)": { "rss": 96, "peak": null },
-  "… 2º turno (recarrega o modelo)": { "rss": 107, "peak": 294 }
+  "1000 notas curtas, depois do 1º turno": { "rss": 51, "peak": 291 },
+  "… 15 s ocioso (`--embedding-idle-secs 5`)": { "rss": 51, "peak": null },
+  "… 2º turno (recarrega o modelo)": { "rss": 52, "peak": 291 }
 }
