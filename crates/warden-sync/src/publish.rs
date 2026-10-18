@@ -112,9 +112,10 @@ mod tests {
         assert!(begin.hash.starts_with("sha256:"));
         assert_eq!(begin.content, good.as_bytes());
 
-        assert!(begin_publish("not a package").unwrap_err().to_string().contains("not a Warden package"));
-        let altered = good.replace("Say hello.", "Say goodbye.");
-        assert!(begin_publish(&altered).unwrap_err().to_string().contains("changed or damaged"));
-        assert!(begin_publish(&"x".repeat(MAX_PACKAGE_BYTES + 1)).is_err());
+        // `BeginPublish` holds a session key, so it has no `Debug` and `unwrap_err` is not available.
+        let refused = |text: &str| begin_publish(text).err().expect("this should have been refused").to_string();
+        assert!(refused("not a package").contains("not a Warden package"));
+        assert!(refused(&good.replace("Say hello.", "Say goodbye.")).contains("changed or damaged"));
+        assert!(refused(&"x".repeat(MAX_PACKAGE_BYTES + 1)).contains("at most"));
     }
 }
