@@ -63,6 +63,7 @@ describe("the channel of an agent", () => {
       // The chat screen does not list it with the loose conversations.
       await page.getByRole("button", { name: "Chat", exact: true }).click();
       await page.locator("aside.conversations").waitFor();
+      await page.getByRole("button", { name: "+ Nova conversa" }).waitFor();
       assert.doesNotMatch(await page.locator("aside.conversations").innerText(), /oi, writer/);
     } finally {
       await context?.close();

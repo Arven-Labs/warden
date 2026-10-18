@@ -67,6 +67,8 @@ describe("threads in the chat", () => {
 
       await page.getByRole("button", { name: "1 resposta" }).click();
       await panel(page).waitFor();
+      // The thread's history comes after the panel opens; until then it says there is no message yet.
+      await panel(page).getByText("Roma.").waitFor();
       const text = await panel(page).innerText();
       assert.match(text, /Paris\./, "the message it came from is at the top");
       assert.match(text, /E a da Itália\?/);

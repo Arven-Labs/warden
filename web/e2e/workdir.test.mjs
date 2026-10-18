@@ -69,7 +69,8 @@ describe("the chat's working folder", () => {
       await browser_(page).getByRole("button", { name: "alpha", exact: true }).waitFor();
 
       await browser_(page).getByRole("button", { name: "alpha", exact: true }).click();
-      await browser_(page).getByRole("button", { name: "↑ Subir" }).waitFor();
+      // "↑ Subir" is in every listing but the top one, so it says nothing about alpha having loaded: alpha has no subfolder.
+      await browser_(page).getByText("Nenhuma subpasta.").waitFor();
       assert.equal((await browser_(page).locator(".folder-picker-here").innerText()).trim(), path.join(home, "work", "alpha"));
       await browser_(page).getByRole("button", { name: "Usar esta pasta" }).click();
       await browser_(page).waitFor({ state: "detached" });

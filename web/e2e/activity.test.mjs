@@ -120,7 +120,8 @@ describe("the feed of activity", () => {
       await page.getByRole("button", { name: "Atividade", exact: true }).click();
       await page.getByRole("button", { name: "writer delegou uma tarefa a ops" }).click();
       await page.getByText("Só as tarefas de").waitFor();
-      assert.match(await page.locator(".usage-view").innerText(), /ops/);
+      // The tasks screen is followed by the always-allowed permissions, which is a `.usage-view` too: the first is the tasks.
+      assert.match(await page.locator(".usage-view").first().innerText(), /ops/);
 
       await page.getByRole("button", { name: "Atividade", exact: true }).click();
       await page.getByRole("button", { name: "ops escreveu para você" }).click();

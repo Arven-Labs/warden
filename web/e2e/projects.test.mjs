@@ -76,11 +76,12 @@ describe("the chat and its projects", () => {
       await group.waitFor();
       assert.match(await group.innerText(), /Recibos de janeiro/, "the conversation started in the project is under it");
       assert.doesNotMatch(await group.innerText(), /Conversa solta|removido/, "and only that one");
-      const loose = await page.locator("aside.conversations > ul.conversations-list").innerText();
+      // The ones in no project are in blocks by date (P157), next to the project's group.
+      const loose = (await page.locator("aside.conversations section.conversation-group:not([aria-label^='Projeto '])").allInnerTexts()).join("\n");
       assert.match(loose, /Conversa solta/);
       assert.match(loose, /Conversa de projeto removido/, "one whose project is gone is listed, as an ordinary conversation");
       assert.doesNotMatch(loose, /Recibos de janeiro/, "and a conversation of a project is not listed twice");
-      assert.equal(await page.locator("section.conversation-group").count(), 1, "no group for a project that doesn't exist");
+      assert.equal(await page.locator("section.conversation-group[aria-label^='Projeto ']").count(), 1, "no group for a project that doesn't exist");
 
       // Open conversations show the project they are in.
       await page.getByRole("button", { name: /Recibos de janeiro/ }).click();
@@ -143,7 +144,7 @@ describe("the chat and its projects", () => {
         void dialog.accept();
       });
       await picker(page).selectOption("");
-      await page.locator("aside.conversations > ul.conversations-list").getByText("Conversa solta").waitFor();
+      await page.locator("aside.conversations section.conversation-group:not([aria-label^='Projeto '])").getByText("Conversa solta").waitFor();
       assert.match(warning, /Tirar esta conversa do projeto/);
       assert.equal(moves().at(-1).projectId, undefined, "out of any project");
       assert.doesNotMatch(await group.innerText(), /Conversa solta/);
