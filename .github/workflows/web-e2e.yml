@@ -72,7 +72,7 @@ jobs:
         timeout-minutes: 25
         env:
           WARDEN_E2E_SCREENS: ${{ github.workspace }}/e2e-screens
-        run: npm run test:e2e -- --test-timeout=240000
+        run: node --test --test-reporter=tap --test-timeout=240000 e2e/usage.test.mjs e2e/screens.test.mjs
 
       # Sempre, não só em falha: as fotos são para olhar mesmo com tudo verde.
       - name: Fotos das telas
