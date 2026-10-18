@@ -174,6 +174,8 @@ Vêm da spec do router (`SPEC-warden-router-e-futuro.md`, de 2026-10-14), que fo
 
 **Autonomia:** uma tool MCP sem anotações fica sem classificação e, no nível 4, roda sozinha. O manifesto de um pacote da loja **declara a categoria de risco de cada tool**, e o que não for declarado recebe o padrão mais restritivo.
 
+**Estado (Sessão 257):** feita a 1ª fatia só de **skills**, sem pacote nem assinatura: 8 skills embutidas no binário (`warden-core/catalog/skills/`), instaladas com um clique no hub, no desktop e na web, com o estado deduzido do cofre (sem `installed.json`). O pacote `.wpkg`, a assinatura, o índice, os agentes prontos e as integrações MCP seguem desenhados e não feitos.
+
 **Fora de propósito nesta fase:** MCP **stdio** (comando arbitrário no host, sem sandbox; num servidor compartilhado ameaça todos os clientes), terceiros publicando, qualquer pacote com código executável e skills com anexos executáveis (só `.md` e arquivos de dados).
 
 **Para abrir a terceiros depois:** revisão humana e automática com scanner de skills (hoje só existe o `learning::scan_proposal`, restrito ao caminho de proposta do assistente), sandbox para stdio, identidade e chave por publicador, política de retirada e revogação, denúncia, permissões aplicadas em runtime e a decisão central x descentralizada do P85. O ROADMAP já fala em **dois mercados**, o de plugins e o de skills; este desenho começa pelo de skills, agentes e integrações HTTP.

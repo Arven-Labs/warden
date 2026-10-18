@@ -2,9 +2,16 @@
 
 > **Nota**: Este log foi criado junto com o projeto. As sessões serão registradas aqui conforme o trabalho avança.
 >
-> Última atualização: 2026-10-18 (Sessão 256)
+> Última atualização: 2026-10-18 (Sessão 257)
 
 ---
+
+### 2026-10-18 — Sessão 257 (galeria de skills prontas: P140, 1ª fatia)
+
+- **Pedido do usuário**: "vamos para biblioteca de skills". Planejado em modo de plano. Decisões dele: 1ª fatia = **galeria embutida + instalar com um clique** (sem export/import ainda); telas = **hub + desktop + web** (celular e extensão depois).
+- **Feito**: 8 skills em `crates/warden-core/catalog/skills/`, `warden-core/src/skill/catalog.rs` (`entries`, `status`, `install`), mensagens `ListSkillCatalog`/`InstallCatalogSkill`/`SkillCatalog` no protocolo, os dois casos no `skills.rs` do hub (e no filtro de `people.rs` e no despacho de `server.rs`), comandos Tauri e a seção "Gallery" no desktop (local e hub), seção "Galeria" na web. Sem `installed.json`: o estado vem de comparar com o cofre. Mudou do plano: sem teste de frontend novo (os testes de `web/` e `desktop/` são de módulos puros e as telas não têm); a ida e volta do protocolo e o hub estão cobertos em Rust.
+- **CI**: verde no `096b49e` (run 39143723467), com clippy e os testes novos; mobile e Android pulados (nada de celular mudou).
+- **Não provado**: as telas nunca foram abertas (P129); o texto das skills é meu e o Fabio não o revisou.
 
 ### 2026-10-18 — Sessão 256 (o modelo do histórico descarrega e devolve o heap: P156 item 2)
 
