@@ -75,7 +75,12 @@ fn package_json() -> String {
     Package::export_skill(&skill, "1.2.0", Some("Ana"), "CC0-1.0").unwrap().to_json().unwrap()
 }
 
+/// A requester sweeps every `LAN_PORTS`, so it would find the other test's fake phone and fail to decrypt its answer: the two
+/// tests of this file take turns.
+static ONE_PHONE_AT_A_TIME: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
 async fn publish_with(result_json: &'static str) -> (anyhow::Result<publish::PublishOutcome>, Option<Vec<u8>>) {
+    let _turn = ONE_PHONE_AT_A_TIME.lock().await;
     let begin = publish::begin_publish(&package_json()).unwrap();
     let qr: serde_json::Value = serde_json::from_str(&begin.pending.qr_payload_json().unwrap()).unwrap();
     assert_eq!(qr["action"], "truthid-pin");
