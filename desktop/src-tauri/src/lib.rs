@@ -1505,9 +1505,9 @@ mod tests {
 
         let big = root.join("big.pdf");
         std::fs::write(&big, vec![0u8; MAX_ATTACHMENT_FILE_BYTES as usize + 1]).unwrap();
-        let refused = read_attachment(big.to_string_lossy().into_owned()).unwrap_err();
+        let refused = read_attachment(big.to_string_lossy().into_owned()).err().unwrap();
         assert!(refused.contains("the most a message can carry is 9 MB"), "{refused}");
-        assert_eq!(read_attachment(root.join("a.txt").to_string_lossy().into_owned()).unwrap_err(), "Unsupported file type");
+        assert_eq!(read_attachment(root.join("a.txt").to_string_lossy().into_owned()).err().as_deref(), Some("Unsupported file type"));
         std::fs::remove_dir_all(&root).ok();
     }
 }
