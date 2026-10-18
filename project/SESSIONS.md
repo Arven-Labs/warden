@@ -2,9 +2,16 @@
 
 > **Nota**: Este log foi criado junto com o projeto. As sessões serão registradas aqui conforme o trabalho avança.
 >
-> Última atualização: 2026-10-18 (Sessão 254)
+> Última atualização: 2026-10-18 (Sessão 255)
 
 ---
+
+### 2026-10-18 — Sessão 255 (roteiro com modelo real: skills, tarefas e delegação: P156)
+
+- **Pedido do usuário**: "vamos pelo 1" (P156, item 1). Planejado em modo de plano. Decisões dele: rodar **local**, com a chave em variável de ambiente; perguntou se já há suporte ao OpenRouter (há: `openai_compatible` + `base_url`, nunca exercido contra o OpenRouter real).
+- **Feito**: `crates/warden-bootstrap/tests/real_model.rs`, 4 testes `#[ignore]` (modelo real, `WARDEN_EVAL_*`, mesmo padrão do `learning_eval.rs`): `use_skill` e seguir a skill, `manage_skill` salvando uma skill, `manage_tasks` com cron e fuso e aprovação, e `delegate_task` em dois níveis até uma ferramenta que só o agente mais fundo tem. Montam o `Orchestrator` na mão com as mesmas ferramentas do `bootstrap`, em pastas temporárias, sem subir o hub (mudou do plano, que previa o hub em processo: o que se quer provar é a escolha de ferramentas pelo modelo, não o protocolo).
+- **Rodado** (o usuário deixou a chave num `.txt` em Documents e autorizou a rodada; a chave foi lida dentro do comando, sem imprimir): `deepseek/deepseek-v4.1-flash` no OpenRouter, **4 de 4 verdes**, 27,8 s. Skill seguida (`CODE-ZEBRA-7731` na resposta), skill salva, tarefa salva com `0 9 * * 1` e `America/Sao_Paulo`, e o token do agente mais fundo subiu dois níveis. Compilou local (3 min 44 s).
+- **Não provado**: uma rodada, um modelo; um modelo real não é determinístico. Na delegação o modelo do topo desconfiou do token que veio, então o teste prova a cadeia, não a confiança do modelo. Falta o CI da `main` compilar o arquivo e rodar com Gemini, Anthropic e OpenAI.
 
 ### 2026-10-18 — Sessão 254 (o fake phone dos testes pega a primeira porta livre: P158)
 
