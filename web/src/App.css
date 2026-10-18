@@ -380,6 +380,12 @@ button:focus-visible {
   padding: 1rem;
 }
 
+/* The hint of the Agents screen sat against the edge of the list beside it. */
+.agents-empty {
+  padding: 1rem;
+  margin: 0;
+}
+
 .chat-empty {
   color: var(--color-text-muted);
   text-align: center;
@@ -411,6 +417,13 @@ button:focus-visible {
   background: var(--color-accent);
   color: #fff;
   border-bottom-right-radius: 4px;
+}
+
+/* The links under a message of the person's ("Editar") sat in the accent colour on the accent bubble and could not be seen. */
+.bubble--user .bubble-actions .link-button {
+  color: var(--color-on-accent);
+  padding-left: 0;
+  font-weight: 600;
 }
 
 .bubble--assistant {
@@ -978,6 +991,7 @@ button:focus-visible {
 
 .conversation-actions {
   display: flex;
+  flex-wrap: wrap;
   gap: 0.25rem;
   padding: 0 0.3rem 0.3rem;
   font-size: 0.8rem;
@@ -2093,6 +2107,12 @@ button:focus-visible {
 .settings-check input {
   width: auto;
   accent-color: var(--color-accent);
+}
+
+/* Inside a form (`.skills-editor label` is a bold column) the checkbox stays beside its text, as it does on the settings screen. */
+.skills-editor label.settings-check {
+  flex-direction: row;
+  font-weight: 400;
 }
 
 .settings-checks {

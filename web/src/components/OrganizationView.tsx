@@ -430,7 +430,8 @@ export default function OrganizationView({
           Soltar aqui para tirar de baixo do superior (topo da árvore)
         </div>
       )}
-      {tree.length > 0 && ninguemReporta && <p className="skills-hint">Ninguém reporta a ninguém ainda: arraste um cartão para cima de outro, ou use "Editar" num agente para escolher o superior dele.</p>}
+      {tree.length > 0 && ninguemReporta && !edicao.editavel && <p className="skills-hint">Ninguém reporta a ninguém ainda.</p>}
+      {tree.length > 0 && ninguemReporta && edicao.editavel && <p className="skills-hint">Ninguém reporta a ninguém ainda: arraste um cartão para cima de outro, ou use "Editar" num agente para escolher o superior dele.</p>}
       {painel?.kind === "add" && painel.under === null && <FormularioNovo key="add-top" under={null} edicao={edicao} />}
       {editavel && (
         <div className="skills-actions">
