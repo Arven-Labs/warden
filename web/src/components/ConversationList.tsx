@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { groupConversations } from "../hub/conversationGroups";
 import type { ConversationSummary, ProjectDto } from "../hub/messages";
 
 interface Props {
@@ -15,6 +16,8 @@ interface Props {
   onNew: () => void;
   onRename: (id: string, title: string) => Promise<void>;
   onDelete: (id: string) => Promise<void>;
+  /** Pins or archives a conversation (P157); a flag left out stays as it is. */
+  onFlags: (id: string, flags: { pinned?: boolean; archived?: boolean }) => Promise<void>;
 }
 
 /** "14:05" today, "12/09" before that — enough to tell recent conversations apart. */
@@ -26,11 +29,19 @@ function shortDate(millis: number): string {
     : date.toLocaleDateString(undefined, { day: "2-digit", month: "2-digit" });
 }
 
-/** This device's conversations on the hub (P78): open, start, rename and delete. A sidebar on wide
- * screens, a drawer on phones (`.chat-layout` in `App.css`). The ones started in a project (P103) are grouped under its name. */
-export default function ConversationList({ conversations, projects, activeId, pendingIds, error, disabled, onOpen, onNew, onRename, onDelete }: Props) {
+/** This device's conversations on the hub (P78): open, start, rename, delete, pin and archive (P157). A sidebar on wide
+ * screens, a drawer on phones (`.chat-layout` in `App.css`). The pinned ones come first, the ones started in a project (P103) are
+ * grouped under its name, the others by how recently they were used, and the archived ones are folded away at the end. */
+export default function ConversationList({ conversations, projects, activeId, pendingIds, error, disabled, onOpen, onNew, onRename, onDelete, onFlags }: Props) {
   const [editing, setEditing] = useState<{ id: string; title: string } | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [archiveOpen, setArchiveOpen] = useState(false);
+
+  async function setFlags(conversation: ConversationSummary, flags: { pinned?: boolean; archived?: boolean }) {
+    setBusyId(conversation.id);
+    await onFlags(conversation.id, flags);
+    setBusyId(null);
+  }
 
   async function saveRename() {
     if (!editing) return;
@@ -97,6 +108,14 @@ export default function ConversationList({ conversations, projects, activeId, pe
           <span className="conversation-meta">{answering ? "respondendo…" : shortDate(conversation.updatedAt)}</span>
         </button>
         <div className="conversation-actions">
+          {!conversation.archived && (
+            <button type="button" className="link-button" disabled={locked} onClick={() => void setFlags(conversation, { pinned: !conversation.pinned })}>
+              {conversation.pinned ? "Desafixar" : "Fixar"}
+            </button>
+          )}
+          <button type="button" className="link-button" disabled={locked} onClick={() => void setFlags(conversation, { archived: !conversation.archived })}>
+            {conversation.archived ? "Desarquivar" : "Arquivar"}
+          </button>
           <button type="button" className="link-button" disabled={locked} onClick={() => setEditing({ id: conversation.id, title: conversation.title })}>
             Renomear
           </button>
@@ -108,11 +127,16 @@ export default function ConversationList({ conversations, projects, activeId, pe
     );
   }
 
+  // Pinned ones are listed first and archived ones apart, wherever their project is; the rest stay in their project's group or, loose,
+  // in blocks by date.
+  const { pinned, archived } = groupConversations(conversations, Date.now());
+  const rest = conversations.filter((c) => !c.pinned && !c.archived);
   // A conversation whose project no longer exists (removed since) is listed with the others, as an ordinary one.
   const projectIds = new Set(projects.map((p) => p.id));
-  const loose = conversations.filter((c) => !c.projectId || !projectIds.has(c.projectId));
+  const loose = rest.filter((c) => !c.projectId || !projectIds.has(c.projectId));
+  const { buckets } = groupConversations(loose, Date.now());
   const groups = projects
-    .map((project) => ({ project, items: conversations.filter((c) => c.projectId === project.id) }))
+    .map((project) => ({ project, items: rest.filter((c) => c.projectId === project.id) }))
     .filter((group) => group.items.length > 0);
 
   return (
@@ -125,6 +149,12 @@ export default function ConversationList({ conversations, projects, activeId, pe
         <p className="conversations-empty">Nenhuma conversa ainda.</p>
       ) : (
         <>
+          {pinned.length > 0 && (
+            <section className="conversation-group" aria-label="Fixadas">
+              <h3 className="conversation-group-title">★ Fixadas</h3>
+              <ul className="conversations-list">{pinned.map(renderItem)}</ul>
+            </section>
+          )}
           {groups.map(({ project, items }) => (
             <section className="conversation-group" key={project.id} aria-label={`Projeto ${project.name}`}>
               <h3 className="conversation-group-title" title={project.description || project.name}>
@@ -133,7 +163,22 @@ export default function ConversationList({ conversations, projects, activeId, pe
               <ul className="conversations-list">{items.map(renderItem)}</ul>
             </section>
           ))}
-          {loose.length > 0 && <ul className="conversations-list">{loose.map(renderItem)}</ul>}
+          {buckets.map(({ label, items }) => (
+            <section className="conversation-group" key={label} aria-label={label}>
+              <h3 className="conversation-group-title">{label}</h3>
+              <ul className="conversations-list">{items.map(renderItem)}</ul>
+            </section>
+          ))}
+          {archived.length > 0 && (
+            <section className="conversation-group" aria-label="Arquivadas">
+              <h3 className="conversation-group-title">
+                <button type="button" className="conversation-archive-toggle" aria-expanded={archiveOpen} onClick={() => setArchiveOpen((open) => !open)}>
+                  {archiveOpen ? "▾" : "▸"} Arquivadas ({archived.length})
+                </button>
+              </h3>
+              {archiveOpen && <ul className="conversations-list">{archived.map(renderItem)}</ul>}
+            </section>
+          )}
         </>
       )}
     </aside>

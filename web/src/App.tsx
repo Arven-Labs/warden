@@ -31,6 +31,7 @@ import { applyEvent, type LiveTurn } from "./hub/liveTurn";
 import { nextCodeMode } from "./hub/messages";
 import { orgAccessOf, userWithOrgAccess } from "./hub/org";
 import type { Attachment, CodeMode, ConversationSummary, NodeInfo, ProjectDto, UserInfo } from "./hub/messages";
+import { entriesBefore, redoBlock } from "./hub/regenerate";
 import { isAgentChannel, threadsOf, visibleConversations, withMessageIds } from "./hub/threads";
 import { baseline, isUnread, markSeen, notificationBody, unreadIds, type SeenMap } from "./hub/unread";
 import AgentContacts from "./components/AgentContacts";
@@ -121,6 +122,8 @@ export default function App() {
     pendingTurnsRef.current = update(pendingTurnsRef.current);
     setPendingTurnsState(pendingTurnsRef.current);
   }, []);
+  /** The conversations with a redo (regenerate, edit; P157) on its way: the screen was cut for it, and if the hub refuses it the cut is undone. */
+  const redoingRef = useRef<Set<string>>(new Set());
   /** What a code engine has done so far in each running task (P103 b), by conversation id. */
   const [liveTurns, setLiveTurns] = useState<Record<string, LiveTurn>>({});
   const [view, setView] = useState<View>("chat");
@@ -331,6 +334,16 @@ export default function App() {
         setPendingTurns(({ [id]: _answered, ...rest }) => rest);
         setLiveTurns(({ [id]: _done, ...rest }) => rest);
         if (id === activeIdRef.current) setEntries((current) => [...current, entry]);
+        // The hub refused a redo (P157) and dropped nothing, but the screen was cut for it: show what it has, with the refusal last.
+        const redone = redoingRef.current.delete(id);
+        if (redone && entry.role === "error" && id === activeIdRef.current) {
+          void connection.fetchHistory(id, HISTORY_LIMIT).then(
+            (history) => {
+              if (connRef.current === connection && activeIdRef.current === id) setEntries([...historyToEntries(history), entry]);
+            },
+            () => {},
+          );
+        }
         // The messages that just came have no id yet, and a thread (P125) starts from one: ask the hub for the saved ones.
         if (entry.role === "assistant" && id === activeIdRef.current) {
           void connection.fetchHistory(id, HISTORY_LIMIT).then(
@@ -527,14 +540,17 @@ export default function App() {
     }
   }
 
-  function handleSend(message: string, attachments: Attachment[]) {
+  /** `replaceFrom` (P157) is the id of the message this turn takes the place of, with all that followed: "regenerate" sends the last
+   * message of the person's again and "edit" sends it changed. The screen is cut at once, as the hub's saved copy will be. */
+  function handleSend(message: string, attachments: Attachment[], replaceFrom?: string) {
     const connection = connRef.current;
     if (!connection) return;
     const id = activeIdRef.current;
     const isCodeProject = projects.some((p) => p.id === projectId && p.code);
     const codeMode = codeModes[id] ?? "manual";
     const entry: ChatEntry = { role: "user", content: message, attachments };
-    setEntries((current) => [...current, entry]);
+    if (replaceFrom) redoingRef.current.add(id);
+    setEntries((current) => [...(replaceFrom ? entriesBefore(current, replaceFrom) : current), entry]);
     setPendingTurns((current) => ({ ...current, [id]: entry }));
     if (!conversations.some((c) => c.id === id)) {
       const now = Date.now();
@@ -548,10 +564,21 @@ export default function App() {
       if (isCodeProject) connection.setCodeMode(id, codeMode);
       // The project only counts when this turn starts the conversation: the hub keeps an existing one where it was made.
       // The folder, too: only the turn that starts the conversation can name one, and a project has its own.
-      connection.sendChat(message, id, attachments, agentId || undefined, projectId || undefined, (!projectId && workdir) || undefined);
+      connection.sendChat(message, id, attachments, agentId || undefined, projectId || undefined, (!projectId && workdir) || undefined, undefined, replaceFrom);
     } catch (err) {
+      redoingRef.current.delete(id);
       setPendingTurns(({ [id]: _failed, ...rest }) => rest);
-      setEntries((current) => [...current, { role: "error", content: errorText(err), attachments: [] }]);
+      const failure: ChatEntry = { role: "error", content: errorText(err), attachments: [] };
+      setEntries((current) => [...current, failure]);
+      // The turn never left, so the hub still has what the screen was cut of.
+      if (replaceFrom) {
+        void connection.fetchHistory(id, HISTORY_LIMIT).then(
+          (history) => {
+            if (connRef.current === connection && activeIdRef.current === id) setEntries([...historyToEntries(history), failure]);
+          },
+          () => {},
+        );
+      }
     }
   }
 
@@ -782,6 +809,18 @@ export default function App() {
     }
   }
 
+  /** Pin and archive (P157). Archiving the open conversation doesn't close it. */
+  async function handleFlags(id: string, flags: { pinned?: boolean; archived?: boolean }) {
+    const connection = connRef.current;
+    if (!connection) return;
+    try {
+      await connection.setConversationFlags(id, flags);
+      await refreshConversations(connection);
+    } catch (err) {
+      setConversationsError(`Não foi possível ${flags.archived === undefined ? "fixar" : "arquivar"}: ${errorText(err)}`);
+    }
+  }
+
   async function handleDelete(id: string) {
     const connection = connRef.current;
     if (!connection) return;
@@ -793,7 +832,8 @@ export default function App() {
     }
     const list = await refreshConversations(connection);
     if (id !== activeIdRef.current) return;
-    const next = list ? visibleConversations(list)[0]?.id : undefined;
+    // Not an archived one: it is put away, and opening it by chance would bring it back to the screen.
+    const next = list ? visibleConversations(list).find((c) => !c.archived)?.id : undefined;
     if (next) {
       openConversation(next);
     } else {
@@ -861,7 +901,16 @@ export default function App() {
     );
   }
 
-  const activeTitle = conversations.find((c) => c.id === activeId)?.title ?? "Nova conversa";
+  const activeSummary = conversations.find((c) => c.id === activeId);
+  const activeTitle = activeSummary?.title ?? "Nova conversa";
+  // P157: why the conversation can't be redone (regenerate, edit) now, or null when it can.
+  const redoBlocked = redoBlock({
+    onHub: activeSummary !== undefined,
+    thread: activeSummary?.parent !== undefined,
+    code: projects.some((p) => p.id === projectId && p.code),
+    busy: activeId in pendingTurns,
+    offline: !phase.connected,
+  });
   /** P84: a member sees their chat, vault and skills — the rest is the owner's. */
   const isOwner = user === undefined;
   /** P120: what the owner lets this member do with the organization of the agents (read at sign-in and looked for again when the page comes back; the hub checks at each request). */
@@ -1000,6 +1049,7 @@ export default function App() {
                 onNew={handleNewConversation}
                 onRename={handleRename}
                 onDelete={handleDelete}
+                onFlags={handleFlags}
               />
             )}
             <button type="button" className="drawer-scrim" aria-label="Fechar conversas" onClick={() => setSidebarOpen(false)} />
@@ -1128,7 +1178,8 @@ export default function App() {
                 live={liveTurns[activeId]}
                 onCancel={handleCancel}
                 disabled={!phase.connected}
-                onSend={handleSend}
+                onSend={(message, attachments) => handleSend(message, attachments)}
+                onRedo={redoBlocked === null ? (message, attachments, replaceFrom) => handleSend(message, attachments, replaceFrom) : undefined}
                 onTranscribe={handleTranscribe}
                 onExtendLimit={handleExtendLimit}
                 onCycleMode={

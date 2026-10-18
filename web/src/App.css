@@ -859,6 +859,22 @@ button:focus-visible {
   white-space: nowrap;
 }
 
+/* P157 — the folded "Arquivadas (n)" heading is a button that looks like the other headings and opens on a click. */
+.conversation-archive-toggle {
+  padding: 0;
+  border: none;
+  background: none;
+  font: inherit;
+  letter-spacing: inherit;
+  text-transform: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+
+.conversation-archive-toggle:hover {
+  color: var(--color-text);
+}
+
 .project-files {
   display: flex;
   flex-direction: column;
@@ -1712,6 +1728,30 @@ button:focus-visible {
   flex-wrap: wrap;
   align-items: center;
   gap: 0.5rem;
+}
+
+/* P157 — a mensagem da pessoa virada numa caixa para editar. */
+.message-edit {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  min-width: min(28rem, 70vw);
+}
+
+.message-edit-input {
+  width: 100%;
+  box-sizing: border-box;
+  resize: vertical;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  padding: 0.5em 0.65em;
+  font: inherit;
+  color: var(--color-text);
+  background: var(--color-bg);
+}
+
+.message-edit-send {
+  font-weight: 600;
 }
 
 .bubble--error .bubble-actions .link-button {

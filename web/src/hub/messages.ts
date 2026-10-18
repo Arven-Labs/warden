@@ -95,6 +95,10 @@ export interface ConversationSummary {
   parent?: ThreadParent;
   /** For a thread, how many messages the person sent in it: the counter on the message it came from. */
   replies?: number;
+  /** Kept at the top of the list (P157); absent when not (or a hub from before it). */
+  pinned?: boolean;
+  /** Put away (P157): listed apart; absent when not. A conversation is never both pinned and archived. */
+  archived?: boolean;
 }
 
 /** Mirrors `ThreadParentDto` (P125): a message of a conversation. */
@@ -843,7 +847,7 @@ export type ClientMessage =
   | { type: "ping"; nonce: number }
   /** `conversationId` (P78) picks one of this device's conversations — a new id starts a new one;
    * omitted, the turn goes to the device's default conversation. */
-  | { type: "chat"; message: string; conversationId?: string; attachments?: Attachment[]; agentId?: string; projectId?: string; workdir?: string; threadOf?: ThreadParent }
+  | { type: "chat"; message: string; conversationId?: string; attachments?: Attachment[]; agentId?: string; projectId?: string; workdir?: string; threadOf?: ThreadParent; replaceFrom?: string }
   /** P102 — the folders inside `path` on the hub's machine (no `path`: where the person starts); answered by `dirList`/`dirError`. */
   | { type: "listDirs"; requestId: number; path?: string }
   /** P46 — the person's answer to an `approvalRequest`. */
@@ -873,6 +877,9 @@ export type ClientMessage =
   | { type: "openAgentChannel"; requestId: number; agentId: string }
   | { type: "renameConversation"; requestId: number; conversationId: string; title: string }
   | { type: "deleteConversation"; requestId: number; conversationId: string }
+  /** P157 — pins or archives a conversation; a flag left out stays as it is. Archiving unpins, and pinning an archived one brings it
+   * back. Answered by `conversationOk`/`conversationError`. */
+  | { type: "setConversationFlags"; requestId: number; conversationId: string; pinned?: boolean; archived?: boolean }
   /** P78 — voice input: the hub transcribes the recording (Whisper) and answers with
    * `transcription`/`transcriptionError`. */
   | { type: "transcribe"; requestId: number; audio: Attachment }

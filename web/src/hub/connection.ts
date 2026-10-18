@@ -665,7 +665,9 @@ export class ServerConnection {
     this.socket.send(encode({ type: "setCodeMode", conversationId, mode }));
   }
 
-  sendChat(message: string, conversationId: string, attachments: Attachment[] = [], agentId?: string, projectId?: string, workdir?: string, threadOf?: ThreadParent): void {
+  /** `replaceFrom` (P157) is the id of the message this turn takes the place of, with everything after it: "regenerate" sends the last
+   * message of the person's again, "edit" sends it changed. The hub refuses it for a thread or a code project. */
+  sendChat(message: string, conversationId: string, attachments: Attachment[] = [], agentId?: string, projectId?: string, workdir?: string, threadOf?: ThreadParent, replaceFrom?: string): void {
     this.socket.send(
       encode({
         type: "chat",
@@ -677,6 +679,7 @@ export class ServerConnection {
         ...(workdir && { workdir }),
         // P125: only the turn that starts a thread says what it is a thread of; the hub keeps that for the life of the conversation.
         ...(threadOf && { threadOf }),
+        ...(replaceFrom && { replaceFrom }),
       }),
     );
   }
@@ -720,6 +723,11 @@ export class ServerConnection {
 
   async deleteConversation(conversationId: string): Promise<void> {
     await this.request((requestId) => ({ type: "deleteConversation", requestId, conversationId }));
+  }
+
+  /** P157 — pins or archives a conversation; a flag left out stays as it is. */
+  async setConversationFlags(conversationId: string, flags: { pinned?: boolean; archived?: boolean }): Promise<void> {
+    await this.request((requestId) => ({ type: "setConversationFlags", requestId, conversationId, ...flags }));
   }
 
   /** P103 — puts a conversation in a project, or out of any (`undefined`). The next turn runs in the new scope. */

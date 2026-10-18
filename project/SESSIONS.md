@@ -2,9 +2,17 @@
 
 > **Nota**: Este log foi criado junto com o projeto. As sessões serão registradas aqui conforme o trabalho avança.
 >
-> Última atualização: 2026-10-18 (Sessão 246)
+> Última atualização: 2026-10-18 (Sessão 247)
 
 ---
+
+### 2026-10-18 — Sessão 247 (fixar, arquivar, agrupar por data, regenerar e editar na web: P157)
+
+- **Pedido do usuário**: "leva pra web", depois de eu listar o que faltava fora do desktop e sugerir a web (servida pelo hub embutido). Planejado em modo de plano.
+- **Escopo**: só a web, **sem Rust e sem protocolo novo**: o hub já tinha `setConversationFlags`, o resumo com `pinned`/`archived` e o `chat` com `replaceFrom` (Sessões 242 e 246).
+- **Feito**: `hub/messages.ts` (campos do resumo, `replaceFrom` no `chat`, a variante `setConversationFlags`), `hub/connection.ts` (`sendChat` com `replaceFrom` como 8º parâmetro, `setConversationFlags`), `hub/conversationGroups.ts` e `hub/regenerate.ts` (puros, espelham os do desktop com rótulos em português: Hoje, Ontem, Últimos 7 dias, Últimos 30 dias, Anteriores; `lastUserEntry`, `isLastAnswer`, `entriesBefore`, `messagesAfter`, `redoBlock`). `ConversationList.tsx`: "★ Fixadas" no topo, grupos de projeto, blocos por data e "Arquivadas (n)" recolhida; botões Fixar/Desafixar e Arquivar/Desarquivar. `ChatView.tsx`: **Regenerar** na última resposta guardada e **Editar** nas mensagens do usuário com `id` (caixa com Enviar/Cancelar, Ctrl+Enter, aviso quando apaga mensagens depois; os anexos de mídia da entrada seguem junto). `App.tsx`: `handleFlags`, `handleSend(…, replaceFrom?)` que corta as entradas na mensagem, `redoBlock` que desliga tudo sem hub, em thread, em projeto de código, com resposta a caminho ou sem conexão. Se o hub recusa o refazer (ou o envio falha na hora), a tela, que já estava cortada, volta ao histórico do hub com o erro no fim (`redoingRef`). Apagar a conversa aberta agora abre a primeira que **não** esteja arquivada.
+- **Testes**: `conversationGroups.test.mjs` (6) e `regenerate.test.mjs` (6) da web. Só rodei aqui o `npm test` da web: 98 passam; o `tsc` acusa só `rehype-highlight` não instalado, de antes. A conexão (WebSocket) e as telas não têm teste: a prova é o `ci.yml` (tipos, testes e `vite build`) e, de verdade, uma janela (P129).
+- **Não provado / fora**: qualquer uso numa janela; o refazer só vale para entradas que já têm `id` (o `withMessageIds` as preenche quando o turno termina, e quando as contagens não casam elas ficam sem botão); sem busca na web; celular e extensão (ignoram os campos novos); arquivar em lote.
 
 ### 2026-10-18 — Sessão 246 (fixar, arquivar e agrupar por data: P157, item 7)
 

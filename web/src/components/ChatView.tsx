@@ -6,6 +6,7 @@ import CopyButton from "./CopyButton";
 import Markdown from "./Markdown";
 import type { Attachment } from "../hub/messages";
 import { canRecord, VoiceRecorder } from "../hub/recorder";
+import { isLastAnswer, lastUserEntry, messagesAfter } from "../hub/regenerate";
 import { repliesLabel, type ThreadInfo } from "../hub/threads";
 
 interface Props {
@@ -18,6 +19,9 @@ interface Props {
   /** The connection is down — typing is fine, sending isn't. */
   disabled: boolean;
   onSend: (message: string, attachments: Attachment[]) => void;
+  /** Sends a turn that takes the place of a message of the conversation and of all that followed (P157): "regenerar" and "editar".
+   * Absent where a conversation can't be redone (a thread, a code project, one not on the hub yet, no connection, an answer on its way). */
+  onRedo?: (message: string, attachments: Attachment[], replaceFrom: string) => void;
   /** The hub's transcription of a voice recording (P78). */
   onTranscribe: (audio: Attachment) => Promise<string>;
   /** Lets a spending limit the turn stopped on go one step further (P4/P78). */
@@ -63,6 +67,43 @@ function ExternalLink({ children, ...props }: AnchorHTMLAttributes<HTMLAnchorEle
     <a {...props} target="_blank" rel="noopener noreferrer">
       {children}
     </a>
+  );
+}
+
+/** A mensagem da pessoa virada numa caixa para mudá-la (P157). Enviar pergunta antes quando a edição também apaga o que veio depois. */
+function EditBox({ entry, after, onSend, onCancel }: { entry: ChatEntry; after: number; onSend: (message: string) => void; onCancel: () => void }) {
+  const [text, setText] = useState(entry.content);
+
+  function send() {
+    const message = text.trim();
+    if (message === "" && entry.attachments.length === 0) return;
+    if (after > 0 && !window.confirm(`Enviar isso apaga ${after === 1 ? "a mensagem" : `as ${after} mensagens`} depois dela, e as threads delas. Continuar?`)) return;
+    onSend(message);
+  }
+
+  return (
+    <div className="message-edit">
+      <textarea
+        className="message-edit-input"
+        value={text}
+        autoFocus
+        aria-label="Editar sua mensagem"
+        rows={Math.min(10, Math.max(2, text.split("\n").length))}
+        onChange={(e) => setText(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === "Escape") onCancel();
+          if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) send();
+        }}
+      />
+      <div className="bubble-actions">
+        <button type="button" className="link-button" onClick={onCancel}>
+          Cancelar
+        </button>
+        <button type="button" className="link-button message-edit-send" onClick={send}>
+          Enviar
+        </button>
+      </div>
+    </div>
   );
 }
 
@@ -125,7 +166,10 @@ function LiveBubble({ live }: { live: LiveTurn }) {
   );
 }
 
-export default function ChatView({ entries, pending, live, onCancel, disabled, onSend, onTranscribe, onExtendLimit, onCycleMode, onOpenThread, threads }: Props) {
+export default function ChatView({ entries, pending, live, onCancel, disabled, onSend, onRedo, onTranscribe, onExtendLimit, onCycleMode, onOpenThread, threads }: Props) {
+  // A mensagem da pessoa que está sendo editada (P157), pelo id; só uma de cada vez.
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const lastUser = lastUserEntry(entries);
   const [draft, setDraft] = useState("");
   const [attached, setAttached] = useState<PendingAttachment[]>([]);
   const [attachError, setAttachError] = useState<string | null>(null);
@@ -236,14 +280,26 @@ export default function ChatView({ entries, pending, live, onCancel, disabled, o
                     Respondido por {f.to} — {f.from} falhou ({f.reason})
                   </p>
                 ))}
-                {entry.content !== "" &&
+                {editingId !== null && entry.id === editingId && onRedo ? (
+                  <EditBox
+                    entry={entry}
+                    after={messagesAfter(entries, editingId)}
+                    onSend={(message) => {
+                      setEditingId(null);
+                      onRedo(message, entry.attachments, editingId);
+                    }}
+                    onCancel={() => setEditingId(null)}
+                  />
+                ) : (
+                  entry.content !== "" &&
                   (entry.role === "user" ? (
                     <p className="bubble-plain">{entry.content}</p>
                   ) : (
                     <div className="bubble-markdown">
                       <Markdown link={ExternalLink}>{entry.content}</Markdown>
                     </div>
-                  ))}
+                  ))
+                )}
                 {entry.attachments.map((attachment, j) => (
                   <AttachmentView key={j} attachment={attachment} />
                 ))}
@@ -251,6 +307,18 @@ export default function ChatView({ entries, pending, live, onCancel, disabled, o
                 {entry.role === "assistant" && entry.content !== "" && (
                   <div className="bubble-actions">
                     <CopyButton text={entry.content} className="link-button copy-message-button" />
+                    {onRedo && lastUser && isLastAnswer(entries, i) && (
+                      <button type="button" className="link-button" onClick={() => onRedo(lastUser.content, lastUser.attachments, lastUser.id!)}>
+                        Regenerar
+                      </button>
+                    )}
+                  </div>
+                )}
+                {entry.role === "user" && entry.id && onRedo && editingId !== entry.id && (
+                  <div className="bubble-actions">
+                    <button type="button" className="link-button" onClick={() => setEditingId(entry.id!)}>
+                      Editar
+                    </button>
                   </div>
                 )}
                 {entry.id && onOpenThread && (
