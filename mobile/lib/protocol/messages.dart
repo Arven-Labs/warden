@@ -182,7 +182,8 @@ final class ChatMessage extends ClientMessage {
       };
 }
 
-/// P124 — stops the task a code conversation is running. The work so far is kept and the turn ends with the usual answer;
+/// P124, P157 — stops the turn a conversation is running: a code conversation's task, or an ordinary turn (the Stop button). The work
+/// so far is kept — for an ordinary turn, what the model had written is the answer — and the turn ends with the usual reply;
 /// harmless for a conversation that isn't running one.
 final class CancelTurnMessage extends ClientMessage {
   const CancelTurnMessage(this.conversationId);

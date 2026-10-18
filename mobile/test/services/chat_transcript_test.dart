@@ -337,7 +337,7 @@ void main() {
     expect(transcript.entries.last.text, 'done');
   });
 
-  test('only a pending turn of a code project\'s conversation can be stopped (P124)', () async {
+  test('any pending turn can be stopped, a code project\'s task or an ordinary turn, and only while it is pending (P124, P157)', () async {
     backend.conversations = [
       const ConversationSummary(id: 'plain', title: 'p', createdAt: 1, updatedAt: 1),
       const ConversationSummary(id: 'shell', title: 's', createdAt: 1, updatedAt: 1, projectId: 'notes'),
@@ -348,24 +348,28 @@ void main() {
     expect(transcript.canStop, isFalse, reason: 'nothing pending');
 
     transcript.send('go');
-    expect(transcript.canStop, isFalse, reason: 'a plain conversation already on the hub has no task to stop');
+    expect(transcript.canStop, isTrue, reason: 'an ordinary turn can be stopped too: what was written is the answer');
+    transcript.stop();
+    expect(backend.cancelled, ['plain']);
 
     transcript.open('shell');
     await settle();
+    expect(transcript.canStop, isFalse, reason: 'the other conversation has no turn pending');
     transcript.send('go');
-    expect(transcript.canStop, isFalse, reason: 'a project that is not a code project has none either');
+    expect(transcript.canStop, isTrue);
 
     transcript.open('code');
     await settle();
     transcript.send('go');
     expect(transcript.canStop, isTrue);
     transcript.stop();
-    expect(backend.cancelled, ['code']);
+    expect(backend.cancelled, ['plain', 'code']);
 
     transcript.startNew();
     await settle();
+    expect(transcript.canStop, isFalse, reason: 'a new conversation with nothing sent has nothing to stop');
     transcript.send('first turn');
-    expect(transcript.canStop, isFalse, reason: 'a conversation started here is in no project');
+    expect(transcript.canStop, isTrue);
   });
 
   test('blank text and a pending reply are both ignored', () async {

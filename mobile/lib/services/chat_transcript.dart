@@ -127,11 +127,11 @@ class ChatTranscript extends ChangeNotifier {
   /// The open conversation's live turn, if the hub has told any of it yet.
   LiveTurn? get liveTurn => _live[_activeId];
 
-  /// Whether the open conversation's pending turn can be stopped (P124): only a code project's conversation has a task to stop, and
-  /// the hub marks those in the list. One started here is in no project, so it never is.
-  bool get canStop => waitingForReply && (_conversations.where((c) => c.id == _activeId).firstOrNull?.code ?? false);
+  /// Whether the open conversation's pending turn can be stopped (P124, P157): a code project's task, or an ordinary turn, whose answer
+  /// is then what the model had written so far. Any turn that has not been answered yet can.
+  bool get canStop => waitingForReply;
 
-  /// Stops the task the open conversation is running; the turn then ends with the usual answer.
+  /// Stops the turn the open conversation is running; it then ends with the usual answer.
   void stop() => backend.cancelTurn(_activeId);
 
   /// P87 — the hub's configured agents, and the one the next turn speaks as (null: none). Opening a

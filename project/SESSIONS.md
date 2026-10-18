@@ -2,9 +2,17 @@
 
 > **Nota**: Este log foi criado junto com o projeto. As sessões serão registradas aqui conforme o trabalho avança.
 >
-> Última atualização: 2026-10-18 (Sessão 247)
+> Última atualização: 2026-10-18 (Sessão 248)
 
 ---
+
+### 2026-10-18 — Sessão 248 (o celular, passo 1: botão Parar no turno comum: P157)
+
+- **Pedido do usuário**: "pode seguir", depois de eu apontar o celular como o que falta do P157 (Parar, fixar/arquivar, regenerar/editar, copiar). Planejado em modo de plano, em três passos, **um commit e uma rodada de CI por passo**, porque não há Flutter nesta máquina e um erro de Dart só aparece no CI. Este é o passo 1; o 2 (fixar, arquivar, agrupar por data) e o 3 (regenerar e editar) seguem.
+- **Achado**: o `cancelTurn`, `ServerConnection.cancelTurn` e `ChatTranscript.stop()` já existiam e o hub já para um turno comum; o que limitava era `canStop` exigir `code` (projeto de código).
+- **Feito**: `canStop` passa a ser `waitingForReply`; o `_InputBar` ganha `onStop` e o botão de enviar vira **Stop** (`Icons.stop`, `tooltip: 'Stop'`) enquanto o turno corre, o que cobre também o "Thinking…" sem eventos ao vivo, que antes não tinha saída; o `_LiveBubble` já tinha o seu e passa a aparecer em turno comum; o comentário do `CancelTurnMessage` foi corrigido.
+- **Testes**: o teste de `chat_transcript_test.dart` que afirmava que só uma conversa de código se parava foi reescrito (turno comum e de código se param, só enquanto pendente, `cancelTurn` com o id certo, uma conversa nova sem nada enviado não tem o que parar). Nada rodou aqui: a prova é o job `Mobile (Flutter analyze e testes)` do `ci.yml`.
+- **Não provado**: o botão e a bolha ao vivo num aparelho (P129).
 
 ### 2026-10-18 — Sessão 247 (fixar, arquivar, agrupar por data, regenerar e editar na web: P157)
 

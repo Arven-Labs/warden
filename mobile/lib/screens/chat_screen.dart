@@ -543,6 +543,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
               controller: _inputController,
               enabled: !widget.transcript.waitingForReply && _status is Connected,
               onSend: _send,
+              onStop: widget.transcript.canStop ? widget.transcript.stop : null,
             ),
           ),
         ],
@@ -1260,11 +1261,14 @@ class _VideoAttachmentPlayerState extends State<_VideoAttachmentPlayer> {
 }
 
 class _InputBar extends StatelessWidget {
-  const _InputBar({required this.controller, required this.enabled, required this.onSend});
+  const _InputBar({required this.controller, required this.enabled, required this.onSend, this.onStop});
 
   final TextEditingController controller;
   final bool enabled;
   final VoidCallback onSend;
+
+  /// Given while a turn is being answered (P157): the send button becomes a Stop button that ends it where it is.
+  final VoidCallback? onStop;
 
   @override
   Widget build(BuildContext context) {
@@ -1288,10 +1292,17 @@ class _InputBar extends StatelessWidget {
               ),
             ),
             const SizedBox(width: 8),
-            IconButton.filled(
-              onPressed: enabled ? onSend : null,
-              icon: const Icon(Icons.send),
-            ),
+            if (onStop != null)
+              IconButton.filled(
+                onPressed: onStop,
+                tooltip: 'Stop',
+                icon: const Icon(Icons.stop),
+              )
+            else
+              IconButton.filled(
+                onPressed: enabled ? onSend : null,
+                icon: const Icon(Icons.send),
+              ),
           ],
         ),
       ),
