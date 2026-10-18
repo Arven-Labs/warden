@@ -535,6 +535,18 @@ impl Orchestrator {
         clone
     }
 
+    /// Returns a copy whose conversation-reading tools leave out one saved message: the person's question this turn is
+    /// answering, which is on disk before the model is called.
+    pub fn without_history_message(&self, conversation_id: &str, message_id: &str) -> Self {
+        let mut clone = self.clone();
+        for tool in &mut clone.tools {
+            if let Some(rebound) = tool.without_history_message(conversation_id, message_id) {
+                *tool = rebound;
+            }
+        }
+        clone
+    }
+
     /// Returns a copy of this orchestrator that writes oversized MCP media (P64/P66) to `root`
     /// instead of dropping it — same cheap-clone reasoning as `with_model`/`with_tool`. Called
     /// once by `warden-bootstrap::bootstrap()` with the same "generated" directory

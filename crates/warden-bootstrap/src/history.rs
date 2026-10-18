@@ -48,11 +48,13 @@ pub type Embedder = fn(Kind, Vec<String>) -> anyhow::Result<Vec<Vec<f32>>>;
 pub struct SearchHistoryTool {
     conversations_dir: Option<PathBuf>,
     embedder: Embedder,
+    /// The (conversation, message) of the question this turn answers: saved already, but not something to find.
+    skip: Option<(String, String)>,
 }
 
 impl SearchHistoryTool {
     pub fn new(conversations_dir: Option<PathBuf>) -> Self {
-        Self { conversations_dir, embedder: embed::embed }
+        Self { conversations_dir, embedder: embed::embed, skip: None }
     }
 
     /// The same tool with another way of embedding (tests: a model that needs no download).
@@ -221,7 +223,11 @@ impl Tool for SearchHistoryTool {
     }
 
     fn with_conversations_dir(&self, dir: &Path) -> Option<Arc<dyn Tool>> {
-        Some(Arc::new(Self { conversations_dir: Some(dir.to_path_buf()), embedder: self.embedder }))
+        Some(Arc::new(Self { conversations_dir: Some(dir.to_path_buf()), embedder: self.embedder, skip: self.skip.clone() }))
+    }
+
+    fn without_history_message(&self, conversation_id: &str, message_id: &str) -> Option<Arc<dyn Tool>> {
+        Some(Arc::new(Self { conversations_dir: self.conversations_dir.clone(), embedder: self.embedder, skip: Some((conversation_id.to_string(), message_id.to_string())) }))
     }
 
     async fn call(&self, args: Value) -> anyhow::Result<Value> {
@@ -233,10 +239,16 @@ impl Tool for SearchHistoryTool {
             anyhow::bail!("there are no saved conversations to search on this channel");
         };
         let embedder = self.embedder;
+        let skip = self.skip.clone();
 
         tokio::task::spawn_blocking(move || -> anyhow::Result<Value> {
-            let conversations = list_conversations(&dir)?;
+            let mut conversations = list_conversations(&dir)?;
             let searched = conversations.len();
+            if let Some((conversation_id, message_id)) = &skip {
+                for conversation in conversations.iter_mut().filter(|c| &c.id == conversation_id) {
+                    conversation.messages.retain(|m| &m.id != message_id);
+                }
+            }
 
             // By meaning. Any failure (no network for the first download, no model in this build) leaves only the words.
             let semantic = semantic_ranking(&dir, &conversations, &query, embedder);
@@ -378,6 +390,20 @@ mod tests {
         let cake = search(&tool, "cenoura").await;
         assert_eq!(cake["results"][0]["conversation_id"], "receita");
         assert!(search(&tool, "astronomia").await["results"].as_array().unwrap().is_empty());
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[tokio::test]
+    async fn the_question_of_the_turn_is_saved_but_not_found() {
+        let dir = temp_dir("own-question");
+        saved(&dir);
+        let tool = SearchHistoryTool::new(Some(dir.clone())).with_embedder(no_embedder);
+        let hiding = tool.without_history_message("receita", "m300").unwrap();
+
+        assert_eq!(search(&tool, "cenoura").await["results"].as_array().unwrap().len(), 1);
+        let hidden = hiding.call(json!({ "query": "cenoura" })).await.unwrap();
+        assert!(hidden["results"].as_array().unwrap().is_empty(), "{hidden}");
+        assert_eq!(hidden["conversations_searched"], 2);
         std::fs::remove_dir_all(dir).ok();
     }
 

@@ -109,6 +109,13 @@ pub trait Tool: Send + Sync {
         None
     }
 
+    /// A copy of this tool that leaves one saved message out of what it reads, or `None` when it reads none. Called by
+    /// `Orchestrator::without_history_message` for the question a turn is answering, which is saved before the turn runs and
+    /// must not be found by the very search that question asks for.
+    fn without_history_message(&self, _conversation_id: &str, _message_id: &str) -> Option<Arc<dyn Tool>> {
+        None
+    }
+
     /// A copy of this tool whose nested orchestrators (sub-agents) are charged to `budget`, or
     /// `None` when it runs none. Called by `Orchestrator::with_turn_budget`/`charged_to` at the start
     /// of a turn so the whole tree of sub-agents spends from one `TurnBudget`. A tool that only needs

@@ -1540,7 +1540,16 @@ pub async fn handle_agent_turn_in_with(
     if saved_early {
         append_messages(conversations_dir, conversation_id, options, vec![user.clone()])?;
     }
-    let outcome = scoped.as_ref().unwrap_or(orchestrator).handle_turn_streaming(&history, user_input, attachments, agent.map(|a| a.persona), on_event).await?;
+    // The question is on disk now, and the search through past conversations must not find the very question that asks for it.
+    let turn_orchestrator = scoped.as_ref().unwrap_or(orchestrator);
+    let without_question;
+    let turn_orchestrator = if saved_early {
+        without_question = turn_orchestrator.without_history_message(conversation_id, &user.id);
+        &without_question
+    } else {
+        turn_orchestrator
+    };
+    let outcome = turn_orchestrator.handle_turn_streaming(&history, user_input, attachments, agent.map(|a| a.persona), on_event).await?;
 
     // A turn stopped before the model had written anything leaves only the person's message, not an empty answer.
     let mut saved = Vec::new();
