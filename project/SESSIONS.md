@@ -2,9 +2,16 @@
 
 > **Nota**: Este log foi criado junto com o projeto. As sessões serão registradas aqui conforme o trabalho avança.
 >
-> Última atualização: 2026-10-18 (Sessão 258)
+> Última atualização: 2026-10-18 (Sessão 259)
 
 ---
+
+### 2026-10-18 — Sessão 259 (botão Publicar: skill no Arweave pelo pin do TruthID: P160, passo 2)
+
+- **Pedido do usuário**: "vamos pro botão mas testamos dps". Antes, na mesma conversa, pediu para trocar o formato por um envelope genérico com `kind` (feito, `facb238`, CI verde) porque agentes e skills seguirão o mesmo caminho e plugins irão por pull request. Planejado em modo de plano.
+- **Feito**: `warden-sync/src/publish.rs`, 2 comandos Tauri, painel Publish no desktop (aceites, varredura prévia, QR, resultado com copiar). O pin roda no desktop e não no hub (o celular é procurado na rede local da máquina que pede); a web não tem o botão.
+- **CI**: verde no `273fc03`. No caminho: o `clippy` pediu tirar o `unwrap_err` (o `BeginPublish` guarda a chave da sessão e não tem `Debug`), e os dois testes do celular de mentira falharam juntos porque cada requisitante varre todas as portas e achou o celular do outro (o mesmo limite do P158); passaram a se revezar com um `Mutex`.
+- **Não provado**: nada com o TruthID de verdade (o usuário testa depois); a tela nunca foi aberta (P129).
 
 ### 2026-10-18 — Sessão 258 (pacote de skill, exportar e importar por arquivo: P160, passo 1)
 
