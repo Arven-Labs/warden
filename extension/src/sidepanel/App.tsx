@@ -11,6 +11,7 @@ import AgentWorkList from "./AgentWorkList";
 import { agentWork, workButtonLabel } from "./lib/agentWork";
 import ApprovalCard from "./ApprovalCard";
 import type { ApprovalPrompt } from "../protocol/messages";
+import { redoBlock } from "../protocol/regenerate";
 import { threadsOf } from "../protocol/threads";
 import type { LiveTurn } from "../protocol/liveTurn";
 import type { ChatEntry, ConnectionStatus } from "../background/connection";
@@ -98,6 +99,12 @@ export default function App() {
     });
   }
 
+  function handleRedo(fromId: string, message: string) {
+    chrome.runtime.sendMessage({ type: "redo", fromId, message }).then((res: OkResponse) => {
+      if (!res.ok) setHistory((h) => [...h, { role: "error", content: res.error ?? "failed to resend" }]);
+    });
+  }
+
   /** P120 — a node of the organization tree: an empty conversation with that agent, shown in the chat. */
   async function handleOpenChat(id: string) {
     await chrome.runtime.sendMessage({ type: "newConversation" });
@@ -121,6 +128,15 @@ export default function App() {
   const pendingChat =conversationState.activeConversationId !== null && conversationState.pendingIds.includes(conversationState.activeConversationId);
   // P124, P157 — any turn on its way can be stopped: a code project's task, or an ordinary turn (what was written is the answer).
   const canStop = pendingChat;
+  // P157 — regenerate and edit, unless the conversation can't be redone (the background refuses it the same way).
+  const activeSummary = conversationState.conversations.find((c) => c.id === conversationState.activeConversationId);
+  const redoBlocked = redoBlock({
+    onHub: activeSummary !== undefined,
+    thread: activeSummary?.parent !== undefined,
+    code: activeSummary?.code === true,
+    busy: pendingChat,
+    offline: false,
+  });
 
   return (
     <div className="sidepanel-app">
@@ -245,6 +261,7 @@ export default function App() {
                 conversationState.activeConversationId &&
                 void chrome.runtime.sendMessage({ type: "openThread", conversationId: conversationState.activeConversationId, messageId })
               }
+              onRedo={redoBlocked === null ? handleRedo : undefined}
               onSend={handleSend}
               onDisconnect={handleDisconnect}
             />

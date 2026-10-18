@@ -2,15 +2,22 @@
 
 > **Nota**: Este log foi criado junto com o projeto. As sessões serão registradas aqui conforme o trabalho avança.
 >
-> Última atualização: 2026-10-18 (Sessão 252)
+> Última atualização: 2026-10-18 (Sessão 253)
 
 ---
+
+### 2026-10-18 — Sessão 253 (a extensão, passo 3: regenerar e editar: P157)
+
+- **Pedido do usuário**: continuação do plano da extensão aprovado na Sessão 251 (o último passo).
+- **Feito**: `protocol/messages.ts` (`replaceFrom` no `chat`); `protocol/regenerate.ts` (cópia da web: `lastUserEntry`, `isLastAnswer`, `entriesBefore`, `messagesAfter`, `redoBlock`); `background/connection.ts` (`sendChat` leva `replaceFrom`); `popup_protocol.ts` (o pedido `redo { fromId, message }`); `background/index.ts`: o `case "redo"` recusa com `redoBlock` (conectado, sem turno pendente, conversa no hub, não thread, não de código), exige que a mensagem seja uma do usuário **com id**, corta `history` com `entriesBefore`, empilha a mensagem nova, marca `pendingTurns` e `redoing` e manda; se o hub recusa (`chatError` num refazer), o `onChatMessage` relê o histórico (`loadHistory`) e deixa a recusa no fim, em vez de deixar a tela cortada; o `attachMessageIds` que já existia dá os ids ao par novo. Painel: `ChatView.tsx` ganha **Editar** nas mensagens do usuário com id (caixa inline com Enviar/Cancelar, Ctrl+Enter, `confirm` quando apaga mensagens depois) e **Regenerar** na última resposta com id; `App.tsx` liga `onRedo` só quando o `redoBlock` do resumo ativo é nulo. A extensão não envia anexos, então não há o que reenviar.
+- **Testes**: `regenerate.test.mjs` (6). `tsc --noEmit` limpo e `npm test` (118) rodados aqui; `npm run build` e a rodada de verdade ficam com o `Frontend (extension)` do `ci.yml`. O background e o painel não têm teste.
+- **Não provado**: os botões e a caixa de edição num navegador (P129); o caminho de recusa do hub só foi lido, não rodado.
 
 ### 2026-10-18 — Sessão 252 (a extensão, passo 2: fixar, arquivar e agrupar por data: P157)
 
 - **Pedido do usuário**: continuação do plano da extensão aprovado na Sessão 251 (não replanejei).
 - **Feito**: `protocol/messages.ts` (`pinned`/`archived` no resumo e a variante `setConversationFlags`); `protocol/conversationGroups.ts` (cópia da web, rótulos em português, dia no calendário local); `background/connection.ts` (`setConversationFlags`), `popup_protocol.ts` (o pedido) e `background/index.ts` (o `case` junto de rename/delete: chama, relê a lista, e ao apagar a conversa aberta abre a primeira **não arquivada**); `sidepanel/ConversationBar.tsx`: o `<select>` plano virou `<optgroup>`s ("★ Fixadas", os blocos por data e "Arquivadas"), que cabem no painel estreito, com os botões Fixar/Desafixar e Arquivar/Desarquivar na faixa de ações.
-- **Testes**: `conversationGroups.test.mjs` (6, os mesmos da web, só o caminho do import muda). `tsc --noEmit` limpo e `npm test` (112) rodados aqui; `npm run build` e a rodada de verdade ficam com o `Frontend (extension)` do `ci.yml`.
+- **Testes**: `conversationGroups.test.mjs` (6, os mesmos da web, só o caminho do import muda). `tsc --noEmit` limpo e `npm test` (112) rodados aqui; `npm run build` e a rodada de verdade ficam com o `Frontend (extension)` do `ci.yml`: **run 39090463333 verde**.
 - **Deslize meu no caminho**: copiei o teste da web com `cp` e troquei o caminho do import com `sed` no Bash, contra a preferência por mostrar as edições (Edit/Write). O conteúdo é idêntico ao da web fora o caminho, e corrigi o comentário do cabeçalho por Edit; mas o certo era escrever o arquivo.
 - **Não provado**: o seletor com grupos num navegador (P129); sem busca na extensão.
 

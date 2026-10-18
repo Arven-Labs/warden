@@ -19,6 +19,7 @@ import { discoverHubs } from "./discovery";
 import type { ConnectionSettings, ConversationState, PopupRequest } from "./popup_protocol";
 import type { ApprovalPrompt, ConversationSummary, ThreadParent } from "../protocol/messages";
 import { applyEvent, type LiveTurn } from "../protocol/liveTurn";
+import { entriesBefore, redoBlock } from "../protocol/regenerate";
 import { visibleConversations, withMessageIds } from "../protocol/threads";
 import { badgeText, baseline, markSeen, notificationBody, unreadIds, type SeenMap } from "../protocol/unread";
 import { toolSpecs, toolHandlers } from "./tools";
@@ -45,6 +46,8 @@ let activeConversationId: string | null = null;
 /** Turns sent and not answered yet, by conversation id — the hub only saves a turn once it's
  * answered, so this is what puts the question back on screen when switching to that conversation. */
 let pendingTurns: Record<string, string> = {};
+/** P157 — the conversations with a redo (regenerate, edit) on its way: the screen was cut for it, and if the hub refuses it the cut is undone. */
+const redoing = new Set<string>();
 /** P124 — what the engine has done so far in each turn that has not ended, by conversation id; gone when the turn's answer comes. */
 let liveTurns: Record<string, LiveTurn> = {};
 /** P87 — the hub's configured agents and the one the next turn speaks as. */
@@ -410,8 +413,16 @@ async function handleRequest(request: PopupRequest): Promise<unknown> {
           delete pendingTurns[id];
           setLiveTurn(id, null);
         }
+        const redone = id !== null && redoing.delete(id);
         if (id === activeConversationId) {
-          addChatEntry(entry);
+          if (redone && entry.role === "error" && id !== null) {
+            // The hub refused a redo (P157) and dropped nothing, but the screen was cut for it: show what the hub has, with the refusal last.
+            void loadHistory(next, id).then(() => {
+              if (connection === next && activeConversationId === id) addChatEntry(entry);
+            });
+          } else {
+            addChatEntry(entry);
+          }
           if (entry.role === "assistant" && id !== null) void attachMessageIds(next, id);
         }
         broadcastConversations();
@@ -470,6 +481,31 @@ async function handleRequest(request: PopupRequest): Promise<unknown> {
       }
       broadcastConversations();
       connection.sendChat(request.message, id, agentId ?? undefined, startsHere && !threadOf ? (workdir ?? undefined) : undefined, threadOf);
+      return { ok: true };
+    }
+
+    case "redo": {
+      if (!connection || connection.status.kind !== "connected" || activeConversationId === null) return { ok: false, error: "not connected" };
+      const id = activeConversationId;
+      const summary = conversations.find((c) => c.id === id);
+      const blocked = redoBlock({
+        onHub: summary !== undefined,
+        thread: summary?.parent !== undefined,
+        code: summary?.code === true,
+        busy: id in pendingTurns,
+        offline: false,
+      });
+      if (blocked !== null) return { ok: false, error: blocked };
+      const message = request.message.trim();
+      if (message === "") return { ok: false, error: "a mensagem está vazia" };
+      if (!history.some((e) => e.role === "user" && e.id === request.fromId)) return { ok: false, error: "a mensagem ainda não tem id no hub" };
+      // Cut at once, as the hub's saved copy will be; the answer brings the ids of the new pair.
+      history = [...entriesBefore(history, request.fromId), { role: "user", content: message }];
+      pendingTurns[id] = message;
+      redoing.add(id);
+      broadcast({ type: "historyLoaded", history });
+      broadcastConversations();
+      connection.sendChat(message, id, agentId ?? undefined, undefined, undefined, request.fromId);
       return { ok: true };
     }
 

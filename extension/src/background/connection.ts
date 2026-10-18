@@ -364,9 +364,18 @@ export class ServerConnection {
 
   /** Sends one chat turn to `conversationId` (a new id starts a new conversation, P78). The reply
    * arrives asynchronously via `onChatMessage`, tagged with the same id. */
-  sendChat(message: string, conversationId: string, agentId?: string, workdir?: string, threadOf?: ThreadParent): void {
+  sendChat(message: string, conversationId: string, agentId?: string, workdir?: string, threadOf?: ThreadParent, replaceFrom?: string): void {
     this.socket.send(
-      encode({ type: "chat", message, conversationId, ...(agentId !== undefined && { agentId }), ...(workdir !== undefined && { workdir }), ...(threadOf !== undefined && { threadOf }) }),
+      encode({
+        type: "chat",
+        message,
+        conversationId,
+        ...(agentId !== undefined && { agentId }),
+        ...(workdir !== undefined && { workdir }),
+        ...(threadOf !== undefined && { threadOf }),
+        // P157 — the id of the message this turn takes the place of, with everything after it ("regenerate", "edit").
+        ...(replaceFrom !== undefined && { replaceFrom }),
+      }),
     );
   }
 

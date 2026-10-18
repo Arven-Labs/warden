@@ -240,7 +240,7 @@ export type ClientMessage =
   | { type: "ping"; nonce: number }
   /** `conversationId` (P78) picks one of this device's conversations — a new id starts a new one;
    * omitted, the turn goes to the device's default conversation. */
-  | { type: "chat"; message: string; conversationId?: string; agentId?: string; workdir?: string; threadOf?: ThreadParent }
+  | { type: "chat"; message: string; conversationId?: string; agentId?: string; workdir?: string; threadOf?: ThreadParent; replaceFrom?: string }
   /** P124, P157 — stops the turn a conversation is running, a code task or an ordinary turn; the work so far is kept (for an ordinary turn, what the model had written is the answer) and the turn ends with the usual answer. */
   | { type: "cancelTurn"; conversationId: string }
   /** P102 — the folders inside `path` on the hub's machine (or a node's, `node:<id>:<path>`); no `path`: where the person starts. Answered by `dirList`/`dirError`. */

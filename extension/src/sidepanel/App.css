@@ -225,6 +225,25 @@ button:hover:not(:disabled) {
   font-size: 0.75rem;
 }
 
+/* P157 — a message of the person's turned into a box to edit. */
+.message-edit {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.message-edit-input {
+  width: 100%;
+  box-sizing: border-box;
+  resize: vertical;
+  font: inherit;
+}
+
+.message-edit .chat-entry-thread {
+  display: flex;
+  gap: 0.6rem;
+}
+
 .conversation-bar-actions {
   display: flex;
   gap: 0.6rem;

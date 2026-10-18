@@ -4,6 +4,7 @@ import remarkGfm from "remark-gfm";
 import type { ChatEntry } from "../background/connection";
 import { PopupMarkdownLink } from "./MarkdownLink";
 import type { LiveTurn } from "../protocol/liveTurn";
+import { isLastAnswer, lastUserEntry, messagesAfter } from "../protocol/regenerate";
 import { repliesLabel, type ThreadInfo } from "../protocol/threads";
 
 interface Props {
@@ -19,8 +20,48 @@ interface Props {
   /** P125 — the open conversation is itself a thread: no thread inside a thread. */
   inThread: boolean;
   onOpenThread: (messageId: string) => void;
+  /** P157 — regenerates the last answer or edits a message of the person's: the turn takes the place of the message `fromId` and of all that
+   * followed. Absent where the conversation can't be redone (a thread, a code project, one not on the hub yet, an answer on its way). */
+  onRedo?: (fromId: string, message: string) => void;
   onSend: (message: string) => void;
   onDisconnect: () => void;
+}
+
+/** P157 — a message of the person's turned into a box to change it. Sending asks first when the edit also drops what came after it. */
+function EditBox({ initial, after, onSend, onCancel }: { initial: string; after: number; onSend: (message: string) => void; onCancel: () => void }) {
+  const [text, setText] = useState(initial);
+
+  function send() {
+    const message = text.trim();
+    if (message === "") return;
+    if (after > 0 && !window.confirm(`Enviar isso apaga ${after === 1 ? "a mensagem" : `as ${after} mensagens`} depois dela, e as threads delas. Continuar?`)) return;
+    onSend(message);
+  }
+
+  return (
+    <div className="message-edit">
+      <textarea
+        className="message-edit-input"
+        value={text}
+        autoFocus
+        aria-label="Editar sua mensagem"
+        rows={Math.min(8, Math.max(2, text.split("\n").length))}
+        onChange={(e) => setText(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === "Escape") onCancel();
+          if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) send();
+        }}
+      />
+      <div className="chat-entry-thread">
+        <button type="button" className="link-button" onClick={onCancel}>
+          Cancelar
+        </button>
+        <button type="button" className="link-button" onClick={send}>
+          Enviar
+        </button>
+      </div>
+    </div>
+  );
 }
 
 const TOOL_MARK = { running: "…", completed: "✓", failed: "✗" } as const;
@@ -58,8 +99,11 @@ function LiveBubble({ live, onCancel }: { live: LiveTurn; onCancel?: () => void 
   );
 }
 
-export default function ChatView({ serverName, history, pending, live, onCancel, threads, inThread, onOpenThread, onSend, onDisconnect }: Props) {
+export default function ChatView({ serverName, history, pending, live, onCancel, threads, inThread, onOpenThread, onRedo, onSend, onDisconnect }: Props) {
   const [draft, setDraft] = useState("");
+  // The message of the person's being edited (P157), by its id; one at a time.
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const lastUser = lastUserEntry(history);
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -81,11 +125,36 @@ export default function ChatView({ serverName, history, pending, live, onCancel,
       <ul className="chat-history" aria-live="polite">
         {history.map((entry, i) => (
           <li key={i} className={`chat-entry chat-entry--${entry.role}`}>
-            <div className="chat-entry-content">
-              <ReactMarkdown remarkPlugins={[remarkGfm]} components={{ a: PopupMarkdownLink }}>
-                {entry.content}
-              </ReactMarkdown>
-            </div>
+            {editingId !== null && entry.id === editingId && onRedo ? (
+              <EditBox
+                initial={entry.content}
+                after={messagesAfter(history, editingId)}
+                onSend={(message) => {
+                  setEditingId(null);
+                  onRedo(editingId, message);
+                }}
+                onCancel={() => setEditingId(null)}
+              />
+            ) : (
+              <div className="chat-entry-content">
+                <ReactMarkdown remarkPlugins={[remarkGfm]} components={{ a: PopupMarkdownLink }}>
+                  {entry.content}
+                </ReactMarkdown>
+              </div>
+            )}
+            {onRedo && entry.id && editingId !== entry.id && (entry.role === "user" || (lastUser && isLastAnswer(history, i))) && (
+              <div className="chat-entry-thread">
+                {entry.role === "user" ? (
+                  <button type="button" className="link-button" onClick={() => setEditingId(entry.id!)}>
+                    Editar
+                  </button>
+                ) : (
+                  <button type="button" className="link-button" onClick={() => onRedo(lastUser!.id!, lastUser!.content)}>
+                    Regenerar
+                  </button>
+                )}
+              </div>
+            )}
             {!inThread && entry.id && entry.role !== "error" && (
               // P125 — a message the hub already has an id for can start a thread, or show the one it has.
               <div className="chat-entry-thread">

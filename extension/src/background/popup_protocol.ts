@@ -39,6 +39,9 @@ export type PopupRequest =
   | { type: "openThread"; conversationId: string; messageId: string }
   | { type: "renameConversation"; conversationId: string; title: string }
   | { type: "deleteConversation"; conversationId: string }
+  /** P157 — regenerates or edits: the turn takes the place of the message `fromId` and of everything after it, with `message` as the text
+   * ("regenerate" sends the same text again, "edit" a changed one). Refused where a conversation can't be redone. */
+  | { type: "redo"; fromId: string; message: string }
   /** P157 — pins or archives a conversation; a flag left out stays as it is. */
   | { type: "setConversationFlags"; conversationId: string; pinned?: boolean; archived?: boolean }
   /** P87 — the agent the next turns speak as (`null`: none). */
