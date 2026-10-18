@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
 import { invoke } from "@tauri-apps/api/core";
 import { AttachIcon, CloseIcon, MicIcon, SendIcon, StopIcon } from "./Icons";
+import { checkAttachmentLimits, isPdf } from "../lib/attachments";
 import type { Attachment } from "../types";
 
 interface MessageInputProps {
@@ -40,15 +41,23 @@ function MessageInput({ onSend, focusKey, disabled, onStop, onCycleMode }: Messa
     setAttachError(null);
     const selected = await open({
       multiple: true,
-      filters: [{ name: "Images", extensions: ["png", "jpg", "jpeg", "webp", "gif"] }],
+      filters: [{ name: "Images and PDFs", extensions: ["png", "jpg", "jpeg", "webp", "gif", "pdf"] }],
     });
     if (!selected) return;
 
+    // What is already in the box counts toward the hub's limits; `taken` follows it through the loop, as the state lags.
+    let taken = attachments;
     const paths = Array.isArray(selected) ? selected : [selected];
     for (const path of paths) {
       try {
         const attachment = await invoke<Attachment>("read_attachment", { path });
-        setAttachments((prev) => [...prev, attachment]);
+        const refused = checkAttachmentLimits(taken, attachment);
+        if (refused) {
+          setAttachError(refused);
+          continue;
+        }
+        taken = [...taken, attachment];
+        setAttachments(taken);
       } catch (err) {
         setAttachError(String(err));
       }
@@ -96,7 +105,11 @@ function MessageInput({ onSend, focusKey, disabled, onStop, onCycleMode }: Messa
         <div className="chat-attachment-preview">
           {attachments.map((attachment, index) => (
             <div className="chat-attachment-thumb" key={index}>
-              <img src={`data:${attachment.mimeType};base64,${attachment.data}`} alt="" />
+              {isPdf(attachment) ? (
+                <span className="chat-attachment-file">PDF</span>
+              ) : (
+                <img src={`data:${attachment.mimeType};base64,${attachment.data}`} alt="" />
+              )}
               <button
                 type="button"
                 className="chat-attachment-remove"
@@ -116,7 +129,7 @@ function MessageInput({ onSend, focusKey, disabled, onStop, onCycleMode }: Messa
           submit();
         }}
       >
-        <button type="button" className="chat-attach-btn" aria-label="Attach image" onClick={handleAttach} disabled={disabled || isRecording}>
+        <button type="button" className="chat-attach-btn" aria-label="Attach image or PDF" onClick={handleAttach} disabled={disabled || isRecording}>
           <AttachIcon size={17} />
         </button>
         <button

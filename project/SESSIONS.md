@@ -2,9 +2,17 @@
 
 > **Nota**: Este log foi criado junto com o projeto. As sessões serão registradas aqui conforme o trabalho avança.
 >
-> Última atualização: 2026-10-17 (Sessão 242)
+> Última atualização: 2026-10-17 (Sessão 243)
 
 ---
+
+### 2026-10-17 — Sessão 243 (anexar PDF no desktop: P157, item 6)
+
+- **Pedido do usuário**: "vamos em ordem", depois da Sessão 242: o próximo da ordem combinada (Stop, copiar e realce, sidebar, regenerar/editar, conforto 6 a 10) era o item 6. Planejado em modo de plano.
+- **Achado na leitura**: o hub (`USER_ATTACHMENT_MIME_TYPES`) e os três provedores (Anthropic `document`, OpenAI `file`, Gemini `inlineData`) já levavam PDF; só o desktop bloqueava, em três pontos (`read_attachment` só conhecia imagens, o seletor só filtrava imagens, chip e bolha desenhavam `<img>` para tudo). O caminho local do `send_message` não valida tipo, contagem nem tamanho.
+- **Feito**: `read_attachment` aceita `pdf` (`attachment_mime_type_for_extension`, usando `PDF_MIME_TYPE` do núcleo) e recusa arquivo acima de 9 MiB antes de lê-lo (cabe nos 12 MiB de base64 do hub); `lib/attachments.ts` (`isPdf`, `checkAttachmentLimits` com 10 anexos e 12 MiB, os do hub, como na web); `MessageInput.tsx` com o filtro "Images and PDFs", o rótulo "Attach image or PDF", o chip "PDF" e a checagem dos limites somando o que já está na caixa; `MessageBubble.tsx` mostra o PDF como um link "📄 PDF" (`download`), como a web.
+- **Testes**: `an_attachment_is_an_image_or_a_pdf_and_small_enough_for_a_turn` (Rust: extensões, maiúsculas, tipos desconhecidos, os tipos que o hub aceita, um PDF pequeno em base64, um acima do teto, um tipo recusado) e `attachments.test.mjs` (4). Só rodei aqui o `npm test` do desktop (160 passam); o `tsc` segue acusando `rehype-highlight` não instalado, de antes. O Rust não foi compilado: a prova é o `ci.yml`.
+- **Não provado / fora**: a aparência do chip e do link numa janela (P129) e abrir o PDF baixado; colar imagem, arrastar arquivo e a caixa que cresce (itens 8 e 9, próxima fatia); anexo de arquivo de texto e redimensionar imagem grande (a web faz os dois); o celular.
 
 ### 2026-10-17 — Sessão 242 (regenerar a resposta e editar uma mensagem: P157, item 3)
 

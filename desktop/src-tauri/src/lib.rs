@@ -140,27 +140,37 @@ impl From<ChatTurn> for Message {
     }
 }
 
-/// Extensions this build accepts for an attached image — kept in sync with the file dialog
-/// filter the frontend opens (`MessageInput.tsx`). Anything else is rejected here rather than
-/// silently forwarded to a model provider that wouldn't know what to do with it.
-fn image_mime_type_for_extension(extension: &str) -> Option<&'static str> {
+/// Extensions this build accepts for an attachment, images and PDFs — kept in sync with the file
+/// dialog filter the frontend opens (`MessageInput.tsx`) and with what the hub takes
+/// (`USER_ATTACHMENT_MIME_TYPES`). Anything else is rejected here rather than silently forwarded
+/// to a model provider that wouldn't know what to do with it.
+fn attachment_mime_type_for_extension(extension: &str) -> Option<&'static str> {
     match extension.to_ascii_lowercase().as_str() {
         "png" => Some("image/png"),
         "jpg" | "jpeg" => Some("image/jpeg"),
         "webp" => Some("image/webp"),
         "gif" => Some("image/gif"),
+        "pdf" => Some(warden_core::model::PDF_MIME_TYPE),
         _ => None,
     }
 }
 
-/// Reads a local image file picked from the attach button's file dialog and returns it
+/// The biggest file `read_attachment` takes: what fits in the 12 MiB of base64 the hub allows a turn
+/// (`MAX_ATTACHMENTS_BASE64_BYTES`), so a file the hub would refuse is refused here, before it is read.
+const MAX_ATTACHMENT_FILE_BYTES: u64 = 9 * 1024 * 1024;
+
+/// Reads a local image or PDF picked from the attach button's file dialog and returns it
 /// base64-encoded, ready to hand back to `send_message` as an `AttachmentPayload` (P28).
 #[tauri::command]
 fn read_attachment(path: String) -> Result<AttachmentPayload, String> {
     let path = PathBuf::from(path);
     let extension = path.extension().and_then(|e| e.to_str()).unwrap_or_default();
-    let mime_type = image_mime_type_for_extension(extension).ok_or_else(|| "Unsupported file type".to_string())?;
+    let mime_type = attachment_mime_type_for_extension(extension).ok_or_else(|| "Unsupported file type".to_string())?;
 
+    let size = std::fs::metadata(&path).map_err(|e| format!("{e:#}"))?.len();
+    if size > MAX_ATTACHMENT_FILE_BYTES {
+        return Err(format!("This file is {:.1} MB; the most a message can carry is {} MB", size as f64 / 1024.0 / 1024.0, MAX_ATTACHMENT_FILE_BYTES / 1024 / 1024));
+    }
     let bytes = std::fs::read(&path).map_err(|e| format!("{e:#}"))?;
     let data = base64::Engine::encode(&base64::engine::general_purpose::STANDARD, bytes);
 
@@ -1470,6 +1480,34 @@ mod tests {
         assert!(warden_bootstrap::load_conversation(&dir, "c1").unwrap().is_none());
         assert!(delete_conversation_in(&dir, "c1", false).is_err(), "it is gone now");
         assert!(delete_conversation_in(&dir, "../c1", false).is_err());
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    /// P157: the attach button takes images and PDFs, nothing else, and nothing the hub would refuse for its size.
+    #[test]
+    fn an_attachment_is_an_image_or_a_pdf_and_small_enough_for_a_turn() {
+        for (extension, mime) in [("png", "image/png"), ("JPG", "image/jpeg"), ("jpeg", "image/jpeg"), ("webp", "image/webp"), ("gif", "image/gif"), ("pdf", "application/pdf"), ("PDF", "application/pdf")] {
+            assert_eq!(attachment_mime_type_for_extension(extension), Some(mime), "{extension}");
+        }
+        for extension in ["", "txt", "exe", "svg", "docx"] {
+            assert_eq!(attachment_mime_type_for_extension(extension), None, "{extension}");
+        }
+        for mime in ["image/png", "image/jpeg", "image/webp", "image/gif", "application/pdf"] {
+            assert!(warden_core::model::USER_ATTACHMENT_MIME_TYPES.contains(&mime), "the hub takes {mime}");
+        }
+
+        let root = std::env::temp_dir().join(format!("warden-desktop-attach-{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
+        std::fs::create_dir_all(&root).unwrap();
+        let small = root.join("note.pdf");
+        std::fs::write(&small, b"%PDF-1.4").unwrap();
+        let read = read_attachment(small.to_string_lossy().into_owned()).unwrap();
+        assert_eq!((read.mime_type.as_str(), read.data.as_str()), ("application/pdf", "JVBERi0xLjQ="));
+
+        let big = root.join("big.pdf");
+        std::fs::write(&big, vec![0u8; MAX_ATTACHMENT_FILE_BYTES as usize + 1]).unwrap();
+        let refused = read_attachment(big.to_string_lossy().into_owned()).unwrap_err();
+        assert!(refused.contains("the most a message can carry is 9 MB"), "{refused}");
+        assert_eq!(read_attachment(root.join("a.txt").to_string_lossy().into_owned()).unwrap_err(), "Unsupported file type");
         std::fs::remove_dir_all(&root).ok();
     }
 }

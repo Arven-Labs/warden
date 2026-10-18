@@ -4,6 +4,7 @@ import { openUrl } from "@tauri-apps/plugin-opener";
 import { invoke } from "@tauri-apps/api/core";
 import type { Attachment, ChatMessage } from "../types";
 import { LogoMark, SpeakerIcon, StopIcon } from "./Icons";
+import { isPdf } from "../lib/attachments";
 import { stripMarkdown } from "../lib/stripMarkdown";
 import { repliesLabel } from "../lib/threads";
 import CopyButton from "./CopyButton";
@@ -88,6 +89,14 @@ function AttachmentPreview({ attachment }: { attachment: Attachment }) {
   }
   if (attachment.mimeType.startsWith("video/")) {
     return <video controls src={src} />;
+  }
+  // A PDF is a file to open, not a picture (P157).
+  if (isPdf(attachment)) {
+    return (
+      <a className="message-attachment-pdf" href={src} download="attachment.pdf">
+        📄 PDF
+      </a>
+    );
   }
   return <img src={src} alt="" />;
 }
