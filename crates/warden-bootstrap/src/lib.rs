@@ -1319,6 +1319,25 @@ fn to_message(message: &ConversationMessage) -> Message {
     }
 }
 
+/// What the model sees of `messages`: a message of the person's that got no answer (a turn that failed after it was saved) is left out,
+/// so the history never has two of the person's messages in a row. Unanswered is the next message being the person's too, or, when
+/// `drop_trailing_orphan`, being the last one: a redo ends on a question that is about to be answered, and keeps it.
+fn model_history(messages: &[ConversationMessage], drop_trailing_orphan: bool) -> Vec<Message> {
+    messages
+        .iter()
+        .enumerate()
+        .filter(|(at, message)| {
+            let orphan = message.role == ChatRole::User
+                && match messages.get(at + 1) {
+                    Some(next) => next.role == ChatRole::User,
+                    None => drop_trailing_orphan,
+                };
+            !orphan
+        })
+        .map(|(_, message)| to_message(message))
+        .collect()
+}
+
 /// Runs one turn of a conversation threaded by a stable external id: loads its prior history (or
 /// starts a fresh `Conversation`, titled from `title_seed`), calls `orchestrator.handle_message`,
 /// appends both the user and assistant messages (with token usage on the assistant one, Fase 5.8)
@@ -1462,9 +1481,12 @@ pub async fn handle_agent_turn_in_with(
     };
     let mut history: Vec<Message> = Vec::new();
     if let (Some(link), Some(from)) = (&parent, &anchor) {
-        history.extend(thread_context(from, &link.message_id).iter().map(to_message));
+        history.extend(model_history(thread_context(from, &link.message_id), false));
     }
-    history.extend(existing.iter().flat_map(|c| c.messages.iter().take(kept)).map(to_message));
+    // Without a redo the last message may be a question a failed turn left unanswered; the new one replaces it for the model.
+    if let Some(conversation) = &existing {
+        history.extend(model_history(&conversation.messages[..kept.min(conversation.messages.len())], replace_from.is_none()));
+    }
     // P103: a conversation's project is the one it was created in; what a client sends later doesn't move it.
     let project_id = match &existing {
         Some(conversation) => conversation.project_id.clone(),
@@ -1491,8 +1513,6 @@ pub async fn handle_agent_turn_in_with(
     if !existed && project.is_some() && scoped.is_none() {
         anyhow::bail!("there is no project '{}'", project.unwrap_or_default());
     }
-    let outcome = scoped.as_ref().unwrap_or(orchestrator).handle_turn_streaming(&history, user_input, attachments.clone(), agent.map(|a| a.persona), on_event).await?;
-
     let user = ConversationMessage {
         id: message_id(),
         role: ChatRole::User,
@@ -1500,7 +1520,7 @@ pub async fn handle_agent_turn_in_with(
         created_at: now_millis(),
         usage: None,
         answered_by: None,
-        attachments,
+        attachments: attachments.clone(),
         generated_files: Vec::new(),
         tools_used: Vec::new(),
     };
@@ -1514,12 +1534,26 @@ pub async fn handle_agent_turn_in_with(
         create: !existed,
         ..Default::default()
     };
+    // The person's message is saved before the model is called, so it is still there when the turn fails or the screen is left and
+    // reopened while it runs. A redo is the exception: it saves once, at the end, so a failed one leaves the conversation as it was.
+    let saved_early = replace_from.is_none();
+    if saved_early {
+        append_messages(conversations_dir, conversation_id, options, vec![user.clone()])?;
+    }
+    let outcome = scoped.as_ref().unwrap_or(orchestrator).handle_turn_streaming(&history, user_input, attachments, agent.map(|a| a.persona), on_event).await?;
+
     // A turn stopped before the model had written anything leaves only the person's message, not an empty answer.
-    let mut saved = vec![user];
+    let mut saved = Vec::new();
+    if !saved_early {
+        saved.push(user);
+    }
     if !(outcome.stopped && outcome.content.is_empty()) {
         saved.push(assistant_message(&outcome));
     }
-    append_messages(conversations_dir, conversation_id, options, saved)?;
+    // Already created by the early save: a conversation deleted while the turn ran stays deleted.
+    if !saved.is_empty() {
+        append_messages(conversations_dir, conversation_id, AppendOptions { create: options.create && !saved_early, ..options }, saved)?;
+    }
     Ok(outcome)
 }
 
@@ -3455,6 +3489,80 @@ oauth = true
         let said: Vec<_> = saved.messages.iter().map(|m| (m.role, m.content.as_str())).collect();
         assert_eq!(said, vec![(ChatRole::User, "another")]);
         std::fs::remove_dir_all(&root).ok();
+    }
+
+    /// Fails its first call and echoes what it is told on the ones after, like a provider that was down for a moment.
+    struct FailsOnce(std::sync::atomic::AtomicBool);
+
+    #[async_trait::async_trait]
+    impl ModelProvider for FailsOnce {
+        async fn chat_stream(&self, messages: Vec<Message>, tools: Vec<warden_core::tool::ToolSpec>) -> anyhow::Result<warden_core::model::ChatStream> {
+            if !self.0.swap(true, std::sync::atomic::Ordering::SeqCst) {
+                anyhow::bail!("the provider is down");
+            }
+            EchoesWhatItWasTold.chat_stream(messages, tools).await
+        }
+    }
+
+    fn said(conversation: &Conversation) -> Vec<(ChatRole, &str)> {
+        conversation.messages.iter().map(|m| (m.role, m.content.as_str())).collect()
+    }
+
+    /// The person's message is on disk as soon as the turn starts: a turn that fails leaves it there, and the next turn's model never sees it.
+    #[tokio::test]
+    async fn a_failed_turn_keeps_the_question_and_the_model_never_sees_it_again() {
+        let root = temp_dir("failed-turn");
+        let dir = root.join("conversations");
+        let orchestrator = Orchestrator::new(Arc::new(FailsOnce(std::sync::atomic::AtomicBool::new(false))), Arc::new(Vault::new(root.join("vault"))));
+
+        assert!(handle_agent_turn(&orchestrator, &dir, "c1", "hi", "first question", Vec::new(), None, None, None).await.is_err());
+        let saved = load_conversation(&dir, "c1").unwrap().unwrap();
+        assert_eq!(said(&saved), vec![(ChatRole::User, "first question")], "created, titled and kept though the turn failed");
+        assert_eq!(saved.title, "hi");
+
+        let outcome = handle_agent_turn(&orchestrator, &dir, "c1", "hi", "second question", Vec::new(), None, None, None).await.unwrap();
+        assert_eq!(outcome.content, "second question", "the model got only the new question, not the unanswered one before it");
+        let saved = load_conversation(&dir, "c1").unwrap().unwrap();
+        assert_eq!(
+            said(&saved),
+            vec![(ChatRole::User, "first question"), (ChatRole::User, "second question"), (ChatRole::Assistant, "second question")]
+        );
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    /// A redo is saved once, at the end: one that fails leaves the conversation exactly as it was.
+    #[tokio::test]
+    async fn a_failed_redo_leaves_the_conversation_as_it_was() {
+        let root = temp_dir("failed-redo");
+        let dir = root.join("conversations");
+        let vault = Arc::new(Vault::new(root.join("vault")));
+        let echoes = Orchestrator::new(Arc::new(EchoesWhatItWasTold), vault.clone());
+        handle_agent_turn(&echoes, &dir, "c1", "hi", "question", Vec::new(), None, None, None).await.unwrap();
+        let before = load_conversation(&dir, "c1").unwrap().unwrap();
+        let from = before.messages[1].id.clone();
+
+        let down = Orchestrator::new(Arc::new(FailsOnce(std::sync::atomic::AtomicBool::new(false))), vault);
+        let redo = handle_agent_turn_in_with(&down, &dir, "c1", "hi", "question", Vec::new(), None, None, None, None, Some(&from), |_| {}).await;
+        assert!(redo.is_err());
+        assert_eq!(load_conversation(&dir, "c1").unwrap().unwrap(), before);
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    fn user_or_assistant(role: ChatRole, content: &str) -> ConversationMessage {
+        ConversationMessage { id: message_id(), role, content: content.into(), created_at: 0, usage: None, answered_by: None, attachments: Vec::new(), generated_files: Vec::new(), tools_used: Vec::new() }
+    }
+
+    #[test]
+    fn model_history_leaves_out_questions_nobody_answered() {
+        let messages = vec![
+            user_or_assistant(ChatRole::User, "lost"),
+            user_or_assistant(ChatRole::User, "asked"),
+            user_or_assistant(ChatRole::Assistant, "answered"),
+            user_or_assistant(ChatRole::User, "last"),
+        ];
+        let told = |drop_trailing| model_history(&messages, drop_trailing).iter().map(|m| m.content.clone()).collect::<Vec<_>>();
+        assert_eq!(told(true), vec!["asked", "answered"], "the one in the middle and the one at the end");
+        assert_eq!(told(false), vec!["asked", "answered", "last"], "a redo ends on a question that is about to be answered");
     }
 
     /// Answers "ok" and says it spent tokens, so the turn's answer is one `answered_by` stamps.
