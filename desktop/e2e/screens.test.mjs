@@ -150,7 +150,7 @@ for (const colorScheme of ["light", "dark"]) {
         await page.getByRole("button", { name: "Skills", exact: true }).click();
         await page.getByRole("heading", { name: "Gallery" }).waitFor();
         await snap(page, `desktop-skills-${colorScheme}`);
-        await snap(page, `desktop-skills-gallery-${colorScheme}`, { focus: page.getByRole("heading", { name: "Gallery" }) });
+        await snap(page, `desktop-skills-gallery-${colorScheme}`, { focus: page.getByRole("heading", { name: "Gallery" }), top: true });
         assert.ok(await page.getByText("Installed", { exact: true }).count() > 0, "the gallery says which one is installed");
 
         const card = page.locator(".skill-card", { hasText: "tidy-notes" }).first();
@@ -158,20 +158,20 @@ for (const colorScheme of ["light", "dark"]) {
         await page.getByText("Publish tidy-notes").waitFor();
         const show = page.getByRole("button", { name: "Show the QR code" });
         assert.equal(await show.isDisabled(), true, "no QR before the person says they understand it is permanent");
-        await snap(page, `desktop-publish-form-${colorScheme}`, { focus: show });
+        await snap(page, `desktop-publish-form-${colorScheme}`, { focus: page.getByText("Publish tidy-notes"), top: true });
 
         await page.getByLabel("I understand it will be public and permanent").check();
         assert.equal(await show.isDisabled(), false);
         await show.click();
         await page.getByText("Scan this code with the TruthID app").waitFor();
         assert.equal(await page.locator(".sync-qr-image svg").count(), 1, "the QR from the backend is on the screen");
-        await snap(page, `desktop-publish-qr-${colorScheme}`, { focus: page.locator(".sync-qr-image") });
+        await snap(page, `desktop-publish-qr-${colorScheme}`, { focus: page.getByText("Publish tidy-notes"), top: true });
         assert.ok(calls.some((c) => c.cmd === "skill_publish_begin"), "the page asked the backend to begin the publication");
 
         waiting.resolve({ txId: "invented-tx-id-0000000000000000000000000000000" });
         await page.getByText("Published. Its address is").waitFor();
         assert.match(await page.locator("code", { hasText: "ar://" }).innerText(), /^ar:\/\/invented-tx-id/);
-        await snap(page, `desktop-publish-done-${colorScheme}`, { focus: page.locator("code", { hasText: "ar://" }) });
+        await snap(page, `desktop-publish-done-${colorScheme}`, { focus: page.getByText("Publish tidy-notes"), top: true });
         assert.deepEqual(errors, [], "the page raised no error");
       } finally {
         waiting.resolve({ txId: "closed" });

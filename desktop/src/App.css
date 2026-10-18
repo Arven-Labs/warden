@@ -8,6 +8,8 @@
   --color-accent: #7c3aed;
   --color-accent-dark: #6d28d9;
   --color-accent-soft: rgba(124, 58, 237, 0.12);
+  /* The text on a surface in the accent colour: white on the dark violet, dark on the light lilac of the dark theme (white on it was about 2.7:1). */
+  --color-on-accent: #ffffff;
   --color-danger: #dc2626;
   color-scheme: light;
 
@@ -34,6 +36,7 @@
     --color-accent: #a78bfa;
     --color-accent-dark: #8b5cf6;
     --color-accent-soft: rgba(167, 139, 250, 0.16);
+    --color-on-accent: #1b1033;
     --color-danger: #f87171;
     color-scheme: dark;
   }
@@ -481,7 +484,7 @@ body {
   padding: 0 0.3rem;
   border-radius: 999px;
   background: var(--color-accent);
-  color: white;
+  color: var(--color-on-accent);
   font-size: 0.7rem;
   line-height: 1.1rem;
   text-align: center;
@@ -1010,7 +1013,7 @@ body {
 
 .message-bubble--user {
   background-color: var(--color-accent);
-  color: white;
+  color: var(--color-on-accent);
 }
 
 .message-bubble--user .message-bubble-content code,
@@ -1019,7 +1022,18 @@ body {
 }
 
 .message-bubble--user .message-bubble-content a {
-  color: white;
+  color: var(--color-on-accent);
+}
+
+/* "Edit" and the thread link under a message of the person's sat in the muted grey on the accent bubble and could hardly be read. */
+.message-bubble--user .message-redo-btn,
+.message-bubble--user .message-bubble-footer button {
+  color: var(--color-on-accent);
+}
+
+.message-bubble--user .message-redo-btn:hover {
+  color: var(--color-on-accent);
+  background: rgba(255, 255, 255, 0.18);
 }
 
 .chat-error-banner {
@@ -1093,7 +1107,7 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;
-  color: white;
+  color: var(--color-on-accent);
   background-color: var(--color-accent);
   cursor: pointer;
   transition: background-color 0.15s, opacity 0.15s;
@@ -1615,7 +1629,7 @@ body {
   font-size: 1em;
   font-weight: 600;
   font-family: inherit;
-  color: white;
+  color: var(--color-on-accent);
   background-color: var(--color-accent);
   cursor: pointer;
   transition: background-color 0.2s;
@@ -2806,7 +2820,7 @@ body {
 .message-edit-btn--send {
   border-color: var(--color-accent);
   background: var(--color-accent);
-  color: #fff;
+  color: var(--color-on-accent);
 }
 
 :root {

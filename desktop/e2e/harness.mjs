@@ -118,12 +118,14 @@ const screensDir = () => process.env.WARDEN_E2E_SCREENS ?? path.join(desktopRoot
 
 /**
  * Photographs the page as `<name>.png` for someone to look at afterwards (the CI uploads the folder as an artifact, always).
- * Call it once the screen is ready, one per interesting state. `focus` is a locator to scroll into view first. It never fails the
- * test: a picture is for the eye, the assertions stay on text. Only invented data may be on screen when it is called.
+ * Call it once the screen is ready, one per interesting state. `focus` is a locator to scroll into view first, and `top` puts it at the
+ * top of its scroller instead of only into view (a heading half in view would otherwise not move, and the picture would be of what
+ * was above it). It never fails the test: a picture is for the eye, the assertions stay on text. Only invented data may be on screen.
  */
-export async function snap(page, name, { focus } = {}) {
+export async function snap(page, name, { focus, top = false } = {}) {
   try {
-    if (focus) await focus.scrollIntoViewIfNeeded();
+    if (focus && top) await focus.evaluate((el) => el.scrollIntoView({ block: "start" }));
+    else if (focus) await focus.scrollIntoViewIfNeeded();
     fs.mkdirSync(screensDir(), { recursive: true });
     await page.screenshot({ path: path.join(screensDir(), `${name}.png`) });
   } catch (err) {
