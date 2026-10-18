@@ -888,6 +888,7 @@ export type ClientMessage =
   /** P160 — a skill as a file: `exportSkill` is answered by `skillPackageFile`, `previewSkillPackage` by `skillPackagePreview`, and
    * `installSkillPackage` by `skillOk`/`skillError`. */
   | { type: "exportSkill"; requestId: number; name: string; version: string; author?: string; license: string }
+  | { type: "fetchSkillPackage"; requestId: number; address: string }
   | { type: "previewSkillPackage"; requestId: number; content: string }
   | { type: "installSkillPackage"; requestId: number; content: string; overwrite: boolean; allowFlagged: boolean }
   /** Projects (P103) — of the person's own vault; `requestId` is echoed on the matching reply. */

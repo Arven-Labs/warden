@@ -1300,6 +1300,7 @@ pub fn run() {
             skills_cmds::export_skill_package,
             skills_cmds::preview_skill_package,
             skills_cmds::install_skill_package,
+            skills_cmds::fetch_skill_package,
             skills_cmds::read_skill_package_file,
             skills_cmds::write_skill_package_file,
             skills_cmds::skill_publish_begin,

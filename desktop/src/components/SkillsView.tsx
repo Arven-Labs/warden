@@ -181,6 +181,7 @@ const localSkills = {
   install: (name: string, overwrite: boolean) => invoke<void>("install_catalog_skill", { name, overwrite }),
   exportPackage: (name: string, version: string, author: string | null, license: string) =>
     invoke<ExportedPackage>("export_skill_package", { name, version, author, license }),
+  fetchPackage: (address: string) => invoke<string>("fetch_skill_package", { address }),
   previewPackage: (content: string) => invoke<PackagePreview>("preview_skill_package", { content }),
   installPackage: (content: string, overwrite: boolean, allowFlagged: boolean) =>
     invoke<void>("install_skill_package", { content, overwrite, allowFlagged }),
@@ -222,6 +223,8 @@ interface ImportState {
   allowFlagged: boolean;
   /** The person agrees to replace a skill of theirs that differs. */
   replace: boolean;
+  /** An Arweave address typed to fetch a published package instead of choosing a file. */
+  address: string;
 }
 
 /** `remote`: the skills are the hub's (P102), without attached files or drafting, which the hub has no messages for.
@@ -318,6 +321,18 @@ function SkillsView({
     }
   }
 
+  /** Downloads the package published at the address in the box, then reads it like a file. */
+  async function handleFetchImport() {
+    if (!importing) return;
+    setError(null);
+    try {
+      const content = await api.fetchPackage(importing.address.trim());
+      await handleCheckImport(content);
+    } catch (err) {
+      setError(String(err));
+    }
+  }
+
   async function handleChooseImportFile() {
     setError(null);
     try {
@@ -335,10 +350,10 @@ function SkillsView({
     setError(null);
     try {
       const preview = await api.previewPackage(content);
-      setImporting({ content, preview, allowFlagged: false, replace: false });
+      setImporting({ content, preview, allowFlagged: false, replace: false, address: "" });
     } catch (err) {
       // Stay on the paste step with the text, so it can be fixed or replaced.
-      setImporting({ content, preview: null, allowFlagged: false, replace: false });
+      setImporting({ content, preview: null, allowFlagged: false, replace: false, address: "" });
       setError(String(err));
     }
   }
@@ -761,6 +776,19 @@ function SkillsView({
           {importing.preview === null ? (
             <>
               <p className="settings-hint">Choose a skill file, or paste its text. Nothing is installed until you have read it.</p>
+              <label className="settings-field">
+                <span className="settings-label">Or an address on Arweave</span>
+                <input
+                  className="settings-input"
+                  type="text"
+                  placeholder="ar://…"
+                  value={importing.address}
+                  onChange={(e) => setImporting({ ...importing, address: e.currentTarget.value })}
+                />
+              </label>
+              <button type="button" className="settings-browse-btn" onClick={handleFetchImport} disabled={importing.address.trim() === ""}>
+                Fetch it
+              </button>
               <textarea
                 className="settings-input settings-textarea"
                 rows={6}
@@ -935,7 +963,7 @@ function SkillsView({
               onClick={() => {
                 setError(null);
                 setNotice(null);
-                setImporting({ content: "", preview: null, allowFlagged: false, replace: false });
+                setImporting({ content: "", preview: null, allowFlagged: false, replace: false, address: "" });
               }}
             >
               Import

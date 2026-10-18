@@ -210,6 +210,9 @@ export const hubSkills = {
     );
     return { content: reply.content, attachmentsSkipped: reply.attachmentsSkipped ?? false };
   },
+  async fetchPackage(address: string): Promise<string> {
+    return (await ask<{ type: string; content: string }>({ type: "fetchSkillPackage", address }, "skillPackageFile")).content;
+  },
   async previewPackage(content: string): Promise<PackagePreview> {
     return (await ask<{ type: string; preview: PackagePreview }>({ type: "previewSkillPackage", content }, "skillPackagePreview")).preview;
   },

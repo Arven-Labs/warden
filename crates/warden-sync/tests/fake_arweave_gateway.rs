@@ -56,3 +56,63 @@ async fn fetch_tx_data_returns_the_raw_bytes() {
     let bytes = client.fetch_tx_data("real-tx-id").await.unwrap();
     assert_eq!(bytes, b"encrypted-bytes".to_vec());
 }
+
+/// A gateway that serves what the capped fetch has to be careful with: a body of the right size, one that is too big (with its
+/// size announced and without), a missing id and a redirect to another site.
+async fn spawn_gateway_of_odd_bodies() -> String {
+    let router = Router::new()
+        .route("/small-tx", get(|| async { b"hello".to_vec() }))
+        .route("/big-tx", get(|| async { vec![b'x'; 5000] }))
+        .route(
+            "/unannounced-tx",
+            get(|| async {
+                // A body with no `Content-Length`, sent in pieces, as a server that does not say how much is coming would.
+                let pieces = futures_util::stream::iter((0..50).map(|_| Ok::<_, std::convert::Infallible>(vec![b'y'; 100])));
+                axum::body::Body::from_stream(pieces)
+            }),
+        )
+        .route("/elsewhere-tx", get(|| async { axum::response::Redirect::temporary("http://example.invalid/stolen") }));
+
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    tokio::spawn(async move {
+        axum::serve(listener, router).await.unwrap();
+    });
+    format!("http://{addr}")
+}
+
+#[tokio::test]
+async fn a_capped_fetch_returns_a_body_that_fits() {
+    let base_url = spawn_gateway_of_odd_bodies().await;
+    let client = ArweaveClient::new(format!("{base_url}/graphql"), base_url);
+    assert_eq!(client.fetch_tx_data_capped("small-tx", 1024).await.unwrap(), b"hello".to_vec());
+}
+
+#[tokio::test]
+async fn a_capped_fetch_refuses_a_body_over_the_cap_announced_or_not() {
+    let base_url = spawn_gateway_of_odd_bodies().await;
+    let client = ArweaveClient::new(format!("{base_url}/graphql"), base_url);
+    for tx in ["big-tx", "unannounced-tx"] {
+        let err = client.fetch_tx_data_capped(tx, 1024).await.unwrap_err().to_string();
+        assert!(err.contains("bigger than the 1 KiB allowed"), "{tx}: {err}");
+    }
+}
+
+#[tokio::test]
+async fn a_capped_fetch_says_when_nothing_is_there_yet_and_follows_no_redirect_to_another_site() {
+    let base_url = spawn_gateway_of_odd_bodies().await;
+    let client = ArweaveClient::new(format!("{base_url}/graphql"), base_url);
+    let missing = client.fetch_tx_data_capped("no-such-tx", 1024).await.unwrap_err().to_string();
+    assert!(missing.contains("a few minutes"), "{missing}");
+
+    let err = client.fetch_tx_data_capped("elsewhere-tx", 1024).await.unwrap_err();
+    assert!(format!("{err:#}").contains("another site"), "{err:#}");
+}
+
+#[tokio::test]
+async fn a_capped_fetch_takes_only_an_id() {
+    let client = ArweaveClient::new("http://127.0.0.1:1/graphql", "http://127.0.0.1:1");
+    for bad in ["", "../etc", "a/b", "a?b"] {
+        assert!(client.fetch_tx_data_capped(bad, 1024).await.unwrap_err().to_string().contains("not an Arweave transaction id"), "{bad:?}");
+    }
+}

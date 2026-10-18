@@ -767,6 +767,14 @@ export class ServerConnection {
     return { content: reply.content, attachmentsSkipped: reply.attachmentsSkipped ?? false };
   }
 
+  /** P160 — downloads the skill package published at an Arweave address (`ar://<id>`); the hub does the download. Rejects when the address
+   * is not valid, nothing is there yet, it is too big or it is not a package. The text is then previewed like a file. */
+  async fetchSkillPackage(address: string): Promise<string> {
+    const reply = await this.request((requestId) => ({ type: "fetchSkillPackage", requestId, address }));
+    if (reply.type !== "skillPackageFile") throw new Error("resposta inesperada do hub");
+    return reply.content;
+  }
+
   /** Reads and checks a skill file without installing it. Rejects when it is not a valid package. */
   async previewSkillPackage(content: string): Promise<PackagePreviewDto> {
     const reply = await this.request((requestId) => ({ type: "previewSkillPackage", requestId, content }));

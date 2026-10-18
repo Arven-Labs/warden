@@ -48,6 +48,65 @@ impl ArweaveClient {
         let resp = self.http.get(&url).send().await?.error_for_status()?;
         Ok(resp.bytes().await?.to_vec())
     }
+
+    /// The bytes at `tx_id` when they fit in `max_bytes`, for content that is not ours and so not to be trusted with the
+    /// memory (P160: a published skill package). Refuses a body over the cap by its `Content-Length` and, since that can lie or
+    /// be missing, again while reading it; gives up after 30 s; and follows a redirect only to the gateway's own host or to
+    /// `*.arweave.net` (the real gateway hands data over to sandbox subdomains), never to anywhere else.
+    pub async fn fetch_tx_data_capped(&self, tx_id: &str, max_bytes: usize) -> anyhow::Result<Vec<u8>> {
+        if tx_id.is_empty() || !tx_id.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_') {
+            anyhow::bail!("'{tx_id}' is not an Arweave transaction id");
+        }
+        let gateway_host = reqwest::Url::parse(&self.gateway_base)?.host_str().map(str::to_string);
+        let redirects = reqwest::redirect::Policy::custom(move |attempt| {
+            let allowed = attempt
+                .url()
+                .host_str()
+                .is_some_and(|host| Some(host) == gateway_host.as_deref() || host == "arweave.net" || host.ends_with(".arweave.net"));
+            if !allowed {
+                attempt.error("the gateway sent the data to another site, which is not followed")
+            } else if attempt.previous().len() >= 3 {
+                attempt.error("too many redirects")
+            } else {
+                attempt.follow()
+            }
+        });
+        let client = reqwest::Client::builder().redirect(redirects).timeout(std::time::Duration::from_secs(30)).build()?;
+
+        let url = format!("{}/{}", self.gateway_base, tx_id);
+        let mut resp = client.get(&url).send().await?;
+        if resp.status() == reqwest::StatusCode::NOT_FOUND {
+            anyhow::bail!("nothing at that address yet: a publication can take a few minutes to reach the gateways");
+        }
+        let mut resp = resp.error_for_status()?;
+        let too_big = || anyhow::anyhow!("what is at that address is bigger than the {} KiB allowed", max_bytes / 1024);
+        if resp.content_length().is_some_and(|len| len > max_bytes as u64) {
+            return Err(too_big());
+        }
+        let mut data = Vec::new();
+        while let Some(chunk) = resp.chunk().await? {
+            if data.len() + chunk.len() > max_bytes {
+                return Err(too_big());
+            }
+            data.extend_from_slice(&chunk);
+        }
+        Ok(data)
+    }
+}
+
+/// An Arweave transaction id is 43 characters of base64url.
+const TX_ID_LEN: usize = 43;
+
+/// The transaction id in an address a person typed or pasted: `ar://<id>`, the id alone, or the gateway's own link
+/// `https://arweave.net/<id>`. Nothing else is taken, so what goes into the request is only ever an id.
+pub fn parse_address(input: &str) -> anyhow::Result<String> {
+    let input = input.trim();
+    let id = input.strip_prefix("ar://").or_else(|| input.strip_prefix("https://arweave.net/")).unwrap_or(input).trim_end_matches('/');
+    if id.len() == TX_ID_LEN && id.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_') {
+        Ok(id.to_string())
+    } else {
+        anyhow::bail!("this is not an Arweave address: expected ar:// followed by the {TX_ID_LEN}-character id")
+    }
 }
 
 fn parse_latest_tx_response(json: &str) -> Option<String> {
@@ -72,6 +131,34 @@ fn parse_owner_response(json: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    const ID: &str = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMN-_0";
+
+    #[test]
+    fn an_address_is_ar_scheme_the_bare_id_or_the_gateways_own_link() {
+        assert_eq!(ID.len(), TX_ID_LEN);
+        for input in [format!("ar://{ID}"), ID.to_string(), format!("https://arweave.net/{ID}"), format!("  ar://{ID}/ \n")] {
+            assert_eq!(parse_address(&input).unwrap(), ID, "{input:?}");
+        }
+    }
+
+    #[test]
+    fn anything_else_is_not_an_address() {
+        for input in [
+            String::new(),
+            "ar://".to_string(),
+            "ar://short".to_string(),
+            format!("ar://{ID}x"),
+            format!("ar://{}", &ID[1..]),
+            format!("http://arweave.net/{ID}"),
+            format!("https://evil.test/{ID}"),
+            format!("ar://{ID}/../x"),
+            format!("ar://{}%", &ID[1..]),
+            "ar://abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMN-_/".to_string(),
+        ] {
+            assert!(parse_address(&input).is_err(), "{input:?}");
+        }
+    }
 
     #[test]
     fn parses_a_real_shaped_latest_tx_success_response() {

@@ -182,6 +182,13 @@ pub fn install_skill_package(state: State<'_, AppState>, content: String, overwr
     skill_package::install_skill_package(&store(&state)?, &content, overwrite, allow_flagged)
 }
 
+/// Downloads the skill package published at an Arweave address (`ar://<id>`, P160); the screen then previews it as it would a
+/// file. For a hub, `hubSkills.fetchPackage` asks the hub, which downloads it there.
+#[tauri::command]
+pub async fn fetch_skill_package(address: String) -> Result<String, String> {
+    skill_package::fetch_skill_package(&address).await
+}
+
 /// Reads a package file picked in the Import dialog. Refuses what is bigger than a package can be, before reading it.
 #[tauri::command]
 pub fn read_skill_package_file(path: String) -> Result<String, String> {

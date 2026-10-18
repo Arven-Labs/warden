@@ -40,6 +40,8 @@ interface ImportState {
   allowFlagged: boolean;
   /** A pessoa aceita trocar uma skill dela de mesmo nome que é diferente. */
   replace: boolean;
+  /** Um endereço do Arweave digitado para buscar um pacote publicado, em vez de escolher um arquivo. */
+  address: string;
 }
 
 /** Baixa `content` como um arquivo, pelo navegador. */
@@ -117,13 +119,20 @@ export default function SkillsView({
     if (!conn) return;
     setError(null);
     conn.previewSkillPackage(content).then(
-      (preview) => setImporting({ content, preview, allowFlagged: false, replace: false }),
+      (preview) => setImporting({ content, preview, allowFlagged: false, replace: false, address: "" }),
       (err) => {
         // Fica no passo de colar, com o texto, para poder corrigir ou trocar.
-        setImporting({ content, preview: null, allowFlagged: false, replace: false });
+        setImporting({ content, preview: null, allowFlagged: false, replace: false, address: "" });
         setError(message(err));
       },
     );
+  }
+
+  /** Baixa o pacote publicado no endereço digitado e o lê como se fosse um arquivo. */
+  function handleFetchImport() {
+    if (!conn || !importing) return;
+    setError(null);
+    conn.fetchSkillPackage(importing.address.trim()).then(handleCheckImport, (err) => setError(message(err)));
   }
 
   function handleChooseImportFile(file: File | undefined) {
@@ -300,7 +309,7 @@ export default function SkillsView({
             onClick={() => {
               setError(null);
               setNotice(null);
-              setImporting({ content: "", preview: null, allowFlagged: false, replace: false });
+              setImporting({ content: "", preview: null, allowFlagged: false, replace: false, address: "" });
             }}
           >
             Importar
@@ -367,6 +376,13 @@ export default function SkillsView({
           {importing.preview === null ? (
             <>
               <span className="skills-hint">Escolha um arquivo de skill ou cole o texto dele. Nada é instalado até você ler.</span>
+              <label>
+                Ou um endereço no Arweave
+                <input value={importing.address} placeholder="ar://…" onChange={(e) => setImporting({ ...importing, address: e.target.value })} />
+              </label>
+              <button type="button" className="link-button" disabled={!conn || importing.address.trim() === ""} onClick={handleFetchImport}>
+                Buscar
+              </button>
               <textarea
                 rows={6}
                 placeholder="Cole o conteúdo de um arquivo .warden-skill.json"

@@ -1819,6 +1819,17 @@ async fn handle_connection<S: Transport>(ws: WebSocketStream<S>, peer: SocketAdd
                         let _ = reply_tx.send(reply);
                     });
                 }
+                Ok(ClientMessage::FetchSkillPackage { request_id, address }) => {
+                    // P160 — a small download from the Arweave gateway: spawned, so the connection is not held up by the network.
+                    let reply_tx = tx.clone();
+                    tokio::spawn(async move {
+                        let reply = match warden_bootstrap::skill_package::fetch_skill_package(&address).await {
+                            Ok(content) => ServerMessage::SkillPackageFile { request_id, content, attachments_skipped: false },
+                            Err(message) => ServerMessage::SkillError { request_id, message },
+                        };
+                        let _ = reply_tx.send(reply);
+                    });
+                }
                 Ok(
                     message @ (ClientMessage::ListSkills { .. }
                     | ClientMessage::SaveSkill { .. }

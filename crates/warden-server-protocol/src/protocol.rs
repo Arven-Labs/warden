@@ -1836,6 +1836,13 @@ pub enum ClientMessage {
         author: Option<String>,
         license: String,
     },
+    /// Downloads the skill package published at an Arweave address (`ar://<id>`, P160) for the caller to preview and install. Only an
+    /// id is ever requested, from the gateway, and what comes back has to read as a package. Answered by `SkillPackageFile`, or
+    /// `SkillError` (not an address, nothing there yet, too big, not a package).
+    FetchSkillPackage {
+        request_id: u64,
+        address: String,
+    },
     /// Reads and checks a skill package without installing it. Answered by `SkillPackagePreview`, or `SkillError` when it is
     /// not a valid package.
     PreviewSkillPackage {
@@ -3363,6 +3370,14 @@ mod tests {
             r#"{"type":"skillPackagePreview","requestId":2,"preview":{"id":"x","version":"1.0.0","author":"Ana","license":"MIT","name":"x","description":"d","body":"b","hash":"sha256:00","status":"notInstalled","finding":"a link"}}"#
         );
         assert_eq!(serde_json::from_str::<ServerMessage>(&json).unwrap(), shown);
+    }
+
+    #[test]
+    fn fetch_skill_package_round_trips_through_json() {
+        let fetch = ClientMessage::FetchSkillPackage { request_id: 4, address: "ar://abc".into() };
+        let json = serde_json::to_string(&fetch).unwrap();
+        assert_eq!(json, r#"{"type":"fetchSkillPackage","requestId":4,"address":"ar://abc"}"#);
+        assert_eq!(serde_json::from_str::<ClientMessage>(&json).unwrap(), fetch);
     }
 
     #[test]

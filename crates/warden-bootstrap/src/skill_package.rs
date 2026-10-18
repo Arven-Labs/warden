@@ -3,8 +3,10 @@
 //! the text, which only lives in `learning`, so that an imported skill is read for the things a skill must not carry before
 //! it is installed.
 
-use warden_core::skill::package::Package;
+use warden_core::skill::package::{Package, MAX_PACKAGE_BYTES};
 use warden_core::skill::SkillStore;
+use warden_sync::arweave::parse_address;
+use warden_sync::ArweaveClient;
 
 use crate::learning::scan_proposal;
 
@@ -56,6 +58,22 @@ pub fn preview_skill_package(store: &SkillStore, content: &str) -> Result<Packag
     })
 }
 
+/// The text of the package published at `address` (`ar://<id>`, the id alone, or the gateway's own link), for the caller to
+/// preview and install as it would a file. Only an id ever reaches the network, the download is capped at the size of a
+/// package, and what comes back has to read as a package (`Package::parse`), so a client never gets anything else.
+pub async fn fetch_skill_package(address: &str) -> Result<String, String> {
+    fetch_skill_package_with(&ArweaveClient::new_default(), address).await
+}
+
+/// `fetch_skill_package` through `client`: lets tests point at a gateway of their own.
+pub async fn fetch_skill_package_with(client: &ArweaveClient, address: &str) -> Result<String, String> {
+    let tx_id = parse_address(address).map_err(|e| format!("{e:#}"))?;
+    let bytes = client.fetch_tx_data_capped(&tx_id, MAX_PACKAGE_BYTES).await.map_err(|e| format!("{e:#}"))?;
+    let text = String::from_utf8(bytes).map_err(|_| "what is at that address is not a Warden package (it is not text)".to_string())?;
+    Package::parse(&text).map_err(|e| format!("what is at that address is not a usable Warden package: {e:#}"))?;
+    Ok(text)
+}
+
 /// Installs `content`. A skill of that name that differs is only replaced with `overwrite`; text that looks unsafe is only
 /// installed with `allow_flagged`, and is looked at again here rather than trusting that the caller showed the preview.
 pub fn install_skill_package(store: &SkillStore, content: &str, overwrite: bool, allow_flagged: bool) -> Result<(), String> {
@@ -93,6 +111,55 @@ mod tests {
 
     fn exported(store: &SkillStore, name: &str) -> String {
         export_skill_package(store, name, "1.0.0", Some("Ana"), "MIT").unwrap().0
+    }
+
+    /// A gateway of our own that serves `body` at every id, so the fetch can be proven without the real network.
+    async fn gateway_serving(body: Vec<u8>) -> ArweaveClient {
+        let router = axum::Router::new().route("/{tx_id}", axum::routing::get(move || {
+            let body = body.clone();
+            async move { body }
+        }));
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move {
+            axum::serve(listener, router).await.unwrap();
+        });
+        let base = format!("http://{addr}");
+        ArweaveClient::new(format!("{base}/graphql"), base)
+    }
+
+    const ADDRESS: &str = "ar://abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMN-_0";
+
+    #[tokio::test]
+    async fn a_package_published_at_an_address_comes_back_and_installs() {
+        let (mine, yours) = (temp_store(), temp_store());
+        mine.save(&skill("greet", "Say hello warmly.")).unwrap();
+        let published = exported(&mine, "greet");
+
+        let client = gateway_serving(published.clone().into_bytes()).await;
+        let fetched = fetch_skill_package_with(&client, ADDRESS).await.unwrap();
+        assert_eq!(fetched, published);
+
+        install_skill_package(&yours, &fetched, false, false).unwrap();
+        assert_eq!(yours.get("greet").unwrap().body, "Say hello warmly.");
+    }
+
+    #[tokio::test]
+    async fn what_is_at_an_address_must_be_a_package_and_a_bad_address_makes_no_request() {
+        let not_a_package = gateway_serving(b"just some text".to_vec()).await;
+        let err = fetch_skill_package_with(&not_a_package, ADDRESS).await.unwrap_err();
+        assert!(err.contains("not a usable Warden package"), "{err}");
+
+        let binary = gateway_serving(vec![0xff, 0xfe, 0x00]).await;
+        assert!(fetch_skill_package_with(&binary, ADDRESS).await.unwrap_err().contains("not text"));
+
+        let too_big = gateway_serving(vec![b'x'; MAX_PACKAGE_BYTES + 1]).await;
+        assert!(fetch_skill_package_with(&too_big, ADDRESS).await.unwrap_err().contains("bigger than"));
+
+        // The gateway here is unreachable: the address is refused before any request is made.
+        let unreachable = ArweaveClient::new("http://127.0.0.1:1/graphql", "http://127.0.0.1:1");
+        let err = fetch_skill_package_with(&unreachable, "https://evil.test/whatever").await.unwrap_err();
+        assert!(err.contains("not an Arweave address"), "{err}");
     }
 
     #[test]
