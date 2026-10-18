@@ -76,7 +76,9 @@ export async function startHub({ allowMachineSettings = false, extraConfig = "",
 
   let address = null;
   for (let waited = 0; waited < 15000 && !address; waited += 100) {
-    address = /listening on (127\.0\.0\.1:\d+)/.exec(log)?.[1] ?? null;
+    // The hub says where it listens in its log: `... listening — plain ws://, not encrypted ... addr=127.0.0.1:PORT`. The line used to
+    // read "listening on 127.0.0.1:PORT", and this waited for that long after it changed, so no E2E could start a hub.
+    address = /addr=(127\.0\.0\.1:\d+)/.exec(log)?.[1] ?? null;
     if (!address) {
       if (child.exitCode !== null) break;
       await new Promise((r) => setTimeout(r, 100));
