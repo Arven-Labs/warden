@@ -52,6 +52,26 @@ pub struct CatalogSkillDto {
     pub status: String,
 }
 
+/// What a skill package says it holds (P160), read and checked but not installed: the answer to `PreviewSkillPackage`.
+/// `status` is as in `CatalogSkillDto`. `finding` is why the text looks unsafe (a link, a command, a key, text aimed at the
+/// assistant's own rules, invisible characters), when it does: installing such a package needs `allowFlagged`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PackagePreviewDto {
+    pub id: String,
+    pub version: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub author: Option<String>,
+    pub license: String,
+    pub name: String,
+    pub description: String,
+    pub body: String,
+    pub hash: String,
+    pub status: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub finding: Option<String>,
+}
+
 /// A project (P103) on the wire — what a client's Projects screen lists and edits over `ListProjects`/`SaveProject`.
 /// The files of a project are ordinary notes of the vault (`projects/<id>/…`) and travel over the vault messages.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -1806,6 +1826,30 @@ pub enum ClientMessage {
         name: String,
         overwrite: bool,
     },
+    /// Packs a skill of the vault into a `*.warden-skill.json` file (P160): its text only, not its attached files. Answered
+    /// by `SkillPackageFile`, or `SkillError`.
+    ExportSkill {
+        request_id: u64,
+        name: String,
+        version: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        author: Option<String>,
+        license: String,
+    },
+    /// Reads and checks a skill package without installing it. Answered by `SkillPackagePreview`, or `SkillError` when it is
+    /// not a valid package.
+    PreviewSkillPackage {
+        request_id: u64,
+        content: String,
+    },
+    /// Installs a skill package. A skill of that name that differs is only replaced with `overwrite`, and a package whose text
+    /// looks unsafe only with `allow_flagged`. Answered by `SkillOk` or `SkillError`.
+    InstallSkillPackage {
+        request_id: u64,
+        content: String,
+        overwrite: bool,
+        allow_flagged: bool,
+    },
     /// Projects (P103) — the projects of the person's own vault. Answered by `ProjectList`, `ProjectOk` or `ProjectError`
     /// with the same `request_id`.
     ListProjects {
@@ -2524,6 +2568,19 @@ pub enum ServerMessage {
     SkillCatalog {
         request_id: u64,
         entries: Vec<CatalogSkillDto>,
+    },
+    /// Reply to `ClientMessage::ExportSkill`: the text of the file. `attachments_skipped` says the skill has attached files that
+    /// are not in it.
+    SkillPackageFile {
+        request_id: u64,
+        content: String,
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        attachments_skipped: bool,
+    },
+    /// Reply to `ClientMessage::PreviewSkillPackage`.
+    SkillPackagePreview {
+        request_id: u64,
+        preview: PackagePreviewDto,
     },
     /// Reply to `ClientMessage::ListProjects`.
     ProjectList {
@@ -3261,6 +3318,51 @@ mod tests {
         let json = serde_json::to_string(&catalog).unwrap();
         assert_eq!(json, r#"{"type":"skillCatalog","requestId":3,"entries":[{"name":"email-draft","description":"d","body":"b","status":"modified"}]}"#);
         assert_eq!(serde_json::from_str::<ServerMessage>(&json).unwrap(), catalog);
+    }
+
+    #[test]
+    fn skill_package_messages_round_trip_through_json() {
+        let export = ClientMessage::ExportSkill { request_id: 1, name: "email-draft".into(), version: "1.0.0".into(), author: None, license: "CC0-1.0".into() };
+        let json = serde_json::to_string(&export).unwrap();
+        assert_eq!(json, r#"{"type":"exportSkill","requestId":1,"name":"email-draft","version":"1.0.0","license":"CC0-1.0"}"#);
+        assert_eq!(serde_json::from_str::<ClientMessage>(&json).unwrap(), export);
+
+        let preview = ClientMessage::PreviewSkillPackage { request_id: 2, content: "{}".into() };
+        let json = serde_json::to_string(&preview).unwrap();
+        assert_eq!(json, r#"{"type":"previewSkillPackage","requestId":2,"content":"{}"}"#);
+        assert_eq!(serde_json::from_str::<ClientMessage>(&json).unwrap(), preview);
+
+        let install = ClientMessage::InstallSkillPackage { request_id: 3, content: "{}".into(), overwrite: false, allow_flagged: true };
+        let json = serde_json::to_string(&install).unwrap();
+        assert_eq!(json, r#"{"type":"installSkillPackage","requestId":3,"content":"{}","overwrite":false,"allowFlagged":true}"#);
+        assert_eq!(serde_json::from_str::<ClientMessage>(&json).unwrap(), install);
+
+        let file = ServerMessage::SkillPackageFile { request_id: 1, content: "{}".into(), attachments_skipped: true };
+        let json = serde_json::to_string(&file).unwrap();
+        assert_eq!(json, r#"{"type":"skillPackageFile","requestId":1,"content":"{}","attachmentsSkipped":true}"#);
+        assert_eq!(serde_json::from_str::<ServerMessage>(&json).unwrap(), file);
+
+        let shown = ServerMessage::SkillPackagePreview {
+            request_id: 2,
+            preview: PackagePreviewDto {
+                id: "x".into(),
+                version: "1.0.0".into(),
+                author: Some("Ana".into()),
+                license: "MIT".into(),
+                name: "x".into(),
+                description: "d".into(),
+                body: "b".into(),
+                hash: "sha256:00".into(),
+                status: "notInstalled".into(),
+                finding: Some("a link".into()),
+            },
+        };
+        let json = serde_json::to_string(&shown).unwrap();
+        assert_eq!(
+            json,
+            r#"{"type":"skillPackagePreview","requestId":2,"preview":{"id":"x","version":"1.0.0","author":"Ana","license":"MIT","name":"x","description":"d","body":"b","hash":"sha256:00","status":"notInstalled","finding":"a link"}}"#
+        );
+        assert_eq!(serde_json::from_str::<ServerMessage>(&json).unwrap(), shown);
     }
 
     #[test]

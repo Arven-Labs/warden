@@ -11,8 +11,10 @@ import type {
   AgentTaskAction,
   CatalogSkill,
   ChatMessage,
+  ExportedPackage,
   Grant,
   GrantsView,
+  PackagePreview,
   ProjectEntry,
   RunMessage,
   SkillEntry,
@@ -200,6 +202,19 @@ export const hubSkills = {
   },
   async install(name: string, overwrite: boolean): Promise<void> {
     await ask({ type: "installCatalogSkill", name, overwrite }, "skillOk");
+  },
+  async exportPackage(name: string, version: string, author: string | null, license: string): Promise<ExportedPackage> {
+    const reply = await ask<{ type: string; content: string; attachmentsSkipped?: boolean }>(
+      { type: "exportSkill", name, version, ...(author ? { author } : {}), license },
+      "skillPackageFile",
+    );
+    return { content: reply.content, attachmentsSkipped: reply.attachmentsSkipped ?? false };
+  },
+  async previewPackage(content: string): Promise<PackagePreview> {
+    return (await ask<{ type: string; preview: PackagePreview }>({ type: "previewSkillPackage", content }, "skillPackagePreview")).preview;
+  },
+  async installPackage(content: string, overwrite: boolean, allowFlagged: boolean): Promise<void> {
+    await ask({ type: "installSkillPackage", content, overwrite, allowFlagged }, "skillOk");
   },
 };
 

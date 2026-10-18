@@ -88,6 +88,21 @@ export interface CatalogSkillDto {
   status: "notInstalled" | "installed" | "modified";
 }
 
+/** Mirrors `warden_server_protocol::protocol::PackagePreviewDto` (P160): what a skill package says it holds, checked but not
+ * installed. `finding` is why its text looks unsafe, when it does; installing such a package needs `allowFlagged`. */
+export interface PackagePreviewDto {
+  id: string;
+  version: string;
+  author?: string;
+  license: string;
+  name: string;
+  description: string;
+  body: string;
+  hash: string;
+  status: "notInstalled" | "installed" | "modified";
+  finding?: string;
+}
+
 /** Mirrors `warden_server_protocol::protocol::ConversationSummary` (P78). */
 export interface ConversationSummary {
   id: string;
@@ -870,6 +885,11 @@ export type ClientMessage =
   /** P140 — the gallery of ready-made skills, answered by `skillCatalog`; installing answers `skillOk`/`skillError`. */
   | { type: "listSkillCatalog"; requestId: number }
   | { type: "installCatalogSkill"; requestId: number; name: string; overwrite: boolean }
+  /** P160 — a skill as a file: `exportSkill` is answered by `skillPackageFile`, `previewSkillPackage` by `skillPackagePreview`, and
+   * `installSkillPackage` by `skillOk`/`skillError`. */
+  | { type: "exportSkill"; requestId: number; name: string; version: string; author?: string; license: string }
+  | { type: "previewSkillPackage"; requestId: number; content: string }
+  | { type: "installSkillPackage"; requestId: number; content: string; overwrite: boolean; allowFlagged: boolean }
   /** Projects (P103) — of the person's own vault; `requestId` is echoed on the matching reply. */
   /** P103 — moves a conversation into a project, or out of any with no `projectId`; answered by `conversationOk`/`conversationError`. */
   | { type: "moveConversation"; requestId: number; conversationId: string; projectId?: string }
@@ -1029,6 +1049,8 @@ export type ServerMessage =
   | { type: "skillOk"; requestId: number }
   | { type: "skillError"; requestId: number; message: string }
   | { type: "skillCatalog"; requestId: number; entries: CatalogSkillDto[] }
+  | { type: "skillPackageFile"; requestId: number; content: string; attachmentsSkipped?: boolean }
+  | { type: "skillPackagePreview"; requestId: number; preview: PackagePreviewDto }
   | { type: "projectList"; requestId: number; projects: ProjectDto[] }
   | { type: "projectOk"; requestId: number }
   | { type: "projectError"; requestId: number; message: string }
@@ -1155,6 +1177,8 @@ export function decode(text: string): ServerMessage {
     case "skillOk":
     case "skillError":
     case "skillCatalog":
+    case "skillPackageFile":
+    case "skillPackagePreview":
     case "projectList":
     case "projectOk":
     case "projectError":

@@ -627,6 +627,28 @@ export interface CatalogSkill {
   status: "notInstalled" | "installed" | "modified";
 }
 
+/** A skill packed into the text of a `*.warden-skill.json` file (P160) — mirrors `ExportedPackage` in `src-tauri/src/skills_cmds.rs`.
+ * `attachmentsSkipped`: the skill has attached files, and they are not in the package. */
+export interface ExportedPackage {
+  content: string;
+  attachmentsSkipped: boolean;
+}
+
+/** What a skill package says it holds, checked but not installed (P160) — mirrors `PackagePreviewPayload`. `finding` is why its
+ * text looks unsafe (a link, a command, a key, text aimed at the assistant's own rules, invisible characters), when it does. */
+export interface PackagePreview {
+  id: string;
+  version: string;
+  author?: string;
+  license: string;
+  name: string;
+  description: string;
+  body: string;
+  hash: string;
+  status: "notInstalled" | "installed" | "modified";
+  finding?: string;
+}
+
 /** One skill (P16) — mirrors `SkillPayload` in `src-tauri/src/skills_cmds.rs`. */
 export interface SkillEntry {
   /** Slug (lowercase letters, digits, hyphens); doubles as the filename under `skills/`. */

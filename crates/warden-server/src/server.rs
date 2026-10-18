@@ -1824,7 +1824,10 @@ async fn handle_connection<S: Transport>(ws: WebSocketStream<S>, peer: SocketAdd
                     | ClientMessage::SaveSkill { .. }
                     | ClientMessage::DeleteSkill { .. }
                     | ClientMessage::ListSkillCatalog { .. }
-                    | ClientMessage::InstallCatalogSkill { .. }),
+                    | ClientMessage::InstallCatalogSkill { .. }
+                    | ClientMessage::ExportSkill { .. }
+                    | ClientMessage::PreviewSkillPackage { .. }
+                    | ClientMessage::InstallSkillPackage { .. }),
                 ) => {
                     // Short local file I/O, answered inline (no spawn) — P72.
                     let vault = person_vault(member.as_ref(), settings.as_deref(), &orchestrator.current(), &space_vaults);

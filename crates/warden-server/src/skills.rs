@@ -4,8 +4,9 @@
 //! without a socket; the same create/edit rules as the desktop's `save_skill` and the mobile
 //! bridge (create refuses a taken name, edit overwrites).
 
+use warden_bootstrap::skill_package;
 use warden_core::skill::{catalog, Skill, SkillStore};
-use warden_server_protocol::protocol::{CatalogSkillDto, SkillDto};
+use warden_server_protocol::protocol::{CatalogSkillDto, PackagePreviewDto, SkillDto};
 use warden_server_protocol::{ClientMessage, ServerMessage};
 
 /// Answers a skills request, or `None` for any other message.
@@ -38,6 +39,36 @@ pub fn handle_skill_request(store: &SkillStore, message: ClientMessage) -> Optio
             Ok(()) => ServerMessage::SkillOk { request_id },
             Err(err) => ServerMessage::SkillError { request_id, message: format!("{err:#}") },
         },
+        ClientMessage::ExportSkill { request_id, name, version, author, license } => {
+            match skill_package::export_skill_package(store, &name, &version, author.as_deref(), &license) {
+                Ok((content, attachments_skipped)) => ServerMessage::SkillPackageFile { request_id, content, attachments_skipped },
+                Err(message) => ServerMessage::SkillError { request_id, message },
+            }
+        }
+        ClientMessage::PreviewSkillPackage { request_id, content } => match skill_package::preview_skill_package(store, &content) {
+            Ok(p) => ServerMessage::SkillPackagePreview {
+                request_id,
+                preview: PackagePreviewDto {
+                    id: p.id,
+                    version: p.version,
+                    author: p.author,
+                    license: p.license,
+                    name: p.name,
+                    description: p.description,
+                    body: p.body,
+                    hash: p.hash,
+                    status: p.status.to_string(),
+                    finding: p.finding,
+                },
+            },
+            Err(message) => ServerMessage::SkillError { request_id, message },
+        },
+        ClientMessage::InstallSkillPackage { request_id, content, overwrite, allow_flagged } => {
+            match skill_package::install_skill_package(store, &content, overwrite, allow_flagged) {
+                Ok(()) => ServerMessage::SkillOk { request_id },
+                Err(message) => ServerMessage::SkillError { request_id, message },
+            }
+        }
         _ => return None,
     })
 }
@@ -165,6 +196,56 @@ mod tests {
         assert_eq!(handle_skill_request(&store, install_req(&name, true)), Some(ServerMessage::SkillOk { request_id: 8 }));
         assert_eq!(catalog_of(&store)[0].status, "installed");
         assert!(matches!(handle_skill_request(&store, install_req("no-such-skill", true)), Some(ServerMessage::SkillError { .. })));
+    }
+
+    fn export_req(name: &str) -> ClientMessage {
+        ClientMessage::ExportSkill { request_id: 11, name: name.into(), version: "1.0.0".into(), author: Some("Ana".into()), license: "CC0-1.0".into() }
+    }
+
+    fn exported(store: &SkillStore, name: &str) -> String {
+        match handle_skill_request(store, export_req(name)) {
+            Some(ServerMessage::SkillPackageFile { request_id: 11, content, attachments_skipped: false }) => content,
+            other => panic!("unexpected {other:?}"),
+        }
+    }
+
+    #[test]
+    fn a_skill_is_exported_previewed_and_installed_as_a_package_by_message() {
+        let (mine, yours) = (temp_store(), temp_store());
+        handle_skill_request(&mine, save_req(SkillDto { body: "Say hello warmly.".into(), ..dto("greet") }, false));
+        let content = exported(&mine, "greet");
+
+        match handle_skill_request(&yours, ClientMessage::PreviewSkillPackage { request_id: 12, content: content.clone() }) {
+            Some(ServerMessage::SkillPackagePreview { request_id: 12, preview }) => {
+                assert_eq!((preview.name.as_str(), preview.status.as_str(), preview.finding), ("greet", "notInstalled", None));
+                assert_eq!((preview.author.as_deref(), preview.license.as_str()), (Some("Ana"), "CC0-1.0"));
+            }
+            other => panic!("unexpected {other:?}"),
+        }
+        let install = ClientMessage::InstallSkillPackage { request_id: 13, content, overwrite: false, allow_flagged: false };
+        assert_eq!(handle_skill_request(&yours, install), Some(ServerMessage::SkillOk { request_id: 13 }));
+        assert_eq!(yours.get("greet").unwrap().body, "Say hello warmly.");
+    }
+
+    #[test]
+    fn a_package_with_unsafe_text_or_a_broken_file_comes_back_as_an_error() {
+        let (mine, yours) = (temp_store(), temp_store());
+        handle_skill_request(&mine, save_req(SkillDto { body: "Open https://example.test now.".into(), ..dto("sneaky") }, false));
+        let content = exported(&mine, "sneaky");
+
+        let install = |content: &str, allow_flagged| ClientMessage::InstallSkillPackage { request_id: 14, content: content.into(), overwrite: false, allow_flagged };
+        match handle_skill_request(&yours, install(&content, false)) {
+            Some(ServerMessage::SkillError { request_id: 14, message }) => assert!(message.contains("a link"), "{message}"),
+            other => panic!("unexpected {other:?}"),
+        }
+        assert!(!yours.exists("sneaky"));
+        assert_eq!(handle_skill_request(&yours, install(&content, true)), Some(ServerMessage::SkillOk { request_id: 14 }));
+
+        assert!(matches!(
+            handle_skill_request(&yours, ClientMessage::PreviewSkillPackage { request_id: 15, content: "nope".into() }),
+            Some(ServerMessage::SkillError { request_id: 15, .. })
+        ));
+        assert!(matches!(handle_skill_request(&yours, export_req("missing")), Some(ServerMessage::SkillError { request_id: 11, .. })));
     }
 
     #[test]

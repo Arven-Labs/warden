@@ -9,7 +9,9 @@
 
 use serde::{Deserialize, Serialize};
 use tauri::State;
+use warden_bootstrap::skill_package;
 use warden_bootstrap::{build_model_for, default_config_path, load_config_from_path};
+use warden_core::skill::package::MAX_PACKAGE_BYTES;
 use warden_core::skill::{catalog, Skill, SkillStore};
 
 use crate::AppState;
@@ -120,6 +122,82 @@ pub fn list_skill_catalog(state: State<'_, AppState>) -> Result<Vec<CatalogSkill
 #[tauri::command]
 pub fn install_catalog_skill(state: State<'_, AppState>, name: String, overwrite: bool) -> Result<(), String> {
     catalog::install(&store(&state)?, &name, overwrite).map_err(|e| format!("{e:#}"))
+}
+
+/// A skill packed into the text of a `*.warden-skill.json` file (P160). `attachments_skipped`: the skill has attached files, and
+/// they are not in the package.
+#[derive(Serialize, Debug, Clone, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct ExportedPackage {
+    content: String,
+    attachments_skipped: bool,
+}
+
+/// What a skill package says it holds, checked but not installed (P160). `finding` is why its text looks unsafe, if it does.
+#[derive(Serialize, Debug, Clone, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct PackagePreviewPayload {
+    id: String,
+    version: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    author: Option<String>,
+    license: String,
+    name: String,
+    description: String,
+    body: String,
+    hash: String,
+    status: &'static str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    finding: Option<String>,
+}
+
+#[tauri::command]
+pub fn export_skill_package(state: State<'_, AppState>, name: String, version: String, author: Option<String>, license: String) -> Result<ExportedPackage, String> {
+    let (content, attachments_skipped) = skill_package::export_skill_package(&store(&state)?, &name, &version, author.as_deref(), &license)?;
+    Ok(ExportedPackage { content, attachments_skipped })
+}
+
+#[tauri::command]
+pub fn preview_skill_package(state: State<'_, AppState>, content: String) -> Result<PackagePreviewPayload, String> {
+    let p = skill_package::preview_skill_package(&store(&state)?, &content)?;
+    Ok(PackagePreviewPayload {
+        id: p.id,
+        version: p.version,
+        author: p.author,
+        license: p.license,
+        name: p.name,
+        description: p.description,
+        body: p.body,
+        hash: p.hash,
+        status: p.status,
+        finding: p.finding,
+    })
+}
+
+/// Installs a skill package; a skill of that name that differs is only replaced with `overwrite`, and text that looks unsafe
+/// only with `allow_flagged`.
+#[tauri::command]
+pub fn install_skill_package(state: State<'_, AppState>, content: String, overwrite: bool, allow_flagged: bool) -> Result<(), String> {
+    skill_package::install_skill_package(&store(&state)?, &content, overwrite, allow_flagged)
+}
+
+/// Reads a package file picked in the Import dialog. Refuses what is bigger than a package can be, before reading it.
+#[tauri::command]
+pub fn read_skill_package_file(path: String) -> Result<String, String> {
+    let size = std::fs::metadata(&path).map_err(|e| format!("{e:#}"))?.len();
+    if size > MAX_PACKAGE_BYTES as u64 {
+        return Err(format!("This file is {} KiB; a skill package is at most {} KiB", size.div_ceil(1024), MAX_PACKAGE_BYTES / 1024));
+    }
+    std::fs::read_to_string(&path).map_err(|e| format!("{e:#}"))
+}
+
+/// Writes a package to the path picked in the Export dialog.
+#[tauri::command]
+pub fn write_skill_package_file(path: String, content: String) -> Result<(), String> {
+    if content.len() > MAX_PACKAGE_BYTES {
+        return Err(format!("A skill package is at most {} KiB", MAX_PACKAGE_BYTES / 1024));
+    }
+    std::fs::write(&path, content).map_err(|e| format!("{e:#}"))
 }
 
 #[tauri::command]

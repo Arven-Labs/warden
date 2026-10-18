@@ -71,13 +71,20 @@ fn same_text(a: &Skill, b: &Skill) -> bool {
 /// "Install" never throws away what a person wrote; the one that is already identical is left alone.
 pub fn install(store: &SkillStore, name: &str, overwrite: bool) -> anyhow::Result<()> {
     let entry = entries().iter().find(|e| e.name == name).ok_or_else(|| anyhow!("the gallery has no skill named '{name}'"))?;
-    match status(store, entry) {
+    install_skill(store, entry, overwrite)
+}
+
+/// Puts `skill` in the vault the way the gallery does: one that is already identical is left alone, one that differs is only
+/// replaced with `overwrite`, and the agents a person restricted the existing skill to are kept. Shared with skill packages.
+pub(super) fn install_skill(store: &SkillStore, skill: &Skill, overwrite: bool) -> anyhow::Result<()> {
+    match status(store, skill) {
         CatalogStatus::Installed => Ok(()),
-        CatalogStatus::Modified if !overwrite => bail!("a skill named '{name}' is already in your skills and differs from the gallery's; installing replaces it"),
+        CatalogStatus::Modified if !overwrite => {
+            bail!("a skill named '{}' is already in your skills and differs from this one; installing replaces it", skill.name)
+        }
         CatalogStatus::NotInstalled | CatalogStatus::Modified => {
-            // Keep the agents a person restricted it to; the gallery's copy is for everyone.
-            let agents = store.get(name).map(|s| s.agents).unwrap_or_default();
-            store.save(&Skill { agents, proposed: false, source: None, proposed_at: None, revises: None, ..entry.clone() })
+            let agents = store.get(&skill.name).map(|s| s.agents).unwrap_or_default();
+            store.save(&Skill { agents, proposed: false, source: None, proposed_at: None, revises: None, ..skill.clone() })
         }
     }
 }

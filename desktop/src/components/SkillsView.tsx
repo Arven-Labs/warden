@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import type { AgentEntry, CatalogSkill, ProviderEntry, SkillEntry } from "../types";
+import { open, save } from "@tauri-apps/plugin-dialog";
+import type { AgentEntry, CatalogSkill, ExportedPackage, PackagePreview, ProviderEntry, SkillEntry } from "../types";
 import { diffLines, hasChanges, withContext } from "./skillDiff";
 import { hubSkills } from "../lib/hub";
 
@@ -177,7 +178,37 @@ const localSkills = {
   remove: (name: string) => invoke<void>("delete_skill", { name }),
   catalog: () => invoke<CatalogSkill[]>("list_skill_catalog"),
   install: (name: string, overwrite: boolean) => invoke<void>("install_catalog_skill", { name, overwrite }),
+  exportPackage: (name: string, version: string, author: string | null, license: string) =>
+    invoke<ExportedPackage>("export_skill_package", { name, version, author, license }),
+  previewPackage: (content: string) => invoke<PackagePreview>("preview_skill_package", { content }),
+  installPackage: (content: string, overwrite: boolean, allowFlagged: boolean) =>
+    invoke<void>("install_skill_package", { content, overwrite, allowFlagged }),
 };
+
+/** The licenses offered when sharing a skill: what the person who made it lets others do with it. */
+const LICENSES = [
+  { id: "CC0-1.0", label: "CC0 (public domain, no conditions)" },
+  { id: "MIT", label: "MIT (keep the copyright notice)" },
+  { id: "CC-BY-4.0", label: "CC BY (credit the author)" },
+];
+
+/** The skill being shared: the file's details, asked for before it is written. */
+interface ExportState {
+  name: string;
+  version: string;
+  author: string;
+  license: string;
+}
+
+/** A package being imported: its text, and what it says once it has been read and checked. */
+interface ImportState {
+  content: string;
+  preview: PackagePreview | null;
+  /** The person read a flagged text and wants it anyway. */
+  allowFlagged: boolean;
+  /** The person agrees to replace a skill of theirs that differs. */
+  replace: boolean;
+}
 
 /** `remote`: the skills are the hub's (P102), without attached files or drafting, which the hub has no messages for.
  * The caller remounts the screen (`key`) when the machine changes. */
@@ -207,6 +238,10 @@ function SkillsView({
   const [catalog, setCatalog] = useState<CatalogSkill[] | null>(null);
   const [confirmReplace, setConfirmReplace] = useState<string | null>(null);
   const [installing, setInstalling] = useState<string | null>(null);
+  // Sharing a skill as a file and importing one (P160).
+  const [exporting, setExporting] = useState<ExportState | null>(null);
+  const [importing, setImporting] = useState<ImportState | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
 
   function refresh() {
     api
@@ -220,6 +255,66 @@ function SkillsView({
       .catalog()
       .then(setCatalog)
       .catch(() => setCatalog(null));
+  }
+
+  async function handleExport() {
+    if (!exporting) return;
+    setError(null);
+    setNotice(null);
+    try {
+      const author = exporting.author.trim();
+      const packed = await api.exportPackage(exporting.name, exporting.version.trim(), author === "" ? null : author, exporting.license);
+      const path = await save({
+        defaultPath: `${exporting.name}.warden-skill.json`,
+        filters: [{ name: "Warden skill", extensions: ["json"] }],
+      });
+      if (!path) return;
+      await invoke("write_skill_package_file", { path, content: packed.content });
+      setNotice(
+        `Saved ${path}.` + (packed.attachmentsSkipped ? " The files attached to this skill are not in it: only the text is shared." : ""),
+      );
+      setExporting(null);
+    } catch (err) {
+      setError(String(err));
+    }
+  }
+
+  async function handleChooseImportFile() {
+    setError(null);
+    try {
+      const path = await open({ multiple: false, filters: [{ name: "Warden skill", extensions: ["json"] }] });
+      if (typeof path !== "string") return;
+      const content = await invoke<string>("read_skill_package_file", { path });
+      await handleCheckImport(content);
+    } catch (err) {
+      setError(String(err));
+    }
+  }
+
+  /** Reads and checks the text; nothing is installed yet. */
+  async function handleCheckImport(content: string) {
+    setError(null);
+    try {
+      const preview = await api.previewPackage(content);
+      setImporting({ content, preview, allowFlagged: false, replace: false });
+    } catch (err) {
+      // Stay on the paste step with the text, so it can be fixed or replaced.
+      setImporting({ content, preview: null, allowFlagged: false, replace: false });
+      setError(String(err));
+    }
+  }
+
+  async function handleInstallImport() {
+    if (!importing?.preview) return;
+    setError(null);
+    try {
+      await api.installPackage(importing.content, importing.replace, importing.allowFlagged);
+      setNotice(`Installed ${importing.preview.name}.`);
+      setImporting(null);
+      refresh();
+    } catch (err) {
+      setError(String(err));
+    }
   }
 
   async function handleInstall(name: string, overwrite: boolean) {
@@ -477,6 +572,143 @@ function SkillsView({
         </div>
       )}
 
+      {notice && <p className="settings-hint">{notice}</p>}
+
+      {exporting && (
+        <div className="provider-card skill-editor">
+          <span className="settings-section-title">Share {exporting.name}</span>
+          <p className="settings-hint">
+            This saves the skill's text as a file anyone can import. Files attached to the skill are not included. Once you give
+            the file to someone, you can't take it back.
+          </p>
+          <label className="settings-field">
+            <span className="settings-label">Version</span>
+            <input
+              className="settings-input"
+              type="text"
+              value={exporting.version}
+              onChange={(e) => setExporting({ ...exporting, version: e.currentTarget.value })}
+            />
+            <span className="settings-hint">Numbers separated by dots, like 1.0.0. Raise it when you change the skill.</span>
+          </label>
+          <label className="settings-field">
+            <span className="settings-label">Author (optional)</span>
+            <input
+              className="settings-input"
+              type="text"
+              placeholder="Your name or handle"
+              value={exporting.author}
+              onChange={(e) => setExporting({ ...exporting, author: e.currentTarget.value })}
+            />
+          </label>
+          <label className="settings-field">
+            <span className="settings-label">License</span>
+            <select className="settings-select" value={exporting.license} onChange={(e) => setExporting({ ...exporting, license: e.currentTarget.value })}>
+              {LICENSES.map((l) => (
+                <option key={l.id} value={l.id}>
+                  {l.label}
+                </option>
+              ))}
+            </select>
+          </label>
+          <div className="skill-editor-actions">
+            <button type="button" className="settings-save-btn" onClick={handleExport}>
+              Save as file…
+            </button>
+            <button type="button" className="settings-browse-btn" onClick={() => setExporting(null)}>
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+
+      {importing && (
+        <div className="provider-card skill-editor">
+          <span className="settings-section-title">Import a skill</span>
+          {importing.preview === null ? (
+            <>
+              <p className="settings-hint">Choose a skill file, or paste its text. Nothing is installed until you have read it.</p>
+              <textarea
+                className="settings-input settings-textarea"
+                rows={6}
+                placeholder="Paste the contents of a .warden-skill.json file"
+                value={importing.content}
+                onChange={(e) => setImporting({ ...importing, content: e.currentTarget.value })}
+              />
+              <div className="skill-editor-actions">
+                <button type="button" className="settings-browse-btn" onClick={handleChooseImportFile}>
+                  Choose a file…
+                </button>
+                <button type="button" className="settings-save-btn" onClick={() => handleCheckImport(importing.content)} disabled={importing.content.trim() === ""}>
+                  Read it
+                </button>
+                <button type="button" className="settings-browse-btn" onClick={() => setImporting(null)}>
+                  Cancel
+                </button>
+              </div>
+            </>
+          ) : (
+            <>
+              <p className="skill-card-name">{importing.preview.name}</p>
+              <p className="skill-card-description">{importing.preview.description}</p>
+              <p className="settings-hint">
+                Version {importing.preview.version} · License {importing.preview.license}
+                {importing.preview.author ? ` · By ${importing.preview.author}` : " · No author given"} ·{" "}
+                <code>{importing.preview.hash.slice(0, 19)}…</code>
+              </p>
+              <p className="settings-hint">
+                The code above only shows the file was not changed on the way. It does not prove who wrote it: read the text before
+                installing.
+              </p>
+              {importing.preview.finding && (
+                <p className="settings-error-banner">
+                  This text contains {importing.preview.finding}. A skill is instructions the AI follows, so check that it is what you
+                  expect.
+                </p>
+              )}
+              <pre className="skill-suggestion-body">{importing.preview.body}</pre>
+              {importing.preview.status === "installed" && <p className="settings-hint">You already have this exact skill.</p>}
+              {importing.preview.status === "modified" && (
+                <label className="skill-agent-option">
+                  <input type="checkbox" checked={importing.replace} onChange={(e) => setImporting({ ...importing, replace: e.currentTarget.checked })} />
+                  Replace the skill I already have with this name
+                </label>
+              )}
+              {importing.preview.finding && (
+                <label className="skill-agent-option">
+                  <input
+                    type="checkbox"
+                    checked={importing.allowFlagged}
+                    onChange={(e) => setImporting({ ...importing, allowFlagged: e.currentTarget.checked })}
+                  />
+                  I read it and want to install it anyway
+                </label>
+              )}
+              <div className="skill-editor-actions">
+                <button
+                  type="button"
+                  className="settings-save-btn"
+                  onClick={handleInstallImport}
+                  disabled={
+                    importing.preview.status === "installed" ||
+                    (importing.preview.status === "modified" && !importing.replace) ||
+                    (!!importing.preview.finding && !importing.allowFlagged)
+                  }
+                >
+                  Install
+                </button>
+                <button type="button" className="settings-browse-btn" onClick={() => setImporting({ ...importing, preview: null })}>
+                  Back
+                </button>
+                <button type="button" className="settings-browse-btn" onClick={() => setImporting(null)}>
+                  Cancel
+                </button>
+              </div>
+            </>
+          )}
+        </div>
+      )}
+
       {suggested.length > 0 && (
         <section className="settings-section">
           <div className="settings-section-header">
@@ -563,9 +795,22 @@ function SkillsView({
       <section className="settings-section">
         <div className="settings-section-header">
           <h3 className="settings-section-title">Your skills</h3>
-          <button type="button" className="settings-browse-btn" onClick={openNew}>
-            + New skill
-          </button>
+          <div className="skill-card-actions">
+            <button
+              type="button"
+              className="settings-browse-btn"
+              onClick={() => {
+                setError(null);
+                setNotice(null);
+                setImporting({ content: "", preview: null, allowFlagged: false, replace: false });
+              }}
+            >
+              Import
+            </button>
+            <button type="button" className="settings-browse-btn" onClick={openNew}>
+              + New skill
+            </button>
+          </div>
         </div>
 
         {skills === null ? (
@@ -593,6 +838,17 @@ function SkillsView({
                       <>
                         <button type="button" className="settings-browse-btn" onClick={() => openEdit(skill)}>
                           Edit
+                        </button>
+                        <button
+                          type="button"
+                          className="settings-browse-btn"
+                          onClick={() => {
+                            setError(null);
+                            setNotice(null);
+                            setExporting({ name: skill.name, version: "1.0.0", author: "", license: LICENSES[0].id });
+                          }}
+                        >
+                          Share
                         </button>
                         <button
                           type="button"

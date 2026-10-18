@@ -173,7 +173,7 @@ const RULE_TAMPERING: &[&str] = &[
 /// Things that make no sense in a rule of thumb and are how a skill could carry something unsafe into later
 /// conversations: a link, a command to run, a key or token, text aimed at the assistant's own rules, or characters
 /// the person can't see. Plain and cheap on purpose (no model call); returns why, or `None` when the text is clean.
-fn scan_proposal(description: &str, body: &str) -> Option<&'static str> {
+pub fn scan_proposal(description: &str, body: &str) -> Option<&'static str> {
     let text = format!("{description}\n{body}");
     if text.chars().any(|c| matches!(c, '\u{200B}'..='\u{200F}' | '\u{202A}'..='\u{202E}' | '\u{2060}'..='\u{2064}' | '\u{FEFF}') || (c.is_control() && !matches!(c, '\n' | '\r' | '\t'))) {
         return Some("invisible characters");

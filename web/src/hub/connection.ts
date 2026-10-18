@@ -15,6 +15,7 @@ import {
   type Attachment,
   type BotPairingsView,
   type CatalogSkillDto,
+  type PackagePreviewDto,
   type ChatEventDto,
   type ClientMessage,
   type CodeMode,
@@ -546,6 +547,8 @@ export class ServerConnection {
         break;
       case "skillList":
       case "skillCatalog":
+      case "skillPackageFile":
+      case "skillPackagePreview":
       case "skillOk":
       case "projectList":
       case "projectOk":
@@ -755,6 +758,25 @@ export class ServerConnection {
   async listSkillCatalog(): Promise<CatalogSkillDto[]> {
     const reply = await this.request((requestId) => ({ type: "listSkillCatalog", requestId }));
     return reply.type === "skillCatalog" ? reply.entries : [];
+  }
+
+  /** P160 — packs a skill of the vault into the text of a `*.warden-skill.json` file. `attachmentsSkipped`: its attached files are not in it. */
+  async exportSkill(name: string, version: string, author: string | null, license: string): Promise<{ content: string; attachmentsSkipped: boolean }> {
+    const reply = await this.request((requestId) => ({ type: "exportSkill", requestId, name, version, ...(author ? { author } : {}), license }));
+    if (reply.type !== "skillPackageFile") throw new Error("resposta inesperada do hub");
+    return { content: reply.content, attachmentsSkipped: reply.attachmentsSkipped ?? false };
+  }
+
+  /** Reads and checks a skill file without installing it. Rejects when it is not a valid package. */
+  async previewSkillPackage(content: string): Promise<PackagePreviewDto> {
+    const reply = await this.request((requestId) => ({ type: "previewSkillPackage", requestId, content }));
+    if (reply.type !== "skillPackagePreview") throw new Error("resposta inesperada do hub");
+    return reply.preview;
+  }
+
+  /** Installs a skill file; one of that name that differs is only replaced with `overwrite`, and a text that looks unsafe only with `allowFlagged`. */
+  async installSkillPackage(content: string, overwrite: boolean, allowFlagged: boolean): Promise<void> {
+    await this.request((requestId) => ({ type: "installSkillPackage", requestId, content, overwrite, allowFlagged }));
   }
 
   /** Installs a skill of the gallery; one of that name that differs is only replaced with `overwrite`. */

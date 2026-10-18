@@ -279,7 +279,10 @@ fn gate_with(message: &ClientMessage, text: &str) -> Option<ServerMessage> {
         | ClientMessage::SaveSkill { request_id, .. }
         | ClientMessage::DeleteSkill { request_id, .. }
         | ClientMessage::ListSkillCatalog { request_id }
-        | ClientMessage::InstallCatalogSkill { request_id, .. } => ServerMessage::SkillError { request_id: *request_id, message: text },
+        | ClientMessage::InstallCatalogSkill { request_id, .. }
+        | ClientMessage::ExportSkill { request_id, .. }
+        | ClientMessage::PreviewSkillPackage { request_id, .. }
+        | ClientMessage::InstallSkillPackage { request_id, .. } => ServerMessage::SkillError { request_id: *request_id, message: text },
         ClientMessage::ListProjects { request_id } | ClientMessage::SaveProject { request_id, .. } | ClientMessage::DeleteProject { request_id, .. } => {
             ServerMessage::ProjectError { request_id: *request_id, message: text }
         }

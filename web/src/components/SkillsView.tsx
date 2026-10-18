@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import type { ServerConnection } from "../hub/connection";
-import type { CatalogSkillDto, SkillDto, UserInfo } from "../hub/messages";
+import type { CatalogSkillDto, PackagePreviewDto, SkillDto, UserInfo } from "../hub/messages";
 import { diffLines, hasChanges, withContext } from "./skillDiff";
 
 // Adapted from the extension's `sidepanel/SkillsView.tsx` (P78), talking to the hub directly
@@ -16,6 +16,41 @@ interface EditorState {
 }
 
 const emptySkill: SkillDto = { name: "", description: "", body: "", agents: [] };
+
+/** As licenças oferecidas ao compartilhar uma skill: o que quem a fez deixa os outros fazerem com ela. */
+const LICENSES = [
+  { id: "CC0-1.0", label: "CC0 (domínio público, sem condições)" },
+  { id: "MIT", label: "MIT (manter o aviso de autoria)" },
+  { id: "CC-BY-4.0", label: "CC BY (dar o crédito ao autor)" },
+];
+
+/** A skill sendo compartilhada: os dados do arquivo, pedidos antes de gerá-lo. */
+interface ExportState {
+  name: string;
+  version: string;
+  author: string;
+  license: string;
+}
+
+/** Um pacote sendo importado: o texto e, depois de lido e conferido, o que ele diz. */
+interface ImportState {
+  content: string;
+  preview: PackagePreviewDto | null;
+  /** A pessoa leu um texto com alerta e quer instalar mesmo assim. */
+  allowFlagged: boolean;
+  /** A pessoa aceita trocar uma skill dela de mesmo nome que é diferente. */
+  replace: boolean;
+}
+
+/** Baixa `content` como um arquivo, pelo navegador. */
+function downloadText(fileName: string, content: string) {
+  const url = URL.createObjectURL(new Blob([content], { type: "application/json" }));
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = fileName;
+  link.click();
+  URL.revokeObjectURL(url);
+}
 
 function message(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
@@ -40,6 +75,10 @@ export default function SkillsView({
   const [catalog, setCatalog] = useState<CatalogSkillDto[] | null>(null);
   const [confirmReplace, setConfirmReplace] = useState<string | null>(null);
   const [installing, setInstalling] = useState<string | null>(null);
+  // Compartilhar uma skill como arquivo e importar uma (P160).
+  const [exporting, setExporting] = useState<ExportState | null>(null);
+  const [importing, setImporting] = useState<ImportState | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
 
   const refresh = useCallback(() => {
     if (!conn) return;
@@ -55,6 +94,56 @@ export default function SkillsView({
     );
     conn.listSkillCatalog().then(setCatalog, () => setCatalog(null));
   }, [conn]);
+
+  function handleExport() {
+    if (!conn || !exporting) return;
+    setError(null);
+    setNotice(null);
+    const author = exporting.author.trim();
+    conn.exportSkill(exporting.name, exporting.version.trim(), author === "" ? null : author, exporting.license).then(
+      (packed) => {
+        downloadText(`${exporting.name}.warden-skill.json`, packed.content);
+        setNotice(
+          `Arquivo gerado.${packed.attachmentsSkipped ? " Os arquivos anexados a esta skill não vão nele: só o texto é compartilhado." : ""}`,
+        );
+        setExporting(null);
+      },
+      (err) => setError(`falha ao gerar o arquivo: ${message(err)}`),
+    );
+  }
+
+  /** Lê e confere o texto; nada é instalado ainda. */
+  function handleCheckImport(content: string) {
+    if (!conn) return;
+    setError(null);
+    conn.previewSkillPackage(content).then(
+      (preview) => setImporting({ content, preview, allowFlagged: false, replace: false }),
+      (err) => {
+        // Fica no passo de colar, com o texto, para poder corrigir ou trocar.
+        setImporting({ content, preview: null, allowFlagged: false, replace: false });
+        setError(message(err));
+      },
+    );
+  }
+
+  function handleChooseImportFile(file: File | undefined) {
+    if (!file) return;
+    file.text().then(handleCheckImport, (err) => setError(`falha ao ler o arquivo: ${message(err)}`));
+  }
+
+  function handleInstallImport() {
+    if (!conn || !importing?.preview) return;
+    setError(null);
+    const name = importing.preview.name;
+    conn.installSkillPackage(importing.content, importing.replace, importing.allowFlagged).then(
+      () => {
+        setNotice(`Skill ${name} instalada.`);
+        setImporting(null);
+        refresh();
+      },
+      (err) => setError(message(err)),
+    );
+  }
 
   function handleInstall(name: string, overwrite: boolean) {
     if (!conn) return;
@@ -203,18 +292,153 @@ export default function SkillsView({
     <div className="skills-view">
       <div className="skills-toolbar">
         <span className="skills-hint">Instruções que a IA carrega sozinha quando o pedido combina.</span>
-        <button
-          type="button"
-          className="primary-button"
-          onClick={() => {
-            setError(null);
-            setEditor({ mode: "new", skill: emptySkill });
-          }}
-        >
-          + Nova
-        </button>
+        <span className="skills-actions">
+          <button
+            type="button"
+            className="link-button"
+            disabled={!conn}
+            onClick={() => {
+              setError(null);
+              setNotice(null);
+              setImporting({ content: "", preview: null, allowFlagged: false, replace: false });
+            }}
+          >
+            Importar
+          </button>
+          <button
+            type="button"
+            className="primary-button"
+            onClick={() => {
+              setError(null);
+              setEditor({ mode: "new", skill: emptySkill });
+            }}
+          >
+            + Nova
+          </button>
+        </span>
       </div>
       {error && <p className="error-banner">{error}</p>}
+      {notice && <p className="skills-hint">{notice}</p>}
+      {exporting && (
+        <form
+          className="skills-editor"
+          onSubmit={(e) => {
+            e.preventDefault();
+            handleExport();
+          }}
+        >
+          <strong>Compartilhar {exporting.name}</strong>
+          <span className="skills-hint">
+            Gera um arquivo com o texto da skill que qualquer pessoa pode importar. Os arquivos anexados a ela não vão junto. Depois que você
+            entrega o arquivo, não dá para desfazer.
+          </span>
+          <label>
+            Versão
+            <input value={exporting.version} onChange={(e) => setExporting({ ...exporting, version: e.target.value })} required />
+            <span className="skills-hint">Números separados por pontos, como 1.0.0. Aumente quando mudar a skill.</span>
+          </label>
+          <label>
+            Autor (opcional)
+            <input value={exporting.author} placeholder="Seu nome ou apelido" onChange={(e) => setExporting({ ...exporting, author: e.target.value })} />
+          </label>
+          <label>
+            Licença
+            <select value={exporting.license} onChange={(e) => setExporting({ ...exporting, license: e.target.value })}>
+              {LICENSES.map((l) => (
+                <option key={l.id} value={l.id}>
+                  {l.label}
+                </option>
+              ))}
+            </select>
+          </label>
+          <div className="skills-actions">
+            <button type="submit" className="primary-button" disabled={!conn}>
+              Baixar arquivo
+            </button>
+            <button type="button" className="link-button" onClick={() => setExporting(null)}>
+              Cancelar
+            </button>
+          </div>
+        </form>
+      )}
+      {importing && (
+        <div className="skills-editor">
+          <strong>Importar uma skill</strong>
+          {importing.preview === null ? (
+            <>
+              <span className="skills-hint">Escolha um arquivo de skill ou cole o texto dele. Nada é instalado até você ler.</span>
+              <textarea
+                rows={6}
+                placeholder="Cole o conteúdo de um arquivo .warden-skill.json"
+                value={importing.content}
+                onChange={(e) => setImporting({ ...importing, content: e.target.value })}
+              />
+              <input type="file" accept=".json,application/json" onChange={(e) => handleChooseImportFile(e.target.files?.[0])} />
+              <div className="skills-actions">
+                <button type="button" className="primary-button" disabled={!conn || importing.content.trim() === ""} onClick={() => handleCheckImport(importing.content)}>
+                  Ler
+                </button>
+                <button type="button" className="link-button" onClick={() => setImporting(null)}>
+                  Cancelar
+                </button>
+              </div>
+            </>
+          ) : (
+            <>
+              <span className="skills-item-name">{importing.preview.name}</span>
+              <p className="skills-item-description">{importing.preview.description}</p>
+              <p className="skills-hint">
+                Versão {importing.preview.version} · Licença {importing.preview.license}
+                {importing.preview.author ? ` · De ${importing.preview.author}` : " · Sem autor informado"} ·{" "}
+                <code>{importing.preview.hash.slice(0, 19)}…</code>
+              </p>
+              <p className="skills-hint">
+                O código acima só mostra que o arquivo não foi alterado no caminho. Ele não prova quem escreveu: leia o texto antes de instalar.
+              </p>
+              {importing.preview.finding && (
+                <p className="error-banner">
+                  Este texto contém {importing.preview.finding}. Uma skill são instruções que a IA segue, então confira se é o que você espera.
+                </p>
+              )}
+              <pre className="skills-body">{importing.preview.body}</pre>
+              {importing.preview.status === "installed" && <p className="skills-hint">Você já tem exatamente esta skill.</p>}
+              {importing.preview.status === "modified" && (
+                <label className="checkbox-row">
+                  <input type="checkbox" checked={importing.replace} onChange={(e) => setImporting({ ...importing, replace: e.target.checked })} />
+                  Trocar a skill que eu já tenho com este nome
+                </label>
+              )}
+              {importing.preview.finding && (
+                <label className="checkbox-row">
+                  <input type="checkbox" checked={importing.allowFlagged} onChange={(e) => setImporting({ ...importing, allowFlagged: e.target.checked })} />
+                  Li e quero instalar mesmo assim
+                </label>
+              )}
+              <div className="skills-actions">
+                <button
+                  type="button"
+                  className="primary-button"
+                  disabled={
+                    !conn ||
+                    importing.preview.status === "installed" ||
+                    (importing.preview.status === "modified" && !importing.replace) ||
+                    (!!importing.preview.finding && !importing.allowFlagged)
+                  }
+                  onClick={handleInstallImport}
+                >
+                  Instalar
+                </button>
+                <button type="button" className="link-button" onClick={() => setImporting({ ...importing, preview: null })}>
+                  Voltar
+                </button>
+                <button type="button" className="link-button" onClick={() => setImporting(null)}>
+                  Cancelar
+                </button>
+              </div>
+            </>
+          )}
+        </div>
+      )}
       {user && user.learningEnabled && (
         <label className="checkbox-row">
           <input
@@ -347,6 +571,17 @@ export default function SkillsView({
                       }}
                     >
                       Editar
+                    </button>
+                    <button
+                      type="button"
+                      className="link-button"
+                      onClick={() => {
+                        setError(null);
+                        setNotice(null);
+                        setExporting({ name: skill.name, version: "1.0.0", author: "", license: LICENSES[0].id });
+                      }}
+                    >
+                      Compartilhar
                     </button>
                     <button type="button" className="link-button" onClick={() => setConfirmDelete(skill.name)}>
                       Apagar

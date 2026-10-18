@@ -64,6 +64,7 @@ pub mod project_scope;
 pub mod saved_hubs;
 pub mod settings;
 pub mod skill_gen;
+pub mod skill_package;
 pub mod spend;
 pub mod ssh_audit;
 pub mod tasks;
