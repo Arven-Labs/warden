@@ -2,7 +2,17 @@
 
 > **Nota**: Este log foi criado junto com o projeto. As sessões serão registradas aqui conforme o trabalho avança.
 >
-> Última atualização: 2026-10-18 (Sessão 263)
+> Última atualização: 2026-10-18 (Sessão 264)
+
+---
+
+### 2026-10-18 — Sessão 264 (fotos das outras telas da web e o que elas acharam: P161, resto)
+
+- **Pedido**: "segue em ordem" (o resto do P161 vem antes do P165 e do P160). Planejado em modo de plano e aprovado antes de editar.
+- **Feito**: `snap` em 12 specs do `web/e2e` (Atividade, Trabalho do agente em 2 estados, Agentes em 2, Thread, seletor de pasta, Organização do dono, do que só vê e do que edita, formulário de agente do membro, Configurações com e sem a máquina editável, registro do SSH, pareamento de bot, Testar chave): 17 fotos novas, todas abertas e olhadas (run 39166622814, 41 de 41 verde).
+- **Achado e corrigido** (conferido nas fotos do run 39166952637): (1) o **"Editar" da mensagem da pessoa era roxo sobre o balão roxo, invisível**, e deixava o balão alto com um vazio (agora na cor do texto do balão, `--color-on-accent`); (2) as ações da conversa (Fixar, Arquivar, Renomear, Apagar) **saíam da barra lateral**, agora quebram linha; (3) o checkbox "Limitar as ferramentas" do formulário do membro ficava **centralizado acima do texto**, por causa de `.skills-editor label` (agora ao lado); (4) quem só vê o organograma lia "arraste um cartão…", que não pode fazer (agora só "Ninguém reporta a ninguém ainda."); (5) a frase da tela de Agentes **colada na borda** da lista (agora com respiro).
+- **Achado e não corrigido**, no **P167**: mensagens do hub em inglês na página (a chave aceita, o aviso de somente leitura), horário 12h numa lista, a última aba cortada, abas em inglês e em português, recuo dos botões de link.
+- **Não provado**: só foto em tema claro dessas telas (o escuro só entra onde a clara mostrar dúvida, e não mostrou); as do desktop seguem sem conferência (P165).
 
 ---
 
