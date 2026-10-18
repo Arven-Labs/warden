@@ -180,6 +180,22 @@ Vêm da spec do router (`SPEC-warden-router-e-futuro.md`, de 2026-10-14), que fo
 
 **Para abrir a terceiros depois:** revisão humana e automática com scanner de skills (hoje só existe o `learning::scan_proposal`, restrito ao caminho de proposta do assistente), sandbox para stdio, identidade e chave por publicador, política de retirada e revogação, denúncia, permissões aplicadas em runtime e a decisão central x descentralizada do P85. O ROADMAP já fala em **dois mercados**, o de plugins e o de skills; este desenho começa pelo de skills, agentes e integrações HTTP.
 
+### E.2 Skills da comunidade, descentralizadas (proposta da Sessão 257, a confirmar; P160)
+
+O usuário quer que a comunidade crie e publique skills, que o app venha **sem nenhuma fixa no código** e que o Fabio publique as que usa. Prefere algo descentralizado; o servidor com contas, upload e avaliações fica **para quando virar produto** (será mais um curador, ver abaixo). Desenho proposto, três camadas independentes:
+
+- **Pacote**: o texto da skill (formato do cofre) mais um `manifest` com `id`, `version`, `author`, `license`, `kind`. Identificado pelo hash SHA-256 do conteúdo e **assinado pela chave Ed25519 do autor**: a identidade é a chave, não uma conta em algum serviço. A reaproveitar: o TruthID do projeto, a conferir.
+- **Transporte**: onde os bytes ficam não importa para a confiança. https ou git no início; Arweave, IPFS ou Nostr podem entrar depois como outros transportes, porque o cliente só precisa dos bytes e confere o hash.
+- **Curadores**: qualquer pessoa publica um **índice assinado** (hashes, título, descrição, autor, e uma lista de revogados). O usuário **assina os curadores em que confia**, por URL ou chave pública, nas configurações. O Warden não traz nenhum; a tela de skills abre vazia com um botão opcional "adicionar a fonte do Fabio". Um pacote fora de todo curador só instala por hash ou URL direta, com aviso. Revogar é o curador tirar do índice e listar nos revogados, ou o autor assinar a revogação da própria chave.
+
+**Primeiro curador**: um repositório público do Fabio no GitHub (custo zero; pull request como fluxo de publicação; CI roda o scanner e valida o formato; os mantenedores revisam). **No produto hospedado**: um servidor com contas, upload na interface e avaliações, que é só mais um curador na mesma lista.
+
+**Segurança**: uma skill é texto que o modelo lê; o risco é prompt injection (mandar vazar dados, esconder ações, ignorar regras), não código. Instalar mostra o texto inteiro e roda o `learning::scan_proposal` (links, comandos, chaves, texto invisível); atualizar mostra o diff e nunca é automático; as aprovações e o nível de autonomia do agente continuam valendo, então uma skill não dá mais poder do que a configuração permite. Fora da v1: skills com anexos executáveis (pedem sandbox).
+
+**Comparação das saídas descentralizadas**: *Nostr* (eventos assinados em relays, sem servidor nosso, identidade = chave) encaixa bem, mas depende de relays que podem descartar dados e não resolve spam sozinho; *Arweave* (o sync já usa) dá permanência, mas não se apaga, então a revogação vive só na lista; *IPFS* é endereçado por conteúdo mas precisa de quem mantenha o pin. Por isso o formato não depende de nenhum: começa por https e entra o resto quando houver comunidade.
+
+**Das 8 skills embutidas na 1ª fatia (Sessão 257)**: saem do binário quando as fontes existirem e viram o primeiro conteúdo do repositório do Fabio.
+
 ## F. Privacidade e confiança do operador
 
 - **Prometer só o que o modelo atual permite.** O operador consegue, tecnicamente, ver o que o agente vê enquanto trabalha (ARCHITECTURE.md, seção de multiusuário). A cifra por membro (P84) protege backups, discos descartados e leitura casual; **não protege contra quem controla a máquina**. Não prometer "nem nós conseguimos ler".
