@@ -39,6 +39,8 @@ export type PopupRequest =
   | { type: "openThread"; conversationId: string; messageId: string }
   | { type: "renameConversation"; conversationId: string; title: string }
   | { type: "deleteConversation"; conversationId: string }
+  /** P157 — pins or archives a conversation; a flag left out stays as it is. */
+  | { type: "setConversationFlags"; conversationId: string; pinned?: boolean; archived?: boolean }
   /** P87 — the agent the next turns speak as (`null`: none). */
   | { type: "selectAgent"; agentId: string | null }
   | { type: "refreshAgents" }

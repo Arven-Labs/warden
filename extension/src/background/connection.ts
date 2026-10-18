@@ -504,6 +504,11 @@ export class ServerConnection {
     await this.request((requestId) => ({ type: "deleteConversation", requestId, conversationId }));
   }
 
+  /** P157 — pins or archives a conversation; a flag left out stays as it is. */
+  async setConversationFlags(conversationId: string, flags: { pinned?: boolean; archived?: boolean }): Promise<void> {
+    await this.request((requestId) => ({ type: "setConversationFlags", requestId, conversationId, ...flags }));
+  }
+
   /** Skills management (P72) — each call is one request/reply pair correlated by `requestId`
    * (the same idea as a ping's nonce, but several can be in flight, so it's a map). */
   async listSkills(): Promise<SkillDto[]> {

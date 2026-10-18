@@ -59,6 +59,10 @@ export interface ConversationSummary {
   parent?: ThreadParent;
   /** P125 — for a thread, how many messages the person sent in it. */
   replies?: number;
+  /** P157 — kept at the top of the list; absent when not (or a hub from before it). */
+  pinned?: boolean;
+  /** P157 — put away, listed apart; absent when not. A conversation is never both pinned and archived. */
+  archived?: boolean;
 }
 
 /** Mirrors `ThreadParentDto` (P125). */
@@ -281,6 +285,9 @@ export type ClientMessage =
   | { type: "openAgentChannel"; requestId: number; agentId: string }
   | { type: "renameConversation"; requestId: number; conversationId: string; title: string }
   | { type: "deleteConversation"; requestId: number; conversationId: string }
+  /** P157 — pins or archives a conversation; a flag left out stays as it is. Archiving unpins, and pinning an archived one brings it
+   * back. Answered by `conversationOk`/`conversationError`. */
+  | { type: "setConversationFlags"; requestId: number; conversationId: string; pinned?: boolean; archived?: boolean }
   /** Fase 9.1 (redefined) — an unauthenticated presence probe, answered by `discoverAck` below.
    * No `authKey`/`deviceId` on purpose: the point is finding a hub before knowing its credential. */
   | { type: "discover" }

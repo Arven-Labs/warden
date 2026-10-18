@@ -2,16 +2,24 @@
 
 > **Nota**: Este log foi criado junto com o projeto. As sessões serão registradas aqui conforme o trabalho avança.
 >
-> Última atualização: 2026-10-18 (Sessão 251)
+> Última atualização: 2026-10-18 (Sessão 252)
 
 ---
+
+### 2026-10-18 — Sessão 252 (a extensão, passo 2: fixar, arquivar e agrupar por data: P157)
+
+- **Pedido do usuário**: continuação do plano da extensão aprovado na Sessão 251 (não replanejei).
+- **Feito**: `protocol/messages.ts` (`pinned`/`archived` no resumo e a variante `setConversationFlags`); `protocol/conversationGroups.ts` (cópia da web, rótulos em português, dia no calendário local); `background/connection.ts` (`setConversationFlags`), `popup_protocol.ts` (o pedido) e `background/index.ts` (o `case` junto de rename/delete: chama, relê a lista, e ao apagar a conversa aberta abre a primeira **não arquivada**); `sidepanel/ConversationBar.tsx`: o `<select>` plano virou `<optgroup>`s ("★ Fixadas", os blocos por data e "Arquivadas"), que cabem no painel estreito, com os botões Fixar/Desafixar e Arquivar/Desarquivar na faixa de ações.
+- **Testes**: `conversationGroups.test.mjs` (6, os mesmos da web, só o caminho do import muda). `tsc --noEmit` limpo e `npm test` (112) rodados aqui; `npm run build` e a rodada de verdade ficam com o `Frontend (extension)` do `ci.yml`.
+- **Deslize meu no caminho**: copiei o teste da web com `cp` e troquei o caminho do import com `sed` no Bash, contra a preferência por mostrar as edições (Edit/Write). O conteúdo é idêntico ao da web fora o caminho, e corrigi o comentário do cabeçalho por Edit; mas o certo era escrever o arquivo.
+- **Não provado**: o seletor com grupos num navegador (P129); sem busca na extensão.
 
 ### 2026-10-18 — Sessão 251 (a extensão, passo 1: botão Parar no turno comum: P157)
 
 - **Pedido do usuário**: "pode seguir com a extensão", depois do celular. Planejado em modo de plano, em três passos (Parar, fixar/arquivar/agrupar, regenerar/editar), **um commit e uma rodada de CI por passo**. Este é o passo 1.
 - **Achado**: o background já mandava `cancelTurn` sem checar projeto de código (`index.ts:443`); só o painel limitava, com `canStop = pendingChat && activeSummary?.code === true`, e a bolha ao vivo (com o "Parar") só existe quando há um turno ao vivo, senão sobrava um "…" sem saída.
 - **Feito**: `canStop = pendingChat` (e `activeSummary`, que só servia a ele, saiu); o "…" sem eventos ao vivo ganha o botão **Parar**; os comentários de `popup_protocol.ts` e `messages.ts` ("code task") foram corrigidos.
-- **Testes**: nenhum novo (o painel não monta em teste). `tsc --noEmit` limpo e `npm test` (107) rodados aqui; `npm run build` e a rodada de verdade ficam com o `Frontend (extension)` do `ci.yml`.
+- **Testes**: nenhum novo (o painel não monta em teste). `tsc --noEmit` limpo e `npm test` (107) rodados aqui; `npm run build` e a rodada de verdade ficam com o `Frontend (extension)` do `ci.yml`: **run 39090348112 verde** (Frontend da extensão; Rust, Android e Mobile pulados por não terem mudado).
 - **Não provado**: o botão num navegador (P129).
 
 ### 2026-10-18 — Sessão 250 (o celular, passo 3: regenerar e editar: P157)

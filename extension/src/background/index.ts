@@ -556,18 +556,21 @@ async function handleRequest(request: PopupRequest): Promise<unknown> {
     }
 
     case "renameConversation":
-    case "deleteConversation": {
+    case "deleteConversation":
+    case "setConversationFlags": {
       const from = connection;
       if (!from || from.status.kind !== "connected") return { ok: false, error: "not connected" };
       try {
         if (request.type === "renameConversation") await from.renameConversation(request.conversationId, request.title);
+        else if (request.type === "setConversationFlags") await from.setConversationFlags(request.conversationId, { pinned: request.pinned, archived: request.archived });
         else await from.deleteConversation(request.conversationId);
       } catch (err) {
         return { ok: false, error: err instanceof Error ? err.message : String(err) };
       }
       const list = await refreshConversations(from);
       if (request.type === "deleteConversation" && request.conversationId === activeConversationId) {
-        openConversation((list ? visibleConversations(list)[0]?.id : undefined) ?? crypto.randomUUID());
+        // Not an archived one: it is put away, and opening it by chance would bring it back to the screen.
+        openConversation((list ? visibleConversations(list).find((c) => !c.archived)?.id : undefined) ?? crypto.randomUUID());
       }
       return { ok: true };
     }

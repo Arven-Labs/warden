@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { groupConversations } from "../protocol/conversationGroups";
 import type { ConversationSummary, ThreadParent } from "../protocol/messages";
 import { visibleConversations } from "../protocol/threads";
 import type { OkResponse } from "../background/popup_protocol";
@@ -69,6 +70,14 @@ export default function ConversationBar({ conversations, activeConversationId, p
     if (await run({ type: "deleteConversation", conversationId: active.id })) setConfirmDelete(false);
   }
 
+  // P157 — pinned first, then by how recently they were used, with the archived ones at the end; a native group fits the narrow panel.
+  const { pinned, buckets, archived } = groupConversations(visibleConversations(conversations), Date.now());
+  const option = (c: ConversationSummary) => (
+    <option key={c.id} value={c.id}>
+      {pendingIds.includes(c.id) ? `${c.title} (respondendo…)` : c.title || "Sem título"}
+    </option>
+  );
+
   if (renaming !== null) {
     return (
       <form className="conversation-bar" onSubmit={saveRename}>
@@ -88,11 +97,13 @@ export default function ConversationBar({ conversations, activeConversationId, p
     <div className="conversation-bar">
       <select aria-label="Conversa" value={active ? active.id : ""} onChange={(e) => select(e.target.value)}>
         {!active && <option value="">Nova conversa</option>}
-        {visibleConversations(conversations).map((c) => (
-          <option key={c.id} value={c.id}>
-            {pendingIds.includes(c.id) ? `${c.title} (respondendo…)` : c.title || "Sem título"}
-          </option>
+        {pinned.length > 0 && <optgroup label="★ Fixadas">{pinned.map(option)}</optgroup>}
+        {buckets.map(({ label, items }) => (
+          <optgroup key={label} label={label}>
+            {items.map(option)}
+          </optgroup>
         ))}
+        {archived.length > 0 && <optgroup label="Arquivadas">{archived.map(option)}</optgroup>}
       </select>
       <span className="conversation-bar-actions">
         {confirmDelete ? (
@@ -109,6 +120,16 @@ export default function ConversationBar({ conversations, activeConversationId, p
             <button type="button" className="link-button" onClick={startNew}>
               Nova
             </button>
+            {active && !active.archived && (
+              <button type="button" className="link-button" disabled={locked} onClick={() => void run({ type: "setConversationFlags", conversationId: active.id, pinned: !active.pinned })}>
+                {active.pinned ? "Desafixar" : "Fixar"}
+              </button>
+            )}
+            {active && (
+              <button type="button" className="link-button" disabled={locked} onClick={() => void run({ type: "setConversationFlags", conversationId: active.id, archived: !active.archived })}>
+                {active.archived ? "Desarquivar" : "Arquivar"}
+              </button>
+            )}
             <button type="button" className="link-button" disabled={locked} onClick={() => active && setRenaming(active.title)}>
               Renomear
             </button>
