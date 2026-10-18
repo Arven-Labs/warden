@@ -607,9 +607,9 @@ struct ServeArgs {
     #[arg(long, default_value_t = 5)]
     shutdown_grace_secs: u64,
 
-    /// Let go of the vault's search model after this many seconds without a search (P146): an idle hub then weighs
-    /// ~76 MB instead of ~475 MB, and the next search loads it again (~135 MB, ~1.5 s of CPU). 0 keeps it for good.
-    /// Doesn't touch the history search's model, which stays loaded once used.
+    /// Let go of the search models (the vault's and the history's) after this many seconds without a search (P146, P156): an
+    /// idle hub then weighs ~76 MB instead of ~475 MB (vault) or ~830 MB (history), and the next search loads the model again
+    /// (~1.5 s of CPU, the history's ~0.7 s). 0 keeps them for good.
     #[arg(long, default_value_t = 600)]
     embedding_idle_secs: u64,
 }

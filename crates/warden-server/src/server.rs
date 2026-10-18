@@ -959,9 +959,9 @@ async fn serve_plain_discover<S: Transport>(stream: S, ctx: ConnectionContext) -
     Ok(())
 }
 
-/// Every so often, lets go of the vault search model if it sat unused for `idle` (P146 c, P153). It is one model for the whole
-/// process, shared by the owner's vault, every shared folder's and every member's. The check runs on a blocking thread because
-/// it waits for a search in progress before it can take the model.
+/// Every so often, lets go of the vault search model and the history's if each sat unused for `idle` (P146 c, P153, P156). The
+/// vault's is one model for the whole process, shared by the owner's vault, every shared folder's and every member's. The check
+/// runs on a blocking thread because it waits for a search in progress before it can take the model.
 fn unload_idle_embedders_periodically(idle: std::time::Duration) {
     // A quarter of the idle time, so a model never outlives it by much; at most a minute, at least a second.
     let every = (idle / 4).clamp(std::time::Duration::from_secs(1), std::time::Duration::from_secs(60));
@@ -973,6 +973,10 @@ fn unload_idle_embedders_periodically(idle: std::time::Duration) {
             let unloaded = tokio::task::spawn_blocking(move || warden_core::memory::embed::unload_idle_vault_model(idle)).await.unwrap_or(false);
             if unloaded {
                 tracing::info!(idle_secs = idle.as_secs(), "vault search model was idle and was unloaded; the next search loads it again");
+            }
+            let unloaded = tokio::task::spawn_blocking(move || warden_core::memory::embed::unload_idle_history_model(idle)).await.unwrap_or(false);
+            if unloaded {
+                tracing::info!(idle_secs = idle.as_secs(), "history search model was idle and was unloaded; the next search loads it again");
             }
         }
     });

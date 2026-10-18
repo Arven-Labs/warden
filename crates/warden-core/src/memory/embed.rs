@@ -77,10 +77,29 @@ pub fn unload_idle_history_model(idle: std::time::Duration) -> bool {
     let mut guard = HISTORY_MODEL.lock();
     if guard.as_ref().is_some_and(|loaded| loaded.last_used.elapsed() >= idle) {
         *guard = None;
+        drop(guard);
+        trim_heap();
         return true;
     }
     false
 }
+
+/// Hands the heap's free pages back to the system. Dropping a model frees its memory to glibc's allocator, which keeps most
+/// of it: measured with the history model (`tests/history_embed_memory.rs`), the process stayed at 635 MB after the drop
+/// and went to 78 MB after this (P156). A no-op where there is no glibc.
+#[cfg(all(feature = "semantic-search", target_os = "linux", target_env = "gnu"))]
+fn trim_heap() {
+    extern "C" {
+        fn malloc_trim(pad: usize) -> i32;
+    }
+    // SAFETY: `malloc_trim` takes no pointers and only returns free heap pages to the system.
+    unsafe {
+        malloc_trim(0);
+    }
+}
+
+#[cfg(all(feature = "semantic-search", not(all(target_os = "linux", target_env = "gnu"))))]
+fn trim_heap() {}
 
 #[cfg(not(feature = "semantic-search"))]
 pub fn unload_idle_history_model(_idle: std::time::Duration) -> bool {
@@ -138,6 +157,8 @@ pub fn unload_idle_vault_model(idle: std::time::Duration) -> bool {
     let mut guard = VAULT_MODEL.lock();
     if guard.as_ref().is_some_and(|loaded| loaded.last_used.elapsed() >= idle) {
         *guard = None;
+        drop(guard);
+        trim_heap();
         return true;
     }
     false

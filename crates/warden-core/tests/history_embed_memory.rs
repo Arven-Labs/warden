@@ -4,7 +4,7 @@
 //!   cargo test -p warden-core --test history_embed_memory -- --ignored --nocapture
 //! and, to see whether fewer glibc arenas help, again with `MALLOC_ARENA_MAX=1` in the environment.
 //!
-//! Before this, dropping the model gave back ~190 MB of ~754 MB and ~560 MB stayed, cause unknown (`HOSPEDAGEM.md` K.2):
+//! Before `malloc_trim` was added to the unload, dropping the model gave back ~190 MB of ~754 MB and ~560 MB stayed (`HOSPEDAGEM.md` K.2):
 //! either the ONNX runtime holds it or the heap is fragmented. `malloc_trim` gives back free heap pages, so what it
 //! returns is the heap's share.
 
@@ -60,6 +60,7 @@ fn unloading_the_history_model_gives_its_memory_back() {
     let after_work = rss_mb();
 
     assert!(unload_idle_history_model(Duration::ZERO), "nothing was unloaded");
+    // The unload hands the heap back itself; this is what it left behind, and then what an explicit trim could still take.
     let unloaded = rss_mb();
     trim_heap();
     let trimmed = rss_mb();
@@ -68,7 +69,8 @@ fn unloading_the_history_model_gives_its_memory_back() {
     let reloaded = rss_mb();
     println!(
         "\nMALLOC_ARENA_MAX={arena_max}\n  before load {before_load:.0} MB\n  model loaded, 1 text {loaded:.0} MB\n  after 400 long messages {after_work:.0} MB\n  \
-         unloaded {unloaded:.0} MB\n  + malloc_trim(0) {trimmed:.0} MB\n  loaded again, 1 text {reloaded:.0} MB"
+         unloaded (heap handed back by the unload) {unloaded:.0} MB\n  + another malloc_trim(0) {trimmed:.0} MB\n  loaded again, 1 text {reloaded:.0} MB"
     );
+    assert!(unloaded < loaded / 2.0, "the unload left {unloaded:.0} MB of {loaded:.0} MB in the process");
     assert!(cosine_similarity(&probe, &again) > 0.9999, "the model gave other vectors after being loaded again");
 }
