@@ -16,6 +16,7 @@
 - **Parte B**: sem implementar, registrada como P162 a P164 (medir e comparar sozinho, roteiro com modelo real em CI, rascunho de release e triagem de teste instável), todos a debater; o desktop sem E2E ficou no P165.
 - **Deslize meu, dito**: durante a sessão editei vários arquivos por script de Python e heredoc no Bash, contra a regra de editar com Edit/Write; passei a usar só Edit/Write daqui em diante. O conteúdo está todo no git.
 - **Não provado**: as fotos são só da web; o desktop (Publicar, QR do Sync, Galeria do desktop) segue sem conferência (P165).
+- **Para retomar em outro computador**: tudo está no GitHub (`main`, commit `3b8a33d` ou posterior), sem nada solto na máquina; a memória do Claude (`~/.claude/.../memory`) **não** vai no git, mas o que importa dela está neste `project/` (`AUTOMACAO.md`, `GUIDELINES.md`). Ler `project/INDEX.md` primeiro. Abertos, em ordem do que vi: **P160** (skills da comunidade: passos 1 a 3 feitos, falta testar o Publicar e o instalar por `ar://` com o TruthID e o Arweave de verdade, depois fontes e índice de curador), **P161/P166** (consertar os cinco E2E da web e dar `snap` nos outros specs), **P165** (fotos do desktop com `mockIPC`), **P156** (rodar o roteiro com modelo real nos outros provedores; chave fixa do APK), **P162 a P164** (automações a debater). A chave de API do OpenRouter fica num `.txt` em `~/Documents` só na máquina antiga; no outro computador será preciso uma chave à mão para o `real_model.rs`.
 
 ### 2026-10-18 — Sessão 260 (instalar uma skill por endereço ar://: P160, passo 3)
 
