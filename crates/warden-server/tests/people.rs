@@ -142,7 +142,7 @@ async fn spin_up() -> Hub {
 
     // A scheduled task's conversation: the owner's, never listed to a member.
     let tasks = TaskStore::new(dir.join("tasks"));
-    save_conversation(&tasks.conversations_dir(), &Conversation { id: "task-news".into(), title: "News".into(), messages: Vec::new(), created_at: 1, updated_at: 1, agent_id: None, provider_id: None, project_id: None, engine_session_id: None, workdir: None, parent: None }).unwrap();
+    save_conversation(&tasks.conversations_dir(), &Conversation { id: "task-news".into(), title: "News".into(), messages: Vec::new(), created_at: 1, updated_at: 1, agent_id: None, provider_id: None, project_id: None, engine_session_id: None, workdir: None, parent: None, pinned: false, archived: false }).unwrap();
 
     let offered: Offered = Arc::default();
     let vault = Arc::new(Vault::new(dir.join("vault")));
@@ -802,7 +802,7 @@ async fn a_member_from_before_gets_her_data_encrypted_when_she_signs_in() {
     save_config(&config_path, &config).unwrap();
     std::fs::create_dir_all(hub.dir.join("users/ana/vault/notes")).unwrap();
     std::fs::write(hub.dir.join("users/ana/vault/notes/velha.md"), "nota antiga da ana").unwrap();
-    save_conversation(&hub.dir.join("conversations/users/ana"), &Conversation { id: "velha".into(), title: "Conversa antiga".into(), messages: Vec::new(), created_at: 1, updated_at: 1, agent_id: None, provider_id: None, project_id: None, engine_session_id: None, workdir: None, parent: None }).unwrap();
+    save_conversation(&hub.dir.join("conversations/users/ana"), &Conversation { id: "velha".into(), title: "Conversa antiga".into(), messages: Vec::new(), created_at: 1, updated_at: 1, agent_id: None, provider_id: None, project_id: None, engine_session_id: None, workdir: None, parent: None, pinned: false, archived: false }).unwrap();
 
     let (mut ana, _, user) = member(&hub, "anas-own-pass", None).await.unwrap();
     assert!(user.unwrap().encrypted, "the sign-in turned it on");

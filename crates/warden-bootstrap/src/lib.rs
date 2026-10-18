@@ -1085,6 +1085,16 @@ pub struct Conversation {
     /// that isn't one has none, and a thread can't be the parent of another.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub parent: Option<ThreadParent>,
+    /// Kept at the top of the list (P157). Changing it isn't activity, so it doesn't touch `updated_at`.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub pinned: bool,
+    /// Put away: out of the list, found by searching (P157). Archiving a conversation unpins it.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub archived: bool,
+}
+
+fn is_false(value: &bool) -> bool {
+    !*value
 }
 
 /// Conversations are opaque app data (unlike the human-browsable markdown vault), so — like
@@ -1592,6 +1602,8 @@ pub fn append_messages(dir: &Path, id: &str, options: AppendOptions<'_>, message
                 engine_session_id: None,
                 workdir: options.workdir.filter(|_| options.project_id.is_none()).map(str::to_string),
                 parent: options.thread_of.cloned(),
+                pinned: false,
+                archived: false,
             }
         }
     };
@@ -1696,6 +1708,32 @@ pub fn rename_conversation(dir: &Path, id: &str, title: &str) -> anyhow::Result<
         return Ok(false);
     };
     conversation.title = title.chars().take(MAX_CONVERSATION_TITLE_CHARS).collect();
+    save_conversation(dir, &conversation)?;
+    Ok(true)
+}
+
+/// Pins or archives a saved conversation (P157): `None` leaves that flag as it is, so one can be changed without the other.
+/// A conversation is never both: archiving unpins it (it is put away, not kept at the top), and pinning one that is
+/// archived brings it back. Asking for both at once archives. `false` when there is no such conversation. `updated_at`
+/// is left alone, as in `rename_conversation`: it isn't activity.
+pub fn set_conversation_flags(dir: &Path, id: &str, pinned: Option<bool>, archived: Option<bool>) -> anyhow::Result<bool> {
+    anyhow::ensure!(pinned.is_some() || archived.is_some(), "nothing to change: say whether to pin or to archive");
+    let _guard = ConversationWriteGuard::acquire(dir)?;
+    let Some(mut conversation) = load_conversation(dir, id)? else {
+        return Ok(false);
+    };
+    if let Some(pinned) = pinned {
+        conversation.pinned = pinned;
+        if pinned && archived.is_none() {
+            conversation.archived = false;
+        }
+    }
+    if let Some(archived) = archived {
+        conversation.archived = archived;
+    }
+    if conversation.archived {
+        conversation.pinned = false;
+    }
     save_conversation(dir, &conversation)?;
     Ok(true)
 }
@@ -3007,6 +3045,8 @@ oauth = true
             engine_session_id: None,
             workdir: None,
             parent: None,
+            pinned: false,
+            archived: false,
         }
     }
 
@@ -3063,6 +3103,36 @@ oauth = true
         assert!(delete_conversation(&dir, "c1").unwrap());
         assert_eq!(load_conversation(&dir, "c1").unwrap(), None);
         assert!(!delete_conversation(&dir, "c1").unwrap());
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// P157: pinning and archiving are two flags of a conversation that don't count as activity, a conversation is never both, and a file
+    /// from before them loads as neither and stays free of the keys until one is set.
+    #[test]
+    fn a_conversation_is_pinned_and_archived_without_counting_as_activity_and_never_both() {
+        let dir = temp_dir("flags");
+        save_conversation(&dir, &sample_conversation("c1", 100)).unwrap();
+        let flags = |dir: &Path| load_conversation(dir, "c1").unwrap().map(|c| (c.pinned, c.archived, c.updated_at));
+        assert!(!std::fs::read_to_string(dir.join("c1.json")).unwrap().contains("pinned"), "neither flag is written while false");
+
+        assert!(set_conversation_flags(&dir, "c1", Some(true), None).unwrap());
+        assert_eq!(flags(&dir), Some((true, false, 100)), "pinned, and the list order is the same");
+        assert!(set_conversation_flags(&dir, "c1", None, Some(true)).unwrap());
+        assert_eq!(flags(&dir), Some((false, true, 100)), "archiving unpins");
+        assert!(set_conversation_flags(&dir, "c1", Some(true), None).unwrap());
+        assert_eq!(flags(&dir), Some((true, false, 100)), "pinning an archived one brings it back");
+        assert!(set_conversation_flags(&dir, "c1", Some(true), Some(true)).unwrap());
+        assert_eq!(flags(&dir), Some((false, true, 100)), "asked for both, it is archived");
+        assert!(set_conversation_flags(&dir, "c1", None, Some(false)).unwrap());
+        assert_eq!(flags(&dir), Some((false, false, 100)));
+        let on_disk = std::fs::read_to_string(dir.join("c1.json")).unwrap();
+        assert!(!on_disk.contains("pinned") && !on_disk.contains("archived"), "back to the file it was: {on_disk}");
+
+        assert!(!set_conversation_flags(&dir, "ghost", Some(true), None).unwrap(), "no such conversation");
+        assert!(set_conversation_flags(&dir, "c1", None, None).is_err(), "asking for nothing is a mistake, not a quiet yes");
+        let old = r#"{"id":"c","title":"t","messages":[],"createdAt":1,"updatedAt":1}"#;
+        let loaded = serde_json::from_str::<Conversation>(old).unwrap();
+        assert_eq!((loaded.pinned, loaded.archived), (false, false));
         std::fs::remove_dir_all(&dir).ok();
     }
 
@@ -3626,7 +3696,7 @@ oauth = true
             generated_files: Vec::new(),
             tools_used: Vec::new(),
         };
-        let long = Conversation { id: "long".into(), title: "long".into(), messages: (0..100).map(message).collect(), created_at: 0, updated_at: 0, agent_id: None, provider_id: None, project_id: None, engine_session_id: None, workdir: None, parent: None };
+        let long = Conversation { id: "long".into(), title: "long".into(), messages: (0..100).map(message).collect(), created_at: 0, updated_at: 0, agent_id: None, provider_id: None, project_id: None, engine_session_id: None, workdir: None, parent: None, pinned: false, archived: false };
         save_conversation(&dir, &long).unwrap();
         let link = ThreadParent { conversation_id: "long".into(), message_id: "m89".into() };
 

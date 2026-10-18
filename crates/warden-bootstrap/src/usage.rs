@@ -274,6 +274,8 @@ mod tests {
             engine_session_id: None,
             workdir: None,
             parent: None,
+            pinned: false,
+            archived: false,
         }
     }
 

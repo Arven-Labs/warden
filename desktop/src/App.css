@@ -252,7 +252,8 @@ body {
   margin-bottom: 0.6rem;
 }
 
-.conversation-group-title {
+.conversation-group-title,
+.conversation-archive-toggle {
   display: flex;
   align-items: center;
   gap: 0.35rem;
@@ -265,6 +266,19 @@ body {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+/* The folded "Archived (n)" heading is a button: it looks like the other headings and opens on a click. */
+.conversation-archive-toggle {
+  width: 100%;
+  border: none;
+  background: none;
+  font-family: inherit;
+  cursor: pointer;
+}
+
+.conversation-archive-toggle:hover {
+  color: var(--color-text);
 }
 
 /* Asking before a conversation moves to another project (P103). */

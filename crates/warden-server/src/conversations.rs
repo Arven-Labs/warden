@@ -17,8 +17,8 @@ use std::path::{Path, PathBuf};
 
 use warden_bootstrap::tasks::CONVERSATION_PREFIX as TASK_PREFIX;
 use warden_bootstrap::{
-    delete_conversation, list_conversations, load_conversation, rename_conversation, set_conversation_project, ChatRole, Conversation,
-    ConversationMessage,
+    delete_conversation, list_conversations, load_conversation, rename_conversation, set_conversation_flags, set_conversation_project, ChatRole,
+    Conversation, ConversationMessage,
 };
 use warden_server_protocol::protocol::{ConversationSummary, HistoryMessage, HistoryRole, ThreadParentDto};
 use warden_server_protocol::{ClientMessage, ServerMessage};
@@ -122,6 +122,16 @@ pub fn handle_conversation_request_in(dirs: &ConversationDirs, message: ClientMe
         ClientMessage::DeleteConversation { request_id, conversation_id } => {
             (request_id, existing(conversation_id).and_then(|id| found(delete_conversation(dirs.dir_for(&id), &id), &id)))
         }
+        // P157. A scheduled task's conversation belongs to everyone, so one person's pin isn't put on it.
+        ClientMessage::SetConversationFlags { request_id, conversation_id, pinned, archived } => (
+            request_id,
+            existing(conversation_id).and_then(|id| {
+                if id.starts_with(TASK_PREFIX) {
+                    return Err("a scheduled task's conversation can't be pinned or archived".to_string());
+                }
+                found(set_conversation_flags(dirs.dir_for(&id), &id, pinned, archived), &id)
+            }),
+        ),
         _ => return None,
     };
     Some(match result {
@@ -180,6 +190,8 @@ fn to_summary(conversation: Conversation, is_code_project: &impl Fn(&str) -> boo
         workdir: conversation.workdir,
         parent: conversation.parent.map(|p| ThreadParentDto { conversation_id: p.conversation_id, message_id: p.message_id }),
         replies,
+        pinned: conversation.pinned,
+        archived: conversation.archived,
     }
 }
 
@@ -234,6 +246,8 @@ mod tests {
             engine_session_id: None,
             workdir: None,
             parent: None,
+            pinned: false,
+            archived: false,
         };
         save_conversation(dir, &conversation).unwrap();
     }
@@ -343,6 +357,41 @@ mod tests {
         assert_eq!(delete("c1"), ServerMessage::ConversationOk { request_id: 4 });
         assert_eq!(load_conversation(&dir, "c1").unwrap(), None);
         assert!(matches!(delete("c1"), ServerMessage::ConversationError { request_id: 4, .. }));
+    }
+
+    /// P157: pin and archive answer ok or an error, show in the list, leave the order alone, and a scheduled task's conversation is not flagged.
+    #[test]
+    fn flags_answer_ok_or_an_error_and_show_in_the_list() {
+        let dir = temp_dir();
+        save(&dir, "c1", 1, Vec::new());
+        let flag = |id: &str, pinned: Option<bool>, archived: Option<bool>| {
+            handle_conversation_request(&only(&dir), ClientMessage::SetConversationFlags { request_id: 5, conversation_id: id.into(), pinned, archived }).unwrap()
+        };
+        let listed = || match handle_conversation_request(&only(&dir), ClientMessage::ListConversations { request_id: 6 }).unwrap() {
+            ServerMessage::ConversationList { conversations, .. } => conversations.into_iter().map(|c| (c.pinned, c.archived, c.updated_at)).collect::<Vec<_>>(),
+            other => panic!("expected ConversationList, got {other:?}"),
+        };
+
+        assert_eq!(listed(), vec![(false, false, 1)]);
+        assert_eq!(flag("c1", Some(true), None), ServerMessage::ConversationOk { request_id: 5 });
+        assert_eq!(listed(), vec![(true, false, 1)], "pinned, and not moved in the list");
+        assert_eq!(flag("c1", None, Some(true)), ServerMessage::ConversationOk { request_id: 5 });
+        assert_eq!(listed(), vec![(false, true, 1)], "archived, and unpinned");
+        assert!(matches!(flag("c1", None, None), ServerMessage::ConversationError { request_id: 5, .. }), "asking for nothing is an error");
+        assert!(matches!(flag("missing", Some(true), None), ServerMessage::ConversationError { message, .. } if message.contains("no conversation")));
+        assert!(matches!(flag("../c1", Some(true), None), ServerMessage::ConversationError { message, .. } if message.contains("invalid")));
+        assert_eq!(listed(), vec![(false, true, 1)], "a refused request changes nothing");
+    }
+
+    #[test]
+    fn a_scheduled_tasks_conversation_is_not_pinned_or_archived() {
+        let device = temp_dir();
+        let tasks = temp_dir().join("tasks");
+        let dirs = ConversationDirs { device, tasks: Some(tasks.clone()) };
+        save(&tasks, "task-news", 1, Vec::new());
+        let reply = handle_conversation_request(&dirs, ClientMessage::SetConversationFlags { request_id: 8, conversation_id: "task-news".into(), pinned: Some(true), archived: None }).unwrap();
+        assert!(matches!(reply, ServerMessage::ConversationError { request_id: 8, message } if message.contains("scheduled task")));
+        assert!(!load_conversation(&tasks, "task-news").unwrap().unwrap().pinned);
     }
 
     #[test]

@@ -271,7 +271,8 @@ fn gate_with(message: &ClientMessage, text: &str) -> Option<ServerMessage> {
         ClientMessage::ListConversations { request_id }
         | ClientMessage::RenameConversation { request_id, .. }
         | ClientMessage::DeleteConversation { request_id, .. }
-        | ClientMessage::MoveConversation { request_id, .. } => {
+        | ClientMessage::MoveConversation { request_id, .. }
+        | ClientMessage::SetConversationFlags { request_id, .. } => {
             ServerMessage::ConversationError { request_id: *request_id, message: text }
         }
         ClientMessage::ListSkills { request_id } | ClientMessage::SaveSkill { request_id, .. } | ClientMessage::DeleteSkill { request_id, .. } => {
@@ -529,6 +530,8 @@ mod tests {
             engine_session_id: None,
             workdir: None,
             parent: None,
+            pinned: false,
+            archived: false,
         }
     }
 

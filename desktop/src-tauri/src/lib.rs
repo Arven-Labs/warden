@@ -1074,6 +1074,24 @@ fn delete_conversation_in(dir: &std::path::Path, id: &str, running: bool) -> Res
     Ok(())
 }
 
+/// Pins or archives conversation `id` (P157) and returns it as saved; a flag left `None` stays as it is. Split from the
+/// command so it can be tested without a window.
+fn set_conversation_flags_in(dir: &std::path::Path, id: &str, pinned: Option<bool>, archived: Option<bool>) -> Result<Conversation, String> {
+    if !warden_server::conversations::is_valid_id(id) {
+        return Err(format!("invalid conversation id '{id}'"));
+    }
+    if !warden_bootstrap::set_conversation_flags(dir, id, pinned, archived).map_err(|e| format!("{e:#}"))? {
+        return Err(format!("no conversation with id '{id}'"));
+    }
+    warden_bootstrap::load_conversation(dir, id).map_err(|e| format!("{e:#}"))?.ok_or_else(|| format!("no conversation with id '{id}'"))
+}
+
+#[tauri::command]
+fn set_conversation_flags(conversation_id: String, pinned: Option<bool>, archived: Option<bool>) -> Result<Conversation, String> {
+    let dir = share_cmds::conversation_dir(&conversation_id)?;
+    set_conversation_flags_in(&dir, &conversation_id, pinned, archived)
+}
+
 #[tauri::command]
 fn rename_conversation(conversation_id: String, title: String) -> Result<Conversation, String> {
     let dir = share_cmds::conversation_dir(&conversation_id)?;
@@ -1263,6 +1281,7 @@ pub fn run() {
             move_conversation,
             rename_conversation,
             delete_conversation,
+            set_conversation_flags,
             share_cmds::share_conversation,
             share_cmds::shared_conversation_ids,
             share_cmds::share_all_conversations,
@@ -1480,6 +1499,27 @@ mod tests {
         assert!(warden_bootstrap::load_conversation(&dir, "c1").unwrap().is_none());
         assert!(delete_conversation_in(&dir, "c1", false).is_err(), "it is gone now");
         assert!(delete_conversation_in(&dir, "../c1", false).is_err());
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    /// P157: the sidebar pins and archives a conversation, one flag at a time, and a refused call changes nothing.
+    #[test]
+    fn a_conversation_is_pinned_and_archived_and_nothing_else_will_do() {
+        let root = std::env::temp_dir().join(format!("warden-desktop-flags-{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
+        let dir = root.join("conversations");
+        let options = AppendOptions { title_seed: "t", create: true, ..Default::default() };
+        append_messages(&dir, "c1", options, vec![said(SavedRole::User)]).unwrap();
+        let updated_at = warden_bootstrap::load_conversation(&dir, "c1").unwrap().unwrap().updated_at;
+
+        let pinned = set_conversation_flags_in(&dir, "c1", Some(true), None).unwrap();
+        assert_eq!((pinned.pinned, pinned.archived, pinned.updated_at), (true, false, updated_at));
+        let archived = set_conversation_flags_in(&dir, "c1", None, Some(true)).unwrap();
+        assert_eq!((archived.pinned, archived.archived), (false, true), "archiving unpins");
+        for (what, id, pinned, archived) in [("a conversation that isn't there", "ghost", Some(true), None), ("a bad conversation id", "../c1", Some(true), None), ("nothing to change", "c1", None, None)] {
+            assert!(set_conversation_flags_in(&dir, id, pinned, archived).is_err(), "{what}");
+        }
+        let kept = warden_bootstrap::load_conversation(&dir, "c1").unwrap().unwrap();
+        assert_eq!((kept.pinned, kept.archived), (false, true), "a refused call changes nothing");
         std::fs::remove_dir_all(&root).ok();
     }
 

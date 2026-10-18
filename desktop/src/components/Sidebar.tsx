@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { groupConversations } from "../lib/conversationGroups";
 import { searchConversations } from "../lib/conversationSearch";
 import type { Conversation, ProjectEntry } from "../types";
 import { ActivityIcon, AgentsIcon, ChartIcon, ChevronIcon, ClockIcon, DevicesIcon, LogoMark, OrgIcon, PlusIcon, ProjectsIcon, SettingsIcon, SkillsIcon, SyncIcon, VaultIcon, WebhookIcon } from "./Icons";
@@ -13,6 +14,8 @@ interface SidebarProps {
   onRenameConversation: (id: string, title: string) => Promise<void>;
   /** Deletes a conversation (and its threads); the window shows the reason when it can't. */
   onDeleteConversation: (id: string) => Promise<void>;
+  /** Pins or archives a conversation (P157); a flag left out stays as it is. The window shows the reason when it can't. */
+  onSetConversationFlags: (id: string, flags: { pinned?: boolean; archived?: boolean }) => Promise<void>;
   onNewConversation: () => void;
   onOpenSettings: () => void;
   onOpenUsage: () => void;
@@ -46,6 +49,7 @@ function Sidebar({
   onSelectConversation,
   onRenameConversation,
   onDeleteConversation,
+  onSetConversationFlags,
   onNewConversation,
   onOpenSettings,
   onOpenUsage,
@@ -70,14 +74,30 @@ function Sidebar({
   // The conversation being renamed and what is typed so far; `busyId` is the one a rename or delete is working on.
   const [editing, setEditing] = useState<{ id: string; title: string } | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
+  // The archived ones are folded away; searching opens them, since a search is how they are found.
+  const [archiveOpen, setArchiveOpen] = useState(false);
 
   const shown = searchConversations(conversations, query);
+  // Pinned ones are listed first and archived ones apart, wherever their project is (P157); the rest stay in their project's group
+  // or, loose, in blocks by how recently they were used.
+  const { pinned, archived } = groupConversations(shown, Date.now());
+  const rest = shown.filter((c) => !c.pinned && !c.archived);
   // A conversation whose project no longer exists (removed since) is listed with the others, as an ordinary one.
   const projectIds = new Set(projects.map((p) => p.id));
-  const loose = shown.filter((c) => !c.projectId || !projectIds.has(c.projectId));
+  const loose = rest.filter((c) => !c.projectId || !projectIds.has(c.projectId));
+  const { buckets } = groupConversations(loose, Date.now());
   const groups = projects
-    .map((project) => ({ project, items: shown.filter((c) => c.projectId === project.id) }))
+    .map((project) => ({ project, items: rest.filter((c) => c.projectId === project.id) }))
     .filter((group) => group.items.length > 0);
+
+  async function setFlags(conversation: Conversation, flags: { pinned?: boolean; archived?: boolean }) {
+    setBusyId(conversation.id);
+    try {
+      await onSetConversationFlags(conversation.id, flags);
+    } finally {
+      setBusyId(null);
+    }
+  }
 
   async function saveRename(conversation: Conversation, title: string) {
     const trimmed = title.trim();
@@ -136,6 +156,28 @@ function Sidebar({
           {conversation.title}
         </button>
         <span className="conversation-row-actions">
+          {!conversation.archived && (
+            <button
+              type="button"
+              className="conversation-row-action"
+              title={conversation.pinned ? "Unpin" : "Pin to the top"}
+              aria-label={`${conversation.pinned ? "Unpin" : "Pin"} ${conversation.title}`}
+              disabled={busy}
+              onClick={() => void setFlags(conversation, { pinned: !conversation.pinned })}
+            >
+              {conversation.pinned ? "★" : "☆"}
+            </button>
+          )}
+          <button
+            type="button"
+            className="conversation-row-action"
+            title={conversation.archived ? "Unarchive" : "Archive"}
+            aria-label={`${conversation.archived ? "Unarchive" : "Archive"} ${conversation.title}`}
+            disabled={busy}
+            onClick={() => void setFlags(conversation, { archived: !conversation.archived })}
+          >
+            {conversation.archived ? "↩" : "▤"}
+          </button>
           <button
             type="button"
             className="conversation-row-action"
@@ -207,6 +249,12 @@ function Sidebar({
             <p className="conversation-list-empty">Nothing matches.</p>
           ) : (
             <>
+              {pinned.length > 0 && (
+                <div className="conversation-group">
+                  <div className="conversation-group-title">★ Pinned</div>
+                  <ul className="conversation-list">{pinned.map(renderItem)}</ul>
+                </div>
+              )}
               {groups.map(({ project, items }) => (
                 <div className="conversation-group" key={project.id}>
                   <div className="conversation-group-title" title={project.description || project.name}>
@@ -216,7 +264,20 @@ function Sidebar({
                   <ul className="conversation-list">{items.map(renderItem)}</ul>
                 </div>
               ))}
-              {loose.length > 0 && <ul className="conversation-list">{loose.map(renderItem)}</ul>}
+              {buckets.map(({ label, items }) => (
+                <div className="conversation-group" key={label}>
+                  <div className="conversation-group-title">{label}</div>
+                  <ul className="conversation-list">{items.map(renderItem)}</ul>
+                </div>
+              ))}
+              {archived.length > 0 && (
+                <div className="conversation-group">
+                  <button type="button" className="conversation-archive-toggle" aria-expanded={archiveOpen || query !== ""} onClick={() => setArchiveOpen((open) => !open)}>
+                    {archiveOpen || query !== "" ? "▾" : "▸"} Archived ({archived.length})
+                  </button>
+                  {(archiveOpen || query !== "") && <ul className="conversation-list">{archived.map(renderItem)}</ul>}
+                </div>
+              )}
             </>
           )}
         </div>

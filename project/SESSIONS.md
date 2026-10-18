@@ -2,9 +2,19 @@
 
 > **Nota**: Este log foi criado junto com o projeto. As sessões serão registradas aqui conforme o trabalho avança.
 >
-> Última atualização: 2026-10-18 (Sessão 245)
+> Última atualização: 2026-10-18 (Sessão 246)
 
 ---
+
+### 2026-10-18 — Sessão 246 (fixar, arquivar e agrupar por data: P157, item 7)
+
+- **Pedido do usuário**: "vamos com o item 7". Planejado em modo de plano; pergunta ao usuário: onde guardar os flags. Resposta: **na conversa, com o hub** (a outra opção era só `localStorage` no computador).
+- **Desenho**: dois campos na `Conversation` (`pinned`, `archived`, omitidos quando falsos, então arquivos antigos carregam como falso) e **uma só mensagem**, `SetConversationFlags { pinned: Option, archived: Option }` → `ConversationOk`. Regras: arquivar desfaz o fixar; fixar uma arquivada a traz de volta; pedir os dois arquiva; nenhum mexe em `updated_at` (não é atividade); conversa `task-*` é recusada (a pasta é de todos, como no `MoveConversation`); pedir nada é erro.
+- **Feito**: `warden-bootstrap` (campos, `is_false`, `set_conversation_flags`); protocolo (`ConversationSummary.pinned/archived`, a variante nova); hub (`conversations.rs`, o braço de `server.rs`, o `gate_with` de `people.rs`); desktop (comando `set_conversation_flags` com `set_conversation_flags_in`, `hubSetConversationFlags`, `types.ts`, `hubMap.ts`, `lib/conversationGroups.ts`, `handleSetFlags` no `App.tsx`). Sidebar: "★ Pinned" no topo, os grupos de projeto, os blocos por data das conversas soltas e "Archived (n)" recolhido (a busca o abre e acha arquivadas); no hover, ☆/★ fixa, ▤/↩ arquiva, além de ✎ e ✕.
+- **Churn**: o `Conversation { … }` por extenso aparecia em 14 lugares fora o de produção (a maioria testes) e o `ConversationSummary { … }` em 4; um Edit por arquivo, sem `Default`.
+- **Testes**: bootstrap (`a_conversation_is_pinned_and_archived_without_counting_as_activity_and_never_both`), protocolo (a variante com um e com os dois flags, o resumo só traz o que está ligado), hub (`flags_answer_ok_or_an_error_and_show_in_the_list`, `a_scheduled_tasks_conversation_is_not_pinned_or_archived`), desktop Rust (`a_conversation_is_pinned_and_archived_and_nothing_else_will_do`, 2 linhas na tabela de `remote_cmds.rs`), `conversationGroups.test.mjs` (5) e um caso no `hubMap.test.mjs`. Só rodei aqui o `npm test` do desktop: 170 passam; o `tsc` segue acusando `rehype-highlight` não instalado, de antes. **O Rust não foi compilado**: a prova é o `ci.yml`.
+- **Erro no caminho**: um teste meu pôs "Previous 30 days" onde o código e a regra (os 7 dias antes de ontem) dizem "Previous 7 days"; o código estava certo, corrigi o teste.
+- **Não provado / fora**: a aparência e o uso numa janela (P129); web, celular e extensão (ignoram os campos novos; a tela fica para outra fatia); arquivar em lote; agrupar por data dentro de um projeto; avisar ao arquivar a conversa aberta.
 
 ### 2026-10-18 — Sessão 245 (chat novo direto para a caixa, sem escolher agente: P157, item 10)
 

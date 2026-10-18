@@ -132,6 +132,11 @@ export async function hubDeleteConversation(conversationId: string): Promise<voi
   await ask({ type: "deleteConversation", conversationId }, "conversationOk");
 }
 
+/** Pins or archives a conversation (P157); a flag left out stays as it is. */
+export async function hubSetConversationFlags(conversationId: string, flags: { pinned?: boolean; archived?: boolean }): Promise<void> {
+  await ask({ type: "setConversationFlags", conversationId, ...flags }, "conversationOk");
+}
+
 /** Runs a turn on the hub. Throws a `HubTurnError` with the hub's words when it answers with an error. */
 export async function hubChat(args: {
   content: string;

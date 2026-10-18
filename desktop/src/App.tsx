@@ -37,6 +37,7 @@ import {
   hubMoveConversation,
   hubOpenAgentChannel,
   hubRenameConversation,
+  hubSetConversationFlags,
   hubSend,
   needsSignIn,
   type HubCredential,
@@ -488,6 +489,22 @@ function App() {
         loadConversations();
       } else {
         const saved = await invoke<Conversation>("rename_conversation", { conversationId: id, title });
+        setConversations((prev) => replaceWithSaved(prev, saved));
+      }
+    } catch (err) {
+      setSendError(String(err));
+    }
+  }
+
+  /** The sidebar's pin and archive (P157): the saved copy replaces the one listed; a refusal shows as the send error. */
+  async function handleSetFlags(id: string, flags: { pinned?: boolean; archived?: boolean }) {
+    setSendError(null);
+    try {
+      if (remote) {
+        await hubSetConversationFlags(id, flags);
+        loadConversations();
+      } else {
+        const saved = await invoke<Conversation>("set_conversation_flags", { conversationId: id, pinned: flags.pinned ?? null, archived: flags.archived ?? null });
         setConversations((prev) => replaceWithSaved(prev, saved));
       }
     } catch (err) {
@@ -1003,6 +1020,7 @@ function App() {
         onSelectConversation={selectConversation}
         onRenameConversation={handleRenameConversation}
         onDeleteConversation={handleDeleteConversation}
+        onSetConversationFlags={handleSetFlags}
         onNewConversation={() => {
           setNewChatAgent("");
           setActiveConversationId(null);

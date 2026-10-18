@@ -33,6 +33,13 @@ describe("the conversation list", () => {
     for (const key of ["agentId", "projectId", "workdir"]) assert.equal(key in conversationFromSummary(summary("c3", 1, { [key]: "" })), false, `an empty ${key} is not carried`);
   });
 
+  test("a pinned or archived summary keeps its flag, and an ordinary one has none (P157)", () => {
+    for (const key of ["pinned", "archived"]) {
+      assert.equal(key in conversationFromSummary(summary("c1", 5)), false);
+      assert.equal(conversationFromSummary(summary("c1", 5, { [key]: true }))[key], true);
+    }
+  });
+
   test("a refreshed list keeps the messages already loaded, is newest first, and drops what the hub no longer lists", () => {
     const loaded = { ...conversationFromSummary(summary("a", 1)), messages: [message("a:0")] };
     const gone = conversationFromSummary(summary("deleted", 9));

@@ -289,7 +289,7 @@ mod tests {
 
         let list = value(ServerMessage::ConversationList {
             request_id: 1,
-            conversations: vec![ConversationSummary { id: "c1".into(), title: "T".into(), created_at: 1, updated_at: 2, agent_id: Some("poet".into()), project_id: None, code: false, workdir: None, parent: None, replies: 0 }],
+            conversations: vec![ConversationSummary { id: "c1".into(), title: "T".into(), created_at: 1, updated_at: 2, agent_id: Some("poet".into()), project_id: None, code: false, workdir: None, parent: None, replies: 0, pinned: false, archived: false }],
         });
         assert_eq!(list["type"], "conversationList");
         assert_eq!(keys(&list["conversations"][0]), ["agentId", "createdAt", "id", "title", "updatedAt"], "empty optionals are left out: the mapper copes with their absence");
@@ -312,6 +312,8 @@ mod tests {
                 workdir: None,
                 parent: Some(warden_server_protocol::protocol::ThreadParentDto { conversation_id: "c1".into(), message_id: "170001".into() }),
                 replies: 2,
+                pinned: false,
+                archived: false,
             }],
         });
         assert_eq!(keys(&thread_list["conversations"][0]), ["createdAt", "id", "parent", "replies", "title", "updatedAt"], "a thread carries its message and its replies");
@@ -371,6 +373,8 @@ mod tests {
             (json!({ "type": "moveConversation", "conversationId": "c1" }), ClientMessage::MoveConversation { request_id: 5, conversation_id: "c1".into(), project_id: None }),
             (json!({ "type": "renameConversation", "conversationId": "c1", "title": "Trip" }), ClientMessage::RenameConversation { request_id: 5, conversation_id: "c1".into(), title: "Trip".into() }),
             (json!({ "type": "deleteConversation", "conversationId": "c1" }), ClientMessage::DeleteConversation { request_id: 5, conversation_id: "c1".into() }),
+            (json!({ "type": "setConversationFlags", "conversationId": "c1", "pinned": true }), ClientMessage::SetConversationFlags { request_id: 5, conversation_id: "c1".into(), pinned: Some(true), archived: None }),
+            (json!({ "type": "setConversationFlags", "conversationId": "c1", "archived": false }), ClientMessage::SetConversationFlags { request_id: 5, conversation_id: "c1".into(), pinned: None, archived: Some(false) }),
         ];
         for (sent, wanted) in sends {
             assert_eq!(message_with_request_id(sent.clone(), 5).unwrap(), wanted, "{sent}");

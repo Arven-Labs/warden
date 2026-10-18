@@ -77,6 +77,9 @@ export interface HubConversationSummary {
   /** Set on a thread (P125). */
   parent?: { conversationId: string; messageId: string };
   replies?: number;
+  /** Absent when not (P157). */
+  pinned?: boolean;
+  archived?: boolean;
 }
 
 export interface HubHistoryMessage {
@@ -142,6 +145,8 @@ export function conversationFromSummary(summary: HubConversationSummary, loaded?
     ...(summary.projectId ? { projectId: summary.projectId } : {}),
     ...(summary.workdir ? { workdir: summary.workdir } : {}),
     ...(summary.parent ? { parent: summary.parent, replies: summary.replies ?? 0 } : {}),
+    ...(summary.pinned ? { pinned: true } : {}),
+    ...(summary.archived ? { archived: true } : {}),
   };
 }
 

@@ -90,6 +90,10 @@ export interface Conversation {
   parent?: { conversationId: string; messageId: string };
   /** For a thread, how many messages the person sent in it: the counter on the message it came from. */
   replies?: number;
+  /** Kept at the top of the list (P157). Absent when not. */
+  pinned?: boolean;
+  /** Put away (P157): listed apart and found by searching. Never both pinned and archived. */
+  archived?: boolean;
 }
 
 /** One project (P103) — mirrors `ProjectPayload` in `src-tauri/src/projects_cmds.rs`. Its files are notes of the

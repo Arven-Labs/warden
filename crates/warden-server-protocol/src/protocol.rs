@@ -257,6 +257,12 @@ pub struct ConversationSummary {
     /// For a thread, how many messages the person sent in it: the counter shown on the message it came from.
     #[serde(default, skip_serializing_if = "is_zero")]
     pub replies: u32,
+    /// Kept at the top of the list (P157). Absent when not, and for a hub from before it.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub pinned: bool,
+    /// Put away (P157): a client lists it apart, found by searching. Absent when not, and for a hub from before it.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub archived: bool,
 }
 
 /// A folder in a `DirList` (P102): its name for the list and its whole path to choose or open.
@@ -1848,6 +1854,18 @@ pub enum ClientMessage {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         project_id: Option<String>,
     },
+    /// Pins or archives one of the person's conversations (P157); a flag left out stays as it is. Archiving unpins, and
+    /// pinning an archived one brings it back. Neither counts as activity, so the order of the list doesn't change. A
+    /// scheduled task's conversation belongs to everyone and isn't flagged, and a request that changes neither is an
+    /// error. Answered by `ConversationOk`/`ConversationError`.
+    SetConversationFlags {
+        request_id: u64,
+        conversation_id: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pinned: Option<bool>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        archived: Option<bool>,
+    },
     /// Voice input (P78): a recording the hub transcribes with Whisper, the same way the desktop's
     /// mic button does — the text comes back in `Transcription` for the client to put in its
     /// composer, nothing is sent to the model. `TranscriptionError` when the hub has no Whisper key
@@ -3250,6 +3268,22 @@ mod tests {
         assert!(matches!(old, ClientMessage::Chat { replace_from: None, .. }));
     }
 
+    /// P157: the summary of a conversation says when it is pinned or archived, and says nothing when it is neither, so a client from before
+    /// them sees the summary it always saw (and one that reads a summary without the keys gets false).
+    #[test]
+    fn a_summary_carries_pinned_and_archived_only_when_set() {
+        let plain = ConversationSummary { id: "c1".into(), title: "T".into(), created_at: 1, updated_at: 2, agent_id: None, project_id: None, code: false, workdir: None, parent: None, replies: 0, pinned: false, archived: false };
+        let json = serde_json::to_string(&plain).unwrap();
+        assert_eq!(json, r#"{"id":"c1","title":"T","createdAt":1,"updatedAt":2}"#);
+        assert_eq!(serde_json::from_str::<ConversationSummary>(&json).unwrap(), plain);
+        let pinned = ConversationSummary { pinned: true, ..plain.clone() };
+        assert_eq!(serde_json::to_string(&pinned).unwrap(), r#"{"id":"c1","title":"T","createdAt":1,"updatedAt":2,"pinned":true}"#);
+        let archived = ConversationSummary { archived: true, ..plain };
+        let json = serde_json::to_string(&archived).unwrap();
+        assert!(json.ends_with(r#""archived":true}"#), "{json}");
+        assert_eq!(serde_json::from_str::<ConversationSummary>(&json).unwrap(), archived);
+    }
+
     /// P125: a chat names the message it is a thread of; the history carries each message's id and the summary of a thread its link and
     /// reply count. Everything from before threads (no field) still reads, and nothing is written when there is none.
     #[test]
@@ -3267,7 +3301,7 @@ mod tests {
         assert_eq!(old.id, "", "a hub from before threads sends no id");
         assert!(!serde_json::to_string(&old).unwrap().contains("\"id\""));
 
-        let thread = ConversationSummary { id: "t1".into(), title: "x".into(), created_at: 1, updated_at: 2, agent_id: None, project_id: None, code: false, workdir: None, parent: Some(link), replies: 3 };
+        let thread = ConversationSummary { id: "t1".into(), title: "x".into(), created_at: 1, updated_at: 2, agent_id: None, project_id: None, code: false, workdir: None, parent: Some(link), replies: 3, pinned: false, archived: false };
         let json = serde_json::to_string(&thread).unwrap();
         assert!(json.contains(r#""parent":{"conversationId":"c1","messageId":"170000"}"#) && json.contains(r#""replies":3"#), "{json}");
         assert_eq!(serde_json::from_str::<ConversationSummary>(&json).unwrap(), thread);
@@ -3572,6 +3606,14 @@ mod tests {
                 r#"{"type":"deleteConversation","requestId":3,"conversationId":"c1"}"#,
             ),
             (
+                ClientMessage::SetConversationFlags { request_id: 6, conversation_id: "c1".into(), pinned: Some(true), archived: None },
+                r#"{"type":"setConversationFlags","requestId":6,"conversationId":"c1","pinned":true}"#,
+            ),
+            (
+                ClientMessage::SetConversationFlags { request_id: 7, conversation_id: "c1".into(), pinned: Some(false), archived: Some(true) },
+                r#"{"type":"setConversationFlags","requestId":7,"conversationId":"c1","pinned":false,"archived":true}"#,
+            ),
+            (
                 ClientMessage::MoveConversation { request_id: 4, conversation_id: "c1".into(), project_id: Some("tax".into()) },
                 r#"{"type":"moveConversation","requestId":4,"conversationId":"c1","projectId":"tax"}"#,
             ),
@@ -3591,7 +3633,7 @@ mod tests {
             (
                 ServerMessage::ConversationList {
                     request_id: 1,
-                    conversations: vec![ConversationSummary { id: "c1".into(), title: "Trip".into(), created_at: 1, updated_at: 2, agent_id: None, project_id: None, code: false, workdir: None, parent: None, replies: 0 }],
+                    conversations: vec![ConversationSummary { id: "c1".into(), title: "Trip".into(), created_at: 1, updated_at: 2, agent_id: None, project_id: None, code: false, workdir: None, parent: None, replies: 0, pinned: false, archived: false }],
                 },
                 r#"{"type":"conversationList","requestId":1,"conversations":[{"id":"c1","title":"Trip","createdAt":1,"updatedAt":2}]}"#,
             ),

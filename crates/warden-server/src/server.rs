@@ -2116,7 +2116,7 @@ async fn handle_connection<S: Transport>(ws: WebSocketStream<S>, peer: SocketAdd
                     let store = ProjectStore::new(person_vault(member.as_ref(), settings.as_deref(), &orchestrator.current(), &space_vaults));
                     let _ = tx.send(crate::conversations::handle_move_conversation(&conversation_dirs, request_id, conversation_id, project_id, |id| store.exists(id)));
                 }
-                Ok(message @ (ClientMessage::ListConversations { .. } | ClientMessage::OpenAgentChannel { .. } | ClientMessage::RenameConversation { .. } | ClientMessage::DeleteConversation { .. })) => {
+                Ok(message @ (ClientMessage::ListConversations { .. } | ClientMessage::OpenAgentChannel { .. } | ClientMessage::RenameConversation { .. } | ClientMessage::DeleteConversation { .. } | ClientMessage::SetConversationFlags { .. })) => {
                     // P78 — small file I/O, answered inline like `RequestHistory`.
                     // P124 — only the owner runs code tasks, so a member's list marks none.
                     let store = ProjectStore::new(orchestrator.current().vault().clone());
