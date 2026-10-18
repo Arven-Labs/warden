@@ -9,6 +9,9 @@
   --color-accent: #7c3aed;
   --color-accent-dark: #6d28d9;
   --color-accent-soft: rgba(124, 58, 237, 0.12);
+  /* The text on a button filled with the accent: white on the dark purple, but dark on the light purple of the dark theme (white
+     there was 2.7:1, which a picture of the screen showed). */
+  --color-on-accent: #ffffff;
   --color-danger: #dc2626;
   --color-danger-soft: rgba(220, 38, 38, 0.08);
   --color-ok: #16a34a;
@@ -40,6 +43,7 @@
     --color-accent: #a78bfa;
     --color-accent-dark: #8b5cf6;
     --color-accent-soft: rgba(167, 139, 250, 0.16);
+    --color-on-accent: #1b1033;
     --color-danger: #f87171;
     --color-danger-soft: rgba(248, 113, 113, 0.1);
     --color-ok: #4ade80;
@@ -103,7 +107,7 @@ button:focus-visible {
 
 .primary-button {
   background: var(--color-accent);
-  color: #fff;
+  color: var(--color-on-accent);
   border: none;
   border-radius: 8px;
   padding: 0.55rem 1rem;
@@ -319,13 +323,20 @@ button:focus-visible {
   background: var(--color-danger);
 }
 
+/* The tabs scroll sideways when they do not fit (there are 13 or more) instead of running over the brand and off the edge of the
+   window, which hid the last ones and put the status dot over the Chat tab. */
 .app-tabs {
   display: flex;
   gap: 0.25rem;
   margin-left: auto;
+  min-width: 0;
+  overflow-x: auto;
+  scrollbar-width: thin;
 }
 
 .tab {
+  flex: none;
+  white-space: nowrap;
   background: none;
   border: none;
   border-radius: 8px;
@@ -1103,6 +1114,15 @@ button:focus-visible {
 
 .skills-editor textarea {
   resize: vertical;
+}
+
+/* A panel inside the list (Compartilhar, Importar) keeps its height: as a child of the list, which scrolls, it was squeezed down to
+   its last line (the textarea) and the rest of it was gone, as the first picture of it showed. */
+.skills-view > .skills-editor {
+  flex-shrink: 0;
+  max-width: none;
+  margin: 0;
+  overflow-y: visible;
 }
 
 /* Organização (P120): a árvore, só leitura. */

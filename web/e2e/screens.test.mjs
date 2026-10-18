@@ -43,7 +43,7 @@ const FILES = {
   "warden/spend_ledger.jsonl": LEDGER,
   "vault/notes/weekly-plan.md": "# Weekly plan\n\n- Monday: review the budget\n- Wednesday: call the supplier\n- Friday: close the month\n",
   "vault/notes/ideas.md": "# Ideas\n\nA short list of things to try next quarter.\n",
-  "vault/projects/home-reform/PROJECT.md": "# Home reform\n\nKeep the receipts of the reform in one place.\n",
+  "vault/projects/home-reform/PROJECT.md": "---\nname: Home reform\ndescription: Receipts and plans of the reform\n---\nKeep the receipts of the reform in one place.\n",
 };
 
 for (const colorScheme of ["light", "dark"]) {
@@ -73,6 +73,7 @@ for (const colorScheme of ["light", "dark"]) {
 
         await tab("Skills").click();
         await page.getByRole("button", { name: "Importar" }).waitFor();
+        await page.getByText("Nenhuma skill ainda.").waitFor();
         await snap(page, `skills-${colorScheme}`);
         await snap(page, `skills-gallery-${colorScheme}`, { focus: page.getByRole("heading", { name: "Galeria" }) });
 
