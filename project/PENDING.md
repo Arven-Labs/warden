@@ -4,7 +4,7 @@
 > Toda pendência encontrada em qualquer arquivo do projeto deve ser registrada aqui com um ID único.
 > Ao resolver uma, marcar como `✅ Resolvida` com a sessão em que foi corrigida.
 >
-> Última atualização: 2026-10-17 (Sessão 232, P142 resolvido; antes Sessão 223, lote de 16 na indexação do cofre e fatias de 16 no histórico: P145 e P146 b; CI no GitHub Actions: P149 e P150)
+> Última atualização: 2026-10-18 (Sessão 267: P162, P163, P164, P165 e P166 resolvidos, P167 em parte, P156 sem roteiro nos outros provedores por decisão do usuário; abertos: P167 a, d, e e o P160, parado por decisão do usuário; antes, Sessão 232, P142 resolvido)
 
 ---
 
