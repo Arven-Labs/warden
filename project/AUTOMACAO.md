@@ -38,8 +38,10 @@ visual.
 ### 2.3 Cuidados
 - **Só dados inventados** nas fotos: o artefato é visível a quem tem acesso ao repositório. Nunca dados reais do Fabio.
 - A foto é para o olho; a asserção continua sendo por texto/DOM.
-- A web é o que se fotografa hoje. O desktop (Tauri) não tem E2E; as telas só dele (Publicar, QR do Sync) ficam sem conferência até o item do
-  P165.
+- O desktop (Tauri) também se fotografa (P165, Sessão 265): `desktop/e2e` serve `desktop/dist` num navegador sem janela e troca o `invoke` do
+  Tauri por um backend de mentira (`openApp` em `desktop/e2e/harness.mjs`, com dados inventados; `deferred()` segura os comandos que esperam o
+  celular). Cobre Chat, Skills com a Galeria, Publicar e o QR do Sync, em claro e escuro; roda em `.github/workflows/desktop-e2e.yml`, sem
+  Rust, e sobe o artefato `desktop-e2e-screens`. **Limite**: prova a tela e o que ela pede ao backend, não o Rust por trás dos comandos.
 
 ## 3. Parte B: automatizar fluxos
 Nove regras, cada uma de algo que deu certo ou errado no Anchor (exemplo guia: estimar sozinho o rendimento do porquinho depois que o

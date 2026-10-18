@@ -2,7 +2,18 @@
 
 > **Nota**: Este log foi criado junto com o projeto. As sessões serão registradas aqui conforme o trabalho avança.
 >
-> Última atualização: 2026-10-18 (Sessão 264)
+> Última atualização: 2026-10-18 (Sessão 265)
+
+---
+
+### 2026-10-18 — Sessão 265 (fotos das telas do desktop por código: P165)
+
+- **Pedido**: o usuário disse que **não quer testes práticos com o TruthID agora** (P160 fica parado), então segui a ordem para o P165. Planejado em modo de plano e aprovado antes de editar.
+- **Feito**: `desktop/e2e/harness.mjs` (servidor estático de `desktop/dist`, `openApp` com o `invoke` do Tauri de mentira injetado por `addInitScript` e `exposeFunction`, `deferred()`, `snap` com `top`), `desktop/e2e/screens.test.mjs` (3 testes em claro e escuro: Chat, Skills com a Galeria e Publicar em 3 estados, Sync com QR), `playwright-core` 1.61.1 no `desktop/package.json`, `.github/workflows/desktop-e2e.yml` (sem Rust) e `desktop/e2e-screens/` no `.gitignore`.
+- **CI**: 6 de 6 na primeira rodada (run 39167646505); 20 fotos, todas abertas.
+- **Achado e corrigido** (conferido nas fotos do run 39167824105): o **texto branco sobre o lilás do tema escuro (cerca de 2,7:1)** no balão da pessoa, no botão de enviar, no selo da barra e no `settings-save-btn`, agora `--color-on-accent` (branco no claro, escuro no escuro); o **"Edit" da mensagem da pessoa era cinza no balão roxo, quase invisível**, como o da web na Sessão 264; a foto da Galeria saía com o topo da página (o título meio à vista não rola; `snap` ganhou `top`).
+- **Achado e não corrigido**, no **P167 (f, g)**: a tela de Sync do desktop em português dentro de um app em inglês, com data em formato americano; a pílula vazia do seletor de modelo sem provedor.
+- **Não provado**: o Rust por trás dos comandos (a foto prova a tela e o que ela pede); Configurações e as demais telas do desktop não foram fotografadas; o P160 com o TruthID de verdade segue parado por decisão do usuário.
 
 ---
 
