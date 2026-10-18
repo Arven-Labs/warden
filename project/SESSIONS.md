@@ -2,9 +2,18 @@
 
 > **Nota**: Este log foi criado junto com o projeto. As sessões serão registradas aqui conforme o trabalho avança.
 >
-> Última atualização: 2026-10-18 (Sessão 253)
+> Última atualização: 2026-10-18 (Sessão 254)
 
 ---
+
+### 2026-10-18 — Sessão 254 (o fake phone dos testes pega a primeira porta livre: P158)
+
+- **Pedido do usuário**: "vamos com o 4" (pendências de teste: P150, P155, P158). Planejado em modo de plano.
+- **Achado**: só o P158 estava aberto. O P150 está corrigido e confirmado (19 runs verdes) e o P155 está corrigido com 4 runs verdes, só em acompanhamento.
+- **Achado que mudou o desenho**: a proposta do pendente (`bind` em `:0`) não serve, porque a porta é do protocolo: o requester (`sweep_until`, `requester.rs`) varre só `LAN_PORTS` (48050 a 48054) e `run_with_hosts` não deixa o cliente escolher a porta. Mudar isso seria mexer em código de produção por causa de teste.
+- **Feito**: `bind_fake_phone()` (tenta `LAN_PORTS` em ordem e devolve o primeiro `TcpListener` que o `bind` aceita) nos três testes (`engine_lifecycle.rs`, `fake_phone_push.rs`, `fake_phone.rs`), no lugar do `bind` em `LAN_PORTS[0]`; a const `FAKE_PHONE_PORT` saiu; os comentários dos arquivos foram acertados. Ajudante copiado nos três, como a const já era.
+- **Testes**: nenhum novo (a mudança é do próprio teste). `cargo check -p warden-sync -p warden-truthid --tests` limpo; a suíte roda no `ci.yml`.
+- **Não provado**: que isso cura a falha. A causa nunca foi achada (um teste por binário e binários em sequência no `cargo test`), então o verde do CI é evidência, não prova. Limite: dois desses testes ao mesmo tempo poderiam achar o fake phone um do outro.
 
 ### 2026-10-18 — Sessão 253 (a extensão, passo 3: regenerar e editar: P157)
 

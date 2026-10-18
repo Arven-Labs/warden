@@ -14,7 +14,15 @@ use warden_core::memory::Vault;
 use warden_sync::manifest::SyncManifest;
 use warden_sync::push;
 
-const FAKE_PHONE_PORT: u16 = warden_truthid::protocol::LAN_PORTS[0];
+/// The requester sweeps every `LAN_PORTS`, so the fake phone can serve on whichever is free.
+async fn bind_fake_phone() -> tokio::net::TcpListener {
+    for port in warden_truthid::protocol::LAN_PORTS {
+        if let Ok(listener) = tokio::net::TcpListener::bind(("127.0.0.1", port)).await {
+            return listener;
+        }
+    }
+    panic!("none of LAN_PORTS is free for the fake phone");
+}
 
 /// Accepts one `PUT .../content` (doesn't need to decrypt it — that wire format is already
 /// covered by `warden-truthid`'s own tests), then serves a canned "pinned" result on `GET`,
@@ -49,7 +57,7 @@ async fn spawn_fake_phone(requester_pub_hex: String) {
     });
 
     let router = Router::new().route("/session/{id}/content", push_route).route("/session/{id}", get_route);
-    let listener = tokio::net::TcpListener::bind(("127.0.0.1", FAKE_PHONE_PORT)).await.expect("FAKE_PHONE_PORT free for the test");
+    let listener = bind_fake_phone().await;
     tokio::spawn(async move {
         axum::serve(listener, router).await.unwrap();
     });

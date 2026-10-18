@@ -19,9 +19,17 @@ use axum::routing::{get, put};
 use axum::Router;
 use warden_truthid::crypto;
 
-const FAKE_PHONE_PORT: u16 = warden_truthid::protocol::LAN_PORTS[0];
+/// The requester sweeps every `LAN_PORTS`, so the fake phone can serve on whichever is free.
+async fn bind_fake_phone() -> tokio::net::TcpListener {
+    for port in warden_truthid::protocol::LAN_PORTS {
+        if let Ok(listener) = tokio::net::TcpListener::bind(("127.0.0.1", port)).await {
+            return listener;
+        }
+    }
+    panic!("none of LAN_PORTS is free for the fake phone");
+}
 
-/// Spawns a fake phone bound to `127.0.0.1:{FAKE_PHONE_PORT}` that: waits for one
+/// Spawns a fake phone bound to `127.0.0.1` on the first free `LAN_PORTS` port that: waits for one
 /// `PUT .../content`, decrypts it with the phase-1 cipher, checks it matches `expected_content`,
 /// then re-encrypts `result_json` with ECIES against the requester's pubkey (read straight out of
 /// the pushed session) and serves it on the next `GET` — mirroring the real phone's single-shot
@@ -69,9 +77,7 @@ async fn spawn_fake_phone(expected_content: &'static [u8], result_json: &'static
         .route("/session/{id}/content", push_route)
         .route("/session/{id}", get_route);
 
-    let listener = tokio::net::TcpListener::bind(("127.0.0.1", FAKE_PHONE_PORT))
-        .await
-        .expect("FAKE_PHONE_PORT free for the test");
+    let listener = bind_fake_phone().await;
     tokio::spawn(async move {
         axum::serve(listener, router).await.unwrap();
     });

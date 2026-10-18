@@ -6,9 +6,9 @@
 //! TruthID app or Arweave network is available in this environment (see `PENDING.md`, same
 //! accepted gap as P38).
 //!
-//! Only one `#[tokio::test]` in this file, deliberately — it binds the real
-//! `warden_truthid::protocol::LAN_PORTS[0]`, and cargo runs tests within one binary concurrently
-//! by default; a second test here would race for that port.
+//! Only one `#[tokio::test]` in this file, deliberately — it binds one of the real
+//! `warden_truthid::protocol::LAN_PORTS` (the first free one), and cargo runs tests within one
+//! binary concurrently by default; a second test here would race for the same ports.
 
 use std::net::Ipv4Addr;
 use std::path::PathBuf;
@@ -20,7 +20,6 @@ use axum::routing::{get, post, put};
 use axum::Router;
 use warden_sync::{ArweaveClient, SyncEngine};
 
-const FAKE_PHONE_PORT: u16 = warden_truthid::protocol::LAN_PORTS[0];
 const OWNER_ADDRESS: &str = "wallet-test-owner";
 const TX_ID: &str = "tx-1";
 
@@ -88,6 +87,16 @@ async fn spawn_fake_gateway(published: Arc<Mutex<Option<Vec<u8>>>>) -> String {
     format!("http://{addr}")
 }
 
+/// The requester sweeps every `LAN_PORTS`, so the fake phone can serve on whichever is free.
+async fn bind_fake_phone() -> tokio::net::TcpListener {
+    for port in warden_truthid::protocol::LAN_PORTS {
+        if let Ok(listener) = tokio::net::TcpListener::bind(("127.0.0.1", port)).await {
+            return listener;
+        }
+    }
+    panic!("none of LAN_PORTS is free for the fake phone");
+}
+
 /// Fake TruthID phone: decrypts the phase-1 LAN transport layer to recover our vault-encrypted
 /// bundle bytes (stashing them in `published` for the fake gateway to serve later), then answers
 /// with a canned "pinned" `PinResult` pointing at `TX_ID`.
@@ -115,7 +124,7 @@ async fn spawn_fake_phone(requester_pub_hex: String, published: Arc<Mutex<Option
     });
 
     let router = Router::new().route("/session/{id}/content", push_route).route("/session/{id}", get_route);
-    let listener = tokio::net::TcpListener::bind(("127.0.0.1", FAKE_PHONE_PORT)).await.expect("FAKE_PHONE_PORT free for the test");
+    let listener = bind_fake_phone().await;
     tokio::spawn(async move {
         axum::serve(listener, router).await.unwrap();
     });
