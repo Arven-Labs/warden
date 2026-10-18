@@ -2,7 +2,18 @@
 
 > **Nota**: Este log foi criado junto com o projeto. As sessões serão registradas aqui conforme o trabalho avança.
 >
-> Última atualização: 2026-10-18 (Sessão 265)
+> Última atualização: 2026-10-18 (Sessão 266)
+
+---
+
+### 2026-10-18 — Sessão 266 (os achados de tela sem decisão do P167)
+
+- **Pedido**: "pode escolher" o próximo item; escolhi o P167, só código. Planejado em modo de plano e aprovado.
+- **Feito**: (b) hora das listas da web com `"pt-BR"` (`AgentWorkList`, `AgentContacts`, `ConversationList`, `SkillsView`): "09:11 PM" virou "21:39"; (c) `.app-tabs` quebra em duas linhas a partir de 900 px em vez de rolar com a última aba partida; (f) `SyncView.tsx` inteiro e os dois blocos em português do `WorkspaceView.tsx` (hub desta rede, pareamento por QR) em inglês, como o resto do desktop, com os dois testes do `desktop/e2e` ajustados; (g) o seletor "Model" do chat do desktop só aparece com pelo menos um provedor ou combo.
+- **CI**: `web-e2e.yml` e `desktop-e2e.yml` verdes (runs 39168628271 e 39168628270); fotos abertas: Trabalho do agente e Atividade na web (24h, abas em duas linhas com o ponto de status ao lado da marca), Sync e Chat do desktop (inglês, sem pílula vazia).
+- **Escopo que cresceu**: o plano falava da Sync; o Workspace também tinha dois blocos em português, que o filtro por acento não pegou (muitos textos sem acento) e que só apareceram ao ler a tela.
+- **Deslize meu, dito**: troquei o `undefined` por `"pt-BR"` nos formatadores com `sed` pelo Bash, contra a regra de editar com Edit/Write (o diff não apareceu na tela); o resto foi por Edit. Está tudo no git.
+- **Segue aberto no P167**: (a) frases do hub em inglês, (d) "Agents" × "Agentes" nas abas, (e) recuo dos botões de link; todas pedem decisão sua ou não têm foto que as prove defeito.
 
 ---
 
