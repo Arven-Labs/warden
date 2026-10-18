@@ -108,8 +108,8 @@ export async function launchBrowser() {
  * Signs in with the pairing key, on the screen the page opens on. `sent` collects every WebSocket frame the
  * page sends, which is how a test proves what travelled to the hub rather than only what the screen showed.
  */
-export async function signIn(browser, hub) {
-  const context = await browser.newContext({ viewport: { width: 1100, height: 1400 } });
+export async function signIn(browser, hub, { colorScheme = "light" } = {}) {
+  const context = await browser.newContext({ viewport: { width: 1100, height: 1400 }, colorScheme });
   const page = await context.newPage();
   const sent = [];
   page.on("websocket", (ws) => ws.on("framesent", (f) => typeof f.payload === "string" && sent.push(f.payload)));
@@ -140,4 +140,25 @@ export async function saveWithKey(page) {
 export function lastSave(sent) {
   const frame = sent.filter((s) => s.includes('"saveSettings"')).at(-1);
   return frame === undefined ? undefined : JSON.parse(frame);
+}
+
+/** Where `snap` writes: `WARDEN_E2E_SCREENS`, else `web/e2e-screens` (ignored by git). */
+export function screensDir() {
+  return process.env.WARDEN_E2E_SCREENS ?? path.join(repoRoot, "web", "e2e-screens");
+}
+
+/**
+ * Photographs the page as `<name>.png` for someone to look at afterwards (the CI uploads the folder as an artifact, always).
+ * Call it once the screen is ready (after the wait for what matters), one per interesting state. `focus` is a locator to
+ * scroll into view first: what is below the fold of the window is left out of the picture. It never fails the test: a
+ * picture is for the eye, the assertions stay on text. Only invented data may be on screen when it is called.
+ */
+export async function snap(page, name, { focus } = {}) {
+  try {
+    if (focus) await focus.scrollIntoViewIfNeeded();
+    fs.mkdirSync(screensDir(), { recursive: true });
+    await page.screenshot({ path: path.join(screensDir(), `${name}.png`) });
+  } catch (err) {
+    console.warn(`snap(${name}) did not work: ${err?.message ?? err}`);
+  }
 }

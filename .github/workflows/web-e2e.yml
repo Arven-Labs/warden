@@ -1,0 +1,82 @@
+name: E2E da web
+
+# Os testes de navegador da página web (`web/e2e`): um hub de verdade com dados inventados e um Chromium sem janela. Antes
+# deste arquivo eles só rodavam à mão (Sessão 261). Também fotografam as telas (`snap` em `web/e2e/harness.mjs`) e o CI sempre
+# sobe as fotos como artefato, para alguém olhar cada uma (`project/AUTOMACAO.md`). Fica fora do `ci.yml` porque compila o
+# hub e instala o navegador, o que alongaria todo push.
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'web/**'
+      - 'crates/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - '.github/workflows/web-e2e.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: web-e2e-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: 0
+
+jobs:
+  e2e:
+    name: Navegador contra um hub de verdade
+    # 24.04: o ONNX Runtime pronto do `ort` pede glibc 2.38+ (ver ci.yml).
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 26
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: npm ci
+        working-directory: web
+        run: npm ci
+
+      # O hub embute `web/dist`.
+      - name: Build da página
+        working-directory: web
+        run: npm run build
+
+      - name: Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust
+        uses: Swatinem/rust-cache@v2
+
+      - name: Build do hub
+        run: cargo build -p warden-server --bin warden-server
+
+      - name: Chromium
+        working-directory: web
+        run: npx playwright-core install --with-deps chromium
+
+      - name: Testes de navegador
+        working-directory: web
+        env:
+          WARDEN_E2E_SCREENS: ${{ github.workspace }}/e2e-screens
+        run: npm run test:e2e
+
+      # Sempre, não só em falha: as fotos são para olhar mesmo com tudo verde.
+      - name: Fotos das telas
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: web-e2e-screens
+          path: e2e-screens
+          retention-days: 14
+          if-no-files-found: ignore

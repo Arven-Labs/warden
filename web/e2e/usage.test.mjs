@@ -3,7 +3,7 @@
 
 import assert from "node:assert/strict";
 import { after, before, describe, test } from "node:test";
-import { PAIRING_KEY, launchBrowser, signIn, startHub } from "./harness.mjs";
+import { PAIRING_KEY, launchBrowser, signIn, snap, startHub } from "./harness.mjs";
 
 const TIMEOUT = 120_000;
 const HOUR = 3_600_000;
@@ -68,6 +68,8 @@ describe("the Usage screen", () => {
       assert.equal(calls, 3, "every call is on some day");
       assert.ok(Math.abs(total - 2.5) < 1e-6, `$2.50 across the days, got ${total}`);
       assert.match(await section.innerText(), /só guarda a janela do limite mais longo/, "and it says how far back the ledger reaches");
+      await snap(page, "usage-top");
+      await snap(page, "usage-daily", { focus: section });
       assert.deepEqual(opened.errors, [], "the page raised no error");
     } finally {
       await context?.close();
