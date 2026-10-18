@@ -3,7 +3,7 @@
 //! the text, which only lives in `learning`, so that an imported skill is read for the things a skill must not carry before
 //! it is installed.
 
-use warden_core::skill::package::SkillPackage;
+use warden_core::skill::package::Package;
 use warden_core::skill::SkillStore;
 
 use crate::learning::scan_proposal;
@@ -31,7 +31,7 @@ pub fn export_skill_package(store: &SkillStore, name: &str, version: &str, autho
     if skill.proposed {
         return Err(format!("'{name}' is a suggestion that was not accepted yet; accept it before sharing it"));
     }
-    let package = SkillPackage::export(&skill, version, author, license).map_err(|e| format!("{e:#}"))?;
+    let package = Package::export_skill(&skill, version, author, license).map_err(|e| format!("{e:#}"))?;
     let content = package.to_json().map_err(|e| format!("{e:#}"))?;
     let attachments_skipped = store.list_files(name).is_ok_and(|files| !files.is_empty());
     Ok((content, attachments_skipped))
@@ -39,31 +39,34 @@ pub fn export_skill_package(store: &SkillStore, name: &str, version: &str, autho
 
 /// Reads and checks `content` and says where it stands in the vault, without installing anything.
 pub fn preview_skill_package(store: &SkillStore, content: &str) -> Result<PackagePreview, String> {
-    let package = SkillPackage::parse(content).map_err(|e| format!("{e:#}"))?;
+    let package = Package::parse(content).map_err(|e| format!("{e:#}"))?;
+    let status = package.skill_status(store).map_err(|e| format!("{e:#}"))?.as_str();
+    let skill = package.as_skill().ok_or("this package does not hold a skill")?;
     Ok(PackagePreview {
-        status: package.status(store).as_str(),
-        finding: scan_proposal(&package.skill.description, &package.skill.body).map(str::to_string),
-        id: package.id,
-        version: package.version,
-        author: package.author,
-        license: package.license,
-        name: package.skill.name,
-        description: package.skill.description,
-        body: package.skill.body,
-        hash: package.hash,
+        status,
+        finding: scan_proposal(&skill.description, &skill.body).map(str::to_string),
+        name: skill.name.clone(),
+        description: skill.description.clone(),
+        body: skill.body.clone(),
+        id: package.id.clone(),
+        version: package.version.clone(),
+        author: package.author.clone(),
+        license: package.license.clone(),
+        hash: package.hash.clone(),
     })
 }
 
 /// Installs `content`. A skill of that name that differs is only replaced with `overwrite`; text that looks unsafe is only
 /// installed with `allow_flagged`, and is looked at again here rather than trusting that the caller showed the preview.
 pub fn install_skill_package(store: &SkillStore, content: &str, overwrite: bool, allow_flagged: bool) -> Result<(), String> {
-    let package = SkillPackage::parse(content).map_err(|e| format!("{e:#}"))?;
-    if let Some(finding) = scan_proposal(&package.skill.description, &package.skill.body) {
+    let package = Package::parse(content).map_err(|e| format!("{e:#}"))?;
+    let skill = package.as_skill().ok_or("this package does not hold a skill")?;
+    if let Some(finding) = scan_proposal(&skill.description, &skill.body) {
         if !allow_flagged {
             return Err(format!("this skill contains {finding}; read it and confirm to install it anyway"));
         }
     }
-    package.install(store, overwrite).map_err(|e| format!("{e:#}"))
+    package.install_skill(store, overwrite).map_err(|e| format!("{e:#}"))
 }
 
 #[cfg(test)]
@@ -148,7 +151,7 @@ mod tests {
         install_skill_package(&yours, &content, true, false).unwrap();
         assert_eq!(yours.get("greet").unwrap().body, "Say hello warmly.");
 
-        assert!(preview_skill_package(&yours, "not json").unwrap_err().contains("not a Warden skill package"));
+        assert!(preview_skill_package(&yours, "not json").unwrap_err().contains("not a Warden package"));
         assert!(install_skill_package(&yours, &content.replace("warmly", "coldly"), true, true).unwrap_err().contains("changed or damaged"));
     }
 }
