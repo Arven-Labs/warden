@@ -1116,6 +1116,18 @@ button:focus-visible {
   resize: vertical;
 }
 
+/* The toolbar's buttons (+ Nova, + Novo) keep their label on one line: with a long hint beside it, "+ Novo" broke in two. */
+.skills-toolbar .primary-button,
+.skills-toolbar .link-button {
+  flex: none;
+  white-space: nowrap;
+}
+
+/* A lone link-button in a panel (the Arweave "Buscar") sits at the left, under its field, not stretched across the panel. */
+.skills-editor > .link-button {
+  align-self: flex-start;
+}
+
 /* A panel inside the list (Compartilhar, Importar) keeps its height: as a child of the list, which scrolls, it was squeezed down to
    its last line (the textarea) and the rest of it was gone, as the first picture of it showed. */
 .skills-view > .skills-editor {
