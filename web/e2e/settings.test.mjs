@@ -136,7 +136,7 @@ describe("settings on a hub started with --allow-machine-settings", () => {
       assert.ok(file.includes('id = "box"') && file.includes("box.example.com"), "the SSH host is in the file");
       assert.ok(file.includes(SECRET), "the hub keeps the MCP secret");
       assert.ok(!(await page.content()).includes(SECRET), "the page never has it after saving");
-      assert.match(hub.log(), /machine settings changed from 127\.0\.0\.1: shell on, MCP servers \(1 now\), SSH hosts \(1 now\)/);
+      assert.match(hub.log(), /machine settings changed: shell on, MCP servers \(1 now\), SSH hosts \(1 now\) from=127\.0\.0\.1/);
       assert.ok(!hub.log().includes(SECRET), "the hub's log has no secret");
 
       await page.reload();
