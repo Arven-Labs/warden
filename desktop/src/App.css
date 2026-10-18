@@ -1143,6 +1143,12 @@ body {
   border-color: var(--color-accent);
 }
 
+/* A file is being dragged over the window: the box says it will take it. */
+.chat-input-dock--dragging .chat-input-form {
+  border: 1px dashed var(--color-accent);
+  background: var(--color-accent-soft);
+}
+
 .chat-input-textarea {
   flex: 1;
   resize: none;
@@ -1155,6 +1161,7 @@ body {
   background-color: transparent;
   outline: none;
   max-height: 10em;
+  overflow-y: auto;
 }
 
 .chat-send-btn {

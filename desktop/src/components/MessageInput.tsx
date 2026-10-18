@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
 import { invoke } from "@tauri-apps/api/core";
+import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { AttachIcon, CloseIcon, MicIcon, SendIcon, StopIcon } from "./Icons";
-import { checkAttachmentLimits, isPdf } from "../lib/attachments";
+import { checkAttachmentLimits, fileToAttachment, isAttachmentFile, isPdf } from "../lib/attachments";
 import type { Attachment } from "../types";
 
 interface MessageInputProps {
@@ -23,18 +24,78 @@ function MessageInput({ onSend, focusKey, disabled, onStop, onCycleMode }: Messa
   const [isRecording, setIsRecording] = useState(false);
   const [isTranscribing, setIsTranscribing] = useState(false);
   const [recordError, setRecordError] = useState<string | null>(null);
+  const [dragging, setDragging] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  // The attachments and `disabled` are also read from the window's drop handler, which is set up once: a ref is what it sees.
+  const attachmentsRef = useRef<Attachment[]>([]);
+  const disabledRef = useRef(disabled);
+  disabledRef.current = disabled;
 
   useEffect(() => {
     textareaRef.current?.focus();
   }, [focusKey]);
+
+  // The box grows with what is typed, up to the CSS `max-height`, and shrinks back when it is emptied (a sent message).
+  useEffect(() => {
+    const box = textareaRef.current;
+    if (!box) return;
+    box.style.height = "auto";
+    box.style.height = `${box.scrollHeight}px`;
+  }, [draft]);
+
+  // A file dragged in from the desktop reaches the window as paths, not as DOM files (Tauri takes the drop itself), so it goes
+  // through `read_attachment` like one picked with the button.
+  useEffect(() => {
+    let unlisten: (() => void) | undefined;
+    let gone = false;
+    getCurrentWebview()
+      .onDragDropEvent((event) => {
+        const { type } = event.payload;
+        if (type === "enter" || type === "over") setDragging(!disabledRef.current);
+        else if (type === "leave") setDragging(false);
+        else if (type === "drop") {
+          setDragging(false);
+          if (!disabledRef.current) void addAttachments(event.payload.paths.map((path) => () => invoke<Attachment>("read_attachment", { path })));
+        }
+      })
+      .then((stop) => (gone ? stop() : (unlisten = stop)))
+      .catch(() => undefined);
+    return () => {
+      gone = true;
+      unlisten?.();
+    };
+  }, []);
+
+  function setAllAttachments(next: Attachment[]) {
+    attachmentsRef.current = next;
+    setAttachments(next);
+  }
 
   function submit() {
     const content = draft.trim();
     if ((content === "" && attachments.length === 0) || disabled) return;
     onSend(content, attachments);
     setDraft("");
-    setAttachments([]);
+    setAllAttachments([]);
+  }
+
+  /** Adds what each reader produces, one at a time. What is already in the box counts toward the hub's limits, so every file is
+   * checked against the box as it is when its turn comes. A file that can't be read or doesn't fit says why and the rest go on. */
+  async function addAttachments(readers: Array<() => Promise<Attachment>>) {
+    setAttachError(null);
+    for (const read of readers) {
+      try {
+        const attachment = await read();
+        const refused = checkAttachmentLimits(attachmentsRef.current, attachment);
+        if (refused) {
+          setAttachError(refused);
+          continue;
+        }
+        setAllAttachments([...attachmentsRef.current, attachment]);
+      } catch (err) {
+        setAttachError(String(err instanceof Error ? err.message : err));
+      }
+    }
   }
 
   async function handleAttach() {
@@ -45,27 +106,20 @@ function MessageInput({ onSend, focusKey, disabled, onStop, onCycleMode }: Messa
     });
     if (!selected) return;
 
-    // What is already in the box counts toward the hub's limits; `taken` follows it through the loop, as the state lags.
-    let taken = attachments;
     const paths = Array.isArray(selected) ? selected : [selected];
-    for (const path of paths) {
-      try {
-        const attachment = await invoke<Attachment>("read_attachment", { path });
-        const refused = checkAttachmentLimits(taken, attachment);
-        if (refused) {
-          setAttachError(refused);
-          continue;
-        }
-        taken = [...taken, attachment];
-        setAttachments(taken);
-      } catch (err) {
-        setAttachError(String(err));
-      }
-    }
+    await addAttachments(paths.map((path) => () => invoke<Attachment>("read_attachment", { path })));
+  }
+
+  /** A picture or a PDF on the clipboard (a screenshot, a copied image) goes in as an attachment; text pastes as it always did. */
+  function handlePaste(event: React.ClipboardEvent<HTMLTextAreaElement>) {
+    const files = [...event.clipboardData.files].filter(isAttachmentFile);
+    if (files.length === 0) return;
+    event.preventDefault();
+    void addAttachments(files.map((file) => () => fileToAttachment(file)));
   }
 
   function removeAttachment(index: number) {
-    setAttachments((prev) => prev.filter((_, i) => i !== index));
+    setAllAttachments(attachmentsRef.current.filter((_, i) => i !== index));
   }
 
   async function handleMicClick() {
@@ -98,7 +152,7 @@ function MessageInput({ onSend, focusKey, disabled, onStop, onCycleMode }: Messa
   }
 
   return (
-    <div className="chat-input-dock">
+    <div className={`chat-input-dock${dragging ? " chat-input-dock--dragging" : ""}`}>
       {attachError && <p className="chat-attach-error" role="alert">{attachError}</p>}
       {recordError && <p className="chat-attach-error" role="alert">{recordError}</p>}
       {attachments.length > 0 && (
@@ -148,6 +202,7 @@ function MessageInput({ onSend, focusKey, disabled, onStop, onCycleMode }: Messa
           placeholder={isTranscribing ? "Transcribing…" : "Message Warden…"}
           value={draft}
           onChange={(e) => setDraft(e.currentTarget.value)}
+          onPaste={handlePaste}
           onKeyDown={(e) => {
             if (e.key === "Enter" && !e.shiftKey) {
               e.preventDefault();

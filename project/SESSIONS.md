@@ -2,9 +2,19 @@
 
 > **Nota**: Este log foi criado junto com o projeto. As sessões serão registradas aqui conforme o trabalho avança.
 >
-> Última atualização: 2026-10-17 (Sessão 243)
+> Última atualização: 2026-10-18 (Sessão 244)
 
 ---
+
+### 2026-10-18 — Sessão 244 (colar imagem, arrastar arquivo e a caixa que cresce: P157, itens 8 e 9)
+
+- **Pedido do usuário**: "sim", à minha proposta de juntar os itens 8 e 9 numa fatia só, por mexerem no mesmo componente. Planejado em modo de plano.
+- **Achado que decidiu o desenho**: o Tauri 2 trata o arrasto de arquivos de fora **nativamente** (o `tauri.conf.json` não desliga `dragDropEnabled`), então o `onDrop` do HTML não recebe os arquivos: eles chegam por `getCurrentWebview().onDragDropEvent`, como **caminhos**. O colar é o contrário: `clipboardData.files` entrega `File`, sem caminho. Dois caminhos de leitura, uma regra só de limites.
+- **Feito** (só TypeScript e CSS, sem Rust): `lib/attachments.ts` com `ATTACHMENT_MIME_TYPES`, `isAttachmentFile` e `fileToAttachment` (base64 em pedaços de 32 KiB, recusa tipo fora da lista e arquivo acima de 9 MiB); `MessageInput.tsx` com `addAttachments` (o laço do botão, agora usado também pelo colar e pelo arrasto, conferindo os limites contra a caixa **como ela está na vez de cada arquivo**, por um ref, porque o handler do arrasto é montado uma vez), `onPaste` (só intercepta quando há arquivo; texto cola como sempre), o efeito do arrasto (ignora com `disabled`, aviso `chat-input-dock--dragging`) e o efeito que ajusta a altura da caixa ao rascunho; CSS do aviso e `overflow-y: auto`.
+- **Testes**: 4 novos em `attachments.test.mjs` (tipos aceitos e recusados, base64 de um PDF pequeno, 3 MiB em pedaços de volta byte a byte, tipo e tamanho recusados e o teto exato aceito). Só rodei aqui o `npm test` do desktop: 164 passam; o `tsc` segue acusando `rehype-highlight` não instalado, de antes.
+- **Não provado**: o arrasto, o colar e o crescer dependem de uma janela real e **não têm teste automatizado possível aqui** (P129). Em especial: se `onDragDropEvent` dispara como esperado em cada sistema (o Windows e o Linux/WebKitGTK tratam o arrasto de formas diferentes), e se `clipboardData.files` traz a imagem de um print de tela em cada um.
+- **Erro meu no caminho**: rodei por engano um `cat >> arquivo <<EOF` vazio no Bash (sem efeito, o arquivo ficou igual) para ver o fim de um arquivo; o certo era `tail`/Read. Nenhum código foi injetado por fora do Edit.
+- **Fora**: soltar só sobre a caixa (a janela inteira aceita), soltar texto ou pasta, o celular.
 
 ### 2026-10-17 — Sessão 243 (anexar PDF no desktop: P157, item 6)
 
