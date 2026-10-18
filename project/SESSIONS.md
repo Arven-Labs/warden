@@ -2,9 +2,18 @@
 
 > **Nota**: Este log foi criado junto com o projeto. As sessões serão registradas aqui conforme o trabalho avança.
 >
-> Última atualização: 2026-10-18 (Sessão 255)
+> Última atualização: 2026-10-18 (Sessão 256)
 
 ---
+
+### 2026-10-18 — Sessão 256 (o modelo do histórico descarrega e devolve o heap: P156 item 2)
+
+- **Pedido do usuário**: "vamos para outro de código" depois do roteiro com modelo real. Escolhi o que sobrava da memória ociosa (P156 item 2): o modelo do histórico nunca descarregava (~830 MB). Planejado em modo de plano, medir antes de implementar.
+- **Medido** (CI, `heavy-tests.yml`, teste novo `crates/warden-core/tests/history_embed_memory.rs`, `#[ignore]`, binário próprio porque lê o RSS do processo): 834 MB depois de 400 mensagens longas; largar o modelo só baixa para 635 MB; com `malloc_trim(0)`, **78 MB** (40 MB com `MALLOC_ARENA_MAX=1`). A retenção de ~560 MB do K.2 era o heap do glibc, não o ORT.
+- **Feito**: `HISTORY_MODEL` saiu de dentro de `embed()` para o módulo (`FairMutex<Option<LoadedModel>>`, como `VAULT_MODEL`); `unload_idle_history_model`; `trim_heap()` (`malloc_trim`, só Linux/glibc, declaração `extern "C"` sem dependência nova) depois de largar cada modelo, o do histórico e o do cofre; o tick de `unload_idle_embedders_periodically` (`server.rs`) larga os dois; o texto do flag `--embedding-idle-secs` foi acertado. O teste agora afirma que o descarregamento deixa menos da metade do RSS carregado.
+- **CI**: verde no `d66bb66` (run 39141790892); `heavy-tests` verde nas duas rodadas (39141340193 antes do conserto, 39141804782 depois).
+- **Achado**: o run do `10e76ad` (39140730151) teve um teste de `code_engine::process` falhando com `Text file busy`, sem relação com a mudança; virou o P159.
+- **Não provado**: o hub inteiro não foi remedido (o cenário "descarregamento" do `measure-rss.yml` deve melhorar para o cofre), nem o ganho no app desktop, que não roda essa tarefa. A medição é de um runner de 4 núcleos com notas sintéticas.
 
 ### 2026-10-18 — Sessão 255 (roteiro com modelo real: skills, tarefas e delegação: P156)
 
