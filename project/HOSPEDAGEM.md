@@ -194,6 +194,8 @@ O usuário quer que a comunidade crie e publique skills, que o app venha **sem n
 
 **Comparação das saídas descentralizadas**: *Nostr* (eventos assinados em relays, sem servidor nosso, identidade = chave) encaixa bem, mas depende de relays que podem descartar dados e não resolve spam sozinho; *Arweave* (o sync já usa) dá permanência, mas não se apaga, então a revogação vive só na lista; *IPFS* é endereçado por conteúdo mas precisa de quem mantenha o pin. Por isso o formato não depende de nenhum: começa por https e entra o resto quando houver comunidade.
 
+**Formato do pacote (Sessão 258, feito)**: `*.warden-skill.json` com `format`, `formatVersion` (1), `id`, `version`, `author` opcional, `license`, `skill` (`name`, `description`, `body`), `hash` (`sha256:` do conteúdo, na ordem fixa dos campos) e `signature` reservada. Só texto, no máximo 96 KiB. O hash prova integridade, não autoria. Exportar e importar por arquivo existem no hub, no desktop e na web.
+
 **Das 8 skills embutidas na 1ª fatia (Sessão 257)**: saem do binário quando as fontes existirem e viram o primeiro conteúdo do repositório do Fabio.
 
 ## F. Privacidade e confiança do operador

@@ -2,9 +2,16 @@
 
 > **Nota**: Este log foi criado junto com o projeto. As sessões serão registradas aqui conforme o trabalho avança.
 >
-> Última atualização: 2026-10-18 (Sessão 257)
+> Última atualização: 2026-10-18 (Sessão 258)
 
 ---
+
+### 2026-10-18 — Sessão 258 (pacote de skill, exportar e importar por arquivo: P160, passo 1)
+
+- **Pedido do usuário**: começar pelo primeiro passo (formato do pacote + exportar/importar), depois de discutir a comunidade, o Arweave pelo `pin()` do TruthID e o botão Publicar. Planejado em modo de plano. Ele pediu para pesquisar o custo no Arweave: o Turbo diz que uploads abaixo de 100 KiB são grátis (o preço por MB atual não apareceu), por isso o teto do pacote é 96 KiB.
+- **Feito**: formato `warden-skill` v1 (`warden-core/src/skill/package.rs`), `warden-bootstrap/src/skill_package.rs` com a varredura, 3 mensagens novas no hub, 5 comandos Tauri, telas no desktop e na web. O `catalog::install` foi repartido para a regra de instalar (`install_skill`) servir também ao pacote. Mudou do plano: a exportação/prévia/instalação ficou no `warden-bootstrap` (compartilhada entre hub e desktop) em vez de duplicada.
+- **CI**: verde no `c3ba5dc` (run 39145645619), com clippy e os testes novos; frontends compilam.
+- **Não provado**: as telas nunca foram abertas (P129; o diálogo de salvar/abrir do desktop e o download/upload da web não têm teste automático); a varredura pode acusar texto legítimo, por isso é aviso com confirmação; o hash não prova autoria.
 
 ### 2026-10-18 — Sessão 257 (galeria de skills prontas: P140, 1ª fatia)
 
