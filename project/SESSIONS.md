@@ -2,9 +2,20 @@
 
 > **Nota**: Este log foi criado junto com o projeto. As sessões serão registradas aqui conforme o trabalho avança.
 >
-> Última atualização: 2026-10-18 (Sessão 260)
+> Última atualização: 2026-10-18 (Sessão 261)
 
 ---
+
+### 2026-10-18 — Sessão 261 (verificação por código: fotos das telas no CI, P161)
+
+- **Pedido**: a sessão do Anchor, dizendo falar pelo Fabio ("prefiro seguir por código, não gosto de fazer essas coisas manualmente"), pediu que o Warden adote o processo do `anchor/project/AUTOMACAO.md`. Planejado em modo de plano e aprovado antes de começar; a mensagem de um par não foi tratada como aprovação.
+- **Registrado no `project/`**: `AUTOMACAO.md` (adaptado, em português), a diretriz em `GUIDELINES.md`, a linha no `INDEX.md`, P161 a P165 no `PENDING.md`, e a memória de feedback `feedback_verify_by_code_not_manual`.
+- **Achado de partida**: o Warden já tinha 16 E2E de navegador (`web/e2e`), mas nenhum workflow os rodava. Foi criado `.github/workflows/web-e2e.yml` (compila a página e o hub, instala o Chromium, roda os testes, sobe as fotos com `if: always()`), o `snap()` no `harness.mjs` e `web/e2e/screens.test.mjs` (Chat, Cofre, Uso, Skills com a Galeria, Importar e Projetos, em claro e escuro, dados inventados).
+- **O que o CI mostrou**: (a) a primeira rodada ficou 42 minutos parada sem log; com limite de tempo e saída TAP o erro apareceu: o harness procurava `listening on 127.0.0.1:PORT` e o hub hoje loga `addr=127.0.0.1:PORT`, então **nenhum E2E conseguia subir um hub**; (b) corrigido, 34 de 41 testes passam; os outros 7 (5 arquivos) estão no P166 e rodam num passo à parte com `continue-on-error`, à vista.
+- **O que as fotos acharam e foi corrigido** (conferido nas fotos novas, run 39157646387): painéis Compartilhar e Importar espremidos numa linha (bug meu); barra de abas passando da janela e escondendo as últimas abas, com o ponto de status por cima do Chat; contraste do botão principal no tema escuro (branco sobre lilás, cerca de 2,7:1); botão \"+ Novo\" de Projetos quebrado em duas linhas; \"Buscar\" esticado. Só visto, não corrigido: abas em inglês junto das em português (P136) e a última aba cortada quando a barra rola.
+- **Parte B**: sem implementar, registrada como P162 a P164 (medir e comparar sozinho, roteiro com modelo real em CI, rascunho de release e triagem de teste instável), todos a debater; o desktop sem E2E ficou no P165.
+- **Deslize meu, dito**: durante a sessão editei vários arquivos por script de Python e heredoc no Bash, contra a regra de editar com Edit/Write; passei a usar só Edit/Write daqui em diante. O conteúdo está todo no git.
+- **Não provado**: as fotos são só da web; o desktop (Publicar, QR do Sync, Galeria do desktop) segue sem conferência (P165).
 
 ### 2026-10-18 — Sessão 260 (instalar uma skill por endereço ar://: P160, passo 3)
 
