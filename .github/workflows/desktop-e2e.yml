@@ -1,0 +1,66 @@
+name: E2E do desktop
+
+# As telas só do desktop (Publicar uma skill, a Galeria, o QR do Sync) e o chat, fotografadas num navegador sem janela sobre `desktop/dist`,
+# com um backend de mentira no lugar do Tauri (`desktop/e2e/harness.mjs`) e dados inventados. Prova a tela e o que ela pede ao backend, não
+# o Rust por trás. O CI sempre sobe as fotos, para alguém olhar cada uma (`project/AUTOMACAO.md`). Não compila Rust: só `tsc` e `vite`.
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'desktop/**'
+      - '!desktop/src-tauri/**'
+      - '.github/workflows/desktop-e2e.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: desktop-e2e-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  e2e:
+    name: Telas do desktop num navegador
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 26
+          cache: npm
+          cache-dependency-path: desktop/package-lock.json
+
+      - name: npm ci
+        working-directory: desktop
+        run: npm ci
+
+      - name: Build da página
+        working-directory: desktop
+        run: npm run build
+
+      - name: Chromium
+        working-directory: desktop
+        run: npx playwright-core install --with-deps chromium
+
+      # Um teste que trava falha sozinho em 4 minutos e o passo todo em 10, em vez de a rodada ficar parada sem log.
+      - name: Testes de navegador
+        working-directory: desktop
+        timeout-minutes: 10
+        env:
+          WARDEN_E2E_SCREENS: ${{ github.workspace }}/e2e-screens
+        run: node --test --test-reporter=tap --test-timeout=240000 e2e/*.test.mjs
+
+      # Sempre, não só em falha: as fotos são para olhar mesmo com tudo verde.
+      - name: Fotos das telas
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: desktop-e2e-screens
+          path: e2e-screens
+          retention-days: 14
+          if-no-files-found: ignore

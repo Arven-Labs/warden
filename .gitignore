@@ -49,3 +49,4 @@ Thumbs.db
 .truthid/
 # Pictures the browser tests take of the screens (web/e2e/harness.mjs `snap`); the CI uploads them, nobody commits them.
 web/e2e-screens/
+desktop/e2e-screens/

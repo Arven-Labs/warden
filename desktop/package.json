@@ -8,6 +8,7 @@
     "build": "tsc && vite build",
     "preview": "vite preview",
     "test": "node --test tests/",
+    "test:e2e": "node --test \"e2e/**/*.test.mjs\"",
     "tauri": "tauri"
   },
   "dependencies": {
@@ -26,6 +27,7 @@
     "@types/react": "^19.1.8",
     "@types/react-dom": "^19.1.6",
     "@vitejs/plugin-react": "^4.6.0",
+    "playwright-core": "1.61.1",
     "typescript": "~5.8.3",
     "vite": "^7.0.4"
   }
