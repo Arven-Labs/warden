@@ -57,7 +57,12 @@ extrato é revisto):
 8. **Mostrar o estado na tela** (um selo, uma frase com ligar/desligar): ninguém adivinha se está ligado.
 9. **Validar o modelo com dados reais antes de construir**, quando o passo estima algo. Se não passar, não vale automatizar.
 
-Nenhum fluxo novo entra sem plan mode e sem o Fabio aprovar. Os candidatos do Warden estão no `PENDING.md` (P162 a P164), todos a debater.
+Nenhum fluxo novo entra sem plan mode e sem o Fabio aprovar. Os candidatos do Warden (P162 a P164) foram debatidos e ligados na Sessão 267:
+- **P162, medir e comparar** (`measure-rss.yml`): toda segunda de manhã, compara o RSS com `scripts/rss-baseline.json` e, se algum cenário subir mais que o maior entre 10% e 5 MB, o job fica vermelho e abre ou comenta uma issue `rss` (regras 1, 8 e 9: o RSS varia 1 a 2%, o tempo não entra). A referência se atualiza num commit quando a mudança é de propósito.
+- **P163, roteiro com modelo real** (`real-model.yml`): só por botão, com o segredo `WARDEN_EVAL_KEY` (a chave da OpenRouter, que só o Fabio cria) e `deepseek/deepseek-v4.1-flash` como modelo padrão; o resultado de cada teste vai ao resumo (regras 4 e 7).
+  O resultado varia com o modelo (2, 3 e 4 de 4 em três rodadas), então um vermelho pede leitura do que o modelo fez antes de culpar o código.
+- **P164 a, rascunho de release** (`release-notes.yml`, chamado pelo `build.yml`): as notas saem dos commits entre as tags e vão **só para um release em rascunho**; um publicado é recusado (regra 6).
+- **P164 b, testes que falharam** (`ci.yml`): o resumo do run lista o nome e o pânico de cada teste que falhou; **nada é religado** (regras 2 e 3).
 
 ## 4. Ritual de cada fatia
 1. Ler o `project/` (INDEX primeiro) e a memória. 2. Plan mode se for item novo. 3. Código e testes, **por Edit/Write**. 4. `git push` e **ler o

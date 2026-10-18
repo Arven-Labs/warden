@@ -2,7 +2,21 @@
 
 > **Nota**: Este log foi criado junto com o projeto. As sessões serão registradas aqui conforme o trabalho avança.
 >
-> Última atualização: 2026-10-18 (Sessão 266)
+> Última atualização: 2026-10-18 (Sessão 267)
+
+---
+
+### 2026-10-18 — Sessão 267 (as automações da Parte B: P162, P163 e P164)
+
+- **Pedido**: "prefiro do p162 a p164". Como eram "a debater", planejei em modo de plano, li o que existia (os workflows, o `measure-rss.py`, o `real_model.rs`, o histórico do CI) e levei quatro decisões ao usuário, que escolheu as quatro recomendadas: semanal com issue acima de 10%, botão manual com segredo, notas de release no rascunho, e só listar os testes que falharam (sem religar).
+- **Dado antes de construir (regra 9)**: 6 runs do `measure-rss.yml` deram o mesmo RSS com 1 a 2% de diferença; o tempo do 1º turno varia 15%.
+- **Feito**: `--json` no `measure-rss.py`, `compare-rss.py`, `rss-baseline.json`, agenda e issue no `measure-rss.yml` (P162); `real-model.yml` (P163); `release-notes.py`, `release-notes.yml` e o job `notes` no `build.yml`, e a lista dos testes que falharam no `ci.yml` (P164).
+- **Provado de verdade**: RSS verde contra a referência (run 39169970772) e vermelho com a issue #1 aberta quando forcei o limite (run 39170888661; fechei a issue, era de teste); `real-model.yml` sem segredo falha com a mensagem certa (39169973557); notas de `v0.1.1` no resumo (39169976520) e recusadas com `apply=true` por já estar publicado (39169978933, o release ficou intacto); a lista dos testes que falharam foi conferida em shell com um log inventado.
+- **A chave**: o usuário disse que estava em `~/Documents/api.txt` e pediu que eu a usasse sozinho, mas o classificador de permissões negou a leitura do arquivo e não contornei; o usuário criou o segredo com um comando só (`! gh secret set WARDEN_EVAL_KEY < ~/Documents/api.txt`), sem a chave passar por mim. Pedido dele: `deepseek/deepseek-v4.1-flash` pela OpenRouter, que é o padrão do workflow.
+- **O roteiro com modelo real, 3 rodadas**: 2, 3 e 4 de 4 verdes; salvar uma skill falhou 2 vezes (estourou 8 chamadas; texto sem sentido do modelo, 22 min) e delegar em dois níveis 1 vez. Na Sessão 255 foram 4 de 4: variação do modelo, não defeito de código; testes não mexidos.
+- **Também**: a referência do RSS foi atualizada num commit à parte (o descarregamento caiu de 96 para 51 MB, efeito do P156); o limite do alerta virou campo do botão (`limit`, `floor_mb`) para poder provar o alerta.
+- **Não provado**: o job `notes` do `build.yml` numa tag real (só roda numa tag nova); o passo dos testes que falharam numa falha real do CI (só em shell com um log inventado); a agenda de segunda (só o botão).
+- **Fica**: P156 (outros provedores), P167 (a, d, e), P160 (parado por decisão do usuário).
 
 ---
 
