@@ -29,6 +29,7 @@ Leia o arquivo relevante para o que você precisa:
 | Visão de produto: o Warden como sistema operacional de agentes (hierarquia, modo Agents, Code) | `VISAO_AGENTES.md` |
 | Estudos de fora (Hermes e o aprendizado dos agentes, etc.) | `STUDIES.md` |
 | **Produto hospedado: assinatura, créditos de modelo e loja (desenho, nada implementado)** | **`HOSPEDAGEM.md`** |
+| Verificação por código: fotos das telas no CI e automação de fluxos (P161) | `AUTOMACAO.md` |
 | Log completo de sessões de trabalho | `SESSIONS.md` |
 
 **Ao começar uma sessão**: Diga ao Claude "leia os arquivos em `project/` e me ajude a continuar"

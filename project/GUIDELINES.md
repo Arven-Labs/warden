@@ -20,3 +20,11 @@ O usuário é um desenvolvedor experiente (Rust, TypeScript, React, Python, Ruby
 - Oferecer opções com trade-offs quando houver decisão em aberto
 - Código limpo, bem tipado, testado
 - Manter consistência com a stack já usada nos outros projetos (TruthID, Practice Valuation)
+
+---
+
+# Diretriz de verificação (IMPORTANTE — vale para toda fatia)
+
+O Fabio prefere verificação por código a conferência manual (Sessão 261). Conferir telas e disparar passos de um fluxo são trabalho do
+Claude, não dele: o E2E fotografa as telas, o CI sobe as fotos sempre, e o Claude baixa e olha cada uma; o que é fluxo vira automação com
+revisão. Tudo no CI, nada de build local. O processo inteiro, com o porquê de cada regra, está em `AUTOMACAO.md`.
