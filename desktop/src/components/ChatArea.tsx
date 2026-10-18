@@ -51,7 +51,6 @@ interface ChatAreaProps {
   selectedProviderId: string;
   onSelectAgent: (agentId: string) => void;
   onSelectProvider: (providerId: string) => void;
-  onOpenSettings: () => void;
   /** The conversation runs on a hub (P102), not on this computer: the hub picks the model from the agent (a turn can't
    * name one), and its folders are browsed on the hub instead of with this computer's dialog. */
   remote?: boolean;
@@ -69,11 +68,6 @@ interface ChatAreaProps {
   channelTitle?: string;
   /** With `channel`: a button beside the header's label (to the agent's notes and runs, or back to its channel). */
   headerAction?: { label: string; onClick: () => void };
-}
-
-function personaPreview(persona: string): string {
-  const collapsed = persona.trim().replace(/\s+/g, " ");
-  return collapsed.length > 80 ? `${collapsed.slice(0, 80)}…` : collapsed;
 }
 
 function ThinkingIndicator() {
@@ -149,7 +143,6 @@ function ChatArea({
   selectedProviderId,
   onSelectAgent,
   onSelectProvider,
-  onOpenSettings,
   remote = false,
   hubFolders,
   onOpenThread,
@@ -171,16 +164,9 @@ function ChatArea({
   // Another conversation, another question.
   useEffect(() => setPendingMove(null), [activeConversation?.id]);
 
-  // The person chose to talk with no agent (P124): the pick screen is skipped. Per conversation, like the pick itself.
-  const [withoutAgent, setWithoutAgent] = useState(false);
-  useEffect(() => setWithoutAgent(false), [activeConversation?.id]);
-
   const hasMessages = !!activeConversation && activeConversation.messages.length > 0;
-  // A conversation starts with an agent chosen or with the choice of none (P124), and the agent can be changed later from the header
-  // (P45 locked it for good). This is the "not decided yet" gate: no messages yet, no agent picked and no "without an agent" either
-  // (picking one doesn't send a message by itself, see onSelectAgent below).
-  const needsAgentPick = !channel && !hasMessages && !selectedAgentId && !withoutAgent;
-  // Like the agent, a conversation's project is chosen before its first message and then fixed (P103). One whose
+  // A conversation starts with no agent, ready to type in (P157), and the agent can be changed from the header at any time (P124).
+  // A conversation's project, unlike the agent, is chosen before its first message and then fixed (P103). One whose
   // project was removed since has nothing to show.
   const knownProject = projects.some((p) => p.id === selectedProjectId);
   // A conversation that works in a folder can't be moved into a project (P102), so it has no project picker.
@@ -222,9 +208,7 @@ function ChatArea({
         />
       )}
       <div className="chat-header">
-        {needsAgentPick ? (
-          <span className="chat-header-label chat-header-label--muted">Pick an agent to start</span>
-        ) : channel ? (
+        {channel ? (
           // An agent's channel is that agent's for good: no switching it here.
           <>
             {headerAction && channelTitle !== undefined && (
@@ -250,9 +234,7 @@ function ChatArea({
             value={selectedAgentId}
             disabled={isSending}
             onChange={(e) => {
-              const next = e.currentTarget.value;
-              if (next === "") setWithoutAgent(true);
-              onSelectAgent(next);
+              onSelectAgent(e.currentTarget.value);
             }}
           >
             <option value="">No agent</option>
@@ -388,43 +370,7 @@ function ChatArea({
         </div>
       )}
       <div className="chat-messages" role="log" aria-live="polite" aria-label="Conversation messages">
-        {needsAgentPick ? (
-          <div className="agent-picker">
-            {agents.length === 0 ? (
-              <>
-                <LogoMark size={40} />
-                <h1>No agents yet</h1>
-                <p>Create one in Settings, or talk with no agent.</p>
-                <button type="button" className="agent-picker-settings-btn" onClick={onOpenSettings}>
-                  Open Settings
-                </button>
-                <button type="button" className="agent-picker-skip" onClick={() => setWithoutAgent(true)}>
-                  Chat without an agent
-                </button>
-              </>
-            ) : (
-              <>
-                <h1>Which agent should drive this conversation?</h1>
-                <div className="agent-picker-list">
-                  {agents.map((a) => (
-                    <button
-                      key={a.id}
-                      type="button"
-                      className="agent-picker-card"
-                      onClick={() => onSelectAgent(a.id)}
-                    >
-                      <span className="agent-picker-card-name">{a.id}</span>
-                      {a.persona && <span className="agent-picker-card-persona">{personaPreview(a.persona)}</span>}
-                    </button>
-                  ))}
-                </div>
-                <button type="button" className="agent-picker-skip" onClick={() => setWithoutAgent(true)}>
-                  Chat without an agent
-                </button>
-              </>
-            )}
-          </div>
-        ) : !hasMessages ? (
+        {!hasMessages ? (
           <div className="chat-empty-state">
             <LogoMark size={40} />
             <h1>How can I help you today?</h1>
@@ -468,7 +414,7 @@ function ChatArea({
       <MessageInput
         onSend={onSendMessage}
         focusKey={activeConversation?.id ?? null}
-        disabled={isSending || needsAgentPick}
+        disabled={isSending}
         onStop={isSending ? onCancel : undefined}
         onCycleMode={projects.some((p) => p.id === selectedProjectId && p.code) ? () => onCodeMode(nextCodeMode(codeMode)) : undefined}
       />

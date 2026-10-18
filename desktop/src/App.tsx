@@ -1152,7 +1152,6 @@ function App() {
           selectedProviderId={selectedProviderId}
           onSelectAgent={handleSelectAgent}
           onSelectProvider={setSelectedProviderId}
-          onOpenSettings={() => setView("settings")}
           remote={remote}
           hubFolders={remote ? { listDirs: hubListDirs, nodes: knownNodes, prepare: loadNodes } : undefined}
           // A thread needs a conversation that is saved, and a code project's context is the engine's session, not its messages.
