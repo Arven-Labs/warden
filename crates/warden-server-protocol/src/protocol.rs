@@ -41,6 +41,17 @@ impl From<Skill> for SkillDto {
     }
 }
 
+/// One skill of the built-in gallery (P140) on the wire, with where it stands in this vault: `notInstalled`, `installed` (the
+/// vault has the same text) or `modified` (the vault has a skill of that name that differs, so installing replaces it).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CatalogSkillDto {
+    pub name: String,
+    pub description: String,
+    pub body: String,
+    pub status: String,
+}
+
 /// A project (P103) on the wire — what a client's Projects screen lists and edits over `ListProjects`/`SaveProject`.
 /// The files of a project are ordinary notes of the vault (`projects/<id>/…`) and travel over the vault messages.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -1783,6 +1794,18 @@ pub enum ClientMessage {
         request_id: u64,
         name: String,
     },
+    /// The gallery of ready-made skills that ship with the hub (P140), each with its state in this vault. Answered by
+    /// `SkillCatalog`.
+    ListSkillCatalog {
+        request_id: u64,
+    },
+    /// Installs a skill of the gallery into the vault. A skill of that name that differs is only replaced with
+    /// `overwrite: true`. Answered by `SkillOk` or `SkillError`.
+    InstallCatalogSkill {
+        request_id: u64,
+        name: String,
+        overwrite: bool,
+    },
     /// Projects (P103) — the projects of the person's own vault. Answered by `ProjectList`, `ProjectOk` or `ProjectError`
     /// with the same `request_id`.
     ListProjects {
@@ -2496,6 +2519,11 @@ pub enum ServerMessage {
     SkillError {
         request_id: u64,
         message: String,
+    },
+    /// Reply to `ClientMessage::ListSkillCatalog`.
+    SkillCatalog {
+        request_id: u64,
+        entries: Vec<CatalogSkillDto>,
     },
     /// Reply to `ClientMessage::ListProjects`.
     ProjectList {
@@ -3212,6 +3240,27 @@ mod tests {
         let json = serde_json::to_string(&err).unwrap();
         assert_eq!(json, r#"{"type":"skillError","requestId":3,"message":"no skill named 'x'"}"#);
         assert_eq!(serde_json::from_str::<ServerMessage>(&json).unwrap(), err);
+    }
+
+    #[test]
+    fn skill_catalog_messages_round_trip_through_json() {
+        let list = ClientMessage::ListSkillCatalog { request_id: 1 };
+        let json = serde_json::to_string(&list).unwrap();
+        assert_eq!(json, r#"{"type":"listSkillCatalog","requestId":1}"#);
+        assert_eq!(serde_json::from_str::<ClientMessage>(&json).unwrap(), list);
+
+        let install = ClientMessage::InstallCatalogSkill { request_id: 2, name: "email-draft".into(), overwrite: true };
+        let json = serde_json::to_string(&install).unwrap();
+        assert_eq!(json, r#"{"type":"installCatalogSkill","requestId":2,"name":"email-draft","overwrite":true}"#);
+        assert_eq!(serde_json::from_str::<ClientMessage>(&json).unwrap(), install);
+
+        let catalog = ServerMessage::SkillCatalog {
+            request_id: 3,
+            entries: vec![CatalogSkillDto { name: "email-draft".into(), description: "d".into(), body: "b".into(), status: "modified".into() }],
+        };
+        let json = serde_json::to_string(&catalog).unwrap();
+        assert_eq!(json, r#"{"type":"skillCatalog","requestId":3,"entries":[{"name":"email-draft","description":"d","body":"b","status":"modified"}]}"#);
+        assert_eq!(serde_json::from_str::<ServerMessage>(&json).unwrap(), catalog);
     }
 
     #[test]

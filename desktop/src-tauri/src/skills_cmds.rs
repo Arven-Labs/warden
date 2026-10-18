@@ -10,7 +10,7 @@
 use serde::{Deserialize, Serialize};
 use tauri::State;
 use warden_bootstrap::{build_model_for, default_config_path, load_config_from_path};
-use warden_core::skill::{Skill, SkillStore};
+use warden_core::skill::{catalog, Skill, SkillStore};
 
 use crate::AppState;
 
@@ -87,6 +87,39 @@ pub fn save_skill(state: State<'_, AppState>, skill: SkillPayload, overwrite: bo
 #[tauri::command]
 pub fn delete_skill(state: State<'_, AppState>, name: String) -> Result<(), String> {
     store(&state)?.delete(&name).map_err(|e| format!("{e:#}"))
+}
+
+/// One skill of the built-in gallery (P140) and where it stands in this vault: `notInstalled`, `installed` or `modified`.
+#[derive(Serialize, Debug, Clone, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct CatalogSkillPayload {
+    name: String,
+    description: String,
+    body: String,
+    status: &'static str,
+}
+
+fn catalog_of(store: &SkillStore) -> Vec<CatalogSkillPayload> {
+    catalog::entries()
+        .iter()
+        .map(|entry| CatalogSkillPayload {
+            name: entry.name.clone(),
+            description: entry.description.clone(),
+            body: entry.body.clone(),
+            status: catalog::status(store, entry).as_str(),
+        })
+        .collect()
+}
+
+#[tauri::command]
+pub fn list_skill_catalog(state: State<'_, AppState>) -> Result<Vec<CatalogSkillPayload>, String> {
+    Ok(catalog_of(&store(&state)?))
+}
+
+/// Installs a skill of the gallery; a skill of that name that differs is only replaced with `overwrite`.
+#[tauri::command]
+pub fn install_catalog_skill(state: State<'_, AppState>, name: String, overwrite: bool) -> Result<(), String> {
+    catalog::install(&store(&state)?, &name, overwrite).map_err(|e| format!("{e:#}"))
 }
 
 #[tauri::command]

@@ -79,6 +79,15 @@ export interface SkillDto {
   revises?: string;
 }
 
+/** Mirrors `warden_server_protocol::protocol::CatalogSkillDto` (P140): a skill of the gallery that ships with the hub, and
+ * where it stands in this vault. `modified`: a skill of that name is there but differs, so installing replaces it. */
+export interface CatalogSkillDto {
+  name: string;
+  description: string;
+  body: string;
+  status: "notInstalled" | "installed" | "modified";
+}
+
 /** Mirrors `warden_server_protocol::protocol::ConversationSummary` (P78). */
 export interface ConversationSummary {
   id: string;
@@ -858,6 +867,9 @@ export type ClientMessage =
   | { type: "listSkills"; requestId: number }
   | { type: "saveSkill"; requestId: number; skill: SkillDto; overwrite: boolean }
   | { type: "deleteSkill"; requestId: number; name: string }
+  /** P140 — the gallery of ready-made skills, answered by `skillCatalog`; installing answers `skillOk`/`skillError`. */
+  | { type: "listSkillCatalog"; requestId: number }
+  | { type: "installCatalogSkill"; requestId: number; name: string; overwrite: boolean }
   /** Projects (P103) — of the person's own vault; `requestId` is echoed on the matching reply. */
   /** P103 — moves a conversation into a project, or out of any with no `projectId`; answered by `conversationOk`/`conversationError`. */
   | { type: "moveConversation"; requestId: number; conversationId: string; projectId?: string }
@@ -1016,6 +1028,7 @@ export type ServerMessage =
   | { type: "skillList"; requestId: number; skills: SkillDto[] }
   | { type: "skillOk"; requestId: number }
   | { type: "skillError"; requestId: number; message: string }
+  | { type: "skillCatalog"; requestId: number; entries: CatalogSkillDto[] }
   | { type: "projectList"; requestId: number; projects: ProjectDto[] }
   | { type: "projectOk"; requestId: number }
   | { type: "projectError"; requestId: number; message: string }
@@ -1141,6 +1154,7 @@ export function decode(text: string): ServerMessage {
     }
     case "skillOk":
     case "skillError":
+    case "skillCatalog":
     case "projectList":
     case "projectOk":
     case "projectError":

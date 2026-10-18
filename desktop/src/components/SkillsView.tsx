@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import type { AgentEntry, ProviderEntry, SkillEntry } from "../types";
+import type { AgentEntry, CatalogSkill, ProviderEntry, SkillEntry } from "../types";
 import { diffLines, hasChanges, withContext } from "./skillDiff";
 import { hubSkills } from "../lib/hub";
 
@@ -175,6 +175,8 @@ const localSkills = {
   list: () => invoke<SkillEntry[]>("list_skills"),
   save: (skill: SkillEntry, overwrite: boolean) => invoke<void>("save_skill", { skill, overwrite }),
   remove: (name: string) => invoke<void>("delete_skill", { name }),
+  catalog: () => invoke<CatalogSkill[]>("list_skill_catalog"),
+  install: (name: string, overwrite: boolean) => invoke<void>("install_catalog_skill", { name, overwrite }),
 };
 
 /** `remote`: the skills are the hub's (P102), without attached files or drafting, which the hub has no messages for.
@@ -201,6 +203,10 @@ function SkillsView({
   // Which provider drafts the skill; "" = the active one (same convention as the chat's model picker).
   const [draftProvider, setDraftProvider] = useState("");
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
+  // The built-in gallery (P140): `null` while loading or when it could not be read (a hub older than the gallery).
+  const [catalog, setCatalog] = useState<CatalogSkill[] | null>(null);
+  const [confirmReplace, setConfirmReplace] = useState<string | null>(null);
+  const [installing, setInstalling] = useState<string | null>(null);
 
   function refresh() {
     api
@@ -210,6 +216,24 @@ function SkillsView({
         setLoadError(null);
       })
       .catch((err) => setLoadError(String(err)));
+    api
+      .catalog()
+      .then(setCatalog)
+      .catch(() => setCatalog(null));
+  }
+
+  async function handleInstall(name: string, overwrite: boolean) {
+    setError(null);
+    setInstalling(name);
+    try {
+      await api.install(name, overwrite);
+      setConfirmReplace(null);
+      refresh();
+    } catch (err) {
+      setError(String(err));
+    } finally {
+      setInstalling(null);
+    }
   }
 
   useEffect(refresh, []);
@@ -590,6 +614,68 @@ function SkillsView({
           </div>
         )}
       </section>
+
+      {catalog !== null && catalog.length > 0 && (
+        <section className="settings-section">
+          <div className="settings-section-header">
+            <h3 className="settings-section-title">Gallery</h3>
+          </div>
+          <p className="settings-hint">
+            Ready-made skills that come with Warden. Installing one copies it into <code>skills/</code> in your vault, where
+            you can edit it like any other skill. Nothing is downloaded.
+          </p>
+          <div className="provider-list">
+            {catalog.map((entry) => (
+              <div className="provider-card skill-card" key={entry.name}>
+                <div className="skill-card-header">
+                  <span className="skill-card-name">{entry.name}</span>
+                  <div className="skill-card-actions">
+                    {entry.status === "installed" ? (
+                      <span className="settings-hint">Installed</span>
+                    ) : entry.status === "modified" && confirmReplace === entry.name ? (
+                      <>
+                        <span className="settings-hint">Replace your version of this skill?</span>
+                        <button
+                          type="button"
+                          className="provider-delete-btn"
+                          onClick={() => handleInstall(entry.name, true)}
+                          disabled={installing === entry.name}
+                        >
+                          Replace
+                        </button>
+                        <button type="button" className="settings-browse-btn" onClick={() => setConfirmReplace(null)}>
+                          Keep mine
+                        </button>
+                      </>
+                    ) : entry.status === "modified" ? (
+                      <>
+                        <span className="settings-hint">You have a different skill with this name</span>
+                        <button type="button" className="settings-browse-btn" onClick={() => setConfirmReplace(entry.name)}>
+                          Use the gallery version
+                        </button>
+                      </>
+                    ) : (
+                      <button
+                        type="button"
+                        className="settings-save-btn"
+                        onClick={() => handleInstall(entry.name, false)}
+                        disabled={installing === entry.name}
+                      >
+                        {installing === entry.name ? "Installing…" : "Install"}
+                      </button>
+                    )}
+                  </div>
+                </div>
+                <p className="skill-card-description">{entry.description}</p>
+                <details>
+                  <summary className="settings-hint">View the instructions</summary>
+                  <pre className="skill-suggestion-body">{entry.body}</pre>
+                </details>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
     </div>
   );
 }

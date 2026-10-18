@@ -35,6 +35,8 @@ use anyhow::{anyhow, bail, Context};
 
 use crate::memory::{Vault, SKILLS_DIR};
 
+pub mod catalog;
+
 pub const MAX_NAME_LEN: usize = 64;
 pub const MAX_DESCRIPTION_LEN: usize = 300;
 pub const MAX_FILE_NAME_LEN: usize = 64;

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import type { ServerConnection } from "../hub/connection";
-import type { SkillDto, UserInfo } from "../hub/messages";
+import type { CatalogSkillDto, SkillDto, UserInfo } from "../hub/messages";
 import { diffLines, hasChanges, withContext } from "./skillDiff";
 
 // Adapted from the extension's `sidepanel/SkillsView.tsx` (P78), talking to the hub directly
@@ -36,6 +36,10 @@ export default function SkillsView({
   const [editor, setEditor] = useState<EditorState | null>(null);
   const [saving, setSaving] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
+  // A galeria de skills prontas (P140): `null` enquanto carrega ou quando o hub não a tem (um hub anterior à galeria).
+  const [catalog, setCatalog] = useState<CatalogSkillDto[] | null>(null);
+  const [confirmReplace, setConfirmReplace] = useState<string | null>(null);
+  const [installing, setInstalling] = useState<string | null>(null);
 
   const refresh = useCallback(() => {
     if (!conn) return;
@@ -49,7 +53,25 @@ export default function SkillsView({
         setError(`falha ao listar as skills: ${message(err)}`);
       },
     );
+    conn.listSkillCatalog().then(setCatalog, () => setCatalog(null));
   }, [conn]);
+
+  function handleInstall(name: string, overwrite: boolean) {
+    if (!conn) return;
+    setError(null);
+    setInstalling(name);
+    conn.installCatalogSkill(name, overwrite).then(
+      () => {
+        setInstalling(null);
+        setConfirmReplace(null);
+        refresh();
+      },
+      (err) => {
+        setInstalling(null);
+        setError(`falha ao instalar a skill: ${message(err)}`);
+      },
+    );
+  }
 
   // Also re-runs after a reconnect, when `conn` is a new connection.
   useEffect(refresh, [refresh]);
@@ -337,6 +359,64 @@ export default function SkillsView({
             </li>
           ))}
         </ul>
+      )}
+      {catalog !== null && catalog.length > 0 && (
+        <section>
+          <h3>Galeria</h3>
+          <p className="skills-hint">
+            Skills prontas que vêm com o Warden. Instalar copia a skill para <code>skills/</code> no seu cofre, onde você pode editá-la como
+            qualquer outra. Nada é baixado.
+          </p>
+          <ul className="skills-list">
+            {catalog.map((entry) => (
+              <li key={entry.name} className="skills-item">
+                <div className="skills-item-header">
+                  <span className="skills-item-name">{entry.name}</span>
+                  {entry.status === "installed" ? (
+                    <span className="skills-hint">Instalada</span>
+                  ) : entry.status === "modified" && confirmReplace === entry.name ? (
+                    <span className="skills-actions">
+                      <button
+                        type="button"
+                        className="link-button skills-danger"
+                        disabled={installing === entry.name}
+                        onClick={() => handleInstall(entry.name, true)}
+                      >
+                        Substituir a minha
+                      </button>
+                      <button type="button" className="link-button" onClick={() => setConfirmReplace(null)}>
+                        Manter a minha
+                      </button>
+                    </span>
+                  ) : entry.status === "modified" ? (
+                    <span className="skills-actions">
+                      <span className="skills-hint">Você tem outra skill com este nome</span>
+                      <button type="button" className="link-button" onClick={() => setConfirmReplace(entry.name)}>
+                        Usar a da galeria
+                      </button>
+                    </span>
+                  ) : (
+                    <span className="skills-actions">
+                      <button
+                        type="button"
+                        className="primary-button"
+                        disabled={!conn || installing === entry.name}
+                        onClick={() => handleInstall(entry.name, false)}
+                      >
+                        {installing === entry.name ? "Instalando…" : "Instalar"}
+                      </button>
+                    </span>
+                  )}
+                </div>
+                <p className="skills-item-description">{entry.description}</p>
+                <details>
+                  <summary>Ver as instruções</summary>
+                  <pre className="skills-body">{entry.body}</pre>
+                </details>
+              </li>
+            ))}
+          </ul>
+        </section>
       )}
     </div>
   );

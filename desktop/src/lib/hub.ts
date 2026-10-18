@@ -9,6 +9,7 @@ import type {
   ActivityEvent,
   AgentTask,
   AgentTaskAction,
+  CatalogSkill,
   ChatMessage,
   Grant,
   GrantsView,
@@ -193,6 +194,12 @@ export const hubSkills = {
   },
   async remove(name: string): Promise<void> {
     await ask({ type: "deleteSkill", name }, "skillOk");
+  },
+  async catalog(): Promise<CatalogSkill[]> {
+    return (await ask<{ type: string; entries: CatalogSkill[] }>({ type: "listSkillCatalog" }, "skillCatalog")).entries;
+  },
+  async install(name: string, overwrite: boolean): Promise<void> {
+    await ask({ type: "installCatalogSkill", name, overwrite }, "skillOk");
   },
 };
 

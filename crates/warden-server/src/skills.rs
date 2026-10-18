@@ -4,8 +4,8 @@
 //! without a socket; the same create/edit rules as the desktop's `save_skill` and the mobile
 //! bridge (create refuses a taken name, edit overwrites).
 
-use warden_core::skill::{Skill, SkillStore};
-use warden_server_protocol::protocol::SkillDto;
+use warden_core::skill::{catalog, Skill, SkillStore};
+use warden_server_protocol::protocol::{CatalogSkillDto, SkillDto};
 use warden_server_protocol::{ClientMessage, ServerMessage};
 
 /// Answers a skills request, or `None` for any other message.
@@ -19,6 +19,22 @@ pub fn handle_skill_request(store: &SkillStore, message: ClientMessage) -> Optio
             Err(message) => ServerMessage::SkillError { request_id, message },
         },
         ClientMessage::DeleteSkill { request_id, name } => match store.delete(&name) {
+            Ok(()) => ServerMessage::SkillOk { request_id },
+            Err(err) => ServerMessage::SkillError { request_id, message: format!("{err:#}") },
+        },
+        ClientMessage::ListSkillCatalog { request_id } => ServerMessage::SkillCatalog {
+            request_id,
+            entries: catalog::entries()
+                .iter()
+                .map(|entry| CatalogSkillDto {
+                    name: entry.name.clone(),
+                    description: entry.description.clone(),
+                    body: entry.body.clone(),
+                    status: catalog::status(store, entry).as_str().to_string(),
+                })
+                .collect(),
+        },
+        ClientMessage::InstallCatalogSkill { request_id, name, overwrite } => match catalog::install(store, &name, overwrite) {
             Ok(()) => ServerMessage::SkillOk { request_id },
             Err(err) => ServerMessage::SkillError { request_id, message: format!("{err:#}") },
         },
@@ -105,6 +121,50 @@ mod tests {
             Some(ServerMessage::SkillError { .. })
         ));
         assert!(store.list().is_empty());
+    }
+
+    fn catalog_of(store: &SkillStore) -> Vec<CatalogSkillDto> {
+        match handle_skill_request(store, ClientMessage::ListSkillCatalog { request_id: 7 }) {
+            Some(ServerMessage::SkillCatalog { request_id: 7, entries }) => entries,
+            other => panic!("unexpected {other:?}"),
+        }
+    }
+
+    fn install_req(name: &str, overwrite: bool) -> ClientMessage {
+        ClientMessage::InstallCatalogSkill { request_id: 8, name: name.into(), overwrite }
+    }
+
+    #[test]
+    fn the_gallery_lists_its_skills_and_installing_one_puts_it_in_the_vault() {
+        let store = temp_store();
+        let entries = catalog_of(&store);
+        assert!(entries.len() >= 5);
+        assert!(entries.iter().all(|e| e.status == "notInstalled" && !e.body.is_empty()));
+
+        let name = entries[0].name.clone();
+        assert_eq!(handle_skill_request(&store, install_req(&name, false)), Some(ServerMessage::SkillOk { request_id: 8 }));
+        assert_eq!(store.get(&name).unwrap().body, entries[0].body);
+        let after = catalog_of(&store);
+        assert_eq!(after[0].status, "installed");
+        assert!(after[1..].iter().all(|e| e.status == "notInstalled"));
+    }
+
+    #[test]
+    fn installing_over_a_changed_skill_needs_overwrite_and_an_unknown_name_is_an_error() {
+        let store = temp_store();
+        let name = catalog_of(&store)[0].name.clone();
+        handle_skill_request(&store, save_req(SkillDto { body: "mine".into(), ..dto(&name) }, false));
+        assert_eq!(catalog_of(&store)[0].status, "modified");
+
+        match handle_skill_request(&store, install_req(&name, false)) {
+            Some(ServerMessage::SkillError { request_id: 8, message }) => assert!(message.contains("differs"), "{message}"),
+            other => panic!("unexpected {other:?}"),
+        }
+        assert_eq!(store.get(&name).unwrap().body, "mine");
+
+        assert_eq!(handle_skill_request(&store, install_req(&name, true)), Some(ServerMessage::SkillOk { request_id: 8 }));
+        assert_eq!(catalog_of(&store)[0].status, "installed");
+        assert!(matches!(handle_skill_request(&store, install_req("no-such-skill", true)), Some(ServerMessage::SkillError { .. })));
     }
 
     #[test]

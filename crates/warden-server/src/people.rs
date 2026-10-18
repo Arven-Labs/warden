@@ -275,9 +275,11 @@ fn gate_with(message: &ClientMessage, text: &str) -> Option<ServerMessage> {
         | ClientMessage::SetConversationFlags { request_id, .. } => {
             ServerMessage::ConversationError { request_id: *request_id, message: text }
         }
-        ClientMessage::ListSkills { request_id } | ClientMessage::SaveSkill { request_id, .. } | ClientMessage::DeleteSkill { request_id, .. } => {
-            ServerMessage::SkillError { request_id: *request_id, message: text }
-        }
+        ClientMessage::ListSkills { request_id }
+        | ClientMessage::SaveSkill { request_id, .. }
+        | ClientMessage::DeleteSkill { request_id, .. }
+        | ClientMessage::ListSkillCatalog { request_id }
+        | ClientMessage::InstallCatalogSkill { request_id, .. } => ServerMessage::SkillError { request_id: *request_id, message: text },
         ClientMessage::ListProjects { request_id } | ClientMessage::SaveProject { request_id, .. } | ClientMessage::DeleteProject { request_id, .. } => {
             ServerMessage::ProjectError { request_id: *request_id, message: text }
         }

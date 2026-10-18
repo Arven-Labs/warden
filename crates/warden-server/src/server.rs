@@ -1819,7 +1819,13 @@ async fn handle_connection<S: Transport>(ws: WebSocketStream<S>, peer: SocketAdd
                         let _ = reply_tx.send(reply);
                     });
                 }
-                Ok(message @ (ClientMessage::ListSkills { .. } | ClientMessage::SaveSkill { .. } | ClientMessage::DeleteSkill { .. })) => {
+                Ok(
+                    message @ (ClientMessage::ListSkills { .. }
+                    | ClientMessage::SaveSkill { .. }
+                    | ClientMessage::DeleteSkill { .. }
+                    | ClientMessage::ListSkillCatalog { .. }
+                    | ClientMessage::InstallCatalogSkill { .. }),
+                ) => {
                     // Short local file I/O, answered inline (no spawn) — P72.
                     let vault = person_vault(member.as_ref(), settings.as_deref(), &orchestrator.current(), &space_vaults);
                     let store = SkillStore::new(vault);

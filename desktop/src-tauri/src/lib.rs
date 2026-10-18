@@ -1292,6 +1292,8 @@ pub fn run() {
             skills_cmds::list_skills,
             skills_cmds::save_skill,
             skills_cmds::delete_skill,
+            skills_cmds::list_skill_catalog,
+            skills_cmds::install_catalog_skill,
             skills_cmds::list_skill_files,
             skills_cmds::read_skill_attachment,
             skills_cmds::save_skill_attachment,

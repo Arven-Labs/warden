@@ -618,6 +618,15 @@ export interface SyncPullResult {
 
 /** What `get_settings` returns, and also what the settings form holds — the shapes are
  * identical so the fetched snapshot can be used directly as initial form state. */
+/** One skill of the built-in gallery (P140) and where it stands in this vault — mirrors `CatalogSkillPayload` in
+ * `src-tauri/src/skills_cmds.rs`. `modified`: a skill of that name is there but differs, so installing replaces it. */
+export interface CatalogSkill {
+  name: string;
+  description: string;
+  body: string;
+  status: "notInstalled" | "installed" | "modified";
+}
+
 /** One skill (P16) — mirrors `SkillPayload` in `src-tauri/src/skills_cmds.rs`. */
 export interface SkillEntry {
   /** Slug (lowercase letters, digits, hyphens); doubles as the filename under `skills/`. */
