@@ -2,9 +2,16 @@
 
 > **Nota**: Este log foi criado junto com o projeto. As sessões serão registradas aqui conforme o trabalho avança.
 >
-> Última atualização: 2026-10-18 (Sessão 249)
+> Última atualização: 2026-10-18 (Sessão 250)
 
 ---
+
+### 2026-10-18 — Sessão 250 (o celular, passo 3: regenerar e editar: P157)
+
+- **Pedido do usuário**: "sim", ao passo 3 (o último do plano do celular aprovado na Sessão 248). Era o mais arriscado: depende de o id da mensagem mais nova chegar do histórico, e o `_MessageBubble` não tinha ação nenhuma.
+- **Feito**: `ChatMessage.replaceFrom` (omitido quando nulo) e `sendChat(…, replaceFrom:)` na conexão e na interface `ConversationBackend`. No `ChatTranscript`: `canRedo` (conversa já no hub, não thread, não de código, nada pendente), `canEdit(index)` (mensagem do usuário **com id e sem anexo**, porque o `sendChat` do celular só leva texto e não saberia reenviar mídia), `canRegenerate(index)` (a última resposta, cuja mensagem do usuário pode ser editada), `messagesAfter(index)`, `resend(index, text)` (corta as entradas ali, empilha a mensagem nova, marca a conversa em `_redoing` e manda com `replaceFrom` = o id) e `regenerate()` (o `resend` da última mensagem do usuário, igual). Se o hub recusa (`ChatErrorMessage` num refazer), `_restoreAfterRefusedRedo` relê o histórico e deixa a recusa no fim, como na web. Na tela, os botões **Edit** (mensagens do usuário) e **Regenerate** (última resposta) ficam sob a bolha, junto do link de thread; o Edit abre um diálogo com a mensagem, que avisa quando o envio apaga as mensagens depois dela e as threads delas.
+- **Testes**: um grupo "redoing from a message (P157)" no `chat_transcript_test.dart` (regenerar corta, manda com o id certo e a resposta nova ganha id; editar manda o texto novo e conta as mensagens que seguem; texto em branco, resposta, mensagem sem id e conversa com turno pendente não se editam; thread, projeto de código e conversa fora do hub não se refazem; a recusa do hub restaura o histórico com o erro no fim), mais um caso em `messages_test.dart`. O `FakeBackend` registra `sentReplaceFrom`. Nada rodou aqui (sem Flutter): a prova é o `ci.yml`.
+- **Não provado / fora**: os botões e o diálogo num aparelho (P129). Mensagem com anexo não se edita no celular; copiar com realce de código no celular segue de fora (texto puro lá); a extensão.
 
 ### 2026-10-18 — Sessão 249 (o celular, passo 2: fixar, arquivar e agrupar por data: P157)
 

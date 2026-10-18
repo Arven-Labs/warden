@@ -73,6 +73,12 @@ void main() {
           '{"type":"deleteConversation","requestId":4,"conversationId":"c1"}');
     });
 
+    test('a turn that redoes from a message names it, and an ordinary turn says nothing of it (P157)', () {
+      expect(const ChatMessage('again', conversationId: 'c1', replaceFrom: '170002').encode(),
+          '{"type":"chat","message":"again","conversationId":"c1","replaceFrom":"170002"}');
+      expect(const ChatMessage('hi', conversationId: 'c1').encode(), '{"type":"chat","message":"hi","conversationId":"c1"}');
+    });
+
     test('pinning and archiving say only the flag they change (P157)', () {
       expect(const SetConversationFlagsMessage(5, 'c1', pinned: true).encode(),
           '{"type":"setConversationFlags","requestId":5,"conversationId":"c1","pinned":true}');

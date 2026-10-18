@@ -204,6 +204,41 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     }
   }
 
+  /// P157 — turns the person's message at [index] into a box to change it. Sending it replaces that message and all that followed, so
+  /// the box says so when something follows.
+  Future<void> _edit(int index) async {
+    final transcript = widget.transcript;
+    final after = transcript.messagesAfter(index);
+    final controller = TextEditingController(text: transcript.entries[index].text);
+    final text = await showDialog<String>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Edit message'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            TextField(controller: controller, autofocus: true, minLines: 1, maxLines: 8),
+            if (after > 0) ...[
+              const SizedBox(height: 12),
+              Text(
+                'Sending this deletes the ${after == 1 ? 'message' : '$after messages'} after it, and the threads on ${after == 1 ? 'it' : 'them'}.',
+                style: Theme.of(dialogContext).textTheme.bodySmall,
+              ),
+            ],
+          ],
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.of(dialogContext).pop(), child: const Text('Cancel')),
+          TextButton(onPressed: () => Navigator.of(dialogContext).pop(controller.text), child: const Text('Send')),
+        ],
+      ),
+    );
+    controller.dispose();
+    if (text == null || !mounted) return;
+    if (transcript.resend(index, text)) _scrollToBottom();
+  }
+
   void _scrollToBottom() {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!_scrollController.hasClients) return;
@@ -532,6 +567,12 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                       thread: inThread || id == null || entry.role == EntryRole.error
                           ? null
                           : _ThreadLink(replies: threads[id]?.replies ?? 0, onTap: () => widget.transcript.openThread(id)),
+                      // P157 — edit a message of the person's, or generate the last answer again.
+                      actions: [
+                        if (_status is Connected && widget.transcript.canEdit(index)) _BubbleAction(label: 'Edit', onTap: () => _edit(index)),
+                        if (_status is Connected && widget.transcript.canRegenerate(index))
+                          _BubbleAction(label: 'Regenerate', onTap: widget.transcript.regenerate),
+                      ],
                     );
                   },
                 );
@@ -1031,11 +1072,30 @@ class _ThreadLink extends StatelessWidget {
   }
 }
 
+/// P157 — a small button under a message: "Edit" on the person's, "Regenerate" on the last answer.
+class _BubbleAction extends StatelessWidget {
+  const _BubbleAction({required this.label, required this.onTap});
+
+  final String label;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return TextButton(
+      key: Key('bubble-action-${label.toLowerCase()}'),
+      style: TextButton.styleFrom(visualDensity: VisualDensity.compact, padding: EdgeInsets.zero, minimumSize: const Size(0, 28)),
+      onPressed: onTap,
+      child: Text(label),
+    );
+  }
+}
+
 class _MessageBubble extends StatelessWidget {
-  const _MessageBubble({required this.entry, this.thread});
+  const _MessageBubble({required this.entry, this.thread, this.actions = const []});
 
   final ChatEntry entry;
   final _ThreadLink? thread;
+  final List<_BubbleAction> actions;
 
   @override
   Widget build(BuildContext context) {
@@ -1059,7 +1119,7 @@ class _MessageBubble extends StatelessWidget {
           children: [
             Text(entry.text, style: TextStyle(color: foreground)),
             for (final attachment in entry.attachments) _AttachmentPreview(attachment: attachment, foreground: foreground),
-            ?thread,
+            if (thread != null || actions.isNotEmpty) Wrap(spacing: 12, children: [?thread, ...actions]),
           ],
         ),
       ),

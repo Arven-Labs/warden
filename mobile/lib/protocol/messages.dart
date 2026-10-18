@@ -161,7 +161,7 @@ final class GoodbyeMessage extends ClientMessage {
 /// the new conversation works in — only read when the conversation is created, so it travels with its
 /// first message.
 final class ChatMessage extends ClientMessage {
-  const ChatMessage(this.message, {this.conversationId, this.agentId, this.workdir, this.threadOf});
+  const ChatMessage(this.message, {this.conversationId, this.agentId, this.workdir, this.threadOf, this.replaceFrom});
 
   final String message;
   final String? conversationId;
@@ -171,6 +171,10 @@ final class ChatMessage extends ClientMessage {
   /// P125 — makes the conversation a thread of this message, when the hub creates it.
   final ThreadParent? threadOf;
 
+  /// P157 — the id of the message this turn takes the place of, with everything after it: "regenerate" sends the last message of the
+  /// person's again, "edit" sends it changed. The hub refuses it for a thread or a code project.
+  final String? replaceFrom;
+
   @override
   Map<String, dynamic> toJson() => {
         'type': 'chat',
@@ -179,6 +183,7 @@ final class ChatMessage extends ClientMessage {
         if (agentId != null) 'agentId': agentId,
         if (workdir != null) 'workdir': workdir,
         if (threadOf != null) 'threadOf': threadOf!.toJson(),
+        if (replaceFrom != null) 'replaceFrom': replaceFrom,
       };
 }
 

@@ -28,12 +28,16 @@ class FakeBackend implements ConversationBackend {
   final listedDirs = <String?>[];
 
   @override
-  void sendChat(String message, {String? conversationId, String? agentId, String? workdir, ThreadParent? threadOf}) {
+  void sendChat(String message, {String? conversationId, String? agentId, String? workdir, ThreadParent? threadOf, String? replaceFrom}) {
     sent.add((message, conversationId));
     sentAgents.add(agentId);
     sentWorkdirs.add(workdir);
     sentThreadOf.add(threadOf);
+    sentReplaceFrom.add(replaceFrom);
   }
+
+  /// The message each sent turn took the place of, in order (P157): null for an ordinary turn.
+  final sentReplaceFrom = <String?>[];
 
   /// The conversations asked to stop, in order (P124).
   final cancelled = <String>[];
@@ -882,6 +886,111 @@ void main() {
       await settle();
 
       expect(transcript.entries.map((e) => e.id), ['m1', 'm2']);
+    });
+
+    group('redoing from a message (P157)', () {
+      /// A conversation `main` with two saved exchanges, open on screen.
+      Future<ChatTranscript> twoExchanges() async {
+        backend.conversations = [summary('main')];
+        backend.histories['main'] = const [
+          HistoryEntry(id: 'u1', fromUser: true, content: 'first'),
+          HistoryEntry(id: 'a1', fromUser: false, content: 'one'),
+          HistoryEntry(id: 'u2', fromUser: true, content: 'second'),
+          HistoryEntry(id: 'a2', fromUser: false, content: 'two'),
+        ];
+        final transcript = make(last: 'main');
+        await settle();
+        return transcript;
+      }
+
+      test('regenerating sends the last message again, in place of it and what followed, and the answer gets its id', () async {
+        final transcript = await twoExchanges();
+        expect(transcript.canRegenerate(3), isTrue);
+        expect(transcript.canRegenerate(1), isFalse, reason: 'only the last answer');
+
+        expect(transcript.regenerate(), isTrue);
+        expect(backend.sent.last, ('second', 'main'));
+        expect(backend.sentReplaceFrom.last, 'u2');
+        expect(transcript.entries.map((e) => e.text), ['first', 'one', 'second'], reason: 'cut at once, the old answer gone');
+        expect(transcript.waitingForReply, isTrue);
+        expect(transcript.canRegenerate(1), isFalse, reason: 'nothing can be redone while an answer is on its way');
+
+        backend.histories['main'] = const [
+          HistoryEntry(id: 'u1', fromUser: true, content: 'first'),
+          HistoryEntry(id: 'a1', fromUser: false, content: 'one'),
+          HistoryEntry(id: 'u3', fromUser: true, content: 'second'),
+          HistoryEntry(id: 'a3', fromUser: false, content: 'two again'),
+        ];
+        replies.add(const ChatResponseMessage('two again', null, conversationId: 'main'));
+        await settle();
+        expect(transcript.entries.map((e) => e.id), ['u1', 'a1', 'u3', 'a3']);
+      });
+
+      test('editing a message sends it changed in place of it, and says how many messages follow it', () async {
+        final transcript = await twoExchanges();
+        expect(transcript.canEdit(0), isTrue);
+        expect(transcript.messagesAfter(0), 3);
+        expect(transcript.messagesAfter(3), 0);
+
+        expect(transcript.resend(0, '  first, reworded '), isTrue);
+        expect(backend.sent.last, ('first, reworded', 'main'));
+        expect(backend.sentReplaceFrom.last, 'u1');
+        expect(transcript.entries.map((e) => e.text), ['first, reworded']);
+        expect(transcript.resend(0, 'again'), isFalse, reason: 'an answer is on its way');
+      });
+
+      test('blank text, an answer, a message without an id and a message with an attachment are not edited', () async {
+        final transcript = await twoExchanges();
+        expect(transcript.resend(0, '   '), isFalse);
+        expect(transcript.canEdit(1), isFalse, reason: 'an answer of the assistant');
+        expect(transcript.canEdit(9), isFalse);
+        expect(backend.sentReplaceFrom, isEmpty);
+
+        transcript.send('new');
+        replies.add(const ChatResponseMessage('fresh', null, conversationId: 'main'));
+        // The history has not been read again, so the newest two have no id yet and the counts do not match.
+        await settle();
+        expect(transcript.canEdit(4), isFalse, reason: 'no id yet');
+        expect(transcript.canRegenerate(5), isFalse, reason: 'its message has no id yet');
+      });
+
+      test('a thread, a code project\'s conversation and a conversation not on the hub are not redone', () async {
+        backend.conversations = [
+          summary('plain'),
+          const ConversationSummary(id: 'code', title: 'c', createdAt: 1, updatedAt: 1, projectId: 'repo', code: true),
+          const ConversationSummary(id: 'side', title: 's', createdAt: 1, updatedAt: 1, parent: ThreadParent(conversationId: 'plain', messageId: 'u1')),
+        ];
+        for (final id in ['plain', 'code', 'side']) {
+          backend.histories[id] = const [
+            HistoryEntry(id: 'u1', fromUser: true, content: 'q'),
+            HistoryEntry(id: 'a1', fromUser: false, content: 'a'),
+          ];
+        }
+        final transcript = make(last: 'plain');
+        await settle();
+        expect(transcript.canEdit(0), isTrue);
+
+        for (final id in ['code', 'side']) {
+          transcript.open(id);
+          await settle();
+          expect(transcript.canEdit(0), isFalse, reason: id);
+          expect(transcript.canRegenerate(1), isFalse, reason: id);
+        }
+        transcript.startNew();
+        expect(transcript.canRedo, isFalse, reason: 'a conversation the hub does not have yet');
+      });
+
+      test('if the hub refuses, the screen goes back to what the hub has, with the refusal last', () async {
+        final transcript = await twoExchanges();
+        expect(transcript.regenerate(), isTrue);
+        expect(transcript.entries.length, 3);
+
+        replies.add(const ChatErrorMessage('a thread can\'t be redone', conversationId: 'main'));
+        await settle();
+        expect(transcript.entries.map((e) => e.text), ['first', 'one', 'second', 'two', 'a thread can\'t be redone']);
+        expect(transcript.entries.last.role, EntryRole.error);
+        expect(transcript.waitingForReply, isFalse);
+      });
     });
 
     test('ids go to the entries that lack one, skipping errors, and wait when the counts differ', () {

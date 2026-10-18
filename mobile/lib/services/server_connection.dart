@@ -484,8 +484,9 @@ class ServerConnection implements ConversationBackend, AgentsBackend, MemberOrgB
   /// arrives asynchronously on [chatStream] as either a [ChatResponseMessage] or a
   /// [ChatErrorMessage], tagged with the same conversation id.
   @override
-  void sendChat(String message, {String? conversationId, String? agentId, String? workdir, ThreadParent? threadOf}) {
-    _channel.sink.add(ChatMessage(message, conversationId: conversationId, agentId: agentId, workdir: workdir, threadOf: threadOf).encode());
+  void sendChat(String message, {String? conversationId, String? agentId, String? workdir, ThreadParent? threadOf, String? replaceFrom}) {
+    _channel.sink
+        .add(ChatMessage(message, conversationId: conversationId, agentId: agentId, workdir: workdir, threadOf: threadOf, replaceFrom: replaceFrom).encode());
   }
 
   @override

@@ -49,7 +49,7 @@ ChatEntry _withHubId(ChatEntry entry, String? id) => id != null && entry.id == n
 /// What [ChatTranscript] needs from the hub — `ServerConnection` in the app, a fake in tests, so
 /// the transcript can be tested without a WebSocket.
 abstract interface class ConversationBackend {
-  void sendChat(String message, {String? conversationId, String? agentId, String? workdir, ThreadParent? threadOf});
+  void sendChat(String message, {String? conversationId, String? agentId, String? workdir, ThreadParent? threadOf, String? replaceFrom});
   /// P124 — asks the hub to stop the code task [conversationId] is running.
   void cancelTurn(String conversationId);
   Future<List<String>> listAgentIds();
@@ -592,6 +592,8 @@ class ChatTranscript extends ChangeNotifier {
     _live.remove(id);
     if (id == _activeId) _entries.add(entry);
     notifyListeners();
+    final redone = _redoing.remove(id);
+    if (redone && id == _activeId && entry.role == EntryRole.error) unawaited(_restoreAfterRefusedRedo(id, entry));
     if (id == _activeId && entry.role == EntryRole.assistant) unawaited(_attachMessageIds(id));
     // New title/order — and a conversation started here now exists on the hub.
     unawaited(refreshConversations());
@@ -630,6 +632,69 @@ class ChatTranscript extends ChangeNotifier {
     notifyListeners();
     backend.sendChat(trimmed, conversationId: id, agentId: _agentId, workdir: creatingIn, threadOf: threadOf);
     return true;
+  }
+
+  /// P157 — the conversations with a redo (regenerate, edit) on its way: the screen was cut for it, and if the hub refuses it the cut is
+  /// undone by reading the history again.
+  final _redoing = <String>{};
+
+  /// Whether the open conversation can be redone from a message now: it is on the hub, is not a thread (its context is another
+  /// conversation's) nor a code project's (the engine's session can't go back), and no answer is on its way.
+  bool get canRedo {
+    final summary = _conversations.where((c) => c.id == _activeId).firstOrNull;
+    return summary != null && summary.parent == null && !summary.code && !waitingForReply;
+  }
+
+  /// Whether the message at [index] is one of the person's that can be edited: the hub has given it an id, and it carries no attachment
+  /// (this app sends text only, so it could not send them again).
+  bool canEdit(int index) {
+    if (!canRedo || index < 0 || index >= _entries.length) return false;
+    final entry = _entries[index];
+    return entry.role == EntryRole.user && entry.id != null && entry.attachments.isEmpty;
+  }
+
+  /// Whether the answer at [index] is the last one and can be generated again: the message of the person's it answers can be edited.
+  bool canRegenerate(int index) {
+    if (!canRedo || index < 0 || index >= _entries.length || _entries[index].role != EntryRole.assistant) return false;
+    if (_entries.skip(index + 1).any((e) => e.role != EntryRole.error)) return false;
+    final user = _entries.lastIndexWhere((e) => e.role == EntryRole.user, index);
+    return user != -1 && canEdit(user);
+  }
+
+  /// How many messages come after the one at [index], errors left out (the hub doesn't keep them): what an edit also drops.
+  int messagesAfter(int index) => index < 0 || index >= _entries.length ? 0 : _entries.skip(index + 1).where((e) => e.role != EntryRole.error).length;
+
+  /// Edits the message at [index] (P157): the turn takes the place of that message and of all that followed, in one write on the hub.
+  /// The screen is cut at once. Returns whether anything was sent.
+  bool resend(int index, String text) {
+    final trimmed = text.trim();
+    if (trimmed.isEmpty || !canEdit(index)) return false;
+    final id = _activeId;
+    final from = _entries[index].id!;
+    _entries
+      ..removeRange(index, _entries.length)
+      ..add(ChatEntry(EntryRole.user, trimmed));
+    _pending[id] = trimmed;
+    _redoing.add(id);
+    notifyListeners();
+    backend.sendChat(trimmed, conversationId: id, agentId: _agentId, replaceFrom: from);
+    return true;
+  }
+
+  /// Generates the last answer again (P157): the last message of the person's, sent as it was. Returns whether anything was sent.
+  bool regenerate() {
+    final last = _entries.lastIndexWhere((e) => e.role == EntryRole.assistant);
+    if (!canRegenerate(last)) return false;
+    final user = _entries.lastIndexWhere((e) => e.role == EntryRole.user, last);
+    return resend(user, _entries[user].text);
+  }
+
+  /// The hub refused a redo and dropped nothing, but the screen was cut for it: shows what the hub has, with the refusal last.
+  Future<void> _restoreAfterRefusedRedo(String conversationId, ChatEntry refusal) async {
+    await _loadHistory(conversationId);
+    if (_disposed || _activeId != conversationId) return;
+    _entries.add(refusal);
+    notifyListeners();
   }
 
   @override
