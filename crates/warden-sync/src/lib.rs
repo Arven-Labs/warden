@@ -23,6 +23,7 @@ pub mod manifest;
 pub mod oauth;
 pub mod pairing;
 pub mod paths;
+pub mod publish;
 pub mod pull;
 pub mod push;
 pub mod syncignore;

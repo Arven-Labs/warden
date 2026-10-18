@@ -65,6 +65,8 @@ struct AppState {
     /// Set by `sync_cmds::sync_push_begin`, taken by `sync_cmds::sync_push_await` — showing the
     /// QR and blocking on the TruthID phone are deliberately separate IPC calls.
     pending_push: Mutex<Option<warden_sync::push::BeginPushResult>>,
+    /// A skill package waiting for the TruthID phone to pin it (P160): `skill_publish_begin` fills it, `skill_publish_await` takes it.
+    pending_publish: Mutex<Option<warden_sync::publish::BeginPublish>>,
     /// Resolved once at startup, same as `sync`'s vault path below — the trusted root
     /// `open_generated_file` (P64) confines every path it's willing to open to, so a path a
     /// malicious/prompt-injected tool result claimed can never be opened outside of it.
@@ -1189,6 +1191,7 @@ pub fn run() {
         recording: Mutex::new(None),
         sync,
         pending_push: Mutex::new(None),
+        pending_publish: Mutex::new(None),
         generated_files_root,
         embedded_server: Mutex::new(None),
         approvals: Arc::new(approval::ApprovalBroker::default()),
@@ -1299,6 +1302,8 @@ pub fn run() {
             skills_cmds::install_skill_package,
             skills_cmds::read_skill_package_file,
             skills_cmds::write_skill_package_file,
+            skills_cmds::skill_publish_begin,
+            skills_cmds::skill_publish_await,
             skills_cmds::list_skill_files,
             skills_cmds::read_skill_attachment,
             skills_cmds::save_skill_attachment,

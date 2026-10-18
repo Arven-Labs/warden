@@ -3,6 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { open, save } from "@tauri-apps/plugin-dialog";
 import type { AgentEntry, CatalogSkill, ExportedPackage, PackagePreview, ProviderEntry, SkillEntry } from "../types";
 import { diffLines, hasChanges, withContext } from "./skillDiff";
+import CopyButton from "./CopyButton";
 import { hubSkills } from "../lib/hub";
 
 /** What the editor form is doing: `new` (name editable, refuses a taken name) or `edit` (name
@@ -200,6 +201,19 @@ interface ExportState {
   license: string;
 }
 
+/** A skill being published to Arweave through the TruthID app (P160): what the person is asked, and how far it got. */
+interface PublishState extends ExportState {
+  /** Ticked: the person knows it becomes public and permanent. */
+  understood: boolean;
+  /** The text looks unsafe (the scan's reason), once checked; installing readers will be warned too. */
+  finding: string | null;
+  /** Ticked: the person read the flagged text and still wants to publish it. */
+  flaggedOk: boolean;
+  phase: "form" | "waiting" | "done";
+  qrSvg: string | null;
+  txId: string | null;
+}
+
 /** A package being imported: its text, and what it says once it has been read and checked. */
 interface ImportState {
   content: string;
@@ -241,6 +255,7 @@ function SkillsView({
   // Sharing a skill as a file and importing one (P160).
   const [exporting, setExporting] = useState<ExportState | null>(null);
   const [importing, setImporting] = useState<ImportState | null>(null);
+  const [publishing, setPublishing] = useState<PublishState | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
 
   function refresh() {
@@ -276,6 +291,30 @@ function SkillsView({
       setExporting(null);
     } catch (err) {
       setError(String(err));
+    }
+  }
+
+  /** Packs the skill, checks it for anything unsafe, shows the QR for the TruthID app and waits for the phone to pin it. */
+  async function handlePublish() {
+    if (!publishing) return;
+    setError(null);
+    try {
+      const author = publishing.author.trim();
+      const packed = await api.exportPackage(publishing.name, publishing.version.trim(), author === "" ? null : author, publishing.license);
+      // The same scan a reader runs before installing: better to hear it here than for them to be warned about the skill.
+      const preview = await api.previewPackage(packed.content);
+      const finding = preview.finding ?? null;
+      if (finding && !publishing.flaggedOk) {
+        setPublishing({ ...publishing, finding });
+        return;
+      }
+      const begin = await invoke<{ qrSvg: string; hash: string }>("skill_publish_begin", { content: packed.content });
+      setPublishing({ ...publishing, finding, phase: "waiting", qrSvg: begin.qrSvg });
+      const result = await invoke<{ txId: string }>("skill_publish_await");
+      setPublishing((current) => (current ? { ...current, phase: "done", qrSvg: null, txId: result.txId } : current));
+    } catch (err) {
+      setError(String(err));
+      setPublishing((current) => (current ? { ...current, phase: "form", qrSvg: null } : current));
     }
   }
 
@@ -622,6 +661,100 @@ function SkillsView({
         </div>
       )}
 
+      {publishing && (
+        <div className="provider-card skill-editor">
+          <span className="settings-section-title">Publish {publishing.name}</span>
+          {publishing.phase === "form" && (
+            <>
+              <p className="settings-hint">
+                This puts the skill's text on Arweave through your TruthID app, so anyone can find and read it.{" "}
+                <strong>It is public and permanent: it can't be taken back or edited</strong> (a new version is a new publication), and the
+                fee is paid from your TruthID wallet. Keep your phone on the same network as this computer.
+              </p>
+              <label className="settings-field">
+                <span className="settings-label">Version</span>
+                <input
+                  className="settings-input"
+                  type="text"
+                  value={publishing.version}
+                  onChange={(e) => setPublishing({ ...publishing, version: e.currentTarget.value })}
+                />
+                <span className="settings-hint">Numbers separated by dots, like 1.0.0.</span>
+              </label>
+              <label className="settings-field">
+                <span className="settings-label">Author (optional)</span>
+                <input
+                  className="settings-input"
+                  type="text"
+                  placeholder="Your name or handle"
+                  value={publishing.author}
+                  onChange={(e) => setPublishing({ ...publishing, author: e.currentTarget.value })}
+                />
+              </label>
+              <label className="settings-field">
+                <span className="settings-label">License</span>
+                <select className="settings-select" value={publishing.license} onChange={(e) => setPublishing({ ...publishing, license: e.currentTarget.value })}>
+                  {LICENSES.map((l) => (
+                    <option key={l.id} value={l.id}>
+                      {l.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              {publishing.finding && (
+                <p className="settings-error-banner">
+                  This text contains {publishing.finding}. People who import it are warned about that. Check that it is what you mean to publish.
+                </p>
+              )}
+              {publishing.finding && (
+                <label className="skill-agent-option">
+                  <input type="checkbox" checked={publishing.flaggedOk} onChange={(e) => setPublishing({ ...publishing, flaggedOk: e.currentTarget.checked })} />
+                  I checked it and want to publish it anyway
+                </label>
+              )}
+              <label className="skill-agent-option">
+                <input type="checkbox" checked={publishing.understood} onChange={(e) => setPublishing({ ...publishing, understood: e.currentTarget.checked })} />
+                I understand it will be public and permanent
+              </label>
+              <div className="skill-editor-actions">
+                <button
+                  type="button"
+                  className="settings-save-btn"
+                  onClick={handlePublish}
+                  disabled={!publishing.understood || (publishing.finding !== null && !publishing.flaggedOk)}
+                >
+                  Show the QR code
+                </button>
+                <button type="button" className="settings-browse-btn" onClick={() => setPublishing(null)}>
+                  Cancel
+                </button>
+              </div>
+            </>
+          )}
+          {publishing.phase === "waiting" && (
+            <>
+              <p className="settings-hint">Scan this code with the TruthID app and approve the publication. This waits up to 3 minutes.</p>
+              {publishing.qrSvg && <div className="sync-qr-image" dangerouslySetInnerHTML={{ __html: publishing.qrSvg }} />}
+              <p className="settings-hint">Stay on this screen: the address of the publication appears here when the phone is done.</p>
+            </>
+          )}
+          {publishing.phase === "done" && publishing.txId && (
+            <>
+              <p className="settings-hint">
+                Published. Its address is <code>ar://{publishing.txId}</code>. It can take a few minutes to show up on the gateways. Keep
+                this address: nothing in Warden lists what you published.
+              </p>
+              <div className="skill-editor-actions">
+                <CopyButton text={`ar://${publishing.txId}`} className="settings-browse-btn" label="Copy the address" />
+                <button type="button" className="settings-browse-btn" onClick={() => setPublishing(null)}>
+                  Close
+                </button>
+              </div>
+            </>
+          )}
+        </div>
+      )}
+
       {importing && (
         <div className="provider-card skill-editor">
           <span className="settings-section-title">Import a skill</span>
@@ -849,6 +982,28 @@ function SkillsView({
                           }}
                         >
                           Share
+                        </button>
+                        <button
+                          type="button"
+                          className="settings-browse-btn"
+                          onClick={() => {
+                            setError(null);
+                            setNotice(null);
+                            setPublishing({
+                              name: skill.name,
+                              version: "1.0.0",
+                              author: "",
+                              license: LICENSES[0].id,
+                              understood: false,
+                              finding: null,
+                              flaggedOk: false,
+                              phase: "form",
+                              qrSvg: null,
+                              txId: null,
+                            });
+                          }}
+                        >
+                          Publish
                         </button>
                         <button
                           type="button"

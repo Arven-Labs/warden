@@ -13,6 +13,7 @@ use warden_bootstrap::skill_package;
 use warden_bootstrap::{build_model_for, default_config_path, load_config_from_path};
 use warden_core::skill::package::MAX_PACKAGE_BYTES;
 use warden_core::skill::{catalog, Skill, SkillStore};
+use warden_sync::publish;
 
 use crate::AppState;
 
@@ -198,6 +199,42 @@ pub fn write_skill_package_file(path: String, content: String) -> Result<(), Str
         return Err(format!("A skill package is at most {} KiB", MAX_PACKAGE_BYTES / 1024));
     }
     std::fs::write(&path, content).map_err(|e| format!("{e:#}"))
+}
+
+/// The QR to scan with the TruthID app, and the package's hash so the screen can say what is being published (P160).
+#[derive(Serialize, Debug, Clone, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct PublishBeginPayload {
+    qr_svg: String,
+    hash: String,
+}
+
+/// Step 1 of Publish: checks the package, builds the QR for the TruthID app and keeps the pending pin in `AppState` for
+/// `skill_publish_await`. Showing the QR and waiting for the phone are separate calls so the screen can draw the QR before the
+/// (human-paced) wait begins, like Sync. The phone is looked for on this computer's network, so this runs here, not on a hub.
+#[tauri::command]
+pub fn skill_publish_begin(state: State<'_, AppState>, content: String) -> Result<PublishBeginPayload, String> {
+    let begin = publish::begin_publish(&content).map_err(|e| format!("{e:#}"))?;
+    let qr_json = begin.pending.qr_payload_json().map_err(|e| format!("{e:#}"))?;
+    let qr_svg = crate::qr::render_qr_svg(&qr_json)?;
+    let hash = begin.hash.clone();
+    *state.pending_publish.lock().unwrap() = Some(begin);
+    Ok(PublishBeginPayload { qr_svg, hash })
+}
+
+/// What a successful publish gives back: the Arweave transaction id (the package is at `ar://<txId>`).
+#[derive(Serialize, Debug, Clone, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct PublishResultPayload {
+    tx_id: String,
+}
+
+/// Step 2 of Publish: waits for the TruthID phone to pin the package prepared by `skill_publish_begin`.
+#[tauri::command]
+pub async fn skill_publish_await(state: State<'_, AppState>) -> Result<PublishResultPayload, String> {
+    let begin = state.pending_publish.lock().unwrap().take().ok_or_else(|| "No publish in progress: start one first".to_string())?;
+    let outcome = publish::run_publish(begin).await.map_err(|e| format!("{e:#}"))?;
+    Ok(PublishResultPayload { tx_id: outcome.tx_id })
 }
 
 #[tauri::command]
