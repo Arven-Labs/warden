@@ -103,7 +103,16 @@ export default function ChatView({ serverName, history, pending, live, onCancel,
           </li>
         ))}
         {pending && live && <LiveBubble live={live} onCancel={onCancel} />}
-        {pending && !live && <li className="chat-entry chat-entry--pending">…</li>}
+        {pending && !live && (
+          <li className="chat-entry chat-entry--pending">
+            …
+            {onCancel && (
+              <button type="button" className="link-button live-stop" onClick={onCancel}>
+                Parar
+              </button>
+            )}
+          </li>
+        )}
       </ul>
 
       <form className="chat-composer" onSubmit={handleSubmit}>

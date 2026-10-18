@@ -25,7 +25,7 @@ export type PopupRequest =
   | ({ type: "connect" } & ConnectionSettings)
   | { type: "disconnect" }
   | { type: "sendChat"; message: string }
-  /** P124 — stops the code task the open conversation is running. */
+  /** P124, P157 — stops the turn the open conversation is running: a code task, or an ordinary turn (what was written is kept as the answer). */
   | { type: "cancelTurn" }
   /** P78 — switches the chat to another of this device's conversations. */
   | { type: "selectConversation"; conversationId: string }

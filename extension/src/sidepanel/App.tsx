@@ -119,9 +119,8 @@ export default function App() {
   }, [watched]);
 
   const pendingChat =conversationState.activeConversationId !== null && conversationState.pendingIds.includes(conversationState.activeConversationId);
-  // P124 — only a code project's conversation has a task to stop, and the hub marks those in the list.
-  const activeSummary = conversationState.conversations.find((c) => c.id === conversationState.activeConversationId);
-  const canStop = pendingChat && activeSummary?.code === true;
+  // P124, P157 — any turn on its way can be stopped: a code project's task, or an ordinary turn (what was written is the answer).
+  const canStop = pendingChat;
 
   return (
     <div className="sidepanel-app">

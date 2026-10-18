@@ -2,9 +2,17 @@
 
 > **Nota**: Este log foi criado junto com o projeto. As sessões serão registradas aqui conforme o trabalho avança.
 >
-> Última atualização: 2026-10-18 (Sessão 250)
+> Última atualização: 2026-10-18 (Sessão 251)
 
 ---
+
+### 2026-10-18 — Sessão 251 (a extensão, passo 1: botão Parar no turno comum: P157)
+
+- **Pedido do usuário**: "pode seguir com a extensão", depois do celular. Planejado em modo de plano, em três passos (Parar, fixar/arquivar/agrupar, regenerar/editar), **um commit e uma rodada de CI por passo**. Este é o passo 1.
+- **Achado**: o background já mandava `cancelTurn` sem checar projeto de código (`index.ts:443`); só o painel limitava, com `canStop = pendingChat && activeSummary?.code === true`, e a bolha ao vivo (com o "Parar") só existe quando há um turno ao vivo, senão sobrava um "…" sem saída.
+- **Feito**: `canStop = pendingChat` (e `activeSummary`, que só servia a ele, saiu); o "…" sem eventos ao vivo ganha o botão **Parar**; os comentários de `popup_protocol.ts` e `messages.ts` ("code task") foram corrigidos.
+- **Testes**: nenhum novo (o painel não monta em teste). `tsc --noEmit` limpo e `npm test` (107) rodados aqui; `npm run build` e a rodada de verdade ficam com o `Frontend (extension)` do `ci.yml`.
+- **Não provado**: o botão num navegador (P129).
 
 ### 2026-10-18 — Sessão 250 (o celular, passo 3: regenerar e editar: P157)
 
