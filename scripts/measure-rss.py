@@ -342,6 +342,11 @@ def main():
         help="onde ficam os modelos de busca já baixados (compartilhado entre os cenários)",
     )
     parser.add_argument("--only", nargs="*", help="rodar só os cenários cujo nome contém algum destes textos")
+    parser.add_argument(
+        "--json",
+        metavar="ARQUIVO",
+        help="grava também o RSS e o pico (MB) de cada linha da tabela principal, para scripts/compare-rss.py (P162)",
+    )
     args = parser.parse_args()
     binary = Path(args.bin).resolve()
     models = Path(args.models_dir)
@@ -352,16 +357,21 @@ def main():
         return not args.only or any(token in name for token in args.only)
 
     rows = []
+    results = {}  # o que vai para --json: só o RSS, que se repete entre rodadas (o tempo do 1º turno varia uns 15%)
     for scenario in SCENARIOS:
         if not wanted(scenario[0]):
             continue
         log(f"cenário: {scenario[0]}")
         r = run_scenario(binary, models, scenario)
         rows.append([scenario[0], fmt(r["after"]), fmt(r["peak"]), fmt(r["seconds"], 1), scenario[5], scenario[6]])
+        results[scenario[0]] = {"rss": round(r["after"], 1), "peak": round(r["peak"], 1)}
     if wanted("descarregamento"):
         log("cenário: descarregamento por ociosidade")
         for name, rss, peak, secs, ref, target in run_unload(binary, models):
             rows.append([name, fmt(rss), fmt(peak), fmt(secs, 1), ref, target])
+            results[name] = {"rss": round(rss, 1), "peak": None if peak is None else round(peak, 1)}
+    if args.json:
+        Path(args.json).write_text(json.dumps(results, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     if rows:
         table(
             ["Cenário", "RSS depois (MB)", "Pico (MB)", "1º turno (s)", "Sessão 222 (MB)", "Alvo do benchmark (MB)"],

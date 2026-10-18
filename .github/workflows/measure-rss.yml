@@ -1,14 +1,21 @@
 name: Medir RSS
 
 # Repete a medição de memória da Sessão 222 (HOSPEDAGEM.md seção K) com o binário de release atual: hub ocioso sem e com os
-# modelos de busca, e o 1º turno com cofres de 50 a 1000 notas curtas e 300 longas (P145, P146). Só manual:
+# modelos de busca, e o 1º turno com cofres de 50 a 1000 notas curtas e 300 longas (P145, P146). Roda toda segunda de manhã e, quando
+# se quiser, à mão:
 #   gh workflow run measure-rss.yml
-# A tabela sai no resumo do run. O runner tem 4 núcleos e o RSS final não depende deles (seção K.3).
+# A tabela sai no resumo do run, junto da comparação com `scripts/rss-baseline.json` (P162): se o RSS de algum cenário subir mais de
+# 10% (no mínimo 5 MB) o job fica vermelho e abre, ou comenta, uma issue. O RSS varia 1 a 2% entre rodadas do mesmo código, então
+# 10% é mudança de verdade. Quando a mudança é de propósito, a referência é atualizada num commit à parte (cabeçalho de
+# `scripts/compare-rss.py`). O runner tem 4 núcleos e o RSS final não depende deles (seção K.3).
 on:
+  schedule:
+    - cron: '0 6 * * 1'
   workflow_dispatch:
 
 permissions:
   contents: read
+  issues: write
 
 env:
   CARGO_TERM_COLOR: always
@@ -42,9 +49,42 @@ jobs:
 
       - name: Medir
         run: |
-          python3 scripts/measure-rss.py | tee rss.md
+          python3 scripts/measure-rss.py --json rss.json | tee rss.md
           {
             echo "## RSS do warden-server em release"
             echo
             cat rss.md
           } >> "$GITHUB_STEP_SUMMARY"
+
+      # Sai com 1 quando algum cenário passou do limite; o passo da issue roda de qualquer jeito (`if: always()`) e só age se `regressed`.
+      - name: Comparar com a referência
+        id: compare
+        run: |
+          set +e
+          python3 scripts/compare-rss.py scripts/rss-baseline.json rss.json | tee compare.md
+          status=${PIPESTATUS[0]}
+          set -e
+          {
+            echo "## Comparação com scripts/rss-baseline.json"
+            echo
+            cat compare.md
+          } >> "$GITHUB_STEP_SUMMARY"
+          exit "$status"
+        shell: bash
+
+      # Melhor esforço: se a issue não puder ser aberta, o job vermelho e o resumo já dizem o que passou.
+      - name: Abrir ou comentar a issue
+        if: always() && steps.compare.outputs.regressed == 'true'
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh label create rss --description "RSS do hub passou do limite" --color d93f0b --force
+          title="RSS do hub passou do limite"
+          body="$(printf 'Run: %s/%s/actions/runs/%s\n\n%s\n' "$GITHUB_SERVER_URL" "$GITHUB_REPOSITORY" "$GITHUB_RUN_ID" "$(cat compare.md)")"
+          open="$(gh issue list --label rss --state open --json number --jq '.[0].number')"
+          if [ -n "$open" ]; then
+            gh issue comment "$open" --body "$body"
+          else
+            gh issue create --title "$title" --label rss --body "$body"
+          fi

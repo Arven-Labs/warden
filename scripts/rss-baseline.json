@@ -1,0 +1,11 @@
+{
+  "ocioso, sem modelos": { "rss": 24, "peak": 24 },
+  "ocioso, warm-up dos dois modelos": { "rss": 879, "peak": 893 },
+  "1º turno, 50 notas curtas": { "rss": 278, "peak": 278 },
+  "1º turno, 300 notas curtas": { "rss": 284, "peak": 284 },
+  "1º turno, 1000 notas curtas": { "rss": 294, "peak": 297 },
+  "1º turno, 300 notas longas": { "rss": 413, "peak": 413 },
+  "1000 notas curtas, depois do 1º turno": { "rss": 96, "peak": 294 },
+  "… 15 s ocioso (`--embedding-idle-secs 5`)": { "rss": 96, "peak": null },
+  "… 2º turno (recarrega o modelo)": { "rss": 107, "peak": 294 }
+}

@@ -128,8 +128,24 @@ jobs:
         run: cargo clippy --workspace --all-targets
 
       - name: Testes
-        # Sem parar no primeiro crate que falha, para a rodada mostrar todas as falhas de uma vez.
-        run: cargo test --workspace --no-fail-fast
+        # Sem parar no primeiro crate que falha, para a rodada mostrar todas as falhas de uma vez. A saída vai também para um arquivo, para o
+        # passo seguinte listar no resumo do run o que falhou (P164 b); `pipefail` (do `shell: bash`) mantém o status do `cargo test`.
+        shell: bash
+        run: cargo test --workspace --no-fail-fast 2>&1 | tee cargo-test.log
+
+      # Só LISTA: o nome de cada teste que falhou e a linha do pânico, para o padrão (o mesmo teste de novo, ou testes diferentes) aparecer
+      # sem abrir o log. Nada é religado nem escondido: o job continua vermelho (regras 2 e 3 do `project/AUTOMACAO.md`).
+      - name: Testes que falharam
+        if: failure()
+        shell: bash
+        run: |
+          {
+            echo "## Testes que falharam"
+            echo
+            echo '```'
+            grep -E '^test .* FAILED$|panicked at ' cargo-test.log | sort -u | head -80 || true
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
 
   frontends:
     name: Frontend (${{ matrix.app }})

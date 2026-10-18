@@ -1,0 +1,80 @@
+name: Roteiro com modelo real
+
+# O `real_model.rs` (P156): o que só passou com modelo de mentira, agora com um modelo de verdade (skills, tarefas, delegação em dois níveis).
+# Chama uma API PAGA, então só por botão, nunca por agenda:
+#   gh workflow run real-model.yml                       # o modelo padrão
+#   gh workflow run real-model.yml -f model=<id>         # outro modelo da OpenRouter
+# A chave é a da OpenRouter, num segredo do repositório (só o Fabio a tem; ela nunca passa pelo Claude):
+#   ! gh secret set WARDEN_EVAL_KEY < ~/Documents/api.txt
+# Sem o segredo o primeiro passo falha dizendo isso, antes de compilar. O resultado de cada teste sai no resumo do run. Um modelo não é
+# determinístico: um teste vermelho diz o que o modelo fez no lugar, e é preciso ler os eventos impressos antes de culpar o código.
+on:
+  workflow_dispatch:
+    inputs:
+      model:
+        description: 'Id do modelo na OpenRouter'
+        required: true
+        default: 'deepseek/deepseek-v4.1-flash'
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: never
+  CARGO_INCREMENTAL: 0
+
+jobs:
+  real-model:
+    name: Roteiro com o modelo ${{ inputs.model }}
+    # 24.04: o ONNX Runtime pronto do `ort` pede glibc 2.38+ (ver ci.yml).
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - name: A chave existe?
+        env:
+          KEY: ${{ secrets.WARDEN_EVAL_KEY }}
+        run: |
+          if [ -z "$KEY" ]; then
+            echo "::error::O segredo WARDEN_EVAL_KEY não existe neste repositório. Crie-o uma vez, com o arquivo da chave da OpenRouter: ! gh secret set WARDEN_EVAL_KEY < ~/Documents/api.txt"
+            exit 1
+          fi
+
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust
+        uses: Swatinem/rust-cache@v2
+
+      # `--test-threads=1`: os testes dividem o mesmo modelo e a conta; o comando é o do cabeçalho do `real_model.rs`.
+      - name: Roteiro
+        shell: bash
+        env:
+          WARDEN_EVAL_PROVIDER: openai_compatible
+          WARDEN_EVAL_BASE_URL: https://openrouter.ai/api/v1
+          WARDEN_EVAL_MODEL: ${{ inputs.model }}
+          WARDEN_EVAL_KEY: ${{ secrets.WARDEN_EVAL_KEY }}
+        run: |
+          set +e
+          cargo test -p warden-bootstrap --test real_model -- --ignored --nocapture --test-threads=1 2>&1 | tee real-model.log
+          status=${PIPESTATUS[0]}
+          set -e
+          {
+            echo "## Roteiro com modelo real: ${WARDEN_EVAL_MODEL}"
+            echo
+            echo '```'
+            grep -E '^test .* \.\.\. ' real-model.log || echo "nenhum teste rodou"
+            echo '```'
+            if [ "$status" -ne 0 ]; then
+              echo
+              echo "<details><summary>O que o modelo fez (fim do log)</summary>"
+              echo
+              echo '```'
+              tail -n 120 real-model.log
+              echo '```'
+              echo "</details>"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+          exit "$status"

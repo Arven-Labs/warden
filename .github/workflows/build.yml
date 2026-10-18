@@ -129,3 +129,13 @@ jobs:
             --data-binary @mobile/build/app/outputs/flutter-apk/app-release.apk \
             "https://uploads.github.com/repos/$GITHUB_REPOSITORY/releases/$id/assets?name=$name" >/dev/null
           echo "anexado: $name"
+
+  # As notas propostas, dos commits desde a tag anterior, no corpo do rascunho (P164 a). Depois dos instaladores e do APK, que são quem cria e
+  # mexe no rascunho; roda mesmo se uma plataforma falhar, porque as notas não dependem dela. Nunca publica: o Fabio revisa e publica.
+  notes:
+    needs: [build, android]
+    if: ${{ !cancelled() }}
+    uses: ./.github/workflows/release-notes.yml
+    with:
+      tag: ${{ github.ref_name }}
+      apply: true

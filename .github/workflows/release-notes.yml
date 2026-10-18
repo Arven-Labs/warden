@@ -1,0 +1,69 @@
+name: Notas da release
+
+# Monta as notas de uma release dos commits entre a tag anterior e esta (`scripts/release-notes.py`, P164 a) e, com `apply`, grava no
+# corpo do release EM RASCUNHO, para o Fabio revisar e publicar. Nunca publica e nunca mexe num release já publicado (recusa).
+# Roda sozinho no fim do `build.yml`, depois que o rascunho e os instaladores existem, e à mão para ver o que sairia:
+#   gh workflow run release-notes.yml -f tag=v0.1.1              # só o resumo do run
+#   gh workflow run release-notes.yml -f tag=v0.1.2 -f apply=true
+on:
+  workflow_call:
+    inputs:
+      tag:
+        type: string
+        required: true
+      apply:
+        type: boolean
+        default: false
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'A tag da release (ex.: v0.1.2)'
+        required: true
+      apply:
+        description: 'Gravar no corpo do rascunho (um release publicado é recusado)'
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+jobs:
+  notes:
+    name: Notas de ${{ inputs.tag }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          # O histórico e as tags inteiros: as notas vêm do `git log` entre duas tags.
+          fetch-depth: 0
+
+      - name: Montar as notas
+        env:
+          TAG: ${{ inputs.tag }}
+        run: |
+          python3 scripts/release-notes.py "$TAG" | tee notes.md
+          {
+            echo "## Notas propostas para $TAG"
+            echo
+            cat notes.md
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      # Pelo id, como o passo do APK do `build.yml`: `gh release edit` por tag não enxerga um rascunho.
+      - name: Gravar no rascunho
+        if: inputs.apply
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ inputs.tag }}
+        run: |
+          release="$(gh api "repos/$GITHUB_REPOSITORY/releases" --paginate --jq ".[] | select(.tag_name == \"$TAG\") | [.id, .draft] | @tsv" | head -n 1)"
+          [ -n "$release" ] || { echo "::error::não achei o release da tag $TAG" >&2; exit 1; }
+          id="${release%%$'\t'*}"
+          draft="${release##*$'\t'}"
+          if [ "$draft" != "true" ]; then
+            echo "::error::o release $TAG já está publicado: as notas não são trocadas por um passo automático" >&2
+            exit 1
+          fi
+          gh api -X PATCH "repos/$GITHUB_REPOSITORY/releases/$id" -F body=@notes.md --silent
+          echo "Notas gravadas no rascunho $TAG (id $id). Revise e publique." >> "$GITHUB_STEP_SUMMARY"
