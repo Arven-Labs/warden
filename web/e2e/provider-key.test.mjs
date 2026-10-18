@@ -7,7 +7,7 @@ import fs from "node:fs";
 import http from "node:http";
 import path from "node:path";
 import { after, before, describe, test } from "node:test";
-import { launchBrowser, openSettings, PAIRING_KEY, startHub } from "./harness.mjs";
+import { launchBrowser, openSettings, PAIRING_KEY, snap, startHub } from "./harness.mjs";
 
 const TIMEOUT = 120_000;
 const GOOD_KEY = "sk-good";
@@ -87,6 +87,7 @@ describe("the Test key button", () => {
       const status = card.getByRole("status");
       await status.waitFor();
       assert.match(await status.innerText(), /✓ The provider accepted the key\./);
+      await snap(page, "provider-key-accepted", { focus: status });
 
       const [frame] = testFrames(sent);
       assert.deepEqual(frame.provider.apiKey, { action: "keep" }, "the page asked about the saved key without holding it");

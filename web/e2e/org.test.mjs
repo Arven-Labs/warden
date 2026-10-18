@@ -6,7 +6,7 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import { after, before, describe, test } from "node:test";
-import { launchBrowser, PAIRING_KEY, signIn, startHub } from "./harness.mjs";
+import { launchBrowser, PAIRING_KEY, signIn, snap, startHub } from "./harness.mjs";
 
 const TIMEOUT = 120_000;
 
@@ -48,6 +48,7 @@ const edits = (sent) => sent.filter((s) => s.includes('"editAgentOrg"')).map((s)
 describe("dragging a card in the organization tree", () => {
   test("dropping a card on another moves it under it, after the pairing key", { timeout: TIMEOUT }, async () => {
     await withTree(async ({ page, sent, hub }) => {
+      await snap(page, "org-tree-owner");
       await card(page, "ops").dragTo(card(page, "writer"));
       await page.getByLabel("Chave de pareamento do hub").fill(PAIRING_KEY);
       await page.getByRole("button", { name: "Confirmar" }).click();

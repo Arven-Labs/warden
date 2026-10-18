@@ -7,7 +7,7 @@
 import assert from "node:assert/strict";
 import path from "node:path";
 import { after, before, describe, test } from "node:test";
-import { launchBrowser, signIn, startHub } from "./harness.mjs";
+import { launchBrowser, signIn, snap, startHub } from "./harness.mjs";
 
 const TIMEOUT = 120_000;
 
@@ -62,6 +62,7 @@ describe("the chat's working folder", () => {
       await browser_(page).getByRole("button", { name: "work", exact: true }).click();
       await browser_(page).getByRole("button", { name: "alpha", exact: true }).waitFor();
       assert.deepEqual(await entries(page), ["↑ Subir", "alpha", "beta"], "folders only: notes.txt is not there");
+      await snap(page, "folder-picker");
 
       await browser_(page).getByRole("button", { name: "beta", exact: true }).click();
       await browser_(page).getByRole("button", { name: "inner", exact: true }).waitFor();

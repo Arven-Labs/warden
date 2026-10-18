@@ -6,7 +6,7 @@
 
 import assert from "node:assert/strict";
 import { after, before, describe, test } from "node:test";
-import { launchBrowser, signIn, startHub } from "./harness.mjs";
+import { launchBrowser, signIn, snap, startHub } from "./harness.mjs";
 
 const TIMEOUT = 120_000;
 
@@ -73,6 +73,7 @@ describe("threads in the chat", () => {
       assert.match(text, /Paris\./, "the message it came from is at the top");
       assert.match(text, /E a da Itália\?/);
       assert.match(text, /Roma\./);
+      await snap(page, "thread-panel");
 
       await page.getByRole("button", { name: "Fechar a thread" }).click();
       assert.equal(await panel(page).count(), 0);

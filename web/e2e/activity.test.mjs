@@ -5,7 +5,7 @@
 
 import assert from "node:assert/strict";
 import { after, before, describe, test } from "node:test";
-import { launchBrowser, signIn, startHub } from "./harness.mjs";
+import { launchBrowser, signIn, snap, startHub } from "./harness.mjs";
 
 const TIMEOUT = 120_000;
 
@@ -84,6 +84,7 @@ describe("the feed of activity", () => {
       const { page } = opened;
       await page.getByRole("button", { name: "Atividade", exact: true }).click();
       await page.getByText("ops escreveu para você").waitFor();
+      await snap(page, "activity-feed");
 
       const lines = await page.locator(".activity-item .activity-headline").allInnerTexts();
       assert.deepEqual(lines, [

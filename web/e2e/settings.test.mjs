@@ -4,7 +4,7 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import { after, before, describe, test } from "node:test";
-import { launchBrowser, lastSave, openSettings, saveWithKey, startHub } from "./harness.mjs";
+import { launchBrowser, lastSave, openSettings, saveWithKey, snap, startHub } from "./harness.mjs";
 
 const SECRET = "s3cret-mcp-value-xyz";
 const TIMEOUT = 120_000;
@@ -81,6 +81,7 @@ describe("settings on a hub started with --allow-machine-settings", () => {
   test("a save that touches nothing of the machine sends no machine slice and asks no confirmation", { timeout: TIMEOUT }, async () => {
     await withSettings({ allowMachineSettings: true }, async ({ hub, page, sent }) => {
       assert.equal(await page.getByText("Somente leitura").count(), 0, "the machine section is editable");
+      await snap(page, "settings-machine-editable");
       assert.ok(await page.getByRole("checkbox", { name: /Ligar o shell/ }).isEnabled());
 
       await page.getByLabel(/Profundidade da delegação/).fill("4");
@@ -171,6 +172,7 @@ describe("settings on a hub started without the flag", () => {
       const note = page.getByText(/Somente leitura/);
       assert.equal(await note.count(), 1);
       assert.match(await note.innerText(), /--allow-machine-settings/);
+      await snap(page, "settings-machine-readonly", { focus: note });
       assert.ok(await page.getByRole("checkbox", { name: /Ligar o shell/ }).isDisabled(), "the shell checkbox is disabled");
       assert.ok(await page.getByRole("button", { name: "+ Servidor SSH" }).isDisabled(), "adding an SSH host is disabled");
 

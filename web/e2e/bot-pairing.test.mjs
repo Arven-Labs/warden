@@ -4,7 +4,7 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import { after, before, describe, test } from "node:test";
-import { launchBrowser, openSettings, PAIRING_KEY, startHub } from "./harness.mjs";
+import { launchBrowser, openSettings, PAIRING_KEY, snap, startHub } from "./harness.mjs";
 
 const TIMEOUT = 120_000;
 const IN_AN_HOUR = Math.floor(Date.now() / 1000) + 3600;
@@ -74,6 +74,7 @@ describe("approving a pairing request from the web", () => {
     await withPairings(async ({ page }) => {
       const select = telegramRequest(page).locator("select");
       assert.equal(await select.inputValue(), "", "the owner is the default");
+      await snap(page, "bot-pairing", { focus: telegramRequest(page) });
       // Playwright's `isDisabled()` ignores an <option>, so the property is read off the element itself.
       const disabled = (member) => select.locator(`option[value="${member}"]`).evaluate((option) => option.disabled);
       assert.equal(await disabled("ana"), false, "Ana is linked, so she can be chosen");

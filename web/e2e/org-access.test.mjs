@@ -6,7 +6,7 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import { after, before, describe, test } from "node:test";
-import { PAIRING_KEY, launchBrowser, signIn, startHub } from "./harness.mjs";
+import { PAIRING_KEY, launchBrowser, signIn, snap, startHub } from "./harness.mjs";
 
 const TIMEOUT = 120_000;
 
@@ -101,6 +101,7 @@ describe("the organization for a member", () => {
       members.push(viewer);
       await viewer.page.getByRole("button", { name: "Organização", exact: true }).click();
       await viewer.page.getByText("Você só vê a árvore").waitFor();
+      await snap(viewer.page, "org-tree-viewer");
       assert.deepEqual((await viewer.page.locator(".org-name").allInnerTexts()).sort(), ["ops", "writer"], "the owner's agents, by name");
       assert.equal(await viewer.page.getByRole("button", { name: "Editar", exact: true }).count(), 0);
       assert.equal(await viewer.page.getByRole("button", { name: "Remover", exact: true }).count(), 0);
@@ -115,6 +116,7 @@ describe("the organization for a member", () => {
       members.push(editor);
       await editor.page.getByRole("button", { name: "Organização", exact: true }).click();
       await editor.page.getByText("O dono deixou você mudar a hierarquia").waitFor();
+      await snap(editor.page, "org-tree-editor");
       // The card, not the node: once `ops` reports to `writer` it sits inside `writer`'s node, whose own buttons would match too.
       const ops = editor.page.locator(".org-card", { has: editor.page.locator(".org-name", { hasText: /^ops$/ }) });
       await ops.getByRole("button", { name: "Editar", exact: true }).click();

@@ -5,7 +5,7 @@
 
 import assert from "node:assert/strict";
 import { after, before, describe, test } from "node:test";
-import { launchBrowser, signIn, startHub } from "./harness.mjs";
+import { launchBrowser, signIn, snap, startHub } from "./harness.mjs";
 
 const TIMEOUT = 120_000;
 
@@ -58,9 +58,11 @@ describe("the work of an agent on the Agents screen", () => {
 
       const items = await page.locator(".work-list .conversation-title").allInnerTexts();
       assert.deepEqual(items, ["Resumo diário · tarefa agendada", "writer → ops · de writer"]);
+      await snap(page, "agent-work-list");
 
       await page.getByRole("button", { name: /writer → ops/ }).click();
       await page.getByText("Pode olhar o rascunho?").first().waitFor();
+      await snap(page, "agent-work-conversation");
       assert.equal(await page.locator(".chat-title").innerText(), "writer → ops");
       assert.ok(await contacts(page).isVisible(), "still on the Agents screen");
 

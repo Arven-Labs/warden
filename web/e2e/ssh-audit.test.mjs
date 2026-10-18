@@ -3,7 +3,7 @@
 
 import assert from "node:assert/strict";
 import { after, before, describe, test } from "node:test";
-import { launchBrowser, openSettings, startHub } from "./harness.mjs";
+import { launchBrowser, openSettings, snap, startHub } from "./harness.mjs";
 
 const TIMEOUT = 120_000;
 
@@ -39,6 +39,7 @@ describe("the SSH usage log", () => {
       assert.equal(await log.locator("table").count(), 0, "nothing is read until the log is opened");
       await log.locator("summary").click();
       await log.locator("table").waitFor();
+      await snap(page, "ssh-audit-log", { focus: log });
 
       const rows = await log.locator("tbody tr").allInnerTexts();
       assert.equal(rows.length, 3, "the broken line is skipped");

@@ -3,7 +3,7 @@
 
 import assert from "node:assert/strict";
 import { after, before, describe, test } from "node:test";
-import { PAIRING_KEY, launchBrowser, signIn, startHub } from "./harness.mjs";
+import { PAIRING_KEY, launchBrowser, signIn, snap, startHub } from "./harness.mjs";
 
 const TIMEOUT = 120_000;
 
@@ -78,6 +78,7 @@ describe("the models a member may give her agents", () => {
       // Nothing released: the form for a new agent has no model to pick.
       await page.getByRole("button", { name: "Agentes", exact: true }).click();
       await page.getByRole("button", { name: "Criar agente" }).click();
+      await snap(page, "member-agent-form");
       assert.equal(await page.locator("label", { hasText: "Modelo" }).locator("select").count(), 0, "no picker before the owner releases a model");
       await page.getByRole("button", { name: "Cancelar" }).click();
 

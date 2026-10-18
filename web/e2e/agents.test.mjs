@@ -5,7 +5,7 @@
 
 import assert from "node:assert/strict";
 import { after, before, describe, test } from "node:test";
-import { launchBrowser, signIn, startHub } from "./harness.mjs";
+import { launchBrowser, signIn, snap, startHub } from "./harness.mjs";
 
 const TIMEOUT = 120_000;
 
@@ -41,9 +41,11 @@ describe("the channel of an agent", () => {
       await page.getByRole("tab", { name: "Agents" }).or(page.getByRole("button", { name: "Agents", exact: true })).first().click();
       await contacts(page).getByRole("button", { name: /writer/ }).waitFor();
       assert.equal(await contacts(page).getByRole("button", { name: /ops/ }).count(), 1);
+      await snap(page, "agents-contacts");
 
       await contacts(page).getByRole("button", { name: /writer/ }).click();
       await page.locator(".chat-title", { hasText: "writer" }).waitFor();
+      await snap(page, "agents-channel");
       const asked = sent.map((s) => JSON.parse(s)).filter((m) => m.type === "openAgentChannel");
       assert.ok(asked.some((m) => m.agentId === "writer"), "the page asked the hub for the channel of the agent");
 
