@@ -2,7 +2,17 @@
 
 > **Nota**: Este log foi criado junto com o projeto. As sessões serão registradas aqui conforme o trabalho avança.
 >
-> Última atualização: 2026-10-18 (Sessão 262)
+> Última atualização: 2026-10-18 (Sessão 263)
+
+---
+
+### 2026-10-18 — Sessão 263 (a mensagem da pessoa é gravada quando o turno começa: fecha a dúvida do P166)
+
+- **Pedido**: "sim" à pergunta da Sessão 262 (guardar a mensagem ao enviar?). Planejado em modo de plano; o usuário escolheu que a pergunta sem resposta fica **visível mas o modelo não a vê**.
+- **Feito** (`warden-bootstrap/src/lib.rs`): `handle_agent_turn_in_with` grava a pergunta antes de chamar o modelo e só a resposta depois (com `create: false`, então uma conversa apagada durante o turno continua apagada); redo continua gravando uma vez no fim. `model_history` tira do histórico do modelo a pergunta sem resposta (no meio sempre; no fim quando não é redo). O `agents.test.mjs` voltou a esperar `oi, writer` depois de trocar de agente e voltar.
+- **Achado pelo CI, não previsto no plano**: com a pergunta no disco, o `search_history` achava a própria pergunta que pedia a busca (`warden-server/tests/people.rs`). Com aval do usuário, `Tool::without_history_message` + `Orchestrator::without_history_message` + um campo `skip` no `SearchHistoryTool` deixam só aquela mensagem de fora.
+- **CI**: primeira rodada vermelha só nesse teste; verde no `80f4e9d`, com 4 testes novos (turno falho guarda a pergunta e o modelo não a vê; redo falho não muda nada; `model_history`; busca que não acha a pergunta do turno).
+- **Não provado**: o fluxo em telas reais; fora do `handle_agent_turn_in_with`, `message_agent.rs` e `tasks.rs` têm gravação própria e não foram tocados.
 
 ---
 
