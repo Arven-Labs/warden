@@ -334,6 +334,15 @@ button:focus-visible {
   scrollbar-width: thin;
 }
 
+/* On a wide window the tabs wrap onto a second line instead of scrolling, so the last one is never cut in half ("Ta"). */
+@media (min-width: 900px) {
+  .app-tabs {
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    overflow-x: visible;
+  }
+}
+
 .tab {
   flex: none;
   white-space: nowrap;

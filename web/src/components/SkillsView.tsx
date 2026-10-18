@@ -490,7 +490,7 @@ export default function SkillsView({
                 <p className="skills-item-description">{skill.description || "(sem descrição)"}</p>
                 <p className="skills-hint">
                   {skill.source ? <>Da conversa <code>{skill.source}</code></> : "De uma conversa"}
-                  {skill.proposedAt ? ` · ${new Date(skill.proposedAt).toLocaleString()}` : ""}
+                  {skill.proposedAt ? ` · ${new Date(skill.proposedAt).toLocaleString("pt-BR")}` : ""}
                   {skill.agents.length > 0 ? ` · só para: ${skill.agents.join(", ")}` : ""}
                 </p>
                 {(() => {

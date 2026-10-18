@@ -107,32 +107,32 @@ function EmbeddedServerSection() {
   return (
     <section className="settings-section">
       <div className="settings-section-header">
-        <h3 className="settings-section-title">Ser o hub desta rede</h3>
+        <h3 className="settings-section-title">Be the hub of this network</h3>
       </div>
       <p className="settings-hint">
-        Liga um <code>warden-server</code> dentro deste mesmo app — outros dispositivos (mobile, extensão, navegador)
-        conseguem se conectar por aqui, na porta escolhida abaixo. Uma vez ligado, volta a subir sozinho toda vez que este app abrir; pra
-        acessar de fora da rede local (tipo Jellyfin), redirecione essa porta no seu roteador.
+        Starts a <code>warden-server</code> inside this same app — other devices (mobile, extension, browser) can connect
+        through it, on the port chosen below. Once started, it comes back up by itself every time this app opens; to reach it
+        from outside the local network (like Jellyfin), forward that port on your router.
       </p>
 
       <p className="settings-hint">
         {status.running ? (
           <>
-            Rodando como <strong>{status.serverName}</strong> em <code>{status.boundAddr}</code>
+            Running as <strong>{status.serverName}</strong> on <code>{status.boundAddr}</code>
             {status.secureUrl ? (
               <>
                 {" "}
-                — só HTTPS, conecte em <code>{status.secureUrl}</code>
+                — HTTPS only, connect to <code>{status.secureUrl}</code>
               </>
             ) : status.secure ? (
-              " — só HTTPS, pelo nome do certificado"
+              " — HTTPS only, by the certificate's name"
             ) : (
-              " — sem criptografia (ws://)"
+              " — not encrypted (ws://)"
             )}
             {status.webUrl && (
               <>
                 <br />
-                Interface web:{" "}
+                Web interface:{" "}
                 <a
                   href={status.webUrl}
                   onClick={(e) => {
@@ -142,17 +142,17 @@ function EmbeddedServerSection() {
                 >
                   {status.webUrl}
                 </a>
-                {!status.secureUrl && " (de outro aparelho da rede, troque localhost pelo IP desta máquina)"}
+                {!status.secureUrl && " (from another device on the network, replace localhost with this machine's IP)"}
               </>
             )}
           </>
         ) : (
-          "Parado."
+          "Stopped."
         )}
       </p>
 
       <label className="settings-field">
-        <span className="settings-label">Porta</span>
+        <span className="settings-label">Port</span>
         <input
           className="settings-input"
           type="number"
@@ -162,21 +162,21 @@ function EmbeddedServerSection() {
         />
       </label>
       <label className="settings-field">
-        <span className="settings-label">Nome (opcional)</span>
+        <span className="settings-label">Name (optional)</span>
         <input
           className="settings-input"
           type="text"
-          placeholder="ex.: Desktop da sala"
+          placeholder="e.g. Living room desktop"
           value={serverNameInput}
           disabled={status.running}
           onChange={(e) => setServerNameInput(e.currentTarget.value)}
         />
       </label>
       <label className="settings-field">
-        <span className="settings-label">Endereço (opcional)</span>
+        <span className="settings-label">Address (optional)</span>
         <span className="settings-hint">
-          Em branco, atende em todas as interfaces de rede (<code>0.0.0.0</code>). <code>127.0.0.1</code> deixa o hub acessível só
-          deste computador; o IP de uma interface (ex.: o do Tailscale) limita a ela.
+          Left empty, it answers on every network interface (<code>0.0.0.0</code>). <code>127.0.0.1</code> makes the hub reachable
+          only from this computer; the IP of one interface (e.g. Tailscale's) limits it to that one.
         </span>
         <input
           className="settings-input"
@@ -195,21 +195,21 @@ function EmbeddedServerSection() {
           disabled={status.running}
           onChange={(e) => setHttpsMode(e.currentTarget.value as HttpsMode)}
         >
-          <option value="none">Sem criptografia (ws://)</option>
-          <option value="tailscale">Via Tailscale</option>
-          <option value="own">Certificado próprio</option>
+          <option value="none">Not encrypted (ws://)</option>
+          <option value="tailscale">Through Tailscale</option>
+          <option value="own">Own certificate</option>
         </select>
         {httpsMode === "tailscale" && (
           <span className="settings-hint">
-            Criptografa a conexão com o certificado do Tailscale deste computador (<code>tailscale cert</code>), renovado sozinho. Os
-            dispositivos passam a conectar pelo nome <code>*.ts.net</code>, só de dentro da tailnet. Precisa de MagicDNS e certificados
-            HTTPS ligados no painel do Tailscale e, sem root, <code>sudo tailscale set --operator=$USER</code>.
+            Encrypts the connection with this computer's Tailscale certificate (<code>tailscale cert</code>), renewed by itself. Devices
+            then connect by the name <code>*.ts.net</code>, only from inside the tailnet. Needs MagicDNS and HTTPS certificates turned
+            on in the Tailscale panel and, without root, <code>sudo tailscale set --operator=$USER</code>.
           </span>
         )}
         {httpsMode === "own" && (
           <span className="settings-hint">
-            Um certificado em PEM (a cadeia, começando pelo do site) e a chave privada dele, como os do Let's Encrypt. Os arquivos
-            são relidos quando mudam, então renovar não pede reiniciar.
+            A certificate in PEM (the chain, starting with the site's) and its private key, like the ones from Let's Encrypt. The files
+            are read again when they change, so renewing does not need a restart.
           </span>
         )}
       </label>
@@ -217,7 +217,7 @@ function EmbeddedServerSection() {
         <>
           {(["tlsCert", "tlsKey"] as const).map((field) => (
             <label className="settings-field" key={field}>
-              <span className="settings-label">{field === "tlsCert" ? "Certificado (.pem)" : "Chave privada (.pem)"}</span>
+              <span className="settings-label">{field === "tlsCert" ? "Certificate (.pem)" : "Private key (.pem)"}</span>
               <div className="settings-key-field">
                 <input
                   className="settings-input"
@@ -228,22 +228,22 @@ function EmbeddedServerSection() {
                 />
                 {!status.running && (
                   <button type="button" className="settings-browse-btn" onClick={() => void handleBrowse(field)}>
-                    Escolher…
+                    Choose…
                   </button>
                 )}
               </div>
             </label>
           ))}
           <label className="settings-field">
-            <span className="settings-label">Nome do certificado (opcional)</span>
+            <span className="settings-label">Certificate name (optional)</span>
             <span className="settings-hint">
-              O nome para o qual o certificado vale (ex.: <code>hub.meudominio.com</code>). Com ele, a descoberta na rede e o link da
-              interface web já apontam para o endereço certo.
+              The name the certificate is valid for (e.g. <code>hub.mydomain.com</code>). With it, the discovery on the network and the
+              link to the web interface already point to the right address.
             </span>
             <input
               className="settings-input"
               type="text"
-              placeholder="hub.meudominio.com"
+              placeholder="hub.mydomain.com"
               value={config.tlsHost ?? ""}
               disabled={status.running}
               onChange={(e) => setConfig((c) => ({ ...c, tlsHost: e.currentTarget.value || null }))}
@@ -259,24 +259,24 @@ function EmbeddedServerSection() {
             disabled={status.running}
             onChange={(e) => setConfig((c) => ({ ...c, webUi: e.currentTarget.checked }))}
           />
-          <span className="settings-label">Interface web</span>
+          <span className="settings-label">Web interface</span>
         </span>
         <span className="settings-hint">
-          Abrir o endereço do hub num navegador mostra o Warden completo, que pareia como mais um dispositivo. Desligada, a porta
-          atende só os apps.
+          Opening the hub's address in a browser shows the whole of Warden, which pairs as one more device. Turned off, the port
+          answers only the apps.
         </span>
       </label>
       <ApiKeyField label="Auth key" value={config.authKey} onChange={(authKey) => setConfig((c) => ({ ...c, authKey }))} />
       {!status.running && (
         <button type="button" className="settings-browse-btn" onClick={handleGenerateKey}>
-          Gerar nova chave
+          Generate a new key
         </button>
       )}
 
       {error && <p className="settings-error-banner">{error}</p>}
 
       <button type="button" className="settings-save-btn" onClick={status.running ? handleStop : handleStart} disabled={busy}>
-        {busy ? "Aguarde…" : status.running ? "Desligar" : "Ligar"}
+        {busy ? "Wait…" : status.running ? "Turn off" : "Turn on"}
       </button>
     </section>
   );
@@ -489,16 +489,16 @@ function HubPairingQrSection() {
   return (
     <section className="settings-section">
       <div className="settings-section-header">
-        <h3 className="settings-section-title">Pareamento por QR</h3>
+        <h3 className="settings-section-title">Pairing by QR</h3>
       </div>
       <p className="settings-hint">
-        Informe o endereço deste hub e gere um QR — escaneie no app pra preencher a conexão automaticamente. O QR leva um
-        convite de uso único, válido por poucos minutos (a chave de pareamento só pareia o primeiro aparelho), criado nesta
-        máquina: serve para o hub deste app ou um <code>warden-server</code> daqui.
+        Enter this hub's address and generate a QR — scan it in the app to fill in the connection automatically. The QR carries a
+        one-use invitation, valid for a few minutes (the pairing key only pairs the first device), made on this machine: it
+        works for this app's hub or a <code>warden-server</code> running here.
       </p>
 
       <label className="settings-field">
-        <span className="settings-label">Porta a procurar</span>
+        <span className="settings-label">Port to look for</span>
         <input
           className="settings-input"
           type="text"
@@ -509,10 +509,10 @@ function HubPairingQrSection() {
         />
       </label>
       <button type="button" className="settings-save-btn" onClick={handleDiscover} disabled={searching}>
-        {searching ? "Procurando…" : "Procurar hubs na rede"}
+        {searching ? "Searching…" : "Look for hubs on the network"}
       </button>
       {searchError && <p className="settings-error-banner">{searchError}</p>}
-      {hubs && hubs.length === 0 && <p className="settings-hint">Nenhum hub respondeu na rede local.</p>}
+      {hubs && hubs.length === 0 && <p className="settings-hint">No hub answered on the local network.</p>}
       {hubs && hubs.length > 0 && (
         <div className="workspace-device-list">
           {hubs.map((hub) => (
@@ -536,28 +536,28 @@ function HubPairingQrSection() {
         <input
           className="settings-input"
           type="text"
-          placeholder="wss://hub.tailXXXX.ts.net:7420 ou ws://192.168.x.x:7420"
+          placeholder="wss://hub.tailXXXX.ts.net:7420 or ws://192.168.x.x:7420"
           value={config.serverUrl}
           onChange={(e) => setConfig((c) => ({ ...c, serverUrl: e.currentTarget.value }))}
         />
       </label>
       {embeddedSecureUrl && config.serverUrl !== embeddedSecureUrl && (
         <button type="button" className="settings-browse-btn" onClick={() => setConfig((c) => ({ ...c, serverUrl: embeddedSecureUrl }))}>
-          Usar o hub deste app ({embeddedSecureUrl})
+          Use this app's hub ({embeddedSecureUrl})
         </button>
       )}
 
       {error && <p className="settings-error-banner">{error}</p>}
 
       <button type="button" className="settings-save-btn" onClick={handleGenerate} disabled={busy}>
-        Gerar QR
+        Generate QR
       </button>
 
       {qr && (
         <div className="sync-qr-card">
           <div className="sync-qr-image" dangerouslySetInnerHTML={{ __html: qr.svg }} />
           <p className="settings-hint">
-            Vale uma vez, até {new Date(qr.expiresMs).toLocaleTimeString()}. Gerar outro QR cancela este.
+            Works once, until {new Date(qr.expiresMs).toLocaleTimeString()}. Generating another QR cancels this one.
           </p>
         </div>
       )}

@@ -191,13 +191,13 @@ for (const colorScheme of ["light", "dark"]) {
         await page.getByRole("heading", { name: "Sync" }).waitFor();
         await snap(page, `desktop-sync-${colorScheme}`);
 
-        await page.getByRole("button", { name: "Enviar", exact: true }).click();
-        await page.getByText("Aguardando aprovação…").waitFor();
+        await page.getByRole("button", { name: "Send", exact: true }).click();
+        await page.getByText("Waiting for approval…").waitFor();
         assert.equal(await page.locator(".sync-qr-image svg").count(), 1);
         await snap(page, `desktop-sync-qr-${colorScheme}`, { focus: page.locator(".sync-qr-card") });
 
         waiting.resolve({ txId: "invented-sync-tx", filesChanged: 3, configChanged: true });
-        await page.getByText(/Enviado — tx invented-sync-tx/).waitFor();
+        await page.getByText(/Sent — tx invented-sync-tx/).waitFor();
         await snap(page, `desktop-sync-sent-${colorScheme}`);
         assert.deepEqual(errors, [], "the page raised no error");
       } finally {

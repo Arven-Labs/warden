@@ -25,8 +25,8 @@ function shortDate(millis: number): string {
   const date = new Date(millis);
   const today = new Date();
   return date.toDateString() === today.toDateString()
-    ? date.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })
-    : date.toLocaleDateString(undefined, { day: "2-digit", month: "2-digit" });
+    ? date.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })
+    : date.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" });
 }
 
 /** This device's conversations on the hub (P78): open, start, rename, delete, pin and archive (P157). A sidebar on wide

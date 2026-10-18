@@ -327,7 +327,8 @@ function ChatArea({
             {sharedWithHub ? "On the hub · stop sharing" : "Share with the hub"}
           </button>
         )}
-        {!remote && (
+        {/* With no provider and no combo there is nothing to pick: the box would be an empty pill. */}
+        {!remote && providers.length + combos.length > 0 && (
           <select
             className="chat-header-select"
             aria-label="Model"

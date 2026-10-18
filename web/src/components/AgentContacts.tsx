@@ -21,8 +21,8 @@ interface Props {
 function shortDate(millis: number): string {
   const date = new Date(millis);
   return date.toDateString() === new Date().toDateString()
-    ? date.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })
-    : date.toLocaleDateString(undefined, { day: "2-digit", month: "2-digit" });
+    ? date.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })
+    : date.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" });
 }
 
 /** P121 — the agents as contacts: each has one conversation with the person, its channel, which stays where it was left. Newest first, the
