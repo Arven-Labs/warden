@@ -817,6 +817,10 @@ class ServerConnection implements ConversationBackend, AgentsBackend, MemberOrgB
   Future<void> deleteConversation(String conversationId) =>
       _conversationRequest((requestId) => DeleteConversationMessage(requestId, conversationId));
 
+  @override
+  Future<void> setConversationFlags(String conversationId, {bool? pinned, bool? archived}) =>
+      _conversationRequest((requestId) => SetConversationFlagsMessage(requestId, conversationId, pinned: pinned, archived: archived));
+
   Future<ServerMessage> _conversationRequest(
     ClientMessage Function(int requestId) build, {
     Duration timeout = const Duration(seconds: 15),

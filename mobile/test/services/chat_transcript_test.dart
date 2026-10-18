@@ -101,6 +101,29 @@ class FakeBackend implements ConversationBackend {
     conversations = conversations.where((c) => c.id != conversationId).toList();
     histories.remove(conversationId);
   }
+
+  /// The flag changes asked of the hub, in order (P157): conversation, pinned, archived.
+  final flagCalls = <(String, bool?, bool?)>[];
+
+  /// Like the hub: archiving unpins, and pinning an archived conversation brings it back.
+  @override
+  Future<void> setConversationFlags(String conversationId, {bool? pinned, bool? archived}) async {
+    flagCalls.add((conversationId, pinned, archived));
+    conversations = [
+      for (final c in conversations)
+        if (c.id != conversationId)
+          c
+        else
+          ConversationSummary(
+            id: c.id,
+            title: c.title,
+            createdAt: c.createdAt,
+            updatedAt: c.updatedAt,
+            archived: archived ?? (pinned == true ? false : c.archived),
+            pinned: (archived ?? false) ? false : (pinned ?? c.pinned),
+          ),
+    ];
+  }
 }
 
 /// The marks of the agents' channels, in memory (P121).
@@ -569,6 +592,29 @@ void main() {
       expect(transcript.conversations.map((c) => c.id), ['b']);
       expect(transcript.activeConversationId, 'b');
       expect(transcript.entries.single.text, 'in b');
+    });
+
+    test('pinning and archiving go to the hub, refresh the list, and deleting skips an archived conversation (P157)', () async {
+      backend.conversations = [summary('a'), summary('b'), summary('c')];
+      final transcript = make(last: 'a');
+      await settle();
+
+      await transcript.setFlags('b', pinned: true);
+      expect(backend.flagCalls, hasLength(1));
+      expect(backend.flagCalls.single, ('b', true, null));
+      expect(transcript.conversations.firstWhere((c) => c.id == 'b').pinned, isTrue);
+
+      await transcript.setFlags('b', archived: true);
+      final b = transcript.conversations.firstWhere((c) => c.id == 'b');
+      expect((b.pinned, b.archived), (false, true), reason: 'archiving unpins');
+      expect(transcript.activeConversationId, 'a', reason: 'archiving another conversation leaves the open one');
+
+      await transcript.setFlags('a', archived: true);
+      expect(transcript.activeConversationId, 'a', reason: 'archiving the open conversation doesn\'t close it');
+
+      await transcript.delete('a');
+      await settle();
+      expect(transcript.activeConversationId, 'c', reason: 'b is archived: it is put away, not what opens after a delete');
     });
 
     test('a list that fails to load is reported and the chat still works', () async {

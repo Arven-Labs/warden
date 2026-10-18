@@ -62,6 +62,9 @@ abstract interface class ConversationBackend {
   Future<void> renameConversation(String conversationId, String title);
   Future<void> deleteConversation(String conversationId);
 
+  /// P157 — pins or archives a conversation; a flag left null stays as it is.
+  Future<void> setConversationFlags(String conversationId, {bool? pinned, bool? archived});
+
   /// P121 — the id of the conversation that is [agentId]'s channel with this person (the hub makes it).
   Future<String> openAgentChannel(String agentId);
 }
@@ -487,10 +490,11 @@ class ChatTranscript extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// P125 — the first conversation of [list] that is not a thread.
+  /// P125 — the first conversation of [list] that is not a thread. Not an archived one either (P157): it is put away, and opening it
+  /// by chance would bring it back to the screen.
   ConversationSummary? _firstVisible(List<ConversationSummary> list) {
     for (final c in list) {
-      if (_isLoose(c)) return c;
+      if (_isLoose(c) && !c.archived) return c;
     }
     return null;
   }
@@ -540,6 +544,13 @@ class ChatTranscript extends ChangeNotifier {
   /// Throws when the hub refuses (e.g. an empty title).
   Future<void> rename(String conversationId, String title) async {
     await backend.renameConversation(conversationId, title);
+    await refreshConversations();
+  }
+
+  /// P157 — pins or archives a conversation; a flag left null stays as it is. Archiving the open conversation doesn't close it.
+  /// Throws when the hub refuses.
+  Future<void> setFlags(String conversationId, {bool? pinned, bool? archived}) async {
+    await backend.setConversationFlags(conversationId, pinned: pinned, archived: archived);
     await refreshConversations();
   }
 

@@ -471,6 +471,11 @@ void main() {
     controller.local.sink.add('{"type":"conversationError","requestId":3,"message":"no conversation with id \'gone\'"}');
     await expectLater(delete, throwsA(isA<ConversationException>().having((e) => e.message, 'message', contains('gone'))));
 
+    final pin = conn.setConversationFlags('c1', pinned: true);
+    expect(await fromClient.next as String, '{"type":"setConversationFlags","requestId":4,"conversationId":"c1","pinned":true}');
+    controller.local.sink.add('{"type":"conversationOk","requestId":4}');
+    await pin;
+
     conn.sendChat('hi', conversationId: 'c1');
     expect(await fromClient.next as String, '{"type":"chat","message":"hi","conversationId":"c1"}');
   });

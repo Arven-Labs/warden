@@ -11,6 +11,7 @@ import '../protocol/messages.dart';
 import '../services/agent_work.dart' show orgAccessOf;
 import '../services/chat_notifications.dart';
 import '../services/chat_transcript.dart';
+import '../services/conversation_groups.dart';
 import '../services/live_turn.dart';
 import '../services/mobile_file_tool.dart';
 import '../services/server_connection.dart';
@@ -800,6 +801,36 @@ class _ConversationDrawer extends StatelessWidget {
     }
   }
 
+  Widget _tile(BuildContext context, ConversationSummary conversation) {
+    final answering = transcript.isAnswering(conversation.id);
+    return ListTile(
+      selected: conversation.id == transcript.activeConversationId,
+      title: Text(conversation.title.isEmpty ? 'Untitled' : conversation.title, maxLines: 1, overflow: TextOverflow.ellipsis),
+      subtitle: answering ? const Text('Answering…') : null,
+      onTap: () {
+        transcript.open(conversation.id);
+        Navigator.of(context).pop();
+      },
+      trailing: PopupMenuButton<String>(
+        // Nothing on the hub to change yet, or its answer is still on the way.
+        enabled: connected && !answering,
+        tooltip: 'Conversation actions',
+        onSelected: (action) => switch (action) {
+          'rename' => _rename(context, conversation),
+          'pin' => _run(context, () => transcript.setFlags(conversation.id, pinned: !conversation.pinned)),
+          'archive' => _run(context, () => transcript.setFlags(conversation.id, archived: !conversation.archived)),
+          _ => _delete(context, conversation),
+        },
+        itemBuilder: (_) => [
+          if (!conversation.archived) PopupMenuItem(value: 'pin', child: Text(conversation.pinned ? 'Unpin' : 'Pin to the top')),
+          PopupMenuItem(value: 'archive', child: Text(conversation.archived ? 'Unarchive' : 'Archive')),
+          const PopupMenuItem(value: 'rename', child: Text('Rename')),
+          const PopupMenuItem(value: 'delete', child: Text('Delete')),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Drawer(
@@ -808,6 +839,8 @@ class _ConversationDrawer extends StatelessWidget {
           listenable: transcript,
           builder: (context, _) {
             final conversations = transcript.visibleConversations;
+            // P157 — pinned first, then by how recently they were used, with the archived ones folded away at the end.
+            final groups = groupConversations(conversations, DateTime.now());
             final error = transcript.conversationsError;
             return Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -834,31 +867,22 @@ class _ConversationDrawer extends StatelessWidget {
                     child: Text('No conversations yet.', textAlign: TextAlign.center),
                   ),
                 Expanded(
-                  child: ListView.builder(
-                    itemCount: conversations.length,
-                    itemBuilder: (context, index) {
-                      final conversation = conversations[index];
-                      final answering = transcript.isAnswering(conversation.id);
-                      return ListTile(
-                        selected: conversation.id == transcript.activeConversationId,
-                        title: Text(conversation.title.isEmpty ? 'Untitled' : conversation.title, maxLines: 1, overflow: TextOverflow.ellipsis),
-                        subtitle: answering ? const Text('Answering…') : null,
-                        onTap: () {
-                          transcript.open(conversation.id);
-                          Navigator.of(context).pop();
-                        },
-                        trailing: PopupMenuButton<String>(
-                          // Nothing on the hub to change yet, or its answer is still on the way.
-                          enabled: connected && !answering,
-                          tooltip: 'Conversation actions',
-                          onSelected: (action) => action == 'rename' ? _rename(context, conversation) : _delete(context, conversation),
-                          itemBuilder: (_) => const [
-                            PopupMenuItem(value: 'rename', child: Text('Rename')),
-                            PopupMenuItem(value: 'delete', child: Text('Delete')),
-                          ],
+                  child: ListView(
+                    children: [
+                      if (groups.pinned.isNotEmpty) ...[
+                        const _GroupHeader('Pinned'),
+                        for (final c in groups.pinned) _tile(context, c),
+                      ],
+                      for (final bucket in groups.buckets) ...[
+                        _GroupHeader(bucket.label),
+                        for (final c in bucket.items) _tile(context, c),
+                      ],
+                      if (groups.archived.isNotEmpty)
+                        ExpansionTile(
+                          title: Text('Archived (${groups.archived.length})'),
+                          children: [for (final c in groups.archived) _tile(context, c)],
                         ),
-                      );
-                    },
+                    ],
                   ),
                 ),
               ],
@@ -866,6 +890,22 @@ class _ConversationDrawer extends StatelessWidget {
           },
         ),
       ),
+    );
+  }
+}
+
+/// P157 — the heading of a block of the drawer's list: "Pinned", "Today", "Yesterday", …
+class _GroupHeader extends StatelessWidget {
+  const _GroupHeader(this.label);
+
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+      child: Text(label, style: theme.textTheme.labelMedium?.copyWith(color: theme.colorScheme.onSurfaceVariant)),
     );
   }
 }

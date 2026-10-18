@@ -73,6 +73,24 @@ void main() {
           '{"type":"deleteConversation","requestId":4,"conversationId":"c1"}');
     });
 
+    test('pinning and archiving say only the flag they change (P157)', () {
+      expect(const SetConversationFlagsMessage(5, 'c1', pinned: true).encode(),
+          '{"type":"setConversationFlags","requestId":5,"conversationId":"c1","pinned":true}');
+      expect(const SetConversationFlagsMessage(6, 'c1', archived: false).encode(),
+          '{"type":"setConversationFlags","requestId":6,"conversationId":"c1","archived":false}');
+      expect(const SetConversationFlagsMessage(7, 'c1', pinned: false, archived: true).encode(),
+          '{"type":"setConversationFlags","requestId":7,"conversationId":"c1","pinned":false,"archived":true}');
+    });
+
+    test('a conversation summary is pinned or archived only when the hub says so (P157)', () {
+      final plain = ServerMessage.decode(
+          '{"type":"conversationList","requestId":1,"conversations":[{"id":"c1","title":"T","createdAt":1,"updatedAt":2}]}') as ConversationListMessage;
+      expect((plain.conversations.single.pinned, plain.conversations.single.archived), (false, false));
+      final flagged = ServerMessage.decode(
+          '{"type":"conversationList","requestId":1,"conversations":[{"id":"c1","title":"T","createdAt":1,"updatedAt":2,"pinned":true},{"id":"c2","title":"U","createdAt":1,"updatedAt":2,"archived":true}]}') as ConversationListMessage;
+      expect([for (final c in flagged.conversations) '${c.pinned}/${c.archived}'], ['true/false', 'false/true']);
+    });
+
     test('ToolCallResult', () {
       const msg = ToolCallResultMessage(7, {'ok': true});
       expect(msg.encode(), '{"type":"toolCallResult","callId":7,"result":{"ok":true}}');

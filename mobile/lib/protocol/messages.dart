@@ -832,6 +832,26 @@ final class DeleteConversationMessage extends ClientMessage {
   Map<String, dynamic> toJson() => {'type': 'deleteConversation', 'requestId': requestId, 'conversationId': conversationId};
 }
 
+/// P157 — pins or archives a conversation; a flag left null stays as it is. Archiving unpins, and pinning an archived one brings
+/// it back. Answered by [ConversationOkMessage] or [ConversationErrorMessage].
+final class SetConversationFlagsMessage extends ClientMessage {
+  const SetConversationFlagsMessage(this.requestId, this.conversationId, {this.pinned, this.archived});
+
+  final int requestId;
+  final String conversationId;
+  final bool? pinned;
+  final bool? archived;
+
+  @override
+  Map<String, dynamic> toJson() => {
+        'type': 'setConversationFlags',
+        'requestId': requestId,
+        'conversationId': conversationId,
+        if (pinned != null) 'pinned': pinned,
+        if (archived != null) 'archived': archived,
+      };
+}
+
 /// One of this device's conversations in a [ConversationListMessage] (P78). Mirrors
 /// `warden_server_protocol::protocol::ConversationSummary`.
 class ConversationSummary {
@@ -846,6 +866,8 @@ class ConversationSummary {
     this.workdir,
     this.parent,
     this.replies = 0,
+    this.pinned = false,
+    this.archived = false,
   });
 
   final String id;
@@ -871,6 +893,12 @@ class ConversationSummary {
   /// P125 — for a thread, how many messages the person sent in it.
   final int replies;
 
+  /// P157 — kept at the top of the list. Absent from the hub's JSON when not.
+  final bool pinned;
+
+  /// P157 — put away: listed apart. Never both pinned and archived.
+  final bool archived;
+
   static ConversationSummary fromJson(dynamic json) {
     final map = json as Map<String, dynamic>;
     return ConversationSummary(
@@ -884,6 +912,8 @@ class ConversationSummary {
       workdir: map['workdir'] as String?,
       parent: map['parent'] == null ? null : ThreadParent.fromJson(map['parent']),
       replies: map['replies'] as int? ?? 0,
+      pinned: map['pinned'] as bool? ?? false,
+      archived: map['archived'] as bool? ?? false,
     );
   }
 }
