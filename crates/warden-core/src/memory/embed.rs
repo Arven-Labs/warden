@@ -29,9 +29,6 @@ pub enum Kind {
 #[cfg(feature = "semantic-search")]
 pub fn embed(_kind: Kind, texts: Vec<String>) -> anyhow::Result<Vec<Vec<f32>>> {
     use fastembed::{EmbeddingModel, TextEmbedding, TextInitOptions};
-    use std::sync::Mutex;
-
-    static MODEL: Mutex<Option<TextEmbedding>> = Mutex::new(None);
 
     if std::env::var_os(OFF_SWITCH).is_some_and(|v| !v.is_empty()) {
         anyhow::bail!("search by meaning is turned off ({OFF_SWITCH} is set)");
@@ -39,26 +36,55 @@ pub fn embed(_kind: Kind, texts: Vec<String>) -> anyhow::Result<Vec<Vec<f32>>> {
     if texts.is_empty() {
         return Ok(Vec::new());
     }
-    let mut guard = MODEL.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    let mut guard = HISTORY_MODEL.lock();
     if guard.is_none() {
-        // P146: the ORT arena off, since this model is never unloaded; with the slices below, 400 long messages
-        // took 814 MB instead of 1237 MB with it on.
+        // P146: the ORT arena off, since 400 long messages took 814 MB instead of 1237 MB with it on.
         let cpu = ort::ep::CPU::default().with_arena_allocator(false).build();
-        *guard = Some(TextEmbedding::try_new(
+        let model = TextEmbedding::try_new(
             TextInitOptions::new(EmbeddingModel::ParaphraseMLMiniLML12V2Q)
                 .with_cache_dir(super::model_cache_dir())
                 .with_show_download_progress(false)
                 .with_execution_providers(vec![cpu]),
-        )?);
+        )?;
+        *guard = Some(LoadedModel { model, last_used: std::time::Instant::now() });
     }
     // P146: fastembed runs a quantized model in one single batch whatever `batch_size` says, and 400 long messages
     // reached 4.5 GB that way. Slices of 16 give the same vectors (cosine 1.00000).
-    let model = guard.as_mut().expect("loaded just above");
+    let loaded = guard.as_mut().expect("loaded just above");
     let mut embeddings = Vec::with_capacity(texts.len());
     for slice in texts.chunks(HISTORY_EMBED_SLICE) {
-        embeddings.extend(model.embed(slice, None)?);
+        embeddings.extend(loaded.model.embed(slice, None)?);
     }
+    loaded.last_used = std::time::Instant::now();
     Ok(embeddings)
+}
+
+/// A loaded embedding model and when it was last used, under one lock so that using it and unloading it can't race.
+#[cfg(feature = "semantic-search")]
+struct LoadedModel {
+    model: fastembed::TextEmbedding,
+    last_used: std::time::Instant,
+}
+
+/// The history's model: one per process, loaded on first use. Unloaded by `unload_idle_history_model`.
+#[cfg(feature = "semantic-search")]
+static HISTORY_MODEL: parking_lot::FairMutex<Option<LoadedModel>> = parking_lot::FairMutex::new(None);
+
+/// Lets the history model go if nothing has used it for `idle`, and the next `embed` loads it again. Returns whether it
+/// unloaded it. Waits for an `embed` in progress rather than taking the model from under it.
+#[cfg(feature = "semantic-search")]
+pub fn unload_idle_history_model(idle: std::time::Duration) -> bool {
+    let mut guard = HISTORY_MODEL.lock();
+    if guard.as_ref().is_some_and(|loaded| loaded.last_used.elapsed() >= idle) {
+        *guard = None;
+        return true;
+    }
+    false
+}
+
+#[cfg(not(feature = "semantic-search"))]
+pub fn unload_idle_history_model(_idle: std::time::Duration) -> bool {
+    false
 }
 
 /// How many texts go through the history model at once (P146, measured in `HOSPEDAGEM.md` K.2).

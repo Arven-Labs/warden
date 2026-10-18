@@ -38,3 +38,9 @@ jobs:
 
       - name: Testes com modelo real
         run: cargo test -p warden-core --test semantic_search --test history_embed -- --ignored --nocapture
+
+      # P156: quanta memória o modelo do histórico devolve ao ser descarregado, com o arena padrão do glibc e com um só.
+      - name: Memória do modelo do histórico ao descarregar
+        run: |
+          cargo test -p warden-core --test history_embed_memory -- --ignored --nocapture
+          MALLOC_ARENA_MAX=1 cargo test -p warden-core --test history_embed_memory -- --ignored --nocapture
