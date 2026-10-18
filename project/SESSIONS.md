@@ -2,7 +2,17 @@
 
 > **Nota**: Este log foi criado junto com o projeto. As sessões serão registradas aqui conforme o trabalho avança.
 >
-> Última atualização: 2026-10-18 (Sessão 261)
+> Última atualização: 2026-10-18 (Sessão 262)
+
+---
+
+### 2026-10-18 — Sessão 262 (os cinco E2E da web consertados: P166)
+
+- **Pedido**: "leia e veja por onde continuamos", depois "manda bala" na sugestão de começar pelo P161/P166. Planejado em modo de plano e aprovado antes de editar.
+- **Feito**: só testes (`web/e2e`) e o workflow. `activity` (seletor `.usage-view` com `.first()`), `projects` (as conversas soltas agora ficam em blocos por data; contagem só dos grupos `Projeto `), `workdir` (esperar `Nenhuma subpasta.`, porque `↑ Subir` já existia na listagem anterior), `threads` (esperar o histórico da thread chegar antes de ler o painel), `agents` (ver abaixo). O passo `continue-on-error` saiu do `web-e2e.yml`.
+- **CI**: 41 de 41 nos runs 39161324727 (push) e 39161611851 (botão), verdes.
+- **Achado, não decidido**: no `agents`, a mensagem enviada ao canal do agente não volta ao trocar de agente e voltar, porque o hub só guarda o turno quando ele termina e o modelo de teste falha. O teste passou a provar o mesmo canal pelo `conversationId` do segundo envio. Se perder a mensagem nesse caso é defeito de produto, fica a decidir (registrado no P166).
+- **Não feito**: `snap` nos outros specs (resto do P161) e o desktop (P165).
 
 ---
 
