@@ -12,8 +12,6 @@ use warden_core::model::Message;
 use warden_core::orchestrator::Orchestrator;
 use warden_core::spend::SpendContext;
 
-use crate::tr;
-
 #[derive(ValueEnum, Clone, Copy, Debug)]
 enum Provider {
     Gemini,
