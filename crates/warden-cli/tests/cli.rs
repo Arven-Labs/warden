@@ -88,6 +88,34 @@ fn bots_link_unlink_and_approve_as_run_without_a_model_key() {
     std::fs::remove_dir_all(&dir).unwrap();
 }
 
+/// P136: English is the default; `--lang pt-BR` and a Portuguese system locale switch the terminal's own text.
+#[test]
+fn the_terminal_speaks_english_by_default_and_portuguese_when_asked() {
+    let dir = unique_temp_path("warden-cli-test-lang");
+    std::fs::create_dir_all(&dir).unwrap();
+    let config = dir.join("config.toml");
+    std::fs::write(&config, "").unwrap();
+    let config = config.to_string_lossy().to_string();
+    let listed = |extra: &[&str], locale: Option<&str>| {
+        let mut command = warden_command();
+        if let Some(locale) = locale {
+            command.env("LANG", locale);
+        }
+        let mut args = vec!["--config", config.as_str()];
+        args.extend_from_slice(extra);
+        args.extend(["bots", "pair", "list"]);
+        let output = command.args(args).output().unwrap();
+        assert!(output.status.success(), "stderr was: {}", String::from_utf8_lossy(&output.stderr));
+        String::from_utf8_lossy(&output.stdout).to_string()
+    };
+
+    assert!(listed(&[], None).starts_with("No pairing requests"));
+    assert!(listed(&["--lang", "pt-BR"], None).starts_with("Nenhum pedido de pareamento"));
+    assert!(listed(&[], Some("pt_BR.UTF-8")).starts_with("Nenhum pedido de pareamento"), "the system locale is followed");
+    assert!(listed(&["--lang", "en"], Some("pt_BR.UTF-8")).starts_with("No pairing requests"), "the flag wins over the system locale");
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
 #[test]
 fn fails_clearly_without_an_openai_key_when_openai_selected() {
     let output = warden_command().args(["--provider", "openai"]).output().unwrap();

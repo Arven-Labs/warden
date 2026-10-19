@@ -11,6 +11,8 @@ const SSH_LOG_MAX: usize = warden_bootstrap::ssh_audit::SSH_AUDIT_LIMIT;
 pub enum Command {
     Exit,
     Help,
+    /// `/lang` shows the language, `/lang <en|pt-BR>` switches it (P136). The value is checked by the handler, not here.
+    Lang(Option<String>),
     Usage,
     /// `/folder` — the folder this session works in, if one was picked (P102).
     FolderShow,
@@ -112,6 +114,8 @@ pub fn parse_command(input: &str) -> ParseOutcome {
     let command = match (head.to_ascii_lowercase().as_str(), rest.as_slice()) {
         ("exit", []) | ("quit", []) => Command::Exit,
         ("help", []) => Command::Help,
+        ("lang", []) => Command::Lang(None),
+        ("lang", [value]) => Command::Lang(Some(value.to_string())),
         ("usage", []) => Command::Usage,
         ("folder", []) => Command::FolderShow,
         ("folder", ["off"]) => Command::FolderOff,
@@ -215,7 +219,7 @@ pub fn kind_label(kind: Provider) -> &'static str {
 pub const DEFAULT_AGENT_WORD: &str = "padrao";
 
 const GRANTS_SUBCOMMANDS: &[&str] = &["revoke"];
-const TOP_LEVEL_COMMANDS: &[&str] = &["exit", "quit", "help", "usage", "limits", "extend", "grants", "prices", "models", "combos", "agents", "skills", "ssh", "sync"];
+const TOP_LEVEL_COMMANDS: &[&str] = &["exit", "quit", "help", "lang", "usage", "limits", "extend", "grants", "prices", "models", "combos", "agents", "skills", "ssh", "sync"];
 const LIMITS_SUBCOMMANDS: &[&str] = &["add", "edit", "remove", "off", "reset"];
 const PRICES_SUBCOMMANDS: &[&str] = &["add", "edit", "remove"];
 const MODELS_SUBCOMMANDS: &[&str] = &["use", "reset", "add", "edit", "remove"];
@@ -326,6 +330,13 @@ mod tests {
         assert!(matches!(assert_recognized("/quit"), Command::Exit));
         assert!(matches!(assert_recognized("/help"), Command::Help));
         assert!(matches!(assert_recognized("/usage"), Command::Usage));
+    }
+
+    #[test]
+    fn lang_shows_or_sets_the_language() {
+        assert!(matches!(assert_recognized("/lang"), Command::Lang(None)));
+        assert!(matches!(assert_recognized("/lang pt-BR"), Command::Lang(Some(value)) if value == "pt-BR"));
+        assert!(matches!(parse_command("/lang en pt"), ParseOutcome::Unrecognized(_)));
     }
 
     #[test]

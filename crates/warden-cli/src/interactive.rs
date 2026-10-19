@@ -73,6 +73,7 @@ use warden_core::autonomy::{Grant, GrantBook, Grants, RememberingApprover};
 use warden_core::tool::{Answer, ApprovalRequest, Approver};
 
 use crate::commands::{self, Command, ParseOutcome};
+use crate::{i18n, tr};
 
 /// Height (in terminal rows) of the inline viewport used for both the input box and the
 /// "thinking" box — a single line of content plus its top/bottom border.
@@ -296,14 +297,14 @@ fn render_card_preview(frame: &mut ratatui::Frame, state: PreviewState) {
             let glyph = SPINNER_FRAMES[spinner_frame % SPINNER_FRAMES.len()];
             let line = Line::from(vec![
                 Span::styled(format!("{glyph} "), Style::default().fg(Color::Rgb(241, 196, 15))),
-                Span::styled(format!("pensando... ({}s — Ctrl+C para interromper)", elapsed.as_secs()), Style::default().add_modifier(Modifier::DIM)),
+                Span::styled(tr!("preview.thinking", seconds = elapsed.as_secs()), Style::default().add_modifier(Modifier::DIM)),
             ]);
             frame.render_widget(Paragraph::new(line), inner);
         }
         PreviewState::AwaitingApproval => {
             let line = Line::from(vec![
                 Span::styled("? ", Style::default().fg(Color::Rgb(241, 196, 15))),
-                Span::styled("aguardando você — s aprova, n (ou Esc) recusa", Style::default().add_modifier(Modifier::DIM)),
+                Span::styled(tr!("preview.awaiting"), Style::default().add_modifier(Modifier::DIM)),
             ]);
             frame.render_widget(Paragraph::new(line), inner);
         }
@@ -816,16 +817,19 @@ fn approval_key(code: KeyCode, can_always: bool) -> Option<Answer> {
 /// (as a "no") if the tool stopped waiting first — its own deadline elapsed and it dropped the reply.
 fn ask_approval(terminal: &mut CliTerminal, request: &ApprovalRequest, always: Option<&str>, reply: &oneshot::Sender<Answer>) -> anyhow::Result<Answer> {
     // One card row per line of the detail, so a multi-line command or a whole persona stays readable.
-    let mut lines = vec![(format!("alvo: {}", request.target), Style::default()), (format!("ação: {}", request.action), Style::default())];
+    let mut lines = vec![
+        (tr!("approval.target", target = request.target), Style::default()),
+        (tr!("approval.action", action = request.action), Style::default()),
+    ];
     if let Some(category) = request.category {
-        lines.push((format!("categoria: {} (este agente pede aprovação para isso)", category.as_str()), Style::default()));
+        lines.push((tr!("approval.category", category = category.as_str()), Style::default()));
     }
     lines.extend(request.detail.lines().map(|line| (line.to_string(), Style::default())));
     match always {
-        Some(covers) => lines.push((format!("aprovar? (s = sim, a = sempre para \"{covers}\" neste agente, n = não)"), dim_style())),
-        None => lines.push(("aprovar? (s = sim, n = não)".to_string(), dim_style())),
+        Some(covers) => lines.push((tr!("approval.ask_always", covers = covers), dim_style())),
+        None => lines.push((tr!("approval.ask"), dim_style())),
     }
-    render_message_card(terminal, "aprovação", Style::default().fg(Color::Rgb(241, 196, 15)), lines)?;
+    render_message_card(terminal, &tr!("approval.title"), Style::default().fg(Color::Rgb(241, 196, 15)), lines)?;
     loop {
         if reply.is_closed() {
             return Ok(Answer::Reject);
@@ -923,10 +927,10 @@ async fn run_turn(
             let outcome = result??;
             // P79 — the turn's provider was down and a reserve answered.
             for switch in &outcome.fallbacks {
-                insert_history_line(terminal, &format!("respondido por {} ({} falhou: {})", switch.to, switch.from, switch.reason), dim_style)?;
+                insert_history_line(terminal, &tr!("turn.fallback", to = switch.to, from = switch.from, reason = switch.reason), dim_style)?;
             }
             let footer = outcome.usage.as_ref().map(|usage| {
-                vec![(format!("{} prompt + {} completion = {} tokens", usage.prompt_tokens, usage.completion_tokens, usage.total_tokens), dim_style)]
+                vec![(tr!("turn.usage", prompt = usage.prompt_tokens, completion = usage.completion_tokens, total = usage.total_tokens), dim_style)]
             });
             insert_card(terminal, warden_title, card_border, markdown_body_rows(&outcome.content), footer)?;
             terminal.insert_before(1, |_buf| {})?;
@@ -948,7 +952,7 @@ async fn run_turn(
                 if key_is_ctrl_c(&key) {
                     handle.abort();
                     ensure_preview_height(terminal, &mut current_height, 0)?;
-                    insert_history_line(terminal, "(interrompido)", dim_style)?;
+                    insert_history_line(terminal, &tr!("turn.interrupted"), dim_style)?;
                     insert_history_line(terminal, "", Style::default())?;
                     return Ok(None);
                 }
@@ -981,7 +985,7 @@ fn clear_screen() -> io::Result<()> {
 fn print_banner() {
     let (r, g, b) = BRAND;
     println!("{}", "Warden".truecolor(r, g, b).bold());
-    println!("{}", "seu assistente pessoal — escreva algo abaixo (↑ para o histórico, Ctrl+D pra sair)".dimmed());
+    println!("{}", tr!("banner.tagline").dimmed());
     // A thin rule, sized to the real terminal width (not a hardcoded guess) — separates the
     // one-time header from the conversation that scrolls below it, so the top of the screen reads
     // as a session's title bar rather than two unrelated lines of text.
@@ -1097,7 +1101,7 @@ fn make_git_sync_engine(session: &CliSession) -> anyhow::Result<warden_sync::Git
     let config = load_fresh_config(session.config_path.as_deref())?;
     let git_sync = config
         .git_sync
-        .ok_or_else(|| anyhow::anyhow!("configure [git_sync] (remote_url + token) no config.toml antes de usar /sync git"))?;
+        .ok_or_else(|| anyhow::anyhow!(tr!("sync.git_not_configured")))?;
 
     let vault_path = resolve_vault_path(session.config_path.as_deref(), session.vault_path_override.as_deref())?;
     let config_path = session.config_path.clone().unwrap_or_else(|| PathBuf::from("config.toml"));
@@ -1136,9 +1140,9 @@ async fn wait_for_agents_answering(terminal: &mut CliTerminal) -> anyhow::Result
     }
     render_message_card(
         terminal,
-        "recados",
+        &tr!("notes.title"),
         accent_style(),
-        vec![(format!("esperando {busy} agente(s) terminar(em) de responder… (Ctrl+C para sair já)"), Style::default())],
+        vec![(tr!("notes.waiting", count = busy), Style::default())],
     )?;
     let deadline = std::time::Instant::now() + EXIT_WAIT_FOR_AGENTS;
     while warden_bootstrap::message_agent::answers_in_flight() > 0 && std::time::Instant::now() < deadline {
@@ -1237,69 +1241,70 @@ fn cli_agent_extras() -> AgentExtras {
 
 async fn cmd_help(terminal: &mut CliTerminal) -> anyhow::Result<()> {
     let style = Style::default();
+    // Each line is the command (never translated) followed by its description (the catalog).
     let lines = [
-        "/exit, /quit — sair",
-        "/help — esta lista",
-        "/usage — tokens e $ gastos nesta sessão do terminal ($ só com [[prices]] cadastrado)",
-        "/folder [caminho|off] — pasta de trabalho da sessão (antes da primeira mensagem): arquivos e shell agem só ali",
-        "/limits — situação de cada limite de gasto (tokens e $ por janela de tempo)",
-        "/limits add — cadastrar um limite de gasto novo",
-        "/limits edit <id> — editar um limite",
-        "/limits remove <id> — remover um limite (pede confirmação)",
-        "/limits off — desligar todos os limites de gasto (pede confirmação)",
-        "/limits reset — voltar pra rede de segurança padrão, descartando qualquer limite customizado (pede confirmação)",
-        "/extend <id> — liberar mais um passo de um limite, até a janela andar",
-        "/grants — o que foi respondido \"sempre\" neste terminal, por agente",
-        "/grants revoke <o que> [agente] — tirar um \"sempre\" (sem agente: o ativo; padrao: o agente padrão)",
-        "/prices — listar os preços de modelo cadastrados (usados pros limites em $)",
-        "/prices add — cadastrar o preço de um modelo",
-        "/prices edit <model> — editar o preço de um modelo",
-        "/prices remove <model> — remover o preço de um modelo (pede confirmação)",
-        "/models — listar os modelos configurados",
-        "/models use <id> — usar um modelo pro resto da sessão",
-        "/models reset — voltar pro modelo com que o Warden foi iniciado",
-        "/models add — cadastrar um novo modelo",
-        "/models edit <id> — editar um modelo",
-        "/models remove <id> — remover um modelo",
-        "/combos — listar os combos (roteamento: tenta os provedores na ordem se um cair)",
-        "/combos add <nome> <provedor> [<provedor>...] — criar ou substituir um combo (use com /models use <nome>)",
-        "/combos remove <nome> — remover um combo",
-        "/agents — listar os agentes configurados",
-        "/agents use <id> | none — usar um agente (ou nenhum) pro resto da sessão",
-        "/agents tree — ver quem reporta a quem",
-        "/agents create — criar um agente novo",
-        "/agents edit <id> — editar um agente",
-        "/agents remove <id> — remover um agente",
-        "/skills — listar as skills do vault",
-        "/skills show <nome> — ver a descrição e o corpo de uma skill",
-        "/skills create — criar uma skill nova",
-        "/skills edit <nome> — editar a descrição e o corpo de uma skill",
-        "/skills remove <nome> — apagar uma skill (pede confirmação)",
-        "/skills path [nome] — caminho do arquivo da skill (ou da pasta), pra editar texto longo no editor",
-        "/skills file <nome> <arquivo> — ver um arquivo anexado à skill",
-        "/skills attach <nome> <arquivo> <caminho> — anexar à skill uma cópia de um arquivo de texto local (script, modelo…)",
-        "/skills detach <nome> <arquivo> — remover um arquivo anexado (pede confirmação)",
-        "/ssh — listar os servidores SSH cadastrados",
-        "/ssh add — cadastrar um servidor SSH (a chave privada é só um caminho)",
-        "/ssh edit <id> — editar um servidor",
-        "/ssh remove <id> — remover um servidor (pede confirmação)",
-        "/ssh on <id> | off <id> — liberar ou bloquear o servidor pra IA",
-        "/ssh test <id> — testar a conexão (a chave do servidor precisa já estar no known_hosts)",
-        "/ssh log [n] — as últimas n chamadas das tools de SSH (padrão 20): quem pediu, se foi aprovada e como terminou",
-        "/sync — status da sincronização (pendências, último push/pull)",
-        "/sync push — enviar mudanças locais (mostra QR pro TruthID escanear)",
-        "/sync pull — buscar a versão mais recente",
-        "/sync pair — mostrar um código de pareamento e esperar outro device",
-        "/sync pair <code> [ip] — parear com um device que já mostrou um código (com o ip, só nele: um hub num VPS pelo Tailscale)",
-        "/sync git push — enviar mudanças locais via git remoto (precisa de [git_sync] no config.toml)",
-        "/sync git pull — buscar as mudanças novas via git remoto",
-        "  um .syncignore na raiz do vault (um padrão por linha, tipo .gitignore) mantém o que bater",
-        "  só neste device — nunca sai no push, nunca chega no pull; edite como qualquer nota do vault",
+        ("/exit, /quit", "help.exit"),
+        ("/help", "help.help"),
+        ("/lang [en|pt-BR]", "help.lang"),
+        ("/usage", "help.usage"),
+        ("/folder [path|off]", "help.folder"),
+        ("/limits", "help.limits"),
+        ("/limits add", "help.limits_add"),
+        ("/limits edit <id>", "help.limits_edit"),
+        ("/limits remove <id>", "help.limits_remove"),
+        ("/limits off", "help.limits_off"),
+        ("/limits reset", "help.limits_reset"),
+        ("/extend <id>", "help.extend"),
+        ("/grants", "help.grants"),
+        ("/grants revoke <what> [agent]", "help.grants_revoke"),
+        ("/prices", "help.prices"),
+        ("/prices add", "help.prices_add"),
+        ("/prices edit <model>", "help.prices_edit"),
+        ("/prices remove <model>", "help.prices_remove"),
+        ("/models", "help.models"),
+        ("/models use <id>", "help.models_use"),
+        ("/models reset", "help.models_reset"),
+        ("/models add", "help.models_add"),
+        ("/models edit <id>", "help.models_edit"),
+        ("/models remove <id>", "help.models_remove"),
+        ("/combos", "help.combos"),
+        ("/combos add <name> <provider> [<provider>...]", "help.combos_add"),
+        ("/combos remove <name>", "help.combos_remove"),
+        ("/agents", "help.agents"),
+        ("/agents use <id> | none", "help.agents_use"),
+        ("/agents tree", "help.agents_tree"),
+        ("/agents create", "help.agents_create"),
+        ("/agents edit <id>", "help.agents_edit"),
+        ("/agents remove <id>", "help.agents_remove"),
+        ("/skills", "help.skills"),
+        ("/skills show <name>", "help.skills_show"),
+        ("/skills create", "help.skills_create"),
+        ("/skills edit <name>", "help.skills_edit"),
+        ("/skills remove <name>", "help.skills_remove"),
+        ("/skills path [name]", "help.skills_path"),
+        ("/skills file <name> <file>", "help.skills_file"),
+        ("/skills attach <name> <file> <path>", "help.skills_attach"),
+        ("/skills detach <name> <file>", "help.skills_detach"),
+        ("/ssh", "help.ssh"),
+        ("/ssh add", "help.ssh_add"),
+        ("/ssh edit <id>", "help.ssh_edit"),
+        ("/ssh remove <id>", "help.ssh_remove"),
+        ("/ssh on <id> | off <id>", "help.ssh_on_off"),
+        ("/ssh test <id>", "help.ssh_test"),
+        ("/ssh log [n]", "help.ssh_log"),
+        ("/sync", "help.sync"),
+        ("/sync push", "help.sync_push"),
+        ("/sync pull", "help.sync_pull"),
+        ("/sync pair", "help.sync_pair"),
+        ("/sync pair <code> [ip]", "help.sync_pair_join"),
+        ("/sync git push", "help.sync_git_push"),
+        ("/sync git pull", "help.sync_git_pull"),
     ]
     .into_iter()
-    .map(|line| (line.to_string(), style))
+    .map(|(command, description)| (format!("{command} — {}", tr!(description)), style))
+    .chain([(tr!("help.syncignore_1"), style), (tr!("help.syncignore_2"), style)])
     .collect();
-    render_message_card(terminal, "ajuda", accent_style(), lines)
+    render_message_card(terminal, &tr!("help.title"), accent_style(), lines)
 }
 
 /// The `$` line of `/usage`. `spent` is `None` when no spending ledger is running (limits are off),
@@ -1307,14 +1312,14 @@ async fn cmd_help(terminal: &mut CliTerminal) -> anyhow::Result<()> {
 /// on a model without one is said out loud instead of silently counted as free.
 fn cost_line(spent: Option<&Spent>) -> String {
     let Some(spent) = spent else {
-        return "$ indisponível: sem limites de gasto ativos o gasto não é registrado".to_string();
+        return tr!("cost.unavailable_no_limits");
     };
     let priced = spent.calls - spent.unpriced_calls;
     match (priced, spent.unpriced_calls) {
         (0, 0) => "$ 0.0000".to_string(),
-        (0, unpriced) => format!("$ indisponível: {unpriced} chamadas de modelo sem preço (cadastre em [[prices]] no config.toml)"),
-        (_, 0) => format!("${:.4} (pelos preços do config.toml)", spent.cost_usd),
-        (_, unpriced) => format!("${:.4} ou mais — {unpriced} chamadas de modelo sem preço ficaram de fora", spent.cost_usd),
+        (0, unpriced) => tr!("cost.unavailable_unpriced", count = unpriced),
+        (_, 0) => tr!("cost.priced", cost = format!("{:.4}", spent.cost_usd)),
+        (_, unpriced) => tr!("cost.at_least", cost = format!("{:.4}", spent.cost_usd), count = unpriced),
     }
 }
 
@@ -1324,18 +1329,18 @@ fn cost_line(spent: Option<&Spent>) -> String {
 /// The ledger is per channel, so a second terminal open at the same time counts here too.
 async fn cmd_usage(terminal: &mut CliTerminal, session: &CliSession) -> anyhow::Result<()> {
     if session.turn_count == 0 {
-        return render_message_card(terminal, "uso", accent_style(), vec![("nenhuma mensagem enviada ainda nesta sessão".to_string(), Style::default())]);
+        return render_message_card(terminal, &tr!("usage.title"), accent_style(), vec![(tr!("usage.none_yet"), Style::default())]);
     }
     let usage = &session.usage_total;
     let spent = session.spend_guard.as_ref().map(|guard| guard.spent_since("cli", session.started_at));
     let lines = vec![
-        (format!("{} mensagens nesta sessão", session.turn_count), Style::default()),
-        (format!("{} tokens de prompt", usage.prompt_tokens), Style::default()),
-        (format!("{} tokens de resposta", usage.completion_tokens), Style::default()),
-        (format!("{} tokens no total", usage.total_tokens), Style::default()),
+        (tr!("usage.messages", count = session.turn_count), Style::default()),
+        (tr!("usage.prompt_tokens", count = usage.prompt_tokens), Style::default()),
+        (tr!("usage.completion_tokens", count = usage.completion_tokens), Style::default()),
+        (tr!("usage.total_tokens", count = usage.total_tokens), Style::default()),
         (cost_line(spent.as_ref()), Style::default()),
     ];
-    render_message_card(terminal, "uso", accent_style(), lines)
+    render_message_card(terminal, &tr!("usage.title"), accent_style(), lines)
 }
 
 /// One limit as `/limits` shows it: how much of each ceiling is used, what is left, and when room
@@ -1343,17 +1348,29 @@ async fn cmd_usage(terminal: &mut CliTerminal, session: &CliSession) -> anyhow::
 fn limit_line(status: &LimitStatus) -> String {
     let mut parts = Vec::new();
     if let Some(max) = status.max_tokens {
-        parts.push(format!("{} de {} tokens (restam {})", status.used_tokens, max, status.remaining_tokens.unwrap_or(0)));
+        parts.push(tr!("limit.tokens", used = status.used_tokens, max = max, left = status.remaining_tokens.unwrap_or(0)));
     }
     if let Some(max) = status.max_cost_usd {
-        parts.push(format!("${:.4} de ${:.2} (restam ${:.4})", status.used_cost_usd, max, status.remaining_cost_usd.unwrap_or(0.0)));
+        parts.push(tr!(
+            "limit.cost",
+            used = format!("{:.4}", status.used_cost_usd),
+            max = format!("{max:.2}"),
+            left = format!("{:.4}", status.remaining_cost_usd.unwrap_or(0.0))
+        ));
     }
-    let mut line = format!("{} [{}, últimas {}h] {:.0}% — {}", status.id, status.scope, status.window_hours, status.fraction * 100.0, parts.join("; "));
+    let mut line = tr!(
+        "limit.line",
+        id = status.id,
+        scope = status.scope,
+        hours = status.window_hours,
+        percent = format!("{:.0}", status.fraction * 100.0),
+        parts = parts.join("; ")
+    );
     if status.unpriced_calls > 0 && status.max_cost_usd.is_some() {
-        line.push_str(&format!(" · $ subestimado: {} chamadas de modelo sem preço", status.unpriced_calls));
+        line.push_str(&tr!("limit.underestimated", count = status.unpriced_calls));
     }
     if let Some(min) = status.frees_up_in_minutes {
-        line.push_str(&format!(" · volta a liberar em ~{min} min"));
+        line.push_str(&tr!("limit.frees_up", minutes = min));
     }
     line
 }
@@ -1364,9 +1381,9 @@ async fn cmd_limits(terminal: &mut CliTerminal, session: &CliSession) -> anyhow:
     let Some(guard) = &session.spend_guard else {
         return render_message_card(
             terminal,
-            "limites",
+            &tr!("limits.title"),
             accent_style(),
-            vec![("nenhum limite de gasto ativo (limits = [] no config.toml ou WARDEN_SPEND_LIMITS=off)".to_string(), Style::default())],
+            vec![(tr!("limits.none_active_detail"), Style::default())],
         );
     };
     let mut lines: Vec<(String, Style)> = guard
@@ -1384,10 +1401,10 @@ async fn cmd_limits(terminal: &mut CliTerminal, session: &CliSession) -> anyhow:
         })
         .collect();
     if let Some(error) = guard.last_error() {
-        lines.push((format!("aviso: não consegui gravar o gasto ({error}) — os números podem estar baixos"), error_style()));
+        lines.push((tr!("limits.write_warning", error = error), error_style()));
     }
-    lines.push(("/extend <id> libera mais um passo de um limite".to_string(), dim_style()));
-    render_message_card(terminal, "limites", accent_style(), lines)
+    lines.push((tr!("limits.extend_hint"), dim_style()));
+    render_message_card(terminal, &tr!("limits.title"), accent_style(), lines)
 }
 
 /// `/extend <id>` — allows one more step on a limit, for the rest of its window (P4). The same thing
@@ -1395,29 +1412,29 @@ async fn cmd_limits(terminal: &mut CliTerminal, session: &CliSession) -> anyhow:
 /// (a background bot) or a person wants to make room ahead of time.
 async fn cmd_extend(terminal: &mut CliTerminal, session: &CliSession, id: String) -> anyhow::Result<()> {
     let Some(guard) = &session.spend_guard else {
-        return render_message_card(terminal, "erro", error_style(), vec![("nenhum limite de gasto ativo".to_string(), Style::default())]);
+        return render_message_card(terminal, &tr!("common.error"), error_style(), vec![(tr!("limits.none_active"), Style::default())]);
     };
     match guard.extend(&id) {
         Ok(grant) => {
             let mut added = Vec::new();
             if grant.tokens > 0 {
-                added.push(format!("+{} tokens", grant.tokens));
+                added.push(tr!("extend.tokens", count = grant.tokens));
             }
             if grant.cost_usd > 0.0 {
-                added.push(format!("+${:.2}", grant.cost_usd));
+                added.push(tr!("extend.cost", amount = format!("{:.2}", grant.cost_usd)));
             }
             render_message_card(
                 terminal,
-                "limites",
+                &tr!("limits.title"),
                 accent_style(),
-                vec![(format!("limite '{id}' ampliado: {} até a janela andar", added.join(" e ")), Style::default())],
+                vec![(tr!("extend.done", id = id, added = added.join(&tr!("extend.and"))), Style::default())],
             )
         }
         Err(err) => render_message_card(
             terminal,
-            "erro",
+            &tr!("common.error"),
             error_style(),
-            vec![(format!("{err:#} — use /limits pra ver os ids"), Style::default())],
+            vec![(tr!("extend.failed", error = format!("{err:#}")), Style::default())],
         ),
     }
 }
@@ -1426,10 +1443,10 @@ async fn cmd_extend(terminal: &mut CliTerminal, session: &CliSession, id: String
 fn ago_label(then_ms: u64, now_ms: u64) -> String {
     let minutes = now_ms.saturating_sub(then_ms) / 60_000;
     match minutes {
-        0 => "agora".to_string(),
-        1..=59 => format!("há {minutes} min"),
-        60..=1439 => format!("há {} h", minutes / 60),
-        _ => format!("há {} d", minutes / 1440),
+        0 => tr!("ago.now"),
+        1..=59 => tr!("ago.minutes", count = minutes),
+        60..=1439 => tr!("ago.hours", count = minutes / 60),
+        _ => tr!("ago.days", count = minutes / 1440),
     }
 }
 
@@ -1441,22 +1458,25 @@ fn grant_lines(grants: &[Grant], ttl_days: Option<u32>, now_ms: u64) -> Option<V
     }
     let mut lines: Vec<(String, Style)> = mine
         .iter()
-        .map(|g| (format!("{} · {} · usado {}", g.covers, g.agent.as_deref().unwrap_or("agente padrão"), ago_label(g.last_used_ms, now_ms)), Style::default()))
+        .map(|g| {
+            let agent = g.agent.clone().unwrap_or_else(|| tr!("grants.default_agent"));
+            (tr!("grants.entry", covers = g.covers, agent = agent, used = ago_label(g.last_used_ms, now_ms)), Style::default())
+        })
         .collect();
     let term = match ttl_days {
-        Some(days) => format!("vencem depois de {days} dias sem uso (cada uso renova)"),
-        None => "acabam quando o terminal fecha".to_string(),
+        Some(days) => tr!("grants.expire_after", days = days),
+        None => tr!("grants.expire_on_close"),
     };
     lines.push((term, dim_style()));
-    lines.push(("/grants revoke <o que> [agente] — o agente volta a perguntar (sem agente: o ativo; padrao: o agente padrão)".to_string(), dim_style()));
+    lines.push((tr!("grants.revoke_hint"), dim_style()));
     Some(lines)
 }
 
 /// `/grants` — what was answered "always" in this terminal (P122), per agent.
 async fn cmd_grants_list(terminal: &mut CliTerminal, session: &CliSession) -> anyhow::Result<()> {
     match grant_lines(&session.grants.list(), session.grants.ttl_days(), now_millis()) {
-        Some(lines) => render_message_card(terminal, "permissões", accent_style(), lines),
-        None => render_message_card(terminal, "permissões", accent_style(), vec![("nenhum \"sempre\" dado neste terminal".to_string(), Style::default())]),
+        Some(lines) => render_message_card(terminal, &tr!("grants.title"), accent_style(), lines),
+        None => render_message_card(terminal, &tr!("grants.title"), accent_style(), vec![(tr!("grants.none"), Style::default())]),
     }
 }
 
@@ -1466,11 +1486,11 @@ async fn cmd_grants_revoke(terminal: &mut CliTerminal, session: &CliSession, cov
         Some(named) => Some(named).filter(|a| !a.is_empty()),
         None => session.agent_id.clone(),
     };
-    let who = agent.as_deref().unwrap_or("agente padrão");
+    let who = agent.clone().unwrap_or_else(|| tr!("grants.default_agent"));
     if session.grants.revoke(CLI_CONVERSATION, agent.as_deref(), &covers) {
-        render_message_card(terminal, "permissões", accent_style(), vec![(format!("'{covers}' retirado de {who}: ele volta a perguntar"), Style::default())])
+        render_message_card(terminal, &tr!("grants.title"), accent_style(), vec![(tr!("grants.revoked", covers = covers, who = who), Style::default())])
     } else {
-        render_message_card(terminal, "erro", error_style(), vec![(format!("nenhum \"sempre\" '{covers}' para {who} — use /grants pra ver a lista"), Style::default())])
+        render_message_card(terminal, &tr!("common.error"), error_style(), vec![(tr!("grants.revoke_missing", covers = covers, who = who), Style::default())])
     }
 }
 
@@ -1492,7 +1512,7 @@ async fn prompt_parsed<T>(terminal: &mut CliTerminal, title: &str, initial: &str
         };
         match parse(&input) {
             Ok(value) => return Ok(Some(value)),
-            Err(err) => render_message_card(terminal, "erro", error_style(), vec![(err, Style::default())])?,
+            Err(err) => render_message_card(terminal, &tr!("common.error"), error_style(), vec![(err, Style::default())])?,
         }
     }
 }
@@ -1501,7 +1521,7 @@ async fn prompt_parsed<T>(terminal: &mut CliTerminal, title: &str, initial: &str
 fn parse_limit_window_hours(input: &str) -> Result<u32, String> {
     match input.trim().parse::<u32>() {
         Ok(n) if n >= 1 => Ok(n),
-        _ => Err("a janela precisa ser um número inteiro de horas, no mínimo 1".to_string()),
+        _ => Err(tr!("parse.window_hours")),
     }
 }
 
@@ -1513,7 +1533,7 @@ fn parse_optional_u64(input: &str) -> Result<Option<u64>, String> {
     }
     match trimmed.parse::<u64>() {
         Ok(n) if n > 0 => Ok(Some(n)),
-        _ => Err("use um número inteiro acima de 0, ou deixe em branco pra sem teto".to_string()),
+        _ => Err(tr!("parse.whole_above_zero")),
     }
 }
 
@@ -1526,7 +1546,7 @@ fn parse_optional_cost(input: &str) -> Result<Option<f64>, String> {
     }
     match trimmed.parse::<f64>() {
         Ok(n) if n.is_finite() && n > 0.0 => Ok(Some(n)),
-        _ => Err("use um número acima de 0, ou deixe em branco pra sem teto".to_string()),
+        _ => Err(tr!("parse.above_zero")),
     }
 }
 
@@ -1535,7 +1555,7 @@ fn parse_optional_cost(input: &str) -> Result<Option<f64>, String> {
 fn parse_price_amount(input: &str) -> Result<f64, String> {
     match input.trim().parse::<f64>() {
         Ok(n) if n.is_finite() && n >= 0.0 => Ok(n),
-        _ => Err("use um número de 0 ou mais".to_string()),
+        _ => Err(tr!("parse.zero_or_more")),
     }
 }
 
@@ -1548,7 +1568,7 @@ fn parse_optional_percent(input: &str) -> Result<Option<f64>, String> {
     }
     match trimmed.parse::<f64>() {
         Ok(n) if n.is_finite() && n > 0.0 && n <= 100.0 => Ok(Some(n / 100.0)),
-        _ => Err("use um número entre 1 e 100, ou deixe em branco pro padrão".to_string()),
+        _ => Err(tr!("parse.percent")),
     }
 }
 
@@ -1569,7 +1589,7 @@ fn parse_limit_scope(input: &str) -> Result<LimitScope, String> {
         "channel" => Ok(LimitScope::Channel),
         "user" => Ok(LimitScope::User),
         "person" => Ok(LimitScope::Person),
-        _ => Err("use global, agent, channel, user ou person".to_string()),
+        _ => Err(tr!("parse.scope")),
     }
 }
 
@@ -1582,14 +1602,14 @@ fn validate_limit_target(scope: LimitScope, target: &str, known_agents: &[String
     let trimmed = target.trim();
     match scope {
         LimitScope::Global => Ok(None),
-        LimitScope::Agent if trimmed.is_empty() => Err("informe o id de um agente cadastrado".to_string()),
-        LimitScope::Agent if !known_agents.iter().any(|a| a == trimmed) => Err(format!("agente '{trimmed}' não existe — veja /agents")),
+        LimitScope::Agent if trimmed.is_empty() => Err(tr!("target.agent_id")),
+        LimitScope::Agent if !known_agents.iter().any(|a| a == trimmed) => Err(tr!("target.agent_missing", id = trimmed)),
         LimitScope::Agent => Ok(Some(trimmed.to_string())),
-        LimitScope::Channel if trimmed.is_empty() => Err("informe um canal (ex.: desktop, cli, telegram, whatsapp, server)".to_string()),
+        LimitScope::Channel if trimmed.is_empty() => Err(tr!("target.channel")),
         LimitScope::Channel => Ok(Some(trimmed.to_string())),
-        LimitScope::User if !trimmed.contains(':') => Err("escreva como canal:usuário, ex.: telegram:12345".to_string()),
+        LimitScope::User if !trimmed.contains(':') => Err(tr!("target.user")),
         LimitScope::User => Ok(Some(trimmed.to_string())),
-        LimitScope::Person if trimmed.is_empty() => Err("informe o usuário de uma pessoa do workspace (ex.: ana)".to_string()),
+        LimitScope::Person if trimmed.is_empty() => Err(tr!("target.person")),
         LimitScope::Person => Ok(Some(trimmed.to_string())),
     }
 }
@@ -1611,14 +1631,14 @@ fn effective_limit_configs(config: &FileConfig) -> Vec<LimitConfig> {
 async fn prompt_limit(terminal: &mut CliTerminal, config: &FileConfig, existing: &[LimitConfig], current: Option<&LimitConfig>) -> anyhow::Result<Option<LimitConfig>> {
     let keep_id = current.map(|l| l.id.as_str());
     let id = loop {
-        let Some(input) = prompt_field(terminal, " id (nome único do limite) ", keep_id.unwrap_or("")).await? else {
+        let Some(input) = prompt_field(terminal, &tr!("limit_prompt.id"), keep_id.unwrap_or("")).await? else {
             return Ok(None);
         };
         let candidate = input.trim().to_string();
         if candidate.is_empty() {
-            render_message_card(terminal, "erro", error_style(), vec![("id não pode ficar em branco".to_string(), Style::default())])?;
+            render_message_card(terminal, &tr!("common.error"), error_style(), vec![(tr!("limit_prompt.id_blank"), Style::default())])?;
         } else if Some(candidate.as_str()) != keep_id && existing.iter().any(|l| l.id == candidate) {
-            render_message_card(terminal, "erro", error_style(), vec![(format!("já existe um limite com id '{candidate}'"), Style::default())])?;
+            render_message_card(terminal, &tr!("common.error"), error_style(), vec![(tr!("limit_prompt.id_taken", id = candidate), Style::default())])?;
         } else {
             break candidate;
         }
@@ -1626,13 +1646,13 @@ async fn prompt_limit(terminal: &mut CliTerminal, config: &FileConfig, existing:
 
     let known_agents: Vec<String> = config.agents.iter().map(|a| a.id.clone()).collect();
     let (scope, target) = loop {
-        let Some(scope_input) = prompt_field(terminal, " aplica a: global | agent | channel | user ", current.map_or("global", |l| limit_scope_label(l.scope))).await? else {
+        let Some(scope_input) = prompt_field(terminal, &tr!("limit_prompt.scope"), current.map_or("global", |l| limit_scope_label(l.scope))).await? else {
             return Ok(None);
         };
         let scope = match parse_limit_scope(&scope_input) {
             Ok(s) => s,
             Err(err) => {
-                render_message_card(terminal, "erro", error_style(), vec![(err, Style::default())])?;
+                render_message_card(terminal, &tr!("common.error"), error_style(), vec![(err, Style::default())])?;
                 continue;
             }
         };
@@ -1640,11 +1660,11 @@ async fn prompt_limit(terminal: &mut CliTerminal, config: &FileConfig, existing:
             break (scope, None);
         }
         let hint = match scope {
-            LimitScope::Agent if !known_agents.is_empty() => format!(" alvo (agente — um de: {}) ", known_agents.join(", ")),
-            LimitScope::Agent => " alvo (nenhum agente cadastrado ainda — veja /agents) ".to_string(),
-            LimitScope::Channel => " alvo (canal — ex.: desktop, cli, telegram, whatsapp, server) ".to_string(),
-            LimitScope::User => " alvo (canal:usuário, ex.: telegram:12345) ".to_string(),
-            LimitScope::Person => " alvo (usuário de uma pessoa do workspace, ex.: ana) ".to_string(),
+            LimitScope::Agent if !known_agents.is_empty() => tr!("limit_prompt.target_agent", agents = known_agents.join(", ")),
+            LimitScope::Agent => tr!("limit_prompt.target_no_agents"),
+            LimitScope::Channel => tr!("limit_prompt.target_channel"),
+            LimitScope::User => tr!("limit_prompt.target_user"),
+            LimitScope::Person => tr!("limit_prompt.target_person"),
             LimitScope::Global => unreachable!("handled above"),
         };
         let Some(target_input) = prompt_field(terminal, &hint, current.and_then(|l| l.target.as_deref()).unwrap_or("")).await? else {
@@ -1652,16 +1672,16 @@ async fn prompt_limit(terminal: &mut CliTerminal, config: &FileConfig, existing:
         };
         match validate_limit_target(scope, &target_input, &known_agents) {
             Ok(target) => break (scope, target),
-            Err(err) => render_message_card(terminal, "erro", error_style(), vec![(err, Style::default())])?,
+            Err(err) => render_message_card(terminal, &tr!("common.error"), error_style(), vec![(err, Style::default())])?,
         }
     };
 
-    let Some(window_hours) = prompt_parsed(terminal, " janela (horas) ", &current.map_or(24, |l| l.window_hours).to_string(), parse_limit_window_hours).await? else {
+    let Some(window_hours) = prompt_parsed(terminal, &tr!("limit_prompt.window"), &current.map_or(24, |l| l.window_hours).to_string(), parse_limit_window_hours).await? else {
         return Ok(None);
     };
     let Some(max_tokens) = prompt_parsed(
         terminal,
-        " tokens máx. na janela (vazio = sem teto) ",
+        &tr!("limit_prompt.max_tokens"),
         &current.and_then(|l| l.max_tokens).map(|n| n.to_string()).unwrap_or_default(),
         parse_optional_u64,
     )
@@ -1671,7 +1691,7 @@ async fn prompt_limit(terminal: &mut CliTerminal, config: &FileConfig, existing:
     };
     let Some(max_cost_usd) = prompt_parsed(
         terminal,
-        " custo máx. em $ na janela (vazio = sem teto; precisa de um preço em /prices pro modelo usado) ",
+        &tr!("limit_prompt.max_cost"),
         &current.and_then(|l| l.max_cost_usd).map(|n| n.to_string()).unwrap_or_default(),
         parse_optional_cost,
     )
@@ -1680,12 +1700,12 @@ async fn prompt_limit(terminal: &mut CliTerminal, config: &FileConfig, existing:
         return Ok(None);
     };
     if max_tokens.is_none() && max_cost_usd.is_none() {
-        render_message_card(terminal, "erro", error_style(), vec![("defina um teto de tokens, de $, ou os dois".to_string(), Style::default())])?;
+        render_message_card(terminal, &tr!("common.error"), error_style(), vec![(tr!("limit_prompt.need_a_cap"), Style::default())])?;
         return Ok(None);
     }
     let Some(warn_at) = prompt_parsed(
         terminal,
-        &format!(" avisar o modelo a partir de quanto % do teto (vazio = padrão {:.0}%) ", DEFAULT_WARN_AT * 100.0),
+        &tr!("limit_prompt.warn_at", percent = format!("{:.0}", DEFAULT_WARN_AT * 100.0)),
         &current.and_then(|l| l.warn_at).map(|n| format!("{:.0}", n * 100.0)).unwrap_or_default(),
         parse_optional_percent,
     )
@@ -1695,7 +1715,7 @@ async fn prompt_limit(terminal: &mut CliTerminal, config: &FileConfig, existing:
     };
     let Some(extend_step) = prompt_parsed(
         terminal,
-        &format!(" cada extensão libera quanto % do teto (vazio = padrão {:.0}%) ", DEFAULT_EXTEND_STEP * 100.0),
+        &tr!("limit_prompt.extend_step", percent = format!("{:.0}", DEFAULT_EXTEND_STEP * 100.0)),
         &current.and_then(|l| l.extend_step).map(|n| format!("{:.0}", n * 100.0)).unwrap_or_default(),
         parse_optional_percent,
     )
@@ -1706,14 +1726,15 @@ async fn prompt_limit(terminal: &mut CliTerminal, config: &FileConfig, existing:
 
     let entry = LimitConfig { id, scope, target, window_hours, max_tokens, max_cost_usd, warn_at, extend_step };
     if let Err(err) = entry.to_limit() {
-        render_message_card(terminal, "erro", error_style(), vec![(format!("{err:#}"), Style::default())])?;
+        render_message_card(terminal, &tr!("common.error"), error_style(), vec![(format!("{err:#}"), Style::default())])?;
         return Ok(None);
     }
     Ok(Some(entry))
 }
 
-fn limits_cancelled(terminal: &mut CliTerminal, what: &str) -> anyhow::Result<()> {
-    render_message_card(terminal, "limites", dim_style(), vec![(format!("{what} cancelada"), dim_style())])
+/// `what_key` names the thing that was cancelled (a catalog key: creation, edit, removal...).
+fn limits_cancelled(terminal: &mut CliTerminal, what_key: &str) -> anyhow::Result<()> {
+    render_message_card(terminal, &tr!("limits.title"), dim_style(), vec![(tr!(what_key), dim_style())])
 }
 
 async fn wizard_limits_add(terminal: &mut CliTerminal, session: &mut CliSession) -> anyhow::Result<()> {
@@ -1722,18 +1743,18 @@ async fn wizard_limits_add(terminal: &mut CliTerminal, session: &mut CliSession)
     let mut limits = effective_limit_configs(&config);
 
     let Some(limit) = prompt_limit(terminal, &config, &limits, None).await? else {
-        return limits_cancelled(terminal, "criação");
+        return limits_cancelled(terminal, "cancelled.creation");
     };
     let id = limit.id.clone();
     limits.push(limit);
     config.limits = Some(limits);
 
     save_config_and_reload(session, &config).await?;
-    let mut lines = vec![(format!("limite '{id}' criado"), Style::default())];
+    let mut lines = vec![(tr!("limits.created", id = id), Style::default())];
     if materialized {
-        lines.push(("a rede de segurança padrão (default-hour, default-day) foi mantida junto".to_string(), dim_style()));
+        lines.push((tr!("limits.kept_safety_net"), dim_style()));
     }
-    render_message_card(terminal, "limites", accent_style(), lines)
+    render_message_card(terminal, &tr!("limits.title"), accent_style(), lines)
 }
 
 async fn wizard_limits_edit(terminal: &mut CliTerminal, session: &mut CliSession, target_id: String) -> anyhow::Result<()> {
@@ -1741,41 +1762,41 @@ async fn wizard_limits_edit(terminal: &mut CliTerminal, session: &mut CliSession
     let materialized = config.limits.is_none();
     let mut limits = effective_limit_configs(&config);
     let Some(index) = limits.iter().position(|l| l.id == target_id) else {
-        return render_message_card(terminal, "erro", error_style(), vec![(format!("limite '{target_id}' não encontrado — use /limits pra ver os ids"), Style::default())]);
+        return render_message_card(terminal, &tr!("common.error"), error_style(), vec![(tr!("limits.not_found", id = target_id), Style::default())]);
     };
     let current = limits[index].clone();
 
     let Some(updated) = prompt_limit(terminal, &config, &limits, Some(&current)).await? else {
-        return limits_cancelled(terminal, "edição");
+        return limits_cancelled(terminal, "cancelled.edit");
     };
     let new_id = updated.id.clone();
     limits[index] = updated;
     config.limits = Some(limits);
 
     save_config_and_reload(session, &config).await?;
-    let mut lines = vec![(format!("limite '{new_id}' atualizado"), Style::default())];
+    let mut lines = vec![(tr!("limits.updated", id = new_id), Style::default())];
     if materialized {
-        lines.push(("os demais limites padrão foram mantidos junto".to_string(), dim_style()));
+        lines.push((tr!("limits.kept_defaults"), dim_style()));
     }
-    render_message_card(terminal, "limites", accent_style(), lines)
+    render_message_card(terminal, &tr!("limits.title"), accent_style(), lines)
 }
 
 async fn cmd_limits_remove(terminal: &mut CliTerminal, session: &mut CliSession, id: String) -> anyhow::Result<()> {
     let mut config = load_fresh_config(session.config_path.as_deref())?;
     let mut limits = effective_limit_configs(&config);
     if !limits.iter().any(|l| l.id == id) {
-        return render_message_card(terminal, "erro", error_style(), vec![(format!("limite '{id}' não encontrado — use /limits pra ver os ids"), Style::default())]);
+        return render_message_card(terminal, &tr!("common.error"), error_style(), vec![(tr!("limits.not_found", id = id), Style::default())]);
     }
-    let Some(answer) = prompt_field(terminal, &format!(" remover o limite '{id}'? (s/n) "), "").await? else {
-        return limits_cancelled(terminal, "remoção");
+    let Some(answer) = prompt_field(terminal, &tr!("limits.confirm_remove", id = id), "").await? else {
+        return limits_cancelled(terminal, "cancelled.removal");
     };
     if !matches!(answer.trim().to_lowercase().as_str(), "s" | "sim" | "y" | "yes") {
-        return limits_cancelled(terminal, "remoção");
+        return limits_cancelled(terminal, "cancelled.removal");
     }
     limits.retain(|l| l.id != id);
     config.limits = Some(limits);
     save_config_and_reload(session, &config).await?;
-    render_message_card(terminal, "limites", accent_style(), vec![(format!("limite '{id}' removido"), Style::default())])
+    render_message_card(terminal, &tr!("limits.title"), accent_style(), vec![(tr!("limits.removed", id = id), Style::default())])
 }
 
 /// `/limits off` — the riskiest of the bunch (drops every ceiling, so nothing stops a runaway
@@ -1784,19 +1805,17 @@ async fn cmd_limits_remove(terminal: &mut CliTerminal, session: &mut CliSession,
 async fn cmd_limits_off(terminal: &mut CliTerminal, session: &mut CliSession) -> anyhow::Result<()> {
     let mut config = load_fresh_config(session.config_path.as_deref())?;
     if config.limits.as_ref().is_some_and(Vec::is_empty) {
-        return render_message_card(terminal, "limites", accent_style(), vec![("já estão todos desligados".to_string(), Style::default())]);
+        return render_message_card(terminal, &tr!("limits.title"), accent_style(), vec![(tr!("limits.already_off"), Style::default())]);
     }
-    let Some(answer) =
-        prompt_field(terminal, " desligar TODOS os limites de gasto? nada mais impede um agente em loop de gastar sem teto (s/n) ", "").await?
-    else {
-        return limits_cancelled(terminal, "desativação");
+    let Some(answer) = prompt_field(terminal, &tr!("limits.confirm_off"), "").await? else {
+        return limits_cancelled(terminal, "cancelled.disable");
     };
     if !matches!(answer.trim().to_lowercase().as_str(), "s" | "sim" | "y" | "yes") {
-        return limits_cancelled(terminal, "desativação");
+        return limits_cancelled(terminal, "cancelled.disable");
     }
     config.limits = Some(Vec::new());
     save_config_and_reload(session, &config).await?;
-    render_message_card(terminal, "limites", accent_style(), vec![("todos os limites desligados".to_string(), Style::default())])
+    render_message_card(terminal, &tr!("limits.title"), accent_style(), vec![(tr!("limits.all_off"), Style::default())])
 }
 
 /// `/limits reset` — back to the built-in safety net (`limits` field removed from the file, not
@@ -1804,19 +1823,17 @@ async fn cmd_limits_off(terminal: &mut CliTerminal, session: &mut CliSession) ->
 async fn cmd_limits_reset(terminal: &mut CliTerminal, session: &mut CliSession) -> anyhow::Result<()> {
     let mut config = load_fresh_config(session.config_path.as_deref())?;
     if config.limits.is_none() {
-        return render_message_card(terminal, "limites", accent_style(), vec![("já está na rede de segurança padrão".to_string(), Style::default())]);
+        return render_message_card(terminal, &tr!("limits.title"), accent_style(), vec![(tr!("limits.already_default"), Style::default())]);
     }
-    let Some(answer) =
-        prompt_field(terminal, " voltar pra rede de segurança padrão? qualquer limite customizado aqui é perdido (s/n) ", "").await?
-    else {
-        return limits_cancelled(terminal, "restauração");
+    let Some(answer) = prompt_field(terminal, &tr!("limits.confirm_reset"), "").await? else {
+        return limits_cancelled(terminal, "cancelled.restore");
     };
     if !matches!(answer.trim().to_lowercase().as_str(), "s" | "sim" | "y" | "yes") {
-        return limits_cancelled(terminal, "restauração");
+        return limits_cancelled(terminal, "cancelled.restore");
     }
     config.limits = None;
     save_config_and_reload(session, &config).await?;
-    render_message_card(terminal, "limites", accent_style(), vec![("rede de segurança padrão restaurada".to_string(), Style::default())])
+    render_message_card(terminal, &tr!("limits.title"), accent_style(), vec![(tr!("limits.reset_done"), Style::default())])
 }
 
 /// Asks the two fields of a `[[prices]]` entry, `model` kept fixed when editing (same
@@ -1825,22 +1842,22 @@ async fn cmd_limits_reset(terminal: &mut CliTerminal, session: &mut CliSession) 
 async fn prompt_price(terminal: &mut CliTerminal, existing: &[Price], current: Option<&Price>) -> anyhow::Result<Option<Price>> {
     let keep_model = current.map(|p| p.model.as_str());
     let model = loop {
-        let Some(input) = prompt_field(terminal, " model id (exatamente como o provedor relata) ", keep_model.unwrap_or("")).await? else {
+        let Some(input) = prompt_field(terminal, &tr!("price_prompt.model"), keep_model.unwrap_or("")).await? else {
             return Ok(None);
         };
         let candidate = input.trim().to_string();
         if candidate.is_empty() {
-            render_message_card(terminal, "erro", error_style(), vec![("model id não pode ficar em branco".to_string(), Style::default())])?;
+            render_message_card(terminal, &tr!("common.error"), error_style(), vec![(tr!("price_prompt.model_blank"), Style::default())])?;
         } else if Some(candidate.as_str()) != keep_model && existing.iter().any(|p| p.model == candidate) {
-            render_message_card(terminal, "erro", error_style(), vec![(format!("já existe um preço pro modelo '{candidate}'"), Style::default())])?;
+            render_message_card(terminal, &tr!("common.error"), error_style(), vec![(tr!("price_prompt.model_taken", model = candidate), Style::default())])?;
         } else {
             break candidate;
         }
     };
-    let Some(input_per_mtok) = prompt_parsed(terminal, " $ por 1M tokens de entrada ", &current.map_or(String::new(), |p| p.input_per_mtok.to_string()), parse_price_amount).await? else {
+    let Some(input_per_mtok) = prompt_parsed(terminal, &tr!("price_prompt.input"), &current.map_or(String::new(), |p| p.input_per_mtok.to_string()), parse_price_amount).await? else {
         return Ok(None);
     };
-    let Some(output_per_mtok) = prompt_parsed(terminal, " $ por 1M tokens de saída ", &current.map_or(String::new(), |p| p.output_per_mtok.to_string()), parse_price_amount).await? else {
+    let Some(output_per_mtok) = prompt_parsed(terminal, &tr!("price_prompt.output"), &current.map_or(String::new(), |p| p.output_per_mtok.to_string()), parse_price_amount).await? else {
         return Ok(None);
     };
     Ok(Some(Price { model, input_per_mtok, output_per_mtok }))
@@ -1849,56 +1866,59 @@ async fn prompt_price(terminal: &mut CliTerminal, existing: &[Price], current: O
 async fn cmd_prices_list(terminal: &mut CliTerminal, session: &CliSession) -> anyhow::Result<()> {
     let config = load_fresh_config(session.config_path.as_deref())?;
     if config.prices.is_empty() {
-        return render_message_card(terminal, "preços", accent_style(), vec![("nenhum preço cadastrado — use /prices add".to_string(), Style::default())]);
+        return render_message_card(terminal, &tr!("prices.title"), accent_style(), vec![(tr!("prices.none"), Style::default())]);
     }
     let lines = config
         .prices
         .iter()
-        .map(|p| (format!("{} — entrada ${:.4}/1M, saída ${:.4}/1M", p.model, p.input_per_mtok, p.output_per_mtok), Style::default()))
+        .map(|p| {
+            let line = tr!("prices.entry", model = p.model, input = format!("{:.4}", p.input_per_mtok), output = format!("{:.4}", p.output_per_mtok));
+            (line, Style::default())
+        })
         .collect();
-    render_message_card(terminal, "preços", accent_style(), lines)
+    render_message_card(terminal, &tr!("prices.title"), accent_style(), lines)
 }
 
 async fn wizard_prices_add(terminal: &mut CliTerminal, session: &mut CliSession) -> anyhow::Result<()> {
     let mut config = load_fresh_config(session.config_path.as_deref())?;
     let Some(price) = prompt_price(terminal, &config.prices, None).await? else {
-        return render_message_card(terminal, "preços", dim_style(), vec![("cadastro cancelado".to_string(), dim_style())]);
+        return render_message_card(terminal, &tr!("prices.title"), dim_style(), vec![(tr!("prices.add_cancelled"), dim_style())]);
     };
     let model = price.model.clone();
     config.prices.push(price);
     save_config_and_reload(session, &config).await?;
-    render_message_card(terminal, "preços", accent_style(), vec![(format!("preço de '{model}' cadastrado"), Style::default())])
+    render_message_card(terminal, &tr!("prices.title"), accent_style(), vec![(tr!("prices.added", model = model), Style::default())])
 }
 
 async fn wizard_prices_edit(terminal: &mut CliTerminal, session: &mut CliSession, target_model: String) -> anyhow::Result<()> {
     let mut config = load_fresh_config(session.config_path.as_deref())?;
     let Some(index) = config.prices.iter().position(|p| p.model == target_model) else {
-        return render_message_card(terminal, "erro", error_style(), vec![(format!("nenhum preço pro modelo '{target_model}' — use /prices pra ver a lista"), Style::default())]);
+        return render_message_card(terminal, &tr!("common.error"), error_style(), vec![(tr!("prices.not_found_list", model = target_model), Style::default())]);
     };
     let current = config.prices[index].clone();
     let Some(updated) = prompt_price(terminal, &config.prices, Some(&current)).await? else {
-        return render_message_card(terminal, "preços", dim_style(), vec![("edição cancelada".to_string(), dim_style())]);
+        return render_message_card(terminal, &tr!("prices.title"), dim_style(), vec![(tr!("prices.edit_cancelled"), dim_style())]);
     };
     let model = updated.model.clone();
     config.prices[index] = updated;
     save_config_and_reload(session, &config).await?;
-    render_message_card(terminal, "preços", accent_style(), vec![(format!("preço de '{model}' atualizado"), Style::default())])
+    render_message_card(terminal, &tr!("prices.title"), accent_style(), vec![(tr!("prices.updated", model = model), Style::default())])
 }
 
 async fn cmd_prices_remove(terminal: &mut CliTerminal, session: &mut CliSession, model: String) -> anyhow::Result<()> {
     let mut config = load_fresh_config(session.config_path.as_deref())?;
     if !config.prices.iter().any(|p| p.model == model) {
-        return render_message_card(terminal, "erro", error_style(), vec![(format!("nenhum preço pro modelo '{model}'"), Style::default())]);
+        return render_message_card(terminal, &tr!("common.error"), error_style(), vec![(tr!("prices.not_found", model = model), Style::default())]);
     }
-    let Some(answer) = prompt_field(terminal, &format!(" remover o preço de '{model}'? (s/n) "), "").await? else {
-        return render_message_card(terminal, "preços", dim_style(), vec![("remoção cancelada".to_string(), dim_style())]);
+    let Some(answer) = prompt_field(terminal, &tr!("prices.confirm_remove", model = model), "").await? else {
+        return render_message_card(terminal, &tr!("prices.title"), dim_style(), vec![(tr!("prices.remove_cancelled"), dim_style())]);
     };
     if !matches!(answer.trim().to_lowercase().as_str(), "s" | "sim" | "y" | "yes") {
-        return render_message_card(terminal, "preços", dim_style(), vec![("remoção cancelada".to_string(), dim_style())]);
+        return render_message_card(terminal, &tr!("prices.title"), dim_style(), vec![(tr!("prices.remove_cancelled"), dim_style())]);
     }
     config.prices.retain(|p| p.model != model);
     save_config_and_reload(session, &config).await?;
-    render_message_card(terminal, "preços", accent_style(), vec![(format!("preço de '{model}' removido"), Style::default())])
+    render_message_card(terminal, &tr!("prices.title"), accent_style(), vec![(tr!("prices.removed", model = model), Style::default())])
 }
 
 fn provider_display_model(provider: &ProviderConfig) -> String {
@@ -1908,10 +1928,11 @@ fn provider_display_model(provider: &ProviderConfig) -> String {
 async fn cmd_models_list(terminal: &mut CliTerminal, session: &CliSession) -> anyhow::Result<()> {
     let config = load_fresh_config(session.config_path.as_deref())?;
     if config.providers.is_empty() {
-        return render_message_card(terminal, "modelos", accent_style(), vec![("nenhum provider configurado ainda — use /models add".to_string(), Style::default())]);
+        return render_message_card(terminal, &tr!("models.title"), accent_style(), vec![(tr!("models.none"), Style::default())]);
     }
     let active = session.provider_id.clone().or_else(|| config.active_provider.clone());
-    let marker = |id: &str| if active.as_deref() == Some(id) { " [ativo]" } else { "" };
+    let active_marker = tr!("marker.active");
+    let marker = |id: &str| if active.as_deref() == Some(id) { active_marker.as_str() } else { "" };
     let mut lines: Vec<(String, Style)> = config
         .providers
         .iter()
@@ -1919,21 +1940,21 @@ async fn cmd_models_list(terminal: &mut CliTerminal, session: &CliSession) -> an
         .collect();
     // Combos (P90) are picked the same way, with /models use.
     lines.extend(config.combos.iter().map(|c| (format!("{} (combo) — {}{}", c.id, c.providers.join(" → "), marker(&c.id)), Style::default())));
-    render_message_card(terminal, "modelos", accent_style(), lines)
+    render_message_card(terminal, &tr!("models.title"), accent_style(), lines)
 }
 
 async fn cmd_models_use(terminal: &mut CliTerminal, session: &mut CliSession, id: String) -> anyhow::Result<()> {
     let config = load_fresh_config(session.config_path.as_deref())?;
     if !config.providers.iter().any(|p| p.id == id) && !config.combos.iter().any(|c| c.id == id) {
-        return render_message_card(terminal, "erro", error_style(), vec![(format!("modelo ou combo '{id}' não encontrado — use /models pra ver a lista"), Style::default())]);
+        return render_message_card(terminal, &tr!("common.error"), error_style(), vec![(tr!("models.use_not_found", id = id), Style::default())]);
     }
     session.provider_id = Some(id.clone());
-    render_message_card(terminal, "modelos", accent_style(), vec![(format!("modelo ativo agora: {id}"), Style::default())])
+    render_message_card(terminal, &tr!("models.title"), accent_style(), vec![(tr!("models.now_active", id = id), Style::default())])
 }
 
 async fn cmd_models_reset(terminal: &mut CliTerminal, session: &mut CliSession) -> anyhow::Result<()> {
     session.provider_id = None;
-    render_message_card(terminal, "modelos", accent_style(), vec![("modelo voltou ao padrão com que o Warden foi iniciado".to_string(), Style::default())])
+    render_message_card(terminal, &tr!("models.title"), accent_style(), vec![(tr!("models.reset_done"), Style::default())])
 }
 
 /// Loops a single wizard field until it parses as a valid `Provider` kind, re-prompting with an
@@ -1945,7 +1966,7 @@ async fn prompt_provider_kind(terminal: &mut CliTerminal, initial: Provider) -> 
         };
         match commands::parse_provider_kind(&input) {
             Some(kind) => return Ok(Some(kind)),
-            None => render_message_card(terminal, "erro", error_style(), vec![("kind inválido — use gemini, openai, anthropic ou openai_compatible".to_string(), Style::default())])?,
+            None => render_message_card(terminal, &tr!("common.error"), error_style(), vec![(tr!("models.invalid_kind"), Style::default())])?,
         }
     }
 }
@@ -1955,14 +1976,14 @@ async fn prompt_provider_kind(terminal: &mut CliTerminal, initial: Provider) -> 
 /// the uniqueness check against itself). Returns `Ok(None)` if the user cancels.
 async fn prompt_provider_id(terminal: &mut CliTerminal, providers: &[ProviderConfig], initial: &str, keep_if_same: Option<&str>) -> anyhow::Result<Option<String>> {
     loop {
-        let Some(input) = prompt_field(terminal, " id (nome único do provider) ", initial).await? else {
+        let Some(input) = prompt_field(terminal, &tr!("models.prompt_id"), initial).await? else {
             return Ok(None);
         };
         let candidate = input.trim().to_string();
         if candidate.is_empty() {
-            render_message_card(terminal, "erro", error_style(), vec![("id não pode ficar em branco".to_string(), Style::default())])?;
+            render_message_card(terminal, &tr!("common.error"), error_style(), vec![(tr!("limit_prompt.id_blank"), Style::default())])?;
         } else if Some(candidate.as_str()) != keep_if_same && providers.iter().any(|p| p.id == candidate) {
-            render_message_card(terminal, "erro", error_style(), vec![(format!("já existe um provider com id '{candidate}'"), Style::default())])?;
+            render_message_card(terminal, &tr!("common.error"), error_style(), vec![(tr!("models.id_taken", id = candidate), Style::default())])?;
         } else {
             return Ok(Some(candidate));
         }
@@ -1973,24 +1994,24 @@ async fn wizard_models_add(terminal: &mut CliTerminal, session: &mut CliSession)
     let mut config = load_fresh_config(session.config_path.as_deref())?;
 
     let Some(kind) = prompt_provider_kind(terminal, Provider::Gemini).await? else {
-        return render_message_card(terminal, "modelos", dim_style(), vec![("cadastro cancelado".to_string(), dim_style())]);
+        return render_message_card(terminal, &tr!("models.title"), dim_style(), vec![(tr!("prices.add_cancelled"), dim_style())]);
     };
     let Some(id) = prompt_provider_id(terminal, &config.providers, "", None).await? else {
-        return render_message_card(terminal, "modelos", dim_style(), vec![("cadastro cancelado".to_string(), dim_style())]);
+        return render_message_card(terminal, &tr!("models.title"), dim_style(), vec![(tr!("prices.add_cancelled"), dim_style())]);
     };
-    let Some(api_key) = prompt_field(terminal, " api key (em branco = nenhuma) ", "").await? else {
-        return render_message_card(terminal, "modelos", dim_style(), vec![("cadastro cancelado".to_string(), dim_style())]);
+    let Some(api_key) = prompt_field(terminal, &tr!("models.prompt_api_key"), "").await? else {
+        return render_message_card(terminal, &tr!("models.title"), dim_style(), vec![(tr!("prices.add_cancelled"), dim_style())]);
     };
     let base_url = if kind == Provider::OpenaiCompatible {
-        let Some(input) = prompt_field(terminal, " base url (obrigatório pra openai_compatible) ", "").await? else {
-            return render_message_card(terminal, "modelos", dim_style(), vec![("cadastro cancelado".to_string(), dim_style())]);
+        let Some(input) = prompt_field(terminal, &tr!("models.prompt_base_url_required"), "").await? else {
+            return render_message_card(terminal, &tr!("models.title"), dim_style(), vec![(tr!("prices.add_cancelled"), dim_style())]);
         };
         non_empty(input)
     } else {
         None
     };
     let Some(model_input) = prompt_field(terminal, " model ", default_model_for(kind).unwrap_or("")).await? else {
-        return render_message_card(terminal, "modelos", dim_style(), vec![("cadastro cancelado".to_string(), dim_style())]);
+        return render_message_card(terminal, &tr!("models.title"), dim_style(), vec![(tr!("prices.add_cancelled"), dim_style())]);
     };
 
     let had_active_provider = config.active_provider.is_some();
@@ -2000,28 +2021,28 @@ async fn wizard_models_add(terminal: &mut CliTerminal, session: &mut CliSession)
     }
 
     save_config_or_report(session, &config).await?;
-    render_message_card(terminal, "modelos", accent_style(), vec![(format!("provider '{id}' cadastrado"), Style::default())])
+    render_message_card(terminal, &tr!("models.title"), accent_style(), vec![(tr!("models.added", id = id), Style::default())])
 }
 
 async fn wizard_models_edit(terminal: &mut CliTerminal, session: &mut CliSession, target_id: String) -> anyhow::Result<()> {
     let mut config = load_fresh_config(session.config_path.as_deref())?;
     let Some(index) = config.providers.iter().position(|p| p.id == target_id) else {
-        return render_message_card(terminal, "erro", error_style(), vec![(format!("provider '{target_id}' não encontrado"), Style::default())]);
+        return render_message_card(terminal, &tr!("common.error"), error_style(), vec![(tr!("models.not_found", id = target_id), Style::default())]);
     };
     let current = config.providers[index].clone();
 
     let Some(kind) = prompt_provider_kind(terminal, current.kind).await? else {
-        return render_message_card(terminal, "modelos", dim_style(), vec![("edição cancelada".to_string(), dim_style())]);
+        return render_message_card(terminal, &tr!("models.title"), dim_style(), vec![(tr!("prices.edit_cancelled"), dim_style())]);
     };
     let Some(new_id) = prompt_provider_id(terminal, &config.providers, &current.id, Some(&current.id)).await? else {
-        return render_message_card(terminal, "modelos", dim_style(), vec![("edição cancelada".to_string(), dim_style())]);
+        return render_message_card(terminal, &tr!("models.title"), dim_style(), vec![(tr!("prices.edit_cancelled"), dim_style())]);
     };
-    let Some(api_key) = prompt_field(terminal, " api key (em branco = nenhuma) ", current.api_key.as_deref().unwrap_or("")).await? else {
-        return render_message_card(terminal, "modelos", dim_style(), vec![("edição cancelada".to_string(), dim_style())]);
+    let Some(api_key) = prompt_field(terminal, &tr!("models.prompt_api_key"), current.api_key.as_deref().unwrap_or("")).await? else {
+        return render_message_card(terminal, &tr!("models.title"), dim_style(), vec![(tr!("prices.edit_cancelled"), dim_style())]);
     };
     let base_url = if kind == Provider::OpenaiCompatible {
         let Some(input) = prompt_field(terminal, " base url ", current.base_url.as_deref().unwrap_or("")).await? else {
-            return render_message_card(terminal, "modelos", dim_style(), vec![("edição cancelada".to_string(), dim_style())]);
+            return render_message_card(terminal, &tr!("models.title"), dim_style(), vec![(tr!("prices.edit_cancelled"), dim_style())]);
         };
         non_empty(input)
     } else {
@@ -2029,7 +2050,7 @@ async fn wizard_models_edit(terminal: &mut CliTerminal, session: &mut CliSession
     };
     let model_default = current.model.clone().unwrap_or_else(|| default_model_for(kind).unwrap_or("").to_string());
     let Some(model_input) = prompt_field(terminal, " model ", &model_default).await? else {
-        return render_message_card(terminal, "modelos", dim_style(), vec![("edição cancelada".to_string(), dim_style())]);
+        return render_message_card(terminal, &tr!("models.title"), dim_style(), vec![(tr!("prices.edit_cancelled"), dim_style())]);
     };
 
     let old_id = current.id.clone();
@@ -2043,7 +2064,7 @@ async fn wizard_models_edit(terminal: &mut CliTerminal, session: &mut CliSession
     }
 
     save_config_or_report(session, &config).await?;
-    render_message_card(terminal, "modelos", accent_style(), vec![(format!("provider '{new_id}' atualizado"), Style::default())])
+    render_message_card(terminal, &tr!("models.title"), accent_style(), vec![(tr!("models.updated", id = new_id), Style::default())])
 }
 
 async fn cmd_models_remove(terminal: &mut CliTerminal, session: &mut CliSession, id: String) -> anyhow::Result<()> {
@@ -2051,7 +2072,7 @@ async fn cmd_models_remove(terminal: &mut CliTerminal, session: &mut CliSession,
     let before = config.providers.len();
     config.providers.retain(|p| p.id != id);
     if config.providers.len() == before {
-        return render_message_card(terminal, "erro", error_style(), vec![(format!("provider '{id}' não encontrado"), Style::default())]);
+        return render_message_card(terminal, &tr!("common.error"), error_style(), vec![(tr!("models.not_found", id = id), Style::default())]);
     }
     remove_provider_references(&mut config, &id);
     // Also a combo this removal emptied (and so deleted).
@@ -2060,18 +2081,13 @@ async fn cmd_models_remove(terminal: &mut CliTerminal, session: &mut CliSession,
     }
 
     save_config_or_report(session, &config).await?;
-    render_message_card(terminal, "modelos", accent_style(), vec![(format!("provider '{id}' removido"), Style::default())])
+    render_message_card(terminal, &tr!("models.title"), accent_style(), vec![(tr!("models.removed", id = id), Style::default())])
 }
 
 async fn cmd_combos_list(terminal: &mut CliTerminal, session: &CliSession) -> anyhow::Result<()> {
     let config = load_fresh_config(session.config_path.as_deref())?;
     if config.combos.is_empty() {
-        return render_message_card(
-            terminal,
-            "combos",
-            accent_style(),
-            vec![("nenhum combo ainda — /combos add <nome> <provedor> [<provedor>...]".to_string(), Style::default())],
-        );
+        return render_message_card(terminal, "combos", accent_style(), vec![(tr!("combos.none"), Style::default())]);
     }
     let lines = config.combos.iter().map(|c| (format!("{} — {}", c.id, c.providers.join(" → ")), Style::default())).collect();
     render_message_card(terminal, "combos", accent_style(), lines)
@@ -2084,31 +2100,31 @@ async fn cmd_combos_add(terminal: &mut CliTerminal, session: &mut CliSession, id
     combos.push(ComboConfig { id: id.clone(), providers: members });
     match warden_bootstrap::settings::check_combos(combos, &config.providers) {
         Ok(checked) => config.combos = checked,
-        Err(message) => return render_message_card(terminal, "erro", error_style(), vec![(message, Style::default())]),
+        Err(message) => return render_message_card(terminal, &tr!("common.error"), error_style(), vec![(message, Style::default())]),
     }
     save_config_or_report(session, &config).await?;
     let combo = config.combos.iter().find(|c| c.id == id).map(|c| c.providers.join(" → ")).unwrap_or_default();
-    render_message_card(terminal, "combos", accent_style(), vec![(format!("combo '{id}': {combo} — use /models use {id}"), Style::default())])
+    render_message_card(terminal, "combos", accent_style(), vec![(tr!("combos.saved", id = id, combo = combo), Style::default())])
 }
 
 async fn cmd_combos_remove(terminal: &mut CliTerminal, session: &mut CliSession, id: String) -> anyhow::Result<()> {
     let mut config = load_fresh_config(session.config_path.as_deref())?;
     if !config.combos.iter().any(|c| c.id == id) {
-        return render_message_card(terminal, "erro", error_style(), vec![(format!("combo '{id}' não encontrado"), Style::default())]);
+        return render_message_card(terminal, &tr!("common.error"), error_style(), vec![(tr!("combos.not_found", id = id), Style::default())]);
     }
     remove_combo(&mut config, &id);
     if session.provider_id.as_deref() == Some(id.as_str()) {
         session.provider_id = None;
     }
     save_config_or_report(session, &config).await?;
-    render_message_card(terminal, "combos", accent_style(), vec![(format!("combo '{id}' removido"), Style::default())])
+    render_message_card(terminal, "combos", accent_style(), vec![(tr!("combos.removed", id = id), Style::default())])
 }
 
 async fn cmd_agents_list(terminal: &mut CliTerminal, session: &CliSession) -> anyhow::Result<()> {
     let config = load_fresh_config(session.config_path.as_deref())?;
     // P84: members' own agents are theirs, not listed here.
     if !config.agents.iter().any(|a| a.owner.is_none()) {
-        return render_message_card(terminal, "agentes", accent_style(), vec![("nenhum agente configurado ainda — use /agents create".to_string(), Style::default())]);
+        return render_message_card(terminal, &tr!("agents.title"), accent_style(), vec![(tr!("agents.none"), Style::default())]);
     }
     let lines = config
         .agents
@@ -2118,22 +2134,22 @@ async fn cmd_agents_list(terminal: &mut CliTerminal, session: &CliSession) -> an
             let preview: String = a.persona.chars().take(48).collect();
             let preview = if a.persona.chars().count() > 48 { format!("{preview}…") } else { preview };
             let provider = a.provider_id.clone().unwrap_or_else(|| "-".to_string());
-            let marker = if session.agent_id.as_deref() == Some(a.id.as_str()) { " [ativo]" } else { "" };
-            let delegate_marker = if a.can_delegate_to_agents { " [delega]" } else { "" };
-            let manage_marker = if a.can_manage_agents { " [cria]" } else { "" };
-            let message_marker = if a.can_message_agents { " [recados]" } else { "" };
-            let tasks_marker = if a.can_manage_tasks { " [tarefas]" } else { "" };
-            let tools_marker = a.allowed_tools.as_ref().map(|t| format!(" [tools: {}]", t.len())).unwrap_or_default();
-            let autonomy_marker = if a.autonomy != warden_bootstrap::default_autonomy() { format!(" [autonomia {}]", a.autonomy) } else { String::new() };
-            let approval_marker = if a.approval_required.is_empty() { String::new() } else { format!(" [aprova: {}]", a.approval_required.len()) };
-            let org_marker = a.reports_to.as_ref().map(|boss| format!(" [reporta a {boss}]")).unwrap_or_default();
+            let marker = if session.agent_id.as_deref() == Some(a.id.as_str()) { tr!("marker.active") } else { String::new() };
+            let delegate_marker = if a.can_delegate_to_agents { tr!("marker.delegates") } else { String::new() };
+            let manage_marker = if a.can_manage_agents { tr!("marker.creates") } else { String::new() };
+            let message_marker = if a.can_message_agents { tr!("marker.notes") } else { String::new() };
+            let tasks_marker = if a.can_manage_tasks { tr!("marker.tasks") } else { String::new() };
+            let tools_marker = a.allowed_tools.as_ref().map(|t| tr!("marker.tools", count = t.len())).unwrap_or_default();
+            let autonomy_marker = if a.autonomy != warden_bootstrap::default_autonomy() { tr!("marker.autonomy", level = a.autonomy) } else { String::new() };
+            let approval_marker = if a.approval_required.is_empty() { String::new() } else { tr!("marker.approves", count = a.approval_required.len()) };
+            let org_marker = a.reports_to.as_ref().map(|boss| tr!("marker.reports_to", boss = boss)).unwrap_or_default();
             (
                 format!("{} ({}) — {}{}{}{}{}{}{}{}{}{}", a.id, provider, preview, marker, delegate_marker, manage_marker, message_marker, tasks_marker, tools_marker, autonomy_marker, approval_marker, org_marker),
                 Style::default(),
             )
         })
         .collect();
-    render_message_card(terminal, "agentes", accent_style(), lines)
+    render_message_card(terminal, &tr!("agents.title"), accent_style(), lines)
 }
 
 /// Who reports to whom (P120), as a text tree; only the owner's agents (a member's are theirs).
@@ -2141,40 +2157,40 @@ async fn cmd_agents_tree(terminal: &mut CliTerminal, session: &CliSession) -> an
     let config = load_fresh_config(session.config_path.as_deref())?;
     let tree = warden_bootstrap::org::build_org(&config.agents);
     if tree.is_empty() {
-        return render_message_card(terminal, "organização", accent_style(), vec![("nenhum agente configurado ainda — use /agents create".to_string(), Style::default())]);
+        return render_message_card(terminal, &tr!("agents.org_title"), accent_style(), vec![(tr!("agents.none"), Style::default())]);
     }
     let mut lines: Vec<(String, Style)> = warden_bootstrap::org::render_org(&tree).into_iter().map(|line| (line, Style::default())).collect();
     if tree.iter().all(|node| node.children.is_empty()) {
-        lines.push(("ninguém reporta a ninguém ainda — /agents edit <id> define o superior".to_string(), dim_style()));
+        lines.push((tr!("agents.nobody_reports"), dim_style()));
     }
-    render_message_card(terminal, "organização", accent_style(), lines)
+    render_message_card(terminal, &tr!("agents.org_title"), accent_style(), lines)
 }
 
 async fn cmd_agents_use(terminal: &mut CliTerminal, session: &mut CliSession, id: Option<String>) -> anyhow::Result<()> {
     let Some(id) = id else {
         session.agent_id = None;
-        return render_message_card(terminal, "agentes", accent_style(), vec![("nenhum agente ativo agora".to_string(), Style::default())]);
+        return render_message_card(terminal, &tr!("agents.title"), accent_style(), vec![(tr!("agents.none_active"), Style::default())]);
     };
     let config = load_fresh_config(session.config_path.as_deref())?;
     if !config.agents.iter().any(|a| a.id == id && a.owner.is_none()) {
-        return render_message_card(terminal, "erro", error_style(), vec![(format!("agente '{id}' não encontrado — use /agents pra ver a lista"), Style::default())]);
+        return render_message_card(terminal, &tr!("common.error"), error_style(), vec![(tr!("agents.use_not_found", id = id), Style::default())]);
     }
     session.agent_id = Some(id.clone());
-    render_message_card(terminal, "agentes", accent_style(), vec![(format!("agente ativo agora: {id}"), Style::default())])
+    render_message_card(terminal, &tr!("agents.title"), accent_style(), vec![(tr!("agents.now_active", id = id), Style::default())])
 }
 
 /// Loops a single wizard field until it's a non-blank id that doesn't collide with an existing
 /// agent (other than `keep_if_same`). Returns `Ok(None)` if the user cancels.
 async fn prompt_agent_id(terminal: &mut CliTerminal, agents: &[AgentConfig], initial: &str, keep_if_same: Option<&str>) -> anyhow::Result<Option<String>> {
     loop {
-        let Some(input) = prompt_field(terminal, " id (nome único do agente) ", initial).await? else {
+        let Some(input) = prompt_field(terminal, &tr!("agents.prompt_id"), initial).await? else {
             return Ok(None);
         };
         let candidate = input.trim().to_string();
         if candidate.is_empty() {
-            render_message_card(terminal, "erro", error_style(), vec![("id não pode ficar em branco".to_string(), Style::default())])?;
+            render_message_card(terminal, &tr!("common.error"), error_style(), vec![(tr!("limit_prompt.id_blank"), Style::default())])?;
         } else if Some(candidate.as_str()) != keep_if_same && agents.iter().any(|a| a.id == candidate) {
-            render_message_card(terminal, "erro", error_style(), vec![(format!("já existe um agente com id '{candidate}'"), Style::default())])?;
+            render_message_card(terminal, &tr!("common.error"), error_style(), vec![(tr!("agents.id_taken", id = candidate), Style::default())])?;
         } else {
             return Ok(Some(candidate));
         }
@@ -2186,7 +2202,7 @@ async fn prompt_agent_id(terminal: &mut CliTerminal, agents: &[AgentConfig], ini
 /// default provider chosen").
 async fn prompt_agent_provider_id(terminal: &mut CliTerminal, providers: &[ProviderConfig], initial: &str) -> anyhow::Result<Option<Option<String>>> {
     loop {
-        let Some(input) = prompt_field(terminal, " provider padrão (em branco = nenhum) ", initial).await? else {
+        let Some(input) = prompt_field(terminal, &tr!("agents.prompt_provider"), initial).await? else {
             return Ok(None);
         };
         let candidate = input.trim().to_string();
@@ -2195,7 +2211,7 @@ async fn prompt_agent_provider_id(terminal: &mut CliTerminal, providers: &[Provi
         } else if providers.iter().any(|p| p.id == candidate) {
             return Ok(Some(Some(candidate)));
         } else {
-            render_message_card(terminal, "erro", error_style(), vec![(format!("provider '{candidate}' não existe — deixe em branco ou use /models pra ver a lista"), Style::default())])?;
+            render_message_card(terminal, &tr!("common.error"), error_style(), vec![(tr!("agents.provider_missing", id = candidate), Style::default())])?;
         }
     }
 }
@@ -2203,56 +2219,46 @@ async fn prompt_agent_provider_id(terminal: &mut CliTerminal, providers: &[Provi
 /// Loops a single wizard field until it parses as yes/no. Returns `Ok(None)` if the user cancels
 /// (distinct from `Ok(Some(false))`, "answered no").
 async fn prompt_agent_can_delegate(terminal: &mut CliTerminal, initial: bool) -> anyhow::Result<Option<bool>> {
-    prompt_agent_flag(terminal, " pode delegar pra outros agentes? (s/n) ", initial).await
+    prompt_agent_flag(terminal, &tr!("agents.can_delegate"), initial).await
 }
 
 async fn prompt_agent_can_manage(terminal: &mut CliTerminal, initial: bool) -> anyhow::Result<Option<bool>> {
-    prompt_agent_flag(
-        terminal,
-        " pode criar e editar outros agentes? cada mudança pede a sua aprovação (s/n) ",
-        initial,
-    )
-    .await
+    prompt_agent_flag(terminal, &tr!("agents.can_manage"), initial).await
 }
 
 async fn prompt_agent_can_message(terminal: &mut CliTerminal, initial: bool) -> anyhow::Result<Option<bool>> {
-    prompt_agent_flag(
-        terminal,
-        " pode deixar recados pra outros agentes? no terminal, os recados aparecem nas conversas do desktop (s/n) ",
-        initial,
-    )
-    .await
+    prompt_agent_flag(terminal, &tr!("agents.can_message"), initial).await
 }
 
 async fn prompt_agent_can_manage_tasks(terminal: &mut CliTerminal, initial: bool) -> anyhow::Result<Option<bool>> {
-    prompt_agent_flag(terminal, " pode criar e editar tarefas agendadas? (sempre com a sua aprovação) (s/n) ", initial).await
+    prompt_agent_flag(terminal, &tr!("agents.can_manage_tasks"), initial).await
 }
 
 async fn prompt_agent_can_start_tasks(terminal: &mut CliTerminal, initial: bool) -> anyhow::Result<Option<bool>> {
-    prompt_agent_flag(terminal, " pode iniciar trabalho em segundo plano (tarefas que correm sozinhas)? (s/n) ", initial).await
+    prompt_agent_flag(terminal, &tr!("agents.can_start_tasks"), initial).await
 }
 
 async fn prompt_agent_can_message_user(terminal: &mut CliTerminal, initial: bool) -> anyhow::Result<Option<bool>> {
-    prompt_agent_flag(terminal, " pode puxar conversa com você, mandando mensagens no canal dele (precisa de [[outreach]])? (s/n) ", initial).await
+    prompt_agent_flag(terminal, &tr!("agents.can_message_user"), initial).await
 }
 
 async fn prompt_agent_can_choose_models(terminal: &mut CliTerminal, initial: bool) -> anyhow::Result<Option<bool>> {
-    prompt_agent_flag(terminal, " pode escolher o modelo de cada tarefa que delega? (s/n) ", initial).await
+    prompt_agent_flag(terminal, &tr!("agents.can_choose_models"), initial).await
 }
 
 async fn prompt_agent_can_create_workers(terminal: &mut CliTerminal, initial: bool) -> anyhow::Result<Option<bool>> {
-    prompt_agent_flag(terminal, " pode criar agentes temporários (workers que somem no fim do turno)? (s/n) ", initial).await
+    prompt_agent_flag(terminal, &tr!("agents.can_create_workers"), initial).await
 }
 
 /// 1 to 5, how much the agent may do without asking (P122).
 async fn prompt_agent_autonomy(terminal: &mut CliTerminal, initial: u8) -> anyhow::Result<Option<u8>> {
     loop {
-        let Some(input) = prompt_field(terminal, " autonomia: 1 só responde, 2 sugere, 3 pede aprovação a cada mudança, 4 age sozinho, 5 gerente: muda os subordinados sem pedir ", &initial.to_string()).await? else {
+        let Some(input) = prompt_field(terminal, &tr!("agents.prompt_autonomy"), &initial.to_string()).await? else {
             return Ok(None);
         };
         match parse_agent_autonomy(&input) {
             Ok(level) => return Ok(Some(level)),
-            Err(message) => render_message_card(terminal, "erro", error_style(), vec![(message, Style::default())])?,
+            Err(message) => render_message_card(terminal, &tr!("common.error"), error_style(), vec![(message, Style::default())])?,
         }
     }
 }
@@ -2264,10 +2270,10 @@ async fn prompt_agent_role_and_superior(
     role: Option<&str>,
     reports_to: Option<&str>,
 ) -> anyhow::Result<Option<(Option<String>, Option<String>)>> {
-    let Some(role) = prompt_field(terminal, " cargo (opcional, texto livre) ", role.unwrap_or("")).await? else {
+    let Some(role) = prompt_field(terminal, &tr!("agents.prompt_role"), role.unwrap_or("")).await? else {
         return Ok(None);
     };
-    let Some(superior) = prompt_field(terminal, " reporta a (id de outro agente; em branco = ninguém) ", reports_to.unwrap_or("")).await? else {
+    let Some(superior) = prompt_field(terminal, &tr!("agents.prompt_superior"), reports_to.unwrap_or("")).await? else {
         return Ok(None);
     };
     let blank_is_none = |text: String| Some(text.trim().to_string()).filter(|t| !t.is_empty());
@@ -2277,7 +2283,7 @@ async fn prompt_agent_role_and_superior(
 /// The kinds of action the agent must have approved even when it acts alone (P122), as ids separated by commas.
 async fn prompt_agent_approval_categories(terminal: &mut CliTerminal, initial: &[warden_core::autonomy::Category]) -> anyhow::Result<Option<Vec<warden_core::autonomy::Category>>> {
     let all = warden_core::autonomy::Category::ALL.map(|c| c.as_str()).join(", ");
-    let title = format!(" pede aprovação para (separadas por vírgula; em branco = nenhuma): {all} ");
+    let title = tr!("agents.prompt_approval", all = all);
     let initial_text = initial.iter().map(|c| c.as_str()).collect::<Vec<_>>().join(", ");
     loop {
         let Some(input) = prompt_field(terminal, &title, &initial_text).await? else {
@@ -2285,7 +2291,7 @@ async fn prompt_agent_approval_categories(terminal: &mut CliTerminal, initial: &
         };
         match parse_approval_categories(&input) {
             Ok(categories) => return Ok(Some(categories)),
-            Err(message) => render_message_card(terminal, "erro", error_style(), vec![(message, Style::default())])?,
+            Err(message) => render_message_card(terminal, &tr!("common.error"), error_style(), vec![(message, Style::default())])?,
         }
     }
 }
@@ -2295,14 +2301,14 @@ fn parse_approval_categories(input: &str) -> Result<Vec<warden_core::autonomy::C
     let ids: Vec<String> = input.split(',').map(str::trim).filter(|id| !id.is_empty()).map(str::to_string).collect();
     warden_bootstrap::settings::categories_from_ids(&ids).map_err(|_| {
         let all = warden_core::autonomy::Category::ALL.map(|c| c.as_str()).join(", ");
-        format!("use só estes nomes, separados por vírgula: {all}")
+        tr!("agents.categories_only", all = all)
     })
 }
 
 fn parse_agent_autonomy(input: &str) -> Result<u8, String> {
     match input.trim().parse::<u8>() {
         Ok(level) if (1..=5).contains(&level) => Ok(level),
-        _ => Err("use um número de 1 a 5".to_string()),
+        _ => Err(tr!("agents.autonomy_range")),
     }
 }
 
@@ -2311,12 +2317,12 @@ fn parse_agent_autonomy(input: &str) -> Result<u8, String> {
 async fn prompt_agent_tools(terminal: &mut CliTerminal, known: &[String], initial: Option<&[String]>) -> anyhow::Result<Option<Option<Vec<String>>>> {
     loop {
         let initial_text = initial.map(|t| t.join(", ")).unwrap_or_default();
-        let Some(input) = prompt_field(terminal, " tools permitidas (separadas por vírgula; em branco = todas) ", &initial_text).await? else {
+        let Some(input) = prompt_field(terminal, &tr!("agents.prompt_tools"), &initial_text).await? else {
             return Ok(None);
         };
         match parse_agent_tools(&input, known) {
             Ok(tools) => return Ok(Some(tools)),
-            Err(message) => render_message_card(terminal, "erro", error_style(), vec![(message, Style::default())])?,
+            Err(message) => render_message_card(terminal, &tr!("common.error"), error_style(), vec![(message, Style::default())])?,
         }
     }
 }
@@ -2330,10 +2336,10 @@ fn parse_agent_tools(input: &str, known: &[String]) -> Result<Option<Vec<String>
     let mut tools: Vec<String> = Vec::new();
     for name in input.split(',').map(str::trim).filter(|n| !n.is_empty()) {
         if matches!(name, "delegate_to_agent" | "manage_agents" | "message_agent" | "manage_tasks") {
-            return Err(format!("'{name}' não entra na lista — use as perguntas de delegar/criar agentes/recados"));
+            return Err(tr!("agents.tool_not_listable", name = name));
         }
         if !known.iter().any(|k| k == name) {
-            return Err(format!("tool '{name}' não existe — disponíveis: {}", known.join(", ")));
+            return Err(tr!("agents.tool_missing", name = name, available = known.join(", ")));
         }
         if !tools.iter().any(|t| t == name) {
             tools.push(name.to_string());
@@ -2345,15 +2351,15 @@ fn parse_agent_tools(input: &str, known: &[String]) -> Result<Option<Vec<String>
 /// The models the agent may delegate with (P123): ids of providers, combos or policies separated by commas, the first one the default
 /// for a delegation that names none; blank = the choice is open.
 async fn prompt_agent_delegation_models(terminal: &mut CliTerminal, known: &[String], initial: &[String]) -> anyhow::Result<Option<Vec<String>>> {
-    let title = " modelos que pode escolher ao delegar (separados por vírgula, o primeiro é o padrão; em branco = qualquer) ";
+    let title = tr!("agents.prompt_delegation_models");
     let initial_text = initial.join(", ");
     loop {
-        let Some(input) = prompt_field(terminal, title, &initial_text).await? else {
+        let Some(input) = prompt_field(terminal, &title, &initial_text).await? else {
             return Ok(None);
         };
         match parse_delegation_models(&input, known) {
             Ok(models) => return Ok(Some(models)),
-            Err(message) => render_message_card(terminal, "erro", error_style(), vec![(message, Style::default())])?,
+            Err(message) => render_message_card(terminal, &tr!("common.error"), error_style(), vec![(message, Style::default())])?,
         }
     }
 }
@@ -2363,8 +2369,8 @@ fn parse_delegation_models(input: &str, known: &[String]) -> Result<Vec<String>,
     let mut models: Vec<String> = Vec::new();
     for id in input.split(',').map(str::trim).filter(|id| !id.is_empty()) {
         if !known.iter().any(|k| k == id) {
-            let available = if known.is_empty() { "nenhum cadastrado".to_string() } else { known.join(", ") };
-            return Err(format!("modelo '{id}' não existe — disponíveis: {available}"));
+            let available = if known.is_empty() { tr!("agents.none_registered") } else { known.join(", ") };
+            return Err(tr!("agents.model_missing", id = id, available = available));
         }
         if !models.iter().any(|m| m == id) {
             models.push(id.to_string());
@@ -2379,15 +2385,16 @@ fn delegation_model_ids(config: &FileConfig) -> Vec<String> {
 }
 
 async fn prompt_agent_flag(terminal: &mut CliTerminal, title: &str, initial: bool) -> anyhow::Result<Option<bool>> {
+    let initial_text = if initial { tr!("common.yes_letter") } else { "n".to_string() };
     loop {
-        let Some(input) = prompt_field(terminal, title, if initial { "s" } else { "n" }).await? else {
+        let Some(input) = prompt_field(terminal, title, &initial_text).await? else {
             return Ok(None);
         };
         match input.trim().to_lowercase().as_str() {
             "s" | "sim" | "y" | "yes" => return Ok(Some(true)),
             "n" | "nao" | "não" | "no" => return Ok(Some(false)),
             _ => {
-                render_message_card(terminal, "erro", error_style(), vec![("responda 's' ou 'n'".to_string(), Style::default())])?;
+                render_message_card(terminal, &tr!("common.error"), error_style(), vec![(tr!("common.answer_yes_no"), Style::default())])?;
             }
         }
     }
@@ -2397,55 +2404,55 @@ async fn wizard_agents_create(terminal: &mut CliTerminal, session: &mut CliSessi
     let mut config = load_fresh_config(session.config_path.as_deref())?;
 
     let Some(id) = prompt_agent_id(terminal, &config.agents, "", None).await? else {
-        return render_message_card(terminal, "agentes", dim_style(), vec![("criação cancelada".to_string(), dim_style())]);
+        return agents_cancelled(terminal, "cancelled.creation");
     };
-    let Some(persona) = prompt_field(terminal, " persona (uma linha — como o agente deve se comportar) ", "").await? else {
-        return render_message_card(terminal, "agentes", dim_style(), vec![("criação cancelada".to_string(), dim_style())]);
+    let Some(persona) = prompt_field(terminal, &tr!("agents.prompt_persona_new"), "").await? else {
+        return agents_cancelled(terminal, "cancelled.creation");
     };
     let Some(provider_id) = prompt_agent_provider_id(terminal, &config.providers, "").await? else {
-        return render_message_card(terminal, "agentes", dim_style(), vec![("criação cancelada".to_string(), dim_style())]);
+        return agents_cancelled(terminal, "cancelled.creation");
     };
     let Some(can_delegate_to_agents) = prompt_agent_can_delegate(terminal, false).await? else {
-        return render_message_card(terminal, "agentes", dim_style(), vec![("criação cancelada".to_string(), dim_style())]);
+        return agents_cancelled(terminal, "cancelled.creation");
     };
     let Some(can_manage_agents) = prompt_agent_can_manage(terminal, false).await? else {
-        return render_message_card(terminal, "agentes", dim_style(), vec![("criação cancelada".to_string(), dim_style())]);
+        return agents_cancelled(terminal, "cancelled.creation");
     };
     let Some(can_message_agents) = prompt_agent_can_message(terminal, false).await? else {
-        return render_message_card(terminal, "agentes", dim_style(), vec![("criação cancelada".to_string(), dim_style())]);
+        return agents_cancelled(terminal, "cancelled.creation");
     };
     let Some(can_manage_tasks) = prompt_agent_can_manage_tasks(terminal, false).await? else {
-        return render_message_card(terminal, "agentes", dim_style(), vec![("criação cancelada".to_string(), dim_style())]);
+        return agents_cancelled(terminal, "cancelled.creation");
     };
     let Some(can_start_tasks) = prompt_agent_can_start_tasks(terminal, true).await? else {
-        return render_message_card(terminal, "agentes", dim_style(), vec![("criação cancelada".to_string(), dim_style())]);
+        return agents_cancelled(terminal, "cancelled.creation");
     };
     let Some(can_create_workers) = prompt_agent_can_create_workers(terminal, true).await? else {
-        return render_message_card(terminal, "agentes", dim_style(), vec![("criação cancelada".to_string(), dim_style())]);
+        return agents_cancelled(terminal, "cancelled.creation");
     };
     let Some(can_message_user) = prompt_agent_can_message_user(terminal, true).await? else {
-        return render_message_card(terminal, "agentes", dim_style(), vec![("criação cancelada".to_string(), dim_style())]);
+        return agents_cancelled(terminal, "cancelled.creation");
     };
     let Some(can_choose_models) = prompt_agent_can_choose_models(terminal, true).await? else {
-        return render_message_card(terminal, "agentes", dim_style(), vec![("criação cancelada".to_string(), dim_style())]);
+        return agents_cancelled(terminal, "cancelled.creation");
     };
     let Some(autonomy) = prompt_agent_autonomy(terminal, warden_bootstrap::default_autonomy()).await? else {
-        return render_message_card(terminal, "agentes", dim_style(), vec![("criação cancelada".to_string(), dim_style())]);
+        return agents_cancelled(terminal, "cancelled.creation");
     };
     let Some(approval_required) = prompt_agent_approval_categories(terminal, &[]).await? else {
-        return render_message_card(terminal, "agentes", dim_style(), vec![("criação cancelada".to_string(), dim_style())]);
+        return agents_cancelled(terminal, "cancelled.creation");
     };
 
     let Some(allowed_tools) = prompt_agent_tools(terminal, &session.tool_names, None).await? else {
-        return render_message_card(terminal, "agentes", dim_style(), vec![("criação cancelada".to_string(), dim_style())]);
+        return agents_cancelled(terminal, "cancelled.creation");
     };
 
     let Some((role, reports_to)) = prompt_agent_role_and_superior(terminal, None, None).await? else {
-        return render_message_card(terminal, "agentes", dim_style(), vec![("criação cancelada".to_string(), dim_style())]);
+        return agents_cancelled(terminal, "cancelled.creation");
     };
 
     let Some(delegation_models) = prompt_agent_delegation_models(terminal, &delegation_model_ids(&config), &[]).await? else {
-        return render_message_card(terminal, "agentes", dim_style(), vec![("criação cancelada".to_string(), dim_style())]);
+        return agents_cancelled(terminal, "cancelled.creation");
     };
 
     config.agents.push(AgentConfig {
@@ -2470,71 +2477,76 @@ async fn wizard_agents_create(terminal: &mut CliTerminal, session: &mut CliSessi
         can_choose_models,
     });
     if let Err(message) = warden_bootstrap::org::check_hierarchy(&config.agents) {
-        return render_message_card(terminal, "erro", error_style(), vec![(message, Style::default())]);
+        return render_message_card(terminal, &tr!("common.error"), error_style(), vec![(message, Style::default())]);
     }
 
     save_config_or_report(session, &config).await?;
-    render_message_card(terminal, "agentes", accent_style(), vec![(format!("agente '{id}' criado"), Style::default())])
+    render_message_card(terminal, &tr!("agents.title"), accent_style(), vec![(tr!("agents.created", id = id), Style::default())])
+}
+
+/// `what_key` names what was cancelled (a catalog key: creation, edit...).
+fn agents_cancelled(terminal: &mut CliTerminal, what_key: &str) -> anyhow::Result<()> {
+    render_message_card(terminal, &tr!("agents.title"), dim_style(), vec![(tr!(what_key), dim_style())])
 }
 
 async fn wizard_agents_edit(terminal: &mut CliTerminal, session: &mut CliSession, target_id: String) -> anyhow::Result<()> {
     let mut config = load_fresh_config(session.config_path.as_deref())?;
     // P84: members' own agents are theirs — not the owner's to edit here.
     let Some(index) = config.agents.iter().position(|a| a.id == target_id && a.owner.is_none()) else {
-        return render_message_card(terminal, "erro", error_style(), vec![(format!("agente '{target_id}' não encontrado"), Style::default())]);
+        return render_message_card(terminal, &tr!("common.error"), error_style(), vec![(tr!("agents.not_found", id = target_id), Style::default())]);
     };
     let current = config.agents[index].clone();
 
     let Some(new_id) = prompt_agent_id(terminal, &config.agents, &current.id, Some(&current.id)).await? else {
-        return render_message_card(terminal, "agentes", dim_style(), vec![("edição cancelada".to_string(), dim_style())]);
+        return agents_cancelled(terminal, "cancelled.edit");
     };
     let Some(persona) = prompt_field(terminal, " persona ", &current.persona).await? else {
-        return render_message_card(terminal, "agentes", dim_style(), vec![("edição cancelada".to_string(), dim_style())]);
+        return agents_cancelled(terminal, "cancelled.edit");
     };
     let Some(provider_id) = prompt_agent_provider_id(terminal, &config.providers, current.provider_id.as_deref().unwrap_or("")).await? else {
-        return render_message_card(terminal, "agentes", dim_style(), vec![("edição cancelada".to_string(), dim_style())]);
+        return agents_cancelled(terminal, "cancelled.edit");
     };
     let Some(can_delegate_to_agents) = prompt_agent_can_delegate(terminal, current.can_delegate_to_agents).await? else {
-        return render_message_card(terminal, "agentes", dim_style(), vec![("edição cancelada".to_string(), dim_style())]);
+        return agents_cancelled(terminal, "cancelled.edit");
     };
     let Some(can_manage_agents) = prompt_agent_can_manage(terminal, current.can_manage_agents).await? else {
-        return render_message_card(terminal, "agentes", dim_style(), vec![("edição cancelada".to_string(), dim_style())]);
+        return agents_cancelled(terminal, "cancelled.edit");
     };
     let Some(can_message_agents) = prompt_agent_can_message(terminal, current.can_message_agents).await? else {
-        return render_message_card(terminal, "agentes", dim_style(), vec![("edição cancelada".to_string(), dim_style())]);
+        return agents_cancelled(terminal, "cancelled.edit");
     };
     let Some(can_manage_tasks) = prompt_agent_can_manage_tasks(terminal, current.can_manage_tasks).await? else {
-        return render_message_card(terminal, "agentes", dim_style(), vec![("edição cancelada".to_string(), dim_style())]);
+        return agents_cancelled(terminal, "cancelled.edit");
     };
     let Some(can_start_tasks) = prompt_agent_can_start_tasks(terminal, current.can_start_tasks).await? else {
-        return render_message_card(terminal, "agentes", dim_style(), vec![("edição cancelada".to_string(), dim_style())]);
+        return agents_cancelled(terminal, "cancelled.edit");
     };
     let Some(can_create_workers) = prompt_agent_can_create_workers(terminal, current.can_create_workers).await? else {
-        return render_message_card(terminal, "agentes", dim_style(), vec![("edição cancelada".to_string(), dim_style())]);
+        return agents_cancelled(terminal, "cancelled.edit");
     };
     let Some(can_message_user) = prompt_agent_can_message_user(terminal, current.can_message_user).await? else {
-        return render_message_card(terminal, "agentes", dim_style(), vec![("edição cancelada".to_string(), dim_style())]);
+        return agents_cancelled(terminal, "cancelled.edit");
     };
     let Some(can_choose_models) = prompt_agent_can_choose_models(terminal, current.can_choose_models).await? else {
-        return render_message_card(terminal, "agentes", dim_style(), vec![("edição cancelada".to_string(), dim_style())]);
+        return agents_cancelled(terminal, "cancelled.edit");
     };
     let Some(autonomy) = prompt_agent_autonomy(terminal, current.autonomy).await? else {
-        return render_message_card(terminal, "agentes", dim_style(), vec![("edição cancelada".to_string(), dim_style())]);
+        return agents_cancelled(terminal, "cancelled.edit");
     };
     let Some(approval_required) = prompt_agent_approval_categories(terminal, &current.approval_required).await? else {
-        return render_message_card(terminal, "agentes", dim_style(), vec![("edição cancelada".to_string(), dim_style())]);
+        return agents_cancelled(terminal, "cancelled.edit");
     };
 
     let Some(allowed_tools) = prompt_agent_tools(terminal, &session.tool_names, current.allowed_tools.as_deref()).await? else {
-        return render_message_card(terminal, "agentes", dim_style(), vec![("edição cancelada".to_string(), dim_style())]);
+        return agents_cancelled(terminal, "cancelled.edit");
     };
 
     let Some((role, reports_to)) = prompt_agent_role_and_superior(terminal, current.role.as_deref(), current.reports_to.as_deref()).await? else {
-        return render_message_card(terminal, "agentes", dim_style(), vec![("edição cancelada".to_string(), dim_style())]);
+        return agents_cancelled(terminal, "cancelled.edit");
     };
 
     let Some(delegation_models) = prompt_agent_delegation_models(terminal, &delegation_model_ids(&config), &current.delegation_models).await? else {
-        return render_message_card(terminal, "agentes", dim_style(), vec![("edição cancelada".to_string(), dim_style())]);
+        return agents_cancelled(terminal, "cancelled.edit");
     };
 
     let old_id = current.id.clone();
@@ -2562,20 +2574,20 @@ async fn wizard_agents_edit(terminal: &mut CliTerminal, session: &mut CliSession
     // Whoever reported to it under the old name reports to it under the new one.
     warden_bootstrap::org::rename_in_reports(&mut config.agents, &old_id, &new_id);
     if let Err(message) = warden_bootstrap::org::check_hierarchy(&config.agents) {
-        return render_message_card(terminal, "erro", error_style(), vec![(message, Style::default())]);
+        return render_message_card(terminal, &tr!("common.error"), error_style(), vec![(message, Style::default())]);
     }
     if new_id != old_id && session.agent_id.as_deref() == Some(old_id.as_str()) {
         session.agent_id = Some(new_id.clone());
     }
 
     save_config_or_report(session, &config).await?;
-    render_message_card(terminal, "agentes", accent_style(), vec![(format!("agente '{new_id}' atualizado"), Style::default())])
+    render_message_card(terminal, &tr!("agents.title"), accent_style(), vec![(tr!("agents.updated", id = new_id), Style::default())])
 }
 
 async fn cmd_agents_remove(terminal: &mut CliTerminal, session: &mut CliSession, id: String) -> anyhow::Result<()> {
     let mut config = load_fresh_config(session.config_path.as_deref())?;
     if !config.agents.iter().any(|a| a.id == id && a.owner.is_none()) {
-        return render_message_card(terminal, "erro", error_style(), vec![(format!("agente '{id}' não encontrado"), Style::default())]);
+        return render_message_card(terminal, &tr!("common.error"), error_style(), vec![(tr!("agents.not_found", id = id), Style::default())]);
     }
     // Also takes the agent out of the SSH servers that named it: a server left with no agent is
     // switched off rather than opened to every agent, and no dangling name is left behind.
@@ -2591,32 +2603,32 @@ async fn cmd_agents_remove(terminal: &mut CliTerminal, session: &mut CliSession,
     } else {
         save_config_and_reload(session, &config).await?;
     }
-    let mut lines = vec![(format!("agente '{id}' removido"), Style::default())];
+    let mut lines = vec![(tr!("agents.removed", id = id), Style::default())];
     for effect in effects {
         lines.push((
             if effect.switched_off {
-                format!("servidor ssh '{}' era só desse agente e foi bloqueado", effect.host_id)
+                tr!("agents.ssh_blocked", host = effect.host_id)
             } else {
-                format!("servidor ssh '{}' deixou de listar esse agente", effect.host_id)
+                tr!("agents.ssh_unlisted", host = effect.host_id)
             },
             Style::default(),
         ));
     }
-    render_message_card(terminal, "agentes", accent_style(), lines)
+    render_message_card(terminal, &tr!("agents.title"), accent_style(), lines)
 }
 
 async fn cmd_ssh_list(terminal: &mut CliTerminal, session: &CliSession) -> anyhow::Result<()> {
     let config = load_fresh_config(session.config_path.as_deref())?;
     if config.ssh_hosts.is_empty() {
-        return render_message_card(terminal, "ssh", accent_style(), vec![("nenhum servidor cadastrado — use /ssh add".to_string(), Style::default())]);
+        return render_message_card(terminal, "ssh", accent_style(), vec![(tr!("ssh.none"), Style::default())]);
     }
     let lines = config
         .ssh_hosts
         .iter()
         .map(|h| {
-            let state = if h.enabled { "liberado" } else { "bloqueado" };
-            let who = if h.agents.is_empty() { "todos os agentes e canais".to_string() } else { format!("só: {}", h.agents.join(", ")) };
-            let ask = if h.require_approval { ", pede aprovação a cada ação" } else { "" };
+            let state = if h.enabled { tr!("ssh.state_on") } else { tr!("ssh.state_off") };
+            let who = if h.agents.is_empty() { tr!("ssh.who_all") } else { tr!("ssh.who_only", agents = h.agents.join(", ")) };
+            let ask = if h.require_approval { tr!("ssh.asks_each_time") } else { String::new() };
             (format!("{} — {}@{}:{} [{}] ({}{})", h.id, h.user, h.host, h.port, state, who, ask), Style::default())
         })
         .collect();
@@ -2626,18 +2638,19 @@ async fn cmd_ssh_list(terminal: &mut CliTerminal, session: &CliSession) -> anyho
 /// `/ssh log [n]` (P47): the last `count` calls of the SSH tools, newest first, one line each. The log never holds the output of a command.
 fn cmd_ssh_log(terminal: &mut CliTerminal, count: usize) -> anyhow::Result<()> {
     let Some(path) = warden_bootstrap::default_ssh_audit_log_path() else {
-        return render_message_card(terminal, "ssh", dim_style(), vec![("não achei a pasta de configuração deste computador".to_string(), dim_style())]);
+        return render_message_card(terminal, "ssh", dim_style(), vec![(tr!("ssh.no_config_dir"), dim_style())]);
     };
     let entries = warden_bootstrap::ssh_audit::read_ssh_audit(&path, count);
     if entries.is_empty() {
-        return render_message_card(terminal, "ssh", dim_style(), vec![("nenhuma chamada registrada ainda".to_string(), dim_style())]);
+        return render_message_card(terminal, "ssh", dim_style(), vec![(tr!("ssh.no_calls"), dim_style())]);
     }
     let lines = entries.iter().map(|entry| (entry.summary_line(), if entry.approval == "denied" || entry.approval == "unavailable" { error_style() } else { Style::default() })).collect();
     render_message_card(terminal, "ssh log", accent_style(), lines)
 }
 
-fn ssh_cancelled(terminal: &mut CliTerminal, what: &str) -> anyhow::Result<()> {
-    render_message_card(terminal, "ssh", dim_style(), vec![(format!("{what} cancelada"), dim_style())])
+/// `what_key` names what was cancelled (a catalog key: creation, edit, removal).
+fn ssh_cancelled(terminal: &mut CliTerminal, what_key: &str) -> anyhow::Result<()> {
+    render_message_card(terminal, "ssh", dim_style(), vec![(tr!(what_key), dim_style())])
 }
 
 /// Asks every field of an SSH host, pre-filled from `current` when editing. `Ok(None)` means the
@@ -2645,46 +2658,47 @@ fn ssh_cancelled(terminal: &mut CliTerminal, what: &str) -> anyhow::Result<()> {
 /// nothing half-valid is ever saved — the final `validate()` is the same one `ssh_exec` runs.
 async fn prompt_ssh_host(terminal: &mut CliTerminal, config: &FileConfig, current: Option<&SshHostConfig>) -> anyhow::Result<Option<SshHostConfig>> {
     let keep_id = current.map(|h| h.id.as_str());
-    let Some(id) = prompt_field(terminal, " id (nome único do servidor) ", keep_id.unwrap_or("")).await? else {
+    let yes = tr!("common.yes_letter");
+    let Some(id) = prompt_field(terminal, &tr!("ssh_prompt.id"), keep_id.unwrap_or("")).await? else {
         return Ok(None);
     };
     let id = id.trim().to_string();
     if id.is_empty() || (Some(id.as_str()) != keep_id && config.ssh_hosts.iter().any(|h| h.id == id)) {
-        render_message_card(terminal, "erro", error_style(), vec![("o id não pode ser vazio nem repetir o de outro servidor".to_string(), Style::default())])?;
+        render_message_card(terminal, &tr!("common.error"), error_style(), vec![(tr!("ssh_prompt.id_invalid"), Style::default())])?;
         return Ok(None);
     }
-    let Some(host) = prompt_field(terminal, " host (IP ou domínio) ", current.map_or("", |h| h.host.as_str())).await? else {
+    let Some(host) = prompt_field(terminal, &tr!("ssh_prompt.host"), current.map_or("", |h| h.host.as_str())).await? else {
         return Ok(None);
     };
-    let Some(user) = prompt_field(terminal, " usuário ", current.map_or("", |h| h.user.as_str())).await? else {
+    let Some(user) = prompt_field(terminal, &tr!("ssh_prompt.user"), current.map_or("", |h| h.user.as_str())).await? else {
         return Ok(None);
     };
-    let Some(port) = prompt_field(terminal, " porta ", &current.map_or(22, |h| h.port).to_string()).await? else {
+    let Some(port) = prompt_field(terminal, &tr!("ssh_prompt.port"), &current.map_or(22, |h| h.port).to_string()).await? else {
         return Ok(None);
     };
     let Ok(port) = port.trim().parse::<u16>() else {
-        render_message_card(terminal, "erro", error_style(), vec![("porta inválida — use um número de 1 a 65535".to_string(), Style::default())])?;
+        render_message_card(terminal, &tr!("common.error"), error_style(), vec![(tr!("ssh_prompt.port_invalid"), Style::default())])?;
         return Ok(None);
     };
-    let Some(identity) = prompt_field(terminal, " arquivo da chave privada (só o caminho; vazio = ssh-agent) ", current.and_then(|h| h.identity_file.as_deref()).unwrap_or("")).await? else {
+    let Some(identity) = prompt_field(terminal, &tr!("ssh_prompt.identity"), current.and_then(|h| h.identity_file.as_deref()).unwrap_or("")).await? else {
         return Ok(None);
     };
-    let Some(agents) = prompt_field(terminal, " agentes autorizados (ids separados por vírgula; vazio = todos os agentes e canais) ", &current.map_or(String::new(), |h| h.agents.join(", "))).await? else {
+    let Some(agents) = prompt_field(terminal, &tr!("ssh_prompt.agents"), &current.map_or(String::new(), |h| h.agents.join(", "))).await? else {
         return Ok(None);
     };
     let agents: Vec<String> = agents.split(',').map(str::trim).filter(|a| !a.is_empty()).map(str::to_string).collect();
     if let Some(unknown) = agents.iter().find(|a| !config.agents.iter().any(|known| &known.id == *a)) {
-        render_message_card(terminal, "erro", error_style(), vec![(format!("agente '{unknown}' não existe — veja /agents"), Style::default())])?;
+        render_message_card(terminal, &tr!("common.error"), error_style(), vec![(tr!("target.agent_missing", id = unknown), Style::default())])?;
         return Ok(None);
     }
-    let Some(enabled) = prompt_field(terminal, " liberar pra IA? ela roda qualquer comando como esse usuário, sem sandbox (s/n) ", if current.is_some_and(|h| h.enabled) { "s" } else { "n" }).await? else {
+    let Some(enabled) = prompt_field(terminal, &tr!("ssh_prompt.enable"), if current.is_some_and(|h| h.enabled) { yes.as_str() } else { "n" }).await? else {
         return Ok(None);
     };
     let enabled = matches!(enabled.trim().to_lowercase().as_str(), "s" | "sim" | "y" | "yes");
     let Some(approval) = prompt_field(
         terminal,
-        " pedir a sua aprovação a cada comando ou transferência? só vale aqui no CLI interativo e no desktop; nos outros canais a IA é recusada (s/n) ",
-        if current.is_some_and(|h| h.require_approval) { "s" } else { "n" },
+        &tr!("ssh_prompt.require_approval"),
+        if current.is_some_and(|h| h.require_approval) { yes.as_str() } else { "n" },
     )
     .await?
     else {
@@ -2703,7 +2717,7 @@ async fn prompt_ssh_host(terminal: &mut CliTerminal, config: &FileConfig, curren
         require_approval,
     };
     if let Err(err) = host.to_host().validate() {
-        render_message_card(terminal, "erro", error_style(), vec![(format!("{err:#}"), Style::default())])?;
+        render_message_card(terminal, &tr!("common.error"), error_style(), vec![(format!("{err:#}"), Style::default())])?;
         return Ok(None);
     }
     Ok(Some(host))
@@ -2712,64 +2726,64 @@ async fn prompt_ssh_host(terminal: &mut CliTerminal, config: &FileConfig, curren
 async fn wizard_ssh_add(terminal: &mut CliTerminal, session: &mut CliSession) -> anyhow::Result<()> {
     let mut config = load_fresh_config(session.config_path.as_deref())?;
     let Some(host) = prompt_ssh_host(terminal, &config, None).await? else {
-        return ssh_cancelled(terminal, "criação");
+        return ssh_cancelled(terminal, "cancelled.creation");
     };
     let id = host.id.clone();
     config.ssh_hosts.push(host);
     save_config_and_reload(session, &config).await?;
-    render_message_card(terminal, "ssh", accent_style(), vec![(format!("servidor '{id}' cadastrado"), Style::default())])
+    render_message_card(terminal, "ssh", accent_style(), vec![(tr!("ssh.added", id = id), Style::default())])
 }
 
 async fn wizard_ssh_edit(terminal: &mut CliTerminal, session: &mut CliSession, target_id: String) -> anyhow::Result<()> {
     let mut config = load_fresh_config(session.config_path.as_deref())?;
     let Some(index) = config.ssh_hosts.iter().position(|h| h.id == target_id) else {
-        return render_message_card(terminal, "erro", error_style(), vec![(format!("servidor '{target_id}' não encontrado"), Style::default())]);
+        return render_message_card(terminal, &tr!("common.error"), error_style(), vec![(tr!("ssh.not_found", id = target_id), Style::default())]);
     };
     let current = config.ssh_hosts[index].clone();
     let Some(host) = prompt_ssh_host(terminal, &config, Some(&current)).await? else {
-        return ssh_cancelled(terminal, "edição");
+        return ssh_cancelled(terminal, "cancelled.edit");
     };
     let id = host.id.clone();
     config.ssh_hosts[index] = host;
     save_config_and_reload(session, &config).await?;
-    render_message_card(terminal, "ssh", accent_style(), vec![(format!("servidor '{id}' atualizado"), Style::default())])
+    render_message_card(terminal, "ssh", accent_style(), vec![(tr!("ssh.updated", id = id), Style::default())])
 }
 
 async fn cmd_ssh_remove(terminal: &mut CliTerminal, session: &mut CliSession, id: String) -> anyhow::Result<()> {
     let mut config = load_fresh_config(session.config_path.as_deref())?;
     if !config.ssh_hosts.iter().any(|h| h.id == id) {
-        return render_message_card(terminal, "erro", error_style(), vec![(format!("servidor '{id}' não encontrado"), Style::default())]);
+        return render_message_card(terminal, &tr!("common.error"), error_style(), vec![(tr!("ssh.not_found", id = id), Style::default())]);
     }
-    let Some(answer) = prompt_field(terminal, &format!(" remover o servidor '{id}'? (s/n) "), "").await? else {
-        return ssh_cancelled(terminal, "remoção");
+    let Some(answer) = prompt_field(terminal, &tr!("ssh.confirm_remove", id = id), "").await? else {
+        return ssh_cancelled(terminal, "cancelled.removal");
     };
     if !matches!(answer.trim().to_lowercase().as_str(), "s" | "sim" | "y" | "yes") {
-        return ssh_cancelled(terminal, "remoção");
+        return ssh_cancelled(terminal, "cancelled.removal");
     }
     config.ssh_hosts.retain(|h| h.id != id);
     save_config_and_reload(session, &config).await?;
-    render_message_card(terminal, "ssh", accent_style(), vec![(format!("servidor '{id}' removido"), Style::default())])
+    render_message_card(terminal, "ssh", accent_style(), vec![(tr!("ssh.removed", id = id), Style::default())])
 }
 
 async fn cmd_ssh_enable(terminal: &mut CliTerminal, session: &mut CliSession, id: String, enabled: bool) -> anyhow::Result<()> {
     let mut config = load_fresh_config(session.config_path.as_deref())?;
     let Some(host) = config.ssh_hosts.iter_mut().find(|h| h.id == id) else {
-        return render_message_card(terminal, "erro", error_style(), vec![(format!("servidor '{id}' não encontrado"), Style::default())]);
+        return render_message_card(terminal, &tr!("common.error"), error_style(), vec![(tr!("ssh.not_found", id = id), Style::default())]);
     };
     host.enabled = enabled;
     save_config_and_reload(session, &config).await?;
-    let state = if enabled { "liberado pra IA" } else { "bloqueado pra IA" };
-    render_message_card(terminal, "ssh", accent_style(), vec![(format!("servidor '{id}' {state}"), Style::default())])
+    let state = if enabled { tr!("ssh.enabled_for_ai") } else { tr!("ssh.blocked_for_ai") };
+    render_message_card(terminal, "ssh", accent_style(), vec![(tr!("ssh.state_changed", id = id, state = state), Style::default())])
 }
 
 async fn cmd_ssh_test(terminal: &mut CliTerminal, session: &mut CliSession, id: String) -> anyhow::Result<()> {
     let config = load_fresh_config(session.config_path.as_deref())?;
     let Some(entry) = config.ssh_hosts.iter().find(|h| h.id == id) else {
-        return render_message_card(terminal, "erro", error_style(), vec![(format!("servidor '{id}' não encontrado"), Style::default())]);
+        return render_message_card(terminal, &tr!("common.error"), error_style(), vec![(tr!("ssh.not_found", id = id), Style::default())]);
     };
     let outcome = test_connection(&entry.to_host()).await?;
-    let (title, style) = if outcome.ok { ("ssh", accent_style()) } else { ("erro", error_style()) };
-    render_message_card(terminal, title, style, vec![(outcome.message, Style::default())])
+    let (title, style) = if outcome.ok { ("ssh".to_string(), accent_style()) } else { (tr!("common.error"), error_style()) };
+    render_message_card(terminal, &title, style, vec![(outcome.message, Style::default())])
 }
 
 /// Builds a `SkillStore` over the same vault this CLI session already uses — fresh per command,
@@ -2781,18 +2795,19 @@ fn make_skill_store(session: &CliSession) -> anyhow::Result<SkillStore> {
 }
 
 fn skill_error_card(terminal: &mut CliTerminal, message: String) -> anyhow::Result<()> {
-    render_message_card(terminal, "erro", error_style(), vec![(message, Style::default())])
+    render_message_card(terminal, &tr!("common.error"), error_style(), vec![(message, Style::default())])
 }
 
 async fn cmd_skills_list(terminal: &mut CliTerminal, session: &CliSession) -> anyhow::Result<()> {
     let skills = make_skill_store(session)?.list();
     if skills.is_empty() {
-        return render_message_card(terminal, "skills", accent_style(), vec![("nenhuma skill ainda — use /skills create (ou peça pra IA criar uma)".to_string(), Style::default())]);
+        return render_message_card(terminal, "skills", accent_style(), vec![(tr!("skills.none"), Style::default())]);
     }
+    let no_description = tr!("skills.no_description");
     let lines = skills
         .iter()
         .map(|s| {
-            let description = if s.description.is_empty() { "(sem descrição)" } else { s.description.as_str() };
+            let description = if s.description.is_empty() { no_description.as_str() } else { s.description.as_str() };
             let scope = if s.agents.is_empty() { String::new() } else { format!(" [{}]", s.agents.join(", ")) };
             (format!("{}{} — {}", s.name, scope, description), Style::default())
         })
@@ -2805,14 +2820,16 @@ async fn cmd_skills_show(terminal: &mut CliTerminal, session: &CliSession, name:
         Ok(skill) => skill,
         Err(e) => return skill_error_card(terminal, e.to_string()),
     };
-    let mut lines = vec![(format!("descrição: {}", if skill.description.is_empty() { "(sem descrição)" } else { skill.description.as_str() }), dim_style())];
-    lines.push((format!("agentes: {}", if skill.agents.is_empty() { "todos".to_string() } else { skill.agents.join(", ") }), dim_style()));
+    let description = if skill.description.is_empty() { tr!("skills.no_description") } else { skill.description.clone() };
+    let mut lines = vec![(tr!("skills.description", text = description), dim_style())];
+    let agents = if skill.agents.is_empty() { tr!("skills.all_agents") } else { skill.agents.join(", ") };
+    lines.push((tr!("skills.agents", agents = agents), dim_style()));
     let files = match make_skill_store(session)?.list_files(&skill.name) {
         Ok(files) => files,
         Err(e) => return skill_error_card(terminal, e.to_string()),
     };
     if !files.is_empty() {
-        lines.push((format!("anexos: {}", files.join(", ")), dim_style()));
+        lines.push((tr!("skills.attachments", files = files.join(", ")), dim_style()));
     }
     lines.extend(skill.body.lines().map(|line| (line.to_string(), Style::default())));
     render_message_card(terminal, &format!("skill {}", skill.name), accent_style(), lines)
@@ -2840,14 +2857,14 @@ async fn cmd_skills_attach(
     let store = make_skill_store(session)?;
     let content = match std::fs::read_to_string(&source) {
         Ok(content) => content,
-        Err(e) => return skill_error_card(terminal, format!("não consegui ler '{source}' como texto: {e}")),
+        Err(e) => return skill_error_card(terminal, tr!("skills.read_failed", source = source, error = e)),
     };
     match store.save_file(&name, &file, &content) {
         Ok(()) => render_message_card(
             terminal,
             "skills",
             accent_style(),
-            vec![(format!("'{file}' anexado à skill '{name}' ({} bytes)", content.len()), Style::default())],
+            vec![(tr!("skills.attached", file = file, name = name, bytes = content.len()), Style::default())],
         ),
         Err(e) => skill_error_card(terminal, e.to_string()),
     }
@@ -2858,14 +2875,14 @@ async fn cmd_skills_detach(terminal: &mut CliTerminal, session: &CliSession, nam
     if let Err(e) = store.read_file(&name, &file) {
         return skill_error_card(terminal, e.to_string());
     }
-    let Some(answer) = prompt_field(terminal, &format!(" remover '{file}' da skill '{name}'? não dá pra desfazer (s/n) "), "").await? else {
-        return render_message_card(terminal, "skills", dim_style(), vec![("remoção cancelada".to_string(), dim_style())]);
+    let Some(answer) = prompt_field(terminal, &tr!("skills.confirm_detach", file = file, name = name), "").await? else {
+        return render_message_card(terminal, "skills", dim_style(), vec![(tr!("cancelled.removal"), dim_style())]);
     };
     if !matches!(answer.trim().to_lowercase().as_str(), "s" | "sim" | "y" | "yes") {
-        return render_message_card(terminal, "skills", dim_style(), vec![("remoção cancelada".to_string(), dim_style())]);
+        return render_message_card(terminal, "skills", dim_style(), vec![(tr!("cancelled.removal"), dim_style())]);
     }
     match store.delete_file(&name, &file) {
-        Ok(()) => render_message_card(terminal, "skills", accent_style(), vec![(format!("'{file}' removido da skill '{name}'"), Style::default())]),
+        Ok(()) => render_message_card(terminal, "skills", accent_style(), vec![(tr!("skills.detached", file = file, name = name), Style::default())]),
         Err(e) => skill_error_card(terminal, e.to_string()),
     }
 }
@@ -2886,14 +2903,14 @@ async fn cmd_skills_path(terminal: &mut CliTerminal, session: &CliSession, name:
 /// Returns `Ok(None)` if the user cancels.
 async fn prompt_skill_name(terminal: &mut CliTerminal, store: &SkillStore) -> anyhow::Result<Option<String>> {
     loop {
-        let Some(input) = prompt_field(terminal, " nome (minúsculas, números e hífens — vira o nome do arquivo) ", "").await? else {
+        let Some(input) = prompt_field(terminal, &tr!("skills.prompt_name"), "").await? else {
             return Ok(None);
         };
         let candidate = input.trim().to_string();
         if let Err(e) = skill::validate_name(&candidate) {
             skill_error_card(terminal, e.to_string())?;
         } else if store.exists(&candidate) {
-            skill_error_card(terminal, format!("já existe uma skill '{candidate}' — use /skills edit {candidate}"))?;
+            skill_error_card(terminal, tr!("skills.exists", name = candidate))?;
         } else {
             return Ok(Some(candidate));
         }
@@ -2917,17 +2934,17 @@ async fn prompt_skill_text(
     let mut body = body.to_string();
     let mut agents = agents.join(", ");
     loop {
-        let Some(new_description) = prompt_field(terminal, " descrição (quando usar a skill — a IA lê isso a cada turno) ", &description).await? else {
+        let Some(new_description) = prompt_field(terminal, &tr!("skills.prompt_description"), &description).await? else {
             return Ok(None);
         };
         description = new_description.trim().to_string();
         if edit_body {
-            let Some(new_body) = prompt_field(terminal, " corpo (as instruções, numa linha — texto longo: /skills path) ", &body).await? else {
+            let Some(new_body) = prompt_field(terminal, &tr!("skills.prompt_body"), &body).await? else {
                 return Ok(None);
             };
             body = new_body.trim().to_string();
         }
-        let Some(new_agents) = prompt_field(terminal, " agentes (ids separados por vírgula — vazio: todos os agentes veem a skill) ", &agents).await? else {
+        let Some(new_agents) = prompt_field(terminal, &tr!("skills.prompt_agents"), &agents).await? else {
             return Ok(None);
         };
         agents = new_agents.trim().to_string();
@@ -2942,7 +2959,7 @@ async fn prompt_skill_text(
 
 async fn wizard_skills_create(terminal: &mut CliTerminal, session: &CliSession) -> anyhow::Result<()> {
     let store = make_skill_store(session)?;
-    let cancelled = |terminal: &mut CliTerminal| render_message_card(terminal, "skills", dim_style(), vec![("criação cancelada".to_string(), dim_style())]);
+    let cancelled = |terminal: &mut CliTerminal| render_message_card(terminal, "skills", dim_style(), vec![(tr!("cancelled.creation"), dim_style())]);
 
     let Some(name) = prompt_skill_name(terminal, &store).await? else {
         return cancelled(terminal);
@@ -2951,7 +2968,7 @@ async fn wizard_skills_create(terminal: &mut CliTerminal, session: &CliSession) 
         return cancelled(terminal);
     };
     match store.save(&skill) {
-        Ok(()) => render_message_card(terminal, "skills", accent_style(), vec![(format!("skill '{name}' criada"), Style::default())]),
+        Ok(()) => render_message_card(terminal, "skills", accent_style(), vec![(tr!("skills.created", name = name), Style::default())]),
         Err(e) => skill_error_card(terminal, e.to_string()),
     }
 }
@@ -2971,14 +2988,14 @@ async fn wizard_skills_edit(terminal: &mut CliTerminal, session: &CliSession, na
             terminal,
             "skills",
             dim_style(),
-            vec![(format!("o corpo tem várias linhas — só a descrição é editável aqui; pro corpo use /skills path {name}"), dim_style())],
+            vec![(tr!("skills.multiline_body", name = name), dim_style())],
         )?;
     }
     let Some(skill) = prompt_skill_text(terminal, &name, &current.description, &current.body, &current.agents, body_editable).await? else {
-        return render_message_card(terminal, "skills", dim_style(), vec![("edição cancelada".to_string(), dim_style())]);
+        return render_message_card(terminal, "skills", dim_style(), vec![(tr!("cancelled.edit"), dim_style())]);
     };
     match store.save(&skill) {
-        Ok(()) => render_message_card(terminal, "skills", accent_style(), vec![(format!("skill '{name}' atualizada"), Style::default())]),
+        Ok(()) => render_message_card(terminal, "skills", accent_style(), vec![(tr!("skills.updated", name = name), Style::default())]),
         Err(e) => skill_error_card(terminal, e.to_string()),
     }
 }
@@ -2991,14 +3008,14 @@ async fn cmd_skills_remove(terminal: &mut CliTerminal, session: &CliSession, nam
     if let Err(e) = skill::validate_name(&name).and_then(|()| store.get(&name).map(|_| ())) {
         return skill_error_card(terminal, e.to_string());
     }
-    let Some(answer) = prompt_field(terminal, &format!(" apagar a skill '{name}'? não dá pra desfazer (s/n) "), "").await? else {
-        return render_message_card(terminal, "skills", dim_style(), vec![("remoção cancelada".to_string(), dim_style())]);
+    let Some(answer) = prompt_field(terminal, &tr!("skills.confirm_delete", name = name), "").await? else {
+        return render_message_card(terminal, "skills", dim_style(), vec![(tr!("cancelled.removal"), dim_style())]);
     };
     if !matches!(answer.trim().to_lowercase().as_str(), "s" | "sim" | "y" | "yes") {
-        return render_message_card(terminal, "skills", dim_style(), vec![("remoção cancelada".to_string(), dim_style())]);
+        return render_message_card(terminal, "skills", dim_style(), vec![(tr!("cancelled.removal"), dim_style())]);
     }
     match store.delete(&name) {
-        Ok(()) => render_message_card(terminal, "skills", accent_style(), vec![(format!("skill '{name}' apagada"), Style::default())]),
+        Ok(()) => render_message_card(terminal, "skills", accent_style(), vec![(tr!("skills.deleted", name = name), Style::default())]),
         Err(e) => skill_error_card(terminal, e.to_string()),
     }
 }
@@ -3019,7 +3036,7 @@ async fn save_config_or_report(session: &CliSession, config: &FileConfig) -> any
     let path = session
         .config_path
         .as_deref()
-        .ok_or_else(|| anyhow::anyhow!("não foi possível localizar um arquivo de configuração pra salvar (sem diretório de config no sistema)"))?;
+        .ok_or_else(|| anyhow::anyhow!(tr!("config.no_path")))?;
     save_config(path, config)?;
     Ok(())
 }
@@ -3039,22 +3056,22 @@ async fn cmd_sync_status(terminal: &mut CliTerminal, session: &CliSession) -> an
     let engine = make_sync_engine(session)?;
     let status = engine.status()?;
     let lines = vec![
-        (format!("pareado: {}", if status.paired { "sim" } else { "não" }), Style::default()),
-        (format!("endereço do dono (Arweave): {}", status.owner_address.as_deref().unwrap_or("—")), Style::default()),
+        (tr!("sync.paired", answer = if status.paired { tr!("common.yes") } else { tr!("common.no") }), Style::default()),
+        (tr!("sync.owner_address", address = status.owner_address.as_deref().unwrap_or("—")), Style::default()),
         (
-            format!("última sincronização: {}", status.last_synced_at_ms.map(|ms| ms.to_string()).unwrap_or_else(|| "nunca".to_string())),
+            tr!("sync.last_synced", when = status.last_synced_at_ms.map(|ms| ms.to_string()).unwrap_or_else(|| tr!("sync.never"))),
             Style::default(),
         ),
         (
-            format!(
-                "pendências: {} arquivo(s){}{}",
-                status.pending_vault_changes,
-                if status.pending_config_changed { " + config.toml" } else { "" },
-                if status.pending_oauth_changes > 0 { format!(" + {} login(s) de MCP", status.pending_oauth_changes) } else { String::new() }
+            tr!(
+                "sync.pending",
+                files = status.pending_vault_changes,
+                config = if status.pending_config_changed { " + config.toml" } else { "" },
+                logins = if status.pending_oauth_changes > 0 { tr!("sync.pending_logins", count = status.pending_oauth_changes) } else { String::new() }
             ),
             Style::default(),
         ),
-        (format!("regras .syncignore: {}", status.syncignore_pattern_count), Style::default()),
+        (tr!("sync.syncignore_rules", count = status.syncignore_pattern_count), Style::default()),
     ];
     render_message_card(terminal, "sync", accent_style(), lines)
 }
@@ -3069,12 +3086,12 @@ async fn cmd_sync_push(terminal: &mut CliTerminal, session: &CliSession) -> anyh
             terminal,
             "sync",
             accent_style(),
-            vec![("nada para enviar — vault e config já batem com o último Enviar".to_string(), Style::default())],
+            vec![(tr!("sync.nothing_to_send"), Style::default())],
         );
     };
 
     let qr_json = begin.pending.qr_payload_json()?;
-    let qr_code = qrcode::QrCode::new(qr_json.as_bytes()).map_err(|e| anyhow::anyhow!("falha ao montar o QR code: {e}"))?;
+    let qr_code = qrcode::QrCode::new(qr_json.as_bytes()).map_err(|e| anyhow::anyhow!(tr!("sync.qr_failed", error = e)))?;
     let qr_ascii = qr_code.render::<qrcode::render::unicode::Dense1x2>().build();
     let qr_rows: Vec<Vec<(String, Style)>> = qr_ascii.split('\n').map(|line| vec![(line.to_string(), Style::default())]).collect();
     insert_card(terminal, vec![("sync".to_string(), accent_style())], accent_style(), qr_rows, None)?;
@@ -3085,7 +3102,7 @@ async fn cmd_sync_push(terminal: &mut CliTerminal, session: &CliSession) -> anyh
         terminal,
         "sync",
         accent_style(),
-        vec![(format!("enviado — tx {} ({} arquivo(s))", outcome.tx_id, outcome.files_changed), Style::default())],
+        vec![(tr!("sync.sent_tx", tx = outcome.tx_id, files = outcome.files_changed), Style::default())],
     )
 }
 
@@ -3094,12 +3111,12 @@ async fn cmd_sync_pull(terminal: &mut CliTerminal, session: &mut CliSession) -> 
     let outcome = engine.pull().await?;
     session.reload_requested |= outcome.needs_reload();
     let mut lines = vec![(
-        format!(
-            "pull concluído — {} escrito(s), {} removido(s){}{}",
-            outcome.files_written,
-            outcome.files_deleted,
-            if outcome.files_ignored > 0 { format!(", {} ignorado(s)", outcome.files_ignored) } else { String::new() },
-            if outcome.config_updated { ", config.toml atualizado" } else { "" }
+        tr!(
+            "sync.pull_done",
+            written = outcome.files_written,
+            deleted = outcome.files_deleted,
+            ignored = if outcome.files_ignored > 0 { tr!("sync.ignored", count = outcome.files_ignored) } else { String::new() },
+            config = if outcome.config_updated { tr!("sync.config_updated") } else { String::new() }
         ),
         Style::default(),
     )];
@@ -3113,7 +3130,7 @@ async fn cmd_sync_pull(terminal: &mut CliTerminal, session: &mut CliSession) -> 
 /// What a manual pull tells the person when it brought a new `config.toml` or an MCP login (P54): the loop rebuilds the
 /// orchestrator right after the command (`reload_if_requested`) and says how that went.
 fn pull_reload_note(needs_reload: bool) -> Option<String> {
-    needs_reload.then(|| "config ou logins de MCP novos — recarregando o Warden…".to_string())
+    needs_reload.then(|| tr!("sync.reloading"))
 }
 
 /// `/sync pair` (no args) — shows a code and blocks until another device joins with it, or the
@@ -3128,24 +3145,24 @@ async fn cmd_sync_pair_show(terminal: &mut CliTerminal, session: &CliSession) ->
         "sync",
         accent_style(),
         vec![
-            (format!("código de pareamento: {}", host.code()), Style::default()),
-            ("digite esse código em /sync pair <code> [ip] no outro dispositivo. aguardando…".to_string(), Style::default()),
+            (tr!("sync.pairing_code", code = host.code()), Style::default()),
+            (tr!("sync.pairing_instructions"), Style::default()),
         ],
     )?;
     host.wait_for_join().await?;
-    render_message_card(terminal, "sync", accent_style(), vec![("pareado com sucesso!".to_string(), Style::default())])
+    render_message_card(terminal, "sync", accent_style(), vec![(tr!("sync.paired_ok"), Style::default())])
 }
 
 async fn cmd_sync_pair_join(terminal: &mut CliTerminal, session: &CliSession, code: String, host: Option<String>) -> anyhow::Result<()> {
     let engine = make_sync_engine(session)?;
     match host {
         Some(host) => {
-            let ip = host.parse::<std::net::Ipv4Addr>().map_err(|_| anyhow::anyhow!("'{host}' não é um endereço IPv4"))?;
+            let ip = host.parse::<std::net::Ipv4Addr>().map_err(|_| anyhow::anyhow!(tr!("sync.not_ipv4", host = host)))?;
             engine.pairing_join_with_hosts(&code, vec![ip]).await?;
         }
         None => engine.pairing_join(&code).await?,
     }
-    render_message_card(terminal, "sync", accent_style(), vec![("pareado com sucesso!".to_string(), Style::default())])
+    render_message_card(terminal, "sync", accent_style(), vec![(tr!("sync.paired_ok"), Style::default())])
 }
 
 /// `/sync git push` (P63) — no QR/phone step like `/sync push` has: a git remote needs no
@@ -3157,14 +3174,14 @@ async fn cmd_sync_git_push(terminal: &mut CliTerminal, session: &CliSession) -> 
             terminal,
             "sync",
             accent_style(),
-            vec![("nada para enviar — vault e config já batem com o último Enviar".to_string(), Style::default())],
+            vec![(tr!("sync.nothing_to_send"), Style::default())],
         );
     };
     render_message_card(
         terminal,
         "sync",
         accent_style(),
-        vec![(format!("enviado — commit {} ({} arquivo(s))", &outcome.commit_sha[..12.min(outcome.commit_sha.len())], outcome.files_changed), Style::default())],
+        vec![(tr!("sync.sent_commit", commit = &outcome.commit_sha[..12.min(outcome.commit_sha.len())], files = outcome.files_changed), Style::default())],
     )
 }
 
@@ -3173,13 +3190,13 @@ async fn cmd_sync_git_pull(terminal: &mut CliTerminal, session: &mut CliSession)
     let outcome = engine.pull().await?;
     session.reload_requested |= outcome.needs_reload();
     let mut lines = vec![(
-        format!(
-            "pull concluído — {} commit(s), {} escrito(s), {} removido(s){}{}",
-            outcome.commits_applied,
-            outcome.files_written,
-            outcome.files_deleted,
-            if outcome.files_ignored > 0 { format!(", {} ignorado(s)", outcome.files_ignored) } else { String::new() },
-            if outcome.config_updated { ", config.toml atualizado" } else { "" }
+        tr!(
+            "sync.git_pull_done",
+            commits = outcome.commits_applied,
+            written = outcome.files_written,
+            deleted = outcome.files_deleted,
+            ignored = if outcome.files_ignored > 0 { tr!("sync.ignored", count = outcome.files_ignored) } else { String::new() },
+            config = if outcome.config_updated { tr!("sync.config_updated") } else { String::new() }
         ),
         Style::default(),
     )];
@@ -3195,38 +3212,61 @@ async fn cmd_sync_git_pull(terminal: &mut CliTerminal, session: &mut CliSession)
 /// chosen or changed before the first message — the same rule as the desktop and the web, so a conversation never moves
 /// to another folder halfway.
 async fn cmd_folder(terminal: &mut CliTerminal, session: &mut CliSession, change: Option<String>) -> anyhow::Result<()> {
-    let say = |terminal: &mut CliTerminal, style: Style, text: String| render_message_card(terminal, "pasta", style, vec![(text, Style::default())]);
+    let say = |terminal: &mut CliTerminal, style: Style, text: String| render_message_card(terminal, &tr!("folder.title"), style, vec![(text, Style::default())]);
     let Some(path) = change else {
         let text = match &session.workdir {
-            Some(folder) => format!("trabalhando em {folder} (o shell começa lá e pede o seu sim a cada comando)"),
-            None => "sem pasta de trabalho — /folder <caminho> escolhe uma, antes da primeira mensagem".to_string(),
+            Some(folder) => tr!("folder.working_in", folder = folder),
+            None => tr!("folder.none"),
         };
         return say(terminal, accent_style(), text);
     };
     if session.turn_count > 0 {
-        return say(terminal, error_style(), "a pasta é escolhida antes da primeira mensagem e não muda depois — abra outra sessão para trabalhar em outra".to_string());
+        return say(terminal, error_style(), tr!("folder.locked"));
     }
     if path.is_empty() {
         session.workdir = None;
-        return say(terminal, accent_style(), "sem pasta de trabalho".to_string());
+        return say(terminal, accent_style(), tr!("folder.cleared"));
     }
     let resolved = match std::fs::canonicalize(&path) {
         Ok(resolved) if resolved.is_dir() => resolved,
-        Ok(_) => return say(terminal, error_style(), format!("'{path}' não é uma pasta")),
-        Err(_) => return say(terminal, error_style(), format!("'{path}' não existe")),
+        Ok(_) => return say(terminal, error_style(), tr!("folder.not_a_folder", path = path)),
+        Err(_) => return say(terminal, error_style(), tr!("folder.missing", path = path)),
     };
     let folder = resolved.to_string_lossy().into_owned();
     if let Err(err) = warden_core::project::validate_workdir(&folder) {
         return say(terminal, error_style(), format!("{err:#}"));
     }
     session.workdir = Some(folder.clone());
-    say(terminal, accent_style(), format!("trabalhando em {folder}: as ferramentas de arquivo agem só ali e o shell começa lá, pedindo o seu sim a cada comando"))
+    say(terminal, accent_style(), tr!("folder.set", folder = folder))
+}
+
+/// `/lang` (P136): shows the language, or switches it for the whole session and keeps the choice for the next one.
+async fn cmd_lang(terminal: &mut CliTerminal, value: Option<String>) -> anyhow::Result<()> {
+    let name = |locale: i18n::Locale| match locale {
+        i18n::Locale::En => "English",
+        i18n::Locale::PtBr => "Português (Brasil)",
+    };
+    let Some(value) = value else {
+        return render_message_card(terminal, &tr!("lang.title"), accent_style(), vec![(tr!("lang.current", language = name(i18n::current())), Style::default())]);
+    };
+    let Some(locale) = i18n::Locale::parse(&value) else {
+        return render_message_card(terminal, &tr!("common.error"), error_style(), vec![(tr!("lang.unknown", value = value), Style::default())]);
+    };
+    i18n::init(locale);
+    let mut lines = vec![(tr!("lang.set", language = name(locale)), Style::default())];
+    if let Some(path) = i18n::saved_path() {
+        if let Err(err) = i18n::save(&path, locale) {
+            lines.push((tr!("lang.not_saved", error = err), dim_style()));
+        }
+    }
+    render_message_card(terminal, &tr!("lang.title"), accent_style(), lines)
 }
 
 async fn handle_command(command: Command, terminal: &mut CliTerminal, session: &mut CliSession) -> anyhow::Result<()> {
     match command {
         Command::Exit => unreachable!("Command::Exit is handled by the caller before dispatch"),
         Command::Help => cmd_help(terminal).await,
+        Command::Lang(value) => cmd_lang(terminal, value).await,
         Command::Usage => cmd_usage(terminal, session).await,
         Command::FolderShow => cmd_folder(terminal, session, None).await,
         Command::FolderSet(path) => cmd_folder(terminal, session, Some(path)).await,
@@ -3353,22 +3393,22 @@ where
                 // that bubbled up via `?`, rendering it the same way `run_turn`'s own `Err` arm
                 // does below, instead of ending the whole session over a recoverable mistake.
                 if let Err(err) = handle_command(command, &mut terminal, &mut session).await {
-                    render_message_card(&mut terminal, "erro", error_style(), vec![(format!("{err:#}"), Style::default())])?;
+                    render_message_card(&mut terminal, &tr!("common.error"), error_style(), vec![(format!("{err:#}"), Style::default())])?;
                 }
                 match reload_if_requested(&mut session, &mut orchestrator, &rebuild).await {
                     None => {}
-                    Some(Ok(())) => render_message_card(&mut terminal, "sync", accent_style(), vec![("Warden recarregado com a config e os logins novos".to_string(), Style::default())])?,
+                    Some(Ok(())) => render_message_card(&mut terminal, "sync", accent_style(), vec![(tr!("reload.done"), Style::default())])?,
                     Some(Err(err)) => render_message_card(
                         &mut terminal,
-                        "erro",
+                        &tr!("common.error"),
                         error_style(),
-                        vec![(format!("não consegui recarregar o Warden: {err:#} — ele segue com a config de antes"), Style::default())],
+                        vec![(tr!("reload.failed", error = format!("{err:#}")), Style::default())],
                     )?,
                 }
                 continue;
             }
             ParseOutcome::Unrecognized(raw) => {
-                render_message_card(&mut terminal, "erro", error_style(), vec![(format!("comando desconhecido: {raw} — digite /help pra ver os comandos disponíveis"), Style::default())])?;
+                render_message_card(&mut terminal, &tr!("common.error"), error_style(), vec![(tr!("command.unknown", command = raw), Style::default())])?;
                 continue;
             }
         }
@@ -3378,13 +3418,13 @@ where
         // chat UI (the color budget is reserved for the assistant's own markdown, not for
         // restating what the user just typed).
         let dim_style = Style::default().add_modifier(Modifier::DIM);
-        insert_card(&mut terminal, vec![("você".to_string(), dim_style)], dim_style, plain_body_rows(trimmed), None)?;
+        insert_card(&mut terminal, vec![(tr!("card.you"), dim_style)], dim_style, plain_body_rows(trimmed), None)?;
         terminal.insert_before(1, |_buf| {})?;
 
         let TurnContext { model_override, system_prompt, orchestrator: scoped } = match resolve_turn_context(&session, &orchestrator) {
             Ok(resolved) => resolved,
             Err(err) => {
-                render_message_card(&mut terminal, "erro", error_style(), vec![(format!("{err:#}"), Style::default())])?;
+                render_message_card(&mut terminal, &tr!("common.error"), error_style(), vec![(format!("{err:#}"), Style::default())])?;
                 continue;
             }
         };
@@ -3395,7 +3435,7 @@ where
             Some(folder) => match warden_bootstrap::scope_to_workdir(&scoped, folder) {
                 Ok(in_folder) => in_folder,
                 Err(err) => {
-                    render_message_card(&mut terminal, "erro", error_style(), vec![(format!("{err:#}"), Style::default())])?;
+                    render_message_card(&mut terminal, &tr!("common.error"), error_style(), vec![(format!("{err:#}"), Style::default())])?;
                     continue;
                 }
             },
@@ -3415,7 +3455,7 @@ where
             Ok(None) => {}
             Err(err) => {
                 let error_border = Style::default().fg(Color::Red);
-                insert_card(&mut terminal, vec![("erro".to_string(), error_border)], error_border, plain_body_rows(&format!("{err:#}")), None)?;
+                insert_card(&mut terminal, vec![(tr!("common.error"), error_border)], error_border, plain_body_rows(&format!("{err:#}")), None)?;
                 terminal.insert_before(1, |_buf| {})?;
             }
         }
@@ -3435,11 +3475,19 @@ where
 mod tests {
     use super::*;
 
+    /// What a test that asserts on the words pins first: the language is per thread here, never the process's.
+    fn speak(locale: i18n::Locale) {
+        i18n::set_locale(locale);
+    }
+
     #[test]
     fn a_pull_that_brought_a_config_or_a_login_says_the_warden_is_reloading() {
         assert_eq!(pull_reload_note(false), None);
+        speak(i18n::Locale::PtBr);
         let note = pull_reload_note(true).expect("a note when something arrived");
         assert!(note.contains("recarregando"), "{note}");
+        speak(i18n::Locale::En);
+        assert!(pull_reload_note(true).expect("a note when something arrived").contains("reloading"));
     }
 
     /// An orchestrator whose only tool is called `name`, so a test can tell which one the session holds.
@@ -3631,6 +3679,7 @@ mod tests {
 
     #[test]
     fn how_long_ago_is_told_in_minutes_hours_and_days() {
+        speak(i18n::Locale::PtBr);
         const MIN: u64 = 60_000;
         let now = 100 * 24 * 60 * MIN;
         assert_eq!(ago_label(now, now), "agora");
@@ -3642,6 +3691,9 @@ mod tests {
         assert_eq!(ago_label(now - 24 * 60 * MIN, now), "há 1 d");
         assert_eq!(ago_label(now - 3 * 24 * 60 * MIN, now), "há 3 d");
         assert_eq!(ago_label(now + MIN, now), "agora", "a clock that went back never gives a negative");
+        speak(i18n::Locale::En);
+        assert_eq!(ago_label(now, now), "now");
+        assert_eq!(ago_label(now - 3 * 24 * 60 * MIN, now), "3 d ago");
     }
 
     fn grant(agent: Option<&str>, covers: &str, last_used_ms: u64) -> Grant {
@@ -3650,6 +3702,7 @@ mod tests {
 
     #[test]
     fn the_grants_card_lists_each_always_and_says_how_long_it_lasts() {
+        speak(i18n::Locale::PtBr);
         let text = |lines: Vec<(String, Style)>| lines.into_iter().map(|(l, _)| l).collect::<Vec<_>>();
         assert!(grant_lines(&[], Some(30), 0).is_none(), "nothing given is an empty card");
         let elsewhere = Grant { conversation: "c1".to_string(), ..grant(None, "shell", 0) };
@@ -3739,6 +3792,10 @@ mod tests {
 
     #[test]
     fn the_cost_line_never_passes_an_unpriced_call_off_as_free() {
+        speak(i18n::Locale::En);
+        let in_english = cost_line(Some(&Spent { calls: 3, unpriced_calls: 3, cost_usd: 0.0 }));
+        assert!(in_english.contains("unavailable") && in_english.contains("3 model calls"), "{in_english}");
+        speak(i18n::Locale::PtBr);
         let spent = |calls, unpriced_calls, cost_usd| Spent { calls, unpriced_calls, cost_usd };
         assert!(cost_line(None).contains("indisponível") && cost_line(None).contains("limites"));
         assert_eq!(cost_line(Some(&spent(0, 0, 0.0))), "$ 0.0000");
@@ -3806,6 +3863,7 @@ mod tests {
 
     #[test]
     fn limit_target_validation_matches_each_scope_shape() {
+        speak(i18n::Locale::PtBr);
         let agents = vec!["pirata".to_string()];
         assert_eq!(validate_limit_target(LimitScope::Global, "anything", &agents), Ok(None));
         assert_eq!(validate_limit_target(LimitScope::Agent, "pirata", &agents), Ok(Some("pirata".to_string())));
@@ -3819,6 +3877,7 @@ mod tests {
 
     #[test]
     fn agent_tools_input_is_blank_for_all_or_a_checked_deduplicated_list() {
+        speak(i18n::Locale::PtBr);
         let known: Vec<String> = ["read_file", "shell"].iter().map(|s| s.to_string()).collect();
         assert_eq!(parse_agent_tools("   ", &known), Ok(None));
         assert_eq!(parse_agent_tools(" shell , read_file,shell,", &known), Ok(Some(vec!["shell".to_string(), "read_file".to_string()])));
@@ -3829,6 +3888,7 @@ mod tests {
 
     #[test]
     fn delegation_models_input_is_blank_for_open_or_a_checked_deduplicated_list() {
+        speak(i18n::Locale::PtBr);
         let known: Vec<String> = ["fast", "smart", "cheap"].iter().map(|s| s.to_string()).collect();
         assert_eq!(parse_delegation_models("  ", &known), Ok(Vec::new()));
         assert_eq!(parse_delegation_models(" smart , fast,smart,", &known), Ok(vec!["smart".to_string(), "fast".to_string()]));

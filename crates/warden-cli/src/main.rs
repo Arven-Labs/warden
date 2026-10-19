@@ -1,5 +1,6 @@
 mod bots;
 mod commands;
+mod i18n;
 mod interactive;
 
 use std::io::{self, IsTerminal, Write};
@@ -10,6 +11,8 @@ use warden_bootstrap::{bootstrap, Overrides};
 use warden_core::model::Message;
 use warden_core::orchestrator::Orchestrator;
 use warden_core::spend::SpendContext;
+
+use crate::tr;
 
 #[derive(ValueEnum, Clone, Copy, Debug)]
 enum Provider {
@@ -45,6 +48,10 @@ struct Cli {
     #[arg(long)]
     config: Option<String>,
 
+    /// Language of the terminal's own text: en or pt-BR. Overrides WARDEN_LANG, the choice saved by /lang and the system locale; defaults to en.
+    #[arg(long)]
+    lang: Option<String>,
+
     #[command(subcommand)]
     command: Option<Command>,
 }
@@ -69,6 +76,7 @@ fn history_path() -> Option<PathBuf> {
 async fn main() -> anyhow::Result<()> {
     warden_bootstrap::logging::init_compact();
     let cli = Cli::parse();
+    i18n::init(i18n::detect(&i18n::Sources::from_env(cli.lang.clone(), i18n::saved_path().and_then(|path| i18n::load_saved(&path)))));
 
     // Same path `bootstrap()`/`load_config` resolve internally — kept here too so the interactive
     // REPL's `/models`/`/agents` commands know where to read/write, without `bootstrap()` needing
@@ -105,7 +113,7 @@ async fn main() -> anyhow::Result<()> {
 }
 
 async fn run_plain(orchestrator: &Orchestrator) -> anyhow::Result<()> {
-    println!("Warden — talk to it below (Ctrl+D or 'exit' to quit).\n");
+    println!("{}\n", tr!("plain.greeting"));
 
     let stdin = io::stdin();
     let mut history: Vec<Message> = Vec::new();
@@ -129,15 +137,12 @@ async fn run_plain(orchestrator: &Orchestrator) -> anyhow::Result<()> {
             Ok(outcome) => {
                 println!("{}\n", outcome.content);
                 if let Some(usage) = outcome.usage {
-                    println!(
-                        "  ({} prompt + {} completion = {} tokens)\n",
-                        usage.prompt_tokens, usage.completion_tokens, usage.total_tokens
-                    );
+                    println!("  ({})\n", tr!("turn.usage", prompt = usage.prompt_tokens, completion = usage.completion_tokens, total = usage.total_tokens));
                 }
                 history.push(Message::user(input));
                 history.push(Message::assistant(outcome.content));
             }
-            Err(err) => eprintln!("error: {err:#}\n"),
+            Err(err) => eprintln!("{}\n", tr!("plain.error", error = format!("{err:#}"))),
         }
     }
 
