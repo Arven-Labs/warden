@@ -6,11 +6,15 @@
 
 ---
 
-### 2026-10-19 — Sessão 268 (o que sobrou do P167)
+### 2026-10-19 — Sessão 268 (o que sobrou do P167, e o i18n da web: P136)
 
-- **Pedido**: "vamos pro p167". Planejado em modo de plano e aprovado; o usuário decidiu (a) frases do hub **ficam em inglês** e (d) abas mistas **ficam para o P136**.
-- **Feito**: (e) `.settings-add` com `margin-left: -0.4rem` em `web/src/App.css`, para "+ Servidor MCP" e "+ Adicionar" alinharem com o texto acima.
-- **Não provado**: o alinhamento na foto do CI (`web-e2e.yml`), a conferir após o push.
+- **Pedido**: "vamos pro p167". Planejado em modo de plano e aprovado; o usuário decidiu (a) frases do hub **ficam em inglês** e (d) abas mistas **ficam para o P136**. Com o (e) feito, ele pediu **"para resolver tudo numa porrada só, vamos com o i18n"**: planejei de novo (plano aprovado): texto visível primeiro, módulo próprio pequeno, inglês padrão e pt-BR pelo navegador.
+- **P167 (e)**: `.settings-add` com `margin-left: -0.4rem`, conferido na foto do run 39324846044.
+- **P136, a web**: `web/src/i18n/` (módulo, catálogos `en/` e `pt-BR/`, `rich`, `format`), `LanguageSwitch`, e ~1500 textos passados por `t()` em `App.tsx`, 40 componentes e 16 helpers de `hub/`. Dois cuidados que valeram: os helpers de `hub/` importam `../i18n/index.ts` **com extensão**, porque o `node --test` os carrega direto; e as constantes de módulo com texto viraram função ou `get`, para acompanhar a troca de idioma.
+- **Testes**: 108 de 108 de unidade (`tests/i18n.test.mjs` confere chaves e `{nomes}` iguais nas duas línguas, plural, detecção); E2E novo `e2e/i18n.test.mjs`; o harness ganhou `pageOptions` (`locale: "pt-BR"`) para os 17 E2E antigos, e `screens.test.mjs` fotografa em inglês. CI: `ci.yml` verde; o `web-e2e.yml` falhou na 1ª rodada em 6 de 46 (o chip da pasta dizia "Nenhum" onde era "Nenhuma", e o meu teste novo não clicava a aba) e passou na 2ª.
+- **As fotos acharam** (conferidas nas fotos do run seguinte): "Sign out" quebrava em duas linhas ao lado do seletor; na tela Pessoas o rádio da política de recuperação ficava acima do texto, em negrito (`.checkbox-row` só tinha estilo em `.login-card`).
+- **Deslizes meus, ditos**: duas Edit em lote do `ProjectsView.tsx` foram rejeitadas pelo usuário e refiz em lotes menores; rodei por engano um `sed -i '' /dev/null` (não fez nada, falhou); e troquei a data do `INDEX.md` com `sed -i` pelo Bash, contra a regra de editar por Edit/Write (só a data, está no git). Tudo o mais foi por Edit/Write.
+- **Falta** (P136): a extensão, o CLI, o desktop; comentários, logs e testes em português (P136b).
 
 ---
 
