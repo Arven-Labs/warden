@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
 import { SyncError, type ServerConnection } from "../hub/connection";
 import type { SyncAction, SyncRound, SyncStatus } from "../hub/messages";
+import { intlTag, t } from "../i18n";
+import { rich } from "../i18n/rich";
 
 // The hub's vault sync (P61). The agent always works on the hub's own disk; this keeps that disk
 // in step with the other devices, every 5 minutes on its own. Here: how it's going, "sync now",
@@ -10,13 +12,9 @@ import type { SyncAction, SyncRound, SyncStatus } from "../hub/messages";
 // (P88); the code only comes back to the request that asked for it, so it lives in this screen's
 // state and nowhere else.
 
-const BACKEND_LABEL: Record<SyncStatus["backend"], string> = {
-  notSetUp: "Ainda não configurada",
-  git: "Git",
-  arweave: "Arweave (TruthID)",
-};
+const backendLabel = (backend: SyncStatus["backend"]) => (backend === "notSetUp" ? t("sync.notSetUp") : backend === "git" ? "Git" : t("sync.arweave"));
 
-const dateFormatter = new Intl.DateTimeFormat("pt-BR", { dateStyle: "short", timeStyle: "short" });
+const dateFormatter = { format: (date: Date) => new Intl.DateTimeFormat(intlTag(), { dateStyle: "short", timeStyle: "short" }).format(date) };
 
 function message(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
@@ -25,11 +23,11 @@ function message(err: unknown): string {
 function roundSummary(round: SyncRound): string {
   const parts: string[] = [];
   if (round.pulled) {
-    parts.push(`recebeu ${round.pulled.filesWritten} arquivo(s)${round.pulled.filesDeleted ? `, removeu ${round.pulled.filesDeleted}` : ""}`);
-    if (round.pulled.configUpdated) parts.push("configurações atualizadas");
+    parts.push(`${t("sync.received", { count: round.pulled.filesWritten })}${round.pulled.filesDeleted ? t("sync.removed", { count: round.pulled.filesDeleted }) : ""}`);
+    if (round.pulled.configUpdated) parts.push(t("sync.configUpdated"));
   }
-  if (round.pushed) parts.push(`enviou ${round.pushed.filesChanged} arquivo(s)`);
-  if (parts.length === 0 && !round.error) parts.push("nada mudou");
+  if (round.pushed) parts.push(t("sync.sent", { count: round.pushed.filesChanged }));
+  if (parts.length === 0 && !round.error) parts.push(t("sync.nothingChanged"));
   return parts.join(", ");
 }
 
@@ -104,7 +102,7 @@ export default function SyncView({ conn }: { conn: ServerConnection | null }) {
       cancel();
     } catch (err) {
       if (err instanceof SyncError && err.authRejected) {
-        setKeyError("Chave de pareamento errada.");
+        setKeyError(t("pairingKey.wrong"));
       } else {
         cancel();
         setError(message(err));
@@ -135,18 +133,18 @@ export default function SyncView({ conn }: { conn: ServerConnection | null }) {
       }}
     >
       <label className="settings-field">
-        Chave de pareamento do hub
+        {t("pairingKey.label")}
         <input type="password" autoComplete="current-password" autoFocus value={pairingKey} onChange={(e) => setPairingKey(e.target.value)} />
-        <span className="field-hint">A mesma do primeiro login. É pedida a cada ação.</span>
+        <span className="field-hint">{t("sync.pairKeyHint")}</span>
       </label>
       {keyError && <p className="error-banner">{keyError}</p>}
-      {busy && pending.action.kind === "pairJoin" && <p className="skills-hint">Procurando o aparelho que mostra o código…</p>}
+      {busy && pending.action.kind === "pairJoin" && <p className="skills-hint">{t("sync.looking")}</p>}
       <div className="skills-actions">
         <button type="submit" className="primary-button" disabled={busy || pairingKey.trim() === "" || !conn}>
-          {busy ? "Aguarde…" : pending.label}
+          {busy ? t("common.wait") : pending.label}
         </button>
         <button type="button" className="link-button" disabled={busy} onClick={cancel}>
-          Cancelar
+          {t("common.cancel")}
         </button>
       </div>
     </form>
@@ -155,48 +153,38 @@ export default function SyncView({ conn }: { conn: ServerConnection | null }) {
   return (
     <div className="usage-view sync-view">
       <div className="skills-toolbar">
-        <span className="skills-hint">
-          O agente trabalha no disco deste hub. A sincronização mantém esse disco igual ao dos seus outros aparelhos, sozinha, a
-          cada 5 minutos. Tudo sai cifrado.
-        </span>
+        <span className="skills-hint">{t("sync.intro")}</span>
         <button type="button" className="link-button" onClick={() => void load()} disabled={!conn || busy}>
-          Recarregar
+          {t("devices.reload")}
         </button>
       </div>
 
       {error && <p className="error-banner">{error}</p>}
-      {!status && !error && <p className="skills-hint">Carregando…</p>}
+      {!status && !error && <p className="skills-hint">{t("common.loading")}</p>}
 
       {status && (
         <section className="usage-section settings-card">
-          <h2 className="usage-heading">Destino: {BACKEND_LABEL[status.backend]}</h2>
-          {status.gitRemote && (
-            <p className="skills-item-description">
-              Repositório: <code>{status.gitRemote}</code>
-            </p>
-          )}
+          <h2 className="usage-heading">{t("sync.target", { backend: backendLabel(status.backend) })}</h2>
+          {status.gitRemote && <p className="skills-item-description">{rich("sync.repository", { remote: <code>{status.gitRemote}</code> })}</p>}
           {status.backend !== "notSetUp" && (
             <p className="skills-item-description">
               {status.pendingVaultChanges === 0 && !status.pendingConfigChanged && !status.pendingOauthChanges
-                ? "Nada esperando para sair."
-                : `Esperando para sair: ${status.pendingVaultChanges} arquivo(s)${status.pendingConfigChanged ? " e as configurações" : ""}${
-                    status.pendingOauthChanges ? ` e ${status.pendingOauthChanges} login(s) de MCP` : ""
-                  }.`}{" "}
-              {status.lastSyncedAtMs ? `Última sincronização: ${dateFormatter.format(new Date(status.lastSyncedAtMs))}.` : "Nunca sincronizou."}
+                ? t("sync.nothingWaiting")
+                : t("sync.waiting", {
+                    files: status.pendingVaultChanges,
+                    config: status.pendingConfigChanged ? t("sync.andSettings") : "",
+                    oauth: status.pendingOauthChanges ? t("sync.andLogins", { count: status.pendingOauthChanges }) : "",
+                  })}{" "}
+              {status.lastSyncedAtMs ? t("sync.lastSync", { when: dateFormatter.format(new Date(status.lastSyncedAtMs)) }) : t("sync.neverSynced")}
             </p>
           )}
           {status.lastRound && (
             <p className="skills-item-description">
-              Última rodada ({dateFormatter.format(new Date(status.lastRound.atMs))}): {roundSummary(status.lastRound)}
+              {t("sync.lastRound", { when: dateFormatter.format(new Date(status.lastRound.atMs)), summary: roundSummary(status.lastRound) })}
             </p>
           )}
           {status.lastRound?.error && <p className="error-banner">{status.lastRound.error}</p>}
-          {status.backend === "arweave" && (
-            <p className="skills-hint">
-              Com o Arweave o hub só recebe. Enviar pede a aprovação no celular com o TruthID, então é feito pelo desktop ou pelo
-              terminal. Para sincronizar nos dois sentidos, configure um repositório git nas Configurações.
-            </p>
-          )}
+          {status.backend === "arweave" && <p className="skills-hint">{t("sync.arweaveNote")}</p>}
           {status.backend !== "notSetUp" &&
             (pending?.action.kind === "syncNow" ? (
               keyPrompt
@@ -206,9 +194,9 @@ export default function SyncView({ conn }: { conn: ServerConnection | null }) {
                   type="button"
                   className="primary-button"
                   disabled={!conn || pending !== null}
-                  onClick={() => setPending({ action: { kind: "syncNow" }, label: "Sincronizar agora" })}
+                  onClick={() => setPending({ action: { kind: "syncNow" }, label: t("sync.syncNow") })}
                 >
-                  Sincronizar agora
+                  {t("sync.syncNow")}
                 </button>
               </div>
             ))}
@@ -217,19 +205,20 @@ export default function SyncView({ conn }: { conn: ServerConnection | null }) {
 
       {status && status.backend !== "notSetUp" && (
         <section className="usage-section settings-card">
-          <h2 className="usage-heading">Parear outro aparelho com este hub</h2>
+          <h2 className="usage-heading">{t("sync.pairTitle")}</h2>
           {hosting && status.hostingUntilMs ? (
             <>
-              <p className="skills-hint">No outro aparelho, abra a tela de Sync e digite este código (no terminal: <code>/sync pair &lt;código&gt; &lt;IP&gt;</code>):</p>
+              <p className="skills-hint">{rich("sync.pairOther", { cmd: <code>/sync pair &lt;code&gt; &lt;IP&gt;</code> })}</p>
               <p className="sync-pairing-code">{hosting.code}</p>
               <p className="skills-item-description">
-                Vale por mais {Math.max(1, Math.ceil((status.hostingUntilMs - Date.now()) / 60_000))} min. Fora da rede local do hub,
-                informe também o endereço dele: <code>{window.location.hostname}</code> (um IP do Tailscale serve), com as portas
-                48070 a 48074 liberadas.
+                {rich("sync.validFor", {
+                  minutes: Math.max(1, Math.ceil((status.hostingUntilMs - Date.now()) / 60_000)),
+                  host: <code>{window.location.hostname}</code>,
+                })}
               </p>
               <div className="skills-actions">
                 <button type="button" className="link-button" disabled={busy || !conn} onClick={() => void stopHosting()}>
-                  Parar de mostrar
+                  {t("sync.stopShowing")}
                 </button>
               </div>
             </>
@@ -238,13 +227,13 @@ export default function SyncView({ conn }: { conn: ServerConnection | null }) {
           ) : (
             <>
               <p className="skills-hint">
-                Um aparelho novo entra no grupo pelo hub: o hub mostra um código por 5 minutos e o outro aparelho o digita.
-                {status.hostingUntilMs && " Já há um código aberto, pedido em outro lugar; pedir de novo mostra o mesmo."}
+                {t("sync.pairIntro")}
+                {status.hostingUntilMs && t("sync.codeOpen")}
               </p>
               {status.lastPairing && (
                 <p className={status.lastPairing.error ? "error-banner" : "skills-item-description"}>
-                  Último pareamento ({dateFormatter.format(new Date(status.lastPairing.atMs))}):{" "}
-                  {status.lastPairing.error ? status.lastPairing.error : "o outro aparelho entrou no grupo."}
+                  {t("sync.lastPairing", { when: dateFormatter.format(new Date(status.lastPairing.atMs)) })}
+                  {status.lastPairing.error ? status.lastPairing.error : t("sync.pairedOk")}
                 </p>
               )}
               <div className="skills-actions">
@@ -252,9 +241,9 @@ export default function SyncView({ conn }: { conn: ServerConnection | null }) {
                   type="button"
                   className="primary-button"
                   disabled={!conn || pending !== null}
-                  onClick={() => setPending({ action: { kind: "pairHost" }, label: "Mostrar o código" })}
+                  onClick={() => setPending({ action: { kind: "pairHost" }, label: t("sync.showCode") })}
                 >
-                  Mostrar um código
+                  {t("sync.showACode")}
                 </button>
               </div>
             </>
@@ -265,11 +254,8 @@ export default function SyncView({ conn }: { conn: ServerConnection | null }) {
       {status?.backend === "notSetUp" && (
         <>
           <section className="usage-section settings-card">
-            <h2 className="usage-heading">Parear com outro aparelho</h2>
-            <p className="skills-hint">
-              Se outro aparelho seu já sincroniza, este hub recebe a chave dele. No outro aparelho, abra a tela de Sync e peça um
-              código de pareamento (no terminal: <code>/sync pair</code>).
-            </p>
+            <h2 className="usage-heading">{t("sync.joinTitle")}</h2>
+            <p className="skills-hint">{rich("sync.joinIntro", { cmd: <code>/sync pair</code> })}</p>
             {pending?.action.kind === "pairJoin" ? (
               keyPrompt
             ) : (
@@ -278,23 +264,21 @@ export default function SyncView({ conn }: { conn: ServerConnection | null }) {
                 onSubmit={(e) => {
                   e.preventDefault();
                   const trimmedHost = host.trim();
-                  setPending({ action: { kind: "pairJoin", code: code.trim(), ...(trimmedHost && { host: trimmedHost }) }, label: "Parear" });
+                  setPending({ action: { kind: "pairJoin", code: code.trim(), ...(trimmedHost && { host: trimmedHost }) }, label: t("sync.pair") });
                 }}
               >
                 <label className="settings-field">
-                  Código de pareamento
+                  {t("sync.pairingCode")}
                   <input value={code} onChange={(e) => setCode(e.target.value)} autoComplete="off" />
                 </label>
                 <label className="settings-field">
-                  Endereço do outro aparelho (opcional)
+                  {t("sync.otherAddress")}
                   <input value={host} onChange={(e) => setHost(e.target.value)} placeholder="100.64.0.2" autoComplete="off" />
-                  <span className="field-hint">
-                    O IP dele (um do Tailscale serve). Sem isso, o hub só procura na rede local dele — não acha um aparelho de fora.
-                  </span>
+                  <span className="field-hint">{t("sync.otherAddressHint")}</span>
                 </label>
                 <div className="skills-actions">
                   <button type="submit" className="primary-button" disabled={!conn || pending !== null || code.trim() === ""}>
-                    Continuar
+                    {t("sync.continue")}
                   </button>
                 </div>
               </form>
@@ -302,17 +286,14 @@ export default function SyncView({ conn }: { conn: ServerConnection | null }) {
           </section>
 
           <section className="usage-section settings-card">
-            <h2 className="usage-heading">Este é o primeiro aparelho</h2>
-            <p className="skills-hint">
-              Nenhum aparelho seu sincroniza ainda: o hub cria a chave, e os outros pareiam com ele depois. Não faça isso se outro
-              aparelho já sincroniza — as memórias ficariam em dois grupos separados.
-            </p>
+            <h2 className="usage-heading">{t("sync.firstTitle")}</h2>
+            <p className="skills-hint">{t("sync.firstIntro")}</p>
             {pending?.action.kind === "init" ? (
               keyPrompt
             ) : (
               <div className="skills-actions">
-                <button type="button" className="link-button" disabled={!conn || pending !== null} onClick={() => setPending({ action: { kind: "init" }, label: "Criar a chave" })}>
-                  Criar a chave neste hub
+                <button type="button" className="link-button" disabled={!conn || pending !== null} onClick={() => setPending({ action: { kind: "init" }, label: t("sync.createKey") })}>
+                  {t("sync.createKeyHere")}
                 </button>
               </div>
             )}

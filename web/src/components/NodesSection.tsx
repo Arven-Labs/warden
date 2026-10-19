@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
 import { NodeError, type ServerConnection } from "../hub/connection";
 import type { NodeInfo } from "../hub/messages";
+import { t } from "../i18n";
+import { rich } from "../i18n/rich";
 
 // Nodes (P93): machines running `warden-server node` that lend their shell and/or a folder to this
 // hub's agents. Two locks: the node's operator chose what it offers; here you decide whether agents
@@ -19,15 +21,15 @@ function message(err: unknown): string {
 }
 
 function offers(node: NodeInfo): string {
-  if (!node.offer) return "ainda não se conectou desde que o hub subiu";
+  if (!node.offer) return t("nodes.notConnected");
   const mcp = node.offer.mcpTools ?? [];
   const parts = [
-    node.offer.shell && "terminal",
-    node.offer.files && "arquivos de uma pasta",
-    mcp.length > 0 && `${mcp.length} tool(s) MCP (${mcp.map((t) => t.name).join(", ")})`,
-    (node.offer.models ?? []).length > 0 && `os modelos ${(node.offer.models ?? []).join(", ")}`,
+    node.offer.shell && t("nodes.shell"),
+    node.offer.files && t("nodes.files"),
+    mcp.length > 0 && t("nodes.mcp", { count: mcp.length, names: mcp.map((tool) => tool.name).join(", ") }),
+    (node.offer.models ?? []).length > 0 && t("nodes.models", { models: (node.offer.models ?? []).join(", ") }),
   ].filter(Boolean);
-  return parts.length ? `empresta ${parts.join(" e ")}` : "não empresta nada";
+  return parts.length ? t("nodes.lends", { parts: parts.join(t("nodes.and")) }) : t("nodes.lendsNothing");
 }
 
 export default function NodesSection({ conn, refreshKey }: { conn: ServerConnection | null; refreshKey: number }) {
@@ -73,7 +75,7 @@ export default function NodesSection({ conn, refreshKey }: { conn: ServerConnect
       cancel();
     } catch (err) {
       if (err instanceof NodeError && err.authRejected) {
-        setKeyError("Chave de pareamento errada.");
+        setKeyError(t("pairingKey.wrong"));
       } else {
         setError(message(err));
         cancel();
@@ -89,16 +91,13 @@ export default function NodesSection({ conn, refreshKey }: { conn: ServerConnect
 
   return (
     <div className="nodes-section">
-      <h3 className="settings-section-title">Nós</h3>
-      <p className="skills-hint">
-        Máquinas que emprestam o terminal ou uma pasta para os seus agentes (<code>warden-server node --hub … --shell --files &lt;pasta&gt;</code>).
-        Um agente só usa um nó aprovado acima e liberado aqui.
-      </p>
+      <h3 className="settings-section-title">{t("nodes.title")}</h3>
+      <p className="skills-hint">{rich("nodes.intro", { cmd: <code>warden-server node --hub … --shell --files &lt;folder&gt;</code> })}</p>
       {error && <p className="error-banner">{error}</p>}
       {nodes === null ? (
-        <p className="skills-hint">Carregando…</p>
+        <p className="skills-hint">{t("common.loading")}</p>
       ) : nodes.length === 0 ? (
-        <p className="skills-hint">Nenhum nó ainda.</p>
+        <p className="skills-hint">{t("nodes.none")}</p>
       ) : (
         <ul className="skills-list">
           {nodes.map((node) => {
@@ -107,10 +106,10 @@ export default function NodesSection({ conn, refreshKey }: { conn: ServerConnect
               <li key={node.deviceId} className="skills-item">
                 <div className="skills-item-header">
                   <span className="skills-item-name">
-                    {node.name} {node.online ? "· online" : "· offline"}
+                    {node.name} {node.online ? t("nodes.online") : t("nodes.offline")}
                   </span>
                   <span className={`devices-status devices-status--${node.enabled && node.approved ? "approved" : "pending"}`}>
-                    {!node.approved ? "Falta aprovar" : node.enabled ? "Liberado" : "Bloqueado"}
+                    {!node.approved ? t("nodes.needsApproval") : node.enabled ? t("nodes.released") : t("nodes.blocked")}
                   </span>
                 </div>
                 <p className="skills-item-description">
@@ -119,8 +118,8 @@ export default function NodesSection({ conn, refreshKey }: { conn: ServerConnect
                   {node.offer && node.offer.tags.length > 0 && ` · ${node.offer.tags.join(", ")}`}
                 </p>
                 <p className="skills-hint">
-                  {node.agents.length === 0 ? "Todos os agentes" : `Só: ${node.agents.join(", ")}`}
-                  {node.requireApproval && " · pede aprovação a cada chamada"}
+                  {node.agents.length === 0 ? t("nodes.allAgents") : t("nodes.onlyAgents", { agents: node.agents.join(", ") })}
+                  {node.requireApproval && t("nodes.asksEachCall")}
                 </p>
 
                 {isEditing ? (
@@ -133,9 +132,9 @@ export default function NodesSection({ conn, refreshKey }: { conn: ServerConnect
                   >
                     <label className="settings-check">
                       <input type="checkbox" checked={editing.draft.enabled} onChange={(e) => patch({ enabled: e.target.checked })} />
-                      Liberar para os agentes
+                      {t("nodes.release")}
                     </label>
-                    <span className="field-hint">Agentes que podem usar (nenhum marcado = todos):</span>
+                    <span className="field-hint">{t("nodes.whichAgents")}</span>
                     {agentIds.map((id) => (
                       <label key={id} className="settings-check">
                         <input
@@ -150,19 +149,19 @@ export default function NodesSection({ conn, refreshKey }: { conn: ServerConnect
                     ))}
                     <label className="settings-check">
                       <input type="checkbox" checked={editing.draft.requireApproval} onChange={(e) => patch({ requireApproval: e.target.checked })} />
-                      Pedir minha aprovação a cada comando ou arquivo (tarefas agendadas não conseguem usar)
+                      {t("nodes.requireApproval")}
                     </label>
                     <label className="settings-field">
-                      Chave de pareamento do hub
+                      {t("pairingKey.label")}
                       <input type="password" autoComplete="current-password" value={pairingKey} onChange={(e) => setPairingKey(e.target.value)} />
                     </label>
                     {keyError && <p className="error-banner">{keyError}</p>}
                     <div className="skills-actions">
                       <button type="submit" className="primary-button" disabled={busy || pairingKey.trim() === "" || !conn}>
-                        {busy ? "Aguarde…" : "Salvar"}
+                        {busy ? t("common.wait") : t("common.save")}
                       </button>
                       <button type="button" className="link-button" disabled={busy} onClick={cancel}>
-                        Cancelar
+                        {t("common.cancel")}
                       </button>
                     </div>
                   </form>
@@ -176,7 +175,7 @@ export default function NodesSection({ conn, refreshKey }: { conn: ServerConnect
                         setEditing({ deviceId: node.deviceId, draft: { enabled: node.enabled, agents: node.agents, requireApproval: node.requireApproval } })
                       }
                     >
-                      Configurar acesso
+                      {t("nodes.configure")}
                     </button>
                   </div>
                 )}

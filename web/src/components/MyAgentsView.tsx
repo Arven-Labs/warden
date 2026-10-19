@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import type { ServerConnection } from "../hub/connection";
 import type { AgentSettings } from "../hub/messages";
+import { t } from "../i18n";
 
 // A member's agents (P84 fatia 2): their own — which only they see, with the tools they have — and
 // the ones the owner shared with them, which they can use but not change. The owner edits theirs in
@@ -100,15 +101,12 @@ export default function MyAgentsView({ conn, onChanged }: { conn: ServerConnecti
   return (
     <div className="skills-view">
       <div className="skills-header">
-        <h2>Agentes</h2>
+        <h2>{t("myAgents.title")}</h2>
         <button type="button" className="primary-button" disabled={!conn || draft !== null} onClick={() => setDraft({ id: "", persona: "", allowedTools: null, providerId: "" })}>
-          Criar agente
+          {t("myAgents.create")}
         </button>
       </div>
-      <p className="skills-hint">
-        Os seus agentes só você vê. Eles usam a sua memória e, no máximo, as ferramentas que você tem. Os compartilhados com você aparecem no chat
-        também, mas só quem os criou muda.
-      </p>
+      <p className="skills-hint">{t("myAgents.intro")}</p>
       {error && <p className="error-banner">{error}</p>}
 
       {draft && (
@@ -120,20 +118,20 @@ export default function MyAgentsView({ conn, onChanged }: { conn: ServerConnecti
           }}
         >
           <label>
-            Nome
-            <input value={draft.id} onChange={(e) => setDraft({ ...draft, id: e.target.value })} placeholder="cozinheiro" autoFocus />
+            {t("common.name")}
+            <input value={draft.id} onChange={(e) => setDraft({ ...draft, id: e.target.value })} placeholder={t("myAgents.namePlaceholder")} autoFocus />
           </label>
           <label>
-            Persona
-            <textarea rows={6} value={draft.persona} onChange={(e) => setDraft({ ...draft, persona: e.target.value })} placeholder="Quem ele é, no que é bom e como deve se comportar." />
+            {t("myAgents.persona")}
+            <textarea rows={6} value={draft.persona} onChange={(e) => setDraft({ ...draft, persona: e.target.value })} placeholder={t("myAgents.personaPlaceholder")} />
           </label>
           {/* Only when the owner released models to them (P100); one the owner took back stays listed so saving doesn't swap it silently. */}
           {(models.length > 0 || draft.providerId !== "") && (
             <label>
-              Modelo
+              {t("myAgents.model")}
               <select value={draft.providerId} onChange={(e) => setDraft({ ...draft, providerId: e.target.value })}>
-                <option value="">Padrão do hub</option>
-                {draft.providerId !== "" && !models.includes(draft.providerId) && <option value={draft.providerId}>{draft.providerId} (não está mais liberado)</option>}
+                <option value="">{t("myAgents.hubDefault")}</option>
+                {draft.providerId !== "" && !models.includes(draft.providerId) && <option value={draft.providerId}>{t("myAgents.notReleased", { id: draft.providerId })}</option>}
                 {models.map((id) => (
                   <option key={id} value={id}>
                     {id}
@@ -144,7 +142,7 @@ export default function MyAgentsView({ conn, onChanged }: { conn: ServerConnecti
           )}
           <label className="settings-check">
             <input type="checkbox" checked={draft.allowedTools !== null} onChange={(e) => setDraft({ ...draft, allowedTools: e.target.checked ? [] : null })} />
-            Limitar as ferramentas
+            {t("myAgents.limitTools")}
           </label>
           {draft.allowedTools !== null && (
             <fieldset className="settings-tools">
@@ -153,7 +151,7 @@ export default function MyAgentsView({ conn, onChanged }: { conn: ServerConnecti
                   <input
                     type="checkbox"
                     checked={draft.allowedTools!.includes(tool)}
-                    onChange={(e) => setDraft({ ...draft, allowedTools: e.target.checked ? [...draft.allowedTools!, tool] : draft.allowedTools!.filter((t) => t !== tool) })}
+                    onChange={(e) => setDraft({ ...draft, allowedTools: e.target.checked ? [...draft.allowedTools!, tool] : draft.allowedTools!.filter((x) => x !== tool) })}
                   />
                   <code>{tool}</code>
                 </label>
@@ -162,22 +160,22 @@ export default function MyAgentsView({ conn, onChanged }: { conn: ServerConnecti
           )}
           <div className="skills-actions">
             <button type="submit" className="primary-button" disabled={busy || !conn || draft.id.trim() === "" || draft.persona.trim() === ""}>
-              {busy ? "Aguarde…" : "Salvar"}
+              {busy ? t("common.wait") : t("common.save")}
             </button>
             <button type="button" className="link-button" disabled={busy} onClick={() => setDraft(null)}>
-              Cancelar
+              {t("common.cancel")}
             </button>
           </div>
         </form>
       )}
 
       {agents === null ? (
-        <p className="skills-hint">Carregando…</p>
+        <p className="skills-hint">{t("common.loading")}</p>
       ) : (
         <>
-          <h3 className="settings-section-title">Seus</h3>
+          <h3 className="settings-section-title">{t("myAgents.yours")}</h3>
           {mine.length === 0 ? (
-            <p className="skills-hint">Nenhum ainda.</p>
+            <p className="skills-hint">{t("myAgents.noneYet")}</p>
           ) : (
             <ul className="skills-list">
               {mine.map((agent) => (
@@ -187,16 +185,16 @@ export default function MyAgentsView({ conn, onChanged }: { conn: ServerConnecti
                   </div>
                   <p className="skills-item-description">{agent.persona}</p>
                   <p className="skills-hint">
-                    {agent.allowedTools === null ? "Todas as suas ferramentas" : `Só: ${agent.allowedTools.join(", ") || "nenhuma"}`}
-                    {agent.providerId !== "" && ` · modelo ${agent.providerId}`}
+                    {agent.allowedTools === null ? t("myAgents.allTools") : t("myAgents.onlyTools", { tools: agent.allowedTools.join(", ") || t("myAgents.noTools") })}
+                    {agent.providerId !== "" && t("myAgents.model.inline", { id: agent.providerId })}
                   </p>
                   {confirmDelete === agent.id ? (
                     <div className="skills-actions">
                       <button type="button" className="primary-button skills-danger" disabled={busy} onClick={() => void remove(agent.id)}>
-                        Apagar de vez
+                        {t("myAgents.deleteForGood")}
                       </button>
                       <button type="button" className="link-button" onClick={() => setConfirmDelete(null)}>
-                        Cancelar
+                        {t("common.cancel")}
                       </button>
                     </div>
                   ) : (
@@ -207,10 +205,10 @@ export default function MyAgentsView({ conn, onChanged }: { conn: ServerConnecti
                         disabled={draft !== null}
                         onClick={() => setDraft({ originalId: agent.id, id: agent.id, persona: agent.persona, allowedTools: agent.allowedTools, providerId: agent.providerId })}
                       >
-                        Editar
+                        {t("common.edit")}
                       </button>
                       <button type="button" className="link-button skills-danger" onClick={() => setConfirmDelete(agent.id)}>
-                        Apagar
+                        {t("common.delete")}
                       </button>
                     </div>
                   )}
@@ -218,9 +216,9 @@ export default function MyAgentsView({ conn, onChanged }: { conn: ServerConnecti
               ))}
             </ul>
           )}
-          <h3 className="settings-section-title">Compartilhados com você</h3>
+          <h3 className="settings-section-title">{t("myAgents.shared")}</h3>
           {shared.length === 0 ? (
-            <p className="skills-hint">Nenhum.</p>
+            <p className="skills-hint">{t("myAgents.sharedNone")}</p>
           ) : (
             <ul className="skills-list">
               {shared.map((agent) => (

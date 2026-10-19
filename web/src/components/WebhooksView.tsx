@@ -1,12 +1,14 @@
 import { useCallback, useEffect, useState } from "react";
 import { WebhookError, type ServerConnection } from "../hub/connection";
 import type { Webhook, WebhookAuth, WebhookInfo } from "../hub/messages";
+import { intlTag, t } from "../i18n";
+import { rich } from "../i18n/rich";
 
 // Incoming webhooks (P105): a prompt an agent runs when something calls `POST /hooks/<id>` on this hub with the
 // webhook's credential. The same list, create, edit, pause, remove, credential and revoke as `warden-server webhooks`.
 // Every change asks for the pairing key, like the tasks and the API keys: a webhook lets a stranger's call run an agent,
 // with its tools and spend. A new credential is shown once, here, and never again. Each call lands in the webhook's
-// conversation (`task-hook-<id>`), which "Abrir conversa" opens in the chat.
+// conversation (`task-hook-<id>`), which "Open conversation" opens in the chat.
 
 interface EditorState {
   /** The id being edited; absent for a new webhook. */
@@ -30,10 +32,10 @@ interface Created {
   kind: WebhookAuth;
 }
 
-const dateFormatter = new Intl.DateTimeFormat("pt-BR", { dateStyle: "short", timeStyle: "short" });
+const dateFormatter = { format: (ms: number) => new Intl.DateTimeFormat(intlTag(), { dateStyle: "short", timeStyle: "short" }).format(ms) };
 
-const authNames: Record<WebhookAuth, string> = { token: "token", hmac: "assinatura HMAC" };
-const credentialNames: Record<WebhookAuth, string> = { token: "token", hmac: "segredo de assinatura" };
+const authName = (auth: WebhookAuth) => t(auth === "token" ? "hooks.authToken" : "hooks.authHmac");
+const credentialName = (auth: WebhookAuth) => t(auth === "token" ? "hooks.credToken" : "hooks.credHmac");
 
 function message(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
@@ -54,14 +56,14 @@ function hookUrl(id: string): string {
 
 function status(hook: WebhookInfo): string {
   const parts: string[] = [];
-  if (!hook.credential) parts.push("sem credencial: não recebe chamadas");
-  else if (hook.credential !== hook.auth) parts.push(`a credencial é um ${credentialNames[hook.credential]}, mas o webhook quer ${authNames[hook.auth]}: gere uma nova`);
+  if (!hook.credential) parts.push(t("hooks.noCredential"));
+  else if (hook.credential !== hook.auth) parts.push(t("hooks.credentialMismatch", { have: credentialName(hook.credential), want: authName(hook.auth) }));
   else {
-    parts.push(`${credentialNames[hook.credential]} ${hook.shown ?? ""}…`);
-    if (hook.createdAtMs) parts.push(`criado em ${dateFormatter.format(hook.createdAtMs)}`);
-    parts.push(hook.lastUsedAtMs ? `último uso: ${dateFormatter.format(hook.lastUsedAtMs)}` : "nunca usado");
+    parts.push(`${credentialName(hook.credential)} ${hook.shown ?? ""}…`);
+    if (hook.createdAtMs) parts.push(t("hooks.createdAt", { when: dateFormatter.format(hook.createdAtMs) }));
+    parts.push(hook.lastUsedAtMs ? t("hooks.lastUse", { when: dateFormatter.format(hook.lastUsedAtMs) }) : t("hooks.neverUsed"));
   }
-  if (!hook.enabled) parts.push("pausado");
+  if (!hook.enabled) parts.push(t("hooks.paused"));
   return parts.join(" · ");
 }
 
@@ -88,7 +90,7 @@ export default function WebhooksView({ conn, onOpenConversation }: { conn: Serve
       setError(null);
     } catch (err) {
       setHooks((current) => current ?? []);
-      setError(`falha ao listar os webhooks: ${message(err)}`);
+      setError(t("hooks.listFailed", { error: message(err) }));
     }
   }, [conn]);
 
@@ -142,7 +144,7 @@ export default function WebhooksView({ conn, onOpenConversation }: { conn: Serve
       cancelKey();
     } catch (err) {
       if (err instanceof WebhookError && err.authRejected) {
-        setKeyError("Chave de pareamento errada.");
+        setKeyError(t("pairingKey.wrong"));
       } else {
         cancelKey();
         setError(message(err));
@@ -167,7 +169,13 @@ export default function WebhooksView({ conn, onOpenConversation }: { conn: Serve
     }
   }
 
-  const labels: Record<Change["kind"], string> = { save: "Salvar o webhook", toggle: "Confirmar", delete: "Apagar", credential: "Gerar", revoke: "Revogar" };
+  const labels: Record<Change["kind"], string> = {
+    save: t("hooks.saveWebhook"),
+    toggle: t("common.confirm"),
+    delete: t("common.delete"),
+    credential: t("hooks.generate"),
+    revoke: t("hooks.revoke"),
+  };
   const keyPrompt = asking && (
     <form
       className="settings-confirm devices-confirm"
@@ -176,21 +184,19 @@ export default function WebhooksView({ conn, onOpenConversation }: { conn: Serve
         void confirm();
       }}
     >
-      {asking.kind === "credential" && asking.hook.credential && (
-        <p className="skills-hint">Já existe uma credencial: a nova a substitui, e a antiga para de funcionar na hora.</p>
-      )}
+      {asking.kind === "credential" && asking.hook.credential && <p className="skills-hint">{t("hooks.credentialExists")}</p>}
       <label className="settings-field">
-        Chave de pareamento do hub
+        {t("pairingKey.label")}
         <input type="password" autoComplete="current-password" autoFocus value={pairingKey} onChange={(e) => setPairingKey(e.target.value)} />
-        <span className="field-hint">A mesma do primeiro login. É pedida a cada mudança.</span>
+        <span className="field-hint">{t("pairingKey.hint")}</span>
       </label>
       {keyError && <p className="error-banner">{keyError}</p>}
       <div className="skills-actions">
         <button type="submit" className="primary-button" disabled={busy || pairingKey.trim() === "" || !conn}>
-          {busy ? "Aguarde…" : labels[asking.kind]}
+          {busy ? t("common.wait") : labels[asking.kind]}
         </button>
         <button type="button" className="link-button" disabled={busy} onClick={cancelKey}>
-          Cancelar
+          {t("common.cancel")}
         </button>
       </div>
     </form>
@@ -210,55 +216,51 @@ export default function WebhooksView({ conn, onOpenConversation }: { conn: Serve
           ask({ kind: "save", editor });
         }}
       >
-        <strong>{editor.originalId ? `Editar ${editor.originalId}` : "Novo webhook"}</strong>
+        <strong>{editor.originalId ? t("hooks.editing", { id: editor.originalId }) : t("hooks.new")}</strong>
         <label>
-          Nome
-          <input value={editor.webhook.id} onChange={(e) => updateHook({ id: e.target.value })} placeholder="build-falhou" required />
-          <span className="skills-hint">Letras, números, - e _ (até 54). Vira o fim do endereço, /hooks/&lt;nome&gt;, e a conversa se chama task-hook-&lt;nome&gt;.</span>
+          {t("common.name")}
+          <input value={editor.webhook.id} onChange={(e) => updateHook({ id: e.target.value })} placeholder={t("hooks.namePlaceholder")} required />
+          <span className="skills-hint">{t("hooks.nameHint")}</span>
         </label>
         <label>
-          Agente
+          {t("hooks.agent")}
           <select value={editor.webhook.agentId ?? ""} onChange={(e) => updateHook({ agentId: e.target.value || undefined })}>
-            <option value="">(nenhum)</option>
+            <option value="">{t("hooks.noAgent")}</option>
             {agentIds.map((id) => (
               <option key={id} value={id}>
                 {id}
               </option>
             ))}
           </select>
-          <span className="skills-hint">O corpo da chamada vem de fora: dê a este webhook um agente com poucas tools.</span>
+          <span className="skills-hint">{t("hooks.agentHint")}</span>
         </label>
         <label>
-          O que pedir
+          {t("hooks.prompt")}
           <textarea
             value={editor.webhook.prompt}
             onChange={(e) => updateHook({ prompt: e.target.value })}
             rows={6}
-            placeholder="Diga por que o build falhou e o que fazer."
+            placeholder={t("hooks.promptPlaceholder")}
             required
           />
-          <span className="skills-hint">O corpo da chamada é entregue ao agente depois disso, como dado (nunca como instrução).</span>
+          <span className="skills-hint">{t("hooks.promptHint")}</span>
         </label>
         <label>
-          Como o serviço se identifica
+          {t("hooks.identity")}
           <select value={editor.webhook.auth} onChange={(e) => updateHook({ auth: e.target.value as WebhookAuth })}>
-            <option value="token">Token (Authorization: Bearer)</option>
-            <option value="hmac">Assinatura HMAC (GitHub, Gitea, Stripe, Slack)</option>
+            <option value="token">{t("hooks.optToken")}</option>
+            <option value="hmac">{t("hooks.optHmac")}</option>
           </select>
-          <span className="skills-hint">
-            {editor.webhook.auth === "token"
-              ? "O serviço manda o token em Authorization: Bearer (ou X-Warden-Token). O hub guarda só um hash dele."
-              : "Para serviços que assinam o que enviam: X-Hub-Signature-256 (GitHub, Gitea, Forgejo) , Stripe-Signature ou X-Slack-Signature. O hub guarda o segredo em texto puro (arquivo 0600): conferir uma assinatura exige refazê-la."}
-          </span>
+          <span className="skills-hint">{editor.webhook.auth === "token" ? t("hooks.hintToken") : t("hooks.hintHmac")}</span>
         </label>
-        {dropsCredential && <p className="skills-hint">Mudar o tipo apaga a credencial atual: o webhook para de receber chamadas até você gerar uma nova.</p>}
+        {dropsCredential && <p className="skills-hint">{t("hooks.dropsCredential")}</p>}
         {error && <p className="error-banner">{error}</p>}
         {asking ? (
           keyPrompt
         ) : (
           <div className="skills-actions">
             <button type="submit" className="primary-button" disabled={!conn}>
-              Salvar
+              {t("common.save")}
             </button>
             <button
               type="button"
@@ -268,7 +270,7 @@ export default function WebhooksView({ conn, onOpenConversation }: { conn: Serve
                 setError(null);
               }}
             >
-              Cancelar
+              {t("common.cancel")}
             </button>
           </div>
         )}
@@ -281,7 +283,7 @@ export default function WebhooksView({ conn, onOpenConversation }: { conn: Serve
   return (
     <div className="skills-view">
       <div className="skills-toolbar">
-        <span className="skills-hint">Pedidos que um agente faz quando um serviço chama o endereço do webhook. Cada chamada cai na conversa dele.</span>
+        <span className="skills-hint">{t("hooks.intro")}</span>
         <button
           type="button"
           className="primary-button"
@@ -290,49 +292,55 @@ export default function WebhooksView({ conn, onOpenConversation }: { conn: Serve
             setEditor(newEditor());
           }}
         >
-          + Novo
+          {t("hooks.newButton")}
         </button>
       </div>
-      {!servesHere && <p className="skills-hint">Este hub não está recebendo chamadas de webhook, então estes são só os pedidos guardados na configuração.</p>}
+      {!servesHere && <p className="skills-hint">{t("hooks.notServing")}</p>}
       {error && <p className="error-banner">{error}</p>}
       {asking && keyPrompt}
 
       {created && (
         <div className="settings-card api-key-created">
           <p className="skills-item-description">
-            {created.kind === "token" ? "Token" : "Segredo de assinatura"} de <strong>{created.id}</strong> criado. Copie agora: ele não aparece de novo.
+            {rich(created.kind === "token" ? "hooks.createdToken" : "hooks.createdSecret", { id: <strong>{created.id}</strong> })}
           </p>
           <p>
             <code className="api-key-value">{created.credential}</code>
           </p>
           {created.kind === "token" ? (
             <p className="skills-hint">
-              O serviço chama <code>{hookUrl(created.id)}</code> com <code>Authorization: Bearer {"<token>"}</code> (ou <code>X-Warden-Token</code>), por exemplo:{" "}
-              <code className="api-key-value">{`curl -X POST -H "Authorization: Bearer ${created.credential}" --data-binary @corpo.json ${hookUrl(created.id)}`}</code>
+              {rich("hooks.tokenUsage", {
+                url: <code>{hookUrl(created.id)}</code>,
+                auth: <code>Authorization: Bearer {"<token>"}</code>,
+                alt: <code>X-Warden-Token</code>,
+                example: <code className="api-key-value">{`curl -X POST -H "Authorization: Bearer ${created.credential}" --data-binary @body.json ${hookUrl(created.id)}`}</code>,
+              })}
             </p>
           ) : (
             <p className="skills-hint">
-              Cole como o <em>Secret</em> do webhook no GitHub (Content type: application/json), com o endereço <code>{hookUrl(created.id)}</code>, como o segredo
-              de assinatura do endpoint no Stripe, ou como o Signing Secret do app no Slack. Um token comum não abre este webhook. O hub guarda o segredo em texto puro, no arquivo <code>webhook_tokens.json</code>{" "}
-              (modo 0600).
+              {rich("hooks.hmacUsage", {
+                secret: <em>Secret</em>,
+                url: <code>{hookUrl(created.id)}</code>,
+                file: <code>webhook_tokens.json</code>,
+              })}
             </p>
           )}
-          {createdHook && !createdHook.enabled && <p className="skills-hint">O webhook está pausado: retome para ele receber chamadas.</p>}
+          {createdHook && !createdHook.enabled && <p className="skills-hint">{t("hooks.pausedNote")}</p>}
           <div className="skills-actions">
             <button type="button" className="primary-button" onClick={() => void copy(created.credential)}>
-              {copied ? "Copiado" : "Copiar"}
+              {copied ? t("copy.copied") : t("copy.copy")}
             </button>
             <button type="button" className="link-button" onClick={() => setCreated(null)}>
-              Pronto
+              {t("apiKeys.done")}
             </button>
           </div>
         </div>
       )}
 
       {hooks === null ? (
-        <p className="skills-hint">Carregando…</p>
+        <p className="skills-hint">{t("common.loading")}</p>
       ) : hooks.length === 0 ? (
-        <p className="skills-hint">Nenhum webhook ainda.</p>
+        <p className="skills-hint">{t("hooks.none")}</p>
       ) : (
         <ul className="skills-list">
           {hooks.map((hook) => (
@@ -342,27 +350,35 @@ export default function WebhooksView({ conn, onOpenConversation }: { conn: Serve
                 {confirmDelete === hook.id ? (
                   <span className="skills-actions">
                     <button type="button" className="link-button skills-danger" onClick={() => ask({ kind: "delete", hook })}>
-                      Apagar
+                      {t("common.delete")}
                     </button>
                     <button type="button" className="link-button" onClick={() => setConfirmDelete(null)}>
-                      Manter
+                      {t("common.keep")}
                     </button>
                   </span>
                 ) : (
                   <span className="skills-actions">
                     <button type="button" className="link-button" onClick={() => onOpenConversation(hook.conversation)}>
-                      Abrir conversa
+                      {t("hooks.openConversation")}
                     </button>
                     <button type="button" className="link-button" onClick={() => ask({ kind: "credential", hook })}>
-                      {hook.credential === hook.auth ? (hook.auth === "token" ? "Trocar token" : "Trocar segredo") : hook.auth === "token" ? "Gerar token" : "Gerar segredo"}
+                      {t(
+                        hook.credential === hook.auth
+                          ? hook.auth === "token"
+                            ? "hooks.replaceToken"
+                            : "hooks.replaceSecret"
+                          : hook.auth === "token"
+                            ? "hooks.generateToken"
+                            : "hooks.generateSecret",
+                      )}
                     </button>
                     {hook.credential && (
                       <button type="button" className="link-button" onClick={() => ask({ kind: "revoke", hook })}>
-                        Revogar
+                        {t("hooks.revoke")}
                       </button>
                     )}
                     <button type="button" className="link-button" onClick={() => ask({ kind: "toggle", hook })}>
-                      {hook.enabled ? "Pausar" : "Retomar"}
+                      {hook.enabled ? t("hooks.pause") : t("hooks.resume")}
                     </button>
                     <button
                       type="button"
@@ -372,16 +388,16 @@ export default function WebhooksView({ conn, onOpenConversation }: { conn: Serve
                         setEditor(editorFor(hook));
                       }}
                     >
-                      Editar
+                      {t("common.edit")}
                     </button>
                     <button type="button" className="link-button" onClick={() => setConfirmDelete(hook.id)}>
-                      Apagar
+                      {t("common.delete")}
                     </button>
                   </span>
                 )}
               </div>
               <p className="skills-item-description">
-                POST {hookUrl(hook.id)} · {authNames[hook.auth]} · {hook.agentId ? `agente ${hook.agentId}` : "sem agente"}
+                POST {hookUrl(hook.id)} · {authName(hook.auth)} · {hook.agentId ? t("hooks.withAgent", { agent: hook.agentId }) : t("hooks.withoutAgent")}
               </p>
               <p className="skills-hint">{status(hook)}</p>
             </li>

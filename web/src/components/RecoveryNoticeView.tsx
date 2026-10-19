@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { UserError, type ServerConnection } from "../hub/connection";
 import type { UserInfo } from "../hub/messages";
+import { intlTag, t, type Key } from "../i18n";
 
 interface Props {
   conn: ServerConnection;
@@ -13,14 +14,14 @@ interface Props {
   onLater: () => void;
 }
 
-const POLICY_TEXT: Record<string, string> = {
-  private: "Só você abre os seus dados (com a senha ou o código de recuperação). Nem quem administra o hub consegue.",
-  consent: "Quem administra o hub só consegue recuperar os seus dados com a chave de recuperação dele e o seu código de recuperação, juntos. Nenhum dos dois abre sozinho.",
-  company: "Quem administra o hub pode recuperar os seus dados sozinho, com a chave de recuperação dele. Cada recuperação fica registrada e você é avisado.",
+const POLICY_TEXT: Record<string, Key> = {
+  private: "notice.private",
+  consent: "notice.consent",
+  company: "notice.company",
 };
 
 function when(atMs: number): string {
-  return new Date(atMs).toLocaleString("pt-BR");
+  return new Date(atMs).toLocaleString(intlTag());
 }
 
 /** P84 fatia 4 parte B: the workspace's recovery policy changed to a weaker one and needs their yes, and/or the
@@ -42,7 +43,7 @@ export default function RecoveryNoticeView({ conn, user, onAccepted, onAcked, on
       const result = await conn.acceptRecoveryPolicy(password);
       onAccepted(result.recoveryCode);
     } catch (err) {
-      setError(err instanceof UserError && err.authRejected ? "A senha está errada." : err instanceof Error ? err.message : String(err));
+      setError(err instanceof UserError && err.authRejected ? t("notice.wrongPassword") : err instanceof Error ? err.message : String(err));
     } finally {
       setBusy(false);
     }
@@ -73,19 +74,19 @@ export default function RecoveryNoticeView({ conn, user, onAccepted, onAcked, on
         {unseen.length > 0 && (
           <>
             <p className="login-hint">
-              <strong>Os seus dados foram recuperados por quem administra o hub.</strong> Foi feito com a chave de recuperação dele, e você entrou agora com a senha provisória
-              que ele lhe deu.
+              <strong>{t("notice.recovered")}</strong>
+              {t("notice.recoveredHow")}
             </p>
             <ul>
               {unseen.map((event) => (
                 <li key={event.atMs}>
-                  {when(event.atMs)} — recuperação {event.kind === "consent" ? "com consentimento" : "de empresa"}
+                  {t("notice.event", { when: when(event.atMs), kind: event.kind === "consent" ? t("notice.kindConsent") : t("notice.kindCompany") })}
                 </li>
               ))}
             </ul>
-            <p className="login-hint">Se não foi você quem pediu, fale com quem administra o hub e troque a sua senha.</p>
+            <p className="login-hint">{t("notice.notYou")}</p>
             <button type="button" className="primary-button" disabled={busy} onClick={() => void seen()}>
-              Entendi
+              {t("notice.understood")}
             </button>
           </>
         )}
@@ -93,26 +94,24 @@ export default function RecoveryNoticeView({ conn, user, onAccepted, onAcked, on
         {user.policyPending && (
           <form className="login-card-inner" onSubmit={(e) => void accept(e)}>
             <p className="login-hint">
-              <strong>Mudou quem pode ajudar a recuperar os seus dados.</strong> {POLICY_TEXT[policy] ?? ""} Hoje eles seguem a regra anterior; só passam a seguir esta se você aceitar.
+              <strong>{t("notice.changed")}</strong> {POLICY_TEXT[policy] ? t(POLICY_TEXT[policy]) : ""}
+              {t("notice.changedRest")}
             </p>
-            <p className="login-hint">
-              Vale lembrar: quem controla a máquina do hub sempre consegue, tecnicamente, ver o que o agente vê enquanto trabalha, e o registro e o aviso não protegem contra quem
-              edita os arquivos do hub.
-            </p>
+            <p className="login-hint">{t("notice.reminder")}</p>
             <label>
-              Sua senha, para aceitar
+              {t("notice.passwordToAccept")}
               <input type="password" autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} />
             </label>
             {error && <p className="error-banner">{error}</p>}
             <button type="submit" className="primary-button" disabled={busy || !password}>
-              {busy ? "Aguarde…" : "Aceitar"}
+              {busy ? t("common.wait") : t("notice.accept")}
             </button>
           </form>
         )}
 
         {error && unseen.length > 0 && !user.policyPending && <p className="error-banner">{error}</p>}
         <button type="button" className="link-button" onClick={onLater}>
-          Agora não
+          {t("notice.notNow")}
         </button>
       </div>
     </div>

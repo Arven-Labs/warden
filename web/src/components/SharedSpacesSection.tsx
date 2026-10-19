@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
 import { UserError, type ServerConnection } from "../hub/connection";
 import type { SpaceInfo, UserInfo } from "../hub/messages";
+import { t } from "../i18n";
+import { rich } from "../i18n/rich";
 
 // Shared spaces (P84 fatia 3): folders of the owner's vault that members see at
 // `compartilhado/<name>/` in their own vault — reading only, or writing too. A member's turn never
@@ -31,11 +33,11 @@ function withAccess(space: SpaceInfo, who: string, access: Access): SpaceInfo {
 
 /** Who is in a space, in a few words. */
 function peopleLabel(space: SpaceInfo, users: UserInfo[]): string {
-  const name = (id: string) => (id === EVERYONE ? "todo mundo" : (users.find((u) => u.id === id)?.name ?? id));
+  const name = (id: string) => (id === EVERYONE ? t("spaces.everyone") : (users.find((u) => u.id === id)?.name ?? id));
   const parts = [];
-  if (space.writers.length > 0) parts.push(`escrevem: ${space.writers.map(name).join(", ")}`);
-  if (space.readers.length > 0) parts.push(`leem: ${space.readers.map(name).join(", ")}`);
-  return parts.length > 0 ? parts.join(" · ") : "ninguém ainda";
+  if (space.writers.length > 0) parts.push(t("spaces.write", { who: space.writers.map(name).join(", ") }));
+  if (space.readers.length > 0) parts.push(t("spaces.read", { who: space.readers.map(name).join(", ") }));
+  return parts.length > 0 ? parts.join(" · ") : t("spaces.nobody");
 }
 
 /** The folders of the owner's vault, from its files, for suggesting one. */
@@ -98,7 +100,7 @@ export default function SharedSpacesSection({ conn, users }: { conn: ServerConne
       );
       cancel();
     } catch (err) {
-      setKeyError(err instanceof UserError && err.authRejected ? "Chave de pareamento errada." : message(err));
+      setKeyError(err instanceof UserError && err.authRejected ? t("pairingKey.wrong") : message(err));
     } finally {
       setBusy(false);
     }
@@ -114,17 +116,17 @@ export default function SharedSpacesSection({ conn, users }: { conn: ServerConne
     >
       {extra}
       <label className="settings-field">
-        Chave de pareamento do hub
+        {t("pairingKey.label")}
         <input type="password" autoComplete="current-password" value={pairingKey} onChange={(e) => setPairingKey(e.target.value)} />
-        <span className="field-hint">É pedida a cada mudança.</span>
+        <span className="field-hint">{t("spaces.pairingKeyHint")}</span>
       </label>
       {keyError && <p className="error-banner">{keyError}</p>}
       <div className="skills-actions">
         <button type="submit" className={danger ? "primary-button skills-danger" : "primary-button"} disabled={busy || !ready || pairingKey.trim() === "" || !conn}>
-          {busy ? "Aguarde…" : label}
+          {busy ? t("common.wait") : label}
         </button>
         <button type="button" className="link-button" disabled={busy} onClick={cancel}>
-          Cancelar
+          {t("common.cancel")}
         </button>
       </div>
     </form>
@@ -136,40 +138,40 @@ export default function SharedSpacesSection({ conn, users }: { conn: ServerConne
     const everyone = accessOf(space, EVERYONE);
     const accessSelect = (who: string, value: Access) => (
       <select value={value} onChange={(e) => set(withAccess(space, who, e.target.value as Access))}>
-        <option value="none">Não vê</option>
-        <option value="read">Só lê</option>
-        <option value="write">Lê e escreve</option>
+        <option value="none">{t("spaces.none")}</option>
+        <option value="read">{t("spaces.readOnly")}</option>
+        <option value="write">{t("spaces.readWrite")}</option>
       </select>
     );
     return keyForm(
-      editing.originalId ? "Salvar" : "Compartilhar",
+      editing.originalId ? t("spaces.save") : t("spaces.share"),
       false,
       <>
         <label className="settings-field">
-          Nome
-          <input autoCapitalize="none" value={space.id} onChange={(e) => set({ ...space, id: e.target.value })} placeholder="casa" autoFocus={!editing.originalId} />
-          <span className="field-hint">Letras minúsculas, números, - ou _. A pessoa vê a pasta em compartilhado/{space.id.trim().toLowerCase() || "nome"}/.</span>
+          {t("spaces.name")}
+          <input autoCapitalize="none" value={space.id} onChange={(e) => set({ ...space, id: e.target.value })} placeholder={t("spaces.namePlaceholder")} autoFocus={!editing.originalId} />
+          <span className="field-hint">{t("spaces.nameHint", { path: `compartilhado/${space.id.trim().toLowerCase() || t("spaces.nameFallback")}/` })}</span>
         </label>
         <label className="settings-field">
-          Pasta do seu vault
-          <input autoCapitalize="none" list="shared-space-folders" value={space.folder} onChange={(e) => set({ ...space, folder: e.target.value })} placeholder="casa" />
+          {t("spaces.folder")}
+          <input autoCapitalize="none" list="shared-space-folders" value={space.folder} onChange={(e) => set({ ...space, folder: e.target.value })} placeholder={t("spaces.namePlaceholder")} />
           <datalist id="shared-space-folders">
             {folders.map((f) => (
               <option key={f} value={f} />
             ))}
           </datalist>
-          <span className="field-hint">Relativa à raiz do vault, como casa ou viagens/2026. Se não existir, é criada quando alguém escrever nela.</span>
+          <span className="field-hint">{t("spaces.folderHint")}</span>
         </label>
         <fieldset className="settings-tools">
           <label className="settings-check">
-            Todo mundo {accessSelect(EVERYONE, everyone)}
+            {t("spaces.everyoneLabel")} {accessSelect(EVERYONE, everyone)}
           </label>
           {users.map((user) => (
             <label key={user.id} className="settings-check">
               {user.name} {accessSelect(user.id, accessOf(space, user.id))}
             </label>
           ))}
-          <span className="field-hint">Só você cria espaços. O resto do seu vault continua só seu.</span>
+          <span className="field-hint">{t("spaces.onlyYou")}</span>
         </fieldset>
       </>,
       space.id.trim() !== "" && space.folder.trim() !== "",
@@ -179,27 +181,24 @@ export default function SharedSpacesSection({ conn, users }: { conn: ServerConne
   return (
     <>
       <div className="skills-header">
-        <h2>Espaços compartilhados</h2>
+        <h2>{t("spaces.title")}</h2>
         <button
           type="button"
           className="primary-button"
           disabled={!conn || asking !== null || users.length === 0}
           onClick={() => setAsking({ kind: "edit", space: { id: "", folder: "", readers: [], writers: [] } })}
         >
-          Compartilhar pasta
+          {t("spaces.shareFolder")}
         </button>
       </div>
-      <p className="skills-hint">
-        Pastas do seu vault que outras pessoas veem dentro do vault delas, em <code>compartilhado/</code>. Os agentes que conversam com elas leem
-        (e, se você deixar, escrevem) só nessas pastas, nunca no resto da sua memória.
-      </p>
+      <p className="skills-hint">{rich("spaces.intro", { path: <code>compartilhado/</code> })}</p>
       {error && <p className="error-banner">{error}</p>}
       {asking?.kind === "edit" && !asking.originalId && editor(asking)}
 
       {spaces === null ? (
-        <p className="skills-hint">Carregando…</p>
+        <p className="skills-hint">{t("common.loading")}</p>
       ) : spaces.length === 0 ? (
-        <p className="skills-hint">{users.length === 0 ? "Adicione alguém antes de compartilhar uma pasta." : "Nenhuma pasta compartilhada."}</p>
+        <p className="skills-hint">{users.length === 0 ? t("spaces.addSomeone") : t("spaces.noneShared")}</p>
       ) : (
         <ul className="skills-list">
           {spaces.map((space) => {
@@ -214,17 +213,17 @@ export default function SharedSpacesSection({ conn, users }: { conn: ServerConne
                 {mine?.kind === "edit" && editor(mine)}
                 {mine?.kind === "remove" &&
                   keyForm(
-                    "Parar de compartilhar",
+                    t("spaces.stopSharing"),
                     true,
-                    <p className="error-banner">Quem via esta pasta deixa de ver na próxima mensagem. A pasta e as notas continuam no seu vault.</p>,
+                    <p className="error-banner">{t("spaces.stopWarning")}</p>,
                   )}
                 {!mine && (
                   <div className="skills-actions">
                     <button type="button" className="link-button" disabled={!conn || asking !== null} onClick={() => setAsking({ kind: "edit", originalId: space.id, space })}>
-                      Editar
+                      {t("common.edit")}
                     </button>
                     <button type="button" className="link-button skills-danger" disabled={!conn || asking !== null} onClick={() => setAsking({ kind: "remove", space })}>
-                      Parar de compartilhar
+                      {t("spaces.stopSharing")}
                     </button>
                   </div>
                 )}

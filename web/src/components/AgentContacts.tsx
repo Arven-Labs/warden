@@ -1,4 +1,6 @@
 import type { ConversationSummary } from "../hub/messages";
+import { shortDate } from "../i18n/format";
+import { t } from "../i18n";
 
 interface Props {
   /** The hub's configured agents. */
@@ -17,14 +19,6 @@ interface Props {
   onOpen: (agentId: string) => void;
 }
 
-/** "14:05" today, "12/09" before that. */
-function shortDate(millis: number): string {
-  const date = new Date(millis);
-  return date.toDateString() === new Date().toDateString()
-    ? date.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })
-    : date.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" });
-}
-
 /** P121 — the agents as contacts: each has one conversation with the person, its channel, which stays where it was left. Newest first, the
  * ones never spoken to at the end. Same look as the list of conversations (and the same drawer on phones). */
 export default function AgentContacts({ agentIds, channels, conversations, activeAgent, unreadAgents, pendingIds, disabled, onOpen }: Props) {
@@ -37,9 +31,9 @@ export default function AgentContacts({ agentIds, channels, conversations, activ
     .sort((a, b) => (b.channel?.updatedAt ?? 0) - (a.channel?.updatedAt ?? 0));
 
   return (
-    <aside className="conversations" aria-label="Agentes">
+    <aside className="conversations" aria-label={t("contacts.agents")}>
       {rows.length === 0 ? (
-        <p className="conversations-empty">Nenhum agente configurado ainda.</p>
+        <p className="conversations-empty">{t("contacts.none")}</p>
       ) : (
         <ul className="conversations-list">
           {rows.map(({ id, channel, answering }) => {
@@ -48,10 +42,10 @@ export default function AgentContacts({ agentIds, channels, conversations, activ
               <li key={id} className={active ? "conversation conversation--active" : "conversation"}>
                 <button type="button" className="conversation-open" disabled={disabled} onClick={() => onOpen(id)} aria-current={active ? "true" : undefined}>
                   <span className="conversation-title">
-                    {unreadAgents.includes(id) && <span className="unread-dot" role="img" aria-label="mensagem nova" />}
+                    {unreadAgents.includes(id) && <span className="unread-dot" role="img" aria-label={t("contacts.newMessage")} />}
                     {id}
                   </span>
-                  <span className="conversation-meta">{answering ? "respondendo…" : channel ? shortDate(channel.updatedAt) : "nova"}</span>
+                  <span className="conversation-meta">{answering ? t("convs.answering") : channel ? shortDate(channel.updatedAt) : t("contacts.new")}</span>
                 </button>
               </li>
             );

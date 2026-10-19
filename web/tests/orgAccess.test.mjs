@@ -14,7 +14,7 @@ describe("the access to the organization", () => {
   test("is offered in three levels, none first, and each has words for the owner and for the card", () => {
     assert.deepEqual(ORG_ACCESS_CHOICES.map((c) => c.value), ["none", "view", "edit"]);
     assert.ok(ORG_ACCESS_CHOICES.every((c) => c.label && c.hint));
-    assert.deepEqual(["none", "view", "edit"].map(orgAccessLabel), ["organograma: não vê", "organograma: só vê", "organograma: vê e edita"]);
+    assert.deepEqual(["none", "view", "edit"].map(orgAccessLabel), ["org chart: can't see", "org chart: view only", "org chart: view and edit"]);
   });
 });
 

@@ -7,6 +7,7 @@
  * attachments so the page can show them. Reconnecting is `App.tsx`'s job, not this class's.
  */
 
+import { t } from "../i18n/index.ts";
 import {
   encode,
   decode,
@@ -342,7 +343,7 @@ export class ServerConnection {
       this.setStatus(
         this.goodbyeSent
           ? { kind: "disconnected" }
-          : { kind: "failure", message: this.rejectedReason !== null ? `authentication rejected: ${this.rejectedReason}` : "a conexão com o hub caiu" },
+          : { kind: "failure", message: this.rejectedReason !== null ? `authentication rejected: ${this.rejectedReason}` : t("conn.dropped") },
       );
     });
   }
@@ -430,7 +431,7 @@ export class ServerConnection {
       let timeoutId: ReturnType<typeof setTimeout> = setTimeout(() => {
         finish(() => {
           socket.close();
-          reject(new HandshakeError(`o hub não respondeu em ${timeoutMs / 1000}s`));
+          reject(new HandshakeError(t("conn.timeout", { seconds: timeoutMs / 1000 })));
         });
       }, timeoutMs);
       const abort = () => finish(() => {
@@ -455,7 +456,7 @@ export class ServerConnection {
           timeoutId = setTimeout(() => {
             finish(() => {
               socket.close();
-              reject(new HandshakeError("o login com TruthID demorou demais — tente de novo"));
+              reject(new HandshakeError(t("conn.truthIdTimeout")));
             });
           }, TRUTHID_HANDSHAKE_TIMEOUT_MS);
           return;
@@ -494,10 +495,10 @@ export class ServerConnection {
       });
       socket.addEventListener("message", onFirstMessage);
       socket.addEventListener("error", () => {
-        finish(() => reject(new HandshakeError("não foi possível falar com o hub")));
+        finish(() => reject(new HandshakeError(t("conn.cantReach"))));
       });
       socket.addEventListener("close", () => {
-        finish(() => reject(new HandshakeError("o hub fechou a conexão antes de responder")));
+        finish(() => reject(new HandshakeError(t("conn.closedEarly"))));
       });
     });
   }
@@ -1330,7 +1331,7 @@ export class ServerConnection {
       const requestId = this.nextRequestId++;
       const timeoutId = setTimeout(() => {
         this.pendingRequests.delete(requestId);
-        reject(new Error("o hub não respondeu"));
+        reject(new Error(t("conn.noAnswer")));
       }, timeoutMs);
       this.pendingRequests.set(requestId, { resolve, reject, timeoutId });
       try {

@@ -1,11 +1,13 @@
 import { useCallback, useEffect, useState } from "react";
 import { TaskError, type ServerConnection } from "../hub/connection";
 import type { Task, TaskInfo } from "../hub/messages";
+import { intlTag, t, type Key } from "../i18n";
+import { rich } from "../i18n/rich";
 
 // Scheduled tasks (P92): a prompt an agent runs on its own, on the hub. The same list, create, edit,
 // pause, remove and "run now" as `warden-server tasks` and the desktop's Tasks screen. Every change
 // asks for the pairing key, like the API keys: a task runs an agent alone, with its tools and spend.
-// Each run lands in the task's conversation (`task-<id>`), which "Abrir conversa" opens in the chat.
+// Each run lands in the task's conversation (`task-<id>`), which "Open conversation" opens in the chat.
 
 type ScheduleKind = "every" | "cron" | "once";
 
@@ -23,15 +25,11 @@ type Change =
   | { kind: "delete"; task: TaskInfo }
   | { kind: "run"; task: TaskInfo };
 
-const dateFormatter = new Intl.DateTimeFormat("pt-BR", { dateStyle: "short", timeStyle: "short" });
+const dateFormatter = { format: (ms: number) => new Intl.DateTimeFormat(intlTag(), { dateStyle: "short", timeStyle: "short" }).format(ms) };
 const browserZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
 
 const placeholders: Record<ScheduleKind, string> = { every: "1d", cron: "0 8 * * 1-5", once: "2026-10-01T09:00" };
-const hints: Record<ScheduleKind, string> = {
-  every: "Um número e m, h ou d (30m, 2h, 1d), contado da última execução.",
-  cron: "Cinco campos: minuto, hora, dia do mês, mês, dia da semana. 0 8 * * 1-5 = 8h nos dias úteis.",
-  once: "Data e hora locais, AAAA-MM-DDTHH:MM.",
-};
+const hints: Record<ScheduleKind, Key> = { every: "tasks.freqEvery", cron: "tasks.freqCron", once: "tasks.freqOnce" };
 
 function message(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
@@ -44,8 +42,8 @@ function scheduleKind(task: Task): ScheduleKind {
 function scheduleLabel(task: Task): string {
   const zone = task.timezone ? ` (${task.timezone})` : "";
   if (task.cron) return `cron ${task.cron}${zone}`;
-  if (task.once) return `uma vez em ${task.once}${zone}`;
-  return `a cada ${task.every ?? "?"}`;
+  if (task.once) return `${t("tasks.onceAt", { when: task.once })}${zone}`;
+  return t("tasks.everyN", { every: task.every ?? "?" });
 }
 
 function fromEditor(editor: EditorState): Task {
@@ -64,14 +62,14 @@ function editorFor(task: TaskInfo): EditorState {
 }
 
 function status(task: TaskInfo): string {
-  if (task.scheduleError) return `Agendamento inválido: ${task.scheduleError}`;
+  if (task.scheduleError) return t("tasks.invalidSchedule", { error: task.scheduleError });
   const parts: string[] = [];
-  if (task.running) parts.push("rodando agora");
-  else if (task.lastRunAtMs) parts.push(`última: ${dateFormatter.format(task.lastRunAtMs)}${task.lastError ? " (falhou)" : ""}`);
-  else parts.push("nunca rodou");
-  if (!task.enabled) parts.push("pausada");
-  else if (task.nextRunAtMs) parts.push(`próxima: ${dateFormatter.format(task.nextRunAtMs)}`);
-  else if (!task.running) parts.push("concluída");
+  if (task.running) parts.push(t("tasks.runningNow"));
+  else if (task.lastRunAtMs) parts.push(`${t("tasks.last", { when: dateFormatter.format(task.lastRunAtMs) })}${task.lastError ? t("tasks.failed") : ""}`);
+  else parts.push(t("tasks.neverRan"));
+  if (!task.enabled) parts.push(t("tasks.paused"));
+  else if (task.nextRunAtMs) parts.push(t("tasks.next", { when: dateFormatter.format(task.nextRunAtMs) }));
+  else if (!task.running) parts.push(t("tasks.finished"));
   return parts.join(" · ");
 }
 
@@ -96,7 +94,7 @@ export default function TasksView({ conn, onOpenConversation }: { conn: ServerCo
       setError(null);
     } catch (err) {
       setTasks((current) => current ?? []);
-      setError(`falha ao listar as tarefas: ${message(err)}`);
+      setError(t("tasks.listFailed", { error: message(err) }));
     }
   }, [conn]);
 
@@ -140,7 +138,7 @@ export default function TasksView({ conn, onOpenConversation }: { conn: ServerCo
       cancelKey();
     } catch (err) {
       if (err instanceof TaskError && err.authRejected) {
-        setKeyError("Chave de pareamento errada.");
+        setKeyError(t("pairingKey.wrong"));
       } else {
         cancelKey();
         setError(message(err));
@@ -156,7 +154,7 @@ export default function TasksView({ conn, onOpenConversation }: { conn: ServerCo
     setAsking(change);
   }
 
-  const labels: Record<Change["kind"], string> = { save: "Salvar a tarefa", toggle: "Confirmar", delete: "Apagar", run: "Rodar agora" };
+  const labels: Record<Change["kind"], string> = { save: t("tasks.saveTask"), toggle: t("common.confirm"), delete: t("common.delete"), run: t("tasks.runNow") };
   const keyPrompt = asking && (
     <form
       className="settings-confirm devices-confirm"
@@ -166,17 +164,17 @@ export default function TasksView({ conn, onOpenConversation }: { conn: ServerCo
       }}
     >
       <label className="settings-field">
-        Chave de pareamento do hub
+        {t("pairingKey.label")}
         <input type="password" autoComplete="current-password" autoFocus value={pairingKey} onChange={(e) => setPairingKey(e.target.value)} />
-        <span className="field-hint">A mesma do primeiro login. É pedida a cada mudança.</span>
+        <span className="field-hint">{t("pairingKey.hint")}</span>
       </label>
       {keyError && <p className="error-banner">{keyError}</p>}
       <div className="skills-actions">
         <button type="submit" className="primary-button" disabled={busy || pairingKey.trim() === "" || !conn}>
-          {busy ? "Aguarde…" : labels[asking.kind]}
+          {busy ? t("common.wait") : labels[asking.kind]}
         </button>
         <button type="button" className="link-button" disabled={busy} onClick={cancelKey}>
-          Cancelar
+          {t("common.cancel")}
         </button>
       </div>
     </form>
@@ -199,16 +197,16 @@ export default function TasksView({ conn, onOpenConversation }: { conn: ServerCo
           ask({ kind: "save", editor });
         }}
       >
-        <strong>{editor.originalId ? `Editar ${editor.originalId}` : "Nova tarefa"}</strong>
+        <strong>{editor.originalId ? t("tasks.editing", { id: editor.originalId }) : t("tasks.new")}</strong>
         <label>
-          Nome
-          <input value={editor.task.id} onChange={(e) => updateTask({ id: e.target.value })} placeholder="resumo-diario" required />
-          <span className="skills-hint">Letras, números, - e _. A conversa da tarefa se chama task-&lt;nome&gt;.</span>
+          {t("common.name")}
+          <input value={editor.task.id} onChange={(e) => updateTask({ id: e.target.value })} placeholder={t("tasks.namePlaceholder")} required />
+          <span className="skills-hint">{t("tasks.nameHint")}</span>
         </label>
         <label>
-          Agente
+          {t("tasks.agent")}
           <select value={editor.task.agentId ?? ""} onChange={(e) => updateTask({ agentId: e.target.value || undefined })}>
-            <option value="">(nenhum)</option>
+            <option value="">{t("tasks.noAgent")}</option>
             {agentIds.map((id) => (
               <option key={id} value={id}>
                 {id}
@@ -217,33 +215,33 @@ export default function TasksView({ conn, onOpenConversation }: { conn: ServerCo
           </select>
         </label>
         <label>
-          O que pedir
+          {t("tasks.prompt")}
           <textarea
             value={editor.task.prompt}
             onChange={(e) => updateTask({ prompt: e.target.value })}
             rows={6}
-            placeholder="Resuma as notícias de hoje sobre…"
+            placeholder={t("tasks.promptPlaceholder")}
             required
           />
         </label>
         <label>
-          Quando
+          {t("tasks.when")}
           <select value={editor.kind} onChange={(e) => update({ kind: e.target.value as ScheduleKind, value: "" })}>
-            <option value="every">A cada</option>
-            <option value="cron">Cron</option>
-            <option value="once">Uma vez</option>
+            <option value="every">{t("tasks.kindEvery")}</option>
+            <option value="cron">{t("tasks.kindCron")}</option>
+            <option value="once">{t("tasks.kindOnce")}</option>
           </select>
         </label>
         <label>
-          {editor.kind === "every" ? "Intervalo" : editor.kind === "cron" ? "Expressão cron" : "Data e hora"}
+          {editor.kind === "every" ? t("tasks.valueEvery") : editor.kind === "cron" ? t("tasks.valueCron") : t("tasks.valueOnce")}
           <input value={editor.value} onChange={(e) => update({ value: e.target.value })} placeholder={placeholders[editor.kind]} required />
-          <span className="skills-hint">{hints[editor.kind]}</span>
+          <span className="skills-hint">{t(hints[editor.kind])}</span>
         </label>
         {editor.kind !== "every" && (
           <label>
-            Fuso horário
+            {t("tasks.timezone")}
             <input value={editor.task.timezone ?? ""} onChange={(e) => updateTask({ timezone: e.target.value || undefined })} placeholder={browserZone} />
-            <span className="skills-hint">Nome IANA, como America/Sao_Paulo. Vazio: o fuso da máquina do hub.</span>
+            <span className="skills-hint">{t("tasks.timezoneHint")}</span>
           </label>
         )}
         {error && <p className="error-banner">{error}</p>}
@@ -252,7 +250,7 @@ export default function TasksView({ conn, onOpenConversation }: { conn: ServerCo
         ) : (
           <div className="skills-actions">
             <button type="submit" className="primary-button" disabled={!conn}>
-              Salvar
+              {t("common.save")}
             </button>
             <button
               type="button"
@@ -262,7 +260,7 @@ export default function TasksView({ conn, onOpenConversation }: { conn: ServerCo
                 setError(null);
               }}
             >
-              Cancelar
+              {t("common.cancel")}
             </button>
           </div>
         )}
@@ -273,7 +271,7 @@ export default function TasksView({ conn, onOpenConversation }: { conn: ServerCo
   return (
     <div className="skills-view">
       <div className="skills-toolbar">
-        <span className="skills-hint">Pedidos que um agente faz sozinho, no horário marcado. Cada execução cai na conversa da tarefa.</span>
+        <span className="skills-hint">{t("tasks.intro")}</span>
         <button
           type="button"
           className="primary-button"
@@ -282,21 +280,16 @@ export default function TasksView({ conn, onOpenConversation }: { conn: ServerCo
             setEditor(newEditor());
           }}
         >
-          + Nova
+          {t("tasks.newButton")}
         </button>
       </div>
-      {!runsHere && (
-        <p className="skills-hint">
-          Este hub não executa as tarefas no horário (inicie com <code>warden-server serve --run-tasks</code>, ou ligue no desktop). Elas rodam no
-          hub que estiver com isso ligado, e "Rodar agora" roda aqui.
-        </p>
-      )}
+      {!runsHere && <p className="skills-hint">{rich("tasks.notHere", { cmd: <code>warden-server serve --run-tasks</code> })}</p>}
       {error && <p className="error-banner">{error}</p>}
       {asking && keyPrompt}
       {tasks === null ? (
-        <p className="skills-hint">Carregando…</p>
+        <p className="skills-hint">{t("common.loading")}</p>
       ) : tasks.length === 0 ? (
-        <p className="skills-hint">Nenhuma tarefa ainda.</p>
+        <p className="skills-hint">{t("tasks.none")}</p>
       ) : (
         <ul className="skills-list">
           {tasks.map((task) => (
@@ -306,22 +299,22 @@ export default function TasksView({ conn, onOpenConversation }: { conn: ServerCo
                 {confirmDelete === task.id ? (
                   <span className="skills-actions">
                     <button type="button" className="link-button skills-danger" onClick={() => ask({ kind: "delete", task })}>
-                      Apagar
+                      {t("common.delete")}
                     </button>
                     <button type="button" className="link-button" onClick={() => setConfirmDelete(null)}>
-                      Manter
+                      {t("common.keep")}
                     </button>
                   </span>
                 ) : (
                   <span className="skills-actions">
                     <button type="button" className="link-button" onClick={() => onOpenConversation(`task-${task.id}`)}>
-                      Abrir conversa
+                      {t("tasks.openConversation")}
                     </button>
                     <button type="button" className="link-button" disabled={task.running} onClick={() => ask({ kind: "run", task })}>
-                      Rodar agora
+                      {t("tasks.runNow")}
                     </button>
                     <button type="button" className="link-button" onClick={() => ask({ kind: "toggle", task })}>
-                      {task.enabled ? "Pausar" : "Retomar"}
+                      {task.enabled ? t("tasks.pause") : t("tasks.resume")}
                     </button>
                     <button
                       type="button"
@@ -331,19 +324,19 @@ export default function TasksView({ conn, onOpenConversation }: { conn: ServerCo
                         setEditor(editorFor(task));
                       }}
                     >
-                      Editar
+                      {t("common.edit")}
                     </button>
                     <button type="button" className="link-button" onClick={() => setConfirmDelete(task.id)}>
-                      Apagar
+                      {t("common.delete")}
                     </button>
                   </span>
                 )}
               </div>
               <p className="skills-item-description">
-                {scheduleLabel(task)} · {task.agentId ? `agente ${task.agentId}` : "sem agente"}
+                {scheduleLabel(task)} · {task.agentId ? t("tasks.withAgent", { agent: task.agentId }) : t("tasks.withoutAgent")}
               </p>
               <p className="skills-hint">{status(task)}</p>
-              {task.lastError && <p className="skills-hint">Erro: {task.lastError}</p>}
+              {task.lastError && <p className="skills-hint">{t("common.error", { error: task.lastError })}</p>}
             </li>
           ))}
         </ul>

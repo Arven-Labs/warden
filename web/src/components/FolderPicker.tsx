@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import type { DirListing, NodeInfo } from "../hub/messages";
 import { folderPlace, nodeFolderRef, parseNodeFolder } from "../hub/workdir";
+import { t } from "../i18n";
 
 interface Props {
   /** The folders inside a path (P102): of the hub's machine, or of a node when the path is `node:<id>:<path>`. No path
@@ -34,7 +35,7 @@ export default function FolderPicker({ listDirs, nodes = [], initialPath, onPick
   useEffect(() => {
     let live = true;
     listDirs(initialPath)
-      .catch(() => (initialPath ? listDirs() : Promise.reject(new Error("não foi possível listar as pastas"))))
+      .catch(() => (initialPath ? listDirs() : Promise.reject(new Error(t("folder.cantList")))))
       .then((result) => live && setListing(result))
       .catch((err) => live && setError(err instanceof Error ? err.message : String(err)))
       .finally(() => live && setLoading(false));
@@ -51,20 +52,18 @@ export default function FolderPicker({ listDirs, nodes = [], initialPath, onPick
     <div className="approval-backdrop" role="dialog" aria-modal="true" aria-labelledby="folder-picker-title">
       <div className="approval-card folder-picker">
         <h2 id="folder-picker-title" className="approval-title">
-          Escolher a pasta de trabalho
+          {t("folder.title")}
         </h2>
-        <p className="approval-more">
-          A IA lê e escreve nessa pasta, e o shell começa nela (cada comando pede o seu sim). Vale para a conversa toda e não muda depois.
-        </p>
+        <p className="approval-more">{t("folder.hint")}</p>
         {nodes.length > 0 && (
           <label className="agent-picker folder-picker-machine">
-            <span className="agent-picker-label">Máquina</span>
+            <span className="agent-picker-label">{t("folder.machine")}</span>
             <select
               value={machine}
               disabled={loading}
               onChange={(e) => open(e.target.value ? nodeFolderRef(e.target.value, "") : undefined)}
             >
-              <option value="">Hub</option>
+              <option value="">{t("folder.hub")}</option>
               {nodes.map((n) => (
                 <option key={n.deviceId} value={n.deviceId}>
                   {n.name}
@@ -74,7 +73,7 @@ export default function FolderPicker({ listDirs, nodes = [], initialPath, onPick
           </label>
         )}
         <div className="folder-picker-here" title={here}>
-          {here ? folderPlace(here, nodes) : "Suas pastas"}
+          {here ? folderPlace(here, nodes) : t("folder.yours")}
         </div>
         {error && (
           <p className="folder-picker-error" role="alert">
@@ -85,7 +84,7 @@ export default function FolderPicker({ listDirs, nodes = [], initialPath, onPick
           {listing?.parent !== undefined && (
             <li>
               <button type="button" className="folder-picker-item" onClick={() => open(listing.parent || undefined)}>
-                ↑ Subir
+                {t("folder.up")}
               </button>
             </li>
           )}
@@ -96,14 +95,14 @@ export default function FolderPicker({ listDirs, nodes = [], initialPath, onPick
               </button>
             </li>
           ))}
-          {listing && listing.dirs.length === 0 && !loading && <li className="folder-picker-empty">Nenhuma subpasta.</li>}
+          {listing && listing.dirs.length === 0 && !loading && <li className="folder-picker-empty">{t("folder.empty")}</li>}
         </ul>
         <div className="approval-actions">
           <button type="button" className="link-button" onClick={onCancel}>
-            Cancelar
+            {t("folder.cancel")}
           </button>
           <button type="button" className="primary-button" disabled={!here || loading} onClick={() => onPick(here)}>
-            Usar esta pasta
+            {t("folder.use")}
           </button>
         </div>
       </div>

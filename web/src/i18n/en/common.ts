@@ -1,0 +1,21 @@
+// Words that many screens share: the buttons everyone has and the prompt for the hub's pairing key.
+export const common = {
+  "common.cancel": "Cancel",
+  "common.save": "Save",
+  "common.saving": "Saving…",
+  "common.wait": "Wait…",
+  "common.loading": "Loading…",
+  "common.edit": "Edit",
+  "common.delete": "Delete",
+  "common.keep": "Keep",
+  "common.remove": "Remove",
+  "common.refresh": "Refresh",
+  "common.name": "Name",
+  "common.add": "Add",
+  "common.close": "Close",
+  "common.confirm": "Confirm",
+  "common.error": "Error: {error}",
+  "pairingKey.label": "Hub pairing key",
+  "pairingKey.hint": "The same one as the first sign-in. It is asked for at every change.",
+  "pairingKey.wrong": "Wrong pairing key.",
+} as const;

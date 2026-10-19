@@ -38,7 +38,7 @@ describe("the channel of an agent", () => {
       const opened = await signIn(browser, hub);
       context = opened.context;
       const { page, sent } = opened;
-      await page.getByRole("tab", { name: "Agents" }).or(page.getByRole("button", { name: "Agents", exact: true })).first().click();
+      await page.getByRole("tab", { name: "Agentes" }).or(page.getByRole("button", { name: "Agentes", exact: true })).first().click();
       await contacts(page).getByRole("button", { name: /writer/ }).waitFor();
       assert.equal(await contacts(page).getByRole("button", { name: /ops/ }).count(), 1);
       await snap(page, "agents-contacts");
@@ -88,12 +88,12 @@ describe("the channel of an agent", () => {
       const opened = await signIn(browser, hub);
       context = opened.context;
       const { page } = opened;
-      await page.getByRole("button", { name: "Agents", exact: true }).waitFor();
+      await page.getByRole("button", { name: "Agentes", exact: true }).waitFor();
       // A browser that has been here before and last saw nothing of this channel: the mark is what the earlier visit left.
       await page.evaluate(() => localStorage.setItem("warden.channelSeen", "{}"));
       await page.reload();
 
-      const tab = page.getByRole("button", { name: /^Agents/ });
+      const tab = page.getByRole("button", { name: /^Agentes/ });
       await tab.locator(".tab-badge").waitFor();
       assert.equal(await tab.locator(".tab-badge").innerText(), "1");
 
@@ -109,7 +109,7 @@ describe("the channel of an agent", () => {
 
       // The mark is kept: after a reload it is still read.
       await page.reload();
-      await page.getByRole("button", { name: /^Agents/ }).waitFor();
+      await page.getByRole("button", { name: /^Agentes/ }).waitFor();
       assert.equal(await page.locator(".tab-badge").count(), 0);
     } finally {
       await context?.close();

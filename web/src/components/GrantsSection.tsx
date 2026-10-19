@@ -2,15 +2,16 @@ import { useCallback, useEffect, useState } from "react";
 import type { ServerConnection } from "../hub/connection";
 import type { ConversationSummary, Grant, GrantsView } from "../hub/messages";
 import { agoLabel } from "../hub/agentTasks";
+import { t, type Key } from "../i18n";
 
-const CATEGORY_LABEL: Record<string, string> = {
-  delete_data: "Apagar dados",
-  spend_money: "Gastar dinheiro",
-  critical_infra: "Infraestrutura crítica",
-  external_message: "Mensagem externa",
-  publish_code: "Publicar código",
-  important_config: "Configuração importante",
-  elevated_agent: "Agente com permissão elevada",
+const CATEGORY_KEY: Record<string, Key> = {
+  delete_data: "grants.cat.delete_data",
+  spend_money: "grants.cat.spend_money",
+  critical_infra: "grants.cat.critical_infra",
+  external_message: "grants.cat.external_message",
+  publish_code: "grants.cat.publish_code",
+  important_config: "grants.cat.important_config",
+  elevated_agent: "grants.cat.elevated_agent",
 };
 
 /** P122 — o que a pessoa disse "sempre" nesta conexão: uma categoria de risco ou uma ferramenta, por conversa e agente. Guardado em arquivo,
@@ -49,24 +50,24 @@ export default function GrantsSection({ conn, conversations }: { conn: ServerCon
 
   return (
     <section className="grants-section">
-      <h3>Permissões dadas com "sempre"</h3>
+      <h3>{t("grants.title")}</h3>
       <p className="skills-hint">
-        Valem por conversa e agente.{" "}
+        {t("grants.scope")}{" "}
         {view?.ttlDays !== undefined
-          ? `Guardadas em arquivo, sobrevivem a um reinício e vencem depois de ${view.ttlDays} ${view.ttlDays === 1 ? "dia" : "dias"} sem uso (cada uso renova).`
-          : "Acabam quando a conexão fecha."}{" "}
-        Tirar uma faz o agente voltar a perguntar.
+          ? t("grants.kept", { days: view.ttlDays, unit: t(view.ttlDays === 1 ? "grants.day" : "grants.days") })
+          : t("grants.session")}{" "}
+        {t("grants.takeBack")}
       </p>
       {error && <p className="error-banner">{error}</p>}
-      {grants !== null && grants.length === 0 && <p className="skills-hint">Nenhuma ainda.</p>}
+      {grants !== null && grants.length === 0 && <p className="skills-hint">{t("grants.none")}</p>}
       {grants !== null && grants.length > 0 && (
         <ul className="agent-work-list">
           {grants.map((g) => (
             <li key={`${g.conversationId}\u0000${g.agentId ?? ""}\u0000${g.covers}`}>
-              <strong>{CATEGORY_LABEL[g.covers] ?? g.covers}</strong> · {g.agentId ?? "agente padrão"} · {titleOf(g.conversationId)}
-              {g.lastUsedMs !== undefined && ` · usado ${agoLabel(g.lastUsedMs, Date.now())}`}{" "}
+              <strong>{CATEGORY_KEY[g.covers] ? t(CATEGORY_KEY[g.covers]) : g.covers}</strong> · {g.agentId ?? t("grants.defaultAgent")} · {titleOf(g.conversationId)}
+              {g.lastUsedMs !== undefined && t("grants.used", { ago: agoLabel(g.lastUsedMs, Date.now()) })}{" "}
               <button type="button" className="link-button" onClick={() => void revoke(g)}>
-                Tirar
+                {t("grants.remove")}
               </button>
             </li>
           ))}

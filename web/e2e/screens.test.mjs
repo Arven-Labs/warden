@@ -1,6 +1,7 @@
 // A tour of the main screens of the web page against a real hub with invented data, taking a picture of each (see `snap` in
 // `harness.mjs`): the CI uploads them and someone looks at every one. The assertions are loose on purpose, they only prove the
-// screen got where the picture is taken; what is wrong on the screen is for the eye. Run with `npm run test:e2e`.
+// screen got where the picture is taken; what is wrong on the screen is for the eye. The tour is in English, the page's default
+// (P136; `i18n.test.mjs` takes the pictures of the Portuguese). Run with `npm run test:e2e`.
 
 import assert from "node:assert/strict";
 import { after, before, describe, test } from "node:test";
@@ -52,12 +53,12 @@ for (const colorScheme of ["light", "dark"]) {
       const hub = await startHub({ files: FILES });
       let context;
       try {
-        const opened = await signIn(browser, hub, { colorScheme });
+        const opened = await signIn(browser, hub, { colorScheme, locale: "en-US" });
         context = opened.context;
         const { page } = opened;
-        const tab = (name) => page.getByRole("navigation", { name: "Seções" }).getByRole("button", { name });
+        const tab = (name) => page.getByRole("navigation", { name: "Sections" }).getByRole("button", { name });
 
-        await page.getByRole("navigation", { name: "Seções" }).waitFor();
+        await page.getByRole("navigation", { name: "Sections" }).waitFor();
         await snap(page, `chat-${colorScheme}`);
 
         await tab("Vault").click();
@@ -67,25 +68,25 @@ for (const colorScheme of ["light", "dark"]) {
         await page.getByText("call the supplier").first().waitFor();
         await snap(page, `vault-note-${colorScheme}`);
 
-        await tab("Uso").click();
-        await page.getByText(/Gasto recente/).waitFor();
+        await tab("Usage").click();
+        await page.getByText(/Recent spend/).waitFor();
         await snap(page, `usage-${colorScheme}`);
 
         await tab("Skills").click();
-        await page.getByRole("button", { name: "Importar" }).waitFor();
-        await page.getByText("Nenhuma skill ainda.").waitFor();
+        await page.getByRole("button", { name: "Import" }).waitFor();
+        await page.getByText("No skills yet.").waitFor();
         await snap(page, `skills-${colorScheme}`);
-        await snap(page, `skills-gallery-${colorScheme}`, { focus: page.getByRole("heading", { name: "Galeria" }) });
+        await snap(page, `skills-gallery-${colorScheme}`, { focus: page.getByRole("heading", { name: "Gallery" }) });
 
-        await page.getByRole("button", { name: "Importar" }).click();
-        await page.getByPlaceholder(/Cole o conteúdo/).fill(PACKAGE_WITH_A_LINK);
+        await page.getByRole("button", { name: "Import" }).click();
+        await page.getByPlaceholder(/Paste the content/).fill(PACKAGE_WITH_A_LINK);
         await snap(page, `skills-import-paste-${colorScheme}`);
-        await page.getByRole("button", { name: "Ler" }).click();
+        await page.getByRole("button", { name: "Read", exact: true }).click();
         // The package was changed on the way (its hash is wrong): the screen says so instead of a preview.
         await page.locator(".error-banner").first().waitFor();
         await snap(page, `skills-import-refused-${colorScheme}`);
 
-        await tab("Projetos").click();
+        await tab("Projects").click();
         await page.getByText(/Home reform/).first().waitFor();
         await snap(page, `projects-${colorScheme}`);
 

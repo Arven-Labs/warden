@@ -2,6 +2,7 @@ import { useState } from "react";
 import type { ServerConnection } from "../hub/connection";
 import type { SshAuditEntry } from "../hub/messages";
 import { actionLabel, approvalLabel, detailOf, outcomeOf, whenLabel, wasRefused } from "../hub/sshAudit";
+import { t } from "../i18n";
 
 // "Registro de uso do SSH" (P47): as últimas chamadas das tools de SSH neste hub. Só leitura, só o dono. Carrega ao abrir, porque o log
 // pode ser grande, e não guarda a saída dos comandos, mas os comandos em si podem ter um segredo.
@@ -17,7 +18,7 @@ export default function SshAuditLog({ conn }: { conn: ServerConnection | null })
         setEntries(list);
         setError(null);
       },
-      (err: unknown) => setError(`Não foi possível ler o registro: ${err instanceof Error ? err.message : String(err)}`),
+      (err: unknown) => setError(t("ssh.loadError", { error: err instanceof Error ? err.message : String(err) })),
     );
   }
 
@@ -28,25 +29,23 @@ export default function SshAuditLog({ conn }: { conn: ServerConnection | null })
         if ((e.currentTarget as HTMLDetailsElement).open && entries === null) load();
       }}
     >
-      <summary>Registro de uso do SSH</summary>
-      <p className="skills-hint">
-        As últimas chamadas das ferramentas de SSH neste hub, da mais nova à mais antiga. Mostra o comando que o agente pediu (que pode ter um segredo) e como terminou; nunca a saída.
-      </p>
+      <summary>{t("ssh.title")}</summary>
+      <p className="skills-hint">{t("ssh.intro")}</p>
       {error && <p className="error-banner">{error}</p>}
-      {entries === null && !error && <p className="skills-hint">Carregando…</p>}
-      {entries !== null && entries.length === 0 && <p className="skills-hint">Nenhuma chamada registrada ainda.</p>}
+      {entries === null && !error && <p className="skills-hint">{t("common.loading")}</p>}
+      {entries !== null && entries.length === 0 && <p className="skills-hint">{t("ssh.none")}</p>}
       {entries !== null && entries.length > 0 && (
         <div className="ssh-audit-scroll">
         <table className="usage-table ssh-audit-table">
           <thead>
             <tr>
-              <th>Quando</th>
-              <th>Servidor</th>
-              <th>Agente</th>
-              <th>Ação</th>
-              <th>Aprovação</th>
-              <th>O que</th>
-              <th>Resultado</th>
+              <th>{t("ssh.col.when")}</th>
+              <th>{t("ssh.col.server")}</th>
+              <th>{t("ssh.col.agent")}</th>
+              <th>{t("ssh.col.action")}</th>
+              <th>{t("ssh.col.approval")}</th>
+              <th>{t("ssh.col.what")}</th>
+              <th>{t("ssh.col.result")}</th>
             </tr>
           </thead>
           <tbody>
@@ -66,7 +65,7 @@ export default function SshAuditLog({ conn }: { conn: ServerConnection | null })
         </div>
       )}
       <button type="button" className="link-button" onClick={load} disabled={!conn}>
-        Atualizar
+        {t("ssh.refresh")}
       </button>
     </details>
   );

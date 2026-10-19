@@ -12,19 +12,19 @@ const ids = (items) => items.map((c) => c.id);
 
 describe("quão recente é uma conversa", () => {
   test("conta no calendário: esta manhã é hoje, a noite passada é ontem", () => {
-    assert.equal(bucketLabel(at(0, 0), now), "Hoje");
-    assert.equal(bucketLabel(at(0, 11), now), "Hoje");
-    assert.equal(bucketLabel(new Date(2026, 9, 13, 23, 59, 59).getTime(), now), "Ontem");
-    assert.equal(bucketLabel(at(1, 0), now), "Ontem");
+    assert.equal(bucketLabel(at(0, 0), now), "Today");
+    assert.equal(bucketLabel(at(0, 11), now), "Today");
+    assert.equal(bucketLabel(new Date(2026, 9, 13, 23, 59, 59).getTime(), now), "Yesterday");
+    assert.equal(bucketLabel(at(1, 0), now), "Yesterday");
   });
 
   test("volta pela semana e pelo mês e depois é anterior", () => {
-    assert.equal(bucketLabel(at(2), now), "Últimos 7 dias");
-    assert.equal(bucketLabel(at(7, 0), now), "Últimos 7 dias", "os sete dias antes de ontem: de 2 a 7 dias atrás");
-    assert.equal(bucketLabel(at(8, 23), now), "Últimos 30 dias");
-    assert.equal(bucketLabel(at(30, 0), now), "Últimos 30 dias");
-    assert.equal(bucketLabel(at(31, 23), now), "Anteriores");
-    assert.equal(bucketLabel(0, now), "Anteriores");
+    assert.equal(bucketLabel(at(2), now), "Last 7 days");
+    assert.equal(bucketLabel(at(7, 0), now), "Last 7 days", "os sete dias antes de ontem: de 2 a 7 dias atrás");
+    assert.equal(bucketLabel(at(8, 23), now), "Last 30 days");
+    assert.equal(bucketLabel(at(30, 0), now), "Last 30 days");
+    assert.equal(bucketLabel(at(31, 23), now), "Older");
+    assert.equal(bucketLabel(0, now), "Older");
   });
 });
 
@@ -41,7 +41,7 @@ describe("a lista agrupada", () => {
     ];
     const grouped = groupConversations(list, now);
     assert.deepEqual(ids(grouped.pinned), ["fixa"]);
-    assert.deepEqual(grouped.buckets.map((b) => [b.label, ids(b.items)]), [["Hoje", ["nova", "nova2"]], ["Ontem", ["ontem"]], ["Últimos 7 dias", ["semana"]], ["Anteriores", ["velha"]]]);
+    assert.deepEqual(grouped.buckets.map((b) => [b.label, ids(b.items)]), [["Today", ["nova", "nova2"]], ["Yesterday", ["ontem"]], ["Last 7 days", ["semana"]], ["Older", ["velha"]]]);
     assert.deepEqual(ids(grouped.archived), ["guardada"]);
   });
 

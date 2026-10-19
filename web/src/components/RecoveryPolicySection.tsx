@@ -1,16 +1,17 @@
 import { useState } from "react";
 import { UserError, type ServerConnection } from "../hub/connection";
 import type { UserInfo } from "../hub/messages";
+import { intlTag, t, type Key } from "../i18n";
 
 // Recovery (P84 fatia 4 parte B): who besides a person may open their encrypted data. `private`: nobody.
 // `consent`: the owner's recovery key and the person's recovery code, together. `company`: the owner
 // alone, recorded and told to the person. The owner's key is shown once, when it's made, and typed in
 // for each recovery — the hub only keeps its public half. Every change asks for the pairing key.
 
-const POLICIES: Array<{ id: string; name: string; text: string }> = [
-  { id: "private", name: "Privado", text: "Ninguém além da pessoa abre os dados dela (senha ou código). Se ela perder os dois, perdeu." },
-  { id: "consent", name: "Com consentimento", text: "Você só recupera com a sua chave de recuperação e o código da pessoa, juntos. Nenhum dos dois abre sozinho." },
-  { id: "company", name: "De empresa", text: "Você recupera sozinho, com a sua chave. Cada uso fica registrado e a pessoa é avisada ao entrar." },
+const POLICIES: Array<{ id: string; name: Key; text: Key }> = [
+  { id: "private", name: "recoveryPolicy.private", text: "recoveryPolicy.privateText" },
+  { id: "consent", name: "recoveryPolicy.consent", text: "recoveryPolicy.consentText" },
+  { id: "company", name: "recoveryPolicy.company", text: "recoveryPolicy.companyText" },
 ];
 
 function message(err: unknown): string {
@@ -18,7 +19,7 @@ function message(err: unknown): string {
 }
 
 function when(atMs: number): string {
-  return new Date(atMs).toLocaleString("pt-BR");
+  return new Date(atMs).toLocaleString(intlTag());
 }
 
 interface Props {
@@ -54,7 +55,7 @@ export default function RecoveryPolicySection({ conn, users, policy, onChanged }
       setPairingKey("");
       onChanged(null, reply.policy);
     } catch (err) {
-      setError(err instanceof UserError && err.authRejected ? "Chave de pareamento errada." : message(err));
+      setError(err instanceof UserError && err.authRejected ? t("pairingKey.wrong") : message(err));
     } finally {
       setBusy(false);
     }
@@ -72,7 +73,7 @@ export default function RecoveryPolicySection({ conn, users, policy, onChanged }
       setRecovering(null);
       onChanged(reply.users, reply.recoveryPolicy ?? policy, reply.tempPassword ? { id, password: reply.tempPassword } : undefined);
     } catch (err) {
-      setError(err instanceof UserError && err.authRejected ? "Chave de pareamento errada." : message(err));
+      setError(err instanceof UserError && err.authRejected ? t("pairingKey.wrong") : message(err));
     } finally {
       setBusy(false);
     }
@@ -81,65 +82,59 @@ export default function RecoveryPolicySection({ conn, users, policy, onChanged }
   return (
     <>
       <div className="skills-header">
-        <h2>Recuperação dos dados</h2>
+        <h2>{t("recoveryPolicy.title")}</h2>
       </div>
-      <p className="skills-hint">
-        Os dados de cada pessoa ficam criptografados no hub. Aqui você decide se pode ajudar quem perdeu a senha e o código. Quem controla a máquina do hub sempre
-        consegue, tecnicamente, ver o que um agente vê enquanto trabalha, e o registro e o aviso protegem contra o uso descuidado, não contra quem edita os arquivos
-        do hub.
-      </p>
+      <p className="skills-hint">{t("recoveryPolicy.intro")}</p>
 
       {secret && (
         <div className="error-banner">
           <p>
-            <strong>A sua chave de recuperação — aparece só agora.</strong> Anote num lugar seguro, fora desta máquina. Ela nunca fica guardada no hub, e sem ela você não
-            consegue recuperar os dados de ninguém.
+            <strong>{t("recoveryPolicy.yourKey")}</strong>
+            {t("recoveryPolicy.yourKeyRest")}
           </p>
           <p className="recovery-code">
             <code>{secret}</code>
           </p>
           <button type="button" className="link-button" onClick={() => setSecret(null)}>
-            Anotei, pode esconder
+            {t("recoveryPolicy.hide")}
           </button>
         </div>
       )}
 
       <form className="settings-confirm devices-confirm" onSubmit={(e) => void apply(e)}>
         <fieldset className="settings-field">
-          <legend>Política do workspace</legend>
+          <legend>{t("recoveryPolicy.workspacePolicy")}</legend>
           {POLICIES.map((p) => (
             <label key={p.id} className="checkbox-row">
               <input type="radio" name="recovery-policy" checked={chosen === p.id} onChange={() => setChosen(p.id)} />
               <span>
-                <strong>{p.name}</strong> — {p.text}
+                <strong>{t(p.name)}</strong> — {t(p.text)}
               </span>
             </label>
           ))}
-          {chosen !== policy && chosen !== "private" && (
-            <span className="field-hint">Cada pessoa vê o aviso ao entrar, e uma mudança para uma política mais fraca precisa do aceite dela; até lá os dados continuam como estavam.</span>
-          )}
+          {chosen !== policy && chosen !== "private" && <span className="field-hint">{t("recoveryPolicy.changeNote")}</span>}
         </fieldset>
         {chosen !== "private" && (
           <label className="checkbox-row">
             <input type="checkbox" checked={newKey} onChange={(e) => setNewKey(e.target.checked)} />
-            Trocar a minha chave de recuperação por uma nova
+            {t("recoveryPolicy.newKey")}
           </label>
         )}
         <label className="settings-field">
-          Chave de pareamento do hub
+          {t("pairingKey.label")}
           <input type="password" autoComplete="current-password" value={pairingKey} onChange={(e) => setPairingKey(e.target.value)} />
         </label>
         {error && !recovering && <p className="error-banner">{error}</p>}
         <div className="skills-actions">
           <button type="submit" className="primary-button" disabled={busy || !conn || pairingKey.trim() === "" || (chosen === policy && !newKey)}>
-            {busy ? "Aguarde…" : "Aplicar"}
+            {busy ? t("common.wait") : t("recoveryPolicy.apply")}
           </button>
         </div>
       </form>
 
       {policy !== "private" && encrypted.length > 0 && (
         <>
-          <h3>Recuperar os dados de uma pessoa</h3>
+          <h3>{t("recoveryPolicy.recoverTitle")}</h3>
           <ul className="skills-list">
             {encrypted.map((user) => {
               const mine = recovering?.user.id === user.id ? recovering : null;
@@ -148,33 +143,31 @@ export default function RecoveryPolicySection({ conn, users, policy, onChanged }
                 <li key={user.id} className="skills-item">
                   <div className="skills-item-header">
                     <span className="skills-item-name">{user.name}</span>
-                    <span className="devices-status devices-status--approved">{user.policyPending ? "política pendente" : (user.memberPolicy ?? "")}</span>
+                    <span className="devices-status devices-status--approved">{user.policyPending ? t("recoveryPolicy.pending") : (user.memberPolicy ?? "")}</span>
                   </div>
                   <p className="skills-item-description">
-                    {can
-                      ? user.memberPolicy === "consent"
-                        ? "Precisa da sua chave e do código de recuperação da pessoa."
-                        : "Precisa só da sua chave."
-                      : "Os dados ainda estão como “privado”: a pessoa precisa entrar e aceitar a política nova."}
-                    {user.recoveries && user.recoveries.length > 0 && ` Recuperado ${user.recoveries.length} vez(es), a última em ${when(user.recoveries[user.recoveries.length - 1].atMs)}.`}
+                    {can ? (user.memberPolicy === "consent" ? t("recoveryPolicy.needsBoth") : t("recoveryPolicy.needsKey")) : t("recoveryPolicy.stillPrivate")}
+                    {user.recoveries &&
+                      user.recoveries.length > 0 &&
+                      t("recoveryPolicy.recovered", { count: user.recoveries.length, when: when(user.recoveries[user.recoveries.length - 1].atMs) })}
                   </p>
                   {mine ? (
                     <form className="settings-confirm devices-confirm" onSubmit={(e) => void recover(e)}>
                       <label className="settings-field">
-                        Sua chave de recuperação
+                        {t("recoveryPolicy.yourRecoveryKey")}
                         <input type="text" autoComplete="off" spellCheck={false} value={mine.recoveryKey} onChange={(e) => setRecovering({ ...mine, recoveryKey: e.target.value })} />
                       </label>
                       {user.memberPolicy === "consent" && (
                         <label className="settings-field">
-                          Código de recuperação da pessoa
+                          {t("recoveryPolicy.personCode")}
                           <input type="text" autoComplete="off" spellCheck={false} value={mine.code} onChange={(e) => setRecovering({ ...mine, code: e.target.value })} />
                         </label>
                       )}
                       <label className="settings-field">
-                        Chave de pareamento do hub
+                        {t("pairingKey.label")}
                         <input type="password" autoComplete="current-password" value={pairingKey} onChange={(e) => setPairingKey(e.target.value)} />
                       </label>
-                      <p className="field-hint">A pessoa recebe uma senha provisória, vê o aviso ao entrar e a recuperação fica registrada.</p>
+                      <p className="field-hint">{t("recoveryPolicy.aftermath")}</p>
                       {error && <p className="error-banner">{error}</p>}
                       <div className="skills-actions">
                         <button
@@ -182,10 +175,10 @@ export default function RecoveryPolicySection({ conn, users, policy, onChanged }
                           className="primary-button"
                           disabled={busy || pairingKey.trim() === "" || mine.recoveryKey.trim() === "" || (user.memberPolicy === "consent" && mine.code.trim() === "")}
                         >
-                          {busy ? "Aguarde…" : "Recuperar"}
+                          {busy ? t("common.wait") : t("recoveryPolicy.recover")}
                         </button>
                         <button type="button" className="link-button" disabled={busy} onClick={() => setRecovering(null)}>
-                          Cancelar
+                          {t("common.cancel")}
                         </button>
                       </div>
                     </form>
@@ -200,7 +193,7 @@ export default function RecoveryPolicySection({ conn, users, policy, onChanged }
                           setRecovering({ user, recoveryKey: "", code: "" });
                         }}
                       >
-                        Recuperar
+                        {t("recoveryPolicy.recover")}
                       </button>
                     </div>
                   )}

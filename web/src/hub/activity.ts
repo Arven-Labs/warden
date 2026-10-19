@@ -1,11 +1,10 @@
 // P121 — o feed de atividade: quem fez o quê entre os agentes, do mais novo ao mais velho. Puro; a tela só desenha o que sai daqui.
 
+import { intlTag, t } from "../i18n/index.ts";
 import type { ActivityEvent } from "./messages";
 
-/** Como a tela chama o agente que atende sem ninguém escolhido (um evento sem `actor`). */
-export const NO_AGENT_NAME = "O assistente";
-
-const who = (name: string) => (name.trim() === "" ? NO_AGENT_NAME : name);
+/** What the screen calls the agent that answers when nobody was picked (an event with no `actor`). */
+const who = (name: string) => (name.trim() === "" ? t("activity.noAgent") : name);
 
 /** As execuções de tarefa agendada e de webhook: o alvo delas é o id da tarefa ou do webhook, não um agente. */
 const RUN_KINDS = new Set(["scheduled_ran", "scheduled_failed", "webhook_ran", "webhook_failed"]);
@@ -19,35 +18,35 @@ export function headline(event: ActivityEvent): string {
   const target = event.target ? who(event.target) : "";
   switch (event.kind) {
     case "created_agent":
-      return `${actor} criou o agente ${target}`;
+      return t("activity.agent_created", { actor, target });
     case "removed_agent":
-      return `${actor} removeu o agente ${target}`;
+      return t("activity.agent_deleted", { actor, target });
     case "updated_agent":
-      return `${actor} alterou o agente ${target}`;
+      return t("activity.agent_updated", { actor, target });
     case "scheduled_ran":
-      return `${actor} rodou a tarefa agendada ${target}`;
+      return t("activity.scheduled_ran", { actor, target });
     case "scheduled_failed":
-      return `A tarefa agendada ${target} falhou`;
+      return t("activity.scheduled_failed", { target });
     case "webhook_ran":
-      return `${actor} atendeu o webhook ${target}`;
+      return t("activity.webhook_ran", { actor, target });
     case "webhook_failed":
-      return `O webhook ${target} falhou`;
+      return t("activity.webhook_failed", { target });
     case "delegated":
-      return `${actor} delegou uma tarefa a ${target}`;
+      return t("activity.task_delegated", { actor, target });
     case "started":
-      return `${actor} começou a tarefa`;
+      return t("activity.task_started", { actor });
     case "done":
-      return `${actor} concluiu a tarefa`;
+      return t("activity.task_done", { actor });
     case "failed":
-      return `${actor} não conseguiu concluir a tarefa`;
+      return t("activity.task_failed", { actor });
     case "cancelled":
-      return `A tarefa de ${actor} foi cancelada`;
+      return t("activity.task_cancelled", { actor });
     case "note":
-      return `${actor} deixou um recado para ${target}`;
+      return t("activity.note_left", { actor, target });
     case "reply":
-      return `${actor} respondeu a ${target}`;
+      return t("activity.note_answered", { actor, target });
     case "messaged_user":
-      return `${actor} escreveu para você`;
+      return t("activity.note_to_you", { actor });
     default:
       return `${actor}: ${event.kind}`;
   }
@@ -130,13 +129,13 @@ const dayKey = (ms: number) => {
 
 /** Os eventos (já do mais novo ao mais velho) separados por dia, com o rótulo de cada dia. */
 export function groupByDay(events: ActivityEvent[], now: number): DayGroup[] {
-  const formatter = new Intl.DateTimeFormat("pt-BR", { day: "2-digit", month: "long", year: "numeric" });
+  const formatter = new Intl.DateTimeFormat(intlTag(), { day: "2-digit", month: "long", year: "numeric" });
   const today = dayKey(now);
   const yesterday = dayKey(now - 24 * 60 * 60 * 1000);
   const groups: DayGroup[] = [];
   for (const event of events) {
     const key = dayKey(event.atMs);
-    const label = key === today ? "Hoje" : key === yesterday ? "Ontem" : formatter.format(event.atMs);
+    const label = key === today ? t("activity.today") : key === yesterday ? t("activity.yesterday") : formatter.format(event.atMs);
     const last = groups[groups.length - 1];
     if (last && last.label === label) last.events.push(event);
     else groups.push({ label, events: [event] });

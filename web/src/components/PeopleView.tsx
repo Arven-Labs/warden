@@ -2,6 +2,8 @@ import { useCallback, useEffect, useState } from "react";
 import { UserError, type ServerConnection } from "../hub/connection";
 import type { NodeFolder, RemovedUser, UserInfo } from "../hub/messages";
 import { ORG_ACCESS_CHOICES, orgAccessLabel, orgAccessOf, type OrgAccess } from "../hub/org";
+import { t } from "../i18n";
+import { rich } from "../i18n/rich";
 import RecoveryPolicySection from "./RecoveryPolicySection";
 import SharedSpacesSection from "./SharedSpacesSection";
 
@@ -45,13 +47,13 @@ const lines = (text: string): string[] => text.split("\n").map((l) => l.trim()).
 /** Which folders a person may pick, in a few words. */
 function foldersLabel(user: UserInfo): string {
   const count = (user.workdirs?.length ?? 0) + (user.nodeWorkdirs?.length ?? 0);
-  return count === 0 ? "sem pastas de trabalho" : `${count} pasta${count === 1 ? "" : "s"} de trabalho liberada${count === 1 ? "" : "s"}`;
+  return count === 0 ? t("people.noFolders") : t(count === 1 ? "people.foldersOne" : "people.foldersMany", { count });
 }
 
 /** The button that opens the models a person may give their agents, with how many are released. */
 function modelsLabel(user: UserInfo): string {
   const count = user.models?.length ?? 0;
-  return count === 0 ? "Modelos (só o padrão)" : `Modelos (${count} liberado${count === 1 ? "" : "s"})`;
+  return count === 0 ? t("people.modelsDefault") : t(count === 1 ? "people.modelsOne" : "people.modelsMany", { count });
 }
 
 /** Mirrors `warden_bootstrap::users::default_member_tool`: what a member has when you never chose. */
@@ -64,16 +66,16 @@ const NEVER_FOR_MEMBERS = ["delegate_to_agent", "message_agent", "manage_agents"
 
 /** What each person's tools reach, in a few words. */
 function toolsLabel(user: UserInfo): string {
-  if (user.tools == null) return "ferramentas padrão (arquivos e skills do próprio vault, busca na web)";
-  if (user.tools.length === 0) return "nenhuma ferramenta";
-  return `ferramentas: ${user.tools.join(", ")}`;
+  if (user.tools == null) return t("people.toolsDefault");
+  if (user.tools.length === 0) return t("people.toolsNone");
+  return t("people.tools", { tools: user.tools.join(", ") });
 }
 
 /** P84 fatia 4: whether a person's data is encrypted on the hub — the owner sees the state, never the data. */
 function dataLabel(user: UserInfo): string {
-  if (!user.encrypted) return "dados ainda sem criptografia (a pessoa precisa entrar uma vez com a senha dela)";
-  if (user.needsRecovery) return "dados criptografados; a pessoa precisa do código de recuperação dela";
-  return "dados criptografados";
+  if (!user.encrypted) return t("people.dataPlain");
+  if (user.needsRecovery) return t("people.dataNeedsCode");
+  return t("people.dataEncrypted");
 }
 
 function message(err: unknown): string {
@@ -118,7 +120,7 @@ export default function PeopleView({ conn }: { conn: ServerConnection | null }) 
     conn
       ?.requestSettings()
       .then(({ settings }) => {
-        setToolNames(settings.toolNames.filter((t) => !NEVER_FOR_MEMBERS.includes(t)));
+        setToolNames(settings.toolNames.filter((name) => !NEVER_FOR_MEMBERS.includes(name)));
         setModelIds([...settings.providers.map((p) => p.id), ...settings.combos.map((c) => c.id)]);
       })
       .catch(() => {
@@ -171,7 +173,7 @@ export default function PeopleView({ conn }: { conn: ServerConnection | null }) 
       cancel();
     } catch (err) {
       if (err instanceof UserError && err.authRejected) {
-        setKeyError("Chave de pareamento errada.");
+        setKeyError(t("pairingKey.wrong"));
       } else {
         setKeyError(message(err));
       }
@@ -190,17 +192,17 @@ export default function PeopleView({ conn }: { conn: ServerConnection | null }) 
     >
       {extra}
       <label className="settings-field">
-        Chave de pareamento do hub
+        {t("pairingKey.label")}
         <input type="password" autoComplete="current-password" value={pairingKey} onChange={(e) => setPairingKey(e.target.value)} />
-        <span className="field-hint">É pedida a cada mudança.</span>
+        <span className="field-hint">{t("people.keyHint")}</span>
       </label>
       {keyError && <p className="error-banner">{keyError}</p>}
       <div className="skills-actions">
         <button type="submit" className={danger ? "primary-button skills-danger" : "primary-button"} disabled={busy || pairingKey.trim() === "" || !conn}>
-          {busy ? "Aguarde…" : label}
+          {busy ? t("common.wait") : label}
         </button>
         <button type="button" className="link-button" disabled={busy} onClick={cancel}>
-          Cancelar
+          {t("common.cancel")}
         </button>
       </div>
     </form>
@@ -209,69 +211,61 @@ export default function PeopleView({ conn }: { conn: ServerConnection | null }) 
   return (
     <div className="skills-view">
       <div className="skills-header">
-        <h2>Pessoas</h2>
+        <h2>{t("people.title")}</h2>
         <button type="button" className="primary-button" disabled={!conn || asking !== null} onClick={() => setAsking({ kind: "create", id: "", name: "" })}>
-          Adicionar pessoa
+          {t("people.add")}
         </button>
       </div>
-      <p className="skills-hint">
-        Quem mais usa este Warden. Cada pessoa entra com o próprio usuário e senha e tem o próprio vault e as próprias conversas, que você não vê.
-        Ela conversa com os agentes que você compartilhar (em Configurações), sempre com a memória dela e só com as ferramentas que você
-        liberar aqui, e pode criar agentes próprios.
-      </p>
+      <p className="skills-hint">{t("people.intro")}</p>
       {error && <p className="error-banner">{error}</p>}
 
       {shown && (
         <div className="settings-confirm">
-          <p>
-            Senha provisória de <strong>{shown.id}</strong> (só aparece agora): <code>{shown.password}</code>
-          </p>
-          <p className="skills-hint">Passe para a pessoa junto com o usuário. No primeiro acesso ela troca pela senha dela.</p>
+          <p>{rich("people.tempPassword", { id: <strong>{shown.id}</strong>, password: <code>{shown.password}</code> })}</p>
+          <p className="skills-hint">{t("people.tempHint")}</p>
           <button type="button" className="link-button" onClick={() => setShown(null)}>
-            Já anotei
+            {t("people.noted")}
           </button>
         </div>
       )}
 
       {invite && (
         <div className="settings-confirm">
-          <p>
-            Convite de TruthID para <strong>{invite.id}</strong> (só aparece agora, vale 7 dias e serve uma vez): <code>{invite.code}</code>
-          </p>
-          <p className="skills-hint">A pessoa entra, abre "Trocar senha" no cabeçalho e, em "Ligar meu TruthID", informa este código e o usuário dela no TruthID.</p>
+          <p>{rich("people.inviteShown", { id: <strong>{invite.id}</strong>, code: <code>{invite.code}</code> })}</p>
+          <p className="skills-hint">{t("people.inviteHint")}</p>
           <button type="button" className="link-button" onClick={() => setInvite(null)}>
-            Já anotei
+            {t("people.noted")}
           </button>
         </div>
       )}
 
       {asking?.kind === "create" &&
         keyForm(
-          "Criar",
+          t("people.create"),
           false,
           <>
             <label className="settings-field">
-              Usuário
+              {t("people.user")}
               <input
                 autoCapitalize="none"
                 value={asking.id}
                 onChange={(e) => setAsking({ ...asking, id: e.target.value })}
-                placeholder="ana"
+                placeholder={t("people.userPlaceholder")}
                 autoFocus
               />
-              <span className="field-hint">Letras minúsculas, números, - ou _. É como a pessoa entra.</span>
+              <span className="field-hint">{t("people.userHint")}</span>
             </label>
             <label className="settings-field">
-              Nome
-              <input value={asking.name} onChange={(e) => setAsking({ ...asking, name: e.target.value })} placeholder="Ana Souza" />
+              {t("common.name")}
+              <input value={asking.name} onChange={(e) => setAsking({ ...asking, name: e.target.value })} placeholder={t("people.namePlaceholder")} />
             </label>
           </>,
         )}
 
       {users === null ? (
-        <p className="skills-hint">Carregando…</p>
+        <p className="skills-hint">{t("common.loading")}</p>
       ) : users.length === 0 ? (
-        <p className="skills-hint">Só você por enquanto.</p>
+        <p className="skills-hint">{t("people.onlyYou")}</p>
       ) : (
         <ul className="skills-list">
           {users.map((user) => {
@@ -281,38 +275,38 @@ export default function PeopleView({ conn }: { conn: ServerConnection | null }) 
                 <div className="skills-item-header">
                   <span className="skills-item-name">{user.name}</span>
                   <span className={`devices-status devices-status--${user.mustChangePassword ? "pending" : "approved"}`}>
-                    {user.mustChangePassword ? "Senha provisória" : "Ativo"}
+                    {user.mustChangePassword ? t("people.tempPasswordBadge") : t("people.active")}
                   </span>
                 </div>
                 <p className="skills-item-description">
                   <code>{user.id}</code> · {toolsLabel(user)}
-                  {user.agents.length > 0 && ` · agentes próprios: ${user.agents.join(", ")}`}
+                  {user.agents.length > 0 && t("people.ownAgents", { agents: user.agents.join(", ") })}
                   {` · ${dataLabel(user)}`}
                   {` · ${foldersLabel(user)}`}
-                  {user.learningProvider ? ` · aprendizado com: ${user.learningProvider}` : ""}
+                  {user.learningProvider ? t("people.learningWith", { provider: user.learningProvider }) : ""}
                   {` · ${orgAccessLabel(orgAccessOf(user.orgAccess))}`}
-                  {user.truthid ? ` · TruthID: @${user.truthid}` : user.inviteOpen ? " · convite de TruthID aberto" : ""}
+                  {user.truthid ? t("people.truthIdLinked", { name: user.truthid }) : user.inviteOpen ? t("people.inviteOpen") : ""}
                 </p>
                 {mine?.kind === "rename" &&
                   keyForm(
-                    "Salvar",
+                    t("people.save"),
                     false,
                     <label className="settings-field">
-                      Nome
+                      {t("common.name")}
                       <input value={mine.name} onChange={(e) => setAsking({ ...mine, name: e.target.value })} autoFocus />
                     </label>,
                   )}
-                {mine?.kind === "reset" && keyForm("Gerar senha provisória")}
-                {mine?.kind === "invite" && keyForm("Gerar convite")}
-                {mine?.kind === "unlink" && keyForm("Desligar TruthID", true)}
+                {mine?.kind === "reset" && keyForm(t("people.genTemp"))}
+                {mine?.kind === "invite" && keyForm(t("people.genInvite"))}
+                {mine?.kind === "unlink" && keyForm(t("people.unlink"), true)}
                 {mine?.kind === "tools" &&
                   keyForm(
-                    "Salvar ferramentas",
+                    t("people.saveTools"),
                     false,
                     <fieldset className="settings-tools">
                       <label className="settings-check">
                         <input type="checkbox" checked={mine.tools === null} onChange={(e) => setAsking({ ...mine, tools: e.target.checked ? null : toolNames.filter(safeByDefault) })} />
-                        Usar o padrão seguro
+                        {t("people.useSafeDefault")}
                       </label>
                       {mine.tools !== null &&
                         toolNames.map((tool) => (
@@ -320,75 +314,70 @@ export default function PeopleView({ conn }: { conn: ServerConnection | null }) 
                             <input
                               type="checkbox"
                               checked={mine.tools!.includes(tool)}
-                              onChange={(e) => setAsking({ ...mine, tools: e.target.checked ? [...mine.tools!, tool] : mine.tools!.filter((t) => t !== tool) })}
+                              onChange={(e) => setAsking({ ...mine, tools: e.target.checked ? [...mine.tools!, tool] : mine.tools!.filter((x) => x !== tool) })}
                             />
                             <code>{tool}</code>
-                            {!safeByDefault(tool) && <span className="skills-danger"> alcança o que é seu (terminal, nós, integrações)</span>}
+                            {!safeByDefault(tool) && <span className="skills-danger">{t("people.reachesOwn")}</span>}
                           </label>
                         ))}
-                      <span className="field-hint">Um agente nunca passa disso, nem do que o próprio agente pode.</span>
+                      <span className="field-hint">{t("people.toolsCap")}</span>
                     </fieldset>,
                   )}
                 {mine?.kind === "folders" &&
                   keyForm(
-                    "Salvar pastas",
+                    t("people.saveFolders"),
                     false,
                     <>
                       <label className="settings-field">
-                        Pastas do computador do hub que {user.name} pode escolher
+                        {t("people.hubFolders", { name: user.name })}
                         <textarea
                           rows={3}
                           value={mine.workdirs}
                           onChange={(e) => setAsking({ ...mine, workdirs: e.target.value })}
-                          placeholder="/srv/trabalho"
+                          placeholder={t("people.foldersPlaceholder")}
                           autoFocus
                         />
-                        <span className="field-hint">Uma por linha, caminho absoluto. Vale a pasta e tudo dentro dela. Vazio: nenhuma.</span>
+                        <span className="field-hint">{t("people.hubFoldersHint")}</span>
                       </label>
                       <label className="settings-field">
-                        Pastas de nós
+                        {t("people.nodeFolders")}
                         <textarea
                           rows={3}
                           value={mine.nodeWorkdirs}
                           onChange={(e) => setAsking({ ...mine, nodeWorkdirs: e.target.value })}
-                          placeholder="node-casa-1a2b3c4d:projetos"
+                          placeholder={t("people.nodeFoldersPlaceholder")}
                         />
-                        <span className="field-hint">
-                          Uma por linha, no formato <code>id-do-nó:pasta</code>, com a pasta relativa ao que o nó empresta (só o id, sem a pasta, libera tudo o que ele empresta). O id aparece
-                          em Aparelhos, nos nós.
-                        </span>
+                        <span className="field-hint">{rich("people.nodeFoldersHint", { fmt: <code>{t("people.nodeFoldersFormat")}</code> })}</span>
                       </label>
-                      <span className="field-hint">
-                        {user.name} escolhe a pasta antes da primeira mensagem de uma conversa. Com elas a IA lê e escreve só ali; o terminal só se você liberar a ferramenta shell.
-                      </span>
+                      <span className="field-hint">{t("people.foldersNote", { name: user.name })}</span>
                     </>,
                   )}
                 {mine?.kind === "learning" &&
                   keyForm(
-                    "Salvar modelo",
+                    t("people.saveModel"),
                     false,
                     <label className="settings-field">
-                      Modelo com que a IA aprende das conversas de {user.name}
+                      {t("people.learningModel", { name: user.name })}
                       <select value={mine.provider} onChange={(e) => setAsking({ ...mine, provider: e.target.value })}>
-                        <option value="">Padrão do workspace</option>
+                        <option value="">{t("people.workspaceDefault")}</option>
                         {/* A model the hub no longer has stays listed, so saving doesn't silently swap it. */}
-                        {mine.provider && !modelIds.includes(mine.provider) && <option value={mine.provider}>{mine.provider} (não existe mais)</option>}
+                        {mine.provider && !modelIds.includes(mine.provider) && <option value={mine.provider}>{t("people.noLongerExists", { id: mine.provider })}</option>}
                         {modelIds.map((id) => (
                           <option key={id} value={id}>
                             {id}
                           </option>
                         ))}
                       </select>
-                      <span className="field-hint">O gasto conta no canal “learning”. Vale só se o aprendizado estiver ligado e a pessoa não tiver optado por sair.</span>
+                      <span className="field-hint">{t("people.learningHint")}</span>
                     </label>,
                   )}
                 {mine?.kind === "models" &&
                   keyForm(
-                    "Salvar modelos",
+                    t("people.saveModels"),
                     false,
                     <fieldset className="settings-tools">
-                      <legend>Modelos que {user.name} pode dar aos agentes próprios</legend>
-                      {modelIds.length === 0 && <span className="field-hint">O hub ainda não tem nenhum provedor.</span>}
+                      <legend>{t("people.modelsLegend", { name: user.name })}</legend>
+                      {modelIds.length === 0 && <span className="field-hint">{t("people.noProviders")}</span>}
                       {modelIds.map((id) => (
                         <label key={id} className="settings-check">
                           <input
@@ -399,17 +388,15 @@ export default function PeopleView({ conn }: { conn: ServerConnection | null }) 
                           <code>{id}</code>
                         </label>
                       ))}
-                      <span className="field-hint">
-                        Sem nenhum marcado, os agentes de {user.name} usam só o modelo padrão do hub. Cada modelo usa a chave que é sua, e o gasto conta no limite da pessoa. Tirar um modelo manda os agentes que o usavam de volta ao padrão.
-                      </span>
+                      <span className="field-hint">{t("people.modelsHint", { name: user.name })}</span>
                     </fieldset>,
                   )}
                 {mine?.kind === "orgAccess" &&
                   keyForm(
-                    "Salvar acesso",
+                    t("people.saveAccess"),
                     false,
                     <fieldset className="settings-field">
-                      <legend>O que {user.name} faz com o organograma dos agentes</legend>
+                      <legend>{t("people.orgLegend", { name: user.name })}</legend>
                       {ORG_ACCESS_CHOICES.map((choice) => (
                         <label key={choice.value} className="settings-check">
                           <input type="radio" name={`org-${user.id}`} checked={mine.access === choice.value} onChange={() => setAsking({ ...mine, access: choice.value })} />
@@ -417,27 +404,24 @@ export default function PeopleView({ conn }: { conn: ServerConnection | null }) 
                           <span className="field-hint"> {choice.hint}</span>
                         </label>
                       ))}
-                      <span className="field-hint">A árvore é uma só, a do workspace. Com “Vê e edita”, quem tem acesso muda a hierarquia sem a chave do hub; os poderes de cada agente continuam só seus.</span>
+                      <span className="field-hint">{t("people.orgHint")}</span>
                     </fieldset>,
                   )}
                 {mine?.kind === "remove" &&
                   keyForm(
-                    "Remover",
+                    t("people.remove"),
                     true,
                     <p className="error-banner">
-                      {user.name} sai do workspace e os aparelhos são desconectados.{" "}
-                      {user.encrypted
-                        ? "O vault e as conversas ficam no disco do hub, criptografados. A pessoa fica guardada como removida, com a chave que abre os dados: warden-server users restore traz de volta, e users purge apaga tudo de vez."
-                        : "O vault e as conversas ficam guardados no hub."}
+                      {t("people.removeWarning", { name: user.name })} {user.encrypted ? t("people.removeEncrypted") : t("people.removePlain")}
                     </p>,
                   )}
                 {!mine && (
                   <div className="skills-actions">
                     <button type="button" className="link-button" disabled={!conn || asking !== null} onClick={() => setAsking({ kind: "rename", user, name: user.name })}>
-                      Renomear
+                      {t("people.rename")}
                     </button>
                     <button type="button" className="link-button" disabled={!conn || asking !== null} onClick={() => setAsking({ kind: "tools", user, tools: user.tools ?? null })}>
-                      Ferramentas
+                      {t("people.toolsButton")}
                     </button>
                     <button
                       type="button"
@@ -452,36 +436,36 @@ export default function PeopleView({ conn }: { conn: ServerConnection | null }) 
                         })
                       }
                     >
-                      Pastas de trabalho
+                      {t("people.workFolders")}
                     </button>
                     <button type="button" className="link-button" disabled={!conn || asking !== null} onClick={() => setAsking({ kind: "models", user, models: user.models ?? [] })}>
                       {modelsLabel(user)}
                     </button>
                     <button type="button" className="link-button" disabled={!conn || asking !== null} onClick={() => setAsking({ kind: "learning", user, provider: user.learningProvider ?? "" })}>
-                      Modelo do aprendizado
+                      {t("people.learningButton")}
                     </button>
                     <button type="button" className="link-button" disabled={!conn || asking !== null} onClick={() => setAsking({ kind: "orgAccess", user, access: orgAccessOf(user.orgAccess) })}>
-                      Organograma
+                      {t("people.orgButton")}
                     </button>
                     <button type="button" className="link-button" disabled={!conn || asking !== null} onClick={() => setAsking({ kind: "reset", user })}>
-                      Nova senha provisória
+                      {t("people.newTemp")}
                     </button>
                     {user.truthid ? (
                       <button type="button" className="link-button" disabled={!conn || asking !== null} onClick={() => setAsking({ kind: "unlink", user })}>
-                        Desligar TruthID
+                        {t("people.unlink")}
                       </button>
                     ) : (
                       <button type="button" className="link-button" disabled={!conn || asking !== null} onClick={() => setAsking({ kind: "invite", user })}>
-                        Convidar para o TruthID
+                        {t("people.inviteToTruthId")}
                       </button>
                     )}
                     {!user.truthid && user.inviteOpen && (
                       <button type="button" className="link-button" disabled={!conn || asking !== null} onClick={() => setAsking({ kind: "unlink", user })}>
-                        Cancelar convite
+                        {t("people.cancelInvite")}
                       </button>
                     )}
                     <button type="button" className="link-button skills-danger" disabled={!conn || asking !== null} onClick={() => setAsking({ kind: "remove", user })}>
-                      Remover
+                      {t("people.remove")}
                     </button>
                   </div>
                 )}
@@ -493,28 +477,24 @@ export default function PeopleView({ conn }: { conn: ServerConnection | null }) 
 
       {removed.length > 0 && (
         <>
-          <h3>Pessoas removidas</h3>
-          <p className="skills-hint">
-            Saíram do workspace, mas os dados criptografados delas continuam no disco do hub, com a chave que os abre guardada. Restaurar traz a
-            pessoa de volta com a senha que ela tinha; os aparelhos dela foram desconectados na remoção, então ela entra de novo. Apagar de vez é só
-            pela linha de comando: <code>warden-server users purge</code>.
-          </p>
+          <h3>{t("people.removedTitle")}</h3>
+          <p className="skills-hint">{rich("people.removedIntro", { cmd: <code>warden-server users purge</code> })}</p>
           <ul className="skills-list">
             {removed.map((gone) => (
               <li key={gone.id} className="skills-item">
                 <div className="skills-item-header">
                   <span className="skills-item-name">{gone.name}</span>
-                  <span className="devices-status devices-status--pending">Removida</span>
+                  <span className="devices-status devices-status--pending">{t("people.removedBadge")}</span>
                 </div>
                 <p className="skills-item-description">
                   <code>{gone.id}</code>
                 </p>
                 {asking?.kind === "restore" && asking.user.id === gone.id ? (
-                  keyForm("Restaurar")
+                  keyForm(t("people.restore"))
                 ) : (
                   <div className="skills-actions">
                     <button type="button" className="link-button" disabled={!conn || asking !== null} onClick={() => setAsking({ kind: "restore", user: gone })}>
-                      Restaurar
+                      {t("people.restore")}
                     </button>
                   </div>
                 )}

@@ -1,5 +1,6 @@
 // P125 — as threads: uma conversa filha ligada a uma mensagem de outra. Pura, para testar sem janela. Espelha `desktop/src/lib/threads.ts`.
 
+import { t } from "../i18n/index.ts";
 import type { ChatEntry } from "./connection";
 import type { ConversationSummary } from "./messages";
 
@@ -49,7 +50,7 @@ export function withMessageIds(entries: ChatEntry[], history: Array<{ id?: strin
   });
 }
 
-/** O que o chip de uma mensagem diz: `1 resposta`, `3 respostas`. */
+/** What the chip of a message says: `1 reply`, `3 replies`. */
 export function repliesLabel(replies: number): string {
-  return replies === 1 ? "1 resposta" : `${replies} respostas`;
+  return t(replies === 1 ? "replies.one" : "replies.many", { count: replies });
 }

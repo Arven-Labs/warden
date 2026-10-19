@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { ChatEntry, ServerConnection } from "../hub/connection";
 import { historyToEntries } from "../hub/connection";
 import type { Attachment } from "../hub/messages";
+import { t } from "../i18n";
 import ChatView from "./ChatView";
 
 const HISTORY_LIMIT = 200;
@@ -49,7 +50,7 @@ export default function ThreadPanel({
     setPending(false);
     conn.fetchHistory(threadId, HISTORY_LIMIT).then(
       (history) => alive && setEntries(historyToEntries(history)),
-      (err) => alive && setEntries([{ role: "error", content: `Não foi possível carregar a thread: ${errorText(err)}`, attachments: [] }]),
+      (err) => alive && setEntries([{ role: "error", content: t("thread.loadError", { error: errorText(err) }), attachments: [] }]),
     );
     return () => {
       alive = false;
@@ -82,30 +83,30 @@ export default function ThreadPanel({
   );
 
   return (
-    <aside className="thread-panel" aria-label="Thread">
+    <aside className="thread-panel" aria-label={t("thread.title")}>
       <div className="thread-header">
-        <strong>Thread</strong>
+        <strong>{t("thread.title")}</strong>
         {(agentIds.length > 0 || agentId !== "") && (
           // Cada thread fala com o agente que a pessoa escolher, o mesmo da conversa principal ou outro; trava enquanto a resposta não vem.
           <label className="agent-picker">
-            <span className="agent-picker-label">Agente</span>
+            <span className="agent-picker-label">{t("picker.agent")}</span>
             <select value={agentId} onChange={(e) => setAgentId(e.target.value)} disabled={pending}>
-              <option value="">Nenhum</option>
+              <option value="">{t("picker.none")}</option>
               {agentIds.map((id) => (
                 <option key={id} value={id}>
                   {id}
                 </option>
               ))}
-              {agentId !== "" && !agentIds.includes(agentId) && <option value={agentId}>{agentId} (removido)</option>}
+              {agentId !== "" && !agentIds.includes(agentId) && <option value={agentId}>{t("picker.removed", { agent: agentId })}</option>}
             </select>
           </label>
         )}
-        <button type="button" className="link-button" onClick={onClose} aria-label="Fechar a thread">
-          Fechar
+        <button type="button" className="link-button" onClick={onClose} aria-label={t("thread.closeLabel")}>
+          {t("thread.close")}
         </button>
       </div>
       <blockquote className="thread-anchor">
-        <span className="skills-hint">{anchor.role === "user" ? "Você" : "Assistente"} disse:</span>
+        <span className="skills-hint">{t("thread.said", { who: anchor.role === "user" ? t("thread.you") : t("thread.assistant") })}</span>
         <p>{anchor.content.length > 400 ? `${anchor.content.slice(0, 400)}…` : anchor.content}</p>
       </blockquote>
       <ChatView

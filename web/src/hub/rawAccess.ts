@@ -1,6 +1,7 @@
 // P131 — the pure half of the "Chamadas diretas" editor of a Warden API key: which providers and combos a key may call
 // straight (`provider/<id>` or `combo/<id>`, with no agent in between). The list holds the ids of the hub's config, or "*".
 
+import { t } from "../i18n/index.ts";
 import type { ApiKey } from "./messages";
 
 /** In a key's list: every provider and combo that doesn't reach another machine. */
@@ -55,9 +56,9 @@ export function hasAll(raw: string[]): boolean {
 export function rawSummary(raw: string[] | undefined): string {
   const ids = (raw ?? []).filter((r) => r !== RAW_ALL);
   const all = (raw ?? []).includes(RAW_ALL);
-  if (all && ids.length === 0) return "Todos os modelos locais";
-  if (all) return `Todos os modelos locais e ${ids.join(", ")}`;
-  return ids.length === 0 ? "Nenhuma" : ids.join(", ");
+  if (all && ids.length === 0) return t("raw.all");
+  if (all) return t("raw.allAnd", { ids: ids.join(", ") });
+  return ids.length === 0 ? t("raw.none") : ids.join(", ");
 }
 
 /** Whether the editor is for this key: a general key of the owner. A key bound to an agent, or a member's, can't call a model directly. */

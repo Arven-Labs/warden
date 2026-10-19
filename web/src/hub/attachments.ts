@@ -8,6 +8,7 @@
  * The hub checks types and the total size again (`chat_input.rs`); the limits here match it.
  */
 
+import { t } from "../i18n/index.ts";
 import type { Attachment } from "./messages";
 
 export const MAX_IMAGE_SIDE = 2048;
@@ -30,18 +31,18 @@ export type PendingAttachment =
 export class AttachmentError extends Error {}
 
 export async function prepareFile(file: File): Promise<PendingAttachment> {
-  const name = file.name || "arquivo";
+  const name = file.name || t("attach.fileName");
   if (IMAGE_TYPES.includes(file.type)) return { kind: "media", name, attachment: await prepareImage(file) };
   if (file.type === "application/pdf") {
     return { kind: "media", name, attachment: { mimeType: "application/pdf", data: await toBase64(file) } };
   }
   if (file.type.startsWith("text/") || file.type === "application/json" || TEXT_EXTENSIONS.test(name)) {
     if (file.size > MAX_TEXT_FILE_BYTES) {
-      throw new AttachmentError(`${name} é grande demais para ir como texto (máximo ${MAX_TEXT_FILE_BYTES / 1024} KB)`);
+      throw new AttachmentError(t("attach.tooBigText", { name, kb: MAX_TEXT_FILE_BYTES / 1024 }));
     }
     return { kind: "text", name, text: await file.text() };
   }
-  throw new AttachmentError(`${name}: tipo não suportado (imagens, PDF e arquivos de texto)`);
+  throw new AttachmentError(t("attach.unsupported", { name }));
 }
 
 async function prepareImage(file: File): Promise<Attachment> {
@@ -54,13 +55,13 @@ async function prepareImage(file: File): Promise<Attachment> {
     canvas.width = Math.round(bitmap.width * scale);
     canvas.height = Math.round(bitmap.height * scale);
     const context = canvas.getContext("2d");
-    if (!context) throw new AttachmentError("este navegador não conseguiu processar a imagem");
+    if (!context) throw new AttachmentError(t("attach.imageFailed"));
     // JPEG has no transparency: a white background instead of black.
     context.fillStyle = "#fff";
     context.fillRect(0, 0, canvas.width, canvas.height);
     context.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
     const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, "image/jpeg", JPEG_QUALITY));
-    if (!blob) throw new AttachmentError("este navegador não conseguiu processar a imagem");
+    if (!blob) throw new AttachmentError(t("attach.imageFailed"));
     return { mimeType: "image/jpeg", data: await toBase64(blob) };
   } finally {
     bitmap.close();
@@ -83,10 +84,10 @@ export function toBase64(blob: Blob): Promise<string> {
 /** Why these can't go in one turn, or null when they can. */
 export function checkLimits(pending: PendingAttachment[]): string | null {
   const media = pending.filter((p) => p.kind === "media");
-  if (media.length > MAX_ATTACHMENTS_PER_TURN) return `no máximo ${MAX_ATTACHMENTS_PER_TURN} imagens/PDFs por mensagem`;
+  if (media.length > MAX_ATTACHMENTS_PER_TURN) return t("attach.tooMany", { max: MAX_ATTACHMENTS_PER_TURN });
   const total = media.reduce((sum, p) => sum + p.attachment.data.length, 0);
   if (total > MAX_ATTACHMENTS_BASE64_BYTES) {
-    return `anexos grandes demais (${(total / 1024 / 1024).toFixed(1)} MB; o máximo é ${MAX_ATTACHMENTS_BASE64_BYTES / 1024 / 1024} MB por mensagem)`;
+    return t("attach.tooLarge", { mb: (total / 1024 / 1024).toFixed(1), max: MAX_ATTACHMENTS_BASE64_BYTES / 1024 / 1024 });
   }
   return null;
 }

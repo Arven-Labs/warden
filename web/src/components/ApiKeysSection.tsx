@@ -2,13 +2,15 @@ import { useCallback, useEffect, useState } from "react";
 import { ApiKeyError, type ServerConnection } from "../hub/connection";
 import type { ApiKey } from "../hub/messages";
 import { canEditRaw, hasAll, missingIds, RAW_ALL, rawOptions, rawSummary, toggleRaw, type RawOption } from "../hub/rawAccess";
+import { intlTag, t } from "../i18n";
+import { rich } from "../i18n/rich";
 
 // The Warden API (P12): this hub's agent behind the OpenAI chat-completions format, on the same
 // address as this page, for scripts, n8n or any client that talks to OpenAI. The same list,
 // create and revoke as the desktop's Settings and `warden-server api-keys`. Creating or revoking
 // asks for the pairing key each time; a new key is shown once, here, and never again.
 
-const dateFormatter = new Intl.DateTimeFormat("pt-BR", { dateStyle: "short", timeStyle: "short" });
+const dateFormatter = { format: (date: Date) => new Intl.DateTimeFormat(intlTag(), { dateStyle: "short", timeStyle: "short" }).format(date) };
 
 function message(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
@@ -24,9 +26,9 @@ export default function ApiKeysSection({ conn, member = false }: { conn: ServerC
   /** "" = a general key. */
   const [agentId, setAgentId] = useState("");
   const [agentIds, setAgentIds] = useState<string[]>([]);
-  /** P131: the providers and combos the hub has, for the "Chamadas diretas" editor. */
+  /** P131: the providers and combos the hub has, for the "Direct calls" editor. */
   const [options, setOptions] = useState<RawOption[]>([]);
-  /** The key whose "Chamadas diretas" is open for editing, with the ticks so far. */
+  /** The key whose "Direct calls" is open for editing, with the ticks so far. */
   const [editing, setEditing] = useState<{ id: string; raw: string[] } | null>(null);
   const [asking, setAsking] = useState<Asking | null>(null);
   const [pairingKey, setPairingKey] = useState("");
@@ -86,7 +88,7 @@ export default function ApiKeysSection({ conn, member = false }: { conn: ServerC
       cancel();
     } catch (err) {
       if (err instanceof ApiKeyError && err.authRejected) {
-        setKeyError(member ? "Senha errada." : "Chave de pareamento errada.");
+        setKeyError(member ? t("apiKeys.wrongPassword") : t("pairingKey.wrong"));
       } else {
         cancel();
         setError(message(err));
@@ -114,17 +116,17 @@ export default function ApiKeysSection({ conn, member = false }: { conn: ServerC
       }}
     >
       <label className="settings-field">
-        {member ? "Sua senha" : "Chave de pareamento do hub"}
+        {member ? t("apiKeys.yourPassword") : t("pairingKey.label")}
         <input type="password" autoComplete="current-password" autoFocus value={pairingKey} onChange={(e) => setPairingKey(e.target.value)} />
-        <span className="field-hint">{member ? "A mesma com que você entra. É pedida a cada mudança." : "A mesma do primeiro login. É pedida a cada mudança."}</span>
+        <span className="field-hint">{member ? t("apiKeys.passwordHint") : t("pairingKey.hint")}</span>
       </label>
       {keyError && <p className="error-banner">{keyError}</p>}
       <div className="skills-actions">
         <button type="submit" className="primary-button" disabled={busy || pairingKey.trim() === "" || !conn}>
-          {busy ? "Aguarde…" : asking.kind === "create" ? "Criar a chave" : asking.kind === "raw" ? "Salvar" : "Revogar"}
+          {busy ? t("common.wait") : asking.kind === "create" ? t("apiKeys.createKey") : asking.kind === "raw" ? t("common.save") : t("apiKeys.revoke")}
         </button>
         <button type="button" className="link-button" disabled={busy} onClick={cancel}>
-          Cancelar
+          {t("common.cancel")}
         </button>
       </div>
     </form>
@@ -133,43 +135,44 @@ export default function ApiKeysSection({ conn, member = false }: { conn: ServerC
   return (
     <section className="usage-section settings-section">
       <div className="settings-section-header">
-        <h2 className="usage-heading">Warden API</h2>
+        <h2 className="usage-heading">{t("apiKeys.title")}</h2>
         <button type="button" className="link-button" onClick={() => void load()} disabled={!conn || busy}>
-          Recarregar
+          {t("devices.reload")}
         </button>
       </div>
       <p className="skills-hint">
-        O agente deste hub no formato da API da OpenAI, para scripts, n8n ou qualquer cliente que fale com a OpenAI. Endereço base{" "}
-        <code>{baseUrl}</code>. Uma chave geral escolhe o modelo a cada chamada (<code>warden</code> ou{" "}
-        <code>warden/&lt;agente&gt;</code>); uma chave presa a um agente só fala como ele. As tools mandadas pelo cliente são
-        ignoradas, e nada vira conversa; o gasto entra no canal <code>api</code>. Uma chave geral do dono também pode chamar um
-        provedor ou combo direto (<code>provider/&lt;id&gt;</code> ou <code>combo/&lt;id&gt;</code>), sem agente, cofre nem
-        ferramentas: o que ela pode é escolhido em "Chamadas diretas" e o gasto entra no canal <code>api-raw</code>.
-        {member && " As suas chaves falam como você: a sua memória, os agentes que você vê e as ferramentas que você tem."}
+        {rich("apiKeys.intro", {
+          base: <code>{baseUrl}</code>,
+          model: <code>warden</code>,
+          agentModel: <code>warden/&lt;agent&gt;</code>,
+          apiChannel: <code>api</code>,
+          prov: <code>provider/&lt;id&gt;</code>,
+          combo: <code>combo/&lt;id&gt;</code>,
+          rawChannel: <code>api-raw</code>,
+        })}
+        {member && t("apiKeys.memberNote")}
       </p>
 
       {error && <p className="error-banner">{error}</p>}
 
       {created && (
         <div className="settings-card api-key-created">
-          <p className="skills-item-description">
-            Chave <strong>{created.name}</strong> criada. Copie agora: ela não aparece de novo.
-          </p>
+          <p className="skills-item-description">{rich("apiKeys.created", { name: <strong>{created.name}</strong> })}</p>
           <p>
             <code className="api-key-value">{created.key}</code>
           </p>
           <div className="skills-actions">
             <button type="button" className="primary-button" onClick={() => void copy(created.key)}>
-              {copied ? "Copiada" : "Copiar"}
+              {copied ? t("apiKeys.copied") : t("apiKeys.copy")}
             </button>
             <button type="button" className="link-button" onClick={() => setCreated(null)}>
-              Pronto
+              {t("apiKeys.done")}
             </button>
           </div>
         </div>
       )}
 
-      {keys && keys.length === 0 && <p className="skills-hint">Nenhuma chave ainda.</p>}
+      {keys && keys.length === 0 && <p className="skills-hint">{t("apiKeys.none")}</p>}
       {keys && keys.length > 0 && (
         <ul className="skills-list">
           {keys.map((key) => (
@@ -179,57 +182,57 @@ export default function ApiKeysSection({ conn, member = false }: { conn: ServerC
                 <code>{key.shown}…</code>
               </div>
               <p className="skills-item-description">
-                {key.user && !member && <>De <strong>{key.user}</strong> · </>}
+                {key.user && !member && <>{rich("apiKeys.from", { user: <strong>{key.user}</strong> })}</>}
                 {key.agentId ? (
                   <>
-                    Só fala como <strong>{key.agentId}</strong>
-                    {agentIds.length > 0 && !agentIds.includes(key.agentId) && " (agente removido: a chave não funciona mais)"}
+                    {rich("apiKeys.onlyAs", { agent: <strong>{key.agentId}</strong> })}
+                    {agentIds.length > 0 && !agentIds.includes(key.agentId) && t("apiKeys.agentRemoved")}
                   </>
                 ) : (
-                  "Geral: escolhe o agente a cada chamada"
+                  t("apiKeys.general")
                 )}
               </p>
               {!member && (
                 <div className="skills-item-description">
                   {!canEditRaw(key, member) ? (
-                    "Chamadas diretas: só uma chave geral do dono pode."
+                    t("apiKeys.rawOnlyOwner")
                   ) : editing?.id === key.id ? (
                     <fieldset className="settings-field" disabled={asking !== null}>
-                      <legend>Chamadas diretas: o que esta chave pode chamar sem passar por um agente</legend>
-                      {options.length === 0 && <span className="field-hint">O hub não tem provedores cadastrados.</span>}
+                      <legend>{t("apiKeys.rawLegend")}</legend>
+                      {options.length === 0 && <span className="field-hint">{t("apiKeys.noProviders")}</span>}
                       <label>
-                        <input type="checkbox" checked={hasAll(editing.raw)} onChange={() => setEditing({ ...editing, raw: toggleRaw(editing.raw, RAW_ALL) })} /> Todos os
-                        modelos locais (<code>*</code>)
+                        <input type="checkbox" checked={hasAll(editing.raw)} onChange={() => setEditing({ ...editing, raw: toggleRaw(editing.raw, RAW_ALL) })} />{" "}
+                        {rich("apiKeys.allLocal", { star: <code>*</code> })}
                       </label>
                       {options.map((o) => (
                         <label key={o.id}>
                           <input type="checkbox" checked={editing.raw.includes(o.id)} onChange={() => setEditing({ ...editing, raw: toggleRaw(editing.raw, o.id) })} /> {o.id}{" "}
                           <span className="field-hint">
-                            {o.kind === "combo" ? "combo" : "provedor"}
-                            {o.far && " · de outra máquina: o * não cobre, só vale marcado aqui"}
+                            {o.kind === "combo" ? t("apiKeys.combo") : t("apiKeys.provider")}
+                            {o.far && t("apiKeys.farNote")}
                           </span>
                         </label>
                       ))}
                       {missingIds(editing.raw, options).map((id) => (
                         <label key={id}>
                           <input type="checkbox" checked onChange={() => setEditing({ ...editing, raw: toggleRaw(editing.raw, id) })} /> {id}{" "}
-                          <span className="field-hint">não existe mais no hub: desmarque para tirar</span>
+                          <span className="field-hint">{t("apiKeys.gone")}</span>
                         </label>
                       ))}
                       <div className="skills-actions">
                         <button type="button" className="primary-button" disabled={!conn || asking !== null} onClick={() => setAsking({ kind: "raw", key, raw: editing.raw })}>
-                          Salvar…
+                          {t("apiKeys.saveEllipsis")}
                         </button>
                         <button type="button" className="link-button" disabled={asking !== null} onClick={() => setEditing(null)}>
-                          Cancelar
+                          {t("common.cancel")}
                         </button>
                       </div>
                     </fieldset>
                   ) : (
                     <>
-                      Chamadas diretas: <strong>{rawSummary(key.raw)}</strong>{" "}
+                      {rich("apiKeys.rawLabel", { summary: <strong>{rawSummary(key.raw)}</strong> })}{" "}
                       <button type="button" className="link-button" disabled={asking !== null || editing !== null} onClick={() => setEditing({ id: key.id, raw: key.raw ?? [] })}>
-                        Editar
+                        {t("common.edit")}
                       </button>
                     </>
                   )}
@@ -237,15 +240,17 @@ export default function ApiKeysSection({ conn, member = false }: { conn: ServerC
               )}
               {asking?.kind === "raw" && asking.key.id === key.id && keyPrompt}
               <p className="skills-item-description">
-                Criada em {dateFormatter.format(new Date(key.createdAtMs))} ·{" "}
-                {key.lastUsedAtMs ? `usada por último em ${dateFormatter.format(new Date(key.lastUsedAtMs))}` : "nunca usada"}
+                {t("apiKeys.createdAt", {
+                  when: dateFormatter.format(new Date(key.createdAtMs)),
+                  used: key.lastUsedAtMs ? t("apiKeys.lastUsed", { when: dateFormatter.format(new Date(key.lastUsedAtMs)) }) : t("apiKeys.neverUsed"),
+                })}
               </p>
               {asking?.kind === "revoke" && asking.key.id === key.id ? (
                 keyPrompt
               ) : (
                 <div className="skills-actions">
                   <button type="button" className="link-button skills-danger" disabled={!conn || asking !== null} onClick={() => setAsking({ kind: "revoke", key })}>
-                    Revogar
+                    {t("apiKeys.revoke")}
                   </button>
                 </div>
               )}
@@ -264,17 +269,17 @@ export default function ApiKeysSection({ conn, member = false }: { conn: ServerC
             setAsking({ kind: "create", name, agentId });
           }}
         >
-          <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Nome da chave (ex.: n8n)" maxLength={60} aria-label="Nome da chave" />
-          <select value={agentId} onChange={(e) => setAgentId(e.target.value)} aria-label="Agente da chave">
-            <option value="">Geral (qualquer agente)</option>
+          <input value={name} onChange={(e) => setName(e.target.value)} placeholder={t("apiKeys.namePlaceholder")} maxLength={60} aria-label={t("apiKeys.nameLabel")} />
+          <select value={agentId} onChange={(e) => setAgentId(e.target.value)} aria-label={t("apiKeys.agentLabel")}>
+            <option value="">{t("apiKeys.anyAgent")}</option>
             {agentIds.map((id) => (
               <option key={id} value={id}>
-                Só o agente {id}
+                {t("apiKeys.onlyAgent", { id })}
               </option>
             ))}
           </select>
           <button type="submit" className="primary-button" disabled={!conn || asking !== null || name.trim() === ""}>
-            Criar chave
+            {t("apiKeys.create")}
           </button>
         </form>
       )}

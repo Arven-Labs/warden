@@ -38,6 +38,8 @@ import AgentContacts from "./components/AgentContacts";
 import AgentWorkList from "./components/AgentWorkList";
 import { agentWork as sideWorkOf, workButtonLabel } from "./hub/agentWork";
 import { folderLabel, folderPlace, nodesWithFolders, parseNodeFolder } from "./hub/workdir";
+import LanguageSwitch from "./components/LanguageSwitch";
+import { t, useLocale } from "./i18n";
 
 /** How much of a conversation to load when it's opened — same cap the extension uses. */
 const HISTORY_LIMIT = 200;
@@ -94,6 +96,7 @@ function titleSeed(message: string, attachments: Attachment[]): string {
 }
 
 export default function App() {
+  useLocale(); // the whole page draws again when the person switches the language
   const identityRef = useRef<Identity>(loadIdentity());
   const connRef = useRef<ServerConnection | null>(null);
   /** P113: the TruthID sign-in waiting for the phone (its QR), and how to give up on it. */
@@ -234,7 +237,7 @@ export default function App() {
       setConversationsError(null);
       return list;
     } catch (err) {
-      if (connRef.current === connection) setConversationsError(`Não foi possível carregar as conversas: ${errorText(err)}`);
+      if (connRef.current === connection) setConversationsError(t("error.loadConversations", { error: errorText(err) }));
       return undefined;
     }
   }, []);
@@ -271,7 +274,7 @@ export default function App() {
       if (connRef.current === connection && activeIdRef.current === id) setEntries(withPending(historyToEntries(history)));
     } catch (err) {
       if (connRef.current === connection && activeIdRef.current === id) {
-        setEntries(withPending([{ role: "error", content: `Não foi possível carregar o histórico: ${errorText(err)}`, attachments: [] }]));
+        setEntries(withPending([{ role: "error", content: t("error.loadHistory", { error: errorText(err) }), attachments: [] }]));
       }
     }
   }, []);
@@ -308,7 +311,7 @@ export default function App() {
         if (err instanceof HandshakeError && err.authRejected) {
           // The hub doesn't know this token (revoked, or its registry was reset) — pair again.
           if (usingToken) forgetToken();
-          setPhase({ kind: "login", error: usingToken ? `O hub não aceitou mais este navegador: ${message}` : message });
+          setPhase({ kind: "login", error: usingToken ? t("error.hubRefusedBrowser", { error: message }) : message });
         } else if (usingToken) {
           scheduleReconnect();
         } else {
@@ -381,7 +384,7 @@ export default function App() {
         connRef.current = null;
         setConn(null);
         if (activeIdRef.current in pendingTurnsRef.current) {
-          setEntries((current) => [...current, { role: "error", content: "A conexão caiu antes da resposta chegar.", attachments: [] }]);
+          setEntries((current) => [...current, { role: "error", content: t("error.connectionDropped"), attachments: [] }]);
         }
         // The hub may still finish and save those turns, but this connection won't hear the answer.
         setPendingTurns(() => ({}));
@@ -621,13 +624,13 @@ export default function App() {
 
   async function handleTranscribe(audio: Attachment): Promise<string> {
     const connection = connRef.current;
-    if (!connection) throw new Error("sem conexão com o hub");
+    if (!connection) throw new Error(t("error.noConnection"));
     return connection.transcribe(audio);
   }
 
   async function handleExtendLimit(limitId: string): Promise<void> {
     const connection = connRef.current;
-    if (!connection) throw new Error("sem conexão com o hub");
+    if (!connection) throw new Error(t("error.noConnection"));
     await connection.extendLimit(limitId);
   }
 
@@ -741,7 +744,7 @@ export default function App() {
       try {
         id = await connection.openAgentChannel(agent);
       } catch (err) {
-        setConversationsError(`Não foi possível abrir o canal: ${errorText(err)}`);
+        setConversationsError(t("error.openChannel", { error: errorText(err) }));
         return;
       }
       const known = id;
@@ -786,15 +789,15 @@ export default function App() {
     if (!connection || next === projectId) return;
     const target = projects.find((p) => p.id === next)?.name;
     const warning = target
-      ? `Mover esta conversa para o projeto "${target}"? As próximas mensagens passam a valer só com os arquivos e as instruções dele. O que já foi dito continua na conversa.`
-      : "Tirar esta conversa do projeto? O que já foi dito continua nela, e passa a fazer parte do contexto fora do projeto. As próximas mensagens voltam a ver o cofre inteiro.";
+      ? t("confirm.moveToProject", { project: target })
+      : t("confirm.moveOut");
     if (!window.confirm(warning)) return;
     try {
       await connection.moveConversation(id, next || undefined);
       setProjectId(next);
       await refreshConversations(connection);
     } catch (err) {
-      setConversationsError(`Não foi possível mover: ${errorText(err)}`);
+      setConversationsError(t("error.move", { error: errorText(err) }));
     }
   }
 
@@ -805,7 +808,7 @@ export default function App() {
       await connection.renameConversation(id, title);
       await refreshConversations(connection);
     } catch (err) {
-      setConversationsError(`Não foi possível renomear: ${errorText(err)}`);
+      setConversationsError(t("error.rename", { error: errorText(err) }));
     }
   }
 
@@ -817,7 +820,7 @@ export default function App() {
       await connection.setConversationFlags(id, flags);
       await refreshConversations(connection);
     } catch (err) {
-      setConversationsError(`Não foi possível ${flags.archived === undefined ? "fixar" : "arquivar"}: ${errorText(err)}`);
+      setConversationsError(t(flags.archived === undefined ? "error.pin" : "error.archive", { error: errorText(err) }));
     }
   }
 
@@ -827,7 +830,7 @@ export default function App() {
     try {
       await connection.deleteConversation(id);
     } catch (err) {
-      setConversationsError(`Não foi possível apagar: ${errorText(err)}`);
+      setConversationsError(t("error.delete", { error: errorText(err) }));
       return;
     }
     const list = await refreshConversations(connection);
@@ -902,7 +905,7 @@ export default function App() {
   }
 
   const activeSummary = conversations.find((c) => c.id === activeId);
-  const activeTitle = activeSummary?.title ?? "Nova conversa";
+  const activeTitle = activeSummary?.title ?? t("chat.newConversation");
   // P157: why the conversation can't be redone (regenerate, edit) now, or null when it can.
   const redoBlocked = redoBlock({
     onHub: activeSummary !== undefined,
@@ -922,36 +925,36 @@ export default function App() {
         <div className="app-brand">
           <img src="/favicon.svg" alt="" width={24} height={24} />
           <span className="app-hub-name">{serverName ?? "Warden"}</span>
-          <span className={`status-dot ${phase.connected ? "status-dot--on" : "status-dot--off"}`} title={phase.connected ? "Conectado" : "Reconectando…"} />
+          <span className={`status-dot ${phase.connected ? "status-dot--on" : "status-dot--off"}`} title={phase.connected ? t("app.connected") : t("app.reconnecting")} />
         </div>
-        <nav className="app-tabs" aria-label="Seções">
+        <nav className="app-tabs" aria-label={t("app.sections")}>
           <button type="button" className={view === "chat" ? "tab tab--active" : "tab"} onClick={() => showView("chat")}>
-            Chat
+            {t("tab.chat")}
           </button>
           <button type="button" className={view === "agents" ? "tab tab--active" : "tab"} onClick={() => showView("agents")}>
-            Agents
+            {t("tab.agents")}
             {unreadChannels.length > 0 && (
-              <span className="tab-badge" aria-label={`${unreadChannels.length} com mensagens novas`}>
+              <span className="tab-badge" aria-label={t("tab.unread", { count: unreadChannels.length })}>
                 {unreadChannels.length}
               </span>
             )}
           </button>
           <button type="button" className={view === "vault" ? "tab tab--active" : "tab"} onClick={() => setView("vault")}>
-            Vault
+            {t("tab.vault")}
           </button>
           <button type="button" className={view === "usage" ? "tab tab--active" : "tab"} onClick={() => setView("usage")}>
-            Uso
+            {t("tab.usage")}
           </button>
           <button type="button" className={view === "skills" ? "tab tab--active" : "tab"} onClick={() => setView("skills")}>
-            Skills
+            {t("tab.skills")}
           </button>
           <button type="button" className={view === "projects" ? "tab tab--active" : "tab"} onClick={() => setView("projects")}>
-            Projetos
+            {t("tab.projects")}
           </button>
           {isOwner && (
             <>
               <button type="button" className={view === "organization" ? "tab tab--active" : "tab"} onClick={() => setView("organization")}>
-                Organização
+                {t("tab.organization")}
               </button>
               <button
                 type="button"
@@ -961,32 +964,32 @@ export default function App() {
                   setView("agentWork");
                 }}
               >
-                Trabalho dos agentes
+                {t("tab.agentWork")}
               </button>
               <button type="button" className={view === "activity" ? "tab tab--active" : "tab"} onClick={() => setView("activity")}>
-                Atividade
+                {t("tab.activity")}
               </button>
               <button type="button" className={view === "tasks" ? "tab tab--active" : "tab"} onClick={() => setView("tasks")}>
-                Tarefas
+                {t("tab.tasks")}
               </button>
               <button type="button" className={view === "webhooks" ? "tab tab--active" : "tab"} onClick={() => setView("webhooks")}>
-                Webhooks
+                {t("tab.webhooks")}
               </button>
               <button type="button" className={view === "devices" ? "tab tab--active" : "tab"} onClick={() => setView("devices")}>
-                Aparelhos
+                {t("tab.devices")}
               </button>
               <button type="button" className={view === "people" ? "tab tab--active" : "tab"} onClick={() => setView("people")}>
-                Pessoas
+                {t("tab.people")}
               </button>
               <button type="button" className={view === "sync" ? "tab tab--active" : "tab"} onClick={() => setView("sync")}>
-                Sync
+                {t("tab.sync")}
               </button>
               <button
                 type="button"
                 className={view === "settings" ? "tab tab--active" : "tab"}
                 onClick={() => setView("settings")}
-                aria-label="Configurações"
-                title="Configurações"
+                aria-label={t("tab.settings")}
+                title={t("tab.settings")}
               >
                 ⚙
               </button>
@@ -996,32 +999,31 @@ export default function App() {
             <>
               {memberOrg !== "none" && (
                 <button type="button" className={view === "organization" ? "tab tab--active" : "tab"} onClick={() => setView("organization")}>
-                  Organização
+                  {t("tab.organization")}
                 </button>
               )}
               <button type="button" className={view === "myAgents" ? "tab tab--active" : "tab"} onClick={() => setView("myAgents")}>
-                Agentes
+                {t("tab.myAgents")}
               </button>
               <button type="button" className={view === "myApi" ? "tab tab--active" : "tab"} onClick={() => setView("myApi")}>
-                API
+                {t("tab.myApi")}
               </button>
             </>
           )}
         </nav>
+        <LanguageSwitch />
         {user && (
-          <button type="button" className="link-button" onClick={() => setChangingPassword(true)} title="Trocar senha">
+          <button type="button" className="link-button" onClick={() => setChangingPassword(true)} title={t("header.changePassword")}>
             {user.name}
           </button>
         )}
         <button type="button" className="link-button" onClick={handleLogout}>
-          Sair
+          {t("header.signOut")}
         </button>
       </header>
 
-      {!phase.connected && <p className="banner">A conexão com o hub caiu. Reconectando…</p>}
-      {user?.locked && (
-        <p className="banner">Os seus dados estão trancados: o hub reiniciou e só abre a chave com a sua senha. Saia e entre de novo com a senha para abri-los.</p>
-      )}
+      {!phase.connected && <p className="banner">{t("banner.disconnected")}</p>}
+      {user?.locked && <p className="banner">{t("banner.locked")}</p>}
 
       <main className="app-main">
         {view === "chat" || view === "agents" ? (
@@ -1052,23 +1054,23 @@ export default function App() {
                 onFlags={handleFlags}
               />
             )}
-            <button type="button" className="drawer-scrim" aria-label="Fechar conversas" onClick={() => setSidebarOpen(false)} />
+            <button type="button" className="drawer-scrim" aria-label={t("chat.closeConversations")} onClick={() => setSidebarOpen(false)} />
             <div className="chat-pane">
               <div className="chat-header">
                 <button type="button" className="link-button drawer-toggle" onClick={() => setSidebarOpen(true)}>
-                  {view === "agents" ? "☰ Agentes" : "☰ Conversas"}
+                  {view === "agents" ? t("chat.openAgents") : t("chat.openConversations")}
                 </button>
                 {view === "agents" && work && (
                   <button type="button" className="link-button" onClick={() => void openAgentChannel(work.agent)}>
-                    ← Canal
+                    {t("chat.backToChannel")}
                   </button>
                 )}
                 <span className="chat-title">
                   {view !== "agents"
                     ? activeTitle
                     : work
-                      ? work.open === null ? `${work.agent}: recados e execuções` : activeTitle
-                      : agentId || "Agentes"}
+                      ? work.open === null ? t("chat.agentWorkTitle", { agent: work.agent }) : activeTitle
+                      : agentId || t("chat.agentsTitle")}
                 </span>
                 {view === "agents" && !work && isAgentChannel(activeId) && agentId !== "" && (
                   <button type="button" className="link-button" onClick={() => setWork({ agent: agentId, open: null })}>
@@ -1079,15 +1081,15 @@ export default function App() {
                 {view === "chat" && (<>
                 {(agentIds.length > 0 || agentId !== "") && (
                   <label className="agent-picker">
-                    <span className="agent-picker-label">Agente</span>
+                    <span className="agent-picker-label">{t("picker.agent")}</span>
                     <select value={agentId} onChange={(e) => setAgentId(e.target.value)} disabled={activeId in pendingTurns}>
-                      <option value="">Nenhum</option>
+                      <option value="">{t("picker.none")}</option>
                       {agentIds.map((id) => (
                         <option key={id} value={id}>
                           {id}
                         </option>
                       ))}
-                      {agentId !== "" && !agentIds.includes(agentId) && <option value={agentId}>{agentId} (removido)</option>}
+                      {agentId !== "" && !agentIds.includes(agentId) && <option value={agentId}>{t("picker.removed", { agent: agentId })}</option>}
                     </select>
                   </label>
                 )}
@@ -1095,14 +1097,14 @@ export default function App() {
                   // Chosen before the conversation's first message; after it, choosing moves the conversation (P103).
                   // Not on a conversation that works in a folder: it can't be moved into a project (P102).
                   <label className="agent-picker">
-                    <span className="agent-picker-label">Projeto</span>
+                    <span className="agent-picker-label">{t("picker.project")}</span>
                     <select
                       value={projects.some((p) => p.id === projectId) ? projectId : ""}
                       onChange={(e) => void handleChooseProject(e.target.value)}
                       disabled={activeId in pendingTurns || !phase.connected}
-                      title="A IA trabalha só nos arquivos do projeto, com as instruções dele. Numa conversa que já começou, escolher outro move a conversa."
+                      title={t("picker.projectHint")}
                     >
-                      <option value="">Nenhum</option>
+                      <option value="">{t("picker.none")}</option>
                       {projects.map((p) => (
                         <option key={p.id} value={p.id}>
                           {p.name}
@@ -1114,18 +1116,18 @@ export default function App() {
                 {!projectId && (conversations.some((c) => c.id === activeId) ? workdir !== "" : phase.connected) && (
                   // P102: the folder is picked before the first message and is only shown after it.
                   <div className="agent-picker">
-                    <span className="agent-picker-label">Pasta</span>
+                    <span className="agent-picker-label">{t("picker.folder")}</span>
                     {conversations.some((c) => c.id === activeId) ? (
                       <span className="folder-chip" title={folderPlace(workdir, knownNodes)}>
                         {folderLabel(workdir, knownNodes)}
                       </span>
                     ) : (
-                      <button type="button" className="link-button folder-chip" onClick={() => void openFolderPicker()} title={workdir ? folderPlace(workdir, knownNodes) : "Escolher uma pasta do hub ou de um nó para a IA trabalhar"}>
-                        {workdir ? folderLabel(workdir, knownNodes) : "Nenhuma"}
+                      <button type="button" className="link-button folder-chip" onClick={() => void openFolderPicker()} title={workdir ? folderPlace(workdir, knownNodes) : t("picker.folderHint")}>
+                        {workdir ? folderLabel(workdir, knownNodes) : t("picker.none")}
                       </button>
                     )}
                     {workdir && !conversations.some((c) => c.id === activeId) && (
-                      <button type="button" className="link-button" onClick={() => setWorkdir("")} aria-label="Tirar a pasta">
+                      <button type="button" className="link-button" onClick={() => setWorkdir("")} aria-label={t("picker.folderClear")}>
                         ×
                       </button>
                     )}
@@ -1134,17 +1136,17 @@ export default function App() {
                 {projects.some((p) => p.id === projectId && p.code) && (
                   // Changeable at any moment, a task that is running included (P103 b).
                   <label className={`agent-picker${(codeModes[activeId] ?? "manual") === "acceptAll" ? " code-mode--warn" : ""}`}>
-                    <span className="agent-picker-label">Modo</span>
+                    <span className="agent-picker-label">{t("picker.mode")}</span>
                     <select
                       value={codeModes[activeId] ?? "manual"}
                       onChange={(e) => handleCodeMode(e.target.value as CodeMode)}
                       disabled={!phase.connected}
-                      title="Quanto a IA pergunta antes de agir. Vale na hora, até no meio de uma tarefa; ao reabrir a conversa volta a Manual."
+                      title={t("picker.modeHint")}
                     >
-                      <option value="manual">Manual (pergunta tudo)</option>
-                      <option value="acceptEdits">Aceitar edições</option>
-                      <option value="acceptAll">Aceitar tudo (sem perguntar)</option>
-                      <option value="plan">Plano (não altera nada)</option>
+                      <option value="manual">{t("picker.modeManual")}</option>
+                      <option value="acceptEdits">{t("picker.modeAcceptEdits")}</option>
+                      <option value="acceptAll">{t("picker.modeAcceptAll")}</option>
+                      <option value="plan">{t("picker.modePlan")}</option>
                     </select>
                   </label>
                 )}
@@ -1170,7 +1172,7 @@ export default function App() {
                   onOpen={(id) => openAgentWork(work.agent, id)}
                 />
               ) : view === "agents" && !work && !isAgentChannel(activeId) ? (
-                <p className="skills-hint agents-empty">Escolha um agente para conversar com ele. Cada agente tem uma conversa só, que fica aqui.</p>
+                <p className="skills-hint agents-empty">{t("chat.pickAnAgent")}</p>
               ) : (
               <ChatView
                 entries={entries}

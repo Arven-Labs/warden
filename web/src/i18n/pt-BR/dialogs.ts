@@ -1,0 +1,37 @@
+import type { dialogs } from "../en/dialogs.ts";
+
+export const dialogsPt: Record<keyof typeof dialogs, string> = {
+  "approval.verb.exec": "rodar um comando em",
+  "approval.verb.upload": "enviar um arquivo para",
+  "approval.verb.download": "baixar um arquivo de",
+  "approval.verb.create_agent": "criar o agente",
+  "approval.verb.update_agent": "alterar o agente",
+  "approval.verb.delete_agent": "apagar o agente",
+  "approval.verb.replace_agent": "substituir o agente",
+  "approval.verb.tool_call": "usar a ferramenta",
+  "approval.spendLimit": "Limite de gasto atingido: {target}",
+  "approval.aiWants": "A IA quer {verb} {target}",
+  "approval.asked": "Perguntado porque este agente precisa ter aprovado: \"{category}\".",
+  "approval.more": "Mais {count} esperando depois deste.",
+  "approval.stop": "Parar",
+  "approval.refuse": "Recusar",
+  "approval.allowMore": "Liberar mais",
+  "approval.approve": "Aprovar",
+  "approval.untilRestart": "Até o hub ser reiniciado",
+  "approval.always": "Sempre permitir nesta conversa: {what}",
+
+  "copy.copy": "Copiar",
+  "copy.copied": "Copiado",
+  "copy.failed": "Não copiou",
+
+  "folder.cantList": "não foi possível listar as pastas",
+  "folder.title": "Escolher a pasta de trabalho",
+  "folder.hint": "A IA lê e escreve nessa pasta, e o shell começa nela (cada comando pede o seu sim). Vale para a conversa toda e não muda depois.",
+  "folder.machine": "Máquina",
+  "folder.hub": "Hub",
+  "folder.yours": "Suas pastas",
+  "folder.up": "↑ Subir",
+  "folder.empty": "Nenhuma subpasta.",
+  "folder.cancel": "Cancelar",
+  "folder.use": "Usar esta pasta",
+};

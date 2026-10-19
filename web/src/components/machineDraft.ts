@@ -1,4 +1,5 @@
 import type { AdvancedSettings, EmbeddedServer, MachineEdit, MachineSettings, McpServerEdit } from "../hub/messages";
+import { t } from "../i18n";
 import { KEEP, keyed, type Keyed, type SecretDraft } from "./settingsParts";
 
 // The drafts behind the "Máquina do hub" and "Avançado" sections (P119): what the screen edits, how it
@@ -129,47 +130,47 @@ const PARENT_SEGMENT = /(^|[\\/])\.\.([\\/]|$)/;
  * `base` is the slice as it was loaded: a folder that was already there is not asked to be absolute again. */
 export function machineError(d: MachineDraft, base: MachineEdit): string | null {
   for (const [label, value, was] of [
-    ["A pasta do cofre", d.vaultPath.trim(), base.vaultPath],
-    ["A pasta dos arquivos gerados", d.generatedPath.trim(), base.generatedPath],
+    [t("machineCheck.vaultFolder"), d.vaultPath.trim(), base.vaultPath],
+    [t("machineCheck.generatedFolder"), d.generatedPath.trim(), base.generatedPath],
   ] as const) {
     if (value !== "" && value !== was) {
-      if (!ABSOLUTE_PATH.test(value)) return `${label} precisa ser um caminho absoluto (é uma pasta na máquina do hub).`;
-      if (PARENT_SEGMENT.test(value)) return `${label} não pode ter “..”.`;
+      if (!ABSOLUTE_PATH.test(value)) return t("machineCheck.absolute", { label });
+      if (PARENT_SEGMENT.test(value)) return t("machineCheck.noParent", { label });
     }
   }
   const mcpNames = new Set<string>();
   for (const s of d.mcp) {
     const name = s.name.trim();
-    if (name === "") return "Todo servidor MCP precisa de um nome.";
-    if (mcpNames.has(name)) return `Dois servidores MCP se chamam “${name}”.`;
+    if (name === "") return t("machineCheck.mcpNeedsName");
+    if (mcpNames.has(name)) return t("machineCheck.mcpTwice", { name });
     mcpNames.add(name);
-    if (s.kind === "stdio" && s.command.trim() === "") return `O servidor MCP “${name}” precisa de um comando.`;
-    if (s.kind === "http" && !/^https?:\/\//.test(s.url.trim())) return `O servidor MCP “${name}” precisa de um endereço http:// ou https://.`;
+    if (s.kind === "stdio" && s.command.trim() === "") return t("machineCheck.mcpNeedsCommand", { name });
+    if (s.kind === "http" && !/^https?:\/\//.test(s.url.trim())) return t("machineCheck.mcpNeedsUrl", { name });
     const entries = s.kind === "stdio" ? s.env : s.headers;
-    const what = s.kind === "stdio" ? "variável de ambiente" : "cabeçalho";
+    const what = s.kind === "stdio" ? t("machineCheck.envVar") : t("machineCheck.header");
     const seen = new Set<string>();
     for (const e of entries) {
       const key = e.name.trim();
-      if (key === "") return `O servidor MCP “${name}” tem ${what} sem nome.`;
-      if (seen.has(key)) return `O servidor MCP “${name}” repete o ${what} “${key}”.`;
+      if (key === "") return t("machineCheck.entryNoName", { name, what });
+      if (seen.has(key)) return t("machineCheck.entryRepeats", { name, what, key });
       seen.add(key);
-      if (e.secret.edit.action === "set" && e.secret.edit.value.trim() === "") return `Dê um valor ao ${what} “${key}” do servidor MCP “${name}”, ou remova.`;
+      if (e.secret.edit.action === "set" && e.secret.edit.value.trim() === "") return t("machineCheck.entryNoValue", { name, what, key });
     }
   }
   const sshIds = new Set<string>();
   for (const h of d.ssh) {
     const id = h.id.trim();
-    if (id === "") return "Todo servidor SSH precisa de um nome.";
-    if (sshIds.has(id)) return `Dois servidores SSH se chamam “${id}”.`;
+    if (id === "") return t("machineCheck.sshNeedsName");
+    if (sshIds.has(id)) return t("machineCheck.sshTwice", { id });
     sshIds.add(id);
-    if (h.host.trim() === "" || h.user.trim() === "") return `O servidor SSH “${id}” precisa de endereço e usuário.`;
+    if (h.host.trim() === "" || h.user.trim() === "") return t("machineCheck.sshNeedsHost", { id });
     const port = Number(h.port);
-    if (!Number.isInteger(port) || port < 1 || port > 65535) return `A porta do servidor SSH “${id}” vai de 1 a 65535.`;
+    if (!Number.isInteger(port) || port < 1 || port > 65535) return t("machineCheck.sshPort", { id });
   }
   if (d.embedded) {
     const port = Number(d.embedded.port);
-    if (!Number.isInteger(port) || port < 1 || port > 65535) return "A porta do hub embutido vai de 1 a 65535.";
-    if ((d.embedded.tlsCert.trim() === "") !== (d.embedded.tlsKey.trim() === "")) return "No hub embutido, informe o certificado e a chave privada juntos.";
+    if (!Number.isInteger(port) || port < 1 || port > 65535) return t("machineCheck.embeddedPort");
+    if ((d.embedded.tlsCert.trim() === "") !== (d.embedded.tlsKey.trim() === "")) return t("machineCheck.embeddedCert");
   }
   return null;
 }
@@ -178,32 +179,32 @@ export function machineError(d: MachineDraft, base: MachineEdit): string | null 
 export function machineSummary(base: MachineEdit, now: MachineEdit): string[] {
   const out: string[] = [];
   if (base.enableShell !== now.enableShell) {
-    out.push(now.enableShell ? "Ligar o shell: o modelo poderá rodar qualquer comando na máquina do hub, sem isolamento." : "Desligar o shell.");
+    out.push(now.enableShell ? t("machineSummary.shellOn") : t("machineSummary.shellOff"));
   }
-  if (base.vaultPath !== now.vaultPath) out.push(`Pasta do cofre: de ${base.vaultPath || "o padrão"} para ${now.vaultPath || "o padrão"}. Os arquivos não são movidos.`);
-  if (base.generatedPath !== now.generatedPath) out.push(`Pasta dos arquivos gerados: de ${base.generatedPath || "o padrão"} para ${now.generatedPath || "o padrão"}.`);
+  if (base.vaultPath !== now.vaultPath) out.push(t("machineSummary.vault", { from: base.vaultPath || t("machineSummary.default"), to: now.vaultPath || t("machineSummary.default") }));
+  if (base.generatedPath !== now.generatedPath) out.push(t("machineSummary.generated", { from: base.generatedPath || t("machineSummary.default"), to: now.generatedPath || t("machineSummary.default") }));
 
   const before = new Map(base.mcpServers.map((s) => [s.originalName ?? s.name, s]));
   for (const s of now.mcpServers) {
     const was = s.originalName !== undefined ? before.get(s.originalName) : undefined;
-    const what = s.kind === "stdio" ? `inicia o processo “${s.command}” na máquina do hub` : `conecta em ${s.url}`;
-    if (!was) out.push(`Servidor MCP novo “${s.name}”: ${what}.`);
-    else if (JSON.stringify(was) !== JSON.stringify(s)) out.push(`Servidor MCP “${s.name}” alterado: ${what}.`);
+    const what = s.kind === "stdio" ? t("machineSummary.mcpStdio", { command: s.command }) : t("machineSummary.mcpHttp", { url: s.url });
+    if (!was) out.push(t("machineSummary.mcpNew", { name: s.name, what }));
+    else if (JSON.stringify(was) !== JSON.stringify(s)) out.push(t("machineSummary.mcpChanged", { name: s.name, what }));
   }
   const keptMcp = new Set(now.mcpServers.map((s) => s.originalName));
-  for (const s of base.mcpServers) if (!keptMcp.has(s.originalName ?? s.name)) out.push(`Servidor MCP “${s.name}” removido.`);
+  for (const s of base.mcpServers) if (!keptMcp.has(s.originalName ?? s.name)) out.push(t("machineSummary.mcpRemoved", { name: s.name }));
 
   const sshBefore = new Map(base.sshHosts.map((h) => [h.id, h]));
   for (const h of now.sshHosts) {
     const was = sshBefore.get(h.id);
-    const where = `${h.user}@${h.host}:${h.port}${h.enabled ? "" : " (desligado)"}`;
-    if (!was) out.push(`Servidor SSH novo “${h.id}”: ${where}. Usa as chaves SSH do hub.`);
-    else if (JSON.stringify(was) !== JSON.stringify(h)) out.push(`Servidor SSH “${h.id}” alterado: ${where}.`);
+    const where = `${h.user}@${h.host}:${h.port}${h.enabled ? "" : t("machineSummary.sshOff")}`;
+    if (!was) out.push(t("machineSummary.sshNew", { id: h.id, where }));
+    else if (JSON.stringify(was) !== JSON.stringify(h)) out.push(t("machineSummary.sshChanged", { id: h.id, where }));
   }
   const sshNow = new Set(now.sshHosts.map((h) => h.id));
-  for (const h of base.sshHosts) if (!sshNow.has(h.id)) out.push(`Servidor SSH “${h.id}” removido.`);
+  for (const h of base.sshHosts) if (!sshNow.has(h.id)) out.push(t("machineSummary.sshRemoved", { id: h.id }));
 
-  if (JSON.stringify(base.embeddedServer) !== JSON.stringify(now.embeddedServer)) out.push("Hub embutido alterado: vale na próxima vez que o desktop iniciar o hub.");
+  if (JSON.stringify(base.embeddedServer) !== JSON.stringify(now.embeddedServer)) out.push(t("machineSummary.embedded"));
   return out;
 }
 
@@ -248,14 +249,14 @@ export function advancedError(d: AdvancedDraft, base: AdvancedSettings): string 
   const now = toAdvanced(d);
   const check = (label: string, value: number | null, was: number | null, min: number, max: number, extra: string): string | null => {
     if (value === null || value === was) return null;
-    if (!Number.isInteger(value) || value < min || value > max) return `${label}: um número inteiro de ${min} a ${max}${extra}.`;
+    if (!Number.isInteger(value) || value < min || value > max) return t("advancedCheck.integer", { label, min, max, extra });
     return null;
   };
   return (
-    check("Profundidade da delegação", now.delegateMaxDepth, base.delegateMaxDepth, 0, CEILINGS.depth, " (mais que isso, só no config.toml)") ??
-    check("Chamadas delegadas por turno", now.maxDelegatedCalls, base.maxDelegatedCalls, 1, CEILINGS.calls, " (0 e mais que isso, só no config.toml)") ??
-    check("Jobs em paralelo", now.maxParallelJobs, base.maxParallelJobs, 0, CEILINGS.jobs, " (mais que isso, só no config.toml)") ??
-    (now.truthidRpcUrl !== "" && now.truthidRpcUrl !== base.truthidRpcUrl && !/^https?:\/\//.test(now.truthidRpcUrl) ? "O endereço RPC do TruthID começa com http:// ou https://." : null) ??
-    (now.truthidPublicUrl !== "" && now.truthidPublicUrl !== base.truthidPublicUrl && !/^https:\/\//.test(now.truthidPublicUrl) ? "O endereço público do hub (TruthID) precisa ser https://." : null)
+    check(t("advancedCheck.depth"), now.delegateMaxDepth, base.delegateMaxDepth, 0, CEILINGS.depth, t("advancedCheck.depthExtra")) ??
+    check(t("advancedCheck.calls"), now.maxDelegatedCalls, base.maxDelegatedCalls, 1, CEILINGS.calls, t("advancedCheck.callsExtra")) ??
+    check(t("advancedCheck.jobs"), now.maxParallelJobs, base.maxParallelJobs, 0, CEILINGS.jobs, t("advancedCheck.jobsExtra")) ??
+    (now.truthidRpcUrl !== "" && now.truthidRpcUrl !== base.truthidRpcUrl && !/^https?:\/\//.test(now.truthidRpcUrl) ? t("advancedCheck.rpc") : null) ??
+    (now.truthidPublicUrl !== "" && now.truthidPublicUrl !== base.truthidPublicUrl && !/^https:\/\//.test(now.truthidPublicUrl) ? t("advancedCheck.publicUrl") : null)
   );
 }

@@ -52,7 +52,7 @@ describe("the work of an agent on the Agents screen", () => {
       const opened = await signIn(browser, hub);
       context = opened.context;
       const { page } = opened;
-      await page.getByRole("tab", { name: "Agents" }).or(page.getByRole("button", { name: "Agents", exact: true })).first().click();
+      await page.getByRole("tab", { name: "Agentes" }).or(page.getByRole("button", { name: "Agentes", exact: true })).first().click();
       await contacts(page).getByRole("button", { name: /ops/ }).click();
       await page.getByRole("button", { name: "Recados e execuções (2)" }).click();
 
@@ -82,7 +82,7 @@ describe("the work of an agent on the Agents screen", () => {
       const opened = await signIn(browser, hub);
       context = opened.context;
       const { page } = opened;
-      await page.getByRole("tab", { name: "Agents" }).or(page.getByRole("button", { name: "Agents", exact: true })).first().click();
+      await page.getByRole("tab", { name: "Agentes" }).or(page.getByRole("button", { name: "Agentes", exact: true })).first().click();
       await contacts(page).getByRole("button", { name: /writer/ }).click();
       // writer left a note, so it has one item; the empty one is shown by an agent with nothing: none here, so assert the count instead.
       await page.getByRole("button", { name: "Recados e execuções (1)" }).waitFor();

@@ -1,5 +1,7 @@
 import { useState } from "react";
 import { UserError, type ServerConnection } from "../hub/connection";
+import { t } from "../i18n";
+import { rich } from "../i18n/rich";
 
 const MIN_PASSWORD_LEN = 8;
 
@@ -35,9 +37,9 @@ export default function ChangePasswordView({ conn, name, required, needsRecovery
 
   const problem =
     next.length > 0 && next.length < MIN_PASSWORD_LEN
-      ? `A senha nova precisa de pelo menos ${MIN_PASSWORD_LEN} caracteres.`
+      ? t("password.tooShort", { min: MIN_PASSWORD_LEN })
       : again.length > 0 && again !== next
-        ? "As duas senhas novas não são iguais."
+        ? t("password.mismatch")
         : null;
 
   async function handleSubmit(e: React.FormEvent) {
@@ -49,7 +51,7 @@ export default function ChangePasswordView({ conn, name, required, needsRecovery
       const result = await conn.changePassword(current, next, needsRecovery ? code : undefined);
       onDone(result.recoveryCode);
     } catch (err) {
-      setError(err instanceof UserError && err.authRejected ? "A senha atual está errada." : err instanceof Error ? err.message : String(err));
+      setError(err instanceof UserError && err.authRejected ? t("password.currentWrong") : err instanceof Error ? err.message : String(err));
     } finally {
       setBusy(false);
     }
@@ -63,7 +65,7 @@ export default function ChangePasswordView({ conn, name, required, needsRecovery
     try {
       onNewCode?.(await conn.regenerateRecoveryCode(current));
     } catch (err) {
-      setError(err instanceof UserError && err.authRejected ? "A senha atual está errada." : err instanceof Error ? err.message : String(err));
+      setError(err instanceof UserError && err.authRejected ? t("password.currentWrong") : err instanceof Error ? err.message : String(err));
     } finally {
       setBusy(false);
     }
@@ -77,45 +79,43 @@ export default function ChangePasswordView({ conn, name, required, needsRecovery
           <h1>Warden</h1>
         </div>
         <p className="login-hint">
-          {required ? `Olá, ${name}. Antes de começar, troque a senha provisória por uma sua.` : "Troque a sua senha."}
+          {required ? t("password.hello", { name }) : t("password.changeYours")}
         </p>
         <label>
-          {required ? "Senha provisória" : "Senha atual"}
+          {required ? t("password.provisional") : t("password.current")}
           <input type="password" autoComplete="current-password" value={current} onChange={(e) => setCurrent(e.target.value)} autoFocus />
         </label>
         {needsRecovery && (
           <label>
-            Código de recuperação
+            {t("password.recoveryCode")}
             <input type="text" autoComplete="off" autoCapitalize="characters" spellCheck={false} value={code} onChange={(e) => setCode(e.target.value)} />
-            <span className="field-hint">
-              Quem administra o hub redefiniu a sua senha. Os seus dados só voltam com o código que você anotou quando eles foram criptografados.
-            </span>
+            <span className="field-hint">{t("password.recoveryHint")}</span>
           </label>
         )}
         <label>
-          Senha nova
+          {t("password.new")}
           <input type="password" autoComplete="new-password" value={next} onChange={(e) => setNext(e.target.value)} />
         </label>
         <label>
-          Repita a senha nova
+          {t("password.again")}
           <input type="password" autoComplete="new-password" value={again} onChange={(e) => setAgain(e.target.value)} />
         </label>
         {(problem || error) && <p className="error-banner">{problem ?? error}</p>}
         <button type="submit" className="primary-button" disabled={busy || problem !== null || !current || !next || next !== again || (needsRecovery && !code.trim())}>
-          {busy ? "Aguarde…" : "Trocar senha"}
+          {busy ? t("password.wait") : t("password.submit")}
         </button>
         {encrypted && !required && (
           <button type="button" className="link-button" disabled={busy || !current} onClick={() => void handleNewCode()}>
-            Gerar um novo código de recuperação (use a senha atual acima)
+            {t("password.newRecoveryCode")}
           </button>
         )}
         {onCancel && !required ? (
           <button type="button" className="link-button" onClick={onCancel}>
-            Cancelar
+            {t("password.cancel")}
           </button>
         ) : (
           <button type="button" className="link-button" onClick={onLogout}>
-            Sair
+            {t("password.signOut")}
           </button>
         )}
       </form>
@@ -150,24 +150,22 @@ function LinkTruthId({ conn, linked }: { conn: ServerConnection; linked?: string
 
   return (
     <form className="login-card" onSubmit={(e) => void handleLink(e)}>
-      <p className="login-hint">Ligar meu TruthID</p>
+      <p className="login-hint">{t("password.linkTruthId")}</p>
       {done ? (
-        <p className="field-hint">
-          Ligado a <strong>@{done}</strong>. Para trocar, peça um convite novo a quem administra o hub.
-        </p>
+        <p className="field-hint">{rich("password.linkedTo", { name: <strong>@{done}</strong> })}</p>
       ) : (
         <>
           <label>
-            Código do convite
+            {t("password.inviteCode")}
             <input type="text" autoComplete="off" autoCapitalize="none" spellCheck={false} value={code} onChange={(e) => setCode(e.target.value)} />
           </label>
           <label>
-            Meu usuário no TruthID
+            {t("password.truthIdUser")}
             <input type="text" autoComplete="off" autoCapitalize="none" spellCheck={false} value={username} onChange={(e) => setUsername(e.target.value)} placeholder="ana.silva" />
           </label>
           {error && <p className="error-banner">{error}</p>}
           <button type="submit" className="primary-button" disabled={busy || !code.trim() || !username.trim()}>
-            {busy ? "Aguarde…" : "Ligar"}
+            {busy ? t("password.wait") : t("password.link")}
           </button>
         </>
       )}

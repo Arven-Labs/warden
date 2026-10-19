@@ -66,14 +66,14 @@ describe("ticking", () => {
 
 describe("the summary of a key", () => {
   test("says none for no list, in any shape the hub may send", () => {
-    assert.equal(rawSummary(undefined), "Nenhuma");
-    assert.equal(rawSummary([]), "Nenhuma");
+    assert.equal(rawSummary(undefined), "None");
+    assert.equal(rawSummary([]), "None");
   });
 
   test("names the ids, or all the local ones, or both", () => {
     assert.equal(rawSummary(["main", "fast"]), "main, fast");
-    assert.equal(rawSummary(["*"]), "Todos os modelos locais");
-    assert.equal(rawSummary(["*", "casa"]), "Todos os modelos locais e casa");
+    assert.equal(rawSummary(["*"]), "All local models");
+    assert.equal(rawSummary(["*", "casa"]), "All local models and casa");
   });
 });
 

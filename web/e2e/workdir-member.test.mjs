@@ -7,7 +7,7 @@
 import assert from "node:assert/strict";
 import path from "node:path";
 import { after, before, describe, test } from "node:test";
-import { PAIRING_KEY, launchBrowser, signIn, startHub } from "./harness.mjs";
+import { PAIRING_KEY, launchBrowser, pageOptions, signIn, startHub } from "./harness.mjs";
 
 const TIMEOUT = 120_000;
 
@@ -64,7 +64,7 @@ async function giveFolders(page, folders) {
 
 /** A new page, signed in as `ana` with her own user and password, past the forced change of password. */
 async function signInAsAna(hub, temporary) {
-  const context = await browser.newContext({ viewport: { width: 1100, height: 1400 } });
+  const context = await browser.newContext(pageOptions);
   const page = await context.newPage();
   const sent = [];
   page.on("websocket", (ws) => ws.on("framesent", (f) => typeof f.payload === "string" && sent.push(f.payload)));

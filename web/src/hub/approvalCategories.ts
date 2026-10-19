@@ -1,3 +1,5 @@
+import { t, type Key } from "../i18n/index.ts";
+
 /** P122 — os tipos de ação que um agente pode ser obrigado a ter aprovados mesmo quando age sozinho. Os ids são os de
  * `warden_core::autonomy::Category`, como o config, o hub e `approvalRequired` os escrevem. */
 export interface ApprovalCategory {
@@ -5,14 +7,21 @@ export interface ApprovalCategory {
   label: string;
 }
 
+const category = (id: string, key: Key): ApprovalCategory => ({
+  id,
+  get label() {
+    return t(key);
+  },
+});
+
 export const APPROVAL_CATEGORIES: ApprovalCategory[] = [
-  { id: "delete_data", label: "Apagar dados" },
-  { id: "spend_money", label: "Gastar dinheiro" },
-  { id: "critical_infra", label: "Mexer em infraestrutura crítica (shell, SSH, nós)" },
-  { id: "external_message", label: "Enviar mensagem externa (navegador, serviços de fora)" },
-  { id: "publish_code", label: "Publicar código" },
-  { id: "important_config", label: "Alterar configuração importante (tarefas agendadas)" },
-  { id: "elevated_agent", label: "Criar ou alterar agentes" },
+  category("delete_data", "approvalCategory.delete_data"),
+  category("spend_money", "approvalCategory.spend_money"),
+  category("critical_infra", "approvalCategory.critical_infra"),
+  category("external_message", "approvalCategory.external_message"),
+  category("publish_code", "approvalCategory.publish_code"),
+  category("important_config", "approvalCategory.important_config"),
+  category("elevated_agent", "approvalCategory.elevated_agent"),
 ];
 
 /** O nome de uma categoria, ou o próprio id quando um hub mais novo manda uma que esta tela não conhece. */

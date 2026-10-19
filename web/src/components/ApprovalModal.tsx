@@ -1,5 +1,6 @@
 import type { ApprovalPrompt } from "../hub/connection";
 import { approvalCategoryLabel } from "../hub/approvalCategories";
+import { t, type Key } from "../i18n";
 
 interface Props {
   /** Oldest first; the first one is shown. */
@@ -7,15 +8,15 @@ interface Props {
   onAnswer: (approvalId: number, approved: boolean, always?: boolean) => void;
 }
 
-const VERB: Record<string, string> = {
-  exec: "rodar um comando em",
-  upload: "enviar um arquivo para",
-  download: "baixar um arquivo de",
-  create_agent: "criar o agente",
-  update_agent: "alterar o agente",
-  delete_agent: "apagar o agente",
-  replace_agent: "substituir o agente",
-  tool_call: "usar a ferramenta",
+const VERB: Record<string, Key> = {
+  exec: "approval.verb.exec",
+  upload: "approval.verb.upload",
+  download: "approval.verb.download",
+  create_agent: "approval.verb.create_agent",
+  update_agent: "approval.verb.update_agent",
+  delete_agent: "approval.verb.delete_agent",
+  replace_agent: "approval.verb.replace_agent",
+  tool_call: "approval.verb.tool_call",
 };
 
 /** Asks the person to approve what the AI wants to do in this browser's turn (P46: creating or
@@ -32,25 +33,25 @@ export default function ApprovalModal({ queue, onAnswer }: Props) {
     <div className="approval-backdrop" role="dialog" aria-modal="true" aria-labelledby="approval-title">
       <div className="approval-card">
         <h2 id="approval-title" className="approval-title">
-          {spendPause ? `Limite de gasto atingido: ${current.target}` : `A IA quer ${VERB[current.action] ?? current.action} ${current.target}`}
+          {spendPause
+            ? t("approval.spendLimit", { target: current.target })
+            : t("approval.aiWants", { verb: VERB[current.action] ? t(VERB[current.action]) : current.action, target: current.target })}
         </h2>
-        {current.category && !spendPause && (
-          <p className="approval-more">Perguntado porque este agente precisa ter aprovado: "{approvalCategoryLabel(current.category)}".</p>
-        )}
+        {current.category && !spendPause && <p className="approval-more">{t("approval.asked", { category: approvalCategoryLabel(current.category) })}</p>}
         <pre className="approval-detail">{current.detail}</pre>
-        {queue.length > 1 && <p className="approval-more">Mais {queue.length - 1} esperando depois deste.</p>}
+        {queue.length > 1 && <p className="approval-more">{t("approval.more", { count: queue.length - 1 })}</p>}
         <div className="approval-actions">
           <button type="button" className="link-button" onClick={() => onAnswer(current.approvalId, false)} autoFocus>
-            {spendPause ? "Parar" : "Recusar"}
+            {spendPause ? t("approval.stop") : t("approval.refuse")}
           </button>
           <button type="button" className="primary-button" onClick={() => onAnswer(current.approvalId, true)}>
-            {spendPause ? "Liberar mais" : "Aprovar"}
+            {spendPause ? t("approval.allowMore") : t("approval.approve")}
           </button>
         </div>
         {current.always && (
           <div className="approval-actions">
-            <button type="button" className="link-button" onClick={() => onAnswer(current.approvalId, true, true)} title="Até o hub ser reiniciado">
-              Sempre permitir nesta conversa: {current.always}
+            <button type="button" className="link-button" onClick={() => onAnswer(current.approvalId, true, true)} title={t("approval.untilRestart")}>
+              {t("approval.always", { what: current.always })}
             </button>
           </div>
         )}

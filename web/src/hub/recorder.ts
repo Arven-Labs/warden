@@ -4,6 +4,7 @@
  * P36) or `localhost` — so on a plain `http://` LAN address `canRecord()` is false.
  */
 
+import { t } from "../i18n/index.ts";
 import { toBase64 } from "./attachments";
 import type { Attachment } from "./messages";
 
@@ -45,7 +46,7 @@ export class VoiceRecorder {
           this.release();
           const blob = new Blob(this.chunks, { type: this.recorder.mimeType || "audio/webm" });
           if (blob.size === 0) {
-            reject(new Error("nada foi gravado"));
+            reject(new Error(t("recorder.nothing")));
             return;
           }
           toBase64(blob).then((data) => resolve({ mimeType: blob.type, data }), reject);

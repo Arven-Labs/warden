@@ -1,3 +1,5 @@
+import { t } from "../i18n/index.ts";
+
 /** P120 — a organização dos agentes: cada um pode ter um cargo e um superior (`reportsTo`, o id de outro agente).
  * Por enquanto só aparece: não muda nada do que um agente pode fazer. Espelha `warden_bootstrap::org`. */
 export interface OrgAgent {
@@ -108,14 +110,38 @@ export function userWithOrgAccess<T extends { orgAccess?: string }>(user: T, acc
   return (next === "none" ? rest : { ...rest, orgAccess: next }) as T;
 }
 
-/** Os três níveis, na ordem em que o dono os escolhe. */
+/** The three levels, in the order the owner picks them (getters, so each read has the current language). */
 export const ORG_ACCESS_CHOICES: Array<{ value: OrgAccess; label: string; hint: string }> = [
-  { value: "none", label: "Não vê", hint: "Não vê a árvore, como todo membro antes disso." },
-  { value: "view", label: "Só vê", hint: "Vê quem reporta a quem e o cargo de cada agente; não vê o que eles dizem nem o que podem fazer." },
-  { value: "edit", label: "Vê e edita", hint: "Muda cargo e superior, adiciona e remove agentes, com as mesmas regras de uma mudança sua, sem a chave de pareamento." },
+  {
+    value: "none",
+    get label() {
+      return t("orgAccess.none");
+    },
+    get hint() {
+      return t("orgAccess.noneHint");
+    },
+  },
+  {
+    value: "view",
+    get label() {
+      return t("orgAccess.view");
+    },
+    get hint() {
+      return t("orgAccess.viewHint");
+    },
+  },
+  {
+    value: "edit",
+    get label() {
+      return t("orgAccess.edit");
+    },
+    get hint() {
+      return t("orgAccess.editHint");
+    },
+  },
 ];
 
-/** A frase curta do cartão do membro. */
+/** The short phrase on the member's card. */
 export function orgAccessLabel(access: OrgAccess): string {
-  return access === "edit" ? "organograma: vê e edita" : access === "view" ? "organograma: só vê" : "organograma: não vê";
+  return t(access === "edit" ? "orgAccess.cardEdit" : access === "view" ? "orgAccess.cardView" : "orgAccess.cardNone");
 }

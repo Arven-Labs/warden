@@ -4,6 +4,8 @@
  * (private windows, blocked site data) — then every visit just pairs again.
  */
 
+import { t } from "../i18n/index.ts";
+
 const STORAGE_KEY = "warden.web.identity";
 
 export interface Identity {
@@ -100,5 +102,5 @@ export function defaultDeviceName(): string {
             ? "Linux"
             : null;
   const detail = [browser, os].filter(Boolean).join(", ");
-  return detail ? `Navegador (${detail})` : "Navegador";
+  return detail ? t("device.browserDetail", { detail }) : t("device.browser");
 }

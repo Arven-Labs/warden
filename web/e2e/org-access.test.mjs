@@ -6,7 +6,7 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import { after, before, describe, test } from "node:test";
-import { PAIRING_KEY, launchBrowser, signIn, snap, startHub } from "./harness.mjs";
+import { PAIRING_KEY, launchBrowser, pageOptions, signIn, snap, startHub } from "./harness.mjs";
 
 const TIMEOUT = 120_000;
 
@@ -50,7 +50,7 @@ async function giveAccess(page, label) {
 
 /** A new page, signed in as `ana` past the forced change of password. */
 async function signInAsAna(hub, temporary, password) {
-  const context = await browser.newContext({ viewport: { width: 1100, height: 1400 } });
+  const context = await browser.newContext(pageOptions);
   const page = await context.newPage();
   const sent = [];
   page.on("websocket", (ws) => ws.on("framesent", (f) => typeof f.payload === "string" && sent.push(f.payload)));

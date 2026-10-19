@@ -4,8 +4,10 @@ import type { AgentSettings, AgentTask, ConversationSummary, UsageReport } from 
 import { activityLine, activityOf, lastConversationOf, spendOf } from "../hub/agentTasks";
 import { approvalCategoryLabel } from "../hub/approvalCategories";
 import { addReportEdit, buildOrg, moveEdit, positionEdit, superiorChoices, type OrgAccess, type OrgAgent, type OrgEdit, type OrgNode } from "../hub/org";
+import { t, type Key } from "../i18n";
+import { rich } from "../i18n/rich";
 
-const AUTONOMIA: Record<number, string> = { 1: "só responde", 2: "sugere", 3: "pede antes", 4: "age sozinho", 5: "gerencia sozinho" };
+const AUTONOMIA: Record<number, Key> = { 1: "org.autonomy.1", 2: "org.autonomy.2", 3: "org.autonomy.3", 4: "org.autonomy.4", 5: "org.autonomy.5" };
 
 /** O agente tem os poderes das Configurações (o dono os recebe; um membro só recebe o id, o cargo e o superior). */
 function temPoderes(agent: OrgAgent): agent is AgentSettings {
@@ -16,12 +18,12 @@ function temPoderes(agent: OrgAgent): agent is AgentSettings {
 function selos(agent: OrgAgent): string[] {
   if (!temPoderes(agent)) return [];
   const lista: string[] = [];
-  if (agent.canDelegateToAgents) lista.push("delega");
-  if (agent.canManageAgents) lista.push("gerencia agentes");
-  if (agent.canMessageAgents) lista.push("deixa recados");
-  if (agent.canManageTasks) lista.push("agenda tarefas");
-  if (agent.autonomy !== 4) lista.push(`autonomia ${agent.autonomy}: ${AUTONOMIA[agent.autonomy] ?? ""}`.trim());
-  if (agent.approvalRequired.length > 0) lista.push(`pede antes: ${agent.approvalRequired.map(approvalCategoryLabel).join(", ").toLowerCase()}`);
+  if (agent.canDelegateToAgents) lista.push(t("org.badge.delegates"));
+  if (agent.canManageAgents) lista.push(t("org.badge.manages"));
+  if (agent.canMessageAgents) lista.push(t("org.badge.notes"));
+  if (agent.canManageTasks) lista.push(t("org.badge.schedules"));
+  if (agent.autonomy !== 4) lista.push(t("org.badge.autonomy", { level: agent.autonomy, what: AUTONOMIA[agent.autonomy] ? t(AUTONOMIA[agent.autonomy]) : "" }).trim());
+  if (agent.approvalRequired.length > 0) lista.push(t("org.badge.asksFirst", { what: agent.approvalRequired.map(approvalCategoryLabel).join(", ").toLowerCase() }));
   return lista;
 }
 
@@ -63,27 +65,27 @@ function FormularioCargo({ agent, edicao }: { agent: OrgAgent; edicao: Edicao })
   return (
     <div className="org-form">
       <label className="settings-field">
-        Cargo
-        <input type="text" value={cargo} maxLength={80} placeholder="ex.: líder de backend" onChange={(e) => setCargo(e.target.value)} />
+        {t("org.role")}
+        <input type="text" value={cargo} maxLength={80} placeholder={t("org.rolePlaceholder")} onChange={(e) => setCargo(e.target.value)} />
       </label>
       <label className="settings-field">
-        Reporta a
+        {t("org.reportsTo")}
         <select value={superior} onChange={(e) => setSuperior(e.target.value)}>
-          <option value="">Ninguém (topo da árvore)</option>
+          <option value="">{t("org.nobodyTop")}</option>
           {opcoes.map((a) => (
             <option key={a.id} value={a.id}>
               {a.id}
             </option>
           ))}
         </select>
-        <span className="field-hint">Quem reporta a {agent.id} vai junto.</span>
+        <span className="field-hint">{t("org.reportsHint", { id: agent.id })}</span>
       </label>
       <div className="skills-actions">
         <button type="button" className="primary-button" disabled={edicao.ocupado} onClick={() => edicao.aplicar(positionEdit(agent.id, cargo, superior))}>
-          Salvar
+          {t("common.save")}
         </button>
         <button type="button" className="link-button" disabled={edicao.ocupado} onClick={() => edicao.abrir(null)}>
-          Cancelar
+          {t("common.cancel")}
         </button>
       </div>
     </div>
@@ -98,27 +100,27 @@ function FormularioNovo({ under, edicao }: { under: string | null; edicao: Edica
   return (
     <div className="org-form">
       <label className="settings-field">
-        Nome
-        <input type="text" value={id} maxLength={64} placeholder="ex.: revisor" onChange={(e) => setId(e.target.value)} />
+        {t("org.name")}
+        <input type="text" value={id} maxLength={64} placeholder={t("org.namePlaceholder")} onChange={(e) => setId(e.target.value)} />
       </label>
       <label className="settings-field">
-        Cargo
-        <input type="text" value={cargo} maxLength={80} placeholder="opcional" onChange={(e) => setCargo(e.target.value)} />
+        {t("org.role")}
+        <input type="text" value={cargo} maxLength={80} placeholder={t("org.optional")} onChange={(e) => setCargo(e.target.value)} />
       </label>
       <label className="settings-field">
-        O que ele faz
-        <textarea value={persona} rows={3} placeholder="As instruções dele, em poucas linhas." onChange={(e) => setPersona(e.target.value)} />
+        {t("org.whatItDoes")}
+        <textarea value={persona} rows={3} placeholder={t("org.personaPlaceholder")} onChange={(e) => setPersona(e.target.value)} />
         <span className="field-hint">
-          {under ? `Reporta a ${under}. ` : "Começa no topo da árvore. "}
-          Começa cuidadoso: ferramentas só de leitura, pede antes de qualquer mudança, e não delega nem gerencia agentes até você ligar isso em Configurações.
+          {under ? t("org.reportsToWho", { who: under }) : t("org.startsAtTop")}
+          {t("org.startsCareful")}
         </span>
       </label>
       <div className="skills-actions">
         <button type="button" className="primary-button" disabled={edicao.ocupado || !pronto} onClick={() => edicao.aplicar(addReportEdit(id, persona, cargo, under))}>
-          Adicionar agente
+          {t("org.addAgent")}
         </button>
         <button type="button" className="link-button" disabled={edicao.ocupado} onClick={() => edicao.abrir(null)}>
-          Cancelar
+          {t("common.cancel")}
         </button>
       </div>
     </div>
@@ -130,16 +132,17 @@ function ConfirmarRemocao({ node, edicao }: { node: OrgNode<OrgAgent>; edicao: E
   return (
     <div className="org-form">
       <p className="skills-hint">
-        Remover <strong>{agent.id}</strong>?
-        {children.length > 0 && ` ${children.length === 1 ? "O subordinado dele passa" : `Os ${children.length} subordinados dele passam`} a reportar a ${agent.reportsTo ?? "ninguém (o topo da árvore)"}.`}
-        {" "}As conversas ficam; não dá para desfazer.
+        {rich("org.removeQuestion", { id: <strong>{agent.id}</strong> })}
+        {children.length > 0 &&
+          ` ${t(children.length === 1 ? "org.reportOne" : "org.reportMany", { count: children.length })}${t("org.reportTo", { who: agent.reportsTo ?? t("org.nobodyTopParen") })}`}
+        {t("org.conversationsStay")}
       </p>
       <div className="skills-actions">
         <button type="button" className="primary-button" disabled={edicao.ocupado} onClick={() => edicao.aplicar({ kind: "remove", id: agent.id })}>
-          Remover
+          {t("common.remove")}
         </button>
         <button type="button" className="link-button" disabled={edicao.ocupado} onClick={() => edicao.abrir(null)}>
-          Manter
+          {t("common.keep")}
         </button>
       </div>
     </div>
@@ -179,29 +182,29 @@ function Node({ node, edicao }: { node: OrgNode<OrgAgent>; edicao: Edicao }) {
             </span>
           ))}
         </span>
-        {children.length > 0 && <span className="org-count">{children.length === 1 ? "1 subordinado" : `${children.length} subordinados`}</span>}
+        {children.length > 0 && <span className="org-count">{children.length === 1 ? t("org.oneSubordinate") : t("org.nSubordinates", { count: children.length })}</span>}
         {edicao.atividade(agent.id) && <span className="org-activity">{edicao.atividade(agent.id)}</span>}
         <span className="org-actions">
           {!edicao.membro && (
             <>
-              <button type="button" className="link-button" onClick={() => edicao.onOpenChat(agent.id)} title={`Começar uma conversa com ${agent.id}`}>
-                Conversar
+              <button type="button" className="link-button" onClick={() => edicao.onOpenChat(agent.id)} title={t("org.startChat", { id: agent.id })}>
+                {t("org.chat")}
               </button>
-              <button type="button" className="link-button" onClick={() => edicao.onOpenTasks(agent.id)} title={`As tarefas que ${agent.id} recebeu e as que delegou`}>
-                Tarefas
+              <button type="button" className="link-button" onClick={() => edicao.onOpenTasks(agent.id)} title={t("org.tasksOf", { id: agent.id })}>
+                {t("tab.tasks")}
               </button>
             </>
           )}
           {edicao.editavel && (
             <>
               <button type="button" className="link-button" disabled={edicao.ocupado} onClick={() => edicao.abrir({ kind: "edit", id: agent.id })}>
-                Editar
+                {t("common.edit")}
               </button>
               <button type="button" className="link-button" disabled={edicao.ocupado} onClick={() => edicao.abrir({ kind: "add", under: agent.id })}>
-                Adicionar subordinado
+                {t("org.addSubordinate")}
               </button>
               <button type="button" className="link-button" disabled={edicao.ocupado} onClick={() => edicao.abrir({ kind: "remove", id: agent.id })}>
-                Remover
+                {t("common.remove")}
               </button>
             </>
           )}
@@ -322,7 +325,7 @@ export default function OrganizationView({
       cancelKey();
     } catch (err) {
       if (err instanceof SettingsError && err.authRejected) {
-        setKeyError("Chave de pareamento errada.");
+        setKeyError(t("pairingKey.wrong"));
       } else {
         cancelKey();
         setError(err instanceof Error ? err.message : String(err));
@@ -333,7 +336,7 @@ export default function OrganizationView({
   }
 
   if (agents === null) {
-    return <div className="usage-view">{error ? <p className="error-banner">{error}</p> : <p className="skills-hint">Carregando…</p>}</div>;
+    return <div className="usage-view">{error ? <p className="error-banner">{error}</p> : <p className="skills-hint">{t("common.loading")}</p>}</div>;
   }
 
   const edicao: Edicao = {
@@ -377,17 +380,17 @@ export default function OrganizationView({
       }}
     >
       <label className="settings-field">
-        Chave de pareamento do hub
+        {t("pairingKey.label")}
         <input type="password" autoComplete="current-password" autoFocus value={pairingKey} onChange={(e) => setPairingKey(e.target.value)} />
-        <span className="field-hint">A mesma do primeiro login. É pedida a cada mudança, e o hub reinicia com ela.</span>
+        <span className="field-hint">{t("org.pairingHint")}</span>
       </label>
       {keyError && <p className="error-banner">{keyError}</p>}
       <div className="skills-actions">
         <button type="submit" className="primary-button" disabled={busy || pairingKey.trim() === "" || !conn}>
-          {busy ? "Aguarde…" : "Confirmar"}
+          {busy ? t("common.wait") : t("common.confirm")}
         </button>
         <button type="button" className="link-button" disabled={busy} onClick={cancelKey}>
-          Cancelar
+          {t("common.cancel")}
         </button>
       </div>
     </form>
@@ -396,21 +399,15 @@ export default function OrganizationView({
   return (
     <div className="usage-view">
       <div className="skills-toolbar">
-        <span className="skills-hint">
-          {membro
-            ? editavel
-              ? "Quem reporta a quem entre os agentes do workspace. O dono deixou você mudar a hierarquia; os poderes de cada agente continuam só dele."
-              : "Quem reporta a quem entre os agentes do workspace. Você só vê a árvore: o cargo e o superior de cada agente."
-            : "Quem reporta a quem entre os seus agentes. Quem gerencia ou delega a outros agentes alcança só os que estão abaixo dele; quem está fora da hierarquia delega como antes. Toda mudança feita por um agente ainda espera o seu sim."}
-        </span>
+        <span className="skills-hint">{membro ? (editavel ? t("org.introMemberEdit") : t("org.introMemberView")) : t("org.introOwner")}</span>
         <button type="button" className="link-button" onClick={() => void load()} disabled={!conn || busy}>
-          Atualizar
+          {t("common.refresh")}
         </button>
       </div>
       {error && <p className="error-banner">{error}</p>}
       {keyPrompt}
       {tree.length === 0 ? (
-        <p className="skills-hint">Nenhum agente ainda.</p>
+        <p className="skills-hint">{t("org.noAgents")}</p>
       ) : (
         <ul className="org-tree">
           {tree.map((node) => (
@@ -427,20 +424,20 @@ export default function OrganizationView({
             aoSoltar(edicao, null);
           }}
         >
-          Soltar aqui para tirar de baixo do superior (topo da árvore)
+          {t("org.dropHere")}
         </div>
       )}
-      {tree.length > 0 && ninguemReporta && !edicao.editavel && <p className="skills-hint">Ninguém reporta a ninguém ainda.</p>}
-      {tree.length > 0 && ninguemReporta && edicao.editavel && <p className="skills-hint">Ninguém reporta a ninguém ainda: arraste um cartão para cima de outro, ou use "Editar" num agente para escolher o superior dele.</p>}
+      {tree.length > 0 && ninguemReporta && !edicao.editavel && <p className="skills-hint">{t("org.nobodyReports")}</p>}
+      {tree.length > 0 && ninguemReporta && edicao.editavel && <p className="skills-hint">{t("org.nobodyReportsEdit")}</p>}
       {painel?.kind === "add" && painel.under === null && <FormularioNovo key="add-top" under={null} edicao={edicao} />}
       {editavel && (
         <div className="skills-actions">
           <button type="button" className="link-button" disabled={edicao.ocupado} onClick={() => edicao.abrir({ kind: "add", under: null })}>
-            Adicionar um agente no topo
+            {t("org.addAtTop")}
           </button>
           {!membro && (
             <button type="button" className="link-button" onClick={onEdit}>
-              Mais configurações por agente
+              {t("org.moreSettings")}
             </button>
           )}
         </div>

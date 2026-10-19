@@ -6,7 +6,7 @@ import { describe, test } from "node:test";
 import { activityLine, activityOf, lastConversationOf, spendLabel, spendOf } from "../src/hub/agentTasks.ts";
 
 const task = (id, state, extra = {}) => ({ id, group: "g", owner: "chief", assignee: id, objective: `faça ${id}`, channel: "web", state, createdAtMs: 1000, ...extra });
-// The currency format puts a no-break space after "US$"; the tests read it as a plain one.
+// A currency format may put a no-break space after the symbol; the tests read it as a plain one.
 const plain = (text) => text.replace(/ /g, " ");
 
 const tasks = [
@@ -18,7 +18,7 @@ const now = 5000 + 4 * 60000;
 describe("the activity of an agent besides its tasks", () => {
   test("without anything extra it is what it always was", () => {
     assert.deepEqual(activityOf(tasks, "dev"), { done: 1, failed: 0, cancelled: 0, active: 1, tokens: 100, delegated: 0, lastActiveMs: 5000 });
-    assert.equal(activityLine(activityOf(tasks, "dev"), now), "1 concluída, 1 em andamento · 100 tokens · ativo há 4 min");
+    assert.equal(activityLine(activityOf(tasks, "dev"), now), "1 done, 1 in progress · 100 tokens · active 4 min ago");
     assert.equal(activityOf(tasks, "ghost"), null);
   });
 
@@ -30,28 +30,28 @@ describe("the activity of an agent besides its tasks", () => {
   test("an agent with no task but a conversation still has a line, and one with nothing at all has none", () => {
     const talked = activityOf(tasks, "writer", { lastConversationMs: 5000 });
     assert.deepEqual(talked, { done: 0, failed: 0, cancelled: 0, active: 0, tokens: 0, delegated: 0, lastActiveMs: 5000 });
-    assert.equal(activityLine(talked, now), "ativo há 4 min");
+    assert.equal(activityLine(talked, now), "active 4 min ago");
     assert.equal(activityOf(tasks, "writer", {}), null);
   });
 
   test("the spend is said with the window the hub counts, and an agent that spent nothing says nothing of it", () => {
     const spend = { costUsd: 1.2, unpricedCalls: 0, windowHours: 24 };
-    assert.equal(plain(activityLine(activityOf(tasks, "dev", { spend }), now)), "1 concluída, 1 em andamento · 100 tokens · US$ 1,20 nas últimas 24 h · ativo há 4 min");
+    assert.equal(plain(activityLine(activityOf(tasks, "dev", { spend }), now)), "1 done, 1 in progress · 100 tokens · $1.20 in the last 24 h · active 4 min ago");
     assert.equal(activityOf(tasks, "dev", { spend: { costUsd: 0, unpricedCalls: 0, windowHours: 24 } }).spend, undefined);
   });
 
   test("only the spend is enough to show a line, with no time of activity", () => {
     const only = activityOf([], "writer", { spend: { costUsd: 0.5, unpricedCalls: 0, windowHours: 6 } });
     assert.equal(only.lastActiveMs, null);
-    assert.equal(plain(activityLine(only, now)), "US$ 0,50 nas últimas 6 h");
+    assert.equal(plain(activityLine(only, now)), "$0.50 in the last 6 h");
   });
 });
 
 describe("saying the spend", () => {
   test("a tiny amount, and calls the price list does not know", () => {
-    assert.equal(plain(spendLabel({ costUsd: 0.004, unpricedCalls: 0, windowHours: 24 })), "menos de US$ 0,01 nas últimas 24 h");
-    assert.equal(plain(spendLabel({ costUsd: 2, unpricedCalls: 3, windowHours: 24 })), "US$ 2,00 nas últimas 24 h (e 3 chamadas sem preço)");
-    assert.equal(spendLabel({ costUsd: 0, unpricedCalls: 1, windowHours: 24 }), "1 chamada sem preço nas últimas 24 h");
+    assert.equal(plain(spendLabel({ costUsd: 0.004, unpricedCalls: 0, windowHours: 24 })), "less than $0.01 in the last 24 h");
+    assert.equal(plain(spendLabel({ costUsd: 2, unpricedCalls: 3, windowHours: 24 })), "$2.00 in the last 24 h (and 3 calls without a price)");
+    assert.equal(spendLabel({ costUsd: 0, unpricedCalls: 1, windowHours: 24 }), "1 call without a price in the last 24 h");
   });
 });
 

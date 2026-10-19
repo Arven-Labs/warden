@@ -54,11 +54,11 @@ describe("the words", () => {
       { kind: "run-task" },
       { kind: "run-hook" },
     ].map(workLabel);
-    assert.deepEqual([out, into, task, hook], ["para poet", "de chief", "tarefa agendada", "webhook"]);
+    assert.deepEqual([out, into, task, hook], ["to poet", "from chief", "scheduled task", "webhook"]);
   });
 
   test("the button shows the count only when there is something", () => {
-    assert.equal(workButtonLabel(0), "Recados e execuções");
-    assert.equal(workButtonLabel(3), "Recados e execuções (3)");
+    assert.equal(workButtonLabel(0), "Notes and runs");
+    assert.equal(workButtonLabel(3), "Notes and runs (3)");
   });
 });

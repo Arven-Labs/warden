@@ -3,7 +3,7 @@
 
 import assert from "node:assert/strict";
 import { after, before, describe, test } from "node:test";
-import { PAIRING_KEY, launchBrowser, signIn, snap, startHub } from "./harness.mjs";
+import { PAIRING_KEY, launchBrowser, pageOptions, signIn, snap, startHub } from "./harness.mjs";
 
 const TIMEOUT = 120_000;
 const HOUR = 3_600_000;
@@ -98,7 +98,7 @@ async function createAna(page) {
 
 /** A new page signed in as `ana`, past the forced change of password and the recovery code, if the hub shows one. */
 async function signInAsAna(hub, temporary) {
-  const context = await browser.newContext({ viewport: { width: 1100, height: 1400 } });
+  const context = await browser.newContext(pageOptions);
   const page = await context.newPage();
   const errors = [];
   page.on("pageerror", (e) => errors.push(e.message));

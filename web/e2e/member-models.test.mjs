@@ -3,7 +3,7 @@
 
 import assert from "node:assert/strict";
 import { after, before, describe, test } from "node:test";
-import { PAIRING_KEY, launchBrowser, signIn, snap, startHub } from "./harness.mjs";
+import { PAIRING_KEY, launchBrowser, pageOptions, signIn, snap, startHub } from "./harness.mjs";
 
 const TIMEOUT = 120_000;
 
@@ -39,7 +39,7 @@ async function createAna(page) {
 
 /** A new page signed in as `ana`, past the forced change of password and the recovery code, if the hub shows one. */
 async function signInAsAna(hub, temporary) {
-  const context = await browser.newContext({ viewport: { width: 1100, height: 1400 } });
+  const context = await browser.newContext(pageOptions);
   const page = await context.newPage();
   const errors = [];
   page.on("pageerror", (e) => errors.push(e.message));
@@ -76,7 +76,7 @@ describe("the models a member may give her agents", () => {
       const { page } = member;
 
       // Nothing released: the form for a new agent has no model to pick.
-      await page.getByRole("button", { name: "Agentes", exact: true }).click();
+      await page.getByRole("button", { name: "Meus agentes", exact: true }).click();
       await page.getByRole("button", { name: "Criar agente" }).click();
       await snap(page, "member-agent-form");
       assert.equal(await page.locator("label", { hasText: "Modelo" }).locator("select").count(), 0, "no picker before the owner releases a model");
@@ -91,8 +91,8 @@ describe("the models a member may give her agents", () => {
       await ana.getByRole("button", { name: "Modelos (1 liberado)" }).waitFor();
 
       // She leaves the tab and comes back (it asks again, so no reconnecting): the picker lists it and the agent keeps it.
-      await page.getByRole("button", { name: "Vault", exact: true }).click();
-      await page.getByRole("button", { name: "Agentes", exact: true }).click();
+      await page.getByRole("button", { name: "Cofre", exact: true }).click();
+      await page.getByRole("button", { name: "Meus agentes", exact: true }).click();
       await page.getByRole("button", { name: "Criar agente" }).click();
       const picker = page.locator("label", { hasText: "Modelo" }).locator("select");
       await picker.waitFor();

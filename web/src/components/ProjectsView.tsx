@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
 import type { ServerConnection } from "../hub/connection";
 import type { ProjectDto } from "../hub/messages";
+import { t } from "../i18n";
+import { rich } from "../i18n/rich";
 
 /** What the editor form is doing: `new` (id editable, refuses a taken one) or `edit` (id locked, overwrites) — the same
  * split as the Skills screen. */
@@ -42,7 +44,7 @@ function ProjectFiles({ conn, projectId }: { conn: ServerConnection | null; proj
         setFiles(all.filter((path) => path.startsWith(prefix) && path !== `${prefix}PROJECT.md`).map((path) => path.slice(prefix.length)));
         setError(null);
       },
-      (err) => setError(`falha ao listar os arquivos: ${message(err)}`),
+      (err) => setError(t("projects.listFilesFailed", { error: message(err) })),
     );
   }, [conn, prefix]);
 
@@ -61,22 +63,20 @@ function ProjectFiles({ conn, projectId }: { conn: ServerConnection | null; proj
       },
       (err) => {
         setBusy(false);
-        setError(`falha ao salvar a nota: ${message(err)}`);
+        setError(t("projects.saveNoteFailed", { error: message(err) }));
       },
     );
   }
 
   return (
     <div className="project-files">
-      <strong>Arquivos</strong>
-      <span className="skills-hint">
-        Notas em <code>{prefix}</code> no cofre. Nas conversas do projeto a IA lê e escreve só nestes arquivos.
-      </span>
+      <strong>{t("projects.files")}</strong>
+      <span className="skills-hint">{rich("projects.filesHint", { prefix: <code>{prefix}</code> })}</span>
       {error && <p className="error-banner">{error}</p>}
       {files === null ? (
-        <span className="skills-hint">Carregando…</span>
+        <span className="skills-hint">{t("common.loading")}</span>
       ) : files.length === 0 ? (
-        <span className="skills-hint">Nenhum arquivo ainda.</span>
+        <span className="skills-hint">{t("projects.noFiles")}</span>
       ) : (
         <ul className="project-file-list">
           {files.map((file) => (
@@ -88,21 +88,21 @@ function ProjectFiles({ conn, projectId }: { conn: ServerConnection | null; proj
       )}
       {draft ? (
         <div className="project-file-draft">
-          <input value={draft.name} onChange={(e) => setDraft({ ...draft, name: e.target.value })} placeholder="notas.md" aria-label="Nome do arquivo" />
-          <textarea value={draft.content} onChange={(e) => setDraft({ ...draft, content: e.target.value })} rows={8} placeholder="O texto da nota." aria-label="Texto da nota" />
+          <input value={draft.name} onChange={(e) => setDraft({ ...draft, name: e.target.value })} placeholder="notes.md" aria-label={t("projects.fileName")} />
+          <textarea value={draft.content} onChange={(e) => setDraft({ ...draft, content: e.target.value })} rows={8} placeholder={t("projects.noteTextPlaceholder")} aria-label={t("projects.noteText")} />
           <div className="skills-actions">
             <button type="button" className="primary-button" onClick={saveDraft} disabled={busy || !conn || draft.name.trim() === ""}>
-              {busy ? "Salvando…" : "Salvar nota"}
+              {busy ? t("common.saving") : t("projects.saveNote")}
             </button>
             <button type="button" className="link-button" onClick={() => setDraft(null)} disabled={busy}>
-              Cancelar
+              {t("common.cancel")}
             </button>
           </div>
         </div>
       ) : (
         <div>
           <button type="button" className="link-button" onClick={() => setDraft({ name: "", content: "" })}>
-            + Adicionar nota
+            {t("projects.addNote")}
           </button>
         </div>
       )}
@@ -131,7 +131,7 @@ export default function ProjectsView({ conn, onChanged }: { conn: ServerConnecti
       },
       (err) => {
         setProjects((current) => current ?? []);
-        setError(`falha ao listar os projetos: ${message(err)}`);
+        setError(t("projects.listFailed", { error: message(err) }));
       },
     );
   }, [conn, onChanged]);
@@ -155,7 +155,7 @@ export default function ProjectsView({ conn, onChanged }: { conn: ServerConnecti
       },
       (err) => {
         setSaving(false);
-        setError(`falha ao salvar o projeto: ${message(err)}`);
+        setError(t("projects.saveFailed", { error: message(err) }));
       },
     );
   }
@@ -170,7 +170,7 @@ export default function ProjectsView({ conn, onChanged }: { conn: ServerConnecti
       },
       (err) => {
         setConfirmDelete(null);
-        setError(`falha ao remover o projeto: ${message(err)}`);
+        setError(t("projects.removeFailed", { error: message(err) }));
       },
     );
   }
@@ -184,45 +184,45 @@ export default function ProjectsView({ conn, onChanged }: { conn: ServerConnecti
           handleSave();
         }}
       >
-        <strong>{editor.mode === "new" ? "Novo projeto" : `Editar ${editor.project.name}`}</strong>
+        <strong>{editor.mode === "new" ? t("projects.new") : t("projects.editing", { name: editor.project.name })}</strong>
         <label>
-          Nome
+          {t("common.name")}
           <input
             value={editor.project.name}
             onChange={(e) => {
               const name = e.target.value;
               updateEditor(editor.mode === "new" && !idTouched ? { name, id: slugFrom(name) } : { name });
             }}
-            placeholder="Declaração 2026"
+            placeholder={t("projects.namePlaceholder")}
             required
           />
         </label>
         <label>
-          Nome da pasta
+          {t("projects.folderName")}
           <input
             value={editor.project.id}
             onChange={(e) => {
               setIdTouched(true);
               updateEditor({ id: e.target.value });
             }}
-            placeholder="declaracao-2026"
+            placeholder={t("projects.folderNamePlaceholder")}
             disabled={editor.mode === "edit"}
             required
           />
-          <span className="skills-hint">Letras, números, «-» e «_». Não muda depois de salvar.</span>
+          <span className="skills-hint">{t("projects.folderNameHint")}</span>
         </label>
         <label>
-          Descrição
-          <input value={editor.project.description} onChange={(e) => updateEditor({ description: e.target.value })} placeholder="Uma frase: do que trata o projeto" />
+          {t("projects.description")}
+          <input value={editor.project.description} onChange={(e) => updateEditor({ description: e.target.value })} placeholder={t("projects.descriptionPlaceholder")} />
         </label>
         <label>
-          Pasta de trabalho (opcional)
+          {t("projects.workdir")}
           <input
             value={editor.project.workdir ?? ""}
             onChange={(e) => updateEditor({ workdir: e.target.value })}
-            placeholder="/home/voce/codigo/meu-repo"
+            placeholder={t("projects.workdirPlaceholder")}
           />
-          <span className="skills-hint">Caminho absoluto na máquina do hub. Com ela, as conversas do projeto ganham um terminal que começa ali e pede a sua aprovação a cada comando.</span>
+          <span className="skills-hint">{t("projects.workdirHint")}</span>
         </label>
         <label className="checkbox-row">
           <input
@@ -231,28 +231,28 @@ export default function ProjectsView({ conn, onChanged }: { conn: ServerConnecti
             disabled={!(editor.project.workdir ?? "").trim()}
             onChange={(e) => updateEditor({ code: e.target.checked })}
           />
-          Modo código (opencode)
+          {t("projects.codeMode")}
         </label>
-        <span className="skills-hint">Precisa da pasta de trabalho e do opencode instalado na máquina do hub. As conversas do projeto passam a ser sessões do opencode nessa pasta, e cada ação dele pede a sua aprovação.</span>
+        <span className="skills-hint">{t("projects.codeModeHint")}</span>
         <label>
-          Instruções
+          {t("projects.instructions")}
           <textarea
             value={editor.project.instructions}
             onChange={(e) => updateEditor({ instructions: e.target.value })}
             rows={10}
-            placeholder="O que a IA deve saber e seguir em toda conversa deste projeto, em markdown."
+            placeholder={t("projects.instructionsPlaceholder")}
           />
-          <span className="skills-hint">Vão a cada mensagem das conversas do projeto, então seja breve (até 16 KB).</span>
+          <span className="skills-hint">{t("projects.instructionsHint")}</span>
         </label>
         {editor.mode === "edit" ? (
           <ProjectFiles conn={conn} projectId={editor.project.id} />
         ) : (
-          <span className="skills-hint">Salve o projeto primeiro; depois dá para adicionar arquivos.</span>
+          <span className="skills-hint">{t("projects.saveFirst")}</span>
         )}
         {error && <p className="error-banner">{error}</p>}
         <div className="skills-actions">
           <button type="submit" className="primary-button" disabled={saving || !conn}>
-            {saving ? "Salvando…" : "Salvar"}
+            {saving ? t("common.saving") : t("common.save")}
           </button>
           <button
             type="button"
@@ -263,7 +263,7 @@ export default function ProjectsView({ conn, onChanged }: { conn: ServerConnecti
               setError(null);
             }}
           >
-            Cancelar
+            {t("common.cancel")}
           </button>
         </div>
       </form>
@@ -273,10 +273,7 @@ export default function ProjectsView({ conn, onChanged }: { conn: ServerConnecti
   return (
     <div className="skills-view">
       <div className="skills-toolbar">
-        <span className="skills-hint">
-          Um projeto agrupa conversas de um assunto, com instruções e arquivos próprios. Nas conversas dele a IA recebe as instruções e trabalha só nos arquivos
-          do projeto: não vê o resto do cofre, as skills nem outras conversas, e não ganha terminal. O projeto se escolhe ao começar a conversa e não muda depois.
-        </span>
+        <span className="skills-hint">{t("projects.intro")}</span>
         <button
           type="button"
           className="primary-button"
@@ -286,14 +283,14 @@ export default function ProjectsView({ conn, onChanged }: { conn: ServerConnecti
             setEditor({ mode: "new", project: emptyProject });
           }}
         >
-          + Novo
+          {t("projects.newButton")}
         </button>
       </div>
       {error && <p className="error-banner">{error}</p>}
       {projects === null ? (
-        <p className="skills-hint">Carregando…</p>
+        <p className="skills-hint">{t("common.loading")}</p>
       ) : projects.length === 0 ? (
-        <p className="skills-hint">Nenhum projeto ainda.</p>
+        <p className="skills-hint">{t("projects.none")}</p>
       ) : (
         <ul className="skills-list">
           {projects.map((project) => (
@@ -303,12 +300,12 @@ export default function ProjectsView({ conn, onChanged }: { conn: ServerConnecti
                 <code className="skills-hint">{project.id}</code>
                 {confirmDelete === project.id ? (
                   <span className="skills-actions">
-                    <span className="skills-hint">Os arquivos ficam no cofre.</span>
+                    <span className="skills-hint">{t("projects.filesStay")}</span>
                     <button type="button" className="link-button skills-danger" onClick={() => handleDelete(project.id)}>
-                      Remover mesmo
+                      {t("projects.removeForSure")}
                     </button>
                     <button type="button" className="link-button" onClick={() => setConfirmDelete(null)}>
-                      Manter
+                      {t("common.keep")}
                     </button>
                   </span>
                 ) : (
@@ -321,15 +318,15 @@ export default function ProjectsView({ conn, onChanged }: { conn: ServerConnecti
                         setEditor({ mode: "edit", project });
                       }}
                     >
-                      Editar
+                      {t("common.edit")}
                     </button>
                     <button type="button" className="link-button" onClick={() => setConfirmDelete(project.id)}>
-                      Remover
+                      {t("common.remove")}
                     </button>
                   </span>
                 )}
               </div>
-              <p className="skills-item-description">{project.description || "(sem descrição)"}</p>
+              <p className="skills-item-description">{project.description || t("projects.noDescription")}</p>
             </li>
           ))}
         </ul>

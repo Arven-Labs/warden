@@ -1,6 +1,7 @@
 // P121 — o que um agente fez fora do canal dele: os recados que trocou com outros agentes ("A → B", `message_agent`) e as execuções sem
 // ninguém olhando (tarefas agendadas e webhooks, `task-*`). Puro, para testar sem janela. Os ids e o título são os do hub (`activity.rs`).
 
+import { t } from "../i18n/index.ts";
 import type { ConversationSummary } from "./messages";
 
 /** O começo do id da conversa entre dois agentes (`message_agent::thread_id`). */
@@ -50,17 +51,17 @@ export function agentWork(conversations: ConversationSummary[], agent: string): 
 export function workLabel(item: AgentWorkItem): string {
   switch (item.kind) {
     case "note-out":
-      return `para ${item.other}`;
+      return t("work.to", { name: item.other ?? "" });
     case "note-in":
-      return `de ${item.other}`;
+      return t("work.from", { name: item.other ?? "" });
     case "run-task":
-      return "tarefa agendada";
+      return t("work.scheduledTask");
     case "run-hook":
-      return "webhook";
+      return t("work.webhook");
   }
 }
 
-/** O que o botão do canal diz: `Recados e execuções (3)`, ou sem o número quando não há nenhuma. */
+/** What the channel's button says: `Notes and runs (3)`, or without the number when there are none. */
 export function workButtonLabel(count: number): string {
-  return count === 0 ? "Recados e execuções" : `Recados e execuções (${count})`;
+  return count === 0 ? t("work.button") : t("work.buttonCount", { count });
 }

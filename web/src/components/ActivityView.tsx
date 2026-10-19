@@ -2,9 +2,10 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import type { ServerConnection } from "../hub/connection";
 import type { ActivityEvent } from "../hub/messages";
 import { agentsIn, destination, groupByDay, headline, involving, mark, type Destination } from "../hub/activity";
+import { intlTag, t } from "../i18n";
 
 const REFRESH_MS = 3000;
-const timeFormatter = new Intl.DateTimeFormat("pt-BR", { timeStyle: "short" });
+const timeFormatter = { format: (ms: number) => new Intl.DateTimeFormat(intlTag(), { timeStyle: "short" }).format(ms) };
 
 /** P121 — o feed de atividade: quem fez o quê entre os agentes, do mais novo ao mais velho, sem abrir cada conversa. Atualiza enquanto a
  * aba está aberta. Um clique leva ao que o evento toca: as tarefas do agente, a conversa entre dois agentes ou o canal dele. */
@@ -36,14 +37,11 @@ export default function ActivityView({ conn, onOpen }: { conn: ServerConnection 
 
   return (
     <div className="usage-view">
-      <p className="skills-hint">
-        O que aconteceu entre os agentes neste hub: quem delegou, começou e terminou o quê, os recados que deixaram uns aos outros e as
-        mensagens que um agente escreveu primeiro para você.
-      </p>
+      <p className="skills-hint">{t("activityView.intro")}</p>
       <label className="settings-field activity-filter">
-        Agente
+        {t("activityView.agent")}
         <select value={chosen} onChange={(e) => setAgent(e.target.value)}>
-          <option value="">Todos</option>
+          <option value="">{t("activityView.all")}</option>
           {agents.map((name) => (
             <option key={name} value={name}>
               {name}
@@ -52,9 +50,9 @@ export default function ActivityView({ conn, onOpen }: { conn: ServerConnection 
         </select>
       </label>
       {error && <p className="error-banner">{error}</p>}
-      {events === null && !error && <p className="skills-hint">Carregando…</p>}
+      {events === null && !error && <p className="skills-hint">{t("common.loading")}</p>}
       {events !== null && groups.length === 0 && (
-        <p className="skills-hint">{chosen ? `Nada envolve ${chosen} ainda.` : "Nada ainda. Quando os agentes delegarem tarefas, deixarem recados ou escreverem para você, aparece aqui."}</p>
+        <p className="skills-hint">{chosen ? t("activityView.nothingAbout", { agent: chosen }) : t("activityView.nothing")}</p>
       )}
       {groups.map((group) => (
         <section key={group.label} className="activity-day">

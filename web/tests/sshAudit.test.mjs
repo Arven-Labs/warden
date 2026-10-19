@@ -10,15 +10,15 @@ const entry = (extra = {}) => ({ atMs: 1000, hostId: "prod", action: "exec", app
 describe("the SSH usage log", () => {
   test("a command is its own detail and a copy reads from where it comes to where it goes", () => {
     assert.equal(detailOf(entry({ command: "uptime" })), "uptime");
-    assert.equal(detailOf(entry({ action: "upload", localPath: "/tmp/a", remotePath: "/srv/a", overwrite: true })), "/tmp/a → /srv/a (sobrescreve)");
+    assert.equal(detailOf(entry({ action: "upload", localPath: "/tmp/a", remotePath: "/srv/a", overwrite: true })), "/tmp/a → /srv/a (overwrites)");
     assert.equal(detailOf(entry({ action: "download", localPath: "/tmp/a", remotePath: "/srv/a" })), "/srv/a → /tmp/a", "a download leaves the server");
   });
 
   test("how a call ended: an error first, then the timeout, the exit code and the size of a copy", () => {
-    assert.equal(outcomeOf(entry({ exitCode: 0 })), "saiu com 0");
-    assert.equal(outcomeOf(entry({ exitCode: 127 })), "saiu com 127");
-    assert.equal(outcomeOf(entry({ timedOut: true })), "tempo esgotado");
-    assert.equal(outcomeOf(entry({ error: "refused: not approved" })), "erro: refused: not approved");
+    assert.equal(outcomeOf(entry({ exitCode: 0 })), "exited with 0");
+    assert.equal(outcomeOf(entry({ exitCode: 127 })), "exited with 127");
+    assert.equal(outcomeOf(entry({ timedOut: true })), "timed out");
+    assert.equal(outcomeOf(entry({ error: "refused: not approved" })), "error: refused: not approved");
     assert.equal(outcomeOf(entry({ action: "upload", bytes: 512 })), "512 B");
     assert.equal(outcomeOf(entry({ action: "upload", bytes: 2048 })), "2 KB");
     assert.equal(outcomeOf(entry({ action: "download", bytes: 5 * 1024 * 1024 })), "5 MB");
@@ -26,12 +26,12 @@ describe("the SSH usage log", () => {
   });
 
   test("the approval and the action read as a person would, and an unknown one shows as it came", () => {
-    assert.equal(approvalLabel("approved"), "aprovada");
-    assert.equal(approvalLabel("denied"), "recusada");
-    assert.equal(approvalLabel("unavailable"), "ninguém para aprovar");
+    assert.equal(approvalLabel("approved"), "approved");
+    assert.equal(approvalLabel("denied"), "refused");
+    assert.equal(approvalLabel("unavailable"), "nobody to approve");
     assert.equal(approvalLabel("something_new"), "something_new");
-    assert.equal(actionLabel("exec"), "comando");
-    assert.equal(actionLabel("upload"), "envio");
+    assert.equal(actionLabel("exec"), "command");
+    assert.equal(actionLabel("upload"), "upload");
     assert.equal(actionLabel("sync"), "sync");
   });
 

@@ -107,20 +107,33 @@ export async function launchBrowser() {
 }
 
 /**
+ * The browser the specs open: the page follows the browser's language (P136), and the specs read the page's words, so they ask for
+ * Portuguese (`pt-BR`) unless a spec is about English, which says `en-US` (the page's default) in `signIn`.
+ */
+export const pageOptions = { viewport: { width: 1100, height: 1400 }, locale: "pt-BR" };
+
+/** The words of the sign-in screen, by the browser's language. */
+const LOGIN = {
+  "pt-BR": { tab: "Chave de pareamento", field: "Chave de pareamento", button: "Entrar" },
+  "en-US": { tab: "Pairing key", field: "Pairing key", button: "Sign in" },
+};
+
+/**
  * Signs in with the pairing key, on the screen the page opens on. `sent` collects every WebSocket frame the
  * page sends, which is how a test proves what travelled to the hub rather than only what the screen showed.
  */
-export async function signIn(browser, hub, { colorScheme = "light" } = {}) {
-  const context = await browser.newContext({ viewport: { width: 1100, height: 1400 }, colorScheme });
+export async function signIn(browser, hub, { colorScheme = "light", locale = pageOptions.locale } = {}) {
+  const context = await browser.newContext({ ...pageOptions, colorScheme, locale });
   const page = await context.newPage();
   const sent = [];
   page.on("websocket", (ws) => ws.on("framesent", (f) => typeof f.payload === "string" && sent.push(f.payload)));
   const errors = [];
   page.on("pageerror", (e) => errors.push(e.message));
   await page.goto(hub.url);
-  await page.getByRole("tab", { name: "Chave de pareamento" }).click();
-  await page.getByLabel("Chave de pareamento").first().fill(PAIRING_KEY);
-  await page.getByRole("button", { name: "Entrar" }).click();
+  const words = LOGIN[locale];
+  await page.getByRole("tab", { name: words.tab }).click();
+  await page.getByLabel(words.field).first().fill(PAIRING_KEY);
+  await page.getByRole("button", { name: words.button }).click();
   return { page, sent, context, errors };
 }
 

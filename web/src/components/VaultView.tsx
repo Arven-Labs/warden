@@ -3,6 +3,7 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { VaultConflictError, type ServerConnection, type VaultNote } from "../hub/connection";
 import type { VaultSearchHit } from "../hub/messages";
+import { t } from "../i18n";
 
 // The hub's vault (P78): a folder tree, word search, and an
 // editor. Every save carries the version the note was opened at, so a change the model (or sync,
@@ -112,7 +113,7 @@ export default function VaultView({ conn }: { conn: ServerConnection | null }) {
       },
       (err) => {
         setFiles((current) => current ?? []);
-        setListError(`Não foi possível listar o vault: ${message(err)}`);
+        setListError(t("vault.listError", { error: message(err) }));
       },
     );
   }, [conn]);
@@ -123,7 +124,7 @@ export default function VaultView({ conn }: { conn: ServerConnection | null }) {
   const dirty = (open.kind === "note" && open.draft !== null && open.draft !== open.note.content) || (open.kind === "new" && open.draft !== "");
 
   function leaveOk(): boolean {
-    return !dirty || window.confirm("Descartar as mudanças não salvas?");
+    return !dirty || window.confirm(t("vault.discard"));
   }
 
   function resetActionState() {
@@ -159,7 +160,7 @@ export default function VaultView({ conn }: { conn: ServerConnection | null }) {
     const content = open.draft;
     const path = open.kind === "new" ? normalizeNewPath(open.path) : open.path;
     if (open.kind === "new" && path === ".md") {
-      setActionError("Dê um nome à nota.");
+      setActionError(t("vault.nameIt"));
       return;
     }
     setSaving(true);
@@ -215,7 +216,7 @@ export default function VaultView({ conn }: { conn: ServerConnection | null }) {
       },
       (err) => {
         setSearching(false);
-        setListError(`A busca falhou: ${message(err)}`);
+        setListError(t("vault.searchFailed", { error: message(err) }));
       },
     );
   }
@@ -225,19 +226,19 @@ export default function VaultView({ conn }: { conn: ServerConnection | null }) {
 
   return (
     <div className={open.kind === "none" ? "vault-layout" : "vault-layout vault-layout--note-open"}>
-      <nav className="vault-nav" aria-label="Arquivos do vault">
+      <nav className="vault-nav" aria-label={t("vault.files")}>
         <form className="vault-search" onSubmit={search}>
-          <input type="search" value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Buscar no vault" aria-label="Buscar no vault" />
+          <input type="search" value={query} onChange={(e) => setQuery(e.target.value)} placeholder={t("vault.search")} aria-label={t("vault.search")} />
         </form>
         <button type="button" className="primary-button" onClick={startNew} disabled={!conn}>
-          + Nova nota
+          {t("vault.newNote")}
         </button>
         {listError && <p className="error-banner">{listError}</p>}
 
         {hits !== null ? (
           <section>
             <div className="vault-section-header">
-              <span className="vault-section-label">{searching ? "Buscando…" : `${hits.length} resultado${hits.length === 1 ? "" : "s"}`}</span>
+              <span className="vault-section-label">{searching ? t("vault.searching") : t(hits.length === 1 ? "vault.resultOne" : "vault.resultMany", { count: hits.length })}</span>
               <button
                 type="button"
                 className="link-button"
@@ -246,10 +247,10 @@ export default function VaultView({ conn }: { conn: ServerConnection | null }) {
                   setQuery("");
                 }}
               >
-                Limpar
+                {t("vault.clear")}
               </button>
             </div>
-            {hits.length === 0 && !searching && <p className="skills-hint">Nada encontrado. A busca procura palavras de 3 letras ou mais.</p>}
+            {hits.length === 0 && !searching && <p className="skills-hint">{t("vault.nothingFound")}</p>}
             <ul className="vault-tree">
               {hits.map((hit) => (
                 <li key={`${hit.path}:${hit.lineNumber}`}>
@@ -266,11 +267,11 @@ export default function VaultView({ conn }: { conn: ServerConnection | null }) {
         ) : (
           <>
             <section>
-              <div className="vault-section-label">Notas</div>
+              <div className="vault-section-label">{t("vault.notes")}</div>
               {files === null ? (
-                <p className="skills-hint">Carregando…</p>
+                <p className="skills-hint">{t("vault.loading")}</p>
               ) : files.length === 0 ? (
-                <p className="skills-hint">Nenhuma nota ainda.</p>
+                <p className="skills-hint">{t("vault.noNotes")}</p>
               ) : (
                 <VaultTree nodes={buildTree(files)} selected={selectedPath} onOpen={openFile} />
               )}
@@ -282,26 +283,26 @@ export default function VaultView({ conn }: { conn: ServerConnection | null }) {
       <div className="vault-pane">
         <div className="chat-header">
           <button type="button" className="link-button vault-back" onClick={closeNote}>
-            ← Arquivos
+            {t("vault.back")}
           </button>
-          <span className="chat-title">{open.kind === "new" ? "Nova nota" : (selectedPath ?? "")}</span>
+          <span className="chat-title">{open.kind === "new" ? t("vault.newTitle") : (selectedPath ?? "")}</span>
           {open.kind === "note" && open.draft === null && (
             <span className="vault-actions">
               <button type="button" className="link-button" disabled={!conn} onClick={() => setOpen({ ...open, draft: open.note.content })}>
-                Editar
+                {t("vault.edit")}
               </button>
               {confirmDelete ? (
                   <>
                     <button type="button" className="link-button skills-danger" disabled={saving || !conn} onClick={() => void remove()}>
-                      Apagar mesmo
+                      {t("vault.deleteForSure")}
                     </button>
                     <button type="button" className="link-button" onClick={() => setConfirmDelete(false)}>
-                      Manter
+                      {t("vault.keep")}
                     </button>
                   </>
                 ) : (
                   <button type="button" className="link-button" onClick={() => setConfirmDelete(true)}>
-                    Apagar
+                    {t("vault.delete")}
                   </button>
                 )}
             </span>
@@ -314,11 +315,11 @@ export default function VaultView({ conn }: { conn: ServerConnection | null }) {
             {conflict && selectedPath && (
               <div className="skills-actions">
                 <button type="button" className="link-button" onClick={() => openFile(selectedPath, true)}>
-                  Recarregar (descarta suas mudanças)
+                  {t("vault.reload")}
                 </button>
                 {open.kind === "note" && open.draft !== null && (
                   <button type="button" className="link-button skills-danger" disabled={saving} onClick={() => void save(true)}>
-                    Sobrescrever
+                    {t("vault.overwrite")}
                   </button>
                 )}
               </div>
@@ -327,9 +328,9 @@ export default function VaultView({ conn }: { conn: ServerConnection | null }) {
         )}
 
         {open.kind === "none" ? (
-          <p className="chat-empty">Escolha um arquivo para ver ou editar.</p>
+          <p className="chat-empty">{t("vault.pick")}</p>
         ) : open.kind === "loading" ? (
-          <p className="chat-empty">Carregando…</p>
+          <p className="chat-empty">{t("vault.loading")}</p>
         ) : open.kind === "error" ? (
           <div className="vault-message">
             <p className="error-banner">{open.error}</p>
@@ -344,21 +345,21 @@ export default function VaultView({ conn }: { conn: ServerConnection | null }) {
           >
             {open.kind === "new" && (
               <label>
-                Caminho
-                <input value={open.path} onChange={(e) => setOpen({ ...open, path: e.target.value })} placeholder="pasta/nome-da-nota" required autoFocus />
-                <span className="skills-hint">Use / para pastas. Sem extensão, vira .md.</span>
+                {t("vault.path")}
+                <input value={open.path} onChange={(e) => setOpen({ ...open, path: e.target.value })} placeholder={t("vault.pathPlaceholder")} required autoFocus />
+                <span className="skills-hint">{t("vault.pathHint")}</span>
               </label>
             )}
             <textarea
               value={open.draft ?? ""}
               onChange={(e) => setOpen({ ...open, draft: e.target.value })}
-              placeholder="Escreva em markdown."
-              aria-label="Conteúdo da nota"
+              placeholder={t("vault.writePlaceholder")}
+              aria-label={t("vault.contentLabel")}
               autoFocus={open.kind === "note"}
             />
             <div className="skills-actions">
               <button type="submit" className="primary-button" disabled={saving || !conn}>
-                {saving ? "Salvando…" : "Salvar"}
+                {saving ? t("vault.saving") : t("vault.save")}
               </button>
               <button
                 type="button"
@@ -370,14 +371,14 @@ export default function VaultView({ conn }: { conn: ServerConnection | null }) {
                   setOpen(open.kind === "note" ? { ...open, draft: null } : { kind: "none" });
                 }}
               >
-                Cancelar
+                {t("vault.cancel")}
               </button>
             </div>
           </form>
         ) : (
           <div className="vault-content">
             {open.note.content.trim() === "" ? (
-              <p className="skills-hint">Vazio.</p>
+              <p className="skills-hint">{t("vault.empty")}</p>
             ) : isMarkdown ? (
               <div className="bubble-markdown">
                 <ReactMarkdown remarkPlugins={[remarkGfm]} components={{ a: ExternalLink }}>

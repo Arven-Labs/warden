@@ -2,6 +2,7 @@
 // folder on a node, written `node:<device id>:<path>` with the path relative to the folder the node lends ("" is that
 // folder itself). Mirrors `warden_bootstrap::node_folder`.
 
+import { t } from "../i18n/index.ts";
 import type { NodeInfo } from "./messages";
 
 const NODE_PREFIX = "node:";
@@ -26,7 +27,7 @@ export function folderLabel(workdir: string, nodes: NodeInfo[] = []): string {
   const onNode = parseNodeFolder(workdir);
   if (!onNode) return lastName(workdir);
   const machine = nodes.find((n) => n.deviceId === onNode.node)?.name ?? onNode.node;
-  return `${onNode.path ? lastName(onNode.path) : "pasta compartilhada"} · ${machine}`;
+  return `${onNode.path ? lastName(onNode.path) : t("folder.shared")} · ${machine}`;
 }
 
 /** The full place, for a tooltip or the browser's header. */

@@ -8,26 +8,26 @@ const event = (kind, actor, extra = {}) => ({ id: `${kind}-${actor}`, atMs: 1, k
 
 describe("the sentence of an event", () => {
   test("says who did what to whom", () => {
-    assert.equal(headline(event("delegated", "manager", { target: "backend" })), "manager delegou uma tarefa a backend");
-    assert.equal(headline(event("note", "ana", { target: "bia" })), "ana deixou um recado para bia");
-    assert.equal(headline(event("reply", "bia", { target: "ana" })), "bia respondeu a ana");
-    assert.equal(headline(event("messaged_user", "pirate")), "pirate escreveu para você");
-    assert.equal(headline(event("done", "backend")), "backend concluiu a tarefa");
-    assert.equal(headline(event("cancelled", "backend")), "A tarefa de backend foi cancelada");
+    assert.equal(headline(event("delegated", "manager", { target: "backend" })), "manager delegated a task to backend");
+    assert.equal(headline(event("note", "ana", { target: "bia" })), "ana left a note for bia");
+    assert.equal(headline(event("reply", "bia", { target: "ana" })), "bia replied to ana");
+    assert.equal(headline(event("messaged_user", "pirate")), "pirate wrote to you");
+    assert.equal(headline(event("done", "backend")), "backend finished the task");
+    assert.equal(headline(event("cancelled", "backend")), "backend's task was cancelled");
   });
 
   test("names the assistant nobody picked", () => {
-    assert.equal(headline(event("delegated", "", { target: "writer" })), "O assistente delegou uma tarefa a writer");
+    assert.equal(headline(event("delegated", "", { target: "writer" })), "The assistant delegated a task to writer");
   });
 
   test("tells agents made or removed by another, and the runs of scheduled tasks and webhooks", () => {
-    assert.equal(headline(event("created_agent", "chief", { target: "poet" })), "chief criou o agente poet");
-    assert.equal(headline(event("removed_agent", "chief", { target: "poet" })), "chief removeu o agente poet");
-    assert.equal(headline(event("updated_agent", "chief", { target: "poet" })), "chief alterou o agente poet");
-    assert.equal(headline(event("scheduled_ran", "reporter", { target: "daily" })), "reporter rodou a tarefa agendada daily");
-    assert.equal(headline(event("scheduled_failed", "reporter", { target: "daily" })), "A tarefa agendada daily falhou");
-    assert.equal(headline(event("webhook_ran", "", { target: "build" })), "O assistente atendeu o webhook build");
-    assert.equal(headline(event("webhook_failed", "", { target: "build" })), "O webhook build falhou");
+    assert.equal(headline(event("created_agent", "chief", { target: "poet" })), "chief created the agent poet");
+    assert.equal(headline(event("removed_agent", "chief", { target: "poet" })), "chief removed the agent poet");
+    assert.equal(headline(event("updated_agent", "chief", { target: "poet" })), "chief changed the agent poet");
+    assert.equal(headline(event("scheduled_ran", "reporter", { target: "daily" })), "reporter ran the scheduled task daily");
+    assert.equal(headline(event("scheduled_failed", "reporter", { target: "daily" })), "The scheduled task daily failed");
+    assert.equal(headline(event("webhook_ran", "", { target: "build" })), "The assistant answered the webhook build");
+    assert.equal(headline(event("webhook_failed", "", { target: "build" })), "The webhook build failed");
   });
 
   test("every kind has a mark, and an unknown one still reads", () => {
@@ -87,9 +87,9 @@ describe("the days", () => {
   test("groups the newest-first list by day and names today and yesterday", () => {
     const events = [{ ...event("done", "a"), atMs: at(7, 14) }, { ...event("done", "b"), atMs: at(7, 9) }, { ...event("done", "c"), atMs: at(6, 22) }, { ...event("done", "d"), atMs: at(1, 10) }];
     const groups = groupByDay(events, now);
-    assert.deepEqual(groups.map((g) => [g.label, g.events.length]).slice(0, 2), [["Hoje", 2], ["Ontem", 1]]);
+    assert.deepEqual(groups.map((g) => [g.label, g.events.length]).slice(0, 2), [["Today", 2], ["Yesterday", 1]]);
     assert.equal(groups.length, 3);
-    assert.match(groups[2].label, /1.*outubro.*2026/);
+    assert.match(groups[2].label, /October.*1.*2026/);
   });
 
   test("an empty list has no day", () => {

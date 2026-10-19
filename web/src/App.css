@@ -170,6 +170,17 @@ button:focus-visible {
   font-size: 1.5rem;
 }
 
+/* The language picker: small, and at the right end of the login brand line. */
+.language-switch {
+  width: auto;
+  padding: 0.2rem 0.4rem;
+  font-size: 0.8rem;
+}
+
+.login-brand .language-switch {
+  margin-left: auto;
+}
+
 .login-hint,
 .field-hint,
 .skills-hint {

@@ -8,6 +8,7 @@ import type { Attachment } from "../hub/messages";
 import { canRecord, VoiceRecorder } from "../hub/recorder";
 import { isLastAnswer, lastUserEntry, messagesAfter } from "../hub/regenerate";
 import { repliesLabel, type ThreadInfo } from "../hub/threads";
+import { t } from "../i18n";
 
 interface Props {
   entries: ChatEntry[];
@@ -37,7 +38,7 @@ interface Props {
 /** Under an error from a spending limit: allow more, then say to send again — never resends by itself. */
 function ExtendLimitAction({ limitId, onExtend }: { limitId: string; onExtend: (limitId: string) => Promise<void> }) {
   const [state, setState] = useState<{ kind: "idle" | "busy" | "done" } | { kind: "error"; message: string }>({ kind: "idle" });
-  if (state.kind === "done") return <p className="bubble-plain">Liberado. Envie a mensagem de novo.</p>;
+  if (state.kind === "done") return <p className="bubble-plain">{t("chat.released")}</p>;
   return (
     <div className="bubble-actions">
       <button
@@ -52,7 +53,7 @@ function ExtendLimitAction({ limitId, onExtend }: { limitId: string; onExtend: (
           );
         }}
       >
-        {state.kind === "busy" ? "Liberando…" : `Liberar mais (${limitId})`}
+        {state.kind === "busy" ? t("chat.releasing") : t("chat.releaseMore", { limit: limitId })}
       </button>
       {state.kind === "error" && <span>{state.message}</span>}
     </div>
@@ -77,7 +78,7 @@ function EditBox({ entry, after, onSend, onCancel }: { entry: ChatEntry; after: 
   function send() {
     const message = text.trim();
     if (message === "" && entry.attachments.length === 0) return;
-    if (after > 0 && !window.confirm(`Enviar isso apaga ${after === 1 ? "a mensagem" : `as ${after} mensagens`} depois dela, e as threads delas. Continuar?`)) return;
+    if (after > 0 && !window.confirm(t("chat.confirmEditDeletes", { what: after === 1 ? t("chat.oneMessage") : t("chat.nMessages", { count: after }) }))) return;
     onSend(message);
   }
 
@@ -87,7 +88,7 @@ function EditBox({ entry, after, onSend, onCancel }: { entry: ChatEntry; after: 
         className="message-edit-input"
         value={text}
         autoFocus
-        aria-label="Editar sua mensagem"
+        aria-label={t("chat.editLabel")}
         rows={Math.min(10, Math.max(2, text.split("\n").length))}
         onChange={(e) => setText(e.target.value)}
         onKeyDown={(e) => {
@@ -97,10 +98,10 @@ function EditBox({ entry, after, onSend, onCancel }: { entry: ChatEntry; after: 
       />
       <div className="bubble-actions">
         <button type="button" className="link-button" onClick={onCancel}>
-          Cancelar
+          {t("chat.cancel")}
         </button>
         <button type="button" className="link-button message-edit-send" onClick={send}>
-          Enviar
+          {t("chat.send")}
         </button>
       </div>
     </div>
@@ -112,8 +113,8 @@ function AttachmentView({ attachment }: { attachment: Attachment }) {
   if (attachment.mimeType.startsWith("image/")) return <img className="attachment-image" src={src} alt="" />;
   if (attachment.mimeType.startsWith("audio/")) return <audio className="attachment-audio" src={src} controls />;
   return (
-    <a className="attachment-file" href={src} download={attachment.mimeType === "application/pdf" ? "anexo.pdf" : undefined}>
-      {attachment.mimeType === "application/pdf" ? "📄 PDF anexado" : `Baixar anexo (${attachment.mimeType})`}
+    <a className="attachment-file" href={src} download={attachment.mimeType === "application/pdf" ? t("chat.attachmentPdfName") : undefined}>
+      {attachment.mimeType === "application/pdf" ? t("chat.pdfAttached") : t("chat.downloadAttachment", { type: attachment.mimeType })}
     </a>
   );
 }
@@ -131,7 +132,7 @@ function PendingChip({ item, onRemove }: { item: PendingAttachment; onRemove: ()
         </span>
       )}
       <span className="pending-chip-name">{item.name}</span>
-      <button type="button" className="pending-chip-remove" onClick={onRemove} aria-label={`Remover ${item.name}`}>
+      <button type="button" className="pending-chip-remove" onClick={onRemove} aria-label={t("chat.remove", { name: item.name })}>
         ×
       </button>
     </li>
@@ -143,7 +144,7 @@ const TOOL_MARK = { running: "…", completed: "✓", failed: "✗" } as const;
 /** What a turn has done so far: its words and its tools in the order they happened. */
 function LiveBubble({ live }: { live: LiveTurn }) {
   return (
-    <li className="bubble bubble--assistant bubble--live" aria-label="Em andamento" aria-live="polite">
+    <li className="bubble bubble--assistant bubble--live" aria-label={t("chat.inProgress")} aria-live="polite">
       {live.items.map((item, i) =>
         item.kind === "text" ? (
           <div key={i} className="bubble-markdown">
@@ -226,7 +227,7 @@ export default function ChatView({ entries, pending, live, onCancel, disabled, o
       try {
         setVoice({ kind: "recording", recorder: await VoiceRecorder.start() });
       } catch (err) {
-        setAttachError(`Não foi possível usar o microfone: ${err instanceof Error ? err.message : String(err)}`);
+        setAttachError(t("chat.micError", { error: err instanceof Error ? err.message : String(err) }));
       }
       return;
     }
@@ -237,19 +238,19 @@ export default function ChatView({ entries, pending, live, onCancel, disabled, o
       if (text) setDraft((current) => (current.trim() ? `${current.trimEnd()} ${text}` : text));
       textareaRef.current?.focus();
     } catch (err) {
-      setAttachError(`Não foi possível transcrever: ${err instanceof Error ? err.message : String(err)}`);
+      setAttachError(t("chat.transcribeError", { error: err instanceof Error ? err.message : String(err) }));
     } finally {
       setVoice({ kind: "idle" });
     }
   }
 
   const micTitle = !microphone
-    ? "O microfone só funciona com o hub em HTTPS (Tailscale) ou em localhost"
+    ? t("chat.micNeedsHttps")
     : voice.kind === "recording"
-      ? "Parar e transcrever"
+      ? t("chat.micStop")
       : voice.kind === "transcribing"
-        ? "Transcrevendo…"
-        : "Ditar por voz";
+        ? t("chat.micTranscribing")
+        : t("chat.micDictate");
 
   return (
     <div
@@ -270,14 +271,14 @@ export default function ChatView({ entries, pending, live, onCancel, disabled, o
     >
       <div className="chat-scroll" aria-live="polite">
         {entries.length === 0 && !pending ? (
-          <p className="chat-empty">Nenhuma mensagem ainda. A conversa é criada no hub quando você manda a primeira.</p>
+          <p className="chat-empty">{t("chat.empty")}</p>
         ) : (
           <ul className="chat-list">
             {entries.map((entry, i) => (
               <li key={i} className={`bubble bubble--${entry.role}`}>
                 {entry.fallbacks?.map((f, j) => (
                   <p key={j} className="bubble-fallback">
-                    Respondido por {f.to} — {f.from} falhou ({f.reason})
+                    {t("chat.answeredBy", { to: f.to, from: f.from, reason: f.reason })}
                   </p>
                 ))}
                 {editingId !== null && entry.id === editingId && onRedo ? (
@@ -309,7 +310,7 @@ export default function ChatView({ entries, pending, live, onCancel, disabled, o
                     <CopyButton text={entry.content} className="link-button copy-message-button" />
                     {onRedo && lastUser && isLastAnswer(entries, i) && (
                       <button type="button" className="link-button" onClick={() => onRedo(lastUser.content, lastUser.attachments, lastUser.id!)}>
-                        Regenerar
+                        {t("chat.regenerate")}
                       </button>
                     )}
                   </div>
@@ -317,14 +318,14 @@ export default function ChatView({ entries, pending, live, onCancel, disabled, o
                 {entry.role === "user" && entry.id && onRedo && editingId !== entry.id && (
                   <div className="bubble-actions">
                     <button type="button" className="link-button" onClick={() => setEditingId(entry.id!)}>
-                      Editar
+                      {t("chat.edit")}
                     </button>
                   </div>
                 )}
                 {entry.id && onOpenThread && (
                   <div className="bubble-actions">
                     <button type="button" className="link-button thread-button" onClick={() => onOpenThread(entry.id!)}>
-                      {threads?.[entry.id] ? repliesLabel(threads[entry.id].replies) : "Responder em thread"}
+                      {threads?.[entry.id] ? repliesLabel(threads[entry.id].replies) : t("chat.replyInThread")}
                     </button>
                   </div>
                 )}
@@ -332,7 +333,7 @@ export default function ChatView({ entries, pending, live, onCancel, disabled, o
             ))}
             {pending && live && <LiveBubble live={live} />}
             {pending && !live && (
-              <li className="bubble bubble--assistant bubble--pending" aria-label="Pensando">
+              <li className="bubble bubble--assistant bubble--pending" aria-label={t("chat.thinking")}>
                 <span className="dot" />
                 <span className="dot" />
                 <span className="dot" />
@@ -359,7 +360,7 @@ export default function ChatView({ entries, pending, live, onCancel, disabled, o
                 ))}
               </ul>
             )}
-            {preparing && <p className="composer-note">Preparando anexos…</p>}
+            {preparing && <p className="composer-note">{t("chat.preparing")}</p>}
             {(attachError ?? limitError) && <p className="composer-error">{attachError ?? limitError}</p>}
           </div>
         )}
@@ -375,7 +376,7 @@ export default function ChatView({ entries, pending, live, onCancel, disabled, o
               e.target.value = "";
             }}
           />
-          <button type="button" className="icon-button" onClick={() => fileInputRef.current?.click()} title="Anexar imagem, PDF ou arquivo de texto" aria-label="Anexar">
+          <button type="button" className="icon-button" onClick={() => fileInputRef.current?.click()} title={t("chat.attachTitle")} aria-label={t("chat.attach")}>
             📎
           </button>
           <button
@@ -407,16 +408,16 @@ export default function ChatView({ entries, pending, live, onCancel, disabled, o
                 onCycleMode();
               }
             }}
-            placeholder={voice.kind === "recording" ? "Gravando… toque em ■ para parar" : "Mensagem (Shift+Enter quebra a linha)"}
+            placeholder={voice.kind === "recording" ? t("chat.recordingPlaceholder") : t("chat.placeholder")}
             rows={1}
           />
           {pending && onCancel ? (
-            <button type="button" className="primary-button" onClick={onCancel} title="Parar: mantém o que já foi escrito">
-              Parar
+            <button type="button" className="primary-button" onClick={onCancel} title={t("chat.stopTitle")}>
+              {t("chat.stop")}
             </button>
           ) : (
             <button type="submit" className="primary-button" disabled={!canSend}>
-              Enviar
+              {t("chat.send")}
             </button>
           )}
         </div>

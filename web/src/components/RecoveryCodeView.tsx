@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { t } from "../i18n";
 
 interface Props {
   /** The code, as the hub made it (`ABCD-EFGH-…`). It's only ever shown here, once. */
@@ -32,24 +33,22 @@ export default function RecoveryCodeView({ code, replacing = false, onDone }: Pr
           <h1>Warden</h1>
         </div>
         <p className="login-hint">
-          {replacing ? "Este é o seu novo código de recuperação. O anterior deixou de funcionar." : "Os seus dados neste hub agora ficam criptografados."} Guarde este código: ele é
-          a única forma de recuperar tudo se você esquecer a senha, ou se quem administra o hub redefinir a sua senha.
+          {replacing ? t("recovery.newCode") : t("recovery.encrypted")}
+          {t("recovery.keepIt")}
         </p>
-        <p className="recovery-code" aria-label="Código de recuperação">
+        <p className="recovery-code" aria-label={t("recovery.codeLabel")}>
           <code>{code}</code>
         </p>
         <button type="button" className="link-button" onClick={() => void copy()}>
-          {copied ? "Copiado" : "Copiar"}
+          {copied ? t("copy.copied") : t("copy.copy")}
         </button>
-        <p className="login-hint">
-          O código aparece só desta vez, e ninguém no hub consegue vê-lo depois — nem quem o administra. Anote num lugar seguro, fora deste aparelho.
-        </p>
+        <p className="login-hint">{t("recovery.once")}</p>
         <label className="checkbox-row">
           <input type="checkbox" checked={saved} onChange={(e) => setSaved(e.target.checked)} />
-          Guardei o código num lugar seguro
+          {t("recovery.savedIt")}
         </label>
         <button type="button" className="primary-button" disabled={!saved} onClick={onDone}>
-          Continuar
+          {t("recovery.continue")}
         </button>
       </div>
     </div>

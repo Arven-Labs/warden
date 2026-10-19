@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { UserError, type ServerConnection } from "../hub/connection";
 import type { ProviderEdit } from "../hub/messages";
+import { t } from "../i18n";
 import { Field } from "./settingsParts";
 
 // "Testar chave" (P10): asks the hub to check a provider's key without spending a conversation. The hub asks the
@@ -40,7 +41,7 @@ export default function ProviderKeyTest({ conn, provider }: { conn: ServerConnec
       setAsking(false);
       setPairingKey("");
     } catch (err) {
-      setError(err instanceof UserError && err.authRejected ? "Chave de pareamento errada." : message(err));
+      setError(err instanceof UserError && err.authRejected ? t("pairingKey.wrong") : message(err));
     } finally {
       setBusy(false);
     }
@@ -58,13 +59,13 @@ export default function ProviderKeyTest({ conn, provider }: { conn: ServerConnec
             void run();
           }}
         >
-          <Field label="Chave de pareamento do hub, para testar a chave" hint="O teste só pede a lista de modelos ao provedor: não gasta tokens nem conta nos limites.">
+          <Field label={t("keyTest.title")} hint={t("keyTest.hint")}>
             <input type="password" autoComplete="current-password" autoFocus value={pairingKey} onChange={(e) => setPairingKey(e.target.value)} />
           </Field>
           {error && <p className="error-banner">{error}</p>}
           <div className="skills-actions">
             <button type="submit" className="primary-button" disabled={busy || pairingKey.trim() === "" || !conn}>
-              {busy ? "Testando…" : "Testar"}
+              {busy ? t("keyTest.testing") : t("keyTest.test")}
             </button>
             <button
               type="button"
@@ -76,7 +77,7 @@ export default function ProviderKeyTest({ conn, provider }: { conn: ServerConnec
                 setError(null);
               }}
             >
-              Cancelar
+              {t("common.cancel")}
             </button>
           </div>
         </form>
@@ -91,7 +92,7 @@ export default function ProviderKeyTest({ conn, provider }: { conn: ServerConnec
               setResult(null);
             }}
           >
-            Testar chave
+            {t("keyTest.testKey")}
           </button>
         </span>
       )}

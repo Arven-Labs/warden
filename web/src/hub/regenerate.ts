@@ -3,6 +3,7 @@
 // com o id da mensagem de onde parte (`replaceFrom`); o turno toma o lugar dela e de tudo o que veio depois. O id só existe numa entrada que
 // o hub já guardou (`withMessageIds`), então uma entrada sem id não se refaz.
 
+import { t } from "../i18n/index.ts";
 import type { ChatEntry } from "./connection";
 
 /** A última mensagem que a pessoa mandou e que o hub já guardou, ou `undefined`. */
@@ -35,10 +36,10 @@ export function messagesAfter(entries: ChatEntry[], from: string): number {
 /** Por que uma conversa não pode ser refeita agora, ou `null` quando pode: ainda não está no hub, é uma thread (o contexto dela é de outra
  * conversa), é de um projeto de código (a sessão do motor não volta atrás), há um turno em andamento ou o hub está fora. */
 export function redoBlock(state: { onHub: boolean; thread: boolean; code: boolean; busy: boolean; offline: boolean }): string | null {
-  if (state.offline) return "sem conexão com o hub";
-  if (state.busy) return "há uma resposta a caminho";
-  if (!state.onHub) return "a conversa ainda não está no hub";
-  if (state.thread) return "uma thread não se refaz";
-  if (state.code) return "uma conversa de projeto de código não se refaz";
+  if (state.offline) return t("redo.offline");
+  if (state.busy) return t("redo.busy");
+  if (!state.onHub) return t("redo.notOnHub");
+  if (state.thread) return t("redo.thread");
+  if (state.code) return t("redo.code");
   return null;
 }

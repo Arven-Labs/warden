@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { copyText } from "../lib/clipboard";
+import { t } from "../i18n";
 
 interface CopyButtonProps {
   /** What is copied: a function reads it at the moment of the click (a long message is not turned into text before anyone asks). */
@@ -8,8 +9,8 @@ interface CopyButtonProps {
   label?: string;
 }
 
-/** "Copiar", which says "Copiado" for a moment after it worked, or "Não copiou" when nothing let it. */
-function CopyButton({ text, className = "copy-btn", label = "Copiar" }: CopyButtonProps) {
+/** "Copy", which says "Copied" for a moment after it worked, or "Could not copy" when nothing let it. */
+function CopyButton({ text, className = "copy-btn", label }: CopyButtonProps) {
   const [state, setState] = useState<"idle" | "copied" | "failed">("idle");
   const timer = useRef<ReturnType<typeof setTimeout>>(undefined);
 
@@ -24,7 +25,7 @@ function CopyButton({ text, className = "copy-btn", label = "Copiar" }: CopyButt
 
   return (
     <button type="button" className={className} onClick={() => void handleClick()}>
-      {state === "copied" ? "Copiado" : state === "failed" ? "Não copiou" : label}
+      {state === "copied" ? t("copy.copied") : state === "failed" ? t("copy.failed") : (label ?? t("copy.copy"))}
     </button>
   );
 }

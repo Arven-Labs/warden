@@ -1,5 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 import qrcode from "qrcode-generator";
+import { t, useLocale } from "../i18n";
+import { rich } from "../i18n/rich";
+import LanguageSwitch from "./LanguageSwitch";
 
 /** How this browser pairs: the owner with the hub's pairing key, a member (P84) with their username and password. */
 export type LoginCredentials = { kind: "key"; authKey: string } | { kind: "user"; username: string; password: string } | { kind: "truthid" };
@@ -34,7 +37,7 @@ function QrImage({ text }: { text: string }) {
     code.make();
     return code.createSvgTag({ cellSize: 4, margin: 2, scalable: true });
   }, [text]);
-  return <div className="login-qr" role="img" aria-label="QR para o app TruthID" dangerouslySetInnerHTML={{ __html: svg }} />;
+  return <div className="login-qr" role="img" aria-label={t("login.qrLabel")} dangerouslySetInnerHTML={{ __html: svg }} />;
 }
 
 function TruthIdWaiting({ qr, onCancel, onRefresh }: { qr: TruthIdQr; onCancel?: () => void; onRefresh?: () => void }) {
@@ -46,25 +49,25 @@ function TruthIdWaiting({ qr, onCancel, onRefresh }: { qr: TruthIdQr; onCancel?:
   const left = Math.max(0, Math.ceil((qr.expiresAtMs - now) / 1000));
   return (
     <>
-      <p className="login-hint">Abra o app TruthID no celular, escaneie o QR e aprove. Vai criar uma sessão na blockchain, então pode levar alguns segundos.</p>
+      <p className="login-hint">{t("login.truthIdWaiting")}</p>
       {left > 0 ? (
         <>
           <QrImage text={qr.payload} />
-          <p className="field-hint">O QR vale por mais {left} s.</p>
+          <p className="field-hint">{t("login.qrValidFor", { seconds: left })}</p>
         </>
       ) : (
-        <p className="error-banner">O QR expirou: o app recusa um QR com mais de 30 s.</p>
+        <p className="error-banner">{t("login.qrExpired")}</p>
       )}
       <details>
-        <summary>Mostrar o texto do QR</summary>
+        <summary>{t("login.showQrText")}</summary>
         <textarea readOnly rows={4} value={qr.payload} onFocus={(e) => e.currentTarget.select()} />
       </details>
       <div className="skills-actions">
         <button type="button" className="primary-button" onClick={onRefresh}>
-          Gerar outro QR
+          {t("login.newQr")}
         </button>
         <button type="button" className="link-button" onClick={onCancel}>
-          Cancelar
+          {t("login.cancel")}
         </button>
       </div>
     </>
@@ -74,6 +77,7 @@ function TruthIdWaiting({ qr, onCancel, onRefresh }: { qr: TruthIdQr; onCancel?:
 /** Pairs this browser with the hub (P36): the pairing key — or, for a member (P84), a username and
  * password — once, then the hub's device token. */
 export default function LoginView({ deviceName, hubAddress, busy, resuming, error, onSubmit, truthIdQr, onTruthIdCancel, onTruthIdRefresh }: Props) {
+  useLocale();
   const [mode, setMode] = useState<"user" | "key" | "truthid">("user");
   const [authKey, setAuthKey] = useState("");
   const [username, setUsername] = useState("");
@@ -96,65 +100,56 @@ export default function LoginView({ deviceName, hubAddress, busy, resuming, erro
         <div className="login-brand">
           <img src="/favicon.svg" alt="" width={40} height={40} />
           <h1>Warden</h1>
+          <LanguageSwitch />
         </div>
         {resuming ? (
-          <p className="login-hint">Conectando ao hub…</p>
+          <p className="login-hint">{t("login.connecting")}</p>
         ) : truthIdQr ? (
           <TruthIdWaiting qr={truthIdQr} onCancel={onTruthIdCancel} onRefresh={onTruthIdRefresh} />
         ) : (
           <>
             <div className="login-modes" role="tablist">
               <button type="button" role="tab" aria-selected={mode === "user"} className={mode === "user" ? "tab tab--active" : "tab"} onClick={() => setMode("user")}>
-                Usuário
+                {t("login.modeUser")}
               </button>
               <button type="button" role="tab" aria-selected={mode === "truthid"} className={mode === "truthid" ? "tab tab--active" : "tab"} onClick={() => setMode("truthid")}>
-                TruthID
+                {t("login.modeTruthId")}
               </button>
               <button type="button" role="tab" aria-selected={mode === "key"} className={mode === "key" ? "tab tab--active" : "tab"} onClick={() => setMode("key")}>
-                Chave de pareamento
+                {t("login.modeKey")}
               </button>
             </div>
             {mode === "truthid" ? (
-              <p className="login-hint">
-                Para quem já ligou o TruthID à sua conta (o dono do Warden manda um convite). Você escaneia um QR com o app TruthID, sem senha, e este navegador
-                entra como você em <code>{hubAddress}</code>. Os seus dados criptografados continuam pedindo a senha uma vez depois que o hub reinicia.
-              </p>
+              <p className="login-hint">{rich("login.truthIdHint", { address: <code>{hubAddress}</code> })}</p>
             ) : mode === "user" ? (
               <>
-                <p className="login-hint">
-                  Entre no hub em <code>{hubAddress}</code> com o usuário que o dono do Warden criou para você. Na primeira vez, você troca a senha
-                  provisória pela sua.
-                </p>
+                <p className="login-hint">{rich("login.userHint", { address: <code>{hubAddress}</code> })}</p>
                 <label>
-                  Usuário
+                  {t("login.user")}
                   <input autoComplete="username" autoCapitalize="none" value={username} onChange={(e) => setUsername(e.target.value)} autoFocus />
                 </label>
                 <label>
-                  Senha
+                  {t("login.password")}
                   <input type="password" autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} />
                 </label>
               </>
             ) : (
               <>
-                <p className="login-hint">
-                  Para o dono do Warden: conecte este navegador ao hub em <code>{hubAddress}</code>. A chave de pareamento aparece nas configurações
-                  do hub (no desktop, em Workspace) e só vale para o primeiro aparelho; os outros entram com um código de convite, que
-                  você cola neste mesmo campo. Ela só é pedida uma vez.
-                </p>
+                <p className="login-hint">{rich("login.keyHint", { address: <code>{hubAddress}</code> })}</p>
                 <label>
-                  Chave de pareamento
+                  {t("login.pairingKey")}
                   <input type="password" autoComplete="off" value={authKey} onChange={(e) => setAuthKey(e.target.value)} autoFocus />
                 </label>
               </>
             )}
             <label>
-              Nome deste navegador
+              {t("login.browserName")}
               <input value={name} onChange={(e) => setName(e.target.value)} placeholder={deviceName} />
-              <span className="field-hint">É como ele aparece na lista de aparelhos do hub.</span>
+              <span className="field-hint">{t("login.browserNameHint")}</span>
             </label>
             {error && <p className="error-banner">{error}</p>}
             <button type="submit" className="primary-button" disabled={busy || !ready}>
-              {busy ? "Conectando…" : "Entrar"}
+              {busy ? t("login.submitting") : t("login.submit")}
             </button>
           </>
         )}

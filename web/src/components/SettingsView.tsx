@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { SettingsError, UserError, type LoadedSettings, type ServerConnection } from "../hub/connection";
 import { APPROVAL_CATEGORIES } from "../hub/approvalCategories";
 import { descendantsOf, removeFromOrg, renameInReports } from "../hub/org";
+import { t } from "../i18n";
 import ApiKeysSection from "./ApiKeysSection";
 import AdvancedSection from "./AdvancedSection";
 import MachineSection from "./MachineSection";
@@ -38,21 +39,22 @@ import { dropOutreach, OUTREACH_CHANNELS, outreachForward, outreachOn, renameOut
 // settings (or keeps the old ones if it can't start with them). API keys never come back from the
 // hub: a key field shows whether one is saved and can only be replaced or removed.
 
-const KINDS: { value: ProviderKind; label: string }[] = [
+/** Built on each read, so the labels follow the language the person has now. */
+const kinds = (): { value: ProviderKind; label: string }[] => [
   { value: "gemini", label: "Gemini" },
   { value: "openai", label: "OpenAI" },
   { value: "anthropic", label: "Anthropic" },
-  { value: "openai_compatible", label: "Compatível com OpenAI (Ollama, OpenRouter…)" },
-  { value: "node", label: "Modelo de um nó (outra máquina)" },
-  { value: "cloud", label: "Nuvem do Fabio (ou um hub seu)" },
+  { value: "openai_compatible", label: t("settings.kind.openai_compatible") },
+  { value: "node", label: t("settings.kind.node") },
+  { value: "cloud", label: t("settings.kind.cloud") },
 ];
 
-const SCOPES: { value: LimitScope; label: string; target: string }[] = [
-  { value: "global", label: "Tudo", target: "" },
-  { value: "agent", label: "Um agente", target: "id do agente" },
-  { value: "channel", label: "Um canal", target: "server, desktop, telegram…" },
-  { value: "user", label: "Um usuário", target: "canal:id, ex. telegram:12345" },
-  { value: "person", label: "Uma pessoa", target: "usuário, ex. ana (em todos os canais)" },
+const scopes = (): { value: LimitScope; label: string; target: string }[] => [
+  { value: "global", label: t("settings.scope.global"), target: "" },
+  { value: "agent", label: t("settings.scope.agent"), target: t("settings.scopeTarget.agent") },
+  { value: "channel", label: t("settings.scope.channel"), target: t("settings.scopeTarget.channel") },
+  { value: "user", label: t("settings.scope.user"), target: t("settings.scopeTarget.user") },
+  { value: "person", label: t("settings.scope.person"), target: t("settings.scopeTarget.person") },
 ];
 
 type ProviderDraft = Keyed<{ originalId?: string; id: string; kind: ProviderKind; baseUrl: string; model: string; apiKey: SecretDraft; node: string }>;
@@ -164,17 +166,17 @@ function toBots(d: Draft): BotsSettings {
 /** What stops the bots block from being saved, in the words the screen shows; `null` when it's fine. */
 function botsError(d: Draft): string | null {
   const max = Number(d.botsMaxPerDay);
-  if (!Number.isInteger(max) || max < 1) return "Sugestões por dia: um número inteiro, de 1 para cima.";
+  if (!Number.isInteger(max) || max < 1) return t("settings.botsMax");
   const bad = lines(d.botsTelegramUsers).find((l) => !/^[1-9][0-9]*$/.test(l));
-  if (bad) return `“${bad}” não é um id do Telegram: use o número (o @userinfobot mostra o seu).`;
+  if (bad) return t("settings.botsBadTelegram", { bad });
   const chat = lines(d.botsLearningChats).find((l) => !/^(telegram|whatsapp):\S+$/.test(l));
-  if (chat) return `“${chat}” não é um chat: escreva telegram:<id> ou whatsapp:<id>.`;
+  if (chat) return t("settings.botsBadChat", { chat });
   const wa = lines(d.botsWhatsappChats).find((l) => /\s/.test(l));
-  if (wa) return `“${wa}” tem espaços: escreva só o número ou o id inteiro.`;
+  if (wa) return t("settings.botsSpaces", { wa });
   return null;
 }
 
-/** A provider as a save sends it, which is also how "Testar chave" (P10) sends the one being tested. */
+/** A provider as a save sends it, which is also how "Test key" (P10) sends the one being tested. */
 function providerEdit(p: ProviderDraft): ProviderEdit {
   return { originalId: p.originalId, id: p.id, kind: p.kind, baseUrl: p.baseUrl, model: p.model, apiKey: p.apiKey.edit, node: p.kind === "node" ? p.node : "" };
 }
@@ -260,7 +262,7 @@ function BotPairings({ conn, disabled, onResolved }: { conn: ServerConnection | 
       setKey("");
       if (approved) onResolved();
     } catch (err) {
-      setError(err instanceof UserError && err.authRejected ? "Chave de pareamento errada." : message(err));
+      setError(err instanceof UserError && err.authRejected ? t("pairingKey.wrong") : message(err));
     } finally {
       setBusy(false);
     }
@@ -270,40 +272,41 @@ function BotPairings({ conn, disabled, onResolved }: { conn: ServerConnection | 
 
   return (
     <div className="settings-field">
-      <strong>Esperando a sua aprovação</strong>
+      <strong>{t("pairings.title")}</strong>
       {pairings.length === 0 ? (
-        <p className="skills-hint">Ninguém esperando. Com o pedido de acesso ligado acima, quem escrever para um bot aparece aqui.</p>
+        <p className="skills-hint">{t("pairings.none")}</p>
       ) : (
         <ul className="skills-list">
           {pairings.map((p) => (
             <li key={`${p.channel}:${p.sender}`} className="skills-item settings-card">
               <p>
-                <code>{p.code}</code> {p.channel === "telegram" ? "Telegram" : "WhatsApp"} {p.sender}
-                {p.label && ` (${p.label})`} — expira em {minutes(p)} min
+                <code>{p.code}</code> {p.channel === "telegram" ? t("pairings.telegram") : t("pairings.whatsapp")} {p.sender}
+                {p.label && ` (${p.label})`}
+                {t("pairings.expires", { minutes: minutes(p) })}
               </p>
-              <Field label="Falar como" hint="Quem o bot passa a ser para esse chat. Um membro só aparece liberado depois de vinculado: warden bots link <usuário>.">
+              <Field label={t("pairings.speakAs")} hint={t("pairings.speakAsHint")}>
                 <select value={speakAs[p.code] ?? ""} onChange={(e) => setSpeakAs({ ...speakAs, [p.code]: e.target.value })}>
-                  <option value="">Eu, o dono (o assistente de sempre)</option>
+                  <option value="">{t("pairings.asOwner")}</option>
                   {members.map((m) => (
                     <option key={m.id} value={m.id} disabled={!m.linked}>
-                      {m.name} ({m.id}){m.linked ? "" : " — vincule antes"}
+                      {m.name} ({m.id}){m.linked ? "" : t("pairings.linkFirst")}
                     </option>
                   ))}
                 </select>
               </Field>
               <div className="skills-actions">
                 <button type="button" className="primary-button" disabled={disabled || !conn} onClick={() => setAsk({ code: p.code, approve: true, member: speakAs[p.code] ?? "" })}>
-                  Aprovar
+                  {t("pairings.approve")}
                 </button>
                 <button type="button" className="link-button skills-danger" disabled={disabled || !conn} onClick={() => setAsk({ code: p.code, approve: false, member: "" })}>
-                  Recusar
+                  {t("pairings.refuse")}
                 </button>
               </div>
             </li>
           ))}
         </ul>
       )}
-      {disabled && pairings.length > 0 && <p className="skills-hint">Salve ou descarte as mudanças acima antes: aprovar atualiza as listas.</p>}
+      {disabled && pairings.length > 0 && <p className="skills-hint">{t("pairings.saveFirst")}</p>}
       {ask && (
         <form
           className="settings-confirm"
@@ -312,13 +315,13 @@ function BotPairings({ conn, disabled, onResolved }: { conn: ServerConnection | 
             void resolve();
           }}
         >
-          <Field label={`Chave de pareamento do hub, para ${ask.approve ? "aprovar" : "recusar"} ${ask.code}${ask.approve && ask.member ? ` como ${nameOf(ask.member)}` : ""}`}>
+          <Field label={`${t(ask.approve ? "pairings.keyLabelApprove" : "pairings.keyLabelRefuse", { code: ask.code })}${ask.approve && ask.member ? t("pairings.asMember", { name: nameOf(ask.member) }) : ""}`}>
             <input type="password" autoComplete="current-password" autoFocus value={key} onChange={(e) => setKey(e.target.value)} />
           </Field>
           {error && <p className="error-banner">{error}</p>}
           <div className="skills-actions">
             <button type="submit" className="primary-button" disabled={busy || key.trim() === ""}>
-              Confirmar
+              {t("pairings.confirm")}
             </button>
             <button
               type="button"
@@ -330,13 +333,13 @@ function BotPairings({ conn, disabled, onResolved }: { conn: ServerConnection | 
                 setError(null);
               }}
             >
-              Cancelar
+              {t("common.cancel")}
             </button>
           </div>
         </form>
       )}
       <button type="button" className="link-button" onClick={refresh}>
-        Atualizar a lista
+        {t("pairings.refresh")}
       </button>
     </div>
   );
@@ -371,7 +374,7 @@ export default function SettingsView({ conn }: { conn: ServerConnection | null }
         setLoadError(null);
         setSaveError(null);
       },
-      (err) => setLoadError(`Não foi possível carregar as configurações: ${message(err)}`),
+      (err) => setLoadError(t("settings.loadError", { error: message(err) })),
     );
   }, [conn]);
 
@@ -384,7 +387,7 @@ export default function SettingsView({ conn }: { conn: ServerConnection | null }
   }, [loaded, draft]);
 
   if (!loaded || !draft) {
-    return <div className="usage-view">{loadError ? <p className="error-banner">{loadError}</p> : <p className="skills-hint">Carregando…</p>}</div>;
+    return <div className="usage-view">{loadError ? <p className="error-banner">{loadError}</p> : <p className="skills-hint">{t("common.loading")}</p>}</div>;
   }
 
   const { settings, secretsWritable } = loaded;
@@ -536,7 +539,7 @@ export default function SettingsView({ conn }: { conn: ServerConnection | null }
       setSavedAt(Date.now());
     } catch (err) {
       if (err instanceof SettingsError && err.authRejected) {
-        setKeyError("Chave de pareamento errada.");
+        setKeyError(t("pairingKey.wrong"));
       } else {
         setAsking(false);
         setPairingKey("");
@@ -553,11 +556,9 @@ export default function SettingsView({ conn }: { conn: ServerConnection | null }
   return (
     <div className="usage-view settings-view">
       <div className="skills-toolbar">
-        <span className="skills-hint">
-          A configuração do hub. O que alcança a máquina dele (shell, MCP, SSH, pastas) só muda daqui se o hub foi iniciado com --allow-machine-settings e a conexão é cifrada; senão, no desktop ou no config.toml.
-        </span>
+        <span className="skills-hint">{t("settings.intro")}</span>
         <button type="button" className="link-button" onClick={load} disabled={!conn || saving}>
-          Recarregar
+          {t("devices.reload")}
         </button>
       </div>
 
@@ -566,17 +567,9 @@ export default function SettingsView({ conn }: { conn: ServerConnection | null }
           {note}
         </p>
       ))}
-      {!secretsWritable && (
-        <p className="banner settings-note">
-          Esta página está em http:// vindo de outra máquina, então trocar ou adicionar chaves de API fica bloqueado: a chave passaria sem
-          criptografia pela rede. Abra pelo endereço https:// do hub (Tailscale) ou no próprio computador dele. Remover uma chave e o
-          resto das configurações funcionam normalmente.
-        </p>
-      )}
+      {!secretsWritable && <p className="banner settings-note">{t("settings.insecure")}</p>}
 
-      <Section
-        title="Provedores de modelo"
-        hint="O provedor ativo responde todas as conversas do hub. Deixe o modelo vazio para usar o padrão do tipo."
+      <Section title={t("settings.providers.title")} hint={t("settings.providers.hint")}
         action={
           <button
             type="button"
@@ -588,11 +581,11 @@ export default function SettingsView({ conn }: { conn: ServerConnection | null }
               }))
             }
           >
-            + Provedor
+            {t("settings.providers.add")}
           </button>
         }
       >
-        {draft.providers.length === 0 && <p className="skills-hint">Nenhum provedor salvo.</p>}
+        {draft.providers.length === 0 && <p className="skills-hint">{t("settings.providers.none")}</p>}
         <ul className="skills-list">
           {draft.providers.map((p) => (
             <li key={p.key} className="skills-item settings-card">
@@ -605,50 +598,50 @@ export default function SettingsView({ conn }: { conn: ServerConnection | null }
                     disabled={p.id.trim() === ""}
                     onChange={() => update((d) => ({ ...d, activeProvider: p.id }))}
                   />
-                  {draft.activeProvider === p.id && p.id.trim() !== "" ? "Ativo" : "Usar este"}
+                  {draft.activeProvider === p.id && p.id.trim() !== "" ? t("settings.active") : t("settings.useThis")}
                 </label>
                 <button type="button" className="link-button skills-danger" onClick={() => removeProvider(p.key)}>
-                  Remover
+                  {t("settings.remove")}
                 </button>
               </div>
               <div className="settings-grid">
-                <Field label="Nome">
+                <Field label={t("common.name")}>
                   <input value={p.id} onChange={(e) => patchProvider(p.key, { id: e.target.value })} />
                 </Field>
-                <Field label="Tipo">
+                <Field label={t("settings.providers.type")}>
                   <select value={p.kind} onChange={(e) => patchProvider(p.key, { kind: e.target.value as ProviderKind })}>
-                    {KINDS.map((k) => (
+                    {kinds().map((k) => (
                       <option key={k.value} value={k.value}>
                         {k.label}
                       </option>
                     ))}
                   </select>
                 </Field>
-                <Field label={p.kind === "node" ? "Provedor no nó" : "Modelo"} hint={p.kind === "node" ? "O id dele no config.toml do nó, o mesmo do --model" : undefined}>
+                <Field label={p.kind === "node" ? t("settings.providers.nodeProvider") : t("settings.providers.model")} hint={p.kind === "node" ? t("settings.providers.nodeHint") : undefined}>
                   <input
                     value={p.model}
-                    placeholder={p.kind === "node" ? "ollama" : (settings.defaultModels[p.kind] ?? "obrigatório para este tipo")}
+                    placeholder={p.kind === "node" ? "ollama" : (settings.defaultModels[p.kind] ?? t("settings.providers.required"))}
                     onChange={(e) => patchProvider(p.key, { model: e.target.value })}
                   />
                 </Field>
                 {p.kind === "cloud" && (
-                  <Field label="URL base" hint="Em branco usa a nuvem do Fabio. Para um hub seu, o endereço dele terminado em /v1. A chave é a wdn_ desse hub.">
+                  <Field label={t("settings.providers.baseUrl")} hint={t("settings.providers.cloudHint")}>
                     <input value={p.baseUrl} onChange={(e) => patchProvider(p.key, { baseUrl: e.target.value })} />
                   </Field>
                 )}
                 {p.kind === "node" && (
-                  <Field label="Id do nó" hint="Só responde com o nó online, aprovado e liberado (aba Aparelhos). Num combo, cai no próximo quando ele está fora.">
-                    <input value={p.node} placeholder="node-casa-pc-1a2b3c4d" onChange={(e) => patchProvider(p.key, { node: e.target.value })} />
+                  <Field label={t("settings.providers.nodeId")} hint={t("settings.providers.nodeIdHint")}>
+                    <input value={p.node} placeholder="node-home-pc-1a2b3c4d" onChange={(e) => patchProvider(p.key, { node: e.target.value })} />
                   </Field>
                 )}
                 {p.kind === "openai_compatible" && (
-                  <Field label="URL base" hint="Ex.: http://localhost:11434/v1">
+                  <Field label={t("settings.providers.baseUrl")} hint={t("settings.providers.compatHint")}>
                     <input value={p.baseUrl} onChange={(e) => patchProvider(p.key, { baseUrl: e.target.value })} />
                   </Field>
                 )}
                 {p.kind !== "node" && (
                   <SecretField
-                    label="Chave de API"
+                    label={t("settings.providers.apiKey")}
                     value={p.apiKey}
                     writable={secretsWritable}
                     onChange={(edit) => patchProvider(p.key, { apiKey: { ...p.apiKey, edit } })}
@@ -662,15 +655,15 @@ export default function SettingsView({ conn }: { conn: ServerConnection | null }
       </Section>
 
       <Section
-        title="Combos"
-        hint="Um combo se escolhe como um provedor (modelo ativo, padrão de um agente) e tenta os provedores dele na ordem: se um cair (ocupado, limite de uso ou sem conexão), o próximo responde, e o chat avisa acima da resposta. Chave recusada ou pedido inválido nunca trocam."
+        title={t("settings.combos.title")}
+        hint={t("settings.combos.hint")}
         action={
           <button type="button" className="link-button" onClick={() => update((d) => ({ ...d, combos: [...d.combos, keyed({ id: "", providers: [] })] }))}>
-            + Combo
+            {t("settings.combos.add")}
           </button>
         }
       >
-        {draft.combos.length === 0 && <p className="skills-hint">Nenhum combo.</p>}
+        {draft.combos.length === 0 && <p className="skills-hint">{t("settings.combos.none")}</p>}
         <ul className="skills-list">
           {draft.combos.map((c) => (
             <li key={c.key} className="skills-item settings-card">
@@ -683,23 +676,23 @@ export default function SettingsView({ conn }: { conn: ServerConnection | null }
                     disabled={c.id.trim() === ""}
                     onChange={() => update((d) => ({ ...d, activeProvider: c.id }))}
                   />
-                  {draft.activeProvider === c.id && c.id.trim() !== "" ? "Ativo" : "Usar este"}
+                  {draft.activeProvider === c.id && c.id.trim() !== "" ? t("settings.active") : t("settings.useThis")}
                 </label>
                 <button type="button" className="link-button skills-danger" onClick={() => removeCombo(c.key)}>
-                  Remover
+                  {t("settings.remove")}
                 </button>
               </div>
-              <Field label="Nome">
+              <Field label={t("common.name")}>
                 <input value={c.id} onChange={(e) => patchCombo(c.key, { id: e.target.value })} />
               </Field>
-              {c.providers.length === 0 && <p className="error-banner">Um combo precisa de pelo menos um provedor.</p>}
+              {c.providers.length === 0 && <p className="error-banner">{t("settings.combos.needsOne")}</p>}
               {c.providers.length > 0 && (
                 <ol className="fallback-list">
                   {c.providers.map((id, index) => (
                     <li key={id} className="fallback-row">
                       <span className="fallback-name">{id}</span>
                       <button type="button" className="link-button" disabled={index === 0} onClick={() => patchCombo(c.key, { providers: moved(c.providers, index, -1) })}>
-                        Subir
+                        {t("settings.up")}
                       </button>
                       <button
                         type="button"
@@ -707,17 +700,17 @@ export default function SettingsView({ conn }: { conn: ServerConnection | null }
                         disabled={index === c.providers.length - 1}
                         onClick={() => patchCombo(c.key, { providers: moved(c.providers, index, 1) })}
                       >
-                        Descer
+                        {t("settings.down")}
                       </button>
                       <button type="button" className="link-button skills-danger" onClick={() => patchCombo(c.key, { providers: c.providers.filter((v) => v !== id) })}>
-                        Remover
+                        {t("settings.remove")}
                       </button>
                     </li>
                   ))}
                 </ol>
               )}
               {providerIds.some((id) => !c.providers.includes(id)) && (
-                <Field label="Adicionar provedor">
+                <Field label={t("settings.combos.addProvider")}>
                   <select
                     value=""
                     onChange={(e) => {
@@ -725,7 +718,7 @@ export default function SettingsView({ conn }: { conn: ServerConnection | null }
                       if (id) patchCombo(c.key, { providers: [...c.providers, id] });
                     }}
                   >
-                    <option value="">Escolha um provedor…</option>
+                    <option value="">{t("settings.combos.pick")}</option>
                     {providerIds
                       .filter((id) => !c.providers.includes(id))
                       .map((id) => (
@@ -742,8 +735,8 @@ export default function SettingsView({ conn }: { conn: ServerConnection | null }
       </Section>
 
       <Section
-        title="Políticas de modelo"
-        hint='Uma política é uma palavra — "fast", "cheap", "reasoning", "code" — que um agente que delega pode usar para escolher o modelo de uma tarefa, no lugar do nome de um provedor. Cada uma é respondida por um provedor ou combo, e a descrição é o que o agente lê para saber quando escolher. Para limitar os modelos de um agente, use o cartão dele, em Agentes.'
+        title={t("settings.policies.title")}
+        hint={t("settings.policies.hint")}
         action={
           <button
             type="button"
@@ -751,26 +744,26 @@ export default function SettingsView({ conn }: { conn: ServerConnection | null }
             disabled={modelIds.length === 0}
             onClick={() => update((d) => ({ ...d, modelPolicies: [...d.modelPolicies, keyed({ id: nextPolicyId(delegationCandidates(d.providers, d.combos, d.modelPolicies)), model: modelIds[0] ?? "", description: "" })] }))}
           >
-            + Política
+            {t("settings.policies.add")}
           </button>
         }
       >
-        {draft.modelPolicies.length === 0 && <p className="skills-hint">Nenhuma política: os agentes veem os provedores e combos pelo nome.</p>}
+        {draft.modelPolicies.length === 0 && <p className="skills-hint">{t("settings.policies.none")}</p>}
         <ul className="skills-list">
           {draft.modelPolicies.map((p) => (
             <li key={p.key} className="skills-item settings-card">
               <div className="skills-item-header">
-                <span className="skills-hint">Política</span>
+                <span className="skills-hint">{t("settings.policies.policy")}</span>
                 <button type="button" className="link-button skills-danger" onClick={() => removePolicy(p.key)}>
-                  Remover
+                  {t("settings.remove")}
                 </button>
               </div>
-              <Field label="Nome">
-                <input value={p.id} placeholder="ex.: fast" onChange={(e) => patchPolicy(p.key, { id: e.target.value })} />
+              <Field label={t("common.name")}>
+                <input value={p.id} placeholder={t("settings.policies.namePlaceholder")} onChange={(e) => patchPolicy(p.key, { id: e.target.value })} />
               </Field>
-              <Field label="Modelo que responde">
+              <Field label={t("settings.policies.answers")}>
                 <select value={p.model} onChange={(e) => patchPolicy(p.key, { model: e.target.value })}>
-                  {!modelIds.includes(p.model) && <option value={p.model}>{p.model || "(escolha um modelo)"}</option>}
+                  {!modelIds.includes(p.model) && <option value={p.model}>{p.model || t("settings.policies.pickModel")}</option>}
                   {modelIds.map((id) => (
                     <option key={id} value={id}>
                       {id}
@@ -778,8 +771,8 @@ export default function SettingsView({ conn }: { conn: ServerConnection | null }
                   ))}
                 </select>
               </Field>
-              <Field label="Quando escolher">
-                <input value={p.description ?? ""} maxLength={200} placeholder="ex.: trabalho simples e rápido, em que o custo pesa mais que a profundidade" onChange={(e) => patchPolicy(p.key, { description: e.target.value })} />
+              <Field label={t("settings.policies.when")}>
+                <input value={p.description ?? ""} maxLength={200} placeholder={t("settings.policies.whenPlaceholder")} onChange={(e) => patchPolicy(p.key, { description: e.target.value })} />
               </Field>
             </li>
           ))}
@@ -787,8 +780,8 @@ export default function SettingsView({ conn }: { conn: ServerConnection | null }
       </Section>
 
       <Section
-        title="Agentes"
-        hint="Personas que uma conversa pode escolher (aqui no chat, no desktop e nas delegações entre agentes)."
+        title={t("settings.agents.title")}
+        hint={t("settings.agents.hint")}
         action={
           <button
             type="button"
@@ -803,21 +796,21 @@ export default function SettingsView({ conn }: { conn: ServerConnection | null }
               }))
             }
           >
-            + Agente
+            {t("settings.agents.add")}
           </button>
         }
       >
-        {draft.agents.length === 0 && <p className="skills-hint">Nenhum agente.</p>}
+        {draft.agents.length === 0 && <p className="skills-hint">{t("settings.agents.none")}</p>}
         <ul className="skills-list">
           {draft.agents.map((a) => (
             <li key={a.key} className="skills-item settings-card">
               <div className="settings-grid">
-                <Field label="Nome">
+                <Field label={t("common.name")}>
                   <input value={a.id} onChange={(e) => patchAgent(a.key, { id: e.target.value })} />
                 </Field>
-                <Field label="Modelo padrão">
+                <Field label={t("settings.agents.defaultModel")}>
                   <select value={a.providerId} onChange={(e) => patchAgent(a.key, { providerId: e.target.value })}>
-                    <option value="">O da conversa</option>
+                    <option value="">{t("settings.agents.ofConversation")}</option>
                     {providerIds.map((id) => (
                       <option key={id} value={id}>
                         {id}
@@ -825,17 +818,17 @@ export default function SettingsView({ conn }: { conn: ServerConnection | null }
                     ))}
                     {comboIds.map((id) => (
                       <option key={id} value={id}>
-                        {id} (combo)
+                        {t("settings.agents.comboSuffix", { id })}
                       </option>
                     ))}
                   </select>
                 </Field>
-                <Field label="Cargo (opcional)">
-                  <input value={a.role ?? ""} placeholder="ex.: líder de engenharia" onChange={(e) => patchAgent(a.key, { role: e.target.value })} />
+                <Field label={t("settings.agents.role")}>
+                  <input value={a.role ?? ""} placeholder={t("settings.agents.rolePlaceholder")} onChange={(e) => patchAgent(a.key, { role: e.target.value })} />
                 </Field>
-                <Field label="Reporta a (define o alcance de quem gerencia ou delega: só os de baixo)">
+                <Field label={t("settings.agents.reportsTo")}>
                   <select value={a.reportsTo ?? ""} onChange={(e) => patchAgent(a.key, { reportsTo: e.target.value || null })}>
-                    <option value="">Ninguém</option>
+                    <option value="">{t("settings.agents.nobody")}</option>
                     {draft.agents
                       .filter((other) => other.key !== a.key && !descendantsOf(draft.agents, a.id).has(other.id))
                       .map((other) => (
@@ -845,50 +838,50 @@ export default function SettingsView({ conn }: { conn: ServerConnection | null }
                       ))}
                   </select>
                 </Field>
-                <Field label="Persona" wide>
+                <Field label={t("settings.agents.persona")} wide>
                   <textarea rows={4} value={a.persona} onChange={(e) => patchAgent(a.key, { persona: e.target.value })} />
                 </Field>
               </div>
               <div className="settings-checks">
                 <label className="settings-check">
                   <input type="checkbox" checked={a.canDelegateToAgents} onChange={(e) => patchAgent(a.key, { canDelegateToAgents: e.target.checked })} />
-                  Pode delegar a outros agentes
+                  {t("settings.agents.canDelegate")}
                 </label>
                 <label className="settings-check">
                   <input type="checkbox" checked={a.canManageAgents} onChange={(e) => patchAgent(a.key, { canManageAgents: e.target.checked })} />
-                  Pode criar e editar agentes (sempre com a sua aprovação)
+                  {t("settings.agents.canManage")}
                 </label>
                 <label className="settings-check">
                   <input type="checkbox" checked={a.canMessageAgents} onChange={(e) => patchAgent(a.key, { canMessageAgents: e.target.checked })} />
-                  Pode deixar recados para outros agentes (numa conversa que você vê)
+                  {t("settings.agents.canNote")}
                 </label>
                 <label className="settings-check">
                   <input type="checkbox" checked={a.canManageTasks} onChange={(e) => patchAgent(a.key, { canManageTasks: e.target.checked })} />
-                  Pode criar e editar tarefas agendadas (sempre com a sua aprovação)
+                  {t("settings.agents.canSchedule")}
                 </label>
                 <label className="settings-check">
                   <input type="checkbox" checked={a.canStartTasks ?? true} onChange={(e) => patchAgent(a.key, { canStartTasks: e.target.checked })} />
-                  Pode iniciar trabalho em segundo plano (entrega a tarefa e segue; um agente criado por outro agente começa sem isto)
+                  {t("settings.agents.canStart")}
                 </label>
                 <label className="settings-check">
                   <input type="checkbox" checked={a.canCreateWorkers ?? true} onChange={(e) => patchAgent(a.key, { canCreateWorkers: e.target.checked })} />
-                  Pode criar agentes temporários (somem no fim do turno; um agente criado por outro agente começa sem isto)
+                  {t("settings.agents.canWorkers")}
                 </label>
                 <label className="settings-check">
                   <input type="checkbox" checked={a.canMessageUser ?? true} onChange={(e) => patchAgent(a.key, { canMessageUser: e.target.checked })} />
-                  Permissão: pode usar a ferramenta de mandar mensagem a você (um agente criado por outro agente começa sem isto)
+                  {t("settings.agents.canMessageUser")}
                 </label>
                 <label className="settings-check">
                   <input type="checkbox" checked={a.canChooseModels ?? true} onChange={(e) => patchAgent(a.key, { canChooseModels: e.target.checked })} />
-                  Pode escolher o modelo de cada tarefa que delega (um agente criado por outro agente começa sem isto)
+                  {t("settings.agents.canChoose")}
                 </label>
                 <label className="settings-check">
                   <input type="checkbox" checked={outreachOn(draft.outreach, a.id)} onChange={(e) => update((d) => ({ ...d, outreach: setOutreach(d.outreach, a.id, e.target.checked) }))} />
-                  Ligar as mensagens dele para você, no canal dele (no máximo 12 por hora; só valem com a permissão acima)
+                  {t("settings.agents.outreach")}
                 </label>
                 {outreachOn(draft.outreach, a.id) && (
                   <fieldset className="settings-tools">
-                    <legend>Mandar também para (só em tarefas agendadas e webhooks, para os seus chats)</legend>
+                    <legend>{t("settings.agents.forwardLegend")}</legend>
                     {OUTREACH_CHANNELS.map((channel) => (
                       <label key={channel} className="settings-check">
                         <input
@@ -896,7 +889,7 @@ export default function SettingsView({ conn }: { conn: ServerConnection | null }
                           checked={outreachForward(draft.outreach, a.id).includes(channel)}
                           onChange={(e) => update((d) => ({ ...d, outreach: setForward(d.outreach, a.id, channel, e.target.checked) }))}
                         />
-                        {channel === "telegram" ? "Telegram" : "WhatsApp"}
+                        {channel === "telegram" ? t("pairings.telegram") : t("pairings.whatsapp")}
                       </label>
                     ))}
                   </fieldset>
@@ -907,21 +900,21 @@ export default function SettingsView({ conn }: { conn: ServerConnection | null }
                     checked={a.allowedTools !== null}
                     onChange={(e) => patchAgent(a.key, { allowedTools: e.target.checked ? [] : null })}
                   />
-                  Limitar as ferramentas
+                  {t("settings.agents.limitTools")}
                 </label>
                 <label className="settings-check">
-                  Autonomia
+                  {t("settings.agents.autonomy")}
                   <select value={a.autonomy ?? 4} onChange={(e) => patchAgent(a.key, { autonomy: Number(e.target.value) })}>
-                    <option value={1}>1 — só responde (sem ferramentas)</option>
-                    <option value={2}>2 — sugere, não muda nada sozinho</option>
-                    <option value={3}>3 — pede aprovação a cada mudança</option>
-                    <option value={4}>4 — age sozinho</option>
-                    <option value={5}>5 — age sozinho e gerencia os subordinados sem perguntar</option>
+                    <option value={1}>{t("settings.agents.autonomy1")}</option>
+                    <option value={2}>{t("settings.agents.autonomy2")}</option>
+                    <option value={3}>{t("settings.agents.autonomy3")}</option>
+                    <option value={4}>{t("settings.agents.autonomy4")}</option>
+                    <option value={5}>{t("settings.agents.autonomy5")}</option>
                   </select>
                 </label>
               </div>
               <fieldset className="settings-tools">
-                <legend className="skills-hint">Pedir a minha aprovação antes de (mesmo no nível 4):</legend>
+                <legend className="skills-hint">{t("settings.agents.approvalBefore")}</legend>
                 {APPROVAL_CATEGORIES.map((category) => (
                   <label key={category.id} className="settings-check">
                     <input
@@ -941,7 +934,7 @@ export default function SettingsView({ conn }: { conn: ServerConnection | null }
               </fieldset>
               {(a.canDelegateToAgents || a.canManageAgents || delegationCandidates(draft.providers, draft.combos, draft.modelPolicies).length > 0) && (
                 <fieldset className="settings-tools">
-                  <legend className="skills-hint">Modelos das tarefas que ele delega (o primeiro é o que uma tarefa recebe quando o agente não escolhe; uma lista de um dita o modelo; vazia deixa aberto):</legend>
+                  <legend className="skills-hint">{t("settings.agents.delegationLegend")}</legend>
                   <p className="skills-hint">{delegationSummary(a.delegationModels)}</p>
                   {(a.delegationModels ?? []).length > 0 && (
                     <ol className="fallback-list">
@@ -949,13 +942,13 @@ export default function SettingsView({ conn }: { conn: ServerConnection | null }
                         <li key={id} className="fallback-row">
                           <span className="fallback-name">{id}</span>
                           <button type="button" className="link-button" disabled={index === 0} onClick={() => patchAgent(a.key, { delegationModels: moved(list, index, -1) })}>
-                            Subir
+                            {t("settings.up")}
                           </button>
                           <button type="button" className="link-button" disabled={index === list.length - 1} onClick={() => patchAgent(a.key, { delegationModels: moved(list, index, 1) })}>
-                            Descer
+                            {t("settings.down")}
                           </button>
                           <button type="button" className="link-button skills-danger" onClick={() => patchAgent(a.key, { delegationModels: list.filter((m) => m !== id) })}>
-                            Remover
+                            {t("settings.remove")}
                           </button>
                         </li>
                       ))}
@@ -964,13 +957,13 @@ export default function SettingsView({ conn }: { conn: ServerConnection | null }
                   {delegationCandidates(draft.providers, draft.combos, draft.modelPolicies).some((id) => !(a.delegationModels ?? []).includes(id)) && (
                     <select
                       value=""
-                      aria-label="Limitar a um modelo"
+                      aria-label={t("settings.agents.limitToModel")}
                       onChange={(e) => {
                         const id = e.target.value;
                         if (id) patchAgent(a.key, { delegationModels: [...(a.delegationModels ?? []), id] });
                       }}
                     >
-                      <option value="">+ Limitar a um modelo…</option>
+                      <option value="">{t("settings.agents.limitToModelOption")}</option>
                       {delegationCandidates(draft.providers, draft.combos, draft.modelPolicies)
                         .filter((id) => !(a.delegationModels ?? []).includes(id))
                         .map((id) => (
@@ -984,14 +977,14 @@ export default function SettingsView({ conn }: { conn: ServerConnection | null }
               )}
               {people.length > 0 && (
                 <fieldset className="settings-tools">
-                  <legend className="skills-hint">Compartilhar com (a pessoa usa o agente com a memória e as ferramentas dela):</legend>
+                  <legend className="skills-hint">{t("settings.agents.shareWith")}</legend>
                   <label className="settings-check">
                     <input
                       type="checkbox"
                       checked={(a.sharedWith ?? []).includes("*")}
                       onChange={(e) => patchAgent(a.key, { sharedWith: e.target.checked ? ["*"] : [] })}
                     />
-                    Todas as pessoas
+                    {t("settings.agents.allPeople")}
                   </label>
                   {!(a.sharedWith ?? []).includes("*") &&
                     people.map((p) => (
@@ -1012,7 +1005,7 @@ export default function SettingsView({ conn }: { conn: ServerConnection | null }
               )}
               {a.allowedTools !== null && (
                 <fieldset className="settings-tools">
-                  <legend className="skills-hint">Só estas ferramentas:</legend>
+                  <legend className="skills-hint">{t("settings.agents.onlyTools")}</legend>
                   {settings.toolNames.map((tool) => (
                     <label key={tool} className="settings-check">
                       <input
@@ -1020,7 +1013,7 @@ export default function SettingsView({ conn }: { conn: ServerConnection | null }
                         checked={a.allowedTools!.includes(tool)}
                         onChange={(e) =>
                           patchAgent(a.key, {
-                            allowedTools: e.target.checked ? [...a.allowedTools!, tool] : a.allowedTools!.filter((t) => t !== tool),
+                            allowedTools: e.target.checked ? [...a.allowedTools!, tool] : a.allowedTools!.filter((x) => x !== tool),
                           })
                         }
                       />
@@ -1031,7 +1024,7 @@ export default function SettingsView({ conn }: { conn: ServerConnection | null }
               )}
               <div className="skills-actions">
                 <button type="button" className="link-button skills-danger" onClick={() => update((d) => ({ ...d, agents: removeFromOrg(d.agents, a.id), outreach: dropOutreach(d.outreach, a.id) }))}>
-                  Remover agente
+                  {t("settings.agents.removeAgent")}
                 </button>
               </div>
             </li>
@@ -1039,16 +1032,16 @@ export default function SettingsView({ conn }: { conn: ServerConnection | null }
         </ul>
       </Section>
 
-      <Section title="Outras chaves" hint="Cada uma liga um recurso, qualquer que seja o provedor ativo.">
+      <Section title={t("settings.keys.title")} hint={t("settings.keys.hint")}>
         <div className="settings-grid">
           <SecretField
-            label="Tavily (busca na web)"
+            label={t("settings.keys.tavily")}
             value={draft.tavilyKey}
             writable={secretsWritable}
             onChange={(edit) => update((d) => ({ ...d, tavilyKey: { ...d.tavilyKey, edit } }))}
           />
           <SecretField
-            label="OpenAI para voz (Whisper)"
+            label={t("settings.keys.whisper")}
             value={draft.whisperKey}
             writable={secretsWritable}
             onChange={(edit) => update((d) => ({ ...d, whisperKey: { ...d.whisperKey, edit } }))}
@@ -1056,15 +1049,12 @@ export default function SettingsView({ conn }: { conn: ServerConnection | null }
         </div>
       </Section>
 
-      <Section
-        title="Sincronização (git)"
-        hint="Um repositório seu (Gitea, GitHub…) por onde este hub troca o vault e as configurações com os outros aparelhos, a cada 5 minutos. Tudo vai cifrado. Deixe a URL vazia para não usar git. O andamento fica na aba Sync."
-      >
+      <Section title={t("settings.git.title")} hint={t("settings.git.hint")}>
         <div className="settings-grid">
-          <Field label="URL do repositório" hint="Só https://.">
+          <Field label={t("settings.git.url")} hint={t("settings.git.urlHint")}>
             <input
               value={draft.gitRemoteUrl}
-              placeholder="https://git.exemplo.com/voce/vault.git"
+              placeholder={t("settings.git.urlPlaceholder")}
               onChange={(e) => {
                 const gitRemoteUrl = e.target.value;
                 update((d) => ({ ...d, gitRemoteUrl }));
@@ -1072,7 +1062,7 @@ export default function SettingsView({ conn }: { conn: ServerConnection | null }
             />
           </Field>
           <SecretField
-            label="Token de acesso"
+            label={t("settings.git.token")}
             value={draft.gitToken}
             writable={secretsWritable}
             onChange={(edit) => update((d) => ({ ...d, gitToken: { ...d.gitToken, edit } }))}
@@ -1080,40 +1070,37 @@ export default function SettingsView({ conn }: { conn: ServerConnection | null }
         </div>
       </Section>
 
-      <Section
-        title="Aprendizado e bots"
-        hint="Quem pode falar com o Telegram e o WhatsApp, e se o assistente sugere o que aprender das conversas. Uma lista vazia significa ninguém."
-      >
+      <Section title={t("settings.bots.title")} hint={t("settings.bots.hint")}>
         {botsProblem && <p className="error-banner">{botsProblem}</p>}
         <div className="settings-checks">
           <label className="settings-check">
             <input type="checkbox" checked={draft.botsLearningEnabled} onChange={(e) => update((d) => ({ ...d, botsLearningEnabled: e.target.checked }))} />
-            Aprender com as conversas (cada olhada é uma chamada curta ao modelo, e gasta do seu limite)
+            {t("settings.bots.learn")}
           </label>
         </div>
         <div className="settings-checks">
           <label className="settings-check">
             <input type="checkbox" checked={draft.botsTelegramPairing} onChange={(e) => update((d) => ({ ...d, botsTelegramPairing: e.target.checked }))} />
-            Deixar desconhecidos pedirem acesso no Telegram (recebem um código de 1 hora para você aprovar; desligado, não recebem resposta)
+            {t("settings.bots.telegramPairing")}
           </label>
           <label className="settings-check">
             <input type="checkbox" checked={draft.botsWhatsappPairing} onChange={(e) => update((d) => ({ ...d, botsWhatsappPairing: e.target.checked }))} />
-            O mesmo no WhatsApp (só conversa privada)
+            {t("settings.bots.whatsappPairing")}
           </label>
         </div>
         <BotPairings conn={conn} disabled={dirty} onResolved={load} />
         <div className="settings-grid">
           <SecretField
-            label="Token do bot do Telegram (do @BotFather)"
-            placeholder="Cole o token"
+            label={t("settings.bots.telegramToken")}
+            placeholder={t("settings.bots.pasteToken")}
             value={draft.telegramToken}
             writable={secretsWritable}
             onChange={(edit) => update((d) => ({ ...d, telegramToken: { ...d.telegramToken, edit } }))}
           />
-          <p className="field-hint settings-field--wide">O bot do Telegram lê o token quando inicia: depois de trocar, reinicie o bot.</p>
-          <Field label="Modelo do aprendizado" hint="Um modelo barato resolve. Vazio usa o modelo ativo. Cada membro pode ter o seu na aba Pessoas.">
+          <p className="field-hint settings-field--wide">{t("settings.bots.tokenNote")}</p>
+          <Field label={t("settings.bots.learningModel")} hint={t("settings.bots.learningModelHint")}>
             <select value={draft.botsLearningProvider} onChange={(e) => update((d) => ({ ...d, botsLearningProvider: e.target.value }))}>
-              <option value="">O modelo ativo</option>
+              <option value="">{t("settings.bots.activeModel")}</option>
               {modelIds.map((id) => (
                 <option key={id} value={id}>
                   {id}
@@ -1121,35 +1108,35 @@ export default function SettingsView({ conn }: { conn: ServerConnection | null }
               ))}
             </select>
           </Field>
-          <Field label="Sugestões por dia" hint="O teto de cada pessoa em 24 horas.">
+          <Field label={t("settings.bots.perDay")} hint={t("settings.bots.perDayHint")}>
             <input type="number" min={1} step={1} value={draft.botsMaxPerDay} onChange={(e) => update((d) => ({ ...d, botsMaxPerDay: e.target.value }))} />
           </Field>
-          <Field label="Quem pode falar com o bot do Telegram" hint="Ids numéricos, um por linha. Só conversa privada. Vazio: o bot não responde a ninguém." wide>
+          <Field label={t("settings.bots.telegramUsers")} hint={t("settings.bots.telegramUsersHint")} wide>
             <textarea rows={3} value={draft.botsTelegramUsers} onChange={(e) => update((d) => ({ ...d, botsTelegramUsers: e.target.value }))} />
           </Field>
-          <Field label="Quem pode falar com o bot do WhatsApp" hint="Número (5511999999999) ou id inteiro, um por linha. Só conversa privada. Vazio: ninguém." wide>
+          <Field label={t("settings.bots.whatsappChats")} hint={t("settings.bots.whatsappChatsHint")} wide>
             <textarea rows={3} value={draft.botsWhatsappChats} onChange={(e) => update((d) => ({ ...d, botsWhatsappChats: e.target.value }))} />
           </Field>
-          <Field label="Conversas dos bots de que o assistente pode aprender" hint="telegram:<id> ou whatsapp:<id>, um por linha. Só vale com o aprendizado ligado. Vazio: os bots não aprendem." wide>
+          <Field label={t("settings.bots.learningChats")} hint={t("settings.bots.learningChatsHint")} wide>
             <textarea rows={3} value={draft.botsLearningChats} onChange={(e) => update((d) => ({ ...d, botsLearningChats: e.target.value }))} />
           </Field>
         </div>
       </Section>
 
-      <Section title="Categorias de risco" hint="Que tipo de ação cada ferramenta faz, para os agentes que precisam de aprovação para esse tipo. As ferramentas do Warden e o que um servidor MCP diz sobre as suas já estão classificados; liste aqui uma que eles não cobrem (um servidor de pagamentos, o Slack), pelo nome exato que o modelo vê. O que você lista vale mais que os dois.">
-        {draft.toolCategories.length === 0 && <p className="muted">Nenhuma ferramenta mapeada.</p>}
+      <Section title={t("settings.risk.title")} hint={t("settings.risk.hint")}>
+        {draft.toolCategories.length === 0 && <p className="muted">{t("settings.risk.none")}</p>}
         <ul className="skills-list">
           {draft.toolCategories.map((entry, i) => (
             <li key={i} className="skills-item settings-card">
               <div className="settings-grid">
-                <Field label="Ferramenta">
+                <Field label={t("settings.risk.tool")}>
                   <input
                     value={entry.tool}
-                    placeholder="nome da ferramenta"
+                    placeholder={t("settings.risk.toolPlaceholder")}
                     onChange={(e) => update((d) => ({ ...d, toolCategories: d.toolCategories.map((c, j) => (j === i ? { ...c, tool: e.target.value } : c)) }))}
                   />
                 </Field>
-                <Field label="Tipo de ação">
+                <Field label={t("settings.risk.kind")}>
                   <select
                     value={entry.category}
                     onChange={(e) => update((d) => ({ ...d, toolCategories: d.toolCategories.map((c, j) => (j === i ? { ...c, category: e.target.value } : c)) }))}
@@ -1163,7 +1150,7 @@ export default function SettingsView({ conn }: { conn: ServerConnection | null }
                 </Field>
               </div>
               <button type="button" className="link-button skills-danger" onClick={() => update((d) => ({ ...d, toolCategories: d.toolCategories.filter((_, j) => j !== i) }))}>
-                Remover
+                {t("settings.remove")}
               </button>
             </li>
           ))}
@@ -1173,22 +1160,19 @@ export default function SettingsView({ conn }: { conn: ServerConnection | null }
           className="link-button"
           onClick={() => update((d) => ({ ...d, toolCategories: [...d.toolCategories, { tool: "", category: APPROVAL_CATEGORIES[0].id }] }))}
         >
-          + Adicionar ferramenta
+          {t("settings.risk.add")}
         </button>
       </Section>
 
       {draft.grantsSupported && (
-        <Section
-          title='Permissões dadas com "sempre"'
-          hint='Quando você responde "sempre" à pergunta de um agente, ele deixa de perguntar por aquele tipo de ação naquela conversa. Guardada em arquivo, a permissão sobrevive a um reinício e vence depois dos dias abaixo sem uso (cada uso renova); senão, acaba quando a conexão fecha. Apagar dados, gastar dinheiro e infraestrutura crítica nunca ganham um "sempre". Vale já ao salvar; uma conexão que já estava aberta sem arquivo só passa a guardar na próxima. Desligar apaga o arquivo.'
-        >
+        <Section title={t("settings.grants.title")} hint={t("settings.grants.hint")}>
           <div className="settings-checks">
             <label className="settings-check">
               <input type="checkbox" checked={draft.persistGrants} onChange={(e) => update((d) => ({ ...d, persistGrants: e.target.checked }))} />
-              Guardar em arquivo
+              {t("settings.grants.keep")}
             </label>
           </div>
-          <Field label="Dias sem uso até a permissão vencer" hint="De 1 a 365 aqui; para mais, edite o config.toml.">
+          <Field label={t("settings.grants.days")} hint={t("settings.grants.daysHint")}>
             <input
               type="number"
               min={1}
@@ -1201,14 +1185,14 @@ export default function SettingsView({ conn }: { conn: ServerConnection | null }
         </Section>
       )}
 
-      <Section title="Limites de gasto" hint="Valem para todos os canais desta máquina. A janela é móvel: “24 h” são as últimas 24 horas, não desde a meia-noite.">
-        {settings.limitsDisabledByEnv && <p className="banner settings-note">WARDEN_SPEND_LIMITS=off está definido no ambiente do hub e desliga tudo o que for salvo aqui.</p>}
-        <div className="settings-checks" role="radiogroup" aria-label="Limites">
+      <Section title={t("settings.limits.title")} hint={t("settings.limits.hint")}>
+        {settings.limitsDisabledByEnv && <p className="banner settings-note">{t("settings.limits.envOff")}</p>}
+        <div className="settings-checks" role="radiogroup" aria-label={t("settings.limits.label")}>
           {(
             [
-              ["default", "Os padrão (500 mil tokens por hora, 2 milhões por dia)"],
-              ["custom", "Personalizados"],
-              ["off", "Nenhum limite"],
+              ["default", t("settings.limits.default")],
+              ["custom", t("settings.limits.custom")],
+              ["off", t("settings.limits.off")],
             ] as [LimitsMode, string][]
           ).map(([mode, label]) => (
             <label key={mode} className="settings-check">
@@ -1221,19 +1205,20 @@ export default function SettingsView({ conn }: { conn: ServerConnection | null }
           <>
             <ul className="skills-list">
               {draft.limits.map((l) => {
-                const scope = SCOPES.find((s) => s.value === l.scope) ?? SCOPES[0];
+                const scopeList = scopes();
+                const scope = scopeList.find((s) => s.value === l.scope) ?? scopeList[0];
                 return (
                   <li key={l.key} className="skills-item settings-card">
                     <div className="settings-grid">
-                      <Field label="Nome">
+                      <Field label={t("common.name")}>
                         <input value={l.id} onChange={(e) => patchLimit(l.key, { id: e.target.value })} />
                       </Field>
-                      <Field label="Vale para">
+                      <Field label={t("settings.limits.appliesTo")}>
                         <select
                           value={l.scope}
                           onChange={(e) => patchLimit(l.key, { scope: e.target.value as LimitScope, target: e.target.value === "global" ? "" : l.target })}
                         >
-                          {SCOPES.map((s) => (
+                          {scopeList.map((s) => (
                             <option key={s.value} value={s.value}>
                               {s.label}
                             </option>
@@ -1241,17 +1226,17 @@ export default function SettingsView({ conn }: { conn: ServerConnection | null }
                         </select>
                       </Field>
                       {l.scope !== "global" && (
-                        <Field label="Quem">
+                        <Field label={t("settings.limits.who")}>
                           <input value={l.target} placeholder={scope.target} onChange={(e) => patchLimit(l.key, { target: e.target.value })} />
                         </Field>
                       )}
-                      <Field label="Janela (horas)">
+                      <Field label={t("settings.limits.window")}>
                         <input type="number" min={1} value={l.windowHours} onChange={(e) => patchLimit(l.key, { windowHours: Number(e.target.value) })} />
                       </Field>
-                      <Field label="Máx. tokens">
+                      <Field label={t("settings.limits.maxTokens")}>
                         <input type="number" min={1} value={l.maxTokens ?? ""} onChange={(e) => patchLimit(l.key, { maxTokens: numberOrNull(e.target.value) })} />
                       </Field>
-                      <Field label="Máx. US$" hint="Precisa do preço do modelo abaixo.">
+                      <Field label={t("settings.limits.maxUsd")} hint={t("settings.limits.maxUsdHint")}>
                         <input
                           type="number"
                           min={0}
@@ -1263,7 +1248,7 @@ export default function SettingsView({ conn }: { conn: ServerConnection | null }
                     </div>
                     <div className="skills-actions">
                       <button type="button" className="link-button skills-danger" onClick={() => update((d) => ({ ...d, limits: d.limits.filter((x) => x.key !== l.key) }))}>
-                        Remover limite
+                        {t("settings.limits.removeLimit")}
                       </button>
                     </div>
                   </li>
@@ -1283,41 +1268,41 @@ export default function SettingsView({ conn }: { conn: ServerConnection | null }
                 }))
               }
             >
-              + Limite
+              {t("settings.limits.add")}
             </button>
           </>
         )}
       </Section>
 
       <Section
-        title="Preços"
-        hint="Quanto cada modelo cobra por milhão de tokens, para os limites em dólar. O id tem de ser exatamente o do modelo."
+        title={t("settings.prices.title")}
+        hint={t("settings.prices.hint")}
         action={
           <button type="button" className="link-button" onClick={() => update((d) => ({ ...d, prices: [...d.prices, keyed({ model: "", inputPerMtok: 0, outputPerMtok: 0 })] }))}>
-            + Preço
+            {t("settings.prices.add")}
           </button>
         }
       >
-        {draft.prices.length === 0 && <p className="skills-hint">Nenhum preço cadastrado.</p>}
+        {draft.prices.length === 0 && <p className="skills-hint">{t("settings.prices.none")}</p>}
         <ul className="skills-list">
           {draft.prices.map((p) => (
             <li key={p.key} className="skills-item settings-card settings-price">
-              <Field label="Modelo">
+              <Field label={t("settings.prices.model")}>
                 <input value={p.model} onChange={(e) => patchPrice(p.key, { model: e.target.value })} />
               </Field>
-              <Field label="Entrada (US$/M)">
+              <Field label={t("settings.prices.input")}>
                 <input type="number" min={0} step="0.01" value={p.inputPerMtok} onChange={(e) => patchPrice(p.key, { inputPerMtok: Number(e.target.value) })} />
               </Field>
-              <Field label="Saída (US$/M)">
+              <Field label={t("settings.prices.output")}>
                 <input type="number" min={0} step="0.01" value={p.outputPerMtok} onChange={(e) => patchPrice(p.key, { outputPerMtok: Number(e.target.value) })} />
               </Field>
               <button
                 type="button"
                 className="link-button skills-danger settings-price-remove"
-                aria-label={`Remover o preço de ${p.model || "modelo sem nome"}`}
+                aria-label={t("settings.prices.removeLabel", { model: p.model || t("settings.prices.unnamed") })}
                 onClick={() => update((d) => ({ ...d, prices: d.prices.filter((x) => x.key !== p.key) }))}
               >
-                Remover
+                {t("settings.remove")}
               </button>
             </li>
           ))}
@@ -1344,27 +1329,27 @@ export default function SettingsView({ conn }: { conn: ServerConnection | null }
               <>
                 {" "}
                 <button type="button" className="link-button" onClick={load}>
-                  Recarregar (descarta o que você mudou aqui)
+                  {t("settings.reload")}
                 </button>
               </>
             )}
           </p>
         )}
-        {savedAt !== null && !dirty && <p className="settings-saved">✓ Salvo. O hub já está usando as novas configurações.</p>}
+        {savedAt !== null && !dirty && <p className="settings-saved">{t("settings.saved")}</p>}
         {confirmingMachine ? (
           <div className="settings-confirm settings-confirm--danger" role="alertdialog" aria-labelledby="machine-confirm-title">
             <h3 id="machine-confirm-title" className="settings-subheading">
-              Esta mudança altera o que o hub executa na máquina dele
+              {t("settings.machineConfirmTitle")}
             </h3>
             <ul className="settings-changes">
               {machineSummary(draft.machineBase, toMachineEdit(draft.machine)).map((line) => (
                 <li key={line}>{line}</li>
               ))}
             </ul>
-            <p className="field-hint">Valores novos de variáveis de ambiente e cabeçalhos seguem para o hub, mas não são mostrados aqui. O hub registra esta mudança no log dele.</p>
+            <p className="field-hint">{t("settings.machineConfirmNote")}</p>
             <label className="settings-check">
               <input type="checkbox" checked={machineAck} onChange={(e) => setMachineAck(e.target.checked)} />
-              Entendo que isso muda o que o hub pode executar na máquina dele
+              {t("settings.machineAck")}
             </label>
             <div className="skills-actions">
               <button
@@ -1376,7 +1361,7 @@ export default function SettingsView({ conn }: { conn: ServerConnection | null }
                   setAsking(true);
                 }}
               >
-                Continuar
+                {t("settings.continue")}
               </button>
               <button
                 type="button"
@@ -1386,7 +1371,7 @@ export default function SettingsView({ conn }: { conn: ServerConnection | null }
                   setMachineAck(false);
                 }}
               >
-                Cancelar
+                {t("common.cancel")}
               </button>
             </div>
           </div>
@@ -1398,13 +1383,13 @@ export default function SettingsView({ conn }: { conn: ServerConnection | null }
               void save();
             }}
           >
-            <Field label="Chave de pareamento do hub" hint="A mesma do primeiro login. É pedida a cada vez que se salva.">
+            <Field label={t("pairingKey.label")} hint={t("settings.pairingHint")}>
               <input type="password" autoComplete="current-password" autoFocus value={pairingKey} onChange={(e) => setPairingKey(e.target.value)} />
             </Field>
             {keyError && <p className="error-banner">{keyError}</p>}
             <div className="skills-actions">
               <button type="submit" className="primary-button" disabled={saving || pairingKey.trim() === "" || !conn}>
-                {saving ? "Salvando e reiniciando…" : "Confirmar"}
+                {saving ? t("settings.savingRestarting") : t("common.confirm")}
               </button>
               <button
                 type="button"
@@ -1416,7 +1401,7 @@ export default function SettingsView({ conn }: { conn: ServerConnection | null }
                   setKeyError(null);
                 }}
               >
-                Cancelar
+                {t("common.cancel")}
               </button>
             </div>
           </form>
@@ -1432,10 +1417,10 @@ export default function SettingsView({ conn }: { conn: ServerConnection | null }
                 else setAsking(true);
               }}
             >
-              Salvar
+              {t("settings.save")}
             </button>
             <button type="button" className="link-button" disabled={!dirty} onClick={() => setDraft(toDraft(settings))}>
-              Descartar mudanças
+              {t("settings.discard")}
             </button>
           </div>
         )}

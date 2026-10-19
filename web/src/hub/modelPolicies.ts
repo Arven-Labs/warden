@@ -1,6 +1,7 @@
 // P123 — os modelos com que um agente pode delegar, e as políticas nomeadas ("fast", "reasoning"...) sobre eles, como o formulário de
 // Configurações os edita. Puro; espelha `desktop/src/lib/modelPolicies.ts`.
 
+import { t } from "../i18n/index.ts";
 import type { AgentSettings, ModelPolicy } from "./messages";
 
 /** A parte do formulário que estas cascatas leem e mudam. */
@@ -61,7 +62,7 @@ export function nextPolicyId(taken: string[]): string {
 
 /** O que a lista diz sobre os modelos de um agente, numa frase que o cartão mostra embaixo. */
 export function delegationSummary(models: string[] | undefined): string {
-  if (!models || models.length === 0) return "Aberto: o agente escolhe qualquer modelo para cada tarefa que delega.";
-  if (models.length === 1) return `Ditado: toda tarefa que ele delega roda em ${models[0]}.`;
-  return `Limitado a ${models.length} modelos; ${models[0]} é o que uma tarefa recebe quando o agente não escolhe.`;
+  if (!models || models.length === 0) return t("policy.open");
+  if (models.length === 1) return t("policy.dictated", { model: models[0] });
+  return t("policy.limited", { count: models.length, model: models[0] });
 }

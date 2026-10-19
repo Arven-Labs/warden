@@ -2,16 +2,19 @@ import { useCallback, useEffect, useState } from "react";
 import type { ServerConnection } from "../hub/connection";
 import type { LimitStatus, SpendBucket, UsageByKey, UsageReport } from "../hub/messages";
 import { breakdownRows } from "../hub/usageBreakdown";
+import { intlTag, t } from "../i18n";
 
 // Usage across the whole hub (P78): tokens from every device's conversations (all time), and the
 // spending limits and recent dollars from the P4 ledger, which every channel on the hub's machine
 // shares. A limit that ran out can be extended from here, like the desktop's pause dialog.
 
-const compact = new Intl.NumberFormat("pt-BR", { notation: "compact", maximumFractionDigits: 1 });
-const full = new Intl.NumberFormat("pt-BR");
+// Read at each use, so a switch of language shows at once.
+const compact = { format: (n: number) => new Intl.NumberFormat(intlTag(), { notation: "compact", maximumFractionDigits: 1 }).format(n) };
+const full = { format: (n: number) => new Intl.NumberFormat(intlTag()).format(n) };
 
 function usd(value: number): string {
-  return `US$ ${value.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: value < 1 ? 4 : 2 })}`;
+  const prefix = intlTag() === "pt-BR" ? "US$ " : "$";
+  return `${prefix}${value.toLocaleString(intlTag(), { minimumFractionDigits: 2, maximumFractionDigits: value < 1 ? 4 : 2 })}`;
 }
 
 function message(err: unknown): string {
@@ -30,22 +33,22 @@ function scopeLabel(scope: string): string {
   const target = rest.join(" ");
   switch (kind) {
     case "global":
-      return "tudo";
+      return t("usage.scope.global");
     case "agent":
-      return `agente ${target}`;
+      return t("usage.scope.agent", { target });
     case "channel":
-      return `canal ${target}`;
+      return t("usage.scope.channel", { target });
     case "user":
-      return `usuário ${target}`;
+      return t("usage.scope.user", { target });
     case "person":
-      return "você";
+      return t("usage.scope.person");
     default:
       return scope;
   }
 }
 
 function windowLabel(hours: number): string {
-  return hours % 24 === 0 ? (hours === 24 ? "24 h" : `${hours / 24} dias`) : `${hours} h`;
+  return hours % 24 === 0 ? (hours === 24 ? "24 h" : t("usage.days", { count: hours / 24 })) : `${hours} h`;
 }
 
 function Tile({ label, value, title }: { label: string; value: string; title?: string }) {
@@ -80,12 +83,12 @@ function DailyChart({ rows: daily, axis, describe, column }: { rows: DayRow[]; a
               role="listitem"
               tabIndex={0}
               className="usage-daily-slot"
-              aria-label={`${shortDate(d.date)}: ${describe(d.value)} em ${d.calls} chamadas`}
+              aria-label={t("usage.dayAria", { date: shortDate(d.date), value: describe(d.value), calls: d.calls })}
             >
               {d.value > 0 && <div className="usage-daily-bar" style={{ height: `${Math.max((d.value / max) * 100, 2)}%` }} />}
               <span className="usage-daily-tip" role="tooltip">
                 <strong>{shortDate(d.date)}</strong>
-                {describe(d.value)} · {d.calls} {d.calls === 1 ? "chamada" : "chamadas"}
+                {describe(d.value)} · {d.calls} {t(d.calls === 1 ? "usage.callOne" : "usage.callMany")}
               </span>
             </div>
           ))}
@@ -93,15 +96,15 @@ function DailyChart({ rows: daily, axis, describe, column }: { rows: DayRow[]; a
       </div>
       <div className="usage-daily-dates">
         <span>{daily.length > 0 && shortDate(daily[0].date)}</span>
-        <span>hoje</span>
+        <span>{t("usage.today")}</span>
       </div>
       <details className="usage-table-toggle">
-        <summary>Ver tabela</summary>
+        <summary>{t("usage.viewTable")}</summary>
         <table className="usage-table">
           <thead>
             <tr>
-              <th>Dia</th>
-              <th>Chamadas</th>
+              <th>{t("usage.col.day")}</th>
+              <th>{t("usage.col.calls")}</th>
               <th>{column}</th>
             </tr>
           </thead>
@@ -126,8 +129,8 @@ function DailyChart({ rows: daily, axis, describe, column }: { rows: DayRow[]; a
 function LimitCard({ limit, busy, onExtend }: { limit: LimitStatus; busy: boolean; onExtend: (() => void) | null }) {
   const state = limit.exceeded ? "exceeded" : limit.warn ? "warn" : "ok";
   const parts: string[] = [];
-  if (limit.maxTokens !== null) parts.push(`${full.format(limit.usedTokens)} de ${full.format(limit.maxTokens)} tokens`);
-  if (limit.maxCostUsd !== null) parts.push(`${usd(limit.usedCostUsd)} de ${usd(limit.maxCostUsd)}`);
+  if (limit.maxTokens !== null) parts.push(t("usage.tokensOf", { used: full.format(limit.usedTokens), max: full.format(limit.maxTokens) }));
+  if (limit.maxCostUsd !== null) parts.push(`${usd(limit.usedCostUsd)} / ${usd(limit.maxCostUsd)}`);
   const extension = [
     limit.extendTokens > 0 ? `+${compact.format(limit.extendTokens)} tokens` : null,
     limit.extendCostUsd > 0 ? `+${usd(limit.extendCostUsd)}` : null,
@@ -140,7 +143,7 @@ function LimitCard({ limit, busy, onExtend }: { limit: LimitStatus; busy: boolea
       <div className="usage-limit-header">
         <span className="usage-limit-name">{limit.id}</span>
         <span className="usage-limit-scope">
-          {scopeLabel(limit.scope)} · últimas {windowLabel(limit.windowHours)}
+          {scopeLabel(limit.scope)} · {t("usage.lastWindow", { window: windowLabel(limit.windowHours) })}
         </span>
       </div>
       <div
@@ -149,25 +152,23 @@ function LimitCard({ limit, busy, onExtend }: { limit: LimitStatus; busy: boolea
         aria-valuemin={0}
         aria-valuemax={100}
         aria-valuenow={Math.round(Math.min(limit.fraction, 1) * 100)}
-        aria-label={`Limite ${limit.id}`}
+        aria-label={t("usage.limit", { id: limit.id })}
       >
         <div className="usage-meter-fill" style={{ width: `${Math.min(limit.fraction, 1) * 100}%` }} />
       </div>
       <div className="usage-limit-detail">
         <span>
-          {state === "exceeded" ? "⛔ Esgotado" : state === "warn" ? "⚠ Perto do limite" : "✓ Com folga"} · {Math.round(limit.fraction * 100)}% ·{" "}
+          {state === "exceeded" ? t("usage.exhausted") : state === "warn" ? t("usage.nearLimit") : t("usage.roomLeft")} · {Math.round(limit.fraction * 100)}% ·{" "}
           {parts.join(" · ")}
         </span>
-        {limit.freesUpInMinutes !== null && limit.fraction > 0 && <span className="skills-hint">A folga começa a voltar em ~{limit.freesUpInMinutes} min.</span>}
+        {limit.freesUpInMinutes !== null && limit.fraction > 0 && <span className="skills-hint">{t("usage.freesUp", { minutes: limit.freesUpInMinutes })}</span>}
         {limit.unpricedCalls > 0 && limit.maxCostUsd !== null && (
-          <span className="skills-hint">
-            {limit.unpricedCalls} {limit.unpricedCalls === 1 ? "chamada" : "chamadas"} sem preço cadastrado: o valor em US$ está subestimado.
-          </span>
+          <span className="skills-hint">{t(limit.unpricedCalls === 1 ? "usage.unpricedOne" : "usage.unpricedMany", { count: limit.unpricedCalls })}</span>
         )}
       </div>
       {onExtend && state !== "ok" && extension && (
         <button type="button" className="link-button usage-limit-extend" disabled={busy} onClick={onExtend}>
-          {busy ? "Liberando…" : `Liberar ${extension} até o fim da janela`}
+          {busy ? t("usage.releasing") : t("usage.release", { extension })}
         </button>
       )}
     </li>
@@ -190,7 +191,7 @@ function TokenBreakdown({ title, entries, emptyLabel }: { title: string; entries
             <div className="usage-bar-track">
               <div className="usage-bar-fill" style={{ width: `${r.share * 100}%` }} />
             </div>
-            <span className="usage-bar-value" title={`${full.format(r.tokens)} tokens em ${full.format(r.calls)} chamadas`}>
+            <span className="usage-bar-value" title={t("usage.tokensIn", { tokens: full.format(r.tokens), calls: full.format(r.calls) })}>
               {compact.format(r.tokens)}
             </span>
           </li>
@@ -209,9 +210,9 @@ function SpendTable({ title, buckets, keyLabel, emptyLabel }: { title: string; b
       <thead>
         <tr>
           <th>{keyLabel}</th>
-          <th>Chamadas</th>
-          <th>Tokens</th>
-          <th>US$</th>
+          <th>{t("usage.col.calls")}</th>
+          <th>{t("usage.col.tokens")}</th>
+          <th>{t("usage.col.usd")}</th>
         </tr>
       </thead>
       <tbody>
@@ -222,7 +223,7 @@ function SpendTable({ title, buckets, keyLabel, emptyLabel }: { title: string; b
             <td>{full.format(b.tokens)}</td>
             <td>
               {b.calls > b.unpricedCalls ? usd(b.costUsd) : "—"}
-              {b.unpricedCalls > 0 && b.calls > b.unpricedCalls && <span className="skills-hint"> ({b.unpricedCalls} sem preço)</span>}
+              {b.unpricedCalls > 0 && b.calls > b.unpricedCalls && <span className="skills-hint"> {t("usage.unpricedShort", { count: b.unpricedCalls })}</span>}
             </td>
           </tr>
         ))}
@@ -244,7 +245,7 @@ export default function UsageView({ conn, readOnly = false }: { conn: ServerConn
         setReport(r);
         setError(null);
       },
-      (err) => setError(`Não foi possível carregar o uso: ${message(err)}`),
+      (err) => setError(t("usage.loadError", { error: message(err) })),
     );
   }, [conn]);
 
@@ -258,14 +259,14 @@ export default function UsageView({ conn, readOnly = false }: { conn: ServerConn
       await conn.extendLimit(limitId);
       refresh();
     } catch (err) {
-      setError(`Não foi possível liberar o limite: ${message(err)}`);
+      setError(t("usage.releaseError", { error: message(err) }));
     } finally {
       setExtending(null);
     }
   }
 
   if (report === null) {
-    return <div className="usage-view">{error ? <p className="error-banner">{error}</p> : <p className="skills-hint">Carregando…</p>}</div>;
+    return <div className="usage-view">{error ? <p className="error-banner">{error}</p> : <p className="skills-hint">{t("usage.loading")}</p>}</div>;
   }
 
   const maxDevice = Math.max(...report.byDevice.map((d) => d.usage.totalTokens), 1);
@@ -274,55 +275,52 @@ export default function UsageView({ conn, readOnly = false }: { conn: ServerConn
   return (
     <div className="usage-view">
       <div className="skills-toolbar">
-        <span className="skills-hint">Todo o hub: as conversas de todos os devices e os limites de gasto desta máquina.</span>
+        <span className="skills-hint">{t("usage.intro")}</span>
         <button type="button" className="link-button" onClick={refresh} disabled={!conn}>
-          Atualizar
+          {t("usage.refresh")}
         </button>
       </div>
       {error && <p className="error-banner">{error}</p>}
 
       <div className="usage-tiles">
-        <Tile label="Tokens" value={compact.format(report.total.totalTokens)} title={`${full.format(report.total.totalTokens)} tokens`} />
-        <Tile label="Chamadas ao modelo" value={compact.format(report.messageCount)} />
-        <Tile label="Conversas" value={compact.format(report.conversationCount)} />
+        <Tile label={t("usage.tile.tokens")} value={compact.format(report.total.totalTokens)} title={`${full.format(report.total.totalTokens)} tokens`} />
+        <Tile label={t("usage.tile.calls")} value={compact.format(report.messageCount)} />
+        <Tile label={t("usage.tile.conversations")} value={compact.format(report.conversationCount)} />
         {report.recent && (
-          <Tile label={`Gasto nas últimas ${windowLabel(report.recent.windowHours)}`} value={totalCost > 0 ? usd(totalCost) : "—"} />
+          <Tile label={t("usage.tile.spend", { window: windowLabel(report.recent.windowHours) })} value={totalCost > 0 ? usd(totalCost) : "—"} />
         )}
       </div>
 
       <section className="usage-section">
-        <h2 className="usage-heading">Tokens por dia, últimos {report.daily.length} dias</h2>
+        <h2 className="usage-heading">{t("usage.tokensPerDay", { count: report.daily.length })}</h2>
         <DailyChart
           rows={report.daily.map((d) => ({ date: d.date, calls: d.calls, value: d.tokens }))}
           axis={(n) => compact.format(n)}
           describe={(n) => `${full.format(n)} tokens`}
-          column="Tokens"
+          column={t("usage.col.tokens")}
         />
       </section>
 
       {report.recent && report.dailyCost && report.dailyCost.length > 0 && (
         <section className="usage-section">
-          <h2 className="usage-heading">Gasto por dia, últimas {windowLabel(report.recent.windowHours)}</h2>
-          <p className="skills-hint">
-            Em dólares, do registro de gasto, que só guarda a janela do limite mais longo ({windowLabel(report.recent.windowHours)}): um dia mais antigo aparece zerado
-            porque já saiu do registro, não porque nada foi gasto. Chamadas a modelos sem preço cadastrado ficam de fora do valor.
-          </p>
+          <h2 className="usage-heading">{t("usage.spendPerDay", { window: windowLabel(report.recent.windowHours) })}</h2>
+          <p className="skills-hint">{t("usage.spendPerDayHint", { window: windowLabel(report.recent.windowHours) })}</p>
           <DailyChart
             rows={report.dailyCost.map((d) => ({ date: d.date, calls: d.calls, value: d.costUsd }))}
             axis={usd}
             describe={usd}
-            column="US$"
+            column={t("usage.col.usd")}
           />
         </section>
       )}
 
       <section className="usage-section">
-        <h2 className="usage-heading">Limites de gasto</h2>
-        {report.ledgerError && <p className="error-banner">O registro de gasto não pôde ser gravado: {report.ledgerError}. Os números podem estar baixos.</p>}
+        <h2 className="usage-heading">{t("usage.limits")}</h2>
+        {report.ledgerError && <p className="error-banner">{t("usage.ledgerError", { error: report.ledgerError })}</p>}
         {!report.limitsEnabled ? (
-          <p className="skills-hint">Os limites estão desligados neste hub (WARDEN_SPEND_LIMITS=off).</p>
+          <p className="skills-hint">{t("usage.limitsOff")}</p>
         ) : report.limits.length === 0 ? (
-          <p className="skills-hint">Nenhum limite configurado.</p>
+          <p className="skills-hint">{t("usage.noLimits")}</p>
         ) : (
           <ul className="usage-limits">
             {report.limits.map((limit) => (
@@ -330,14 +328,14 @@ export default function UsageView({ conn, readOnly = false }: { conn: ServerConn
             ))}
           </ul>
         )}
-        {readOnly && <p className="skills-hint">Só aparecem os limites que são seus. Para liberar mais, peça a quem administra este Warden.</p>}
+        {readOnly && <p className="skills-hint">{t("usage.onlyYours")}</p>}
       </section>
 
       {!readOnly && (
         <section className="usage-section">
-          <h2 className="usage-heading">Por device</h2>
+          <h2 className="usage-heading">{t("usage.byDevice")}</h2>
           {report.byDevice.length === 0 ? (
-            <p className="skills-hint">Nenhuma conversa ainda.</p>
+            <p className="skills-hint">{t("usage.noConversations")}</p>
           ) : (
             <ul className="usage-bars">
               {report.byDevice.map((d) => (
@@ -348,7 +346,7 @@ export default function UsageView({ conn, readOnly = false }: { conn: ServerConn
                   <div className="usage-bar-track">
                     <div className="usage-bar-fill" style={{ width: `${(d.usage.totalTokens / maxDevice) * 100}%` }} />
                   </div>
-                  <span className="usage-bar-value" title={`${full.format(d.usage.totalTokens)} tokens em ${d.conversationCount} conversas`}>
+                  <span className="usage-bar-value" title={t("usage.deviceTitle", { tokens: full.format(d.usage.totalTokens), count: d.conversationCount })}>
                     {compact.format(d.usage.totalTokens)}
                   </span>
                 </li>
@@ -358,27 +356,23 @@ export default function UsageView({ conn, readOnly = false }: { conn: ServerConn
         </section>
       )}
 
-      <TokenBreakdown title="Por agente (tokens)" entries={report.byAgent} emptyLabel="Sem agente" />
-      <TokenBreakdown title="Por provedor (tokens)" entries={report.byProvider} emptyLabel="Provedor padrão" />
-      <TokenBreakdown title="Por combo (tokens)" entries={report.byCombo} emptyLabel="Sem combo" />
+      <TokenBreakdown title={t("usage.byAgentTokens")} entries={report.byAgent} emptyLabel={t("usage.noAgent")} />
+      <TokenBreakdown title={t("usage.byProviderTokens")} entries={report.byProvider} emptyLabel={t("usage.defaultProvider")} />
+      <TokenBreakdown title={t("usage.byComboTokens")} entries={report.byCombo} emptyLabel={t("usage.noCombo")} />
 
       {report.recent && (report.recent.byModel.length > 0 || report.recent.byChannel.length > 0) && (
         <section className="usage-section">
-          <h2 className="usage-heading">Gasto recente, últimas {windowLabel(report.recent.windowHours)}</h2>
+          <h2 className="usage-heading">{t("usage.recentSpend", { window: windowLabel(report.recent.windowHours) })}</h2>
           <p className="skills-hint">
-            Do registro de gasto, que só guarda a janela do limite mais longo.{" "}
-            {readOnly ? "Só as suas chamadas." : "Inclui desktop, Telegram e os outros canais desta máquina."}
+            {t("usage.recentHint")} {readOnly ? t("usage.recentYours") : t("usage.recentOwner")}
           </p>
-          <SpendTable title="Por modelo" buckets={report.recent.byModel} keyLabel="Modelo" />
-          <SpendTable title="Por canal" buckets={report.recent.byChannel} keyLabel="Canal" />
-          <SpendTable title="Por provedor" buckets={report.recent.byProvider ?? []} keyLabel="Provedor" emptyLabel="sem provedor registrado" />
-          <SpendTable title="Por agente" buckets={report.recent.byAgent ?? []} keyLabel="Agente" emptyLabel="sem agente" />
-          {!readOnly && <SpendTable title="Por pessoa" buckets={report.recent.byPerson ?? []} keyLabel="Pessoa" emptyLabel="o dono" />}
-          <SpendTable title="Por combo" buckets={report.recent.byCombo ?? []} keyLabel="Combo" />
-          <p className="skills-hint">
-            “Por agente” é o agente com que o turno começou: as chamadas de um sub-agente delegado contam no agente que delegou. “Sem provedor registrado”
-            são as chamadas de antes de o provedor passar a ser guardado.
-          </p>
+          <SpendTable title={t("usage.byModel")} buckets={report.recent.byModel} keyLabel={t("usage.model")} />
+          <SpendTable title={t("usage.byChannel")} buckets={report.recent.byChannel} keyLabel={t("usage.channel")} />
+          <SpendTable title={t("usage.byProvider")} buckets={report.recent.byProvider ?? []} keyLabel={t("usage.provider")} emptyLabel={t("usage.noProviderRecorded")} />
+          <SpendTable title={t("usage.byAgent")} buckets={report.recent.byAgent ?? []} keyLabel={t("usage.agent")} emptyLabel={t("usage.noAgentLower")} />
+          {!readOnly && <SpendTable title={t("usage.byPerson")} buckets={report.recent.byPerson ?? []} keyLabel={t("usage.person")} emptyLabel={t("usage.theOwner")} />}
+          <SpendTable title={t("usage.byCombo")} buckets={report.recent.byCombo ?? []} keyLabel={t("usage.combo")} />
+          <p className="skills-hint">{t("usage.footnote")}</p>
         </section>
       )}
     </div>

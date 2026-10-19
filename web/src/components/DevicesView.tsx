@@ -3,6 +3,7 @@ import { DeviceError, type DeviceList, type ServerConnection } from "../hub/conn
 import type { HubDevice } from "../hub/messages";
 import DeviceInvites from "./DeviceInvites";
 import NodesSection from "./NodesSection";
+import { intlTag, t } from "../i18n";
 
 // The hub's paired devices (Sessão 103) — the same list, approve and revoke as the desktop's
 // Workspace screen and `warden-server devices`, so a hub with no screen can be managed from here.
@@ -11,13 +12,9 @@ import NodesSection from "./NodesSection";
 
 type Action = "approve" | "revoke";
 
-const STATUS_LABEL: Record<HubDevice["status"], string> = {
-  pending: "Pendente",
-  approved: "Aprovado",
-  revoked: "Revogado",
-};
+const STATUS_KEY = { pending: "devices.status.pending", approved: "devices.status.approved", revoked: "devices.status.revoked" } as const;
 
-const dateFormatter = new Intl.DateTimeFormat("pt-BR", { dateStyle: "short", timeStyle: "short" });
+const dateFormatter = { format: (date: Date) => new Intl.DateTimeFormat(intlTag(), { dateStyle: "short", timeStyle: "short" }).format(date) };
 
 function message(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
@@ -64,7 +61,7 @@ export default function DevicesView({ conn }: { conn: ServerConnection | null })
       cancel();
     } catch (err) {
       if (err instanceof DeviceError && err.authRejected) {
-        setKeyError("Chave de pareamento errada.");
+        setKeyError(t("pairingKey.wrong"));
       } else {
         cancel();
         setError(message(err));
@@ -77,18 +74,15 @@ export default function DevicesView({ conn }: { conn: ServerConnection | null })
   return (
     <div className="usage-view devices-view">
       <div className="skills-toolbar">
-        <span className="skills-hint">
-          Todo aparelho que já se conectou a este hub. Só os aprovados podem usar as ferramentas uns dos outros; um revogado não
-          entra mais, nem pareando de novo.
-        </span>
+        <span className="skills-hint">{t("devices.intro")}</span>
         <button type="button" className="link-button" onClick={() => void load()} disabled={!conn || busy}>
-          Recarregar
+          {t("devices.reload")}
         </button>
       </div>
 
       {error && <p className="error-banner">{error}</p>}
-      {!list && !error && <p className="skills-hint">Carregando…</p>}
-      {list && list.devices.length === 0 && <p className="skills-hint">Nenhum aparelho ainda.</p>}
+      {!list && !error && <p className="skills-hint">{t("common.loading")}</p>}
+      {list && list.devices.length === 0 && <p className="skills-hint">{t("devices.none")}</p>}
 
       {list && list.devices.length > 0 && (
         <ul className="skills-list">
@@ -100,13 +94,14 @@ export default function DevicesView({ conn }: { conn: ServerConnection | null })
                 <div className="skills-item-header">
                   <span className="skills-item-name">
                     {device.deviceName}
-                    {isYou && <span className="devices-you"> (este navegador)</span>}
+                    {isYou && <span className="devices-you">{t("devices.thisBrowser")}</span>}
                   </span>
-                  <span className={`devices-status devices-status--${device.status}`}>{STATUS_LABEL[device.status]}</span>
+                  <span className={`devices-status devices-status--${device.status}`}>{t(STATUS_KEY[device.status])}</span>
                 </div>
                 <p className="skills-item-description">
                   <code>{device.deviceId}</code>
-                  {device.user && ` · de ${device.user}`} · visto por último em {dateFormatter.format(new Date(device.lastSeenMs))}
+                  {device.user && t("devices.from", { user: device.user })}
+                  {t("devices.lastSeen", { when: dateFormatter.format(new Date(device.lastSeenMs)) })}
                 </p>
 
                 {isAsking ? (
@@ -117,21 +112,19 @@ export default function DevicesView({ conn }: { conn: ServerConnection | null })
                       void confirm();
                     }}
                   >
-                    {asking.action === "revoke" && isYou && (
-                      <p className="error-banner">Este navegador vai ser desconectado em alguns segundos e não entra mais.</p>
-                    )}
+                    {asking.action === "revoke" && isYou && <p className="error-banner">{t("devices.revokeSelf")}</p>}
                     <label className="settings-field">
-                      Chave de pareamento do hub
+                      {t("pairingKey.label")}
                       <input type="password" autoComplete="current-password" autoFocus value={pairingKey} onChange={(e) => setPairingKey(e.target.value)} />
-                      <span className="field-hint">A mesma do primeiro login. É pedida a cada mudança.</span>
+                      <span className="field-hint">{t("pairingKey.hint")}</span>
                     </label>
                     {keyError && <p className="error-banner">{keyError}</p>}
                     <div className="skills-actions">
                       <button type="submit" className="primary-button" disabled={busy || pairingKey.trim() === "" || !conn}>
-                        {busy ? "Aguarde…" : asking.action === "approve" ? "Aprovar" : "Revogar"}
+                        {busy ? t("common.wait") : asking.action === "approve" ? t("devices.approve") : t("devices.revoke")}
                       </button>
                       <button type="button" className="link-button" disabled={busy} onClick={cancel}>
-                        Cancelar
+                        {t("common.cancel")}
                       </button>
                     </div>
                   </form>
@@ -139,7 +132,7 @@ export default function DevicesView({ conn }: { conn: ServerConnection | null })
                   <div className="skills-actions">
                     {device.status !== "approved" && (
                       <button type="button" className="link-button" disabled={!conn || asking !== null} onClick={() => setAsking({ device, action: "approve" })}>
-                        {device.status === "revoked" ? "Aprovar de novo" : "Aprovar"}
+                        {device.status === "revoked" ? t("devices.approveAgain") : t("devices.approve")}
                       </button>
                     )}
                     {device.status !== "revoked" && (
@@ -149,7 +142,7 @@ export default function DevicesView({ conn }: { conn: ServerConnection | null })
                         disabled={!conn || asking !== null}
                         onClick={() => setAsking({ device, action: "revoke" })}
                       >
-                        Revogar
+                        {t("devices.revoke")}
                       </button>
                     )}
                   </div>

@@ -1,6 +1,7 @@
 // P123 — o trabalho que os agentes passam uns aos outros, como a aba "Trabalho dos agentes" mostra: as tarefas que um turno
 // começou formam um grupo, com um progresso contado sobre elas. Espelha `desktop/src/lib/agentTasks.ts`.
 
+import { intlTag, t } from "../i18n/index.ts";
 import type { AgentTask, AgentTaskAction, AgentTaskState } from "./messages";
 
 /** Uma tarefa como a lista a mostra: quantos níveis abaixo do agente do turno ela está (0 para as que o próprio agente começou). */
@@ -30,14 +31,29 @@ export interface TaskGroup {
   createdAtMs: number;
 }
 
+// Getters, so each read says the words of the language the person has now.
 export const STATE_LABEL: Record<AgentTaskState, string> = {
-  pending: "Pendente",
-  running: "Em andamento",
-  waiting: "Aguardando agente",
-  paused: "Pausada",
-  done: "Concluída",
-  failed: "Falhou",
-  cancelled: "Cancelada",
+  get pending() {
+    return t("taskState.pending");
+  },
+  get running() {
+    return t("taskState.running");
+  },
+  get waiting() {
+    return t("taskState.waiting");
+  },
+  get paused() {
+    return t("taskState.paused");
+  },
+  get done() {
+    return t("taskState.done");
+  },
+  get failed() {
+    return t("taskState.failed");
+  },
+  get cancelled() {
+    return t("taskState.cancelled");
+  },
 };
 
 export const STATE_MARK: Record<AgentTaskState, string> = {
@@ -69,7 +85,17 @@ export function actionsFor(task: AgentTask): AgentTaskAction[] {
   }
 }
 
-export const ACTION_LABEL: Record<AgentTaskAction, string> = { pause: "Pausar", resume: "Retomar", cancel: "Parar" };
+export const ACTION_LABEL: Record<AgentTaskAction, string> = {
+  get pause() {
+    return t("taskAction.pause");
+  },
+  get resume() {
+    return t("taskAction.resume");
+  },
+  get cancel() {
+    return t("taskAction.cancel");
+  },
+};
 
 /** As tarefas de um grupo como árvore: cada tarefa seguida das suas subtarefas, um nível abaixo. Uma tarefa cujo pai não está no grupo
  * (ou um laço que não deveria existir) aparece no topo em vez de se perder. */
@@ -195,44 +221,44 @@ export function lastConversationOf(conversations: { agentId?: string | null; upd
   return times.length > 0 ? Math.max(...times) : undefined;
 }
 
-/** Há quanto tempo, em poucas palavras: `agora`, `há 4 min`, `há 2 h`, `há 3 d`. */
+/** How long ago, in a few words: `now`, `4 min ago`, `2 h ago`, `3 d ago`. */
 export function agoLabel(thenMs: number, nowMs: number): string {
   const minutes = Math.max(0, Math.round((nowMs - thenMs) / 60000));
-  if (minutes < 1) return "agora";
-  if (minutes < 60) return `há ${minutes} min`;
+  if (minutes < 1) return t("ago.now");
+  if (minutes < 60) return t("ago.minutes", { count: minutes });
   const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `há ${hours} h`;
-  return `há ${Math.floor(hours / 24)} d`;
+  if (hours < 24) return t("ago.hours", { count: hours });
+  return t("ago.days", { count: Math.floor(hours / 24) });
 }
 
-/** O gasto dito em poucas palavras: `US$ 1,20 nas últimas 24 h`, com o aviso das chamadas que o valor deixa de fora. */
+/** The spend in a few words: `$1.20 in the last 24 h`, with a note of the calls the value leaves out. */
 export function spendLabel(spend: AgentSpend): string {
-  const window = `nas últimas ${spend.windowHours} h`;
-  const unpriced = spend.unpricedCalls > 0 ? `${spend.unpricedCalls} chamada${spend.unpricedCalls > 1 ? "s" : ""} sem preço` : "";
+  const window = t("spend.window", { hours: spend.windowHours });
+  const unpriced = spend.unpricedCalls > 0 ? t(spend.unpricedCalls > 1 ? "spend.unpricedMany" : "spend.unpricedOne", { count: spend.unpricedCalls }) : "";
   if (spend.costUsd <= 0) return `${unpriced} ${window}`;
-  const dollars = (n: number) => new Intl.NumberFormat("pt-BR", { style: "currency", currency: "USD" }).format(n);
-  const money = spend.costUsd < 0.01 ? `menos de ${dollars(0.01)}` : dollars(spend.costUsd);
-  return unpriced ? `${money} ${window} (e ${unpriced})` : `${money} ${window}`;
+  const dollars = (n: number) => new Intl.NumberFormat(intlTag(), { style: "currency", currency: "USD" }).format(n);
+  const money = spend.costUsd < 0.01 ? t("spend.lessThan", { amount: dollars(0.01) }) : dollars(spend.costUsd);
+  return unpriced ? t("spend.withUnpriced", { money, window, unpriced }) : `${money} ${window}`;
 }
 
-/** A atividade numa linha do cartão da árvore: `3 concluídas, 1 falhou, 2 em andamento · 12,9 mil tokens · US$ 1,20 nas últimas 24 h · delegou 5 · ativo há 4 min`. */
+/** The activity on one line of the tree card: `3 done, 1 failed, 2 in progress · 12.9K tokens · $1.20 in the last 24 h · delegated 5 · active 4 min ago`. */
 export function activityLine(a: AgentActivity, nowMs: number): string {
   const parts = [
-    a.done > 0 && `${a.done} concluída${a.done > 1 ? "s" : ""}`,
-    a.failed > 0 && `${a.failed} falhou`,
-    a.cancelled > 0 && `${a.cancelled} cancelada${a.cancelled > 1 ? "s" : ""}`,
-    a.active > 0 && `${a.active} em andamento`,
+    a.done > 0 && t(a.done > 1 ? "tally.doneMany" : "tally.doneOne", { count: a.done }),
+    a.failed > 0 && t("tally.failed", { count: a.failed }),
+    a.cancelled > 0 && t(a.cancelled > 1 ? "tally.cancelledMany" : "tally.cancelledOne", { count: a.cancelled }),
+    a.active > 0 && t("tally.active", { count: a.active }),
   ].filter(Boolean);
   const line = [parts.join(", ")];
-  if (a.tokens > 0) line.push(`${formatTokens(a.tokens)} tokens`);
+  if (a.tokens > 0) line.push(t("tally.tokens", { count: formatTokens(a.tokens) }));
   if (a.spend) line.push(spendLabel(a.spend));
-  if (a.delegated > 0) line.push(`delegou ${a.delegated}`);
-  if (a.lastActiveMs !== null) line.push(`ativo ${agoLabel(a.lastActiveMs, nowMs)}`);
+  if (a.delegated > 0) line.push(t("tally.delegated", { count: a.delegated }));
+  if (a.lastActiveMs !== null) line.push(t("tally.activeAgo", { ago: agoLabel(a.lastActiveMs, nowMs) }));
   return line.filter(Boolean).join(" · ");
 }
 
 export function formatTokens(n: number): string {
-  return new Intl.NumberFormat("pt-BR", { notation: "compact", maximumFractionDigits: 1 }).format(n);
+  return new Intl.NumberFormat(intlTag(), { notation: "compact", maximumFractionDigits: 1 }).format(n);
 }
 
 /** Quanto tempo uma tarefa levou (ou está levando): `4s`, `2m 05s`, `1h 03m`. `null` antes de começar. */
