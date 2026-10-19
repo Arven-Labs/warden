@@ -6,6 +6,14 @@
 
 ---
 
+### 2026-10-19 — Sessão 268 (o que sobrou do P167)
+
+- **Pedido**: "vamos pro p167". Planejado em modo de plano e aprovado; o usuário decidiu (a) frases do hub **ficam em inglês** e (d) abas mistas **ficam para o P136**.
+- **Feito**: (e) `.settings-add` com `margin-left: -0.4rem` em `web/src/App.css`, para "+ Servidor MCP" e "+ Adicionar" alinharem com o texto acima.
+- **Não provado**: o alinhamento na foto do CI (`web-e2e.yml`), a conferir após o push.
+
+---
+
 ### 2026-10-18 — Sessão 267 (as automações da Parte B: P162, P163 e P164)
 
 - **Pedido**: "prefiro do p162 a p164". Como eram "a debater", planejei em modo de plano, li o que existia (os workflows, o `measure-rss.py`, o `real_model.rs`, o histórico do CI) e levei quatro decisões ao usuário, que escolheu as quatro recomendadas: semanal com issue acima de 10%, botão manual com segredo, notas de release no rascunho, e só listar os testes que falharam (sem religar).

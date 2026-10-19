@@ -2159,8 +2159,10 @@ button:focus-visible {
   padding-bottom: 0.6rem;
 }
 
+/* The button's own side padding would push its label right of the text above it, so it is pulled back by the same amount. */
 .settings-add {
   align-self: flex-start;
+  margin-left: -0.4rem;
 }
 
 /* Stays in view while the long form scrolls under it. */
