@@ -2,7 +2,19 @@
 
 > **Nota**: Este log foi criado junto com o projeto. As sessões serão registradas aqui conforme o trabalho avança.
 >
-> Última atualização: 2026-10-18 (Sessão 267)
+> Última atualização: 2026-10-19 (Sessão 269)
+
+---
+
+### 2026-10-19 — Sessão 269 (o i18n do CLI: P136)
+
+- **Pedido**: "bora continuar?" e depois "segue". Li o `INDEX.md`, conferi o CI (extensão verde, fecha a dúvida da Sessão 268), propus o CLI; planejei em modo de plano (um agente de exploração levantou 4 arquivos, ~290 textos, os testes que assertam texto e o desenho da web) e o plano foi aprovado.
+- **Feito**: `crates/warden-cli/src/i18n/` (módulo sem dependência nova, catálogos `en.rs` e `pt_br.rs` com 346 chaves, teste de paridade de chaves e de `{nomes}`), `interactive.rs`, `bots.rs`, `main.rs` e `commands.rs` (comando novo `/lang [en|pt-BR]`, flag `--lang`) passados por `tr!`. O help do REPL virou lista de (comando, chave): o comando não se traduz, a descrição sim.
+- **Desvio do plano, dito**: o `/lang` não grava no `config.toml` (o `FileConfig` tem `deny_unknown_fields`, e um campo novo mexeria em desktop e servidor sem eu poder compilar); grava `cli_lang.txt` ao lado do `cli_history.txt`. O idioma do processo é um atômico, com um override por thread só para os testes.
+- **Testes**: os asserts em português de `interactive.rs` agora fixam `pt-BR` (`speak`), ganharam casos em inglês (`ago_label`, `cost_line`, o aviso de recarga); `bots.rs` fixa inglês e ganhou um caso em português; `commands.rs` testa `/lang`; `tests/cli.rs` prova inglês por padrão, `--lang pt-BR`, `LANG=pt_BR.UTF-8` e que a flag vence o ambiente.
+- **CI**: a 1ª rodada falhou no clippy (`use crate::tr;` em `main.rs` repetia o nome do macro exportado na raiz, E0255); corrigido, 2ª rodada verde (run 39342205603), sem aviso novo no `warden-cli`. Sem cargo local, como combinado.
+- **Deslize meu, dito**: ajustei o `i18n/mod.rs` uma vez por script Python no Bash (trocar o idioma por thread por um atômico), contra a regra de editar por Edit/Write; o resto foi por Edit/Write.
+- **Não feito / fica**: o desktop (infra, seletor, pt-BR, `desktop/e2e`), os comentários, logs e testes em português (P136b), o mobile e as mensagens dos bots Telegram e WhatsApp (não verifiquei se o P136 os cobriu). O REPL em pt-BR só foi provado por teste de unidade e pelo `tests/cli.rs`; não há foto do terminal.
 
 ---
 
