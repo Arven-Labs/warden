@@ -1123,7 +1123,7 @@ export default function App() {
                       </span>
                     ) : (
                       <button type="button" className="link-button folder-chip" onClick={() => void openFolderPicker()} title={workdir ? folderPlace(workdir, knownNodes) : t("picker.folderHint")}>
-                        {workdir ? folderLabel(workdir, knownNodes) : t("picker.none")}
+                        {workdir ? folderLabel(workdir, knownNodes) : t("picker.noFolder")}
                       </button>
                     )}
                     {workdir && !conversations.some((c) => c.id === activeId) && (

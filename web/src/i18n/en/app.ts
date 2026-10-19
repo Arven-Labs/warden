@@ -41,6 +41,7 @@ export const app = {
 
   "picker.agent": "Agent",
   "picker.none": "None",
+  "picker.noFolder": "None",
   "picker.removed": "{agent} (removed)",
   "picker.project": "Project",
   "picker.projectHint": "The AI works only on the project's files, with its instructions. In a conversation that has already begun, picking another moves the conversation.",

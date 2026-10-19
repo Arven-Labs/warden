@@ -42,6 +42,7 @@ export const appPt: Record<keyof typeof app, string> = {
 
   "picker.agent": "Agente",
   "picker.none": "Nenhum",
+  "picker.noFolder": "Nenhuma",
   "picker.removed": "{agent} (removido)",
   "picker.project": "Projeto",
   "picker.projectHint": "A IA trabalha só nos arquivos do projeto, com as instruções dele. Numa conversa que já começou, escolher outro move a conversa.",

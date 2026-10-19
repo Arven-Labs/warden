@@ -6,8 +6,13 @@
 - Comentários no código: podem ficar em português (não são visíveis ao usuário e facilitam o aprendizado)
 - Esta regra vale para todos os arquivos: `.tsx`, `.ts`, `.rs`
 
-**I18n (múltiplos idiomas) está planejado para uma fase futura:**
-Hoje o app é 100% inglês. Quando houver demanda, a estratégia é extrair todas as strings visíveis para arquivos de tradução.
+**I18n (P136, Sessão 268): inglês é o padrão e `pt-BR` é o segundo idioma.**
+- **Todo texto que a pessoa lê passa por `t("chave")`**, nunca fica escrito no componente. O texto novo entra no catálogo em inglês (`src/i18n/en/<parte>.ts`) e no `pt-BR` (`src/i18n/pt-BR/<parte>.ts`); o `tsc` acusa uma chave que falta no `pt-BR`, e o teste `tests/i18n.test.mjs` confere que as duas línguas têm as mesmas chaves e os mesmos `{nomes}`.
+- Chave por tela e por texto (`settings.providers.add`), nunca a frase como chave. Número e nome entram por `{nome}` (`t("vault.listError", { error })`); um texto com elemento dentro (um `<code>`) usa `rich(chave, { nome: <code/> })`; plural são duas chaves (`replies.one`, `replies.many`).
+- Data, hora e número usam `intlTag()` (`en-US` ou `pt-BR`), nunca um idioma escrito no código. Constante de módulo que guarda texto vira função ou `get`, para acompanhar a troca de idioma.
+- O idioma vem do que a pessoa escolheu (guardado no navegador, `warden.lang`), senão do navegador (qualquer `pt*` é `pt-BR`), senão inglês. O seletor fica no cabeçalho e na tela de entrada.
+- O texto que o **hub** manda (`key_check.rs`, `settings.rs`) fica em inglês: o hub não sabe o idioma da página (decisão do usuário, P167 a).
+- Fora do escopo desta rodada (P136b): comentários, logs e nomes de teste em português; os `project/*.md` ficam em português (são do projeto, não do produto).
 
 ---
 

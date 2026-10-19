@@ -170,6 +170,11 @@ button:focus-visible {
   font-size: 1.5rem;
 }
 
+/* The header's buttons ("Sign out", the user's name) keep their words on one line: "Sign out" broke in two beside the language picker. */
+.app-header .link-button {
+  white-space: nowrap;
+}
+
 /* The language picker: small, and at the right end of the login brand line. */
 .language-switch {
   width: auto;
@@ -2133,6 +2138,25 @@ button:focus-visible {
 .skills-editor label.settings-check {
   flex-direction: row;
   font-weight: 400;
+}
+
+/* A checkbox or radio row with its text beside it wherever it sits: in a form or a fieldset a label is a bold column, and the pictures of
+   the People screen (the recovery policy) showed the radio above its text, which was all in bold. */
+label.checkbox-row,
+.skills-editor label.checkbox-row,
+.settings-field label.checkbox-row {
+  display: flex;
+  flex-direction: row;
+  align-items: flex-start;
+  gap: 0.45rem;
+  font-weight: 400;
+  cursor: pointer;
+}
+
+label.checkbox-row input {
+  width: auto;
+  margin-top: 0.2rem;
+  accent-color: var(--color-accent);
 }
 
 .settings-checks {

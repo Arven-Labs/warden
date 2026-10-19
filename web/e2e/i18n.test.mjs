@@ -90,7 +90,7 @@ describe("the language of the page", () => {
       await page.goto(hub.url);
       await page.getByRole("tab", { name: "Pairing key" }).waitFor();
       await page.getByLabel("Language").selectOption("pt-BR");
-      await page.getByRole("tab", { name: "Chave de pareamento" }).waitFor();
+      await page.getByRole("tab", { name: "Chave de pareamento" }).click();
       await page.getByLabel("Chave de pareamento").first().fill(PAIRING_KEY);
       await page.getByRole("button", { name: "Entrar" }).click();
       await tabs(page, "pt-BR").waitFor();
