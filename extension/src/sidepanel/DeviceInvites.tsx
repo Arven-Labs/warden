@@ -1,6 +1,10 @@
 import { useEffect, useState } from "react";
 import type { DeviceAdminResponse } from "../background/popup_protocol";
 import type { DeviceInviteInfo } from "../protocol/messages";
+import { intlTag, t } from "../i18n/index.ts";
+import { rich } from "../i18n/react.tsx";
+
+const whenLabel = (ms: number) => new Intl.DateTimeFormat(intlTag(), { dateStyle: "short", timeStyle: "short" }).format(ms);
 
 type Made = { kind: "invite"; name: string; code: string; expiresMs: number } | { kind: "key"; newKey: string } | { kind: "cancelled"; name: string };
 
@@ -39,7 +43,7 @@ export default function DeviceInvites() {
       .sendMessage(request)
       .then((res: DeviceAdminResponse) => {
         if (!res.ok) {
-          setError(res.authRejected ? "Chave de pareamento errada." : (res.error ?? "Não foi possível."));
+          setError(res.authRejected ? t("pairing.wrong") : (res.error ?? t("invites.cantDo")));
           return;
         }
         if (request.type === "cancelDeviceInvite") {
@@ -69,80 +73,66 @@ export default function DeviceInvites() {
         if (canInvite) run({ type: "createDeviceInvite", pairingKey, name: name.trim(), ttlMinutes: Math.floor(minutes) });
       }}
     >
-      <p className="skills-hint">
-        A chave de pareamento só pareia o primeiro aparelho do hub. Para cada outro, crie um convite e entregue o código à pessoa: ela o cola no
-        campo da chave ao conectar. O código vale uma vez.
-      </p>
+      <p className="skills-hint">{t("invites.intro")}</p>
       <label>
-        Para quem é
-        <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Celular da Ana" />
+        {t("invites.forWhom")}
+        <input value={name} onChange={(e) => setName(e.target.value)} placeholder={t("invites.forWhomPlaceholder")} />
       </label>
       <label>
-        Validade (minutos)
+        {t("invites.validity")}
         <input type="number" min={1} max={1440} value={ttlMinutes} onChange={(e) => setTtlMinutes(e.target.value)} />
       </label>
       <label>
-        Chave de pareamento do hub
+        {t("pairing.hubKey")}
         <input type="password" autoComplete="current-password" value={pairingKey} onChange={(e) => setPairingKey(e.target.value)} />
       </label>
       {error && <p className="error-banner">{error}</p>}
       <div className="skills-actions">
         <button type="submit" disabled={!canInvite}>
-          {busy ? "Aguarde…" : "Criar convite"}
+          {busy ? t("common.wait") : t("invites.create")}
         </button>
         {confirmRotate ? (
           <>
             <button type="button" disabled={busy || pairingKey.trim() === ""} onClick={() => run({ type: "rotatePairingKey", pairingKey })}>
-              Sim, trocar a chave
+              {t("invites.yesRotate")}
             </button>
             <button type="button" className="link-button" disabled={busy} onClick={() => setConfirmRotate(false)}>
-              Manter
+              {t("common.keep")}
             </button>
           </>
         ) : (
           <button type="button" className="link-button" disabled={busy || pairingKey.trim() === ""} onClick={() => setConfirmRotate(true)}>
-            Trocar a chave de pareamento
+            {t("invites.rotate")}
           </button>
         )}
       </div>
-      {confirmRotate && (
-        <p className="skills-hint">
-          A chave antiga deixa de abrir a administração do hub. Os aparelhos já pareados continuam funcionando.
-        </p>
-      )}
+      {confirmRotate && <p className="skills-hint">{t("invites.rotateWarning")}</p>}
       {waiting.length > 0 && (
         <>
-          <p className="skills-hint">Convites esperando:</p>
+          <p className="skills-hint">{t("invites.waiting")}</p>
           <ul className="device-invites-waiting">
             {waiting.map((invite) => (
               <li key={invite.name}>
-                {invite.name}, até {new Intl.DateTimeFormat("pt-BR", { dateStyle: "short", timeStyle: "short" }).format(invite.expiresMs)}{" "}
+                {t("invites.until", { name: invite.name, when: whenLabel(invite.expiresMs) })}{" "}
                 <button
                   type="button"
                   className="link-button"
                   disabled={busy || pairingKey.trim() === ""}
-                  title={pairingKey.trim() === "" ? "Digite a chave de pareamento acima para cancelar" : undefined}
+                  title={pairingKey.trim() === "" ? t("invites.typeKey") : undefined}
                   onClick={() => run({ type: "cancelDeviceInvite", pairingKey, name: invite.name })}
                 >
-                  Cancelar
+                  {t("common.cancel")}
                 </button>
               </li>
             ))}
           </ul>
         </>
       )}
-      {made?.kind === "cancelled" && <p className="skills-hint">Convite de {made.name} cancelado.</p>}
+      {made?.kind === "cancelled" && <p className="skills-hint">{t("invites.cancelled", { name: made.name })}</p>}
       {made?.kind === "invite" && (
-        <p className="skills-hint">
-          Convite para {made.name}, válido até {new Intl.DateTimeFormat("pt-BR", { dateStyle: "short", timeStyle: "short" }).format(made.expiresMs)}. O código só
-          aparece agora: <code>{made.code}</code>
-        </p>
+        <p className="skills-hint">{rich("invites.made", { name: made.name, when: whenLabel(made.expiresMs), code: <code>{made.code}</code> })}</p>
       )}
-      {made?.kind === "key" && (
-        <p className="skills-hint">
-          Chave nova, só aparece agora: <code>{made.newKey}</code>
-        </p>
-      )}
+      {made?.kind === "key" && <p className="skills-hint">{rich("invites.newKey", { key: <code>{made.newKey}</code> })}</p>}
     </form>
   );
 }

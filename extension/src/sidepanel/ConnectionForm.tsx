@@ -2,6 +2,7 @@ import { useState } from "react";
 import type { DiscoveredHub } from "../background/discovery";
 import type { ConnectionSettings, DiscoverHubsResponse } from "../background/popup_protocol";
 import { supportsHubDiscovery } from "../background/platform";
+import { t } from "../i18n/index.ts";
 
 const DEFAULT_PORT = 7420;
 
@@ -54,7 +55,7 @@ export default function ConnectionForm({ savedSettings, errorMessage, busy, onCo
       if (res.ok) {
         setHubs(res.hubs);
       } else {
-        setSearchError(res.error ?? "discovery failed");
+        setSearchError(res.error ?? t("connect.discoveryFailed"));
       }
     });
   }
@@ -64,11 +65,11 @@ export default function ConnectionForm({ savedSettings, errorMessage, busy, onCo
       {/* P69 item 2 — Firefox can't learn the local subnet (no `system.network`), so no sweep there. */}
       {supportsHubDiscovery() && (
         <button type="button" onClick={handleDiscover} disabled={searching}>
-          {searching ? "Procurando…" : "Procurar hubs na rede"}
+          {searching ? t("connect.searching") : t("connect.search")}
         </button>
       )}
       {searchError && <p className="error-banner">{searchError}</p>}
-      {hubs && hubs.length === 0 && <p className="hub-empty">Nenhum hub respondeu na rede local.</p>}
+      {hubs && hubs.length === 0 && <p className="hub-empty">{t("connect.noHub")}</p>}
       {hubs && hubs.length > 0 && (
         <ul className="hub-list">
           {hubs.map((hub) => (
@@ -86,28 +87,28 @@ export default function ConnectionForm({ savedSettings, errorMessage, busy, onCo
         </ul>
       )}
       <label>
-        Host
+        {t("connect.host")}
         <input value={host} onChange={(e) => setHost(e.target.value)} placeholder="127.0.0.1" required />
       </label>
       <label>
-        Porta
+        {t("connect.port")}
         <input value={port} onChange={(e) => setPort(e.target.value)} inputMode="numeric" required />
       </label>
       <label className="checkbox-label">
         <input type="checkbox" checked={secure} onChange={(e) => setSecure(e.target.checked)} />
-        Usar TLS (wss://)
+        {t("connect.tls")}
       </label>
       <label>
-        Nome do dispositivo
+        {t("connect.deviceName")}
         <input value={deviceName} onChange={(e) => setDeviceName(e.target.value)} required />
       </label>
       <label>
-        Auth key ou código de convite
+        {t("connect.authKey")}
         <input value={authKey} onChange={(e) => setAuthKey(e.target.value)} type="password" required />
       </label>
       {errorMessage && <p className="error-banner">{errorMessage}</p>}
       <button type="submit" disabled={busy}>
-        {busy ? "Conectando…" : "Conectar"}
+        {busy ? t("connect.connecting") : t("connect.connect")}
       </button>
     </form>
   );

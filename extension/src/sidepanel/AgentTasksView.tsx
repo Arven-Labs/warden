@@ -2,28 +2,30 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import type { AgentTask, AgentTaskAction } from "../protocol/messages";
 import type { AgentTasksResponse } from "../background/popup_protocol";
 import { ACTION_LABEL, actionsFor, durationLabel, formatTokens, groupTasks, involvingAgent, STATE_LABEL, STATE_MARK, type TaskGroup } from "./lib/agentTasks";
+import { intlTag, t } from "../i18n/index.ts";
+import { rich } from "../i18n/react.tsx";
 import PairingKeyForm from "./PairingKeyForm";
 
 const REFRESH_MS = 3000;
-const dateFormatter = new Intl.DateTimeFormat("pt-BR", { dateStyle: "short", timeStyle: "short" });
+const dateFormatter = { format: (ms: number) => new Intl.DateTimeFormat(intlTag(), { dateStyle: "short", timeStyle: "short" }).format(ms) };
 
 function GroupHeader({ group }: { group: TaskGroup }) {
   const { counts } = group;
   const parts = [
-    counts.done > 0 && `${counts.done} concluída${counts.done > 1 ? "s" : ""}`,
-    counts.running > 0 && `${counts.running} em andamento`,
-    counts.waiting > 0 && `${counts.waiting} aguardando agente`,
-    counts.paused > 0 && `${counts.paused} pausada${counts.paused > 1 ? "s" : ""}`,
-    counts.pending > 0 && `${counts.pending} pendente${counts.pending > 1 ? "s" : ""}`,
-    counts.failed > 0 && `${counts.failed} falhou`,
-    counts.cancelled > 0 && `${counts.cancelled} cancelada${counts.cancelled > 1 ? "s" : ""}`,
+    counts.done > 0 && t(counts.done > 1 ? "tally.doneMany" : "tally.doneOne", { count: counts.done }),
+    counts.running > 0 && t("tally.active", { count: counts.running }),
+    counts.waiting > 0 && t("tasksView.waiting", { count: counts.waiting }),
+    counts.paused > 0 && t(counts.paused > 1 ? "tasksView.pausedMany" : "tasksView.pausedOne", { count: counts.paused }),
+    counts.pending > 0 && t(counts.pending > 1 ? "tasksView.pendingMany" : "tasksView.pendingOne", { count: counts.pending }),
+    counts.failed > 0 && t("tally.failed", { count: counts.failed }),
+    counts.cancelled > 0 && t(counts.cancelled > 1 ? "tally.cancelledMany" : "tally.cancelledOne", { count: counts.cancelled }),
   ].filter(Boolean);
   return (
     <div className="agent-work-header">
       <div className="agent-work-title">
-        <strong>{group.owner ?? "Um agente"}</strong>
+        <strong>{group.owner ?? t("tasksView.anAgent")}</strong>
         <span className="skills-hint">{dateFormatter.format(group.createdAtMs)}</span>
-        {group.active && <span className="agent-work-live">trabalhando</span>}
+        {group.active && <span className="agent-work-live">{t("tasksView.working")}</span>}
       </div>
       <div
         className="agent-work-bar"
@@ -31,13 +33,13 @@ function GroupHeader({ group }: { group: TaskGroup }) {
         aria-valuemin={0}
         aria-valuemax={100}
         aria-valuenow={group.percent}
-        aria-label={`${group.finished} de ${group.total} tarefas terminadas`}
+        aria-label={t("tasksView.progressLabel", { finished: group.finished, total: group.total })}
       >
         <div className="agent-work-bar-fill" style={{ width: `${group.percent}%` }} />
       </div>
       <div className="skills-hint">
-        {group.finished} de {group.total} terminadas ({group.percent}%) · {parts.join(", ")}
-        {group.totalTokens > 0 && ` · ${formatTokens(group.totalTokens)} tokens`}
+        {t("tasksView.progress", { finished: group.finished, total: group.total, percent: group.percent })} · {parts.join(", ")}
+        {group.totalTokens > 0 && ` · ${t("tally.tokens", { count: formatTokens(group.totalTokens) })}`}
       </div>
     </div>
   );
@@ -58,7 +60,7 @@ function TaskItem({ task, depth, now, onAsk }: { task: AgentTask; depth: number;
         <span className="agent-work-meta">
           {task.model && <span className="org-badge">{task.model}</span>}
           {duration && <span>{duration}</span>}
-          {task.totalTokens != null && <span>{formatTokens(task.totalTokens)} tok</span>}
+          {task.totalTokens != null && <span>{t("tasksView.tok", { count: formatTokens(task.totalTokens) })}</span>}
         </span>
         <span className="agent-work-objective">{task.objective}</span>
       </button>
@@ -73,15 +75,15 @@ function TaskItem({ task, depth, now, onAsk }: { task: AgentTask; depth: number;
       )}
       {open && (
         <div className="agent-work-detail">
-          <p className="skills-hint">Tarefa</p>
+          <p className="skills-hint">{t("tasksView.task")}</p>
           <pre className="approval-detail">{task.objective}</pre>
           {detail ? (
             <>
-              <p className="skills-hint">{task.state === "done" ? "Resultado" : "Por que parou"}</p>
+              <p className="skills-hint">{task.state === "done" ? t("tasksView.result") : t("tasksView.whyStopped")}</p>
               <pre className="approval-detail">{detail}</pre>
             </>
           ) : (
-            <p className="skills-hint">{STATE_LABEL[task.state]}: ainda sem resultado.</p>
+            <p className="skills-hint">{t("tasksView.noResult", { state: STATE_LABEL[task.state] })}</p>
           )}
         </div>
       )}
@@ -106,7 +108,7 @@ export default function AgentTasksView({ agent, onClearAgent }: { agent: string 
         setTasks(res.tasks);
         setError(null);
       } else {
-        setError(res.error ?? "falha ao listar as tarefas");
+        setError(res.error ?? t("tasksView.listFailed"));
       }
       setNow(Date.now());
     });
@@ -134,10 +136,10 @@ export default function AgentTasksView({ agent, onClearAgent }: { agent: string 
         setError(null);
         cancelKey();
       } else if (res.authRejected) {
-        setKeyError("Chave de pareamento errada.");
+        setKeyError(t("pairing.wrong"));
       } else {
         cancelKey();
-        setError(res.error ?? "falha ao controlar a tarefa");
+        setError(res.error ?? t("tasksView.controlFailed"));
       }
     });
   }
@@ -146,26 +148,27 @@ export default function AgentTasksView({ agent, onClearAgent }: { agent: string 
 
   return (
     <div className="agents-pane">
-      <p className="skills-hint">Tarefas que os agentes passaram uns aos outros em segundo plano neste hub, com onde cada uma está e quanto custou.</p>
+      <p className="skills-hint">{t("tasksView.intro")}</p>
       {agent && (
         <p className="skills-hint">
-          Só as tarefas de <strong>{agent}</strong>: as que ele recebeu e as que ele delegou.{" "}
+          {rich("tasksView.onlyOf", { agent: <strong>{agent}</strong> })}{" "}
           <button type="button" className="link-button" onClick={onClearAgent}>
-            Mostrar todos
+            {t("tasksView.showAll")}
           </button>
         </p>
       )}
       {error && <p className="error-banner">{error}</p>}
       {asking && (
         <PairingKeyForm busy={busy} error={keyError} onConfirm={confirm} onCancel={cancelKey}>
-          {ACTION_LABEL[asking.action]} a tarefa de <strong>{asking.task.assignee}</strong>
-          {asking.action === "cancel" ? " (e as subtarefas dela)" : ""}.
+          {rich("tasksView.actionOn", {
+            action: ACTION_LABEL[asking.action],
+            who: <strong>{asking.task.assignee}</strong>,
+            subtasks: asking.action === "cancel" ? t("tasksView.andSubtasks") : "",
+          })}
         </PairingKeyForm>
       )}
-      {tasks === null && !error && <p className="skills-hint">Carregando…</p>}
-      {tasks !== null && groups.length === 0 && (
-        <p className="skills-hint">{agent ? `Nenhuma tarefa envolve ${agent} ainda.` : 'Nada ainda. Quando um agente delega uma tarefa com "background", ela aparece aqui.'}</p>
-      )}
+      {tasks === null && !error && <p className="skills-hint">{t("common.loading")}</p>}
+      {tasks !== null && groups.length === 0 && <p className="skills-hint">{agent ? t("tasksView.noneAbout", { agent }) : t("tasksView.none")}</p>}
       {groups.map((group) => (
         <section key={group.group} className="agent-work-group">
           <GroupHeader group={group} />
@@ -176,10 +179,10 @@ export default function AgentTasksView({ agent, onClearAgent }: { agent: string 
                 task={task}
                 depth={depth}
                 now={now}
-                onAsk={(t, action) => {
+                onAsk={(item, action) => {
                   setError(null);
                   setKeyError(null);
-                  setAsking({ task: t, action });
+                  setAsking({ task: item, action });
                 }}
               />
             ))}

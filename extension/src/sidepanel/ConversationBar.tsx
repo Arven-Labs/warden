@@ -3,6 +3,7 @@ import { groupConversations } from "../protocol/conversationGroups";
 import type { ConversationSummary, ThreadParent } from "../protocol/messages";
 import { visibleConversations } from "../protocol/threads";
 import type { OkResponse } from "../background/popup_protocol";
+import { t } from "../i18n/index.ts";
 import FolderPicker from "./FolderPicker";
 import { folderLabel } from "./workdir";
 
@@ -37,7 +38,7 @@ export default function ConversationBar({ conversations, activeConversationId, p
     setError(null);
     const res = (await chrome.runtime.sendMessage(request)) as OkResponse;
     setBusy(false);
-    if (!res.ok) setError(res.error ?? "falhou");
+    if (!res.ok) setError(res.error ?? t("bar.failed"));
     return res.ok;
   }
 
@@ -74,19 +75,19 @@ export default function ConversationBar({ conversations, activeConversationId, p
   const { pinned, buckets, archived } = groupConversations(visibleConversations(conversations), Date.now());
   const option = (c: ConversationSummary) => (
     <option key={c.id} value={c.id}>
-      {pendingIds.includes(c.id) ? `${c.title} (respondendo…)` : c.title || "Sem título"}
+      {pendingIds.includes(c.id) ? t("bar.answering", { title: c.title }) : c.title || t("bar.untitled")}
     </option>
   );
 
   if (renaming !== null) {
     return (
       <form className="conversation-bar" onSubmit={saveRename}>
-        <input autoFocus value={renaming} maxLength={120} aria-label="Novo título" disabled={busy} onChange={(e) => setRenaming(e.target.value)} />
+        <input autoFocus value={renaming} maxLength={120} aria-label={t("bar.newTitle")} disabled={busy} onChange={(e) => setRenaming(e.target.value)} />
         <button type="submit" disabled={busy || !renaming.trim()}>
-          Salvar
+          {t("common.save")}
         </button>
         <button type="button" className="link-button" onClick={() => setRenaming(null)}>
-          Cancelar
+          {t("common.cancel")}
         </button>
         {error && <p className="error-banner">{error}</p>}
       </form>
@@ -95,46 +96,46 @@ export default function ConversationBar({ conversations, activeConversationId, p
 
   return (
     <div className="conversation-bar">
-      <select aria-label="Conversa" value={active ? active.id : ""} onChange={(e) => select(e.target.value)}>
-        {!active && <option value="">Nova conversa</option>}
-        {pinned.length > 0 && <optgroup label="★ Fixadas">{pinned.map(option)}</optgroup>}
+      <select aria-label={t("bar.conversation")} value={active ? active.id : ""} onChange={(e) => select(e.target.value)}>
+        {!active && <option value="">{t("bar.newOption")}</option>}
+        {pinned.length > 0 && <optgroup label={t("bar.pinned")}>{pinned.map(option)}</optgroup>}
         {buckets.map(({ label, items }) => (
           <optgroup key={label} label={label}>
             {items.map(option)}
           </optgroup>
         ))}
-        {archived.length > 0 && <optgroup label="Arquivadas">{archived.map(option)}</optgroup>}
+        {archived.length > 0 && <optgroup label={t("bar.archived")}>{archived.map(option)}</optgroup>}
       </select>
       <span className="conversation-bar-actions">
         {confirmDelete ? (
           <>
             <button type="button" className="link-button skills-danger" disabled={locked} onClick={() => void remove()}>
-              Apagar mesmo
+              {t("bar.deleteForSure")}
             </button>
             <button type="button" className="link-button" onClick={() => setConfirmDelete(false)}>
-              Manter
+              {t("common.keep")}
             </button>
           </>
         ) : (
           <>
             <button type="button" className="link-button" onClick={startNew}>
-              Nova
+              {t("bar.new")}
             </button>
             {active && !active.archived && (
               <button type="button" className="link-button" disabled={locked} onClick={() => void run({ type: "setConversationFlags", conversationId: active.id, pinned: !active.pinned })}>
-                {active.pinned ? "Desafixar" : "Fixar"}
+                {active.pinned ? t("bar.unpin") : t("bar.pin")}
               </button>
             )}
             {active && (
               <button type="button" className="link-button" disabled={locked} onClick={() => void run({ type: "setConversationFlags", conversationId: active.id, archived: !active.archived })}>
-                {active.archived ? "Desarquivar" : "Arquivar"}
+                {active.archived ? t("bar.unarchive") : t("bar.archive")}
               </button>
             )}
             <button type="button" className="link-button" disabled={locked} onClick={() => active && setRenaming(active.title)}>
-              Renomear
+              {t("bar.rename")}
             </button>
             <button type="button" className="link-button" disabled={locked} onClick={() => setConfirmDelete(true)}>
-              Apagar
+              {t("common.delete")}
             </button>
           </>
         )}
@@ -142,38 +143,38 @@ export default function ConversationBar({ conversations, activeConversationId, p
       {(agentIds.length > 0 || agentId !== null) && (
         // P87 — which configured agent the next turns speak as; locked while an answer is on the way.
         <label className="conversation-bar-agent">
-          Agente
+          {t("app.agent")}
           <select
             value={agentId ?? ""}
             disabled={activeConversationId !== null && pendingIds.includes(activeConversationId)}
             onFocus={() => void chrome.runtime.sendMessage({ type: "refreshAgents" })}
             onChange={(e) => void chrome.runtime.sendMessage({ type: "selectAgent", agentId: e.target.value || null })}
           >
-            <option value="">Nenhum</option>
+            <option value="">{t("common.none")}</option>
             {agentIds.map((id) => (
               <option key={id} value={id}>
                 {id}
               </option>
             ))}
-            {agentId !== null && !agentIds.includes(agentId) && <option value={agentId}>{agentId} (removido)</option>}
+            {agentId !== null && !agentIds.includes(agentId) && <option value={agentId}>{t("common.removedAgent", { agent: agentId })}</option>}
           </select>
         </label>
       )}
       {/* P102 — the working folder: picked before the first message, only shown after it. */}
       {(active ? workdir !== null : true) && (
         <span className="conversation-bar-agent">
-          Pasta
+          {t("bar.folder")}
           {active ? (
             <span className="folder-chip" title={workdir ?? ""}>
               {folderLabel(workdir ?? "")}
             </span>
           ) : (
             <>
-              <button type="button" className="link-button folder-chip" onClick={() => setPickingFolder(true)} title={workdir ?? "Escolher uma pasta do hub para a IA trabalhar"}>
-                {workdir !== null ? folderLabel(workdir) : "Nenhuma"}
+              <button type="button" className="link-button folder-chip" onClick={() => setPickingFolder(true)} title={workdir ?? t("bar.pickFolderTitle")}>
+                {workdir !== null ? folderLabel(workdir) : t("bar.noFolder")}
               </button>
               {workdir !== null && (
-                <button type="button" className="link-button" aria-label="Tirar a pasta" onClick={() => void run({ type: "selectWorkdir", path: null })}>
+                <button type="button" className="link-button" aria-label={t("bar.clearFolder")} onClick={() => void run({ type: "selectWorkdir", path: null })}>
                   ×
                 </button>
               )}

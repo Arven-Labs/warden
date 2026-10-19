@@ -1,4 +1,5 @@
 import type { ApprovalPrompt } from "../protocol/messages";
+import { t } from "../i18n/index.ts";
 
 interface Props {
   prompt: ApprovalPrompt;
@@ -14,20 +15,20 @@ export default function ApprovalCard({ prompt, waiting }: Props) {
   }
 
   return (
-    <section className="approval-card" role="alertdialog" aria-label="Aprovação pedida">
-      <strong>Aprovação pedida</strong>
+    <section className="approval-card" role="alertdialog" aria-label={t("approval.asked")}>
+      <strong>{t("approval.asked")}</strong>
       <p>
         {prompt.action}: <code>{prompt.target}</code>
       </p>
-      {prompt.category && <p className="approval-detail">Categoria: {prompt.category} (este agente pede aprovação para isso)</p>}
+      {prompt.category && <p className="approval-detail">{t("approval.category", { category: prompt.category })}</p>}
       {prompt.detail && <p className="approval-detail">{prompt.detail}</p>}
-      {waiting > 0 && <p className="approval-detail">Mais {waiting} esperando.</p>}
+      {waiting > 0 && <p className="approval-detail">{t("approval.more", { count: waiting })}</p>}
       <div className="approval-actions">
         <button type="button" onClick={() => answer(true)}>
-          Aprovar
+          {t("approval.approve")}
         </button>
         <button type="button" className="link-button" onClick={() => answer(false)}>
-          Recusar
+          {t("approval.refuse")}
         </button>
       </div>
     </section>

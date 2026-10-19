@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import type { SkillDto } from "../protocol/messages";
 import type { ListSkillsResponse, OkResponse } from "../background/popup_protocol";
+import { t } from "../i18n/index.ts";
 import { diffLines, hasChanges, withContext } from "./skillDiff";
 
 /** What the editor form is doing: `new` (name editable, refuses a taken name) or `edit` (name
@@ -28,7 +29,7 @@ export default function SkillsView() {
         setError(null);
       } else {
         setSkills((current) => current ?? []);
-        setError(res.error ?? "falha ao listar as skills");
+        setError(res.error ?? t("skills.listFailed"));
       }
     });
   }
@@ -52,7 +53,7 @@ export default function SkillsView() {
           setEditor(null);
           refresh();
         } else {
-          setError(res.error ?? "falha ao salvar a skill");
+          setError(res.error ?? t("skills.saveFailed"));
         }
       });
   }
@@ -63,7 +64,7 @@ export default function SkillsView() {
     const accepted: SkillDto = { name: skill.name, description: skill.description, body: skill.body, agents: skill.agents };
     chrome.runtime.sendMessage({ type: "saveSkill", skill: accepted, overwrite: true }).then((res: OkResponse) => {
       if (res.ok) refresh();
-      else setError(res.error ?? "falha ao aceitar a skill");
+      else setError(res.error ?? t("skills.acceptFailed"));
     });
   }
 
@@ -72,7 +73,7 @@ export default function SkillsView() {
     chrome.runtime.sendMessage({ type: "deleteSkill", name }).then((res: OkResponse) => {
       setConfirmDelete(null);
       if (res.ok) refresh();
-      else setError(res.error ?? "falha ao apagar a skill");
+      else setError(res.error ?? t("skills.deleteFailed"));
     });
   }
 
@@ -89,50 +90,48 @@ export default function SkillsView() {
           handleSave();
         }}
       >
-        <strong>{editor.mode === "new" ? "Nova skill" : `Editar ${editor.skill.name}`}</strong>
+        <strong>{editor.mode === "new" ? t("skills.new") : t("skills.editing", { name: editor.skill.name })}</strong>
         <label>
-          Nome
+          {t("common.name")}
           <input
             value={editor.skill.name}
             onChange={(e) => updateEditor({ name: e.target.value })}
-            placeholder="review-pr"
+            placeholder={t("skills.namePlaceholder")}
             disabled={editor.mode === "edit"}
             required
           />
-          <span className="skills-hint">Minúsculas, números e hífens. Não muda depois de salvar.</span>
+          <span className="skills-hint">{t("skills.nameHint")}</span>
         </label>
         <label>
-          Descrição
+          {t("skills.description")}
           <input
             value={editor.skill.description}
             onChange={(e) => updateEditor({ description: e.target.value })}
-            placeholder="Uma frase: o que faz e quando usar"
+            placeholder={t("skills.descriptionPlaceholder")}
             required
           />
         </label>
         <label>
-          Instruções
+          {t("skills.instructions")}
           <textarea
             value={editor.skill.body}
             onChange={(e) => updateEditor({ body: e.target.value })}
             rows={10}
-            placeholder="As instruções completas que a IA deve seguir, em markdown."
+            placeholder={t("skills.instructionsPlaceholder")}
             required
           />
         </label>
-        {editor.skill.agents.length > 0 && (
-          <span className="skills-hint">Restrita aos agentes: {editor.skill.agents.join(", ")} (edite no desktop).</span>
-        )}
+        {editor.skill.agents.length > 0 && <span className="skills-hint">{t("skills.restrictedTo", { agents: editor.skill.agents.join(", ") })}</span>}
         {editor.skill.proposed && (
           <label>
             <input type="checkbox" checked={editor.accept ?? false} onChange={(e) => setEditor({ ...editor, accept: e.target.checked })} />
-            Aceitar esta skill: passa a valer nas conversas
+            {t("skills.acceptThis")}
           </label>
         )}
         {error && <p className="error-banner">{error}</p>}
         <div className="skills-actions">
           <button type="submit" disabled={saving}>
-            {saving ? "Salvando…" : "Salvar"}
+            {saving ? t("skills.saving") : t("common.save")}
           </button>
           <button
             type="button"
@@ -143,7 +142,7 @@ export default function SkillsView() {
               setError(null);
             }}
           >
-            Cancelar
+            {t("common.cancel")}
           </button>
         </div>
       </form>
@@ -153,7 +152,7 @@ export default function SkillsView() {
   return (
     <div className="skills-view">
       <div className="skills-toolbar">
-        <span className="skills-hint">Instruções que a IA carrega sozinha quando o pedido combina.</span>
+        <span className="skills-hint">{t("skills.intro")}</span>
         <button
           type="button"
           onClick={() => {
@@ -161,35 +160,35 @@ export default function SkillsView() {
             setEditor({ mode: "new", skill: emptySkill });
           }}
         >
-          + Nova
+          {t("skills.newButton")}
         </button>
       </div>
       {error && <p className="error-banner">{error}</p>}
       {skills === null ? (
-        <p className="skills-hint">Carregando…</p>
+        <p className="skills-hint">{t("common.loading")}</p>
       ) : skills.length === 0 ? (
-        <p className="skills-hint">Nenhuma skill ainda.</p>
+        <p className="skills-hint">{t("skills.none")}</p>
       ) : (
         <ul className="skills-list">
           {skills.map((skill) => (
             <li key={skill.name} className="skills-item">
               <div className="skills-item-header">
                 <span className="skills-item-name">{skill.name}</span>
-                {skill.proposed && <span className="skills-hint">{skill.revises ? `alteração sugerida para ${skill.revises} — não vale até aceitar` : "sugerida pela IA — não vale até aceitar"}</span>}
+                {skill.proposed && <span className="skills-hint">{skill.revises ? t("skills.suggestedChange", { name: skill.revises }) : t("skills.suggested")}</span>}
                 {confirmDelete === skill.name ? (
                   <span className="skills-actions">
                     <button type="button" className="link-button skills-danger" onClick={() => handleDelete(skill.name)}>
-                      Apagar
+                      {t("common.delete")}
                     </button>
                     <button type="button" className="link-button" onClick={() => setConfirmDelete(null)}>
-                      Manter
+                      {t("common.keep")}
                     </button>
                   </span>
                 ) : (
                   <span className="skills-actions">
                     {skill.proposed && (
                       <button type="button" className="link-button" onClick={() => handleAccept(skill)}>
-                        Aceitar
+                        {t("skills.accept")}
                       </button>
                     )}
                     <button
@@ -200,23 +199,23 @@ export default function SkillsView() {
                         setEditor({ mode: "edit", skill, accept: skill.proposed ? true : undefined });
                       }}
                     >
-                      Editar
+                      {t("common.edit")}
                     </button>
                     <button type="button" className="link-button" onClick={() => setConfirmDelete(skill.name)}>
-                      {skill.proposed ? "Rejeitar" : "Apagar"}
+                      {skill.proposed ? t("skills.reject") : t("common.delete")}
                     </button>
                   </span>
                 )}
               </div>
-              <p className="skills-item-description">{skill.description || "(sem descrição)"}</p>
-              {skill.agents.length > 0 && <p className="skills-hint">Só para: {skill.agents.join(", ")}</p>}
+              <p className="skills-item-description">{skill.description || t("skills.noDescription")}</p>
+              {skill.agents.length > 0 && <p className="skills-hint">{t("skills.onlyFor", { agents: skill.agents.join(", ") })}</p>}
               {skill.proposed && skill.revises && (() => {
                 const target = skills.find((s) => !s.proposed && s.name === skill.revises);
                 if (!target) return null;
                 const diff = diffLines(target.body, skill.body);
                 return (
                   <details>
-                    <summary className="skills-hint">Ver o que muda em {target.name}</summary>
+                    <summary className="skills-hint">{t("skills.viewChange", { name: target.name })}</summary>
                     {hasChanges(diff) ? (
                       <pre className="skills-diff">
                         {withContext(diff).map((line, i) => (
@@ -228,7 +227,7 @@ export default function SkillsView() {
                         ))}
                       </pre>
                     ) : (
-                      <p className="skills-hint">Sem mudança no texto das instruções.</p>
+                      <p className="skills-hint">{t("skills.noTextChange")}</p>
                     )}
                   </details>
                 );

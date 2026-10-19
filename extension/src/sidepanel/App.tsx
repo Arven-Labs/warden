@@ -4,6 +4,7 @@ import ChatView from "./ChatView";
 import ConversationBar from "./ConversationBar";
 import SkillsView from "./SkillsView";
 import AgentsView from "./AgentsView";
+import LanguageSwitch from "./LanguageSwitch";
 import DeviceInvites from "./DeviceInvites";
 import TabsView from "./TabsView";
 import ChannelsView from "./ChannelsView";
@@ -16,8 +17,11 @@ import { threadsOf } from "../protocol/threads";
 import type { LiveTurn } from "../protocol/liveTurn";
 import type { ChatEntry, ConnectionStatus } from "../background/connection";
 import type { BackgroundEvent, ConnectionSettings, ConversationState, GetStatusResponse, OkResponse } from "../background/popup_protocol";
+import { t } from "../i18n/index.ts";
+import { useLocale } from "../i18n/react.tsx";
 
 export default function App() {
+  useLocale(); // the whole panel draws again when the person switches the language
   const [status, setStatus] = useState<ConnectionStatus>({ kind: "disconnected" });
   const [history, setHistory] = useState<ChatEntry[]>([]);
   const [savedSettings, setSavedSettings] = useState<Partial<ConnectionSettings>>({});
@@ -95,13 +99,13 @@ export default function App() {
 
   function handleSend(message: string) {
     chrome.runtime.sendMessage({ type: "sendChat", message }).then((res: OkResponse) => {
-      if (!res.ok) setHistory((h) => [...h, { role: "error", content: res.error ?? "failed to send" }]);
+      if (!res.ok) setHistory((h) => [...h, { role: "error", content: res.error ?? t("app.failedToSend") }]);
     });
   }
 
   function handleRedo(fromId: string, message: string) {
     chrome.runtime.sendMessage({ type: "redo", fromId, message }).then((res: OkResponse) => {
-      if (!res.ok) setHistory((h) => [...h, { role: "error", content: res.error ?? "failed to resend" }]);
+      if (!res.ok) setHistory((h) => [...h, { role: "error", content: res.error ?? t("app.failedToResend") }]);
     });
   }
 
@@ -140,32 +144,35 @@ export default function App() {
 
   return (
     <div className="sidepanel-app">
-      <h1>Warden</h1>
+      <header className="sidepanel-title">
+        <h1>Warden</h1>
+        <LanguageSwitch />
+      </header>
       {status.kind === "connected" ? (
         <>
           <nav className="tab-bar">
             <button type="button" className={tab === "chat" ? "tab tab--active" : "tab"} onClick={() => setTab("chat")}>
-              Chat
+              {t("tab.chat")}
             </button>
             <button type="button" className={tab === "channels" ? "tab tab--active" : "tab"} onClick={() => setTab("channels")}>
-              Canais
+              {t("tab.channels")}
               {conversationState.unreadChannels.length > 0 && (
-                <span className="tab-badge" aria-label={`${conversationState.unreadChannels.length} com mensagens novas`}>
+                <span className="tab-badge" aria-label={t("tab.unread", { count: conversationState.unreadChannels.length })}>
                   {conversationState.unreadChannels.length}
                 </span>
               )}
             </button>
             <button type="button" className={tab === "skills" ? "tab tab--active" : "tab"} onClick={() => setTab("skills")}>
-              Skills
+              {t("tab.skills")}
             </button>
             <button type="button" className={tab === "agents" ? "tab tab--active" : "tab"} onClick={() => setTab("agents")}>
-              Agentes
+              {t("tab.agents")}
             </button>
             <button type="button" className={tab === "devices" ? "tab tab--active" : "tab"} onClick={() => setTab("devices")}>
-              Aparelhos
+              {t("tab.devices")}
             </button>
             <button type="button" className={tab === "tabs" ? "tab tab--active" : "tab"} onClick={() => setTab("tabs")}>
-              Abas
+              {t("tab.tabs")}
             </button>
           </nav>
           {/* All three stay mounted (just hidden) so switching tabs never scrolls away or loses a half-typed message. */}
@@ -178,26 +185,26 @@ export default function App() {
                   className="link-button"
                   onClick={() => void chrome.runtime.sendMessage({ type: "selectConversation", conversationId: conversationState.threadParent!.conversationId })}
                 >
-                  ← Voltar à conversa
+                  {t("app.backToConversation")}
                 </button>
-                <strong>Thread</strong>
+                <strong>{t("app.thread")}</strong>
                 {(conversationState.agentIds.length > 0 || conversationState.agentId !== null) && (
                   // Each thread talks to the agent the person picks, the main conversation's or another; locked while an answer is on the way.
                   <label className="conversation-bar-agent">
-                    Agente
+                    {t("app.agent")}
                     <select
                       value={conversationState.agentId ?? ""}
                       disabled={pendingChat}
                       onChange={(e) => void chrome.runtime.sendMessage({ type: "selectAgent", agentId: e.target.value || null })}
                     >
-                      <option value="">Nenhum</option>
+                      <option value="">{t("common.none")}</option>
                       {conversationState.agentIds.map((id) => (
                         <option key={id} value={id}>
                           {id}
                         </option>
                       ))}
                       {conversationState.agentId !== null && !conversationState.agentIds.includes(conversationState.agentId) && (
-                        <option value={conversationState.agentId}>{conversationState.agentId} (removido)</option>
+                        <option value={conversationState.agentId}>{t("common.removedAgent", { agent: conversationState.agentId })}</option>
                       )}
                     </select>
                   </label>
@@ -214,7 +221,7 @@ export default function App() {
                     setTab("channels");
                   }}
                 >
-                  ← Recados e execuções
+                  {t("app.backToWork")}
                 </button>
                 <strong>{conversationState.conversations.find((c) => c.id === workOpen.id)?.title ?? workOpen.agent}</strong>
               </header>
@@ -229,7 +236,7 @@ export default function App() {
                     setTab("channels");
                   }}
                 >
-                  ← Canais
+                  {t("app.backToChannels")}
                 </button>
                 <strong>{channelAgent}</strong>
                 <button
@@ -243,7 +250,7 @@ export default function App() {
                   {workButtonLabel(agentWork(conversationState.conversations, channelAgent).length)}
                 </button>
                 <button type="button" className="link-button" onClick={() => void chrome.runtime.sendMessage({ type: "newConversation" })}>
-                  Conversa nova
+                  {t("app.newConversation")}
                 </button>
               </header>
             ) : (

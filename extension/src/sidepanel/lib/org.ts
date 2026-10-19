@@ -1,3 +1,4 @@
+import { t, type Key } from "../../i18n/index.ts";
 import type { OrgEdit } from "../../protocol/messages";
 
 /** P120 — a organização dos agentes: cada um pode ter um cargo e um superior (`reportsTo`, o id de outro agente).
@@ -61,14 +62,21 @@ export function positionEdit(id: string, role: string, reportsTo: string): OrgEd
 
 /** P122 — os tipos de ação que um agente pode ser obrigado a ter aprovados mesmo quando age sozinho. Os ids são os de
  * `warden_core::autonomy::Category`, como o hub e `approvalRequired` os escrevem (a mesma lista da web). */
+const category = (id: string, key: Key): { id: string; label: string } => ({
+  id,
+  get label() {
+    return t(key);
+  },
+});
+
 export const APPROVAL_CATEGORIES: { id: string; label: string }[] = [
-  { id: "delete_data", label: "Apagar dados" },
-  { id: "spend_money", label: "Gastar dinheiro" },
-  { id: "critical_infra", label: "Mexer em infraestrutura crítica (shell, SSH, nós)" },
-  { id: "external_message", label: "Enviar mensagem externa (navegador, serviços de fora)" },
-  { id: "publish_code", label: "Publicar código" },
-  { id: "important_config", label: "Alterar configuração importante (tarefas agendadas)" },
-  { id: "elevated_agent", label: "Criar ou alterar agentes" },
+  category("delete_data", "approvalCategory.delete_data"),
+  category("spend_money", "approvalCategory.spend_money"),
+  category("critical_infra", "approvalCategory.critical_infra"),
+  category("external_message", "approvalCategory.external_message"),
+  category("publish_code", "approvalCategory.publish_code"),
+  category("important_config", "approvalCategory.important_config"),
+  category("elevated_agent", "approvalCategory.elevated_agent"),
 ];
 
 /** O nome de uma categoria, ou o próprio id quando um hub mais novo manda uma que esta tela não conhece. */
@@ -77,12 +85,19 @@ export function approvalCategoryLabel(id: string): string {
 }
 
 /** O que cada nível de autonomia quer dizer, em uma linha (P122). */
+const autonomyLevel = (level: number, key: Key): { level: number; label: string } => ({
+  level,
+  get label() {
+    return t(key);
+  },
+});
+
 export const AUTONOMY_LEVELS: { level: number; label: string }[] = [
-  { level: 1, label: "1 — só responde, sem usar ferramentas" },
-  { level: 2, label: "2 — sugere: lê, mas recusa o resto com uma sugestão" },
-  { level: 3, label: "3 — pede o seu sim antes de qualquer mudança" },
-  { level: 4, label: "4 — age sozinho (as categorias marcadas ainda pedem o sim)" },
-  { level: 5, label: "5 — também gerencia subordinados sozinho" },
+  autonomyLevel(1, "autonomyLevel.1"),
+  autonomyLevel(2, "autonomyLevel.2"),
+  autonomyLevel(3, "autonomyLevel.3"),
+  autonomyLevel(4, "autonomyLevel.4"),
+  autonomyLevel(5, "autonomyLevel.5"),
 ];
 
 export interface Powers {

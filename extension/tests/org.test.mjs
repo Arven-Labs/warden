@@ -126,7 +126,7 @@ describe("editing what an agent may do on its own (P122)", () => {
     const edit = powersEdit("dev", { ...base, approvalRequired: ["brand_new", "spend_money"] });
     assert.deepEqual(edit.approvalRequired, ["spend_money", "brand_new"]);
     assert.equal(approvalCategoryLabel("brand_new"), "brand_new");
-    assert.equal(approvalCategoryLabel("spend_money"), "Gastar dinheiro");
+    assert.equal(approvalCategoryLabel("spend_money"), "Spend money");
   });
 
   test("the screen offers the five levels and the seven kinds the hub has", () => {

@@ -1,6 +1,7 @@
 import { useState } from "react";
 import type { ConversationSummary } from "../protocol/messages";
 import type { OkResponse } from "../background/popup_protocol";
+import { intlTag, t } from "../i18n/index.ts";
 
 interface Props {
   agentIds: string[];
@@ -18,8 +19,8 @@ interface Props {
 function shortDate(millis: number): string {
   const date = new Date(millis);
   return date.toDateString() === new Date().toDateString()
-    ? date.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })
-    : date.toLocaleDateString(undefined, { day: "2-digit", month: "2-digit" });
+    ? date.toLocaleTimeString(intlTag(), { hour: "2-digit", minute: "2-digit" })
+    : date.toLocaleDateString(intlTag(), { day: "2-digit", month: "2-digit" });
 }
 
 /** P121 — the agents as contacts: each has one conversation with the person, its channel. Newest first, the ones never spoken to at the end.
@@ -39,24 +40,24 @@ export default function ChannelsView({ agentIds, channels, conversations, pendin
     setError(null);
     const res = (await chrome.runtime.sendMessage({ type: "openAgentChannel", agentId })) as OkResponse;
     if (res.ok) onOpened();
-    else setError(res.error ?? "falhou");
+    else setError(res.error ?? t("channels.failed"));
   }
 
   return (
     <div className="channels-view">
       {error && <p className="error-banner">{error}</p>}
       {rows.length === 0 ? (
-        <p className="hub-empty">Nenhum agente configurado ainda.</p>
+        <p className="hub-empty">{t("channels.none")}</p>
       ) : (
         <ul className="channel-list">
           {rows.map(({ id, channel, answering, unread }) => (
             <li key={id}>
               <button type="button" className="channel-row" onClick={() => void open(id)}>
                 <span className="channel-name">
-                  {unread && <span className="unread-dot" role="img" aria-label="mensagem nova" />}
+                  {unread && <span className="unread-dot" role="img" aria-label={t("channels.newMessage")} />}
                   {id}
                 </span>
-                <span className="channel-meta">{answering ? "respondendo…" : channel ? shortDate(channel.updatedAt) : "nova"}</span>
+                <span className="channel-meta">{answering ? t("channels.answering") : channel ? shortDate(channel.updatedAt) : t("channels.new")}</span>
               </button>
             </li>
           ))}

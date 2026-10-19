@@ -50,6 +50,20 @@ h1 {
   color: var(--color-accent-dark);
 }
 
+/* The panel's title line: the name, and the language picker at the right end. */
+.sidepanel-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.language-switch {
+  width: auto;
+  padding: 0.15rem 0.3rem;
+  font-size: 0.75rem;
+}
+
 .connection-form,
 .chat-view {
   display: flex;

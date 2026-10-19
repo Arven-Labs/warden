@@ -39,8 +39,8 @@ describe("the threads of a conversation", () => {
   });
 
   test("the chip says one reply or several", () => {
-    assert.equal(repliesLabel(1), "1 resposta");
-    assert.equal(repliesLabel(3), "3 respostas");
+    assert.equal(repliesLabel(1), "1 reply");
+    assert.equal(repliesLabel(3), "3 replies");
   });
 });
 

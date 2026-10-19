@@ -6,6 +6,7 @@ import { PopupMarkdownLink } from "./MarkdownLink";
 import type { LiveTurn } from "../protocol/liveTurn";
 import { isLastAnswer, lastUserEntry, messagesAfter } from "../protocol/regenerate";
 import { repliesLabel, type ThreadInfo } from "../protocol/threads";
+import { t } from "../i18n/index.ts";
 
 interface Props {
   serverName: string;
@@ -34,7 +35,7 @@ function EditBox({ initial, after, onSend, onCancel }: { initial: string; after:
   function send() {
     const message = text.trim();
     if (message === "") return;
-    if (after > 0 && !window.confirm(`Enviar isso apaga ${after === 1 ? "a mensagem" : `as ${after} mensagens`} depois dela, e as threads delas. Continuar?`)) return;
+    if (after > 0 && !window.confirm(t("chat.confirmEditDeletes", { what: after === 1 ? t("chat.oneMessage") : t("chat.nMessages", { count: after }) }))) return;
     onSend(message);
   }
 
@@ -44,7 +45,7 @@ function EditBox({ initial, after, onSend, onCancel }: { initial: string; after:
         className="message-edit-input"
         value={text}
         autoFocus
-        aria-label="Editar sua mensagem"
+        aria-label={t("chat.editLabel")}
         rows={Math.min(8, Math.max(2, text.split("\n").length))}
         onChange={(e) => setText(e.target.value)}
         onKeyDown={(e) => {
@@ -54,10 +55,10 @@ function EditBox({ initial, after, onSend, onCancel }: { initial: string; after:
       />
       <div className="chat-entry-thread">
         <button type="button" className="link-button" onClick={onCancel}>
-          Cancelar
+          {t("common.cancel")}
         </button>
         <button type="button" className="link-button" onClick={send}>
-          Enviar
+          {t("common.send")}
         </button>
       </div>
     </div>
@@ -69,7 +70,7 @@ const TOOL_MARK = { running: "…", completed: "✓", failed: "✗" } as const;
 /** P124 — what the engine is doing in the turn that is going on: its words and tools in the order they happened. */
 function LiveBubble({ live, onCancel }: { live: LiveTurn; onCancel?: () => void }) {
   return (
-    <li className="chat-entry chat-entry--assistant chat-entry--live" aria-label="Em andamento">
+    <li className="chat-entry chat-entry--assistant chat-entry--live" aria-label={t("chat.inProgress")}>
       {live.items.map((item, i) =>
         item.kind === "text" ? (
           <div key={i} className="chat-entry-content">
@@ -92,7 +93,7 @@ function LiveBubble({ live, onCancel }: { live: LiveTurn; onCancel?: () => void 
       {live.notice && <p className="live-notice">{live.notice}</p>}
       {onCancel && (
         <button type="button" className="link-button live-stop" onClick={onCancel}>
-          Parar
+          {t("chat.stop")}
         </button>
       )}
     </li>
@@ -116,9 +117,9 @@ export default function ChatView({ serverName, history, pending, live, onCancel,
   return (
     <div className="chat-view">
       <header className="chat-header">
-        <span>Conectado a {serverName}</span>
+        <span>{t("chat.connectedTo", { server: serverName })}</span>
         <button type="button" className="link-button" onClick={onDisconnect}>
-          Desconectar
+          {t("chat.disconnect")}
         </button>
       </header>
 
@@ -146,11 +147,11 @@ export default function ChatView({ serverName, history, pending, live, onCancel,
               <div className="chat-entry-thread">
                 {entry.role === "user" ? (
                   <button type="button" className="link-button" onClick={() => setEditingId(entry.id!)}>
-                    Editar
+                    {t("chat.edit")}
                   </button>
                 ) : (
                   <button type="button" className="link-button" onClick={() => onRedo(lastUser!.id!, lastUser!.content)}>
-                    Regenerar
+                    {t("chat.regenerate")}
                   </button>
                 )}
               </div>
@@ -164,7 +165,7 @@ export default function ChatView({ serverName, history, pending, live, onCancel,
                   </button>
                 ) : (
                   <button type="button" className="link-button" onClick={() => onOpenThread(entry.id!)}>
-                    Responder em thread
+                    {t("chat.replyInThread")}
                   </button>
                 )}
               </div>
@@ -177,7 +178,7 @@ export default function ChatView({ serverName, history, pending, live, onCancel,
             …
             {onCancel && (
               <button type="button" className="link-button live-stop" onClick={onCancel}>
-                Parar
+                {t("chat.stop")}
               </button>
             )}
           </li>
@@ -185,9 +186,9 @@ export default function ChatView({ serverName, history, pending, live, onCancel,
       </ul>
 
       <form className="chat-composer" onSubmit={handleSubmit}>
-        <input value={draft} onChange={(e) => setDraft(e.target.value)} placeholder="Mensagem" disabled={pending} />
+        <input value={draft} onChange={(e) => setDraft(e.target.value)} placeholder={t("chat.message")} disabled={pending} />
         <button type="submit" disabled={pending || !draft.trim()}>
-          Enviar
+          {t("common.send")}
         </button>
       </form>
     </div>

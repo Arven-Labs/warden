@@ -25,6 +25,7 @@ import { badgeText, baseline, markSeen, notificationBody, unreadIds, type SeenMa
 import { toolSpecs, toolHandlers } from "./tools";
 import { addActiveTabToGroup, listGroupTabs, removeTabFromGroup, setGroupChangeListener } from "./tab_group";
 import { openPanel, setUpPanelOpening, supportsHubDiscovery } from "./platform";
+import { t } from "../i18n/index.ts";
 
 // Makes clicking the toolbar icon open the chat panel (Chrome's side panel, Firefox's sidebar)
 // instead of requiring a `default_popup`. Without this call the icon click has no effect.
@@ -497,8 +498,8 @@ async function handleRequest(request: PopupRequest): Promise<unknown> {
       });
       if (blocked !== null) return { ok: false, error: blocked };
       const message = request.message.trim();
-      if (message === "") return { ok: false, error: "a mensagem está vazia" };
-      if (!history.some((e) => e.role === "user" && e.id === request.fromId)) return { ok: false, error: "a mensagem ainda não tem id no hub" };
+      if (message === "") return { ok: false, error: t("bg.emptyMessage") };
+      if (!history.some((e) => e.role === "user" && e.id === request.fromId)) return { ok: false, error: t("bg.noHubId") };
       // Cut at once, as the hub's saved copy will be; the answer brings the ids of the new pair.
       history = [...entriesBefore(history, request.fromId), { role: "user", content: message }];
       pendingTurns[id] = message;
@@ -512,7 +513,7 @@ async function handleRequest(request: PopupRequest): Promise<unknown> {
     case "selectWorkdir": {
       // Chosen before the first message and never after: a conversation on the hub keeps its own folder.
       if (activeConversationId !== null && conversations.some((c) => c.id === activeConversationId)) {
-        return { ok: false, error: "a pasta é escolhida antes da primeira mensagem e não muda depois" };
+        return { ok: false, error: t("bg.folderLocked") };
       }
       workdir = request.path;
       broadcastConversations();

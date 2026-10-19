@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import type { DirListing } from "../protocol/messages";
 import type { ListDirsResponse } from "../background/popup_protocol";
+import { t } from "../i18n/index.ts";
 
 interface Props {
   /** Where the browser opens: the conversation's current choice, or the start. */
@@ -20,7 +21,7 @@ export default function FolderPicker({ initialPath, onPick, onCancel }: Props) {
   async function ask(path?: string): Promise<DirListing | null> {
     const res = (await chrome.runtime.sendMessage({ type: "listDirs", ...(path ? { path } : {}) })) as ListDirsResponse;
     if (!res.ok || !res.listing) {
-      setError(res.error ?? "não foi possível listar as pastas");
+      setError(res.error ?? t("folder.cantList"));
       return null;
     }
     return res.listing;
@@ -50,17 +51,17 @@ export default function FolderPicker({ initialPath, onPick, onCancel }: Props) {
 
   const here = listing?.path ?? "";
   return (
-    <div className="folder-picker" role="dialog" aria-label="Escolher a pasta de trabalho">
-      <p className="folder-picker-hint">A IA lê e escreve nessa pasta e o shell começa nela (cada comando pede o seu sim). Vale para a conversa toda e não muda depois.</p>
+    <div className="folder-picker" role="dialog" aria-label={t("folder.title")}>
+      <p className="folder-picker-hint">{t("folder.hint")}</p>
       <div className="folder-picker-here" title={here}>
-        {here || "Suas pastas"}
+        {here || t("folder.yours")}
       </div>
       {error && <p className="error-banner">{error}</p>}
       <ul className="folder-picker-list" aria-busy={loading}>
         {listing?.parent !== undefined && (
           <li>
             <button type="button" className="folder-picker-item" onClick={() => void open(listing.parent || undefined)}>
-              ↑ Subir
+              {t("folder.up")}
             </button>
           </li>
         )}
@@ -71,14 +72,14 @@ export default function FolderPicker({ initialPath, onPick, onCancel }: Props) {
             </button>
           </li>
         ))}
-        {listing && listing.dirs.length === 0 && !loading && <li className="folder-picker-empty">Nenhuma subpasta.</li>}
+        {listing && listing.dirs.length === 0 && !loading && <li className="folder-picker-empty">{t("folder.empty")}</li>}
       </ul>
       <div className="folder-picker-actions">
         <button type="button" className="link-button" onClick={onCancel}>
-          Cancelar
+          {t("common.cancel")}
         </button>
         <button type="button" disabled={!here || loading} onClick={() => onPick(here)}>
-          Usar esta pasta
+          {t("folder.use")}
         </button>
       </div>
     </div>

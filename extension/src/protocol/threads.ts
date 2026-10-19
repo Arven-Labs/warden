@@ -1,5 +1,6 @@
 // P125 — as threads: uma conversa filha ligada a uma mensagem de outra. Pura, para testar sem janela. Espelha `web/src/hub/threads.ts`.
 
+import { t } from "../i18n/index.ts";
 import type { ConversationSummary } from "./messages";
 
 /** O começo do id do canal de um agente (P121): a conversa fixa que ele mantém com a pessoa. Igual ao `CHANNEL_PREFIX` do hub. */
@@ -48,7 +49,7 @@ export function withMessageIds<T extends { role: string; id?: string }>(entries:
   });
 }
 
-/** O que o chip de uma mensagem diz: `1 resposta`, `3 respostas`. */
+/** What the chip of a message says: `1 reply`, `3 replies`. */
 export function repliesLabel(replies: number): string {
-  return replies === 1 ? "1 resposta" : `${replies} respostas`;
+  return t(replies === 1 ? "replies.one" : "replies.many", { count: replies });
 }

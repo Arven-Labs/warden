@@ -34,10 +34,10 @@ describe("the dollars per combo", () => {
   test("come biggest first, said in the ledger's window with the unpriced calls", () => {
     const rows = comboSpendRows({ recent: { windowHours: 24, byCombo: [bucket("slow", 0.001), bucket("fast", 1.2, 2)] } });
     assert.deepEqual(rows.map((r) => r.combo), ["fast", "slow"]);
-    assert.match(rows[0].label, /1,20/);
-    assert.match(rows[0].label, /últimas 24 h/);
-    assert.match(rows[0].label, /2 chamadas sem preço/);
-    assert.match(rows[1].label, /menos de/);
+    assert.match(rows[0].label, /1\.20/);
+    assert.match(rows[0].label, /last 24 h/);
+    assert.match(rows[0].label, /2 calls without a price/);
+    assert.match(rows[1].label, /less than/);
   });
 
   test("are none for an older hub, a hub with no combo call, or no ledger", () => {

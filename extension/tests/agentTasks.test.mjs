@@ -70,8 +70,7 @@ describe("subtasks", () => {
 describe("how a task is shown", () => {
   test("tokens are compact", () => {
     assert.equal(formatTokens(950), "950");
-    // pt-BR puts a no-break space before "mil".
-    assert.match(formatTokens(12900), /^12,9\smil$/);
+    assert.equal(formatTokens(12900), "12.9K");
   });
 
   test("the duration is empty before it starts, and counts to now while it runs", () => {
@@ -145,16 +144,16 @@ describe("what an agent has been up to", () => {
   });
 
   test("the card line says it in a few words, and leaves out what is zero", () => {
-    assert.equal(activityLine(activityOf(tasks, "dev"), now), "1 concluída, 1 falhou, 1 em andamento · 100 tokens · delegou 1 · ativo há 4 min");
-    assert.equal(activityLine(activityOf(tasks, "chief"), now), "delegou 3 · ativo há 4 min");
+    assert.equal(activityLine(activityOf(tasks, "dev"), now), "1 done, 1 failed, 1 in progress · 100 tokens · delegated 1 · active 4 min ago");
+    assert.equal(activityLine(activityOf(tasks, "chief"), now), "delegated 3 · active 4 min ago");
   });
 
   test("how long ago, in minutes, hours and days", () => {
-    assert.equal(agoLabel(1000, 1000), "agora");
-    assert.equal(agoLabel(0, 59 * 60000), "há 59 min");
-    assert.equal(agoLabel(0, 2 * 3600000), "há 2 h");
-    assert.equal(agoLabel(0, 3 * 86400000), "há 3 d");
-    assert.equal(agoLabel(5000, 1000), "agora", "a clock that is behind never shows a negative time");
+    assert.equal(agoLabel(1000, 1000), "now");
+    assert.equal(agoLabel(0, 59 * 60000), "59 min ago");
+    assert.equal(agoLabel(0, 2 * 3600000), "2 h ago");
+    assert.equal(agoLabel(0, 3 * 86400000), "3 d ago");
+    assert.equal(agoLabel(5000, 1000), "now", "a clock that is behind never shows a negative time");
   });
 });
 
@@ -175,26 +174,26 @@ describe("the activity of an agent besides its tasks (P123)", () => {
   test("an agent with no task but a conversation still has a line, and one with nothing at all has none", () => {
     const talked = activityOf(mine, "writer", { lastConversationMs: 5000 });
     assert.deepEqual(talked, { done: 0, failed: 0, cancelled: 0, active: 0, tokens: 0, delegated: 0, lastActiveMs: 5000 });
-    assert.equal(activityLine(talked, now), "ativo há 4 min");
+    assert.equal(activityLine(talked, now), "active 4 min ago");
     assert.equal(activityOf(mine, "writer", {}), null);
   });
 
   test("the spend is said with the window the hub counts, and an agent that spent nothing says nothing of it", () => {
     const spend = { costUsd: 1.2, unpricedCalls: 0, windowHours: 24 };
-    assert.equal(plain(activityLine(activityOf(mine, "dev", { spend }), now)), "1 concluída, 1 em andamento · 100 tokens · US$ 1,20 nas últimas 24 h · ativo há 4 min");
+    assert.equal(plain(activityLine(activityOf(mine, "dev", { spend }), now)), "1 done, 1 in progress · 100 tokens · $1.20 in the last 24 h · active 4 min ago");
     assert.equal(activityOf(mine, "dev", { spend: { costUsd: 0, unpricedCalls: 0, windowHours: 24 } }).spend, undefined);
   });
 
   test("only the spend is enough to show a line, with no time of activity", () => {
     const only = activityOf([], "writer", { spend: { costUsd: 0.5, unpricedCalls: 0, windowHours: 6 } });
     assert.equal(only.lastActiveMs, null);
-    assert.equal(plain(activityLine(only, now)), "US$ 0,50 nas últimas 6 h");
+    assert.equal(plain(activityLine(only, now)), "$0.50 in the last 6 h");
   });
 
   test("a tiny amount, and calls the price list does not know", () => {
-    assert.equal(plain(spendLabel({ costUsd: 0.004, unpricedCalls: 0, windowHours: 24 })), "menos de US$ 0,01 nas últimas 24 h");
-    assert.equal(plain(spendLabel({ costUsd: 2, unpricedCalls: 3, windowHours: 24 })), "US$ 2,00 nas últimas 24 h (e 3 chamadas sem preço)");
-    assert.equal(spendLabel({ costUsd: 0, unpricedCalls: 1, windowHours: 24 }), "1 chamada sem preço nas últimas 24 h");
+    assert.equal(plain(spendLabel({ costUsd: 0.004, unpricedCalls: 0, windowHours: 24 })), "less than $0.01 in the last 24 h");
+    assert.equal(plain(spendLabel({ costUsd: 2, unpricedCalls: 3, windowHours: 24 })), "$2.00 in the last 24 h (and 3 calls without a price)");
+    assert.equal(spendLabel({ costUsd: 0, unpricedCalls: 1, windowHours: 24 }), "1 call without a price in the last 24 h");
   });
 
   const report = { recent: { windowHours: 12, byAgent: [{ key: "dev", costUsd: 3, unpricedCalls: 1 }, { key: "", costUsd: 9, unpricedCalls: 0 }] } };

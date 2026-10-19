@@ -38,7 +38,7 @@ const BASE = {
   manifest_version: 3,
   name: "Warden",
   version: "0.1.0",
-  description: "Chat com o Warden a partir do navegador.",
+  description: "Chat with Warden from the browser.",
   // The desktop app's icon (`public/`, copied as is into the build). Chrome won't show a notification
   // without one (P121), and the toolbar and the extensions page use it too.
   icons: { "128": "icon-128.png" },

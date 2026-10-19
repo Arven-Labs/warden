@@ -1,6 +1,7 @@
 // P157 — como a lista guarda as conversas soltas (fora de projeto): as fixadas primeiro, depois por quão recentes são, e as arquivadas à
 // parte. Pura, para testar sem janela. Espelha `web/src/hub/conversationGroups.ts`.
 
+import { t } from "../i18n/index.ts";
 import type { ConversationSummary } from "./messages";
 
 type Groupable = Pick<ConversationSummary, "updatedAt" | "pinned" | "archived">;
@@ -20,7 +21,7 @@ export interface GroupedConversations<T> {
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 /** Os blocos por data, do mais recente ao mais antigo. */
-const LABELS = ["Hoje", "Ontem", "Últimos 7 dias", "Últimos 30 dias", "Anteriores"];
+const LABELS = ["bucket.today", "bucket.yesterday", "bucket.last7", "bucket.last30", "bucket.older"] as const;
 
 /** O começo do dia de `now` no relógio deste computador. */
 function startOfDay(now: number): number {
@@ -32,11 +33,11 @@ function startOfDay(now: number): number {
  * inteiro de ontem. */
 export function bucketLabel(updatedAt: number, now: number): string {
   const today = startOfDay(now);
-  if (updatedAt >= today) return LABELS[0];
-  if (updatedAt >= startOfDay(today - DAY_MS / 2)) return LABELS[1];
-  if (updatedAt >= startOfDay(today - 6.5 * DAY_MS)) return LABELS[2];
-  if (updatedAt >= startOfDay(today - 29.5 * DAY_MS)) return LABELS[3];
-  return LABELS[4];
+  if (updatedAt >= today) return t(LABELS[0]);
+  if (updatedAt >= startOfDay(today - DAY_MS / 2)) return t(LABELS[1]);
+  if (updatedAt >= startOfDay(today - 6.5 * DAY_MS)) return t(LABELS[2]);
+  if (updatedAt >= startOfDay(today - 29.5 * DAY_MS)) return t(LABELS[3]);
+  return t(LABELS[4]);
 }
 
 /** Separa `conversations` em fixadas, blocos por data e arquivadas. Dentro de cada parte a ordem de chegada se mantém, e um bloco sem nada
@@ -53,6 +54,8 @@ export function groupConversations<T extends Groupable>(conversations: T[], now:
       byLabel.set(label, [...(byLabel.get(label) ?? []), conversation]);
     }
   }
-  const buckets = LABELS.filter((label) => byLabel.has(label)).map((label) => ({ label, items: byLabel.get(label)! }));
+  const buckets = LABELS.map((key) => t(key))
+    .filter((label) => byLabel.has(label))
+    .map((label) => ({ label, items: byLabel.get(label)! }));
   return { pinned, buckets, archived };
 }

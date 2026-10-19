@@ -4,6 +4,7 @@ import AgentTasksView from "./AgentTasksView";
 import GrantsSection from "./GrantsSection";
 import OrgView from "./OrgView";
 import UsageView from "./UsageView";
+import { t } from "../i18n/index.ts";
 
 /** P120, P123, P121 — a organização dos agentes, o trabalho que eles passam uns aos outros e o feed do que aconteceu, lado a lado. Um nó da
  * árvore abre as tarefas do agente (o filtro daqui) ou uma conversa nova com ele (quem monta esta tela decide como, porque o chat é de outra
@@ -24,7 +25,7 @@ export default function AgentsView({
     <div className="agents-view">
       <nav className="tab-bar tab-bar--sub">
         <button type="button" className={part === "org" ? "tab tab--active" : "tab"} onClick={() => setPart("org")}>
-          Organização
+          {t("agentsTab.org")}
         </button>
         <button
           type="button"
@@ -34,13 +35,13 @@ export default function AgentsView({
             setPart("tasks");
           }}
         >
-          Tarefas
+          {t("agentsTab.tasks")}
         </button>
         <button type="button" className={part === "activity" ? "tab tab--active" : "tab"} onClick={() => setPart("activity")}>
-          Atividade
+          {t("agentsTab.activity")}
         </button>
         <button type="button" className={part === "usage" ? "tab tab--active" : "tab"} onClick={() => setPart("usage")}>
-          Uso
+          {t("agentsTab.usage")}
         </button>
       </nav>
       {part === "org" ? (

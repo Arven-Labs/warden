@@ -218,9 +218,9 @@ describe("editing a model limit and the policies", () => {
 
 describe("what a model limit says", () => {
   test("open, dictated and limited", () => {
-    assert.match(delegationSummary(undefined), /^Aberto/);
-    assert.match(delegationSummary([]), /^Aberto/);
-    assert.equal(delegationSummary(["fast"]), "Ditado: toda tarefa que ele delega roda em fast.");
-    assert.match(delegationSummary(["fast", "deep"]), /^Limitado a 2 modelos; fast é o que/);
+    assert.match(delegationSummary(undefined), /^Open/);
+    assert.match(delegationSummary([]), /^Open/);
+    assert.equal(delegationSummary(["fast"]), "Dictated: every task it delegates runs on fast.");
+    assert.match(delegationSummary(["fast", "deep"]), /^Limited to 2 models; fast is what/);
   });
 });
