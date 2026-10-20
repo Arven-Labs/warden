@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { open, save } from "@tauri-apps/plugin-dialog";
+import { intlTag, t } from "../i18n";
+import { rich } from "../i18n/rich";
 import type { AgentEntry, CatalogSkill, ExportedPackage, PackagePreview, ProviderEntry, SkillEntry } from "../types";
 import { diffLines, hasChanges, withContext } from "./skillDiff";
 import CopyButton from "./CopyButton";
@@ -80,14 +82,11 @@ function SkillFiles({ skillName }: { skillName: string }) {
 
   return (
     <div className="settings-field">
-      <span className="settings-label">Attached files</span>
-      <span className="settings-hint">
-        Text files the AI can read when it uses this skill, such as a script or a template (up to 20 files, 64 KB
-        each). A script only runs if the shell tool is enabled in Settings.
-      </span>
+      <span className="settings-label">{t("skillFiles.title")}</span>
+      <span className="settings-hint">{t("skillFiles.hint")}</span>
       {error && <p className="settings-error-banner">{error}</p>}
       {files === null ? null : files.length === 0 ? (
-        <span className="settings-hint">No files attached.</span>
+        <span className="settings-hint">{t("skillFiles.none")}</span>
       ) : (
         <div className="skill-file-list">
           {files.map((file) => (
@@ -96,25 +95,25 @@ function SkillFiles({ skillName }: { skillName: string }) {
               <div className="skill-card-actions">
                 {confirmDelete === file ? (
                   <>
-                    <span className="settings-hint">Remove?</span>
+                    <span className="settings-hint">{t("skillFiles.confirm")}</span>
                     <button type="button" className="provider-delete-btn" onClick={() => removeFile(file)}>
-                      Remove
+                      {t("common.remove")}
                     </button>
                     <button type="button" className="settings-browse-btn" onClick={() => setConfirmDelete(null)}>
-                      Keep
+                      {t("common.keep")}
                     </button>
                   </>
                 ) : (
                   <>
                     <button type="button" className="settings-browse-btn" onClick={() => openFile(file)}>
-                      Edit
+                      {t("common.edit")}
                     </button>
                     <button
                       type="button"
                       className="provider-delete-btn"
                       onClick={() => setConfirmDelete(file)}
-                      aria-label={`Remove ${file}`}
-                      title="Remove this file"
+                      aria-label={t("skillFiles.removeLabel", { file })}
+                      title={t("skillFiles.removeTitle")}
                     >
                       🗑
                     </button>
@@ -139,7 +138,7 @@ function SkillFiles({ skillName }: { skillName: string }) {
           <textarea
             className="settings-input settings-textarea"
             rows={8}
-            placeholder="File content (text)."
+            placeholder={t("skillFiles.contentPlaceholder")}
             value={draft.content}
             onChange={(e) => setDraft({ ...draft, content: e.currentTarget.value })}
           />
@@ -150,10 +149,10 @@ function SkillFiles({ skillName }: { skillName: string }) {
               onClick={saveDraft}
               disabled={busy || draft.name.trim() === ""}
             >
-              {busy ? "Saving…" : "Save file"}
+              {busy ? t("common.saving") : t("skillFiles.save")}
             </button>
             <button type="button" className="settings-browse-btn" onClick={() => setDraft(null)} disabled={busy}>
-              Cancel
+              {t("common.cancel")}
             </button>
           </div>
         </div>
@@ -164,7 +163,7 @@ function SkillFiles({ skillName }: { skillName: string }) {
             className="settings-browse-btn"
             onClick={() => setDraft({ name: "", content: "", existing: false })}
           >
-            + Attach a file
+            {t("skillFiles.attach")}
           </button>
         </div>
       )}
@@ -188,10 +187,10 @@ const localSkills = {
 };
 
 /** The licenses offered when sharing a skill: what the person who made it lets others do with it. */
-const LICENSES = [
-  { id: "CC0-1.0", label: "CC0 (public domain, no conditions)" },
-  { id: "MIT", label: "MIT (keep the copyright notice)" },
-  { id: "CC-BY-4.0", label: "CC BY (credit the author)" },
+const licenses = () => [
+  { id: "CC0-1.0", label: t("skills.licenseCc0") },
+  { id: "MIT", label: t("skills.licenseMit") },
+  { id: "CC-BY-4.0", label: t("skills.licenseCcBy") },
 ];
 
 /** The skill being shared: the file's details, asked for before it is written. */
@@ -284,13 +283,11 @@ function SkillsView({
       const packed = await api.exportPackage(exporting.name, exporting.version.trim(), author === "" ? null : author, exporting.license);
       const path = await save({
         defaultPath: `${exporting.name}.warden-skill.json`,
-        filters: [{ name: "Warden skill", extensions: ["json"] }],
+        filters: [{ name: t("skills.fileFilter"), extensions: ["json"] }],
       });
       if (!path) return;
       await invoke("write_skill_package_file", { path, content: packed.content });
-      setNotice(
-        `Saved ${path}.` + (packed.attachmentsSkipped ? " The files attached to this skill are not in it: only the text is shared." : ""),
-      );
+      setNotice(t("skills.saved", { path }) + (packed.attachmentsSkipped ? t("skills.attachmentsSkipped") : ""));
       setExporting(null);
     } catch (err) {
       setError(String(err));
@@ -336,7 +333,7 @@ function SkillsView({
   async function handleChooseImportFile() {
     setError(null);
     try {
-      const path = await open({ multiple: false, filters: [{ name: "Warden skill", extensions: ["json"] }] });
+      const path = await open({ multiple: false, filters: [{ name: t("skills.fileFilter"), extensions: ["json"] }] });
       if (typeof path !== "string") return;
       const content = await invoke<string>("read_skill_package_file", { path });
       await handleCheckImport(content);
@@ -363,7 +360,7 @@ function SkillsView({
     setError(null);
     try {
       await api.installPackage(importing.content, importing.replace, importing.allowFlagged);
-      setNotice(`Installed ${importing.preview.name}.`);
+      setNotice(t("skills.installed", { name: importing.preview.name }));
       setImporting(null);
       refresh();
     } catch (err) {
@@ -470,12 +467,8 @@ function SkillsView({
 
   return (
     <div className="settings-view">
-      <h2 className="settings-title">Skills</h2>
-      <p className="settings-hint">
-        Skills are reusable instructions the AI loads on its own when a request matches one — they cost nothing in a
-        conversation until used. Create one here, describe one and let the AI draft it, or just ask for one in a chat.
-        They're stored as plain markdown in <code>skills/</code> inside your vault, so they sync with it.
-      </p>
+      <h2 className="settings-title">{t("skills.title")}</h2>
+      <p className="settings-hint">{rich("skills.hint", { folder: <code>skills/</code> })}</p>
 
       {loadError && <p className="settings-error-banner">{loadError}</p>}
       {error && <p className="settings-error-banner">{error}</p>}
@@ -483,29 +476,27 @@ function SkillsView({
       {!remote && (
         <section className="settings-section">
           <div className="settings-section-header">
-            <h3 className="settings-section-title">Describe a skill</h3>
+            <h3 className="settings-section-title">{t("skills.describe")}</h3>
           </div>
           <label className="settings-field">
-            <span className="settings-hint">
-              Say roughly what it should do — the AI writes a draft you can review and edit before saving.
-            </span>
+            <span className="settings-hint">{t("skills.describeHint")}</span>
             <textarea
               className="settings-input settings-textarea"
               rows={3}
-              placeholder="e.g. 'How to review a pull request: check tests first, then naming, then security, and answer with a short verdict plus a bullet list of issues.'"
+              placeholder={t("skills.describePlaceholder")}
               value={prompt}
               onChange={(e) => setPrompt(e.currentTarget.value)}
             />
           </label>
           {providers.length > 1 && (
             <label className="settings-field">
-              <span className="settings-label">Model</span>
+              <span className="settings-label">{t("skills.model")}</span>
               <select
                 className="settings-select"
                 value={draftProvider}
                 onChange={(e) => setDraftProvider(e.currentTarget.value)}
               >
-                <option value="">Active provider{activeProvider ? ` (${activeProvider})` : ""}</option>
+                <option value="">{activeProvider ? t("skills.activeProviderNamed", { name: activeProvider }) : t("skills.activeProvider")}</option>
                 {providers
                   .filter((p) => p.id !== activeProvider)
                   .map((p) => (
@@ -522,20 +513,18 @@ function SkillsView({
             onClick={handleGenerate}
             disabled={generating || prompt.trim() === ""}
           >
-            {generating ? "Drafting…" : "Generate draft"}
+            {generating ? t("skills.drafting") : t("skills.generate")}
           </button>
         </section>
       )}
 
       {editor && (
         <div className="provider-card skill-editor">
-          <span className="settings-section-title">{editor.mode === "new" ? "New skill" : `Edit ${editor.skill.name}`}</span>
-          {editor.fromAi && (
-            <p className="settings-hint">AI draft — read it through and adjust anything before saving.</p>
-          )}
+          <span className="settings-section-title">{editor.mode === "new" ? t("skills.newSkill") : t("skills.editSkill", { name: editor.skill.name })}</span>
+          {editor.fromAi && <p className="settings-hint">{t("skills.aiDraft")}</p>}
 
           <label className="settings-field">
-            <span className="settings-label">Name</span>
+            <span className="settings-label">{t("skills.name")}</span>
             <input
               className="settings-input"
               type="text"
@@ -544,38 +533,38 @@ function SkillsView({
               disabled={editor.mode === "edit"}
               onChange={(e) => updateEditor({ name: e.currentTarget.value })}
             />
-            <span className="settings-hint">Lowercase letters, digits and hyphens. It can't be changed after saving.</span>
+            <span className="settings-hint">{t("skills.nameHint")}</span>
           </label>
 
           <label className="settings-field">
-            <span className="settings-label">Description</span>
+            <span className="settings-label">{t("skills.description")}</span>
             <input
               className="settings-input"
               type="text"
-              placeholder="One sentence: what it does and when to use it"
+              placeholder={t("skills.descriptionPlaceholder")}
               value={editor.skill.description}
               onChange={(e) => updateEditor({ description: e.currentTarget.value })}
             />
           </label>
 
           <label className="settings-field">
-            <span className="settings-label">Instructions</span>
+            <span className="settings-label">{t("skills.instructions")}</span>
             <textarea
               className="settings-input settings-textarea"
               rows={10}
-              placeholder="The full instructions the AI should follow, in markdown."
+              placeholder={t("skills.instructionsPlaceholder")}
               value={editor.skill.body}
               onChange={(e) => updateEditor({ body: e.currentTarget.value })}
             />
           </label>
 
           <div className="settings-field">
-            <span className="settings-label">Available to</span>
+            <span className="settings-label">{t("skills.availableTo")}</span>
             {(() => {
               const known = new Set(agents.map((a) => a.id));
               const ids = [...agents.map((a) => a.id), ...editor.skill.agents.filter((id) => !known.has(id))];
               return ids.length === 0 ? (
-                <span className="settings-hint">No agents configured — every skill is visible to every conversation.</span>
+                <span className="settings-hint">{t("skills.noAgents")}</span>
               ) : (
                 <div className="skill-agent-list">
                   {ids.map((id) => (
@@ -586,16 +575,13 @@ function SkillsView({
                         onChange={(e) => toggleAgent(id, e.currentTarget.checked)}
                       />
                       {id}
-                      {!known.has(id) && <span className="settings-hint"> (agent no longer exists)</span>}
+                      {!known.has(id) && <span className="settings-hint">{t("skills.agentGone")}</span>}
                     </label>
                   ))}
                 </div>
               );
             })()}
-            <span className="settings-hint">
-              None ticked means every agent sees it. Ticked means only those agents — chats without an agent won't
-              see it.
-            </span>
+            <span className="settings-hint">{t("skills.availableHint")}</span>
           </div>
 
           {editor.skill.proposed && (
@@ -605,22 +591,22 @@ function SkillsView({
                 checked={editor.accept ?? false}
                 onChange={(e) => setEditor({ ...editor, accept: e.currentTarget.checked })}
               />
-              Accept this skill — it starts applying in conversations
+              {t("skills.accept")}
             </label>
           )}
 
           {remote ? null : editor.mode === "edit" ? (
             <SkillFiles skillName={editor.skill.name} />
           ) : (
-            <span className="settings-hint">Save the skill first, then you can attach files to it.</span>
+            <span className="settings-hint">{t("skills.saveFirst")}</span>
           )}
 
           <div className="skill-editor-actions">
             <button type="button" className="settings-save-btn" onClick={handleSave} disabled={saving}>
-              {saving ? "Saving…" : "Save skill"}
+              {saving ? t("common.saving") : t("skills.save")}
             </button>
             <button type="button" className="settings-browse-btn" onClick={() => setEditor(null)} disabled={saving}>
-              Cancel
+              {t("common.cancel")}
             </button>
           </div>
         </div>
@@ -630,35 +616,32 @@ function SkillsView({
 
       {exporting && (
         <div className="provider-card skill-editor">
-          <span className="settings-section-title">Share {exporting.name}</span>
-          <p className="settings-hint">
-            This saves the skill's text as a file anyone can import. Files attached to the skill are not included. Once you give
-            the file to someone, you can't take it back.
-          </p>
+          <span className="settings-section-title">{t("skills.share", { name: exporting.name })}</span>
+          <p className="settings-hint">{t("skills.shareHint")}</p>
           <label className="settings-field">
-            <span className="settings-label">Version</span>
+            <span className="settings-label">{t("skills.version")}</span>
             <input
               className="settings-input"
               type="text"
               value={exporting.version}
               onChange={(e) => setExporting({ ...exporting, version: e.currentTarget.value })}
             />
-            <span className="settings-hint">Numbers separated by dots, like 1.0.0. Raise it when you change the skill.</span>
+            <span className="settings-hint">{t("skills.versionHint")}</span>
           </label>
           <label className="settings-field">
-            <span className="settings-label">Author (optional)</span>
+            <span className="settings-label">{t("skills.author")}</span>
             <input
               className="settings-input"
               type="text"
-              placeholder="Your name or handle"
+              placeholder={t("skills.authorPlaceholder")}
               value={exporting.author}
               onChange={(e) => setExporting({ ...exporting, author: e.currentTarget.value })}
             />
           </label>
           <label className="settings-field">
-            <span className="settings-label">License</span>
+            <span className="settings-label">{t("skills.license")}</span>
             <select className="settings-select" value={exporting.license} onChange={(e) => setExporting({ ...exporting, license: e.currentTarget.value })}>
-              {LICENSES.map((l) => (
+              {licenses().map((l) => (
                 <option key={l.id} value={l.id}>
                   {l.label}
                 </option>
@@ -667,10 +650,10 @@ function SkillsView({
           </label>
           <div className="skill-editor-actions">
             <button type="button" className="settings-save-btn" onClick={handleExport}>
-              Save as file…
+              {t("skills.saveAsFile")}
             </button>
             <button type="button" className="settings-browse-btn" onClick={() => setExporting(null)}>
-              Cancel
+              {t("common.cancel")}
             </button>
           </div>
         </div>
@@ -678,58 +661,50 @@ function SkillsView({
 
       {publishing && (
         <div className="provider-card skill-editor">
-          <span className="settings-section-title">Publish {publishing.name}</span>
+          <span className="settings-section-title">{t("skills.publish", { name: publishing.name })}</span>
           {publishing.phase === "form" && (
             <>
-              <p className="settings-hint">
-                This puts the skill's text on Arweave through your TruthID app, so anyone can find and read it.{" "}
-                <strong>It is public and permanent: it can't be taken back or edited</strong> (a new version is a new publication), and the
-                fee is paid from your TruthID wallet. Keep your phone on the same network as this computer.
-              </p>
+              <p className="settings-hint">{rich("skills.publishHint", { permanent: <strong>{t("skills.publishPermanent")}</strong> })}</p>
               <label className="settings-field">
-                <span className="settings-label">Version</span>
+                <span className="settings-label">{t("skills.version")}</span>
                 <input
                   className="settings-input"
                   type="text"
                   value={publishing.version}
                   onChange={(e) => setPublishing({ ...publishing, version: e.currentTarget.value })}
                 />
-                <span className="settings-hint">Numbers separated by dots, like 1.0.0.</span>
+                <span className="settings-hint">{t("skills.versionHintShort")}</span>
               </label>
               <label className="settings-field">
-                <span className="settings-label">Author (optional)</span>
+                <span className="settings-label">{t("skills.author")}</span>
                 <input
                   className="settings-input"
                   type="text"
-                  placeholder="Your name or handle"
+                  placeholder={t("skills.authorPlaceholder")}
                   value={publishing.author}
                   onChange={(e) => setPublishing({ ...publishing, author: e.currentTarget.value })}
                 />
               </label>
               <label className="settings-field">
-                <span className="settings-label">License</span>
+                <span className="settings-label">{t("skills.license")}</span>
                 <select className="settings-select" value={publishing.license} onChange={(e) => setPublishing({ ...publishing, license: e.currentTarget.value })}>
-                  {LICENSES.map((l) => (
+                  {licenses().map((l) => (
                     <option key={l.id} value={l.id}>
                       {l.label}
                     </option>
                   ))}
                 </select>
               </label>
-              {publishing.finding && (
-                <p className="settings-error-banner">
-                  This text contains {publishing.finding}. People who import it are warned about that. Check that it is what you mean to publish.
-                </p>
-              )}
+              {publishing.finding && <p className="settings-error-banner">{t("skills.finding", { finding: publishing.finding })}</p>}
               {publishing.finding && (
                 <label className="skill-agent-option">
                   <input type="checkbox" checked={publishing.flaggedOk} onChange={(e) => setPublishing({ ...publishing, flaggedOk: e.currentTarget.checked })} />
-                  I checked it and want to publish it anyway
+                  {t("skills.flaggedOk")}
                 </label>
               )}
               <label className="skill-agent-option">
                 <input type="checkbox" checked={publishing.understood} onChange={(e) => setPublishing({ ...publishing, understood: e.currentTarget.checked })} />
-                I understand it will be public and permanent
+                {t("skills.understood")}
               </label>
               <div className="skill-editor-actions">
                 <button
@@ -738,31 +713,28 @@ function SkillsView({
                   onClick={handlePublish}
                   disabled={!publishing.understood || (publishing.finding !== null && !publishing.flaggedOk)}
                 >
-                  Show the QR code
+                  {t("skills.showQr")}
                 </button>
                 <button type="button" className="settings-browse-btn" onClick={() => setPublishing(null)}>
-                  Cancel
+                  {t("common.cancel")}
                 </button>
               </div>
             </>
           )}
           {publishing.phase === "waiting" && (
             <>
-              <p className="settings-hint">Scan this code with the TruthID app and approve the publication. This waits up to 3 minutes.</p>
+              <p className="settings-hint">{t("skills.scanPublish")}</p>
               {publishing.qrSvg && <div className="sync-qr-image" dangerouslySetInnerHTML={{ __html: publishing.qrSvg }} />}
-              <p className="settings-hint">Stay on this screen: the address of the publication appears here when the phone is done.</p>
+              <p className="settings-hint">{t("skills.stayHere")}</p>
             </>
           )}
           {publishing.phase === "done" && publishing.txId && (
             <>
-              <p className="settings-hint">
-                Published. Its address is <code>ar://{publishing.txId}</code>. It can take a few minutes to show up on the gateways. Keep
-                this address: nothing in Warden lists what you published.
-              </p>
+              <p className="settings-hint">{rich("skills.published", { address: <code>ar://{publishing.txId}</code> })}</p>
               <div className="skill-editor-actions">
-                <CopyButton text={`ar://${publishing.txId}`} className="settings-browse-btn" label="Copy the address" />
+                <CopyButton text={`ar://${publishing.txId}`} className="settings-browse-btn" label={t("skills.copyAddress")} />
                 <button type="button" className="settings-browse-btn" onClick={() => setPublishing(null)}>
-                  Close
+                  {t("common.close")}
                 </button>
               </div>
             </>
@@ -772,12 +744,12 @@ function SkillsView({
 
       {importing && (
         <div className="provider-card skill-editor">
-          <span className="settings-section-title">Import a skill</span>
+          <span className="settings-section-title">{t("skills.import")}</span>
           {importing.preview === null ? (
             <>
-              <p className="settings-hint">Choose a skill file, or paste its text. Nothing is installed until you have read it.</p>
+              <p className="settings-hint">{t("skills.importHint")}</p>
               <label className="settings-field">
-                <span className="settings-label">Or an address on Arweave</span>
+                <span className="settings-label">{t("skills.orAddress")}</span>
                 <input
                   className="settings-input"
                   type="text"
@@ -787,24 +759,24 @@ function SkillsView({
                 />
               </label>
               <button type="button" className="settings-browse-btn" onClick={handleFetchImport} disabled={importing.address.trim() === ""}>
-                Fetch it
+                {t("skills.fetch")}
               </button>
               <textarea
                 className="settings-input settings-textarea"
                 rows={6}
-                placeholder="Paste the contents of a .warden-skill.json file"
+                placeholder={t("skills.pastePlaceholder")}
                 value={importing.content}
                 onChange={(e) => setImporting({ ...importing, content: e.currentTarget.value })}
               />
               <div className="skill-editor-actions">
                 <button type="button" className="settings-browse-btn" onClick={handleChooseImportFile}>
-                  Choose a file…
+                  {t("skills.chooseFile")}
                 </button>
                 <button type="button" className="settings-save-btn" onClick={() => handleCheckImport(importing.content)} disabled={importing.content.trim() === ""}>
-                  Read it
+                  {t("skills.readIt")}
                 </button>
                 <button type="button" className="settings-browse-btn" onClick={() => setImporting(null)}>
-                  Cancel
+                  {t("common.cancel")}
                 </button>
               </div>
             </>
@@ -813,26 +785,21 @@ function SkillsView({
               <p className="skill-card-name">{importing.preview.name}</p>
               <p className="skill-card-description">{importing.preview.description}</p>
               <p className="settings-hint">
-                Version {importing.preview.version} · License {importing.preview.license}
-                {importing.preview.author ? ` · By ${importing.preview.author}` : " · No author given"} ·{" "}
-                <code>{importing.preview.hash.slice(0, 19)}…</code>
+                {rich("skills.meta", {
+                  version: importing.preview.version,
+                  license: importing.preview.license,
+                  author: importing.preview.author ? t("skills.by", { author: importing.preview.author }) : t("skills.noAuthor"),
+                  hash: <code>{importing.preview.hash.slice(0, 19)}…</code>,
+                })}
               </p>
-              <p className="settings-hint">
-                The code above only shows the file was not changed on the way. It does not prove who wrote it: read the text before
-                installing.
-              </p>
-              {importing.preview.finding && (
-                <p className="settings-error-banner">
-                  This text contains {importing.preview.finding}. A skill is instructions the AI follows, so check that it is what you
-                  expect.
-                </p>
-              )}
+              <p className="settings-hint">{t("skills.hashNote")}</p>
+              {importing.preview.finding && <p className="settings-error-banner">{t("skills.importFinding", { finding: importing.preview.finding })}</p>}
               <pre className="skill-suggestion-body">{importing.preview.body}</pre>
-              {importing.preview.status === "installed" && <p className="settings-hint">You already have this exact skill.</p>}
+              {importing.preview.status === "installed" && <p className="settings-hint">{t("skills.alreadyHave")}</p>}
               {importing.preview.status === "modified" && (
                 <label className="skill-agent-option">
                   <input type="checkbox" checked={importing.replace} onChange={(e) => setImporting({ ...importing, replace: e.currentTarget.checked })} />
-                  Replace the skill I already have with this name
+                  {t("skills.replace")}
                 </label>
               )}
               {importing.preview.finding && (
@@ -842,7 +809,7 @@ function SkillsView({
                     checked={importing.allowFlagged}
                     onChange={(e) => setImporting({ ...importing, allowFlagged: e.currentTarget.checked })}
                   />
-                  I read it and want to install it anyway
+                  {t("skills.installAnyway")}
                 </label>
               )}
               <div className="skill-editor-actions">
@@ -856,13 +823,13 @@ function SkillsView({
                     (!!importing.preview.finding && !importing.allowFlagged)
                   }
                 >
-                  Install
+                  {t("skills.installButton")}
                 </button>
                 <button type="button" className="settings-browse-btn" onClick={() => setImporting({ ...importing, preview: null })}>
-                  Back
+                  {t("skills.back")}
                 </button>
                 <button type="button" className="settings-browse-btn" onClick={() => setImporting(null)}>
-                  Cancel
+                  {t("common.cancel")}
                 </button>
               </div>
             </>
@@ -873,56 +840,53 @@ function SkillsView({
       {suggested.length > 0 && (
         <section className="settings-section">
           <div className="settings-section-header">
-            <h3 className="settings-section-title">Suggested by the AI</h3>
+            <h3 className="settings-section-title">{t("skills.suggested")}</h3>
           </div>
-          <p className="settings-hint">
-            After some conversations the assistant suggested these. <strong>None of them applies until you accept it</strong>:
-            read it, edit it if needed, then accept or reject.
-          </p>
+          <p className="settings-hint">{rich("skills.suggestedHint", { none: <strong>{t("skills.suggestedNone")}</strong> })}</p>
           <div className="provider-list">
             {suggested.map((skill) => (
               <div className="provider-card skill-card" key={skill.name}>
                 <div className="skill-card-header">
                   <span className="skill-card-name">{skill.name}</span>
-                  <span className="settings-hint">{skill.revises ? `suggested change to ${skill.revises} — not applied` : "suggested — not active"}</span>
+                  <span className="settings-hint">{skill.revises ? t("skills.suggestedChange", { name: skill.revises }) : t("skills.suggestedInactive")}</span>
                   <div className="skill-card-actions">
                     {confirmDelete === skill.name ? (
                       <>
-                        <span className="settings-hint">Reject this suggestion?</span>
+                        <span className="settings-hint">{t("skills.rejectAsk")}</span>
                         <button type="button" className="provider-delete-btn" onClick={() => handleDelete(skill.name)}>
-                          Reject
+                          {t("skills.reject")}
                         </button>
                         <button type="button" className="settings-browse-btn" onClick={() => setConfirmDelete(null)}>
-                          Keep
+                          {t("common.keep")}
                         </button>
                       </>
                     ) : (
                       <>
                         <button type="button" className="settings-save-btn" onClick={() => handleAccept(skill)}>
-                          Accept
+                          {t("skills.acceptButton")}
                         </button>
                         <button type="button" className="settings-browse-btn" onClick={() => openEdit(skill)}>
-                          Edit
+                          {t("common.edit")}
                         </button>
                         <button type="button" className="provider-delete-btn" onClick={() => setConfirmDelete(skill.name)}>
-                          Reject
+                          {t("skills.reject")}
                         </button>
                       </>
                     )}
                   </div>
                 </div>
-                <p className="skill-card-description">{skill.description || "(no description)"}</p>
+                <p className="skill-card-description">{skill.description || t("skills.noDescription")}</p>
                 <p className="settings-hint">
-                  {skill.source ? `From conversation ${skill.source}` : "From a conversation"}
-                  {skill.proposedAt ? ` · ${new Date(skill.proposedAt).toLocaleString()}` : ""}
-                  {skill.agents.length > 0 ? ` · only for: ${skill.agents.join(", ")}` : ""}
+                  {skill.source ? t("skills.fromConversation", { id: skill.source }) : t("skills.fromAConversation")}
+                  {skill.proposedAt ? ` · ${new Date(skill.proposedAt).toLocaleString(intlTag())}` : ""}
+                  {skill.agents.length > 0 ? t("skills.onlyFor", { agents: skill.agents.join(", ") }) : ""}
                 </p>
                 {(() => {
                   const target = skill.revises ? active.find((s) => s.name === skill.revises) : undefined;
                   if (!target) {
                     return (
                       <details>
-                        <summary className="settings-hint">View the instructions</summary>
+                        <summary className="settings-hint">{t("skills.viewInstructions")}</summary>
                         <pre className="skill-suggestion-body">{skill.body}</pre>
                       </details>
                     );
@@ -930,7 +894,7 @@ function SkillsView({
                   const diff = diffLines(target.body, skill.body);
                   return (
                     <details>
-                      <summary className="settings-hint">View what changes in {target.name}</summary>
+                      <summary className="settings-hint">{t("skills.viewChanges", { name: target.name })}</summary>
                       {hasChanges(diff) ? (
                         <pre className="skill-suggestion-body skill-diff">
                           {withContext(diff).map((line, i) => (
@@ -942,7 +906,7 @@ function SkillsView({
                           ))}
                         </pre>
                       ) : (
-                        <p className="settings-hint">No change in the instruction text.</p>
+                        <p className="settings-hint">{t("skills.noChange")}</p>
                       )}
                     </details>
                   );
@@ -955,7 +919,7 @@ function SkillsView({
 
       <section className="settings-section">
         <div className="settings-section-header">
-          <h3 className="settings-section-title">Your skills</h3>
+          <h3 className="settings-section-title">{t("skills.yours")}</h3>
           <div className="skill-card-actions">
             <button
               type="button"
@@ -966,18 +930,18 @@ function SkillsView({
                 setImporting({ content: "", preview: null, allowFlagged: false, replace: false, address: "" });
               }}
             >
-              Import
+              {t("skills.importButton")}
             </button>
             <button type="button" className="settings-browse-btn" onClick={openNew}>
-              + New skill
+              {t("skills.add")}
             </button>
           </div>
         </div>
 
         {skills === null ? (
-          <p className="settings-hint">Loading skills…</p>
+          <p className="settings-hint">{t("skills.loading")}</p>
         ) : active.length === 0 ? (
-          <p className="settings-hint">{suggested.length > 0 ? "No active skills yet." : "No skills yet."}</p>
+          <p className="settings-hint">{suggested.length > 0 ? t("skills.noActive") : t("skills.none")}</p>
         ) : (
           <div className="provider-list">
             {active.map((skill) => (
@@ -987,18 +951,18 @@ function SkillsView({
                   <div className="skill-card-actions">
                     {confirmDelete === skill.name ? (
                       <>
-                        <span className="settings-hint">Delete this skill?</span>
+                        <span className="settings-hint">{t("skills.deleteAsk")}</span>
                         <button type="button" className="provider-delete-btn" onClick={() => handleDelete(skill.name)}>
-                          Delete
+                          {t("common.delete")}
                         </button>
                         <button type="button" className="settings-browse-btn" onClick={() => setConfirmDelete(null)}>
-                          Keep
+                          {t("common.keep")}
                         </button>
                       </>
                     ) : (
                       <>
                         <button type="button" className="settings-browse-btn" onClick={() => openEdit(skill)}>
-                          Edit
+                          {t("common.edit")}
                         </button>
                         <button
                           type="button"
@@ -1006,10 +970,10 @@ function SkillsView({
                           onClick={() => {
                             setError(null);
                             setNotice(null);
-                            setExporting({ name: skill.name, version: "1.0.0", author: "", license: LICENSES[0].id });
+                            setExporting({ name: skill.name, version: "1.0.0", author: "", license: licenses()[0].id });
                           }}
                         >
-                          Share
+                          {t("skills.shareButton")}
                         </button>
                         <button
                           type="button"
@@ -1021,7 +985,7 @@ function SkillsView({
                               name: skill.name,
                               version: "1.0.0",
                               author: "",
-                              license: LICENSES[0].id,
+                              license: licenses()[0].id,
                               understood: false,
                               finding: null,
                               flaggedOk: false,
@@ -1031,14 +995,14 @@ function SkillsView({
                             });
                           }}
                         >
-                          Publish
+                          {t("skills.publishButton")}
                         </button>
                         <button
                           type="button"
                           className="provider-delete-btn"
                           onClick={() => setConfirmDelete(skill.name)}
-                          aria-label={`Delete ${skill.name}`}
-                          title="Delete this skill"
+                          aria-label={t("skills.deleteLabel", { name: skill.name })}
+                          title={t("skills.deleteTitle")}
                         >
                           🗑
                         </button>
@@ -1046,8 +1010,8 @@ function SkillsView({
                     )}
                   </div>
                 </div>
-                <p className="skill-card-description">{skill.description || "(no description)"}</p>
-                {skill.agents.length > 0 && <p className="settings-hint">Only for: {skill.agents.join(", ")}</p>}
+                <p className="skill-card-description">{skill.description || t("skills.noDescription")}</p>
+                {skill.agents.length > 0 && <p className="settings-hint">{t("skills.onlyForLine", { agents: skill.agents.join(", ") })}</p>}
               </div>
             ))}
           </div>
@@ -1057,12 +1021,9 @@ function SkillsView({
       {catalog !== null && catalog.length > 0 && (
         <section className="settings-section">
           <div className="settings-section-header">
-            <h3 className="settings-section-title">Gallery</h3>
+            <h3 className="settings-section-title">{t("skills.gallery")}</h3>
           </div>
-          <p className="settings-hint">
-            Ready-made skills that come with Warden. Installing one copies it into <code>skills/</code> in your vault, where
-            you can edit it like any other skill. Nothing is downloaded.
-          </p>
+          <p className="settings-hint">{rich("skills.galleryHint", { folder: <code>skills/</code> })}</p>
           <div className="provider-list">
             {catalog.map((entry) => (
               <div className="provider-card skill-card" key={entry.name}>
@@ -1070,27 +1031,27 @@ function SkillsView({
                   <span className="skill-card-name">{entry.name}</span>
                   <div className="skill-card-actions">
                     {entry.status === "installed" ? (
-                      <span className="settings-hint">Installed</span>
+                      <span className="settings-hint">{t("skills.installedBadge")}</span>
                     ) : entry.status === "modified" && confirmReplace === entry.name ? (
                       <>
-                        <span className="settings-hint">Replace your version of this skill?</span>
+                        <span className="settings-hint">{t("skills.replaceAsk")}</span>
                         <button
                           type="button"
                           className="provider-delete-btn"
                           onClick={() => handleInstall(entry.name, true)}
                           disabled={installing === entry.name}
                         >
-                          Replace
+                          {t("skills.replaceButton")}
                         </button>
                         <button type="button" className="settings-browse-btn" onClick={() => setConfirmReplace(null)}>
-                          Keep mine
+                          {t("skills.keepMine")}
                         </button>
                       </>
                     ) : entry.status === "modified" ? (
                       <>
-                        <span className="settings-hint">You have a different skill with this name</span>
+                        <span className="settings-hint">{t("skills.different")}</span>
                         <button type="button" className="settings-browse-btn" onClick={() => setConfirmReplace(entry.name)}>
-                          Use the gallery version
+                          {t("skills.useGallery")}
                         </button>
                       </>
                     ) : (
@@ -1100,14 +1061,14 @@ function SkillsView({
                         onClick={() => handleInstall(entry.name, false)}
                         disabled={installing === entry.name}
                       >
-                        {installing === entry.name ? "Installing…" : "Install"}
+                        {installing === entry.name ? t("skills.installing") : t("skills.installButton")}
                       </button>
                     )}
                   </div>
                 </div>
                 <p className="skill-card-description">{entry.description}</p>
                 <details>
-                  <summary className="settings-hint">View the instructions</summary>
+                  <summary className="settings-hint">{t("skills.viewInstructions")}</summary>
                   <pre className="skill-suggestion-body">{entry.body}</pre>
                 </details>
               </div>

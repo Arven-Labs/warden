@@ -1,3 +1,5 @@
+import { t } from "../i18n";
+import { shortDate } from "../i18n/format";
 import type { AgentEntry, Conversation } from "../types";
 
 interface AgentContactsProps {
@@ -16,14 +18,6 @@ interface AgentContactsProps {
   onOpen: (agentId: string) => void;
 }
 
-/** "14:05" today, "12/09" before that. */
-function shortDate(millis: number): string {
-  const date = new Date(millis);
-  return date.toDateString() === new Date().toDateString()
-    ? date.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })
-    : date.toLocaleDateString(undefined, { day: "2-digit", month: "2-digit" });
-}
-
 /** P121 — the agents as contacts: each has one conversation with the person, its channel, which stays where it was left. Newest first, the
  * ones never spoken to at the end. */
 function AgentContacts({ agents, channels, conversations, activeAgent, unreadAgents, answeringIds, disabled, onOpen }: AgentContactsProps) {
@@ -36,9 +30,9 @@ function AgentContacts({ agents, channels, conversations, activeAgent, unreadAge
     .sort((a, b) => (b.channel?.updatedAt ?? 0) - (a.channel?.updatedAt ?? 0));
 
   return (
-    <aside className="agent-contacts" aria-label="Agents">
+    <aside className="agent-contacts" aria-label={t("contacts.label")}>
       {rows.length === 0 ? (
-        <p className="conversation-list-empty">No agents configured yet.</p>
+        <p className="conversation-list-empty">{t("contacts.empty")}</p>
       ) : (
         <ul className="agent-contact-list">
           {rows.map(({ id, channel, answering }) => (
@@ -51,10 +45,10 @@ function AgentContacts({ agents, channels, conversations, activeAgent, unreadAge
                 aria-current={id === activeAgent ? "true" : undefined}
               >
                 <span className="agent-contact-name">
-                  {unreadAgents.includes(id) && <span className="unread-dot" role="img" aria-label="new message" />}
+                  {unreadAgents.includes(id) && <span className="unread-dot" role="img" aria-label={t("contacts.newMessage")} />}
                   {id}
                 </span>
-                <span className="agent-contact-meta">{answering ? "answering…" : channel ? shortDate(channel.updatedAt) : "new"}</span>
+                <span className="agent-contact-meta">{answering ? t("contacts.answering") : channel ? shortDate(channel.updatedAt) : t("contacts.new")}</span>
               </button>
             </li>
           ))}

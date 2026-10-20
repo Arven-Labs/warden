@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import "./App.css";
+import { t, useLocale } from "./i18n";
 import ChatArea from "./components/ChatArea";
 import HubConnectDialog from "./components/HubConnectDialog";
 import HubSwitcher from "./components/HubSwitcher";
@@ -129,6 +130,8 @@ function replaceWithSaved(conversations: Conversation[], saved: Conversation): C
 }
 
 function App() {
+  // Draws the whole app again when the person switches the language.
+  useLocale();
   const [conversations, setConversations] = useState<Conversation[]>([]);
   /** The ids of this computer's conversations that are on the hub (P124). */
   const [sharedIds, setSharedIds] = useState<string[]>([]);
@@ -563,7 +566,7 @@ function App() {
       try {
         id = await hubOpenAgentChannel(agent);
       } catch (err) {
-        setSendError(`Could not open the channel: ${String(err)}`);
+        setSendError(t("app.channelError", { error: String(err) }));
         return;
       }
       const known = id;
@@ -786,7 +789,7 @@ function App() {
   /** A turn on a hub (P102): it keeps the conversation, so nothing is saved from here and its copy replaces what is shown. */
   async function handleSendRemote(content: string, attachments: Attachment[], replaceFrom?: string) {
     if (!remoteReady) {
-      setSendError("Not connected to the hub right now.");
+      setSendError(t("app.notConnected"));
       return;
     }
     const conversationId = activeConversationId ?? crypto.randomUUID();
@@ -802,7 +805,7 @@ function App() {
       ...(attachments.length > 0 ? { attachments } : {}),
     };
     const isCodeTurn = projects.some((p) => p.id === currentProjectId && p.code);
-    appendMessage(conversationId, userMessage, content || "Image", false);
+    appendMessage(conversationId, userMessage, content || t("app.image"), false);
     if (creating) startedHere.current.add(conversationId);
     if (activeConversationId === null) {
       setCodeModes(({ new: _started, ...rest }) => ({ ...rest, [conversationId]: codeMode }));
@@ -868,7 +871,7 @@ function App() {
     const isCodeTurn = projects.some((p) => p.id === currentProjectId && p.code);
     // A redo shows the conversation cut first: the saved copy that comes back keeps whatever this screen still shows.
     if (replaceFrom) setConversations((prev) => withoutFrom(prev, conversationId, replaceFrom));
-    appendMessage(conversationId, userMessage, content || "Image", !isCodeTurn, undefined, replaceFrom);
+    appendMessage(conversationId, userMessage, content || t("app.image"), !isCodeTurn, undefined, replaceFrom);
     if (activeConversationId === null) {
       // The mode picked before the first message goes with the conversation that message starts.
       setCodeModes(({ new: _started, ...rest }) => ({ ...rest, [conversationId]: codeMode }));
@@ -960,7 +963,7 @@ function App() {
     appendMessage(
       threadId,
       { id: crypto.randomUUID(), role: "user", content, createdAt: Date.now(), ...(attachments.length > 0 ? { attachments } : {}) },
-      content || "Image",
+      content || t("app.image"),
       true,
       scope,
     );
@@ -1126,13 +1129,13 @@ function App() {
           />
         ) : view === "agents" && !work && !isAgentChannel(activeConversationId ?? "") ? (
           <div className="chat-area chat-empty-state">
-            <h1>Agents</h1>
-            <p>Pick an agent to talk with it. Each agent has one conversation, which stays here.</p>
+            <h1>{t("app.agentsTitle")}</h1>
+            <p>{t("app.agentsHint")}</p>
           </div>
         ) : (
         <ChatArea
           channel={view === "agents"}
-          channelTitle={work ? activeConversation?.title ?? "Conversation" : undefined}
+          channelTitle={work ? activeConversation?.title ?? t("app.conversation") : undefined}
           headerAction={
             view !== "agents"
               ? undefined

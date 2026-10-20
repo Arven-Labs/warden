@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { intlTag, t } from "../i18n";
+import { rich } from "../i18n/rich";
 import type { AgentEntry, RunMessage, Webhook, WebhookAuth, WebhookCreated, WebhookInfo, WebhookList } from "../types";
 import { hubWebhooks } from "../lib/hub";
 import { KeyCancelled, usePairingKey } from "./PairingKeyDialog";
@@ -34,10 +36,25 @@ interface EditorState {
   webhook: Webhook;
 }
 
-const dateFormatter = new Intl.DateTimeFormat(undefined, { dateStyle: "short", timeStyle: "short" });
+const dateFormatter = () => new Intl.DateTimeFormat(intlTag(), { dateStyle: "short", timeStyle: "short" });
 
-const authNames: Record<WebhookAuth, string> = { token: "token", hmac: "HMAC signature" };
-const credentialNames: Record<WebhookAuth, string> = { token: "token", hmac: "signing secret" };
+// Getters, so each read says the words of the language the person has now.
+const authNames: Record<WebhookAuth, string> = {
+  get token() {
+    return t("webhooks.authToken");
+  },
+  get hmac() {
+    return t("webhooks.authHmac");
+  },
+};
+const credentialNames: Record<WebhookAuth, string> = {
+  get token() {
+    return t("webhooks.credToken");
+  },
+  get hmac() {
+    return t("webhooks.credHmac");
+  },
+};
 
 function editorFor(hook: WebhookInfo): EditorState {
   return { originalId: hook.id, originalAuth: hook.auth, webhook: { id: hook.id, agentId: hook.agentId, prompt: hook.prompt, enabled: hook.enabled, auth: hook.auth } };
@@ -45,14 +62,14 @@ function editorFor(hook: WebhookInfo): EditorState {
 
 function statusLine(hook: WebhookInfo): string {
   const parts: string[] = [];
-  if (!hook.credential) parts.push("no credential: takes no calls");
-  else if (hook.credential !== hook.auth) parts.push(`the credential is a ${credentialNames[hook.credential]} but the webhook wants a ${authNames[hook.auth]}: make a new one`);
+  if (!hook.credential) parts.push(t("webhooks.noCredential"));
+  else if (hook.credential !== hook.auth) parts.push(t("webhooks.wrongCredential", { have: credentialNames[hook.credential], want: authNames[hook.auth] }));
   else {
-    parts.push(`${credentialNames[hook.credential]} ${hook.shown ?? ""}…`);
-    if (hook.createdAtMs) parts.push(`created ${dateFormatter.format(hook.createdAtMs)}`);
-    parts.push(hook.lastUsedAtMs ? `last used ${dateFormatter.format(hook.lastUsedAtMs)}` : "never used");
+    parts.push(t("webhooks.credentialShown", { kind: credentialNames[hook.credential], shown: hook.shown ?? "" }));
+    if (hook.createdAtMs) parts.push(t("webhooks.createdAt", { date: dateFormatter().format(hook.createdAtMs) }));
+    parts.push(hook.lastUsedAtMs ? t("webhooks.lastUsed", { date: dateFormatter().format(hook.lastUsedAtMs) }) : t("webhooks.neverUsed"));
   }
-  if (!hook.enabled) parts.push("paused");
+  if (!hook.enabled) parts.push(t("webhooks.paused"));
   return parts.join(" · ");
 }
 
@@ -68,22 +85,22 @@ function WebhookHistory({ hook, refreshKey, api }: { hook: WebhookInfo; refreshK
       .catch(() => setMessages([]));
   }, [hook.id, hook.conversation, refreshKey, api]);
 
-  if (messages === null) return <p className="settings-hint">Loading…</p>;
-  if (messages.length === 0) return <p className="settings-hint">No calls on this computer yet. If another hub takes it, open its conversation from the web or the phone.</p>;
+  if (messages === null) return <p className="settings-hint">{t("common.loading")}</p>;
+  if (messages.length === 0) return <p className="settings-hint">{t("webhooks.noCalls")}</p>;
   const shown = all ? messages : messages.filter((m) => m.role === "assistant").slice(-1);
   return (
     <div className="task-history">
       {shown.map((m, i) => (
         <div key={i} className={`task-history-message task-history-message--${m.role}`}>
           <span className="settings-hint">
-            {m.role === "user" ? "Received" : "Answer"} · {dateFormatter.format(m.createdAt)}
+            {m.role === "user" ? t("webhooks.received") : t("tasks.answer")} · {dateFormatter().format(m.createdAt)}
           </span>
           <p className="task-history-content">{m.content}</p>
         </div>
       ))}
       {messages.length > 1 && (
         <button type="button" className="settings-browse-btn" onClick={() => setAll(!all)}>
-          {all ? "Only the last answer" : `Whole history (${messages.length} messages)`}
+          {all ? t("tasks.onlyLast") : t("tasks.wholeHistory", { count: messages.length })}
         </button>
       )}
     </div>
@@ -183,44 +200,41 @@ function WebhooksView({ agents, remote = false, hubUrl }: { agents: AgentEntry[]
 
   return (
     <div className="settings-view">
-      <h2 className="settings-title">Webhooks</h2>
-      <p className="settings-hint">
-        Prompts an agent runs when a service calls the webhook's address. Each call lands in the webhook's conversation, which every device connected to this hub
-        can open.
-      </p>
-      {list && !list.hubRunning && (
-        <p className="settings-hint">
-          {remote
-            ? "This hub is not taking webhook calls right now: these are just the requests kept in its configuration."
-            : "Calls only arrive while this computer's embedded hub is on (Workspace). Until then these are just the requests kept in the configuration."}
-        </p>
-      )}
+      <h2 className="settings-title">{t("webhooks.title")}</h2>
+      <p className="settings-hint">{t("webhooks.hint")}</p>
+      {list && !list.hubRunning && <p className="settings-hint">{remote ? t("webhooks.hubNotTaking") : t("webhooks.localNotTaking")}</p>}
       {error && <p className="settings-error-banner">{error}</p>}
 
       {created && (
         <div className="api-key-created">
           <p className="settings-hint">
-            {created.kind === "token" ? "Token" : "Signing secret"} for <strong>{created.id}</strong> created. Copy it now — it isn't shown again.
+            {rich(created.kind === "token" ? "webhooks.createdToken" : "webhooks.createdSecret", { id: <strong>{created.id}</strong> })}
           </p>
           <code className="api-key-value">{created.credential}</code>
           {created.kind === "token" ? (
             <p className="settings-hint">
-              The service calls <code>{addressOf(created.id)}</code> with <code>Authorization: Bearer {"<token>"}</code> (or <code>X-Warden-Token</code>), for example:{" "}
-              <code className="api-key-value">{`curl -X POST -H "Authorization: Bearer ${created.credential}" --data-binary @body.json ${addressOf(created.id)}`}</code>
+              {rich("webhooks.tokenUsage", {
+                address: <code>{addressOf(created.id)}</code>,
+                bearer: <code>Authorization: Bearer {"<token>"}</code>,
+                header: <code>X-Warden-Token</code>,
+                curl: <code className="api-key-value">{`curl -X POST -H "Authorization: Bearer ${created.credential}" --data-binary @body.json ${addressOf(created.id)}`}</code>,
+              })}
             </p>
           ) : (
             <p className="settings-hint">
-              Paste it as the <em>Secret</em> of the webhook on GitHub (content type application/json) with the address <code>{addressOf(created.id)}</code>, as the
-              endpoint's signing secret on Stripe, or as the app's Signing Secret on Slack. A plain token doesn't open this webhook. {remote ? "The hub keeps" : "This computer keeps"} the secret in the clear, in{" "}
-              <code>webhook_tokens.json</code> (mode 0600): checking a signature means making one.
+              {rich(remote ? "webhooks.secretUsageHub" : "webhooks.secretUsageLocal", {
+                secret: <em>{t("webhooks.secretWord")}</em>,
+                address: <code>{addressOf(created.id)}</code>,
+                file: <code>webhook_tokens.json</code>,
+              })}
             </p>
           )}
           <div className="api-key-actions">
             <button type="button" className="settings-browse-btn" onClick={() => void copy(created.credential)}>
-              {copied ? "Copied" : "Copy"}
+              {copied ? t("copy.copied") : t("copy.copy")}
             </button>
             <button type="button" className="settings-browse-btn" onClick={() => setCreated(null)}>
-              Done
+              {t("webhooks.done")}
             </button>
           </div>
         </div>
@@ -228,59 +242,55 @@ function WebhooksView({ agents, remote = false, hubUrl }: { agents: AgentEntry[]
 
       {editor && (
         <div className="provider-card skill-editor">
-          <span className="settings-section-title">{editor.originalId ? `Edit ${editor.originalId}` : "New webhook"}</span>
+          <span className="settings-section-title">{editor.originalId ? t("webhooks.editTitle", { id: editor.originalId }) : t("webhooks.newWebhook")}</span>
 
           <label className="settings-field">
-            <span className="settings-label">Name</span>
+            <span className="settings-label">{t("tasks.name")}</span>
             <input className="settings-input" type="text" placeholder="build-failed" value={editor.webhook.id} onChange={(e) => updateHook({ id: e.currentTarget.value })} />
-            <span className="settings-hint">Letters, digits, - and _ (up to 54). It ends the address, /hooks/&lt;name&gt;, and its conversation is task-hook-&lt;name&gt;.</span>
+            <span className="settings-hint">{t("webhooks.nameHint")}</span>
           </label>
 
           <label className="settings-field">
-            <span className="settings-label">Agent</span>
+            <span className="settings-label">{t("tasks.agent")}</span>
             <select className="settings-select" value={editor.webhook.agentId ?? ""} onChange={(e) => updateHook({ agentId: e.currentTarget.value || undefined })}>
-              <option value="">(none)</option>
+              <option value="">{t("tasks.noAgent")}</option>
               {agents.map((a) => (
                 <option key={a.id} value={a.id}>
                   {a.id}
                 </option>
               ))}
             </select>
-            <span className="settings-hint">The body of a call comes from outside: give this webhook an agent with few tools.</span>
+            <span className="settings-hint">{t("webhooks.agentHint")}</span>
           </label>
 
           <label className="settings-field">
-            <span className="settings-label">What to ask</span>
+            <span className="settings-label">{t("tasks.prompt")}</span>
             <textarea
               className="settings-input settings-textarea"
               rows={6}
-              placeholder="Say why the build failed and what to do."
+              placeholder={t("webhooks.promptPlaceholder")}
               value={editor.webhook.prompt}
               onChange={(e) => updateHook({ prompt: e.currentTarget.value })}
             />
-            <span className="settings-hint">The body of the call is handed to the agent after this, as data — never as instructions.</span>
+            <span className="settings-hint">{t("webhooks.promptHint")}</span>
           </label>
 
           <label className="settings-field">
-            <span className="settings-label">How the service identifies itself</span>
+            <span className="settings-label">{t("webhooks.how")}</span>
             <select className="settings-select" value={editor.webhook.auth} onChange={(e) => updateHook({ auth: e.currentTarget.value as WebhookAuth })}>
-              <option value="token">Token (Authorization: Bearer)</option>
-              <option value="hmac">HMAC signature (GitHub, Gitea, Stripe, Slack)</option>
+              <option value="token">{t("webhooks.howToken")}</option>
+              <option value="hmac">{t("webhooks.howHmac")}</option>
             </select>
-            <span className="settings-hint">
-              {editor.webhook.auth === "token"
-                ? "The service sends the token in Authorization: Bearer (or X-Warden-Token). Only a hash of it is kept."
-                : "For services that sign what they send: X-Hub-Signature-256 (GitHub, Gitea, Forgejo) , Stripe-Signature or X-Slack-Signature. The secret is kept in the clear (file mode 0600): checking a signature means making one."}
-            </span>
+            <span className="settings-hint">{editor.webhook.auth === "token" ? t("webhooks.howTokenHint") : t("webhooks.howHmacHint")}</span>
           </label>
-          {dropsCredential && <p className="settings-hint">Changing the type deletes the current credential: the webhook takes no calls until you make a new one.</p>}
+          {dropsCredential && <p className="settings-hint">{t("webhooks.dropsCredential")}</p>}
 
           <div className="skill-editor-actions">
             <button type="button" className="settings-save-btn" onClick={() => void handleSave()} disabled={saving}>
-              {saving ? "Saving…" : "Save webhook"}
+              {saving ? t("common.saving") : t("webhooks.save")}
             </button>
             <button type="button" className="settings-browse-btn" onClick={() => setEditor(null)} disabled={saving}>
-              Cancel
+              {t("common.cancel")}
             </button>
           </div>
         </div>
@@ -288,16 +298,16 @@ function WebhooksView({ agents, remote = false, hubUrl }: { agents: AgentEntry[]
 
       <section className="settings-section">
         <div className="settings-section-header">
-          <h3 className="settings-section-title">Your webhooks</h3>
+          <h3 className="settings-section-title">{t("webhooks.yours")}</h3>
           <button type="button" className="settings-browse-btn" onClick={() => setEditor({ webhook: { id: "", prompt: "", enabled: true, auth: "token" } })}>
-            + New webhook
+            {t("webhooks.add")}
           </button>
         </div>
 
         {list === null ? (
-          <p className="settings-hint">Loading webhooks…</p>
+          <p className="settings-hint">{t("webhooks.loading")}</p>
         ) : list.webhooks.length === 0 ? (
-          <p className="settings-hint">No webhooks yet.</p>
+          <p className="settings-hint">{t("webhooks.none")}</p>
         ) : (
           <div className="provider-list">
             {list.webhooks.map((hook) => (
@@ -307,39 +317,45 @@ function WebhooksView({ agents, remote = false, hubUrl }: { agents: AgentEntry[]
                   <div className="skill-card-actions">
                     {confirmDelete === hook.id ? (
                       <>
-                        <span className="settings-hint">Delete this webhook and its credential? Its conversation stays.</span>
+                        <span className="settings-hint">{t("webhooks.confirmDelete")}</span>
                         <button type="button" className="provider-delete-btn" onClick={() => void act(() => api.remove(hook.id)).then(() => setConfirmDelete(null))}>
-                          Delete
+                          {t("common.delete")}
                         </button>
                         <button type="button" className="settings-browse-btn" onClick={() => setConfirmDelete(null)}>
-                          Keep
+                          {t("common.keep")}
                         </button>
                       </>
                     ) : (
                       <>
                         <button type="button" className="settings-browse-btn" onClick={() => setExpanded(expanded === hook.id ? null : hook.id)}>
-                          {expanded === hook.id ? "Hide result" : "Last result"}
+                          {expanded === hook.id ? t("tasks.hideResult") : t("tasks.lastResult")}
                         </button>
-                        <button type="button" className="settings-browse-btn" onClick={() => void makeCredential(hook)} title={hook.credential ? "The new one replaces the old one at once" : undefined}>
-                          {hook.credential === hook.auth ? (hook.auth === "token" ? "Replace token" : "Replace secret") : hook.auth === "token" ? "Make token" : "Make secret"}
+                        <button type="button" className="settings-browse-btn" onClick={() => void makeCredential(hook)} title={hook.credential ? t("webhooks.replaceTitle") : undefined}>
+                          {hook.credential === hook.auth
+                            ? hook.auth === "token"
+                              ? t("webhooks.replaceToken")
+                              : t("webhooks.replaceSecret")
+                            : hook.auth === "token"
+                              ? t("webhooks.makeToken")
+                              : t("webhooks.makeSecret")}
                         </button>
                         {hook.credential && (
                           <button type="button" className="settings-browse-btn" onClick={() => void act(() => api.revoke(hook.id))}>
-                            Revoke
+                            {t("apiKeys.revoke")}
                           </button>
                         )}
                         <button type="button" className="settings-browse-btn" onClick={() => void act(() => api.setEnabled(hook.id, !hook.enabled))}>
-                          {hook.enabled ? "Pause" : "Resume"}
+                          {hook.enabled ? t("tasks.pause") : t("tasks.resume")}
                         </button>
                         <button type="button" className="settings-browse-btn" onClick={() => setEditor(editorFor(hook))}>
-                          Edit
+                          {t("common.edit")}
                         </button>
                         <button
                           type="button"
                           className="provider-delete-btn"
                           onClick={() => setConfirmDelete(hook.id)}
-                          aria-label={`Delete ${hook.id}`}
-                          title="Delete this webhook"
+                          aria-label={t("webhooks.deleteLabel", { id: hook.id })}
+                          title={t("webhooks.deleteTitle")}
                         >
                           🗑
                         </button>
@@ -348,7 +364,7 @@ function WebhooksView({ agents, remote = false, hubUrl }: { agents: AgentEntry[]
                   </div>
                 </div>
                 <p className="skill-card-description">
-                  POST {addressOf(hook.id)} · {authNames[hook.auth]} · {hook.agentId ? `agent ${hook.agentId}` : "no agent"}
+                  POST {addressOf(hook.id)} · {authNames[hook.auth]} · {hook.agentId ? t("tasks.withAgent", { id: hook.agentId }) : t("tasks.withoutAgent")}
                 </p>
                 <p className="settings-hint">{statusLine(hook)}</p>
                 {expanded === hook.id && <WebhookHistory hook={hook} refreshKey={refreshKey} api={api} />}

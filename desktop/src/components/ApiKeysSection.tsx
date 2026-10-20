@@ -1,5 +1,7 @@
 import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { intlTag, t } from "../i18n";
+import { rich } from "../i18n/rich";
 import type { EmbeddedServerStatus, Settings } from "../types";
 import { canEditRaw, hasAll, missingIds, RAW_ALL, rawOptions, rawSummary, toggleRaw, type RawOption } from "../lib/rawAccess";
 
@@ -18,7 +20,7 @@ interface ApiKeyInfo {
   raw: string[];
 }
 
-const dateFormatter = new Intl.DateTimeFormat(undefined, { dateStyle: "short", timeStyle: "short" });
+const dateFormatter = () => new Intl.DateTimeFormat(intlTag(), { dateStyle: "short", timeStyle: "short" });
 
 /** Where the embedded hub answers the API, from its status. */
 function apiBaseUrl(status: EmbeddedServerStatus | null): string | null {
@@ -26,7 +28,7 @@ function apiBaseUrl(status: EmbeddedServerStatus | null): string | null {
   if (status.secureUrl) return `${status.secureUrl.replace(/^wss:\/\//, "https://").replace(/\/$/, "")}/v1`;
   if (!status.boundAddr) return null;
   const port = status.boundAddr.split(":").pop();
-  const host = status.boundAddr.startsWith("0.0.0.0") ? "<this machine's address>" : status.boundAddr.replace(/:\d+$/, "");
+  const host = status.boundAddr.startsWith("0.0.0.0") ? t("apiKeys.thisMachine") : status.boundAddr.replace(/:\d+$/, "");
   return `${status.secure ? "https" : "http"}://${host}:${port}/v1`;
 }
 
@@ -120,47 +122,41 @@ function ApiKeysSection() {
   return (
     <section className="settings-section">
       <div className="settings-section-header">
-        <h3 className="settings-section-title">Warden API</h3>
+        <h3 className="settings-section-title">{t("apiKeys.title")}</h3>
       </div>
       <p className="settings-hint">
-        Your agent in the OpenAI chat-completions format, for scripts, n8n or any client that talks to OpenAI: use one of
-        these keys as the API key. A general key picks the model per call (<code>warden</code> or{" "}
-        <code>warden/&lt;agent&gt;</code>); a key bound to an agent only speaks as it. Tools the client sends are ignored,
-        nothing is saved as a conversation, and the spend goes to the <code>api</code> channel. A general key can also call a
-        provider or combo straight (<code>provider/&lt;id&gt;</code> or <code>combo/&lt;id&gt;</code>), with no agent, vault or
-        tools: what it may call is chosen under "Direct calls", and the spend goes to the <code>api-raw</code> channel.
+        {rich("apiKeys.hint", {
+          warden: <code>warden</code>,
+          wardenAgent: <code>warden/&lt;agent&gt;</code>,
+          api: <code>api</code>,
+          provider: <code>provider/&lt;id&gt;</code>,
+          combo: <code>combo/&lt;id&gt;</code>,
+          apiRaw: <code>api-raw</code>,
+        })}
       </p>
-      <p className="settings-hint">
-        {baseUrl ? (
-          <>
-            Base URL: <code>{baseUrl}</code>
-          </>
-        ) : (
-          "The API answers on the embedded hub's port — turn the hub on in Workspace to use it."
-        )}
-      </p>
+      <p className="settings-hint">{baseUrl ? rich("apiKeys.baseUrl", { url: <code>{baseUrl}</code> }) : t("apiKeys.turnOn")}</p>
 
       {error && <p className="settings-error-banner">{error}</p>}
 
       {created && (
         <div className="api-key-created">
           <p className="settings-hint">
-            Key <strong>{created.name}</strong> created. Copy it now — it isn't shown again.
+            {rich("apiKeys.created", { name: <strong>{created.name}</strong> })}
           </p>
           <code className="api-key-value">{created.key}</code>
           <div className="api-key-actions">
             <button type="button" className="settings-browse-btn" onClick={() => void copy(created.key)}>
-              {copied ? "Copied" : "Copy"}
+              {copied ? t("copy.copied") : t("copy.copy")}
             </button>
             <button type="button" className="settings-browse-btn" onClick={() => setCreated(null)}>
-              Done
+              {t("apiKeys.done")}
             </button>
           </div>
         </div>
       )}
 
       {keys.length === 0 ? (
-        <p className="settings-hint">No keys yet.</p>
+        <p className="settings-hint">{t("apiKeys.none")}</p>
       ) : (
         <ul className="api-key-list">
           {keys.map((key) => (
@@ -168,70 +164,67 @@ function ApiKeysSection() {
               <div>
                 <strong>{key.name}</strong> <code>{key.shown}…</code>
                 <div className="settings-hint">
-                  {key.user && `${key.user}'s key · `}
+                  {key.user && t("apiKeys.userKey", { user: key.user })}
                   {key.agentId
-                    ? `Only speaks as ${key.agentId}${agentIds.length > 0 && !agentIds.includes(key.agentId) ? " (agent removed — this key no longer works)" : ""}`
-                    : "General — picks the agent per call"}
+                    ? `${t("apiKeys.onlyAs", { agent: key.agentId })}${agentIds.length > 0 && !agentIds.includes(key.agentId) ? t("apiKeys.agentRemoved") : ""}`
+                    : t("apiKeys.general")}
                 </div>
                 {!canEditRaw(key) ? (
-                  <div className="settings-hint">Direct calls: only a general key of yours can.</div>
+                  <div className="settings-hint">{t("apiKeys.rawOnlyGeneral")}</div>
                 ) : editing?.id === key.id ? (
                   <fieldset className="settings-field">
-                    <legend className="settings-hint">Direct calls: what this key may call without going through an agent</legend>
-                    {options.length === 0 && <span className="settings-hint">No providers are configured.</span>}
+                    <legend className="settings-hint">{t("apiKeys.rawLegend")}</legend>
+                    {options.length === 0 && <span className="settings-hint">{t("apiKeys.rawNoProviders")}</span>}
                     <label>
-                      <input type="checkbox" checked={hasAll(editing.raw)} onChange={() => setEditing({ ...editing, raw: toggleRaw(editing.raw, RAW_ALL) })} /> All local
-                      models (<code>*</code>)
+                      <input type="checkbox" checked={hasAll(editing.raw)} onChange={() => setEditing({ ...editing, raw: toggleRaw(editing.raw, RAW_ALL) })} />{" "}
+                      {rich("apiKeys.rawAll", { star: <code>*</code> })}
                     </label>
                     {options.map((o) => (
                       <label key={o.id}>
                         <input type="checkbox" checked={editing.raw.includes(o.id)} onChange={() => setEditing({ ...editing, raw: toggleRaw(editing.raw, o.id) })} /> {o.id}{" "}
-                        <span className="settings-hint">
-                          {o.kind}
-                          {o.far && " · on another machine: * doesn't cover it, it only counts ticked here"}
-                        </span>
+                        <span className="settings-hint">{o.far ? t("apiKeys.rawFar", { kind: o.kind }) : o.kind}</span>
                       </label>
                     ))}
                     {missingIds(editing.raw, options).map((id) => (
                       <label key={id}>
                         <input type="checkbox" checked onChange={() => setEditing({ ...editing, raw: toggleRaw(editing.raw, id) })} /> {id}{" "}
-                        <span className="settings-hint">no longer in the config: untick to drop it</span>
+                        <span className="settings-hint">{t("apiKeys.rawGone")}</span>
                       </label>
                     ))}
                     <div className="api-key-actions">
                       <button type="button" className="settings-browse-btn" onClick={() => void handleSaveRaw(key.id, editing.raw)}>
-                        Save
+                        {t("common.save")}
                       </button>
                       <button type="button" className="settings-browse-btn" onClick={() => setEditing(null)}>
-                        Cancel
+                        {t("common.cancel")}
                       </button>
                     </div>
                   </fieldset>
                 ) : (
                   <div className="settings-hint">
-                    Direct calls: <strong>{rawSummary(key.raw)}</strong>{" "}
+                    {rich("apiKeys.rawLabel", { summary: <strong>{rawSummary(key.raw)}</strong> })}{" "}
                     <button type="button" className="settings-browse-btn" disabled={editing !== null} onClick={() => setEditing({ id: key.id, raw: key.raw })}>
-                      Edit
+                      {t("common.edit")}
                     </button>
                   </div>
                 )}
                 <div className="settings-hint">
-                  Created {dateFormatter.format(new Date(key.createdAtMs))} ·{" "}
-                  {key.lastUsedAtMs ? `last used ${dateFormatter.format(new Date(key.lastUsedAtMs))}` : "never used"}
+                  {t("apiKeys.createdAt", { date: dateFormatter().format(new Date(key.createdAtMs)) })} ·{" "}
+                  {key.lastUsedAtMs ? t("apiKeys.lastUsed", { date: dateFormatter().format(new Date(key.lastUsedAtMs)) }) : t("apiKeys.neverUsed")}
                 </div>
               </div>
               {confirmRevoke === key.id ? (
                 <div className="api-key-actions">
                   <button type="button" className="settings-browse-btn" onClick={() => void handleRevoke(key.id)}>
-                    Revoke for good
+                    {t("apiKeys.revokeForGood")}
                   </button>
                   <button type="button" className="settings-browse-btn" onClick={() => setConfirmRevoke(null)}>
-                    Keep
+                    {t("common.keep")}
                   </button>
                 </div>
               ) : (
                 <button type="button" className="settings-browse-btn" onClick={() => setConfirmRevoke(key.id)}>
-                  Revoke
+                  {t("apiKeys.revoke")}
                 </button>
               )}
             </li>
@@ -243,21 +236,21 @@ function ApiKeysSection() {
         <input
           className="settings-input"
           type="text"
-          placeholder="Key name (e.g. n8n)"
+          placeholder={t("apiKeys.namePlaceholder")}
           maxLength={60}
           value={name}
           onChange={(e) => setName(e.currentTarget.value)}
         />
-        <select className="settings-input" value={agentId} onChange={(e) => setAgentId(e.currentTarget.value)} aria-label="Key's agent">
-          <option value="">General (any agent)</option>
+        <select className="settings-input" value={agentId} onChange={(e) => setAgentId(e.currentTarget.value)} aria-label={t("apiKeys.agentLabel")}>
+          <option value="">{t("apiKeys.anyAgent")}</option>
           {agentIds.map((id) => (
             <option key={id} value={id}>
-              Only agent {id}
+              {t("apiKeys.onlyAgent", { id })}
             </option>
           ))}
         </select>
         <button type="button" className="settings-browse-btn" disabled={name.trim() === ""} onClick={() => void handleCreate()}>
-          Create key
+          {t("apiKeys.create")}
         </button>
       </div>
     </section>

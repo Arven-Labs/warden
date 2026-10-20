@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { t } from "../i18n";
 import type { DiscoveredHub, EmbeddedServerStatus, SavedHub } from "../types";
 
 /** What the hub's address is typed as from a LAN discovery result: the web interface is on the same port. */
@@ -95,15 +96,11 @@ function HubsSection() {
   return (
     <section className="settings-section">
       <div className="settings-section-header">
-        <h3 className="settings-section-title">Hubs</h3>
+        <h3 className="settings-section-title">{t("hubsSection.title")}</h3>
       </div>
-      <p className="settings-hint">
-        Use a hub that runs on another machine (your VPS, a mini-PC) from this app. Each hub opens in its own window, on
-        the web interface the hub serves, so everything it has is there. That window has no access to this app, and you
-        sign in on its page like in a browser. Only a name and an address are saved here, never a key or a password.
-      </p>
+      <p className="settings-hint">{t("hubsSection.hint")}</p>
 
-      {hubs && hubs.length === 0 && !draft && <p className="settings-hint">No hub saved yet.</p>}
+      {hubs && hubs.length === 0 && !draft && <p className="settings-hint">{t("hubsSection.none")}</p>}
       {hubs && hubs.length > 0 && (
         <div className="workspace-device-list">
           {hubs.map((hub) => (
@@ -111,19 +108,19 @@ function HubsSection() {
               <div className="workspace-device-info">
                 <span className="workspace-device-name">
                   {hub.name}
-                  {hub.open && <span className="storage-provider-badge workspace-status-badge workspace-status-badge--approved"> Open</span>}
+                  {hub.open && <span className="storage-provider-badge workspace-status-badge workspace-status-badge--approved">{t("hubsSection.open")}</span>}
                 </span>
                 <span className="workspace-device-meta">{hub.url}</span>
               </div>
               <div className="workspace-device-actions">
                 <button type="button" className="settings-save-btn" disabled={busy} onClick={() => open(hub.id)}>
-                  {hub.open ? "Show" : "Open"}
+                  {hub.open ? t("hubsSection.show") : t("hubsSection.openButton")}
                 </button>
                 <button type="button" className="settings-browse-btn" disabled={busy} onClick={() => setDraft({ id: hub.id, name: hub.name, url: hub.url })}>
-                  Edit
+                  {t("common.edit")}
                 </button>
                 <button type="button" className="provider-delete-btn" disabled={busy} onClick={() => remove(hub)}>
-                  Remove
+                  {t("common.remove")}
                 </button>
               </div>
             </div>
@@ -133,7 +130,7 @@ function HubsSection() {
 
       {ownWebUrl && (
         <button type="button" className="settings-browse-btn" disabled={busy} onClick={openOwn}>
-          Open this computer's own hub in a window
+          {t("hubsSection.openOwn")}
         </button>
       )}
 
@@ -142,36 +139,36 @@ function HubsSection() {
       {draft ? (
         <>
           <label className="settings-field">
-            <span className="settings-label">Name</span>
-            <input className="settings-input" type="text" placeholder="VPS" value={draft.name} onChange={(e) => setDraft({ ...draft, name: e.currentTarget.value })} />
+            <span className="settings-label">{t("hubsSection.name")}</span>
+            <input className="settings-input" type="text" placeholder={t("hubsSection.namePlaceholder")} value={draft.name} onChange={(e) => setDraft({ ...draft, name: e.currentTarget.value })} />
           </label>
           <label className="settings-field">
-            <span className="settings-label">Address</span>
+            <span className="settings-label">{t("hubsSection.address")}</span>
             <input
               className="settings-input"
               type="text"
-              placeholder="https://hub.tailXXXX.ts.net or 192.168.x.x:7420"
+              placeholder={t("hubsSection.addressPlaceholder")}
               value={draft.url}
               onChange={(e) => setDraft({ ...draft, url: e.currentTarget.value })}
             />
           </label>
           <div className="workspace-device-actions">
             <button type="button" className="settings-save-btn" disabled={busy} onClick={save}>
-              {draft.id ? "Save" : "Add hub"}
+              {draft.id ? t("common.save") : t("hubsSection.addHub")}
             </button>
             <button type="button" className="settings-browse-btn" disabled={busy} onClick={() => setDraft(null)}>
-              Cancel
+              {t("common.cancel")}
             </button>
           </div>
 
           <label className="settings-field">
-            <span className="settings-label">Port to search</span>
+            <span className="settings-label">{t("hubsSection.port")}</span>
             <input className="settings-input" type="text" inputMode="numeric" placeholder="7420" value={discoveryPort} onChange={(e) => setDiscoveryPort(e.currentTarget.value)} />
           </label>
           <button type="button" className="settings-browse-btn" disabled={searching} onClick={discover}>
-            {searching ? "Searching…" : "Search for hubs on the network"}
+            {searching ? t("hubsSection.searching") : t("hubsSection.search")}
           </button>
-          {found && found.length === 0 && <p className="settings-hint">No hub answered on the local network.</p>}
+          {found && found.length === 0 && <p className="settings-hint">{t("hubsSection.noneFound")}</p>}
           {found && found.length > 0 && (
             <div className="workspace-device-list">
               {found.map((hub) => (
@@ -192,7 +189,7 @@ function HubsSection() {
         </>
       ) : (
         <button type="button" className="settings-save-btn" disabled={busy} onClick={() => setDraft({ name: "", url: "" })}>
-          Add a hub
+          {t("hubsSection.add")}
         </button>
       )}
     </section>

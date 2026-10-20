@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { intlTag, t } from "../i18n";
 import type { ActivityEvent } from "../types";
 import { hubActivity } from "../lib/hub";
 import { agentsIn, destination, groupByDay, headline, involving, mark, type Destination } from "../lib/activity";
 
 const REFRESH_MS = 3000;
-const timeFormatter = new Intl.DateTimeFormat(undefined, { timeStyle: "short" });
+const timeFormatter = () => new Intl.DateTimeFormat(intlTag(), { timeStyle: "short" });
 
 /** P121 — the feed of activity: who did what among the agents, newest first, without opening each conversation. It refreshes while it is
  * open. For this computer it reads the files the engine already writes, and for a hub in use it asks the hub. A click goes to what the
@@ -37,15 +38,12 @@ function ActivityView({ remote = false, onOpen }: { remote?: boolean; onOpen: (t
 
   return (
     <div className="settings-view">
-      <h2 className="settings-title">Activity</h2>
-      <p className="settings-hint">
-        What happened among the agents {remote ? "on this hub" : "on this computer"}: who delegated, started and finished what, the notes they left each other
-        {remote ? " and the messages an agent wrote first to you" : ""}.
-      </p>
+      <h2 className="settings-title">{t("activityView.title")}</h2>
+      <p className="settings-hint">{remote ? t("activityView.hintHub") : t("activityView.hintLocal")}</p>
       <label className="settings-field activity-filter">
-        <span className="settings-label">Agent</span>
+        <span className="settings-label">{t("activityView.agent")}</span>
         <select className="settings-select" value={chosen} onChange={(e) => setAgent(e.currentTarget.value)}>
-          <option value="">All</option>
+          <option value="">{t("activityView.all")}</option>
           {agents.map((name) => (
             <option key={name} value={name}>
               {name}
@@ -54,9 +52,9 @@ function ActivityView({ remote = false, onOpen }: { remote?: boolean; onOpen: (t
         </select>
       </label>
       {error && <p className="usage-error">{error}</p>}
-      {events === null && !error && <p className="settings-hint">Loading…</p>}
+      {events === null && !error && <p className="settings-hint">{t("common.loading")}</p>}
       {events !== null && groups.length === 0 && (
-        <p className="settings-hint">{chosen ? `Nothing involves ${chosen} yet.` : "Nothing yet. When agents delegate tasks or leave each other notes, it shows here."}</p>
+        <p className="settings-hint">{chosen ? t("activityView.nothingFor", { agent: chosen }) : t("activityView.nothing")}</p>
       )}
       {groups.map((group) => (
         <section key={group.label} className="activity-day">
@@ -68,7 +66,7 @@ function ActivityView({ remote = false, onOpen }: { remote?: boolean; onOpen: (t
               const canOpen = to !== null && !(to.kind === "channel" && !remote);
               return (
                 <li key={event.id} className={`activity-item activity-item--${event.kind}`}>
-                  <span className="activity-time">{timeFormatter.format(event.atMs)}</span>
+                  <span className="activity-time">{timeFormatter().format(event.atMs)}</span>
                   <span className="activity-mark" aria-hidden="true">
                     {mark(event.kind)}
                   </span>

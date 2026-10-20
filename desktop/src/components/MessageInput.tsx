@@ -3,6 +3,7 @@ import { open } from "@tauri-apps/plugin-dialog";
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { AttachIcon, CloseIcon, MicIcon, SendIcon, StopIcon } from "./Icons";
+import { t } from "../i18n";
 import { checkAttachmentLimits, fileToAttachment, isAttachmentFile, isPdf } from "../lib/attachments";
 import type { Attachment } from "../types";
 
@@ -102,7 +103,7 @@ function MessageInput({ onSend, focusKey, disabled, onStop, onCycleMode }: Messa
     setAttachError(null);
     const selected = await open({
       multiple: true,
-      filters: [{ name: "Images and PDFs", extensions: ["png", "jpg", "jpeg", "webp", "gif", "pdf"] }],
+      filters: [{ name: t("input.filterName"), extensions: ["png", "jpg", "jpeg", "webp", "gif", "pdf"] }],
     });
     if (!selected) return;
 
@@ -167,7 +168,7 @@ function MessageInput({ onSend, focusKey, disabled, onStop, onCycleMode }: Messa
               <button
                 type="button"
                 className="chat-attachment-remove"
-                aria-label="Remove attachment"
+                aria-label={t("input.removeAttachment")}
                 onClick={() => removeAttachment(index)}
               >
                 <CloseIcon size={11} />
@@ -183,13 +184,13 @@ function MessageInput({ onSend, focusKey, disabled, onStop, onCycleMode }: Messa
           submit();
         }}
       >
-        <button type="button" className="chat-attach-btn" aria-label="Attach image or PDF" onClick={handleAttach} disabled={disabled || isRecording}>
+        <button type="button" className="chat-attach-btn" aria-label={t("input.attach")} onClick={handleAttach} disabled={disabled || isRecording}>
           <AttachIcon size={17} />
         </button>
         <button
           type="button"
           className={`chat-mic-btn${isRecording ? " chat-mic-btn--recording" : ""}`}
-          aria-label={isRecording ? "Stop recording" : "Record voice message"}
+          aria-label={isRecording ? t("input.stopRecording") : t("input.record")}
           onClick={handleMicClick}
           disabled={disabled || isTranscribing}
         >
@@ -198,8 +199,8 @@ function MessageInput({ onSend, focusKey, disabled, onStop, onCycleMode }: Messa
         <textarea
           ref={textareaRef}
           className="chat-input-textarea"
-          aria-label="Message"
-          placeholder={isTranscribing ? "Transcribing…" : "Message Warden…"}
+          aria-label={t("input.message")}
+          placeholder={isTranscribing ? t("input.transcribing") : t("input.placeholder")}
           value={draft}
           onChange={(e) => setDraft(e.currentTarget.value)}
           onPaste={handlePaste}
@@ -216,21 +217,21 @@ function MessageInput({ onSend, focusKey, disabled, onStop, onCycleMode }: Messa
           rows={1}
         />
         {onStop ? (
-          <button type="button" className="chat-send-btn chat-stop-btn" aria-label="Stop" title="Stop: keeps what has been written" onClick={onStop}>
+          <button type="button" className="chat-send-btn chat-stop-btn" aria-label={t("input.stop")} title={t("input.stopTitle")} onClick={onStop}>
             <StopIcon size={15} />
           </button>
         ) : (
           <button
             type="submit"
             className="chat-send-btn"
-            aria-label="Send message"
+            aria-label={t("input.send")}
             disabled={disabled || (draft.trim() === "" && attachments.length === 0)}
           >
             <SendIcon size={17} />
           </button>
         )}
       </form>
-      <p className="chat-input-hint">Warden can make mistakes. Check important info.</p>
+      <p className="chat-input-hint">{t("input.hint")}</p>
     </div>
   );
 }

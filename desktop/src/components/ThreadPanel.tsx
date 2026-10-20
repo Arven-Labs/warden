@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { t } from "../i18n";
 import type { Attachment, ChatMessage } from "../types";
 import { hubChat, hubHistory } from "../lib/hub";
 import { decorateLastAnswer, HubTurnError } from "../lib/hubMap";
@@ -42,37 +43,37 @@ function ThreadShell({
   }, [messages.length, sending]);
 
   return (
-    <aside className="thread-panel" aria-label="Thread">
+    <aside className="thread-panel" aria-label={t("thread.title")}>
       <div className="thread-header">
-        <strong>Thread</strong>
+        <strong>{t("thread.title")}</strong>
         {(agentIds.length > 0 || agentId !== "") && (
           // Each thread talks to the agent the person picks, the main conversation's or another; locked while an answer is on the way.
           <label className="thread-agent">
-            Agent
+            {t("thread.agent")}
             <select value={agentId} onChange={(e) => onAgentChange(e.target.value)} disabled={sending}>
-              <option value="">None</option>
+              <option value="">{t("thread.none")}</option>
               {agentIds.map((id) => (
                 <option key={id} value={id}>
                   {id}
                 </option>
               ))}
-              {agentId !== "" && !agentIds.includes(agentId) && <option value={agentId}>{agentId} (removed)</option>}
+              {agentId !== "" && !agentIds.includes(agentId) && <option value={agentId}>{t("thread.removed", { id: agentId })}</option>}
             </select>
           </label>
         )}
-        <button type="button" className="settings-browse-btn" onClick={onClose} aria-label="Close the thread">
-          Close
+        <button type="button" className="settings-browse-btn" onClick={onClose} aria-label={t("thread.closeLabel")}>
+          {t("thread.close")}
         </button>
       </div>
       <blockquote className="thread-anchor">
-        <span className="settings-hint">{anchor.role === "user" ? "You" : "Assistant"} said:</span>
+        <span className="settings-hint">{anchor.role === "user" ? t("thread.youSaid") : t("thread.assistantSaid")}</span>
         <p>{anchor.content.length > 400 ? `${anchor.content.slice(0, 400)}…` : anchor.content}</p>
       </blockquote>
       <div className="thread-messages">
         {messages.map((message) => (
           <MessageBubble key={message.id} message={message} />
         ))}
-        {sending && <p className="settings-hint">Thinking…</p>}
+        {sending && <p className="settings-hint">{t("thread.thinking")}</p>}
         {error && (
           <p className="chat-attach-error" role="alert">
             {error}
@@ -123,7 +124,7 @@ function ThreadPanel({
     setError(null);
     hubHistory(threadId).then(
       (saved) => alive && setMessages(saved),
-      (err) => alive && setError(`Could not load the thread: ${String(err)}`),
+      (err) => alive && setError(t("thread.loadFailed", { error: String(err) })),
     );
     return () => {
       alive = false;

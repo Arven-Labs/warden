@@ -2,6 +2,7 @@ import { useEffect, useState, type FormEvent } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import { t } from "../i18n";
 import { MarkdownLink } from "./MessageBubble";
 import { hubVault } from "../lib/hub";
 
@@ -172,7 +173,7 @@ function VaultView({ remote = false }: { remote?: boolean }) {
   const dirty = (open.kind === "note" && open.draft !== null && open.draft !== open.note.content) || (open.kind === "new" && open.draft !== "");
 
   function leaveOk(): boolean {
-    return !dirty || window.confirm("Discard unsaved changes?");
+    return !dirty || window.confirm(t("vault.discard"));
   }
 
   function selectFile(path: string, force = false) {
@@ -198,7 +199,7 @@ function VaultView({ remote = false }: { remote?: boolean }) {
     const content = open.draft;
     const path = open.kind === "new" ? normalizeNewPath(open.path) : open.path;
     if (open.kind === "new" && path === ".md") {
-      setActionError({ message: "Give the note a name.", conflict: false });
+      setActionError({ message: t("vault.giveName"), conflict: false });
       return;
     }
     setSaving(true);
@@ -250,7 +251,7 @@ function VaultView({ remote = false }: { remote?: boolean }) {
   if (error) {
     return (
       <div className="settings-view">
-        <h2 className="settings-title">Vault</h2>
+        <h2 className="settings-title">{t("vault.title")}</h2>
         <p className="usage-error">{error}</p>
       </div>
     );
@@ -259,7 +260,7 @@ function VaultView({ remote = false }: { remote?: boolean }) {
   if (!files) {
     return (
       <div className="settings-view">
-        <p>Loading vault…</p>
+        <p>{t("vault.loading")}</p>
       </div>
     );
   }
@@ -270,11 +271,8 @@ function VaultView({ remote = false }: { remote?: boolean }) {
 
   return (
     <div className="vault-view">
-      <h2 className="settings-title">Vault</h2>
-      <p className="settings-hint">
-        Browse and edit your memory vault. It's a plain, Obsidian-compatible folder, so any text editor works too. A save
-        is refused if the note changed since you opened it (e.g. the AI wrote to it).
-      </p>
+      <h2 className="settings-title">{t("vault.title")}</h2>
+      <p className="settings-hint">{t("vault.hint")}</p>
 
       <div className="vault-body">
         <nav className="vault-nav">
@@ -284,20 +282,18 @@ function VaultView({ remote = false }: { remote?: boolean }) {
               type="search"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              placeholder="Search the vault"
-              aria-label="Search the vault"
+              placeholder={t("vault.search")}
+              aria-label={t("vault.search")}
             />
           </form>
           <button type="button" className="settings-browse-btn vault-new-btn" onClick={startNew}>
-            + New note
+            {t("vault.newNote")}
           </button>
 
           {hits !== null ? (
             <>
               <div className="vault-nav-section-label vault-nav-section-row">
-                <span>
-                  {hits.length} result{hits.length === 1 ? "" : "s"}
-                </span>
+                <span>{hits.length === 1 ? t("vault.resultOne") : t("vault.resultMany", { count: hits.length })}</span>
                 <button
                   type="button"
                   className="vault-link-btn"
@@ -306,10 +302,10 @@ function VaultView({ remote = false }: { remote?: boolean }) {
                     setQuery("");
                   }}
                 >
-                  Clear
+                  {t("vault.clear")}
                 </button>
               </div>
-              {hits.length === 0 && <p className="settings-hint">Nothing found. Search matches words of 3+ letters.</p>}
+              {hits.length === 0 && <p className="settings-hint">{t("vault.nothingFound")}</p>}
               {hits.map((hit) => (
                 <button
                   key={`${hit.path}:${hit.lineNumber}`}
@@ -328,7 +324,7 @@ function VaultView({ remote = false }: { remote?: boolean }) {
             <>
               {tree.length > 0 && (
                 <>
-                  <div className="vault-nav-section-label">Vault</div>
+                  <div className="vault-nav-section-label">{t("vault.title")}</div>
                   <VaultTree nodes={tree} depth={0} selectedPath={selectedPath} onSelect={selectFile} />
                 </>
               )}
@@ -340,25 +336,25 @@ function VaultView({ remote = false }: { remote?: boolean }) {
           {(open.kind === "note" || open.kind === "new") && (
             <div className="vault-content-header">
               <span className="vault-content-title">
-                {open.kind === "new" ? "New note" : open.path}
+                {open.kind === "new" ? t("vault.newNoteTitle") : open.path}
               </span>
               {open.kind === "note" && open.draft === null && (
                 <span className="vault-content-actions">
                   <button type="button" className="settings-browse-btn" onClick={() => setOpen({ ...open, draft: open.note.content })}>
-                    Edit
+                    {t("vault.edit")}
                   </button>
                   {confirmDelete ? (
                       <>
                         <button type="button" className="provider-delete-btn" disabled={saving} onClick={() => void remove()}>
-                          Really delete
+                          {t("vault.reallyDelete")}
                         </button>
                         <button type="button" className="settings-browse-btn" onClick={() => setConfirmDelete(false)}>
-                          Keep
+                          {t("vault.keep")}
                         </button>
                       </>
                     ) : (
                       <button type="button" className="provider-delete-btn" onClick={() => setConfirmDelete(true)}>
-                        Delete
+                        {t("vault.delete")}
                       </button>
                     )}
                 </span>
@@ -372,11 +368,11 @@ function VaultView({ remote = false }: { remote?: boolean }) {
               {actionError.conflict && selectedPath && (
                 <span className="vault-content-actions">
                   <button type="button" className="settings-browse-btn" onClick={() => selectFile(selectedPath, true)}>
-                    Reload (discards your changes)
+                    {t("vault.reload")}
                   </button>
                   {open.kind === "note" && open.draft !== null && (
                     <button type="button" className="provider-delete-btn" disabled={saving} onClick={() => void save(true)}>
-                      Overwrite
+                      {t("vault.overwrite")}
                     </button>
                   )}
                 </span>
@@ -386,10 +382,10 @@ function VaultView({ remote = false }: { remote?: boolean }) {
 
           {open.kind === "none" ? (
             <div className="vault-placeholder">
-              <p>Select a file to view or edit it.</p>
+              <p>{t("vault.select")}</p>
             </div>
           ) : open.kind === "loading" ? (
-            <p className="settings-hint">Loading…</p>
+            <p className="settings-hint">{t("common.loading")}</p>
           ) : open.kind === "error" ? (
             <p className="usage-error">{open.error}</p>
           ) : open.kind === "new" || open.draft !== null ? (
@@ -402,29 +398,29 @@ function VaultView({ remote = false }: { remote?: boolean }) {
             >
               {open.kind === "new" && (
                 <label className="settings-field">
-                  <span className="settings-label">Path</span>
+                  <span className="settings-label">{t("vault.path")}</span>
                   <input
                     className="settings-input"
                     value={open.path}
                     onChange={(e) => setOpen({ ...open, path: e.target.value })}
-                    placeholder="folder/note-name"
+                    placeholder={t("vault.pathPlaceholder")}
                     required
                     autoFocus
                   />
-                  <span className="settings-hint">Use / for folders. Without an extension it becomes .md.</span>
+                  <span className="settings-hint">{t("vault.pathHint")}</span>
                 </label>
               )}
               <textarea
                 className="settings-input vault-editor-textarea"
                 value={open.draft ?? ""}
                 onChange={(e) => setOpen({ ...open, draft: e.target.value })}
-                placeholder="Write in markdown."
-                aria-label="Note content"
+                placeholder={t("vault.writePlaceholder")}
+                aria-label={t("vault.content")}
                 autoFocus={open.kind === "note"}
               />
               <span className="vault-content-actions">
                 <button type="submit" className="settings-save-btn" disabled={saving}>
-                  {saving ? "Saving…" : "Save"}
+                  {saving ? t("common.saving") : t("vault.save")}
                 </button>
                 <button
                   type="button"
@@ -436,13 +432,13 @@ function VaultView({ remote = false }: { remote?: boolean }) {
                     setOpen(open.kind === "note" ? { ...open, draft: null } : { kind: "none" });
                   }}
                 >
-                  Cancel
+                  {t("vault.cancel")}
                 </button>
               </span>
             </form>
           ) : open.note.content.trim() === "" ? (
             <div className="vault-placeholder">
-              <p>Empty — nothing written here yet.</p>
+              <p>{t("vault.empty")}</p>
             </div>
           ) : isMarkdown ? (
             <ReactMarkdown remarkPlugins={[remarkGfm]} components={{ a: MarkdownLink }}>

@@ -2,6 +2,7 @@ import { useRef, useState } from "react";
 import type { AnchorHTMLAttributes } from "react";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { invoke } from "@tauri-apps/api/core";
+import { t } from "../i18n";
 import type { Attachment, ChatMessage } from "../types";
 import { LogoMark, SpeakerIcon, StopIcon } from "./Icons";
 import { isPdf } from "../lib/attachments";
@@ -24,7 +25,7 @@ interface MessageBubbleProps {
 function ThreadButton({ thread }: { thread: { replies: number | null; onOpen: () => void } }) {
   return (
     <button type="button" className="message-thread-btn" onClick={thread.onOpen}>
-      {thread.replies === null ? "Reply in thread" : repliesLabel(thread.replies)}
+      {thread.replies === null ? t("bubble.replyInThread") : repliesLabel(thread.replies)}
     </button>
   );
 }
@@ -67,7 +68,7 @@ function SpeakButton({ text }: { text: string }) {
       <button
         type="button"
         className={`message-speak-btn${state === "playing" ? " message-speak-btn--playing" : ""}`}
-        aria-label={state === "playing" ? "Stop speaking" : "Speak this message"}
+        aria-label={state === "playing" ? t("bubble.stopSpeaking") : t("bubble.speak")}
         onClick={handleClick}
         disabled={state === "loading"}
       >
@@ -121,7 +122,7 @@ function GeneratedFileButton({ path }: { path: string }) {
   return (
     <>
       <button type="button" className="message-file-btn" onClick={handleClick}>
-        📄 Open {name}
+        {t("bubble.openFile", { name })}
       </button>
       {error && <p className="chat-attach-error" role="alert">{error}</p>}
     </>
@@ -154,7 +155,7 @@ function EditBox({ message, after, onSend, onCancel }: { message: ChatMessage; a
   function send() {
     const content = text.trim();
     if (content === "" && !hasMedia) return;
-    if (after > 0 && !window.confirm(`Sending this drops the ${after} message${after === 1 ? "" : "s"} after it, and the threads on them. Continue?`)) return;
+    if (after > 0 && !window.confirm(after === 1 ? t("bubble.confirmEditOne") : t("bubble.confirmEditMany", { count: after }))) return;
     onSend(content);
   }
 
@@ -164,7 +165,7 @@ function EditBox({ message, after, onSend, onCancel }: { message: ChatMessage; a
         className="message-edit-input"
         value={text}
         autoFocus
-        aria-label="Edit your message"
+        aria-label={t("bubble.editLabel")}
         rows={Math.min(10, Math.max(2, text.split("\n").length))}
         onChange={(e) => setText(e.target.value)}
         onKeyDown={(e) => {
@@ -174,10 +175,10 @@ function EditBox({ message, after, onSend, onCancel }: { message: ChatMessage; a
       />
       <div className="message-edit-actions">
         <button type="button" className="message-edit-btn" onClick={onCancel}>
-          Cancel
+          {t("bubble.cancel")}
         </button>
         <button type="button" className="message-edit-btn message-edit-btn--send" onClick={send}>
-          Send
+          {t("bubble.send")}
         </button>
       </div>
     </div>
@@ -195,7 +196,7 @@ function MessageBubble({ message, thread, onRegenerate, edit }: MessageBubblePro
         <div className="message-assistant-body">
           {message.fallbacks?.map((f, index) => (
             <p key={index} className="message-bubble-fallback">
-              Answered by {f.to} — {f.from} failed ({f.reason})
+              {t("bubble.answeredBy", { to: f.to, from: f.from, reason: f.reason })}
             </p>
           ))}
           {message.attachments && message.attachments.length > 0 && (
@@ -220,10 +221,10 @@ function MessageBubble({ message, thread, onRegenerate, edit }: MessageBubblePro
             <CopyButton text={message.content} className="message-copy-btn" />
             {onRegenerate && (
               <button type="button" className="message-redo-btn" onClick={onRegenerate}>
-                Regenerate
+                {t("bubble.regenerate")}
               </button>
             )}
-            {message.usage &&<span className="message-bubble-usage">{message.usage.totalTokens} tokens</span>}
+            {message.usage && <span className="message-bubble-usage">{t("bubble.tokens", { count: message.usage.totalTokens })}</span>}
             {thread && <ThreadButton thread={thread} />}
           </div>
         </div>
@@ -262,7 +263,7 @@ function MessageBubble({ message, thread, onRegenerate, edit }: MessageBubblePro
           <div className="message-bubble-footer">
             {edit && (
               <button type="button" className="message-redo-btn" onClick={() => setEditing(true)}>
-                Edit
+                {t("bubble.edit")}
               </button>
             )}
             {thread && <ThreadButton thread={thread} />}

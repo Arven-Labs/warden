@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
+import { t, type Key } from "../i18n";
 import type { ApprovalRequest } from "../types";
 import { approvalCategoryLabel } from "../lib/approvalCategories";
 
@@ -47,16 +48,17 @@ function ApprovalModal() {
     }
   }
 
-  const verb: Record<string, string> = {
-    exec: "run a command on",
-    upload: "upload a file to",
-    download: "download a file from",
-    create_agent: "create the agent",
-    update_agent: "change the agent",
-    delete_agent: "delete the agent",
-    replace_agent: "replace the agent",
-    tool_call: "run the tool",
+  const verbs: Record<string, Key> = {
+    exec: "approval.run",
+    upload: "approval.upload",
+    download: "approval.download",
+    create_agent: "approval.create_agent",
+    update_agent: "approval.update_agent",
+    delete_agent: "approval.delete_agent",
+    replace_agent: "approval.replace_agent",
+    tool_call: "approval.tool_call",
   };
+  const verb = verbs[current.action] ? t(verbs[current.action]) : current.action;
 
   // A paused turn (P4) is not the AI asking for something: a spending limit ran out and the turn waits
   // for the user to allow more or stop it.
@@ -67,28 +69,28 @@ function ApprovalModal() {
       <div className="sync-qr-card settings-modal-card approval-card">
         <h2 id="approval-title" className="approval-title">
           {spendPause
-            ? `Spending limit reached: ${current.target}`
-            : `The AI wants to ${verb[current.action] ?? current.action} ${current.target}`}
+            ? t("approval.spendLimit", { target: current.target })
+            : t("approval.wants", { verb, target: current.target })}
         </h2>
         {current.category && !spendPause && (
           <p className="approval-category">
-            Asked because this agent has to get "{approvalCategoryLabel(current.category)}" approved.
+            {t("approval.category", { category: approvalCategoryLabel(current.category) })}
           </p>
         )}
         <pre className="approval-detail">{current.detail}</pre>
-        {queue.length > 1 && <p className="settings-hint">{queue.length - 1} more waiting after this one.</p>}
+        {queue.length > 1 && <p className="settings-hint">{t("approval.more", { count: queue.length - 1 })}</p>}
         <div className="approval-actions">
           <button type="button" className="settings-browse-btn" onClick={() => answer(false)} autoFocus>
-            {spendPause ? "Stop" : "Deny"}
+            {spendPause ? t("approval.stop") : t("approval.deny")}
           </button>
           <button type="button" className="settings-save-btn" onClick={() => answer(true)}>
-            {spendPause ? "Allow more" : "Approve"}
+            {spendPause ? t("approval.allowMore") : t("approval.approve")}
           </button>
         </div>
         {current.always && (
           <div className="approval-actions">
-            <button type="button" className="settings-browse-btn" onClick={() => answer(true, true)} title="Until the app is restarted">
-              Always allow in this conversation: {current.always}
+            <button type="button" className="settings-browse-btn" onClick={() => answer(true, true)} title={t("approval.alwaysTitle")}>
+              {t("approval.always", { what: current.always })}
             </button>
           </div>
         )}

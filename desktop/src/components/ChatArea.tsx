@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
+import { t } from "../i18n";
 import { nextCodeMode } from "../types";
 import type { AgentEntry, Attachment, CodeMode, Combo, Conversation, ProjectEntry, ProviderEntry } from "../types";
 import type { LiveTurn } from "../lib/liveTurn";
@@ -76,7 +77,7 @@ function ThinkingIndicator() {
       <div className="message-avatar">
         <LogoMark size={18} />
       </div>
-      <div className="thinking-indicator" aria-label="Warden is thinking">
+      <div className="thinking-indicator" aria-label={t("chat.thinking")}>
         <span />
         <span />
         <span />
@@ -94,7 +95,7 @@ function LiveBubble({ live }: { live: LiveTurn }) {
       <div className="message-avatar">
         <LogoMark size={18} />
       </div>
-      <div className="message-assistant-body bubble--live" aria-label="In progress" aria-live="polite">
+      <div className="message-assistant-body bubble--live" aria-label={t("chat.inProgress")} aria-live="polite">
         {live.items.map((item, i) =>
           item.kind === "text" ? (
             <div key={i} className="message-bubble-content">
@@ -216,7 +217,7 @@ function ChatArea({
                 {headerAction.label}
               </button>
             )}
-            <span className="chat-header-label" title="The agent whose channel this is">
+            <span className="chat-header-label" title={t("chat.channelOf")}>
               {channelTitle ?? selectedAgentId}
             </span>
             {headerAction && channelTitle === undefined && (
@@ -229,30 +230,30 @@ function ChatArea({
           // The agent can be changed at any time (P124): the next messages speak as the new one. Locked while an answer is on the way.
           <select
             className="chat-header-select"
-            aria-label="Agent"
-            title="The agent driving this conversation — the next messages speak as the one picked"
+            aria-label={t("chat.agent")}
+            title={t("chat.agentTitle")}
             value={selectedAgentId}
             disabled={isSending}
             onChange={(e) => {
               onSelectAgent(e.currentTarget.value);
             }}
           >
-            <option value="">No agent</option>
+            <option value="">{t("chat.noAgent")}</option>
             {agents.map((a) => (
               <option key={a.id} value={a.id}>
                 {a.id}
               </option>
             ))}
-            {selectedAgentId && !agents.some((a) => a.id === selectedAgentId) && <option value={selectedAgentId}>{selectedAgentId} (removed)</option>}
+            {selectedAgentId && !agents.some((a) => a.id === selectedAgentId) && <option value={selectedAgentId}>{t("chat.agentRemoved", { id: selectedAgentId })}</option>}
           </select>
         ) : (
-          <span className="chat-header-label">No agent</span>
+          <span className="chat-header-label">{t("chat.noAgent")}</span>
         )}
         {showProjectPicker && (
           <select
             className="chat-header-select"
-            aria-label="Project"
-            title="The AI works only on this project's files, with its instructions. Picking another one on a conversation that has started moves it."
+            aria-label={t("chat.project")}
+            title={t("chat.projectTitle")}
             value={knownProject ? selectedProjectId : ""}
             disabled={isSending}
             onChange={(e) => {
@@ -261,7 +262,7 @@ function ChatArea({
               else if (next !== (knownProject ? selectedProjectId : "")) setPendingMove(next);
             }}
           >
-            <option value="">No project</option>
+            <option value="">{t("chat.noProject")}</option>
             {projects.map((p) => (
               <option key={p.id} value={p.id}>
                 {p.name}
@@ -272,7 +273,7 @@ function ChatArea({
         {showFolder &&
           (hasMessages ? (
             <span className="chat-header-label" title={folderTitle}>
-              Folder: {folderName}
+              {t("chat.folder", { name: folderName })}
             </span>
           ) : (
             <span className="chat-header-folder">
@@ -281,17 +282,15 @@ function ChatArea({
                 className="chat-header-select"
                 title={
                   folderTitle ||
-                  (remote
-                    ? "Pick a folder of the hub, or of one of its nodes, for the AI to work in: it reads and writes there and its shell starts there (every command asks first)"
-                    : "Pick a folder of this computer for the AI to work in: it reads and writes there and its shell starts there (every command asks first)")
+                  (remote ? t("chat.folderHintHub") : t("chat.folderHintLocal"))
                 }
                 disabled={isSending}
                 onClick={() => void chooseFolder()}
               >
-                {selectedWorkdir ? `Folder: ${folderName}` : "No folder"}
+                {selectedWorkdir ? t("chat.folder", { name: folderName }) : t("chat.noFolder")}
               </button>
               {selectedWorkdir && (
-                <button type="button" className="chat-header-select" aria-label="Clear folder" onClick={() => onSelectWorkdir("")}>
+                <button type="button" className="chat-header-select" aria-label={t("chat.clearFolder")} onClick={() => onSelectWorkdir("")}>
                   ×
                 </button>
               )}
@@ -301,37 +300,33 @@ function ChatArea({
           // Changeable at any moment, a task that is running included (P103 b).
           <select
             className={`chat-header-select${codeMode === "acceptAll" ? " chat-header-select--warn" : ""}`}
-            aria-label="Mode"
-            title="How much the AI asks before acting. Takes effect at once, even in the middle of a task; reopening the conversation goes back to Manual."
+            aria-label={t("chat.mode")}
+            title={t("chat.modeTitle")}
             value={codeMode}
             onChange={(e) => onCodeMode(e.currentTarget.value as CodeMode)}
           >
-            <option value="manual">Manual (asks everything)</option>
-            <option value="acceptEdits">Accept edits</option>
-            <option value="acceptAll">Accept all (asks nothing)</option>
-            <option value="plan">Plan (changes nothing)</option>
+            <option value="manual">{t("chat.modeManual")}</option>
+            <option value="acceptEdits">{t("chat.modeAcceptEdits")}</option>
+            <option value="acceptAll">{t("chat.modeAcceptAll")}</option>
+            <option value="plan">{t("chat.modePlan")}</option>
           </select>
         )}
         {onShare && !remote && hasMessages && projects.some((p) => p.id === selectedProjectId && p.code) && (
           <button
             type="button"
             className="chat-header-select"
-            title={
-              sharedWithHub
-                ? "This conversation is on the hub: the phone and the web can go on with it (they see it while the hub is on). Click to bring it back to this computer only."
-                : "Put this conversation on the hub so you can go on with it from the phone or the web (they see it while the hub is on)."
-            }
+            title={sharedWithHub ? t("chat.sharedTitle") : t("chat.shareTitle")}
             disabled={isSending}
             onClick={() => onShare(!sharedWithHub)}
           >
-            {sharedWithHub ? "On the hub · stop sharing" : "Share with the hub"}
+            {sharedWithHub ? t("chat.shared") : t("chat.share")}
           </button>
         )}
         {/* With no provider and no combo there is nothing to pick: the box would be an empty pill. */}
         {!remote && providers.length + combos.length > 0 && (
           <select
             className="chat-header-select"
-            aria-label="Model"
+            aria-label={t("chat.model")}
             value={selectedProviderId}
             onChange={(e) => onSelectProvider(e.currentTarget.value)}
           >
@@ -342,7 +337,7 @@ function ChatArea({
             ))}
             {combos.map((c) => (
               <option key={c.id} value={c.id} title={c.providers.join(" → ")}>
-                {c.id} (combo)
+                {t("chat.combo", { id: c.id })}
               </option>
             ))}
           </select>
@@ -352,8 +347,8 @@ function ChatArea({
         <div className="chat-move-banner" role="alert">
           <span>
             {pendingMove === ""
-              ? "Take this conversation out of its project? What was said stays in it and becomes part of the context outside the project; the next messages see your whole vault again."
-              : `Move this conversation to "${projects.find((p) => p.id === pendingMove)?.name ?? pendingMove}"? The next messages only work with that project's files and instructions; what was said stays in the conversation.`}
+              ? t("chat.moveOut")
+              : t("chat.moveTo", { project: projects.find((p) => p.id === pendingMove)?.name ?? pendingMove })}
           </span>
           <button
             type="button"
@@ -363,18 +358,18 @@ function ChatArea({
               setPendingMove(null);
             }}
           >
-            Move
+            {t("chat.move")}
           </button>
           <button type="button" className="settings-browse-btn" onClick={() => setPendingMove(null)}>
-            Cancel
+            {t("chat.cancel")}
           </button>
         </div>
       )}
-      <div className="chat-messages" role="log" aria-live="polite" aria-label="Conversation messages">
+      <div className="chat-messages" role="log" aria-live="polite" aria-label={t("chat.messages")}>
         {!hasMessages ? (
           <div className="chat-empty-state">
             <LogoMark size={40} />
-            <h1>How can I help you today?</h1>
+            <h1>{t("chat.empty")}</h1>
           </div>
         ) : (
           <div className="chat-messages-column">

@@ -2,20 +2,20 @@ import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
 import { openUrl } from "@tauri-apps/plugin-opener";
+import { intlTag, t } from "../i18n";
+import { rich } from "../i18n/rich";
 import { ApiKeyField } from "./SettingsView";
 import HubsSection from "./HubsSection";
 import type { DiscoveredHub, EmbeddedServerConfig, EmbeddedServerStatus, HubPairingConfig, HubPairingQr, PairedDevice } from "../types";
 
 const STOPPED_STATUS: EmbeddedServerStatus = { running: false, boundAddr: null, serverName: null, secure: false, secureUrl: null, webUrl: null };
 
-const dateFormatter = new Intl.DateTimeFormat("en-US", { dateStyle: "medium", timeStyle: "short" });
-
 function formatSeen(ms: number): string {
-  return dateFormatter.format(new Date(ms));
+  return new Intl.DateTimeFormat(intlTag(), { dateStyle: "medium", timeStyle: "short" }).format(new Date(ms));
 }
 
 function StatusBadge({ status }: { status: PairedDevice["status"] }) {
-  const label = status === "pending" ? "Pending" : status === "approved" ? "Approved" : "Revoked";
+  const label = status === "pending" ? t("ws.pending") : status === "approved" ? t("ws.approved") : t("ws.revoked");
   return <span className={`storage-provider-badge workspace-status-badge workspace-status-badge--${status}`}>{label}</span>;
 }
 
@@ -107,32 +107,23 @@ function EmbeddedServerSection() {
   return (
     <section className="settings-section">
       <div className="settings-section-header">
-        <h3 className="settings-section-title">Be the hub of this network</h3>
+        <h3 className="settings-section-title">{t("hub.title")}</h3>
       </div>
-      <p className="settings-hint">
-        Starts a <code>warden-server</code> inside this same app — other devices (mobile, extension, browser) can connect
-        through it, on the port chosen below. Once started, it comes back up by itself every time this app opens; to reach it
-        from outside the local network (like Jellyfin), forward that port on your router.
-      </p>
+      <p className="settings-hint">{rich("hub.hint", { server: <code>warden-server</code> })}</p>
 
       <p className="settings-hint">
         {status.running ? (
           <>
-            Running as <strong>{status.serverName}</strong> on <code>{status.boundAddr}</code>
-            {status.secureUrl ? (
-              <>
-                {" "}
-                — HTTPS only, connect to <code>{status.secureUrl}</code>
-              </>
-            ) : status.secure ? (
-              " — HTTPS only, by the certificate's name"
-            ) : (
-              " — not encrypted (ws://)"
-            )}
+            {rich("hub.runningAs", { name: <strong>{status.serverName}</strong>, addr: <code>{status.boundAddr}</code> })}
+            {status.secureUrl
+              ? rich("hub.httpsOnly", { url: <code>{status.secureUrl}</code> })
+              : status.secure
+                ? t("hub.httpsByName")
+                : t("hub.notEncrypted")}
             {status.webUrl && (
               <>
                 <br />
-                Web interface:{" "}
+                {t("hub.webInterface")}
                 <a
                   href={status.webUrl}
                   onClick={(e) => {
@@ -142,17 +133,17 @@ function EmbeddedServerSection() {
                 >
                   {status.webUrl}
                 </a>
-                {!status.secureUrl && " (from another device on the network, replace localhost with this machine's IP)"}
+                {!status.secureUrl && t("hub.replaceLocalhost")}
               </>
             )}
           </>
         ) : (
-          "Stopped."
+          t("hub.stopped")
         )}
       </p>
 
       <label className="settings-field">
-        <span className="settings-label">Port</span>
+        <span className="settings-label">{t("hub.port")}</span>
         <input
           className="settings-input"
           type="number"
@@ -162,22 +153,19 @@ function EmbeddedServerSection() {
         />
       </label>
       <label className="settings-field">
-        <span className="settings-label">Name (optional)</span>
+        <span className="settings-label">{t("hub.nameOptional")}</span>
         <input
           className="settings-input"
           type="text"
-          placeholder="e.g. Living room desktop"
+          placeholder={t("hub.namePlaceholder")}
           value={serverNameInput}
           disabled={status.running}
           onChange={(e) => setServerNameInput(e.currentTarget.value)}
         />
       </label>
       <label className="settings-field">
-        <span className="settings-label">Address (optional)</span>
-        <span className="settings-hint">
-          Left empty, it answers on every network interface (<code>0.0.0.0</code>). <code>127.0.0.1</code> makes the hub reachable
-          only from this computer; the IP of one interface (e.g. Tailscale's) limits it to that one.
-        </span>
+        <span className="settings-label">{t("hub.address")}</span>
+        <span className="settings-hint">{rich("hub.addressHint", { all: <code>0.0.0.0</code>, loopback: <code>127.0.0.1</code> })}</span>
         <input
           className="settings-input"
           type="text"
@@ -188,36 +176,29 @@ function EmbeddedServerSection() {
         />
       </label>
       <label className="settings-field">
-        <span className="settings-label">HTTPS</span>
+        <span className="settings-label">{t("hub.https")}</span>
         <select
           className="settings-select"
           value={httpsMode}
           disabled={status.running}
           onChange={(e) => setHttpsMode(e.currentTarget.value as HttpsMode)}
         >
-          <option value="none">Not encrypted (ws://)</option>
-          <option value="tailscale">Through Tailscale</option>
-          <option value="own">Own certificate</option>
+          <option value="none">{t("hub.httpsNone")}</option>
+          <option value="tailscale">{t("hub.httpsTailscale")}</option>
+          <option value="own">{t("hub.httpsOwn")}</option>
         </select>
         {httpsMode === "tailscale" && (
           <span className="settings-hint">
-            Encrypts the connection with this computer's Tailscale certificate (<code>tailscale cert</code>), renewed by itself. Devices
-            then connect by the name <code>*.ts.net</code>, only from inside the tailnet. Needs MagicDNS and HTTPS certificates turned
-            on in the Tailscale panel and, without root, <code>sudo tailscale set --operator=$USER</code>.
+            {rich("hub.tailscaleHint", { cmd: <code>tailscale cert</code>, name: <code>*.ts.net</code>, operator: <code>sudo tailscale set --operator=$USER</code> })}
           </span>
         )}
-        {httpsMode === "own" && (
-          <span className="settings-hint">
-            A certificate in PEM (the chain, starting with the site's) and its private key, like the ones from Let's Encrypt. The files
-            are read again when they change, so renewing does not need a restart.
-          </span>
-        )}
+        {httpsMode === "own" && <span className="settings-hint">{t("hub.ownHint")}</span>}
       </label>
       {httpsMode === "own" && (
         <>
           {(["tlsCert", "tlsKey"] as const).map((field) => (
             <label className="settings-field" key={field}>
-              <span className="settings-label">{field === "tlsCert" ? "Certificate (.pem)" : "Private key (.pem)"}</span>
+              <span className="settings-label">{field === "tlsCert" ? t("hub.certificate") : t("hub.privateKey")}</span>
               <div className="settings-key-field">
                 <input
                   className="settings-input"
@@ -228,18 +209,15 @@ function EmbeddedServerSection() {
                 />
                 {!status.running && (
                   <button type="button" className="settings-browse-btn" onClick={() => void handleBrowse(field)}>
-                    Choose…
+                    {t("hub.choose")}
                   </button>
                 )}
               </div>
             </label>
           ))}
           <label className="settings-field">
-            <span className="settings-label">Certificate name (optional)</span>
-            <span className="settings-hint">
-              The name the certificate is valid for (e.g. <code>hub.mydomain.com</code>). With it, the discovery on the network and the
-              link to the web interface already point to the right address.
-            </span>
+            <span className="settings-label">{t("hub.certName")}</span>
+            <span className="settings-hint">{rich("hub.certNameHint", { example: <code>hub.mydomain.com</code> })}</span>
             <input
               className="settings-input"
               type="text"
@@ -259,24 +237,21 @@ function EmbeddedServerSection() {
             disabled={status.running}
             onChange={(e) => setConfig((c) => ({ ...c, webUi: e.currentTarget.checked }))}
           />
-          <span className="settings-label">Web interface</span>
+          <span className="settings-label">{t("hub.webUi")}</span>
         </span>
-        <span className="settings-hint">
-          Opening the hub's address in a browser shows the whole of Warden, which pairs as one more device. Turned off, the port
-          answers only the apps.
-        </span>
+        <span className="settings-hint">{t("hub.webUiHint")}</span>
       </label>
-      <ApiKeyField label="Auth key" value={config.authKey} onChange={(authKey) => setConfig((c) => ({ ...c, authKey }))} />
+      <ApiKeyField label={t("hub.authKey")} value={config.authKey} onChange={(authKey) => setConfig((c) => ({ ...c, authKey }))} />
       {!status.running && (
         <button type="button" className="settings-browse-btn" onClick={handleGenerateKey}>
-          Generate a new key
+          {t("hub.generateKey")}
         </button>
       )}
 
       {error && <p className="settings-error-banner">{error}</p>}
 
       <button type="button" className="settings-save-btn" onClick={status.running ? handleStop : handleStart} disabled={busy}>
-        {busy ? "Wait…" : status.running ? "Turn off" : "Turn on"}
+        {busy ? t("hub.wait") : status.running ? t("hub.turnOff") : t("hub.turnOn")}
       </button>
     </section>
   );
@@ -355,20 +330,17 @@ function DeviceInvitesSection() {
   return (
     <section className="settings-section">
       <div className="settings-section-header">
-        <h3 className="settings-section-title">Invites and pairing key</h3>
+        <h3 className="settings-section-title">{t("invites.title")}</h3>
       </div>
-      <p className="settings-hint">
-        An invite pairs one device, once, and expires — so a device you revoked can't come back by pairing again under a new
-        id, and nobody needs the shared pairing key. The code is shown once; the device types it where it would type the key.
-      </p>
+      <p className="settings-hint">{t("invites.hint")}</p>
       {error && <p className="settings-error-banner">{error}</p>}
 
       <label className="settings-field">
-        <span className="settings-label">Who it is for</span>
-        <input className="settings-input" type="text" placeholder="Ana's phone" value={name} onChange={(e) => setName(e.currentTarget.value)} />
+        <span className="settings-label">{t("invites.who")}</span>
+        <input className="settings-input" type="text" placeholder={t("invites.whoPlaceholder")} value={name} onChange={(e) => setName(e.currentTarget.value)} />
       </label>
       <label className="settings-field">
-        <span className="settings-label">Works for (minutes)</span>
+        <span className="settings-label">{t("invites.minutes")}</span>
         <input
           className="settings-input"
           type="text"
@@ -378,12 +350,12 @@ function DeviceInvitesSection() {
         />
       </label>
       <button type="button" className="settings-save-btn" disabled={busy || name.trim() === ""} onClick={handleCreate}>
-        Create invite
+        {t("invites.create")}
       </button>
 
       {made && (
         <p className="settings-hint">
-          Invite for <strong>{made.name}</strong> (until {formatSeen(made.expiresMs)}): <code>{made.code}</code>
+          {rich("invites.made", { name: <strong>{made.name}</strong>, date: formatSeen(made.expiresMs), code: <code>{made.code}</code> })}
         </p>
       )}
 
@@ -393,11 +365,11 @@ function DeviceInvitesSection() {
             <div className="workspace-device-row" key={invite.name}>
               <div className="workspace-device-info">
                 <span className="workspace-device-name">{invite.name}</span>
-                <span className="workspace-device-meta">waiting · expires {formatSeen(invite.expiresMs)}</span>
+                <span className="workspace-device-meta">{t("invites.waiting", { date: formatSeen(invite.expiresMs) })}</span>
               </div>
               <div className="workspace-device-actions">
                 <button type="button" className="provider-delete-btn" onClick={() => handleCancel(invite.name)}>
-                  Cancel
+                  {t("invites.cancel")}
                 </button>
               </div>
             </div>
@@ -405,29 +377,22 @@ function DeviceInvitesSection() {
         </div>
       )}
 
-      <p className="settings-hint">
-        Changing the pairing key makes the old one stop pairing new devices and stop opening the hub's administration.
-        Devices that already paired keep working.
-      </p>
+      <p className="settings-hint">{t("invites.rotateHint")}</p>
       {confirmRotate ? (
         <div className="workspace-device-actions">
           <button type="button" className="provider-delete-btn" disabled={busy} onClick={handleRotate}>
-            Yes, change the key
+            {t("invites.rotateYes")}
           </button>
           <button type="button" className="settings-browse-btn" onClick={() => setConfirmRotate(false)}>
-            Keep it
+            {t("invites.keepIt")}
           </button>
         </div>
       ) : (
         <button type="button" className="settings-browse-btn" onClick={() => setConfirmRotate(true)}>
-          Change the pairing key
+          {t("invites.rotate")}
         </button>
       )}
-      {rotatedKey && (
-        <p className="settings-hint">
-          New pairing key (shown once): <code>{rotatedKey}</code>
-        </p>
-      )}
+      {rotatedKey && <p className="settings-hint">{rich("invites.newKey", { key: <code>{rotatedKey}</code> })}</p>}
     </section>
   );
 }
@@ -489,16 +454,12 @@ function HubPairingQrSection() {
   return (
     <section className="settings-section">
       <div className="settings-section-header">
-        <h3 className="settings-section-title">Pairing by QR</h3>
+        <h3 className="settings-section-title">{t("qr.title")}</h3>
       </div>
-      <p className="settings-hint">
-        Enter this hub's address and generate a QR — scan it in the app to fill in the connection automatically. The QR carries a
-        one-use invitation, valid for a few minutes (the pairing key only pairs the first device), made on this machine: it
-        works for this app's hub or a <code>warden-server</code> running here.
-      </p>
+      <p className="settings-hint">{rich("qr.hint", { server: <code>warden-server</code> })}</p>
 
       <label className="settings-field">
-        <span className="settings-label">Port to look for</span>
+        <span className="settings-label">{t("qr.port")}</span>
         <input
           className="settings-input"
           type="text"
@@ -509,10 +470,10 @@ function HubPairingQrSection() {
         />
       </label>
       <button type="button" className="settings-save-btn" onClick={handleDiscover} disabled={searching}>
-        {searching ? "Searching…" : "Look for hubs on the network"}
+        {searching ? t("qr.searching") : t("qr.search")}
       </button>
       {searchError && <p className="settings-error-banner">{searchError}</p>}
-      {hubs && hubs.length === 0 && <p className="settings-hint">No hub answered on the local network.</p>}
+      {hubs && hubs.length === 0 && <p className="settings-hint">{t("qr.noneFound")}</p>}
       {hubs && hubs.length > 0 && (
         <div className="workspace-device-list">
           {hubs.map((hub) => (
@@ -532,33 +493,31 @@ function HubPairingQrSection() {
       )}
 
       <label className="settings-field">
-        <span className="settings-label">Server URL</span>
+        <span className="settings-label">{t("qr.serverUrl")}</span>
         <input
           className="settings-input"
           type="text"
-          placeholder="wss://hub.tailXXXX.ts.net:7420 or ws://192.168.x.x:7420"
+          placeholder={t("qr.serverUrlPlaceholder")}
           value={config.serverUrl}
           onChange={(e) => setConfig((c) => ({ ...c, serverUrl: e.currentTarget.value }))}
         />
       </label>
       {embeddedSecureUrl && config.serverUrl !== embeddedSecureUrl && (
         <button type="button" className="settings-browse-btn" onClick={() => setConfig((c) => ({ ...c, serverUrl: embeddedSecureUrl }))}>
-          Use this app's hub ({embeddedSecureUrl})
+          {t("qr.useThis", { url: embeddedSecureUrl })}
         </button>
       )}
 
       {error && <p className="settings-error-banner">{error}</p>}
 
       <button type="button" className="settings-save-btn" onClick={handleGenerate} disabled={busy}>
-        Generate QR
+        {t("qr.generate")}
       </button>
 
       {qr && (
         <div className="sync-qr-card">
           <div className="sync-qr-image" dangerouslySetInnerHTML={{ __html: qr.svg }} />
-          <p className="settings-hint">
-            Works once, until {new Date(qr.expiresMs).toLocaleTimeString()}. Generating another QR cancels this one.
-          </p>
+          <p className="settings-hint">{t("qr.worksOnce", { time: new Date(qr.expiresMs).toLocaleTimeString(intlTag()) })}</p>
         </div>
       )}
     </section>
@@ -653,44 +612,36 @@ function PeopleSection() {
   return (
     <section className="settings-section">
       <div className="settings-section-header">
-        <h3 className="settings-section-title">People</h3>
+        <h3 className="settings-section-title">{t("people.title")}</h3>
         <button type="button" className="settings-browse-btn" disabled={draft !== null} onClick={() => setDraft({ kind: "add", id: "", name: "" })}>
-          + Add a person
+          {t("people.add")}
         </button>
       </div>
-      <p className="settings-hint">
-        Others who use this Warden. Each signs in on the web or the phone with their own username and password, and has their own vault and
-        conversations, which you don&apos;t see. They talk to the agents you share with them (Settings → Agents), always with their own
-        memory and only the tools you allow them here, and can make agents of their own.
-      </p>
+      <p className="settings-hint">{t("people.hint")}</p>
       {error && <p className="settings-error-banner">{error}</p>}
       {shown && (
         <div className="provider-card">
-          <p className="settings-hint">
-            Provisional password for <strong>{shown.id}</strong> (shown only now): <code>{shown.password}</code>
-          </p>
-          <p className="settings-hint">Give it to them with the username. They choose their own the first time they sign in.</p>
+          <p className="settings-hint">{rich("people.provisional", { id: <strong>{shown.id}</strong>, password: <code>{shown.password}</code> })}</p>
+          <p className="settings-hint">{t("people.giveIt")}</p>
           <button type="button" className="settings-browse-btn" onClick={() => setShown(null)}>
-            Done
+            {t("people.done")}
           </button>
         </div>
       )}
 
       {invite && (
         <div className="provider-card">
-          <p className="settings-hint">
-            TruthID invite for <strong>{invite.id}</strong> (shown only now, good for 7 days, single use): <code>{invite.code}</code>
-          </p>
-          <p className="settings-hint">They sign in on the web, open &quot;Trocar senha&quot; and, under &quot;Ligar meu TruthID&quot;, give this code and their TruthID username.</p>
+          <p className="settings-hint">{rich("people.invite", { id: <strong>{invite.id}</strong>, code: <code>{invite.code}</code> })}</p>
+          <p className="settings-hint">{t("people.inviteHint")}</p>
           <button type="button" className="settings-browse-btn" onClick={() => setInvite(null)}>
-            Done
+            {t("people.done")}
           </button>
         </div>
       )}
 
       {draft?.kind === "tools" && (
         <div className="provider-card skill-editor">
-          <span className="settings-label">Tools for {draft.id}</span>
+          <span className="settings-label">{t("people.toolsFor", { id: draft.id })}</span>
           <span className="settings-checkbox-row">
             <input
               type="checkbox"
@@ -698,7 +649,7 @@ function PeopleSection() {
               checked={draft.tools === null}
               onChange={(e) => setDraft({ ...draft, tools: e.currentTarget.checked ? null : toolNames.filter(safeByDefault) })}
             />
-            <label htmlFor="person-tools-default">The safe default (their own vault's files and skills, web search)</label>
+            <label htmlFor="person-tools-default">{t("people.safeDefault")}</label>
           </span>
           {draft.tools !== null &&
             toolNames.map((tool) => (
@@ -711,17 +662,17 @@ function PeopleSection() {
                 />
                 <label htmlFor={`person-tool-${tool}`}>
                   {tool}
-                  {!safeByDefault(tool) && <span className="settings-hint"> — reaches what's yours (shell, nodes, integrations)</span>}
+                  {!safeByDefault(tool) && <span className="settings-hint">{t("people.reachesYours")}</span>}
                 </label>
               </span>
             ))}
-          <span className="settings-hint">An agent never goes past this, nor past its own tools.</span>
+          <span className="settings-hint">{t("people.neverPast")}</span>
           <div className="skill-editor-actions">
             <button type="button" className="settings-save-btn" onClick={() => void save()}>
-              Save
+              {t("people.save")}
             </button>
             <button type="button" className="settings-browse-btn" onClick={() => setDraft(null)}>
-              Cancel
+              {t("people.cancel")}
             </button>
           </div>
         </div>
@@ -731,30 +682,30 @@ function PeopleSection() {
         <div className="provider-card skill-editor">
           {draft.kind === "add" && (
             <label className="settings-field">
-              <span className="settings-label">Username</span>
+              <span className="settings-label">{t("people.username")}</span>
               <input className="settings-input" type="text" placeholder="ana" value={draft.id} onChange={(e) => setDraft({ ...draft, id: e.currentTarget.value })} />
-              <span className="settings-hint">Lowercase letters, digits, - or _. It&apos;s how they sign in.</span>
+              <span className="settings-hint">{t("people.usernameHint")}</span>
             </label>
           )}
           <label className="settings-field">
-            <span className="settings-label">Name</span>
+            <span className="settings-label">{t("people.name")}</span>
             <input className="settings-input" type="text" placeholder="Ana Souza" value={draft.name} onChange={(e) => setDraft({ ...draft, name: e.currentTarget.value })} />
           </label>
           <div className="skill-editor-actions">
             <button type="button" className="settings-save-btn" disabled={draft.name.trim() === "" || (draft.kind === "add" && draft.id.trim() === "")} onClick={() => void save()}>
-              {draft.kind === "add" ? "Add" : "Save"}
+              {draft.kind === "add" ? t("people.addButton") : t("people.save")}
             </button>
             <button type="button" className="settings-browse-btn" onClick={() => setDraft(null)}>
-              Cancel
+              {t("people.cancel")}
             </button>
           </div>
         </div>
       )}
 
       {people === null ? (
-        <p className="settings-hint">Loading…</p>
+        <p className="settings-hint">{t("people.loading")}</p>
       ) : people.length === 0 ? (
-        <p className="settings-hint">Just you for now.</p>
+        <p className="settings-hint">{t("people.justYou")}</p>
       ) : (
         <div className="workspace-device-list">
           {people.map((person) => (
@@ -763,52 +714,48 @@ function PeopleSection() {
                 <div className="workspace-device-name-row">
                   <span className="workspace-device-name">{person.name}</span>
                   <span className={`storage-provider-badge workspace-status-badge workspace-status-badge--${person.mustChangePassword ? "pending" : "approved"}`}>
-                    {person.mustChangePassword ? "provisional password" : "active"}
+                    {person.mustChangePassword ? t("people.statusProvisional") : t("people.statusActive")}
                   </span>
                 </div>
                 <span className="workspace-device-meta">
-                  {person.id} · {person.tools == null ? "default tools" : person.tools.length === 0 ? "no tools" : `tools: ${person.tools.join(", ")}`}
-                  {person.agents && person.agents.length > 0 ? ` · own agents: ${person.agents.join(", ")}` : ""}
-                  {person.truthid ? ` · TruthID: @${person.truthid}` : person.inviteOpen ? " · TruthID invite open" : ""}
+                  {person.id} · {person.tools == null ? t("people.defaultTools") : person.tools.length === 0 ? t("people.noTools") : t("people.toolsList", { list: person.tools.join(", ") })}
+                  {person.agents && person.agents.length > 0 ? t("people.ownAgents", { list: person.agents.join(", ") }) : ""}
+                  {person.truthid ? t("people.truthid", { name: person.truthid }) : person.inviteOpen ? t("people.inviteOpen") : ""}
                 </span>
-                {confirmRemove === person.id && (
-                  <span className="settings-hint">
-                    {person.name} leaves the workspace and their devices are disconnected. Their vault and conversations stay on disk.
-                  </span>
-                )}
+                {confirmRemove === person.id && <span className="settings-hint">{t("people.confirmRemove", { name: person.name })}</span>}
               </div>
               <div className="workspace-device-actions">
                 {confirmRemove === person.id ? (
                   <>
                     <button type="button" className="provider-delete-btn" onClick={() => void run("remove_person", { id: person.id })}>
-                      Remove
+                      {t("people.remove")}
                     </button>
                     <button type="button" className="settings-browse-btn" onClick={() => setConfirmRemove(null)}>
-                      Cancel
+                      {t("people.cancel")}
                     </button>
                   </>
                 ) : (
                   <>
                     <button type="button" className="settings-browse-btn" disabled={draft !== null} onClick={() => setDraft({ kind: "rename", id: person.id, name: person.name })}>
-                      Rename
+                      {t("people.rename")}
                     </button>
                     <button type="button" className="settings-browse-btn" disabled={draft !== null} onClick={() => setDraft({ kind: "tools", id: person.id, tools: person.tools ?? null })}>
-                      Tools
+                      {t("people.tools")}
                     </button>
                     {person.truthid || person.inviteOpen ? (
                       <button type="button" className="settings-browse-btn" onClick={() => void run("unlink_person_truthid", { id: person.id })}>
-                        {person.truthid ? "Unlink TruthID" : "Cancel invite"}
+                        {person.truthid ? t("people.unlink") : t("people.cancelInvite")}
                       </button>
                     ) : (
                       <button type="button" className="settings-browse-btn" onClick={() => void run("invite_person", { id: person.id }, person.id)}>
-                        TruthID invite
+                        {t("people.truthidInvite")}
                       </button>
                     )}
                     <button type="button" className="settings-browse-btn" onClick={() => void run("reset_person_password", { id: person.id }, person.id)}>
-                      New password
+                      {t("people.newPassword")}
                     </button>
                     <button type="button" className="provider-delete-btn" onClick={() => setConfirmRemove(person.id)}>
-                      Remove
+                      {t("people.remove")}
                     </button>
                   </>
                 )}
@@ -880,55 +827,52 @@ function SharedSpacesSection({ people }: { people: Person[] }) {
     }
   }
 
-  const name = (id: string) => (id === EVERYONE ? "everyone" : (people.find((p) => p.id === id)?.name ?? id));
+  const name = (id: string) => (id === EVERYONE ? t("spaces.everyone") : (people.find((p) => p.id === id)?.name ?? id));
   const who = (space: SharedSpace) => {
     const parts = [];
-    if (space.writers.length > 0) parts.push(`write: ${space.writers.map(name).join(", ")}`);
-    if (space.readers.length > 0) parts.push(`read: ${space.readers.map(name).join(", ")}`);
-    return parts.length > 0 ? parts.join(" · ") : "no one yet";
+    if (space.writers.length > 0) parts.push(t("spaces.write", { names: space.writers.map(name).join(", ") }));
+    if (space.readers.length > 0) parts.push(t("spaces.read", { names: space.readers.map(name).join(", ") }));
+    return parts.length > 0 ? parts.join(" · ") : t("spaces.noOne");
   };
 
   const accessSelect = (space: SharedSpace, person: string) => (
     <select className="settings-input" value={spaceAccess(space, person)} onChange={(e) => draft && setDraft({ ...draft, space: withSpaceAccess(space, person, e.currentTarget.value as SpaceAccess) })}>
-      <option value="none">Doesn&apos;t see it</option>
-      <option value="read">Reads</option>
-      <option value="write">Reads and writes</option>
+      <option value="none">{t("spaces.none")}</option>
+      <option value="read">{t("spaces.reads")}</option>
+      <option value="write">{t("spaces.writes")}</option>
     </select>
   );
 
   return (
     <>
       <div className="settings-section-header">
-        <h3 className="settings-section-title">Shared spaces</h3>
+        <h3 className="settings-section-title">{t("spaces.title")}</h3>
         <button
           type="button"
           className="settings-browse-btn"
           disabled={draft !== null || people.length === 0}
           onClick={() => setDraft({ space: { id: "", folder: "", readers: [], writers: [] } })}
         >
-          + Share a folder
+          {t("spaces.add")}
         </button>
       </div>
-      <p className="settings-hint">
-        Folders of your vault the people above see inside theirs, under <code>compartilhado/</code>. An agent talking to them reads (and, if you
-        let it, writes) only in these folders, never the rest of your memory. Only you create spaces.
-      </p>
+      <p className="settings-hint">{rich("spaces.hint", { folder: <code>compartilhado/</code> })}</p>
       {error && <p className="settings-error-banner">{error}</p>}
 
       {draft && (
         <div className="provider-card skill-editor">
           <label className="settings-field">
-            <span className="settings-label">Name</span>
+            <span className="settings-label">{t("spaces.name")}</span>
             <input className="settings-input" type="text" placeholder="casa" value={draft.space.id} onChange={(e) => setDraft({ ...draft, space: { ...draft.space, id: e.currentTarget.value } })} />
-            <span className="settings-hint">Lowercase letters, digits, - or _. They see it at compartilhado/{draft.space.id.trim().toLowerCase() || "name"}/.</span>
+            <span className="settings-hint">{t("spaces.nameHint", { name: draft.space.id.trim().toLowerCase() || t("spaces.nameFallback") })}</span>
           </label>
           <label className="settings-field">
-            <span className="settings-label">Folder of your vault</span>
+            <span className="settings-label">{t("spaces.folder")}</span>
             <input className="settings-input" type="text" placeholder="casa" value={draft.space.folder} onChange={(e) => setDraft({ ...draft, space: { ...draft.space, folder: e.currentTarget.value } })} />
-            <span className="settings-hint">Relative to the vault&apos;s root, like casa or viagens/2026. Created when someone first writes in it.</span>
+            <span className="settings-hint">{t("spaces.folderHint")}</span>
           </label>
           <label className="settings-field">
-            <span className="settings-label">Everyone</span>
+            <span className="settings-label">{t("spaces.everyoneLabel")}</span>
             {accessSelect(draft.space, EVERYONE)}
           </label>
           {people.map((person) => (
@@ -944,19 +888,19 @@ function SharedSpacesSection({ people }: { people: Person[] }) {
               disabled={draft.space.id.trim() === "" || draft.space.folder.trim() === ""}
               onClick={() => void run("save_shared_space", { originalId: draft.originalId ?? null, space: { ...draft.space, id: draft.space.id.trim().toLowerCase(), folder: draft.space.folder.trim() } })}
             >
-              {draft.originalId ? "Save" : "Share"}
+              {draft.originalId ? t("spaces.save") : t("spaces.share")}
             </button>
             <button type="button" className="settings-browse-btn" onClick={() => setDraft(null)}>
-              Cancel
+              {t("spaces.cancel")}
             </button>
           </div>
         </div>
       )}
 
       {spaces === null ? (
-        <p className="settings-hint">Loading…</p>
+        <p className="settings-hint">{t("spaces.loading")}</p>
       ) : spaces.length === 0 ? (
-        <p className="settings-hint">{people.length === 0 ? "Add someone before sharing a folder." : "No folder shared."}</p>
+        <p className="settings-hint">{people.length === 0 ? t("spaces.addFirst") : t("spaces.noneShared")}</p>
       ) : (
         <div className="workspace-device-list">
           {spaces.map((space) => (
@@ -968,26 +912,26 @@ function SharedSpacesSection({ people }: { people: Person[] }) {
                 </div>
                 <span className="workspace-device-meta">{who(space)}</span>
                 {confirmRemove === space.id && (
-                  <span className="settings-hint">Whoever saw this folder stops seeing it from their next message. The folder and its notes stay in your vault.</span>
+                  <span className="settings-hint">{t("spaces.confirmStop")}</span>
                 )}
               </div>
               <div className="workspace-device-actions">
                 {confirmRemove === space.id ? (
                   <>
                     <button type="button" className="provider-delete-btn" onClick={() => void run("remove_shared_space", { id: space.id })}>
-                      Stop sharing
+                      {t("spaces.stop")}
                     </button>
                     <button type="button" className="settings-browse-btn" onClick={() => setConfirmRemove(null)}>
-                      Cancel
+                      {t("spaces.cancel")}
                     </button>
                   </>
                 ) : (
                   <>
                     <button type="button" className="settings-browse-btn" disabled={draft !== null} onClick={() => setDraft({ originalId: space.id, space })}>
-                      Edit
+                      {t("spaces.edit")}
                     </button>
                     <button type="button" className="provider-delete-btn" onClick={() => setConfirmRemove(space.id)}>
-                      Stop sharing
+                      {t("spaces.stop")}
                     </button>
                   </>
                 )}
@@ -1044,16 +988,16 @@ interface LendOptions {
 const EMPTY_LEND: LendConfig = { hubUrl: "", name: "", description: "", tags: [], shell: false, files: null, mcp: [], models: [] };
 
 function lendStateLabel(state: LendState | null): string {
-  if (!state) return "Off";
+  if (!state) return t("lend.off");
   switch (state.state) {
     case "connecting":
-      return "Connecting…";
+      return t("lend.connecting");
     case "connected":
-      return "Connected";
+      return t("lend.connected");
     case "retrying":
-      return `Hub unreachable, trying again in ${state.inSecs}s: ${state.error}`;
+      return t("lend.retrying", { secs: state.inSecs, error: state.error });
     case "stopped":
-      return `Stopped: ${state.error}`;
+      return t("lend.stopped", { error: state.error });
   }
 }
 
@@ -1137,31 +1081,29 @@ function LendSection() {
   return (
     <section className="settings-section">
       <div className="settings-section-header">
-        <h3 className="settings-section-title">Lend this computer</h3>
+        <h3 className="settings-section-title">{t("lend.title")}</h3>
         {running ? (
           <button type="button" className="provider-delete-btn" onClick={() => void stop()}>
-            Stop lending
+            {t("lend.stop")}
           </button>
         ) : (
           <button type="button" className="settings-save-btn" disabled={busy || form.hubUrl.trim() === ""} onClick={() => void start()}>
-            {busy ? "Starting…" : "Start lending"}
+            {busy ? t("lend.starting") : t("lend.start")}
           </button>
         )}
       </div>
-      <p className="settings-hint">
-        Lets the agents of another hub (like the one on your VPS) use this computer. On that hub, approve it in the device list and allow it under Nodes.
-      </p>
+      <p className="settings-hint">{t("lend.hint")}</p>
       {error && <p className="settings-error-banner">{error}</p>}
       {status && (
         <p className="settings-hint">
           <strong>{lendStateLabel(status.state)}</strong>
-          {status.deviceId ? ` · device id ${status.deviceId}` : ""}
+          {status.deviceId ? t("lend.deviceId", { id: status.deviceId }) : ""}
         </p>
       )}
 
       <div className="provider-card skill-editor">
         <label className="settings-field">
-          <span className="settings-label">Hub address</span>
+          <span className="settings-label">{t("lend.hubAddress")}</span>
           <input
             className="settings-input"
             type="text"
@@ -1173,12 +1115,12 @@ function LendSection() {
         </label>
         {!running && (
           <>
-            <ApiKeyField label={status?.paired ? "Hub pairing key (only to pair again)" : "Hub pairing key (only the first time)"} value={authKey} onChange={setAuthKey} />
-            <span className="settings-hint">Used once to join the hub, never saved: the hub gives this computer its own token. The key pairs only the hub's first device; to join a hub that already has devices, paste an invite code here instead.</span>
+            <ApiKeyField label={status?.paired ? t("lend.pairingAgain") : t("lend.pairingFirst")} value={authKey} onChange={setAuthKey} />
+            <span className="settings-hint">{t("lend.pairingHint")}</span>
           </>
         )}
         <label className="settings-field">
-          <span className="settings-label">Name on the hub</span>
+          <span className="settings-label">{t("lend.name")}</span>
           <input
             className="settings-input"
             type="text"
@@ -1189,44 +1131,44 @@ function LendSection() {
           />
         </label>
         <label className="settings-field">
-          <span className="settings-label">Description for the agents</span>
+          <span className="settings-label">{t("lend.description")}</span>
           <input
             className="settings-input"
             type="text"
-            placeholder="Home PC with the GPU and the photo archive"
+            placeholder={t("lend.descriptionPlaceholder")}
             value={form.description}
             disabled={running}
             onChange={(e) => setForm({ ...form, description: e.currentTarget.value })}
           />
         </label>
         <label className="settings-field">
-          <span className="settings-label">Tags</span>
+          <span className="settings-label">{t("lend.tags")}</span>
           <input className="settings-input" type="text" placeholder="home, gpu" value={tagsText} disabled={running} onChange={(e) => setTagsText(e.currentTarget.value)} />
         </label>
         <label className="settings-field settings-checkbox-field">
           <span className="settings-checkbox-row">
             <input type="checkbox" checked={form.shell} disabled={running} onChange={(e) => setForm({ ...form, shell: e.currentTarget.checked })} />
-            <span className="settings-label">Its shell</span>
+            <span className="settings-label">{t("lend.shell")}</span>
           </span>
-          <span className="settings-hint">Commands run in the shared folder, or your home folder if none.</span>
+          <span className="settings-hint">{t("lend.shellHint")}</span>
         </label>
         <div className="settings-field">
-          <span className="settings-label">A folder</span>
+          <span className="settings-label">{t("lend.folder")}</span>
           <div className="settings-checkbox-row">
-            <input className="settings-input" type="text" readOnly placeholder="None" value={form.files ?? ""} />
+            <input className="settings-input" type="text" readOnly placeholder={t("lend.none")} value={form.files ?? ""} />
             <button type="button" className="settings-browse-btn" disabled={running} onClick={() => void pickFolder()}>
-              Choose…
+              {t("hub.choose")}
             </button>
             {form.files && (
               <button type="button" className="settings-browse-btn" disabled={running} onClick={() => setForm({ ...form, files: null })}>
-                Clear
+                {t("lend.clear")}
               </button>
             )}
           </div>
         </div>
         {options.mcpServers.length > 0 && (
           <div className="settings-field">
-            <span className="settings-label">MCP servers</span>
+            <span className="settings-label">{t("lend.mcp")}</span>
             <div className="skill-agent-list">
               {options.mcpServers.map((name) => (
                 <label className="skill-agent-option" key={name}>
@@ -1239,7 +1181,7 @@ function LendSection() {
         )}
         {options.models.length > 0 && (
           <div className="settings-field">
-            <span className="settings-label">Models</span>
+            <span className="settings-label">{t("lend.models")}</span>
             <div className="skill-agent-list">
               {options.models.map((id) => (
                 <label className="skill-agent-option" key={id}>
@@ -1248,16 +1190,16 @@ function LendSection() {
                 </label>
               ))}
             </div>
-            <span className="settings-hint">The hub uses a lent model through a provider of kind "A node's model".</span>
+            <span className="settings-hint">{t("lend.modelsHint")}</span>
           </div>
         )}
       </div>
 
       {running && (
         <>
-          <h4 className="settings-label">What the agents did here</h4>
+          <h4 className="settings-label">{t("lend.did")}</h4>
           {status.activity.length === 0 ? (
-            <p className="settings-hint">Nothing yet.</p>
+            <p className="settings-hint">{t("lend.nothing")}</p>
           ) : (
             <div className="workspace-device-list">
               {status.activity.map((entry, i) => (
@@ -1268,7 +1210,7 @@ function LendSection() {
                     </span>
                     <span className="workspace-device-meta">
                       {formatSeen(entry.at * 1000)}
-                      {entry.error ? ` · failed: ${entry.error}` : ""}
+                      {entry.error ? t("lend.failed", { error: entry.error }) : ""}
                     </span>
                   </div>
                 </div>
@@ -1301,15 +1243,15 @@ interface NodeDraft {
 }
 
 function offerLabel(node: NodeInfo): string {
-  if (!node.offer) return "not connected to this machine's hub since it started";
+  if (!node.offer) return t("nodes.notConnected");
   const mcp = node.offer.mcpTools ?? [];
   const parts = [
-    node.offer.shell && "its shell",
-    node.offer.files && "a folder",
-    mcp.length > 0 && `${mcp.length} MCP tool(s) (${mcp.map((t) => t.name).join(", ")})`,
-    (node.offer.models ?? []).length > 0 && `the model(s) ${(node.offer.models ?? []).join(", ")}`,
+    node.offer.shell && t("nodes.itsShell"),
+    node.offer.files && t("nodes.aFolder"),
+    mcp.length > 0 && t("nodes.mcpTools", { count: mcp.length, names: mcp.map((tool) => tool.name).join(", ") }),
+    (node.offer.models ?? []).length > 0 && t("nodes.models", { list: (node.offer.models ?? []).join(", ") }),
   ].filter(Boolean);
-  return parts.length ? `lends ${parts.join(" and ")}` : "lends nothing";
+  return parts.length ? t("nodes.lends", { parts: parts.join(t("nodes.and")) }) : t("nodes.lendsNothing");
 }
 
 /**
@@ -1348,20 +1290,18 @@ function NodesSection({ refreshKey }: { refreshKey: number }) {
   return (
     <section className="settings-section">
       <div className="settings-section-header">
-        <h3 className="settings-section-title">Nodes</h3>
+        <h3 className="settings-section-title">{t("nodes.title")}</h3>
         <button type="button" className="settings-browse-btn" onClick={() => setDraft({ deviceId: "", enabled: true, agents: [], requireApproval: false })}>
-          + Allow a node by id
+          {t("nodes.allow")}
         </button>
       </div>
-      <p className="settings-hint">
-        Other machines lending their shell or a folder to your agents: <code>warden-server node --hub … --shell --files &lt;folder&gt;</code>.
-      </p>
+      <p className="settings-hint">{rich("nodes.hint", { command: <code>warden-server node --hub … --shell --files &lt;folder&gt;</code> })}</p>
       {error && <p className="settings-error-banner">{error}</p>}
 
       {draft && (
         <div className="provider-card skill-editor">
           <label className="settings-field">
-            <span className="settings-label">Node device id</span>
+            <span className="settings-label">{t("nodes.deviceId")}</span>
             <input
               className="settings-input"
               type="text"
@@ -1374,11 +1314,11 @@ function NodesSection({ refreshKey }: { refreshKey: number }) {
           <label className="settings-field settings-checkbox-field">
             <span className="settings-checkbox-row">
               <input type="checkbox" checked={draft.enabled} onChange={(e) => setDraft({ ...draft, enabled: e.currentTarget.checked })} />
-              <span className="settings-label">Agents may use it</span>
+              <span className="settings-label">{t("nodes.mayUse")}</span>
             </span>
           </label>
           <div className="settings-field">
-            <span className="settings-label">Only these agents</span>
+            <span className="settings-label">{t("nodes.onlyThese")}</span>
             <div className="skill-agent-list">
               {agentIds.map((id) => (
                 <label className="skill-agent-option" key={id}>
@@ -1393,30 +1333,30 @@ function NodesSection({ refreshKey }: { refreshKey: number }) {
                 </label>
               ))}
             </div>
-            <span className="settings-hint">None ticked means every agent.</span>
+            <span className="settings-hint">{t("nodes.noneTicked")}</span>
           </div>
           <label className="settings-field settings-checkbox-field">
             <span className="settings-checkbox-row">
               <input type="checkbox" checked={draft.requireApproval} onChange={(e) => setDraft({ ...draft, requireApproval: e.currentTarget.checked })} />
-              <span className="settings-label">Ask me before every command or file</span>
+              <span className="settings-label">{t("nodes.askFirst")}</span>
             </span>
-            <span className="settings-hint">Scheduled tasks can't use a node that asks, since nobody is there to answer.</span>
+            <span className="settings-hint">{t("nodes.askFirstHint")}</span>
           </label>
           <div className="skill-editor-actions">
             <button type="button" className="settings-save-btn" disabled={draft.deviceId.trim() === ""} onClick={() => void save()}>
-              Save
+              {t("nodes.save")}
             </button>
             <button type="button" className="settings-browse-btn" onClick={() => setDraft(null)}>
-              Cancel
+              {t("nodes.cancel")}
             </button>
           </div>
         </div>
       )}
 
       {nodes === null ? (
-        <p className="settings-hint">Loading nodes…</p>
+        <p className="settings-hint">{t("nodes.loading")}</p>
       ) : nodes.length === 0 ? (
-        <p className="settings-hint">No nodes yet.</p>
+        <p className="settings-hint">{t("nodes.none")}</p>
       ) : (
         <div className="workspace-device-list">
           {nodes.map((node) => (
@@ -1424,10 +1364,10 @@ function NodesSection({ refreshKey }: { refreshKey: number }) {
               <div className="workspace-device-info">
                 <div className="workspace-device-name-row">
                   <span className="workspace-device-name">
-                    {node.name} {node.online ? "· online" : ""}
+                    {node.name} {node.online ? t("nodes.online") : ""}
                   </span>
                   <span className={`storage-provider-badge workspace-status-badge workspace-status-badge--${node.enabled && node.approved ? "approved" : "pending"}`}>
-                    {!node.approved ? "needs approval" : node.enabled ? "allowed" : "blocked"}
+                    {!node.approved ? t("nodes.needsApproval") : node.enabled ? t("nodes.allowed") : t("nodes.blocked")}
                   </span>
                 </div>
                 <span className="workspace-device-meta">
@@ -1435,8 +1375,8 @@ function NodesSection({ refreshKey }: { refreshKey: number }) {
                   {node.offer?.description ? ` · ${node.offer.description}` : ""}
                   {node.offer && node.offer.tags.length > 0 ? ` · ${node.offer.tags.join(", ")}` : ""}
                   {" · "}
-                  {node.agents.length === 0 ? "every agent" : `only ${node.agents.join(", ")}`}
-                  {node.requireApproval ? " · asks first" : ""}
+                  {node.agents.length === 0 ? t("nodes.everyAgent") : t("nodes.onlyAgents", { list: node.agents.join(", ") })}
+                  {node.requireApproval ? t("nodes.asksFirst") : ""}
                 </span>
               </div>
               <div className="workspace-device-actions">
@@ -1445,7 +1385,7 @@ function NodesSection({ refreshKey }: { refreshKey: number }) {
                   className="settings-browse-btn"
                   onClick={() => setDraft({ deviceId: node.deviceId, enabled: node.enabled, agents: node.agents, requireApproval: node.requireApproval })}
                 >
-                  Access
+                  {t("nodes.access")}
                 </button>
               </div>
             </div>
@@ -1493,7 +1433,7 @@ function WorkspaceView() {
   if (error) {
     return (
       <div className="settings-view">
-        <h2 className="settings-title">Workspace</h2>
+        <h2 className="settings-title">{t("workspace.title")}</h2>
         <p className="usage-error">{error}</p>
       </div>
     );
@@ -1502,18 +1442,16 @@ function WorkspaceView() {
   if (!devices) {
     return (
       <div className="settings-view">
-        <p>Loading devices…</p>
+        <p>{t("workspace.loading")}</p>
       </div>
     );
   }
 
   return (
     <div className="settings-view">
-      <h2 className="settings-title">Workspace</h2>
+      <h2 className="settings-title">{t("workspace.title")}</h2>
       <p className="settings-hint">
-        Devices that have said hello to the <code>warden-server</code> hub running on <strong>this machine</strong> — a
-        device paired to a hub running elsewhere won't show up here. Approving a device lets it call, or be called by,{" "}
-        <code>CallDeviceTool</code> routing (Fase 9.3); it doesn't affect plain chat, which never required approval.
+        {rich("workspace.hint", { server: <code>warden-server</code>, here: <strong>{t("workspace.thisMachine")}</strong>, routing: <code>CallDeviceTool</code> })}
       </p>
 
       <EmbeddedServerSection />
@@ -1527,7 +1465,7 @@ function WorkspaceView() {
       {actionError && <p className="settings-error-banner">{actionError}</p>}
 
       {devices.length === 0 ? (
-        <p className="settings-hint">No devices have connected to this server yet.</p>
+        <p className="settings-hint">{t("workspace.noDevices")}</p>
       ) : (
         <div className="workspace-device-list">
           {devices.map((device) => (
@@ -1538,7 +1476,7 @@ function WorkspaceView() {
                   <StatusBadge status={device.status} />
                 </div>
                 <span className="workspace-device-meta">
-                  {device.deviceId} · first seen {formatSeen(device.firstSeenMs)} · last seen {formatSeen(device.lastSeenMs)}
+                  {t("workspace.deviceMeta", { id: device.deviceId, first: formatSeen(device.firstSeenMs), last: formatSeen(device.lastSeenMs) })}
                 </span>
               </div>
               <div className="workspace-device-actions">
@@ -1549,7 +1487,7 @@ function WorkspaceView() {
                     disabled={pendingActionId === device.deviceId}
                     onClick={() => runAction("approve_paired_device", device.deviceId)}
                   >
-                    Approve
+                    {t("workspace.approve")}
                   </button>
                 )}
                 {device.status === "approved" && (
@@ -1559,7 +1497,7 @@ function WorkspaceView() {
                     disabled={pendingActionId === device.deviceId}
                     onClick={() => runAction("revoke_paired_device", device.deviceId)}
                   >
-                    Revoke
+                    {t("workspace.revoke")}
                   </button>
                 )}
               </div>

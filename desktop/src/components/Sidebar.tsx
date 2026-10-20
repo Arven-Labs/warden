@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { t } from "../i18n";
 import { groupConversations } from "../lib/conversationGroups";
 import { searchConversations } from "../lib/conversationSearch";
 import type { Conversation, ProjectEntry } from "../types";
@@ -113,7 +114,7 @@ function Sidebar({
   }
 
   async function remove(conversation: Conversation) {
-    if (!window.confirm(`Delete "${conversation.title}"? This can't be undone.`)) return;
+    if (!window.confirm(t("sidebar.confirmDelete", { title: conversation.title }))) return;
     setBusyId(conversation.id);
     try {
       await onDeleteConversation(conversation.id);
@@ -131,7 +132,7 @@ function Sidebar({
             value={editing.title}
             maxLength={120}
             autoFocus
-            aria-label="Conversation title"
+            aria-label={t("sidebar.titleLabel")}
             onChange={(e) => setEditing({ id: conversation.id, title: e.target.value })}
             onKeyDown={(e) => {
               if (e.key === "Enter") void saveRename(conversation, editing.title);
@@ -160,8 +161,8 @@ function Sidebar({
             <button
               type="button"
               className="conversation-row-action"
-              title={conversation.pinned ? "Unpin" : "Pin to the top"}
-              aria-label={`${conversation.pinned ? "Unpin" : "Pin"} ${conversation.title}`}
+              title={conversation.pinned ? t("sidebar.unpin") : t("sidebar.pin")}
+              aria-label={conversation.pinned ? t("sidebar.unpinLabel", { title: conversation.title }) : t("sidebar.pinLabel", { title: conversation.title })}
               disabled={busy}
               onClick={() => void setFlags(conversation, { pinned: !conversation.pinned })}
             >
@@ -171,8 +172,8 @@ function Sidebar({
           <button
             type="button"
             className="conversation-row-action"
-            title={conversation.archived ? "Unarchive" : "Archive"}
-            aria-label={`${conversation.archived ? "Unarchive" : "Archive"} ${conversation.title}`}
+            title={conversation.archived ? t("sidebar.unarchive") : t("sidebar.archive")}
+            aria-label={conversation.archived ? t("sidebar.unarchiveLabel", { title: conversation.title }) : t("sidebar.archiveLabel", { title: conversation.title })}
             disabled={busy}
             onClick={() => void setFlags(conversation, { archived: !conversation.archived })}
           >
@@ -181,8 +182,8 @@ function Sidebar({
           <button
             type="button"
             className="conversation-row-action"
-            title="Rename"
-            aria-label={`Rename ${conversation.title}`}
+            title={t("sidebar.rename")}
+            aria-label={t("sidebar.renameLabel", { title: conversation.title })}
             disabled={busy}
             onClick={() => setEditing({ id: conversation.id, title: conversation.title })}
           >
@@ -191,8 +192,8 @@ function Sidebar({
           <button
             type="button"
             className="conversation-row-action"
-            title="Delete"
-            aria-label={`Delete ${conversation.title}`}
+            title={t("sidebar.delete")}
+            aria-label={t("sidebar.deleteLabel", { title: conversation.title })}
             disabled={busy}
             onClick={() => void remove(conversation)}
           >
@@ -215,16 +216,16 @@ function Sidebar({
             type="button"
             className="sidebar-collapse-btn"
             onClick={onToggleCollapsed}
-            aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
-            title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+            aria-label={collapsed ? t("sidebar.expand") : t("sidebar.collapse")}
+            title={collapsed ? t("sidebar.expand") : t("sidebar.collapse")}
           >
             <ChevronIcon size={14} />
           </button>
         </div>
         {!collapsed && machine}
-        <button type="button" className="new-conversation-btn" onClick={onNewConversation} title="New chat">
+        <button type="button" className="new-conversation-btn" onClick={onNewConversation} title={t("sidebar.newChat")}>
           <PlusIcon size={16} />
-          {!collapsed && "New chat"}
+          {!collapsed && t("sidebar.newChat")}
         </button>
       </div>
 
@@ -234,8 +235,8 @@ function Sidebar({
             <input
               type="search"
               className="conversation-search"
-              placeholder="Search conversations"
-              aria-label="Search conversations"
+              placeholder={t("sidebar.search")}
+              aria-label={t("sidebar.search")}
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               onKeyDown={(e) => {
@@ -244,14 +245,14 @@ function Sidebar({
             />
           )}
           {conversations.length === 0 ? (
-            <p className="conversation-list-empty">No conversations yet.</p>
+            <p className="conversation-list-empty">{t("sidebar.empty")}</p>
           ) : shown.length === 0 ? (
-            <p className="conversation-list-empty">Nothing matches.</p>
+            <p className="conversation-list-empty">{t("sidebar.noMatch")}</p>
           ) : (
             <>
               {pinned.length > 0 && (
                 <div className="conversation-group">
-                  <div className="conversation-group-title">★ Pinned</div>
+                  <div className="conversation-group-title">{t("sidebar.pinned")}</div>
                   <ul className="conversation-list">{pinned.map(renderItem)}</ul>
                 </div>
               )}
@@ -273,7 +274,7 @@ function Sidebar({
               {archived.length > 0 && (
                 <div className="conversation-group">
                   <button type="button" className="conversation-archive-toggle" aria-expanded={archiveOpen || query !== ""} onClick={() => setArchiveOpen((open) => !open)}>
-                    {archiveOpen || query !== "" ? "▾" : "▸"} Archived ({archived.length})
+                    {archiveOpen || query !== "" ? "▾" : "▸"} {t("sidebar.archived", { count: archived.length })}
                   </button>
                   {(archiveOpen || query !== "") && <ul className="conversation-list">{archived.map(renderItem)}</ul>}
                 </div>
@@ -289,12 +290,12 @@ function Sidebar({
             type="button"
             className={`sidebar-footer-btn${view === "agents" ? " sidebar-footer-btn--active" : ""}`}
             onClick={onOpenAgents}
-            title="Agents"
+            title={t("nav.agents")}
           >
             <AgentsIcon size={17} />
-            {!collapsed && "Agents"}
+            {!collapsed && t("nav.agents")}
             {agentsUnread > 0 && (
-              <span className="sidebar-badge" aria-label={`${agentsUnread} with new messages`}>
+              <span className="sidebar-badge" aria-label={t("nav.unread", { count: agentsUnread })}>
                 {agentsUnread}
               </span>
             )}
@@ -304,111 +305,111 @@ function Sidebar({
           type="button"
           className={`sidebar-footer-btn${view === "usage" ? " sidebar-footer-btn--active" : ""}`}
           onClick={onOpenUsage}
-          title="Usage"
+          title={t("nav.usage")}
         >
           <ChartIcon size={17} />
-          {!collapsed && "Usage"}
+          {!collapsed && t("nav.usage")}
         </button>
         <button
           type="button"
           className={`sidebar-footer-btn${view === "sync" ? " sidebar-footer-btn--active" : ""}`}
           onClick={onOpenSync}
-          title="Sync"
+          title={t("nav.sync")}
         >
           <SyncIcon size={17} />
-          {!collapsed && "Sync"}
+          {!collapsed && t("nav.sync")}
         </button>
         <button
           type="button"
           className={`sidebar-footer-btn${view === "vault" ? " sidebar-footer-btn--active" : ""}`}
           onClick={onOpenVault}
-          title="Vault"
+          title={t("nav.vault")}
         >
           <VaultIcon size={17} />
-          {!collapsed && "Vault"}
+          {!collapsed && t("nav.vault")}
         </button>
         <button
           type="button"
           className={`sidebar-footer-btn${view === "skills" ? " sidebar-footer-btn--active" : ""}`}
           onClick={onOpenSkills}
-          title="Skills"
+          title={t("nav.skills")}
         >
           <SkillsIcon size={17} />
-          {!collapsed && "Skills"}
+          {!collapsed && t("nav.skills")}
         </button>
         <button
           type="button"
           className={`sidebar-footer-btn${view === "projects" ? " sidebar-footer-btn--active" : ""}`}
           onClick={onOpenProjects}
-          title="Projects"
+          title={t("nav.projects")}
         >
           <ProjectsIcon size={17} />
-          {!collapsed && "Projects"}
+          {!collapsed && t("nav.projects")}
         </button>
         {onOpenOrganization && (
           <button
             type="button"
             className={`sidebar-footer-btn${view === "organization" ? " sidebar-footer-btn--active" : ""}`}
             onClick={onOpenOrganization}
-            title="Organization"
+            title={t("nav.organization")}
           >
             <OrgIcon size={17} />
-            {!collapsed && "Organization"}
+            {!collapsed && t("nav.organization")}
           </button>
         )}
         <button
           type="button"
           className={`sidebar-footer-btn${view === "agentWork" ? " sidebar-footer-btn--active" : ""}`}
           onClick={onOpenAgentWork}
-          title="Agent work"
+          title={t("nav.agentWork")}
         >
           <ChartIcon size={17} />
-          {!collapsed && "Agent work"}
+          {!collapsed && t("nav.agentWork")}
         </button>
         <button
           type="button"
           className={`sidebar-footer-btn${view === "activity" ? " sidebar-footer-btn--active" : ""}`}
           onClick={onOpenActivity}
-          title="Activity"
+          title={t("nav.activity")}
         >
           <ActivityIcon size={17} />
-          {!collapsed && "Activity"}
+          {!collapsed && t("nav.activity")}
         </button>
         <button
           type="button"
           className={`sidebar-footer-btn${view === "tasks" ? " sidebar-footer-btn--active" : ""}`}
           onClick={onOpenTasks}
-          title="Tasks"
+          title={t("nav.tasks")}
         >
           <ClockIcon size={17} />
-          {!collapsed && "Tasks"}
+          {!collapsed && t("nav.tasks")}
         </button>
         <button
           type="button"
           className={`sidebar-footer-btn${view === "webhooks" ? " sidebar-footer-btn--active" : ""}`}
           onClick={onOpenWebhooks}
-          title="Webhooks"
+          title={t("nav.webhooks")}
         >
           <WebhookIcon size={17} />
-          {!collapsed && "Webhooks"}
+          {!collapsed && t("nav.webhooks")}
         </button>
         <button
           type="button"
           className={`sidebar-footer-btn${view === "workspace" ? " sidebar-footer-btn--active" : ""}`}
           onClick={onOpenWorkspace}
-          title="Workspace"
+          title={t("nav.workspace")}
         >
           <DevicesIcon size={17} />
-          {!collapsed && "Workspace"}
+          {!collapsed && t("nav.workspace")}
         </button>
         <button
           type="button"
           className={`sidebar-footer-btn${view === "settings" ? " sidebar-footer-btn--active" : ""}`}
           onClick={onOpenSettings}
-          title="Settings"
+          title={t("nav.settings")}
         >
           <SettingsIcon size={17} />
-          {!collapsed && "Settings"}
+          {!collapsed && t("nav.settings")}
         </button>
       </div>
     </div>

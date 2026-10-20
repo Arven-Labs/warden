@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { t } from "../i18n";
 
 /** Mirrors `warden_server_protocol::BotsSettingsDto`. */
 interface BotsSettings {
@@ -96,19 +97,19 @@ function toBots(d: Draft): BotsSettings {
 /** How long a request still counts, for the list. */
 function expiresIn(pairing: Pairing): string {
   const minutes = Math.max(0, Math.ceil((pairing.expiresAt * 1000 - Date.now()) / 60000));
-  return `expires in ${minutes} min`;
+  return t("bots.expiresIn", { minutes });
 }
 
 /** What stops a save, in the words the screen shows; `null` when the draft is fine. */
 function problem(d: Draft): string | null {
   const max = Number(d.maxPerDay);
-  if (!Number.isInteger(max) || max < 1) return "Suggestions per day: a whole number, 1 or more.";
+  if (!Number.isInteger(max) || max < 1) return t("bots.errPerDay");
   const bad = lines(d.telegramUsers).find((l) => !/^[1-9][0-9]*$/.test(l));
-  if (bad) return `"${bad}" is not a Telegram id: use the number (@userinfobot shows yours).`;
+  if (bad) return t("bots.errTelegramId", { value: bad });
   const chat = lines(d.learningChats).find((l) => !/^(telegram|whatsapp):\S+$/.test(l));
-  if (chat) return `"${chat}" is not a chat: write telegram:<id> or whatsapp:<id>.`;
+  if (chat) return t("bots.errChat", { value: chat });
   const wa = lines(d.whatsappChats).find((l) => /\s/.test(l));
-  if (wa) return `"${wa}" has spaces: write just the number or the whole id.`;
+  if (wa) return t("bots.errSpaces", { value: wa });
   return null;
 }
 
@@ -144,8 +145,8 @@ function BotsSection() {
   if (!loaded || !draft) {
     return (
       <section className="settings-section">
-        <h3 className="settings-section-title">Learning and bots</h3>
-        {error ? <p className="settings-error-banner">{error}</p> : <p className="settings-hint">Loading…</p>}
+        <h3 className="settings-section-title">{t("bots.title")}</h3>
+        {error ? <p className="settings-error-banner">{error}</p> : <p className="settings-hint">{t("common.loading")}</p>}
       </section>
     );
   }
@@ -189,18 +190,22 @@ function BotsSection() {
 
   const token = loaded.telegramToken;
   const tokenStatus =
-    draft.telegramToken === null ? (token.set ? (token.hint ? `Saved, ends in …${token.hint}` : "Saved") : "Not set") : draft.telegramToken === "" ? "Will be removed on save" : "New token (not saved yet)";
+    draft.telegramToken === null
+      ? token.set
+        ? token.hint
+          ? t("bots.tokenSavedEnds", { hint: token.hint })
+          : t("bots.tokenSaved")
+        : t("bots.tokenNotSet")
+      : draft.telegramToken === ""
+        ? t("bots.tokenRemoved")
+        : t("bots.tokenNew");
 
   return (
     <section className="settings-section">
       <div className="settings-section-header">
-        <h3 className="settings-section-title">Learning and bots</h3>
+        <h3 className="settings-section-title">{t("bots.title")}</h3>
       </div>
-      <p className="settings-hint">
-        Who may talk to the Telegram and WhatsApp bots, and whether the assistant suggests what to learn from conversations.
-        An empty list means nobody. The lists, pairing and learning apply from the bot's next message once you save; only a
-        new token waits for the bots to restart.
-      </p>
+      <p className="settings-hint">{t("bots.hint")}</p>
 
       {error && <p className="settings-error-banner">{error}</p>}
       {blocked && <p className="settings-error-banner">{blocked}</p>}
@@ -208,32 +213,32 @@ function BotsSection() {
       <label className="settings-field settings-checkbox-field">
         <span className="settings-checkbox-row">
           <input type="checkbox" checked={draft.learningEnabled} onChange={(e) => change({ learningEnabled: e.currentTarget.checked })} />
-          <span className="settings-label">Learn from conversations</span>
+          <span className="settings-label">{t("bots.learn")}</span>
         </span>
-        <span className="settings-hint">Every look is a short model call and counts against your spending limit. Suggestions wait for your approval.</span>
+        <span className="settings-hint">{t("bots.learnHint")}</span>
       </label>
 
       <label className="settings-field">
-        <span className="settings-label">Learning model</span>
+        <span className="settings-label">{t("bots.learningModel")}</span>
         <select className="settings-select" value={draft.learningProvider} onChange={(e) => change({ learningProvider: e.currentTarget.value })}>
-          <option value="">The active model</option>
+          <option value="">{t("bots.activeModel")}</option>
           {loaded.modelIds.map((id) => (
             <option key={id} value={id}>
               {id}
             </option>
           ))}
         </select>
-        <span className="settings-hint">A cheap model does the job. Members can have their own in the Workspace's People section.</span>
+        <span className="settings-hint">{t("bots.learningModelHint")}</span>
       </label>
 
       <label className="settings-field">
-        <span className="settings-label">Suggestions per day</span>
+        <span className="settings-label">{t("bots.perDay")}</span>
         <input className="settings-input" type="number" min={1} step={1} value={draft.maxPerDay} onChange={(e) => change({ maxPerDay: e.currentTarget.value })} />
-        <span className="settings-hint">Each person's cap in 24 hours.</span>
+        <span className="settings-hint">{t("bots.perDayHint")}</span>
       </label>
 
       <label className="settings-field">
-        <span className="settings-label">Telegram bot token</span>
+        <span className="settings-label">{t("bots.telegramToken")}</span>
         <input
           className="settings-input"
           type="password"
@@ -246,12 +251,12 @@ function BotsSection() {
           {tokenStatus}.{" "}
           {token.set && draft.telegramToken === null && (
             <button type="button" className="settings-browse-btn" onClick={() => change({ telegramToken: "" })}>
-              Remove
+              {t("common.remove")}
             </button>
           )}
           {draft.telegramToken !== null && (
             <button type="button" className="settings-browse-btn" onClick={() => change({ telegramToken: null })}>
-              Undo
+              {t("bots.undo")}
             </button>
           )}
         </span>
@@ -260,23 +265,23 @@ function BotsSection() {
       <label className="settings-field settings-checkbox-field">
         <span className="settings-checkbox-row">
           <input type="checkbox" checked={draft.telegramPairing} onChange={(e) => change({ telegramPairing: e.currentTarget.checked })} />
-          <span className="settings-label">Let strangers ask to pair on Telegram</span>
+          <span className="settings-label">{t("bots.pairTelegram")}</span>
         </span>
-        <span className="settings-hint">A stranger who writes to the bot gets a one-hour code instead of silence; you approve it below or with `warden bots pair approve`. Off: strangers get no answer at all.</span>
+        <span className="settings-hint">{t("bots.pairTelegramHint")}</span>
       </label>
 
       <label className="settings-field settings-checkbox-field">
         <span className="settings-checkbox-row">
           <input type="checkbox" checked={draft.whatsappPairing} onChange={(e) => change({ whatsappPairing: e.currentTarget.checked })} />
-          <span className="settings-label">Let strangers ask to pair on WhatsApp</span>
+          <span className="settings-label">{t("bots.pairWhatsapp")}</span>
         </span>
-        <span className="settings-hint">The same for the WhatsApp bot. Private chats only.</span>
+        <span className="settings-hint">{t("bots.pairWhatsappHint")}</span>
       </label>
 
       <div className="settings-field">
-        <span className="settings-label">Waiting for your approval</span>
+        <span className="settings-label">{t("bots.waiting")}</span>
         {loaded.pairings.length === 0 ? (
-          <span className="settings-hint">Nobody is waiting.</span>
+          <span className="settings-hint">{t("bots.nobodyWaiting")}</span>
         ) : (
           <ul className="api-key-list">
             {loaded.pairings.map((p) => (
@@ -286,22 +291,22 @@ function BotsSection() {
                   {p.label && ` (${p.label})`} — {expiresIn(p)}
                 </span>
                 <label className="settings-hint">
-                  Speak as{" "}
+                  {t("bots.speakAs")}{" "}
                   <select className="settings-input" value={speakAs[p.code] ?? ""} onChange={(e) => setSpeakAs({ ...speakAs, [p.code]: e.currentTarget.value })}>
-                    <option value="">Me, the owner (your usual assistant)</option>
+                    <option value="">{t("bots.speakAsOwner")}</option>
                     {loaded.members.map((m) => (
                       <option key={m.id} value={m.id} disabled={!m.linked}>
-                        {m.name} ({m.id}){m.linked ? "" : ` — link first: warden bots link ${m.id}`}
+                        {m.name} ({m.id}){m.linked ? "" : t("bots.linkFirst", { id: m.id })}
                       </option>
                     ))}
                   </select>
                 </label>
                 <span className="api-key-actions">
                   <button type="button" className="settings-browse-btn" disabled={dirty} onClick={() => void pairingAction("approve_bot_pairing", p.code)}>
-                    Approve
+                    {t("bots.approve")}
                   </button>
                   <button type="button" className="settings-browse-btn" disabled={dirty} onClick={() => void pairingAction("deny_bot_pairing", p.code)}>
-                    Deny
+                    {t("bots.deny")}
                   </button>
                 </span>
               </li>
@@ -309,41 +314,41 @@ function BotsSection() {
           </ul>
         )}
         <span className="settings-hint">
-          {dirty && "Save your changes first: approving updates the lists above. "}
+          {dirty && t("bots.saveFirst")}
           <button type="button" className="settings-browse-btn" disabled={dirty} onClick={() => void pairingAction("get_bots_settings")}>
-            Refresh
+            {t("common.refresh")}
           </button>
         </span>
       </div>
 
       <label className="settings-field">
-        <span className="settings-label">Who may talk to the Telegram bot</span>
+        <span className="settings-label">{t("bots.whoTelegram")}</span>
         <textarea className="settings-input settings-textarea" rows={3} value={draft.telegramUsers} onChange={(e) => change({ telegramUsers: e.currentTarget.value })} />
-        <span className="settings-hint">Numeric user ids, one per line. Private chats only. Empty: the bot answers nobody.</span>
+        <span className="settings-hint">{t("bots.whoTelegramHint")}</span>
       </label>
 
       <label className="settings-field">
-        <span className="settings-label">Who may talk to the WhatsApp bot</span>
+        <span className="settings-label">{t("bots.whoWhatsapp")}</span>
         <textarea className="settings-input settings-textarea" rows={3} value={draft.whatsappChats} onChange={(e) => change({ whatsappChats: e.currentTarget.value })} />
-        <span className="settings-hint">A number (5511999999999) or the whole id, one per line. Private chats only. Empty: nobody.</span>
+        <span className="settings-hint">{t("bots.whoWhatsappHint")}</span>
       </label>
 
       <label className="settings-field">
-        <span className="settings-label">Bot chats the assistant may learn from</span>
+        <span className="settings-label">{t("bots.learnChats")}</span>
         <textarea className="settings-input settings-textarea" rows={3} value={draft.learningChats} onChange={(e) => change({ learningChats: e.currentTarget.value })} />
-        <span className="settings-hint">telegram:&lt;id&gt; or whatsapp:&lt;id&gt;, one per line. Only counts with learning on. Empty: the bots don't learn.</span>
+        <span className="settings-hint">{t("bots.learnChatsHint")}</span>
       </label>
 
       <div className="api-key-actions">
         <button type="button" className="settings-save-btn" disabled={!dirty || blocked !== null || saving} onClick={() => void save()}>
-          {saving ? "Saving…" : "Save learning and bots"}
+          {saving ? t("common.saving") : t("bots.save")}
         </button>
         {dirty && (
           <button type="button" className="settings-browse-btn" onClick={() => setDraft(toDraft(loaded.bots))}>
-            Discard
+            {t("bots.discard")}
           </button>
         )}
-        {saved && !dirty && <span className="settings-hint">Saved.</span>}
+        {saved && !dirty && <span className="settings-hint">{t("bots.saved")}</span>}
       </div>
     </section>
   );

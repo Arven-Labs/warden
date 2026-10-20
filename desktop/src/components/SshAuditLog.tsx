@@ -1,5 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { useState } from "react";
+import { t } from "../i18n";
 import { actionLabel, approvalLabel, detailOf, outcomeOf, wasRefused, whenLabel } from "../lib/sshAudit";
 import type { SshAuditEntry } from "../types";
 
@@ -16,7 +17,7 @@ export default function SshAuditLog() {
         setEntries(list);
         setError(null);
       },
-      (err: unknown) => setError(`Couldn't read the log: ${err instanceof Error ? err.message : String(err)}`),
+      (err: unknown) => setError(t("sshLog.readFailed", { error: err instanceof Error ? err.message : String(err) })),
     );
   }
 
@@ -27,26 +28,23 @@ export default function SshAuditLog() {
         if ((e.currentTarget as HTMLDetailsElement).open && entries === null) load();
       }}
     >
-      <summary>Usage log</summary>
-      <p className="settings-hint">
-        The last calls the SSH tools made on this computer, newest first. It shows the command the agent asked for (which can hold a secret)
-        and how it ended — never the output.
-      </p>
+      <summary>{t("sshLog.summary")}</summary>
+      <p className="settings-hint">{t("sshLog.hint")}</p>
       {error && <p className="settings-error-banner">{error}</p>}
-      {entries === null && !error && <p className="settings-hint">Loading…</p>}
-      {entries !== null && entries.length === 0 && <p className="settings-hint">No calls logged yet.</p>}
+      {entries === null && !error && <p className="settings-hint">{t("common.loading")}</p>}
+      {entries !== null && entries.length === 0 && <p className="settings-hint">{t("sshLog.empty")}</p>}
       {entries !== null && entries.length > 0 && (
         <div className="ssh-audit-scroll">
           <table className="usage-table ssh-audit-table">
             <thead>
               <tr>
-                <th>When</th>
-                <th>Server</th>
-                <th>Agent</th>
-                <th>Action</th>
-                <th>Approval</th>
-                <th>What</th>
-                <th>Result</th>
+                <th>{t("sshLog.when")}</th>
+                <th>{t("sshLog.server")}</th>
+                <th>{t("sshLog.agent")}</th>
+                <th>{t("sshLog.action")}</th>
+                <th>{t("sshLog.approval")}</th>
+                <th>{t("sshLog.what")}</th>
+                <th>{t("sshLog.result")}</th>
               </tr>
             </thead>
             <tbody>
@@ -66,7 +64,7 @@ export default function SshAuditLog() {
         </div>
       )}
       <button type="button" className="settings-browse-btn" onClick={load}>
-        Refresh
+        {t("common.refresh")}
       </button>
     </details>
   );

@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { t } from "../i18n";
 import { copyText } from "../lib/clipboard";
 
 interface CopyButtonProps {
@@ -9,7 +10,7 @@ interface CopyButtonProps {
 }
 
 /** "Copy", which says "Copied" for a moment after it worked, or "Could not copy" when nothing let it. */
-function CopyButton({ text, className = "copy-btn", label = "Copy" }: CopyButtonProps) {
+function CopyButton({ text, className = "copy-btn", label }: CopyButtonProps) {
   const [state, setState] = useState<"idle" | "copied" | "failed">("idle");
   const timer = useRef<ReturnType<typeof setTimeout>>(undefined);
 
@@ -24,7 +25,7 @@ function CopyButton({ text, className = "copy-btn", label = "Copy" }: CopyButton
 
   return (
     <button type="button" className={className} onClick={() => void handleClick()}>
-      {state === "copied" ? "Copied" : state === "failed" ? "Could not copy" : label}
+      {state === "copied" ? t("copy.copied") : state === "failed" ? t("copy.failed") : label ?? t("copy.copy")}
     </button>
   );
 }

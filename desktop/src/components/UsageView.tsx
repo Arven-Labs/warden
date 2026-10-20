@@ -1,12 +1,13 @@
 import { useEffect, useMemo, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { intlTag, t } from "../i18n";
 import type { RecentSpend, SpendBucket, SpendStatus, UsageByKey, UsageSummary } from "../types";
 import { hubUsage } from "../lib/hub";
 
 /** `1,284` up to 999, `12.9K`/`1.2M` beyond — the stat-tile contract's "auto-compact" value
  * format, so a heavy user's token count never wraps a tile onto two lines. */
 function formatCompact(n: number): string {
-  return new Intl.NumberFormat("en-US", { notation: "compact", maximumFractionDigits: 1 }).format(n);
+  return new Intl.NumberFormat(intlTag(), { notation: "compact", maximumFractionDigits: 1 }).format(n);
 }
 
 function StatTile({ label, value }: { label: string; value: number }) {
@@ -74,8 +75,8 @@ function SpendTable({ title, buckets, keyLabel, emptyLabel }: { title: string; b
       <thead>
         <tr>
           <th>{keyLabel}</th>
-          <th>Calls</th>
-          <th>Tokens</th>
+          <th>{t("usage.calls")}</th>
+          <th>{t("usage.tokens")}</th>
           <th>USD</th>
         </tr>
       </thead>
@@ -83,11 +84,11 @@ function SpendTable({ title, buckets, keyLabel, emptyLabel }: { title: string; b
         {buckets.map((b) => (
           <tr key={b.key}>
             <td>{b.key === "" && emptyLabel ? emptyLabel : b.key}</td>
-            <td>{b.calls.toLocaleString("en-US")}</td>
-            <td>{b.tokens.toLocaleString("en-US")}</td>
+            <td>{b.calls.toLocaleString(intlTag())}</td>
+            <td>{b.tokens.toLocaleString(intlTag())}</td>
             <td>
               {b.calls > b.unpricedCalls ? usd(b.costUsd) : "—"}
-              {b.unpricedCalls > 0 && b.calls > b.unpricedCalls && <span className="settings-hint"> ({b.unpricedCalls} unpriced)</span>}
+              {b.unpricedCalls > 0 && b.calls > b.unpricedCalls && <span className="settings-hint">{t("usage.unpriced", { count: b.unpricedCalls })}</span>}
             </td>
           </tr>
         ))}
@@ -112,22 +113,22 @@ function RecentSpending({ source }: { source: UsageSource }) {
   return (
     <section className="settings-section">
       <div className="settings-section-header">
-        <h3 className="settings-section-title">Recent spending, last {hours % 24 === 0 ? (hours === 24 ? "24 hours" : `${hours / 24} days`) : `${hours} hours`}</h3>
+        <h3 className="settings-section-title">
+          {hours % 24 === 0
+            ? hours === 24
+              ? t("usage.recentDay")
+              : t("usage.recentDays", { count: hours / 24 })
+            : t("usage.recentHours", { count: hours })}
+        </h3>
       </div>
-      <p className="settings-hint">
-        From the spending ledger, which only keeps the longest limit's window, and covers every channel on this machine. Each call is priced by the
-        model that answered, and a call to a model with no price in Settings isn't in the dollar figure.
-      </p>
-      <SpendTable title="By model" buckets={recent.byModel} keyLabel="Model" />
-      <SpendTable title="By channel" buckets={recent.byChannel} keyLabel="Channel" />
-      <SpendTable title="By provider" buckets={recent.byProvider} keyLabel="Provider" emptyLabel="no provider recorded" />
-      <SpendTable title="By agent" buckets={recent.byAgent} keyLabel="Agent" emptyLabel="no agent" />
-      <SpendTable title="By person" buckets={recent.byPerson} keyLabel="Person" emptyLabel="the owner" />
-      <SpendTable title="By combo" buckets={recent.byCombo ?? []} keyLabel="Combo" />
-      <p className="settings-hint">
-        "By agent" is the agent the turn started with: a delegated sub-agent's calls count under the agent that delegated. "No provider recorded" is
-        calls from before the provider was kept.
-      </p>
+      <p className="settings-hint">{t("usage.recentHint")}</p>
+      <SpendTable title={t("usage.byModel")} buckets={recent.byModel} keyLabel={t("usage.model")} />
+      <SpendTable title={t("usage.byChannel")} buckets={recent.byChannel} keyLabel={t("usage.channel")} />
+      <SpendTable title={t("usage.byProvider")} buckets={recent.byProvider} keyLabel={t("usage.provider")} emptyLabel={t("usage.noProviderRecorded")} />
+      <SpendTable title={t("usage.byAgent")} buckets={recent.byAgent} keyLabel={t("usage.agent")} emptyLabel={t("usage.noAgentLower")} />
+      <SpendTable title={t("usage.byPerson")} buckets={recent.byPerson} keyLabel={t("usage.person")} emptyLabel={t("usage.owner")} />
+      <SpendTable title={t("usage.byCombo")} buckets={recent.byCombo ?? []} keyLabel={t("usage.combo")} />
+      <p className="settings-hint">{t("usage.recentNote")}</p>
     </section>
   );
 }
@@ -165,26 +166,26 @@ function SpendingLimits({ source }: { source: UsageSource }) {
   return (
     <section className="settings-section">
       <div className="settings-section-header">
-        <h3 className="settings-section-title">Spending limits</h3>
+        <h3 className="settings-section-title">{t("limits.title")}</h3>
       </div>
       {error && <p className="settings-error-banner">{error}</p>}
-      {status?.ledgerError && <p className="settings-error-banner">The spending ledger couldn't be written: {status.ledgerError}. Numbers may be low.</p>}
+      {status?.ledgerError && <p className="settings-error-banner">{t("limits.ledgerError", { error: status.ledgerError })}</p>}
       {status === null ? (
-        !error && <p className="settings-hint">Loading…</p>
+        !error && <p className="settings-hint">{t("common.loading")}</p>
       ) : !status.limitsEnabled ? (
-        <p className="settings-hint">Spending limits are switched off (WARDEN_SPEND_LIMITS=off).</p>
+        <p className="settings-hint">{t("limits.off")}</p>
       ) : status.limits.length === 0 ? (
-        <p className="settings-hint">No limits configured. Add them in Settings.</p>
+        <p className="settings-hint">{t("limits.none")}</p>
       ) : (
         <div className="spend-limit-list">
           {status.limits.map((limit) => {
             const state = limit.exceeded ? "exceeded" : limit.warn ? "warn" : "ok";
             const parts = [
-              limit.maxTokens !== null ? `${limit.usedTokens.toLocaleString("en-US")} of ${limit.maxTokens.toLocaleString("en-US")} tokens` : null,
-              limit.maxCostUsd !== null ? `${usd(limit.usedCostUsd)} of ${usd(limit.maxCostUsd)}` : null,
+              limit.maxTokens !== null ? t("limits.usedTokens", { used: limit.usedTokens.toLocaleString(intlTag()), max: limit.maxTokens.toLocaleString(intlTag()) }) : null,
+              limit.maxCostUsd !== null ? t("limits.usedCost", { used: usd(limit.usedCostUsd), max: usd(limit.maxCostUsd) }) : null,
             ].filter(Boolean);
             const extension = [
-              limit.extendTokens > 0 ? `+${formatCompact(limit.extendTokens)} tokens` : null,
+              limit.extendTokens > 0 ? t("limits.extTokens", { count: formatCompact(limit.extendTokens) }) : null,
               limit.extendCostUsd > 0 ? `+${usd(limit.extendCostUsd)}` : null,
             ]
               .filter(Boolean)
@@ -193,9 +194,7 @@ function SpendingLimits({ source }: { source: UsageSource }) {
               <div key={limit.id} className={`spend-limit spend-limit--${state}`}>
                 <div className="spend-limit-header">
                   <span className="spend-limit-name">{limit.id}</span>
-                  <span className="settings-hint">
-                    {limit.scope} · last {limit.windowHours}h
-                  </span>
+                  <span className="settings-hint">{t("limits.scopeWindow", { scope: limit.scope, hours: limit.windowHours })}</span>
                 </div>
                 <div
                   className="spend-meter"
@@ -203,22 +202,26 @@ function SpendingLimits({ source }: { source: UsageSource }) {
                   aria-valuemin={0}
                   aria-valuemax={100}
                   aria-valuenow={Math.round(Math.min(limit.fraction, 1) * 100)}
-                  aria-label={`Limit ${limit.id}`}
+                  aria-label={t("limits.label", { id: limit.id })}
                 >
                   <div className="spend-meter-fill" style={{ width: `${Math.min(limit.fraction, 1) * 100}%` }} />
                 </div>
                 <span className="spend-limit-detail">
-                  {state === "exceeded" ? "⛔ Exhausted" : state === "warn" ? "⚠ Running low" : "✓ Room left"} · {Math.round(limit.fraction * 100)}% · {parts.join(" · ")}
+                  {t("limits.detail", {
+                    state: state === "exceeded" ? t("limits.exhausted") : state === "warn" ? t("limits.low") : t("limits.ok"),
+                    percent: Math.round(limit.fraction * 100),
+                    parts: parts.join(" · "),
+                  })}
                 </span>
                 {limit.freesUpInMinutes !== null && limit.fraction > 0 && (
-                  <span className="settings-hint">Room starts coming back in ~{limit.freesUpInMinutes} min.</span>
+                  <span className="settings-hint">{t("limits.freesUp", { minutes: limit.freesUpInMinutes })}</span>
                 )}
                 {limit.unpricedCalls > 0 && limit.maxCostUsd !== null && (
-                  <span className="settings-hint">{limit.unpricedCalls} calls to models with no price — the dollar figure undercounts.</span>
+                  <span className="settings-hint">{t("limits.unpricedCalls", { count: limit.unpricedCalls })}</span>
                 )}
                 {state !== "ok" && extension && (
                   <button type="button" className="settings-browse-btn spend-limit-extend" disabled={extending === limit.id} onClick={() => void extend(limit.id)}>
-                    {extending === limit.id ? "Allowing…" : `Allow ${extension} until the window ends`}
+                    {extending === limit.id ? t("limits.allowing") : t("limits.allow", { extension })}
                   </button>
                 )}
               </div>
@@ -249,7 +252,7 @@ function UsageView({ remote = false }: { remote?: boolean }) {
   if (error) {
     return (
       <div className="settings-view">
-        <h2 className="settings-title">Usage</h2>
+        <h2 className="settings-title">{t("usage.title")}</h2>
         <p className="usage-error">{error}</p>
       </div>
     );
@@ -258,7 +261,7 @@ function UsageView({ remote = false }: { remote?: boolean }) {
   if (!summary) {
     return (
       <div className="settings-view">
-        <p>Loading usage…</p>
+        <p>{t("usage.loading")}</p>
       </div>
     );
   }
@@ -266,8 +269,8 @@ function UsageView({ remote = false }: { remote?: boolean }) {
   if (summary.messageCount === 0) {
     return (
       <div className="settings-view">
-        <h2 className="settings-title">Usage</h2>
-        <p className="settings-hint">No usage recorded yet — send a message to see stats here.</p>
+        <h2 className="settings-title">{t("usage.title")}</h2>
+        <p className="settings-hint">{t("usage.none")}</p>
         <SpendingLimits source={source} />
         <RecentSpending source={source} />
       </div>
@@ -276,26 +279,23 @@ function UsageView({ remote = false }: { remote?: boolean }) {
 
   return (
     <div className="settings-view">
-      <h2 className="settings-title">Usage</h2>
-      <p className="settings-hint">
-        Token usage across every conversation saved {remote ? "on the hub" : "on this device"}. Dollar amounts come from the spending ledger, for
-        models that have a price in Settings: in the limits and in the recent spending below.
-      </p>
+      <h2 className="settings-title">{t("usage.title")}</h2>
+      <p className="settings-hint">{remote ? t("usage.hintHub") : t("usage.hintLocal")}</p>
 
       <SpendingLimits source={source} />
       <RecentSpending source={source} />
 
       <div className="usage-stat-grid">
-        <StatTile label="Total tokens" value={summary.total.totalTokens} />
-        <StatTile label="Prompt tokens" value={summary.total.promptTokens} />
-        <StatTile label="Completion tokens" value={summary.total.completionTokens} />
-        <StatTile label="Model calls" value={summary.messageCount} />
-        <StatTile label="Conversations" value={summary.conversationCount} />
+        <StatTile label={t("usage.totalTokens")} value={summary.total.totalTokens} />
+        <StatTile label={t("usage.promptTokens")} value={summary.total.promptTokens} />
+        <StatTile label={t("usage.completionTokens")} value={summary.total.completionTokens} />
+        <StatTile label={t("usage.modelCalls")} value={summary.messageCount} />
+        <StatTile label={t("usage.conversations")} value={summary.conversationCount} />
       </div>
 
-      <UsageBreakdown title="By agent" entries={summary.byAgent} emptyKeyLabel="No agent" />
-      <UsageBreakdown title="By provider" entries={summary.byProvider} emptyKeyLabel="Default provider" />
-      <UsageBreakdown title="By combo" entries={summary.byCombo ?? []} emptyKeyLabel="No combo" />
+      <UsageBreakdown title={t("usage.byAgent")} entries={summary.byAgent} emptyKeyLabel={t("usage.noAgent")} />
+      <UsageBreakdown title={t("usage.byProvider")} entries={summary.byProvider} emptyKeyLabel={t("usage.defaultProvider")} />
+      <UsageBreakdown title={t("usage.byCombo")} entries={summary.byCombo ?? []} emptyKeyLabel={t("usage.noCombo")} />
     </div>
   );
 }

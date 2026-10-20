@@ -1,18 +1,12 @@
 import { useCallback, useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { t, type Key } from "../i18n";
 import type { Grant, GrantsView } from "../types";
 import { hubGrants, hubRevokeGrant } from "../lib/hub";
 import { agoLabel } from "../lib/agentTasks";
 
-const CATEGORY_LABEL: Record<string, string> = {
-  delete_data: "Delete data",
-  spend_money: "Spend money",
-  critical_infra: "Critical infrastructure",
-  external_message: "External message",
-  publish_code: "Publish code",
-  important_config: "Important configuration",
-  elevated_agent: "Agent with elevated permission",
-};
+const CATEGORIES = new Set(["delete_data", "spend_money", "critical_infra", "external_message", "publish_code", "important_config", "elevated_agent"]);
+const categoryLabel = (covers: string) => (CATEGORIES.has(covers) ? t(`grants.${covers}` as Key) : covers);
 
 /** P122 — what the person said "always" to: a risk category or a tool, per conversation and agent. Kept in a file it lapses after the days
  * the host is set to without use; otherwise it holds until the app (or, on a hub, the connection) closes. Taking one back makes the agent
@@ -50,24 +44,28 @@ export default function GrantsSection({ remote, titleOf }: { remote: boolean; ti
 
   return (
     <section className="grants-section">
-      <h3 className="settings-title">Permissions given with "always"</h3>
+      <h3 className="settings-title">{t("grants.title")}</h3>
       <p className="settings-hint">
-        They hold per conversation and agent.{" "}
+        {t("grants.holdsPer")}{" "}
         {view?.ttlDays != null
-          ? `Kept in a file, they survive a restart and lapse after ${view.ttlDays} ${view.ttlDays === 1 ? "day" : "days"} unused (each use renews them).`
-          : `They end when ${remote ? "the connection" : "the app"} closes.`}{" "}
-        Taking one back makes the agent ask again.
+          ? view.ttlDays === 1
+            ? t("grants.keptOne")
+            : t("grants.keptMany", { days: view.ttlDays })
+          : remote
+            ? t("grants.endsRemote")
+            : t("grants.endsLocal")}{" "}
+        {t("grants.takeBackHint")}
       </p>
       {error && <p className="usage-error">{error}</p>}
-      {grants !== null && grants.length === 0 && <p className="settings-hint">None yet.</p>}
+      {grants !== null && grants.length === 0 && <p className="settings-hint">{t("grants.none")}</p>}
       {grants !== null && grants.length > 0 && (
         <ul className="agent-work-list">
           {grants.map((g) => (
             <li key={`${g.conversationId}\u0000${g.agentId ?? ""}\u0000${g.covers}`}>
-              <strong>{CATEGORY_LABEL[g.covers] ?? g.covers}</strong> · {g.agentId ?? "default agent"} · {titleOf(g.conversationId)}
-              {g.lastUsedMs != null && ` · used ${agoLabel(g.lastUsedMs, Date.now())}`}{" "}
+              <strong>{categoryLabel(g.covers)}</strong> · {g.agentId ?? t("grants.defaultAgent")} · {titleOf(g.conversationId)}
+              {g.lastUsedMs != null && ` · ${t("grants.used", { ago: agoLabel(g.lastUsedMs, Date.now()) })}`}{" "}
               <button type="button" className="settings-browse-btn" onClick={() => void revoke(g)}>
-                Take back
+                {t("grants.takeBack")}
               </button>
             </li>
           ))}

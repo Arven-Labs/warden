@@ -1,5 +1,7 @@
 import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { t, type Key } from "../i18n";
+import { rich } from "../i18n/rich";
 import type { AgentEntry, AgentTask, SpendStatus } from "../types";
 import { activityLine, activityOf, lastConversationOf, spendOf } from "../lib/agentTasks";
 import { approvalCategoryLabel } from "../lib/approvalCategories";
@@ -7,7 +9,7 @@ import { hubAgentTasks, hubEditAgentOrg, hubEditAgentOrgAsMember, hubListAgentOr
 import { addReportEdit, buildOrg, moveEdit, positionEdit, superiorChoices, type OrgAccess, type OrgAgent, type OrgEdit, type OrgNode } from "../lib/org";
 import { KeyCancelled, usePairingKey } from "./PairingKeyDialog";
 
-const AUTONOMY: Record<number, string> = { 1: "answers only", 2: "suggests", 3: "asks first", 4: "acts alone", 5: "manages alone" };
+const autonomyLabel = (level: number): string => (level >= 1 && level <= 5 ? t(`org.autonomy${level}` as Key) : "");
 
 /** The agent has the powers of the Settings screen (the owner gets them; a member gets only the id, the role and the superior). */
 function hasPowers(agent: OrgAgent): agent is AgentEntry {
@@ -18,12 +20,12 @@ function hasPowers(agent: OrgAgent): agent is AgentEntry {
 function badges(agent: OrgAgent): string[] {
   const list: string[] = [];
   if (!hasPowers(agent)) return list;
-  if (agent.canDelegateToAgents) list.push("delegates");
-  if (agent.canManageAgents) list.push("manages agents");
-  if (agent.canMessageAgents) list.push("leaves notes");
-  if (agent.canManageTasks) list.push("schedules tasks");
-  if (agent.autonomy !== 4) list.push(`autonomy ${agent.autonomy}: ${AUTONOMY[agent.autonomy] ?? ""}`.trim());
-  if (agent.approvalRequired.length > 0) list.push(`asks before: ${agent.approvalRequired.map(approvalCategoryLabel).join(", ").toLowerCase()}`);
+  if (agent.canDelegateToAgents) list.push(t("org.badgeDelegates"));
+  if (agent.canManageAgents) list.push(t("org.badgeManages"));
+  if (agent.canMessageAgents) list.push(t("org.badgeNotes"));
+  if (agent.canManageTasks) list.push(t("org.badgeTasks"));
+  if (agent.autonomy !== 4) list.push(t("org.badgeAutonomy", { level: agent.autonomy, label: autonomyLabel(agent.autonomy) }).trim());
+  if (agent.approvalRequired.length > 0) list.push(t("org.badgeAsksBefore", { list: agent.approvalRequired.map(approvalCategoryLabel).join(", ").toLowerCase() }));
   return list;
 }
 
@@ -64,27 +66,27 @@ function PositionForm({ agent, editing }: { agent: OrgAgent; editing: Editing })
   return (
     <div className="org-form">
       <label className="settings-field">
-        Role
-        <input type="text" value={role} maxLength={80} placeholder="e.g. Backend lead" onChange={(e) => setRole(e.target.value)} />
+        {t("org.role")}
+        <input type="text" value={role} maxLength={80} placeholder={t("org.rolePlaceholder")} onChange={(e) => setRole(e.target.value)} />
       </label>
       <label className="settings-field">
-        Reports to
+        {t("org.reportsTo")}
         <select value={superior} onChange={(e) => setSuperior(e.target.value)}>
-          <option value="">Nobody (top of the tree)</option>
+          <option value="">{t("org.nobodyTop")}</option>
           {choices.map((a) => (
             <option key={a.id} value={a.id}>
               {a.id}
             </option>
           ))}
         </select>
-        <span className="field-hint">Whoever reports to {agent.id} moves with it.</span>
+        <span className="field-hint">{t("org.movesWith", { id: agent.id })}</span>
       </label>
       <div className="org-form-actions">
         <button type="button" className="settings-save-btn" disabled={editing.busy} onClick={() => void editing.apply(positionEdit(agent.id, role, superior))}>
-          Save
+          {t("org.save")}
         </button>
         <button type="button" className="settings-browse-btn" disabled={editing.busy} onClick={() => editing.open(null)}>
-          Cancel
+          {t("org.cancel")}
         </button>
       </div>
     </div>
@@ -99,29 +101,27 @@ function AddForm({ under, editing }: { under: string | null; editing: Editing })
   return (
     <div className="org-form">
       <label className="settings-field">
-        Name
-        <input type="text" value={id} maxLength={64} placeholder="e.g. reviewer" onChange={(e) => setId(e.target.value)} />
+        {t("org.name")}
+        <input type="text" value={id} maxLength={64} placeholder={t("org.namePlaceholder")} onChange={(e) => setId(e.target.value)} />
       </label>
       <label className="settings-field">
-        Role
-        <input type="text" value={role} maxLength={80} placeholder="optional" onChange={(e) => setRole(e.target.value)} />
+        {t("org.role")}
+        <input type="text" value={role} maxLength={80} placeholder={t("org.optional")} onChange={(e) => setRole(e.target.value)} />
       </label>
       <label className="settings-field">
-        What it does
-        <textarea value={persona} rows={3} placeholder="Its instructions, in a few lines." onChange={(e) => setPersona(e.target.value)} />
+        {t("org.whatItDoes")}
+        <textarea value={persona} rows={3} placeholder={t("org.personaPlaceholder")} onChange={(e) => setPersona(e.target.value)} />
         <span className="field-hint">
-          {under ? `It reports to ${under}. ` : "It starts at the top of the tree. "}
-          {editing.member
-            ? "It begins careful: read-only tools, asks before every change, and can't delegate or manage agents until the owner turns that on."
-            : "It begins careful: read-only tools, asks before every change, and can't delegate or manage agents until you turn that on in Settings."}
+          {under ? t("org.reportsUnder", { under }) : t("org.startsTop")}
+          {editing.member ? t("org.carefulMember") : t("org.carefulOwner")}
         </span>
       </label>
       <div className="org-form-actions">
         <button type="button" className="settings-save-btn" disabled={editing.busy || !ready} onClick={() => void editing.apply(addReportEdit(id, persona, role, under))}>
-          Add agent
+          {t("org.addAgent")}
         </button>
         <button type="button" className="settings-browse-btn" disabled={editing.busy} onClick={() => editing.open(null)}>
-          Cancel
+          {t("org.cancel")}
         </button>
       </div>
     </div>
@@ -134,16 +134,19 @@ function RemoveConfirm({ node, editing }: { node: OrgNode<OrgAgent>; editing: Ed
   return (
     <div className="org-form">
       <p className="settings-hint">
-        Remove <strong>{agent.id}</strong>?
-        {children.length > 0 && ` ${children.length === 1 ? "Its report" : `Its ${children.length} reports`} will report to ${superior ?? "nobody (the top of the tree)"}.`}
-        {" "}Its conversations stay; it can't be undone.
+        {rich("org.removeAsk", { id: <strong>{agent.id}</strong> })}
+        {children.length > 0 &&
+          (children.length === 1
+            ? t("org.removeOneReport", { superior: superior ?? t("org.nobodyTopLower") })
+            : t("org.removeManyReports", { count: children.length, superior: superior ?? t("org.nobodyTopLower") }))}
+        {t("org.removeNote")}
       </p>
       <div className="org-form-actions">
         <button type="button" className="provider-delete-btn" disabled={editing.busy} onClick={() => void editing.apply({ kind: "remove", id: agent.id })}>
-          Remove
+          {t("org.remove")}
         </button>
         <button type="button" className="settings-browse-btn" disabled={editing.busy} onClick={() => editing.open(null)}>
-          Keep it
+          {t("org.keepIt")}
         </button>
       </div>
     </div>
@@ -183,29 +186,29 @@ function Node({ node, editing }: { node: OrgNode<OrgAgent>; editing: Editing }) 
             </span>
           ))}
         </span>
-        {children.length > 0 && <span className="org-count">{children.length === 1 ? "1 report" : `${children.length} reports`}</span>}
+        {children.length > 0 && <span className="org-count">{children.length === 1 ? t("org.oneReport") : t("org.reports", { count: children.length })}</span>}
         {editing.activity(agent.id) && <span className="org-activity">{editing.activity(agent.id)}</span>}
         <span className="org-actions">
           {!editing.member && (
             <>
-              <button type="button" className="settings-browse-btn" onClick={() => editing.onOpenChat(agent.id)} title={`Start a conversation with ${agent.id}`}>
-                Chat
+              <button type="button" className="settings-browse-btn" onClick={() => editing.onOpenChat(agent.id)} title={t("org.chatTitle", { id: agent.id })}>
+                {t("org.chat")}
               </button>
-              <button type="button" className="settings-browse-btn" onClick={() => editing.onOpenTasks(agent.id)} title={`The tasks ${agent.id} was given and the ones it delegated`}>
-                Tasks
+              <button type="button" className="settings-browse-btn" onClick={() => editing.onOpenTasks(agent.id)} title={t("org.tasksTitle", { id: agent.id })}>
+                {t("org.tasks")}
               </button>
             </>
           )}
           {editing.editable && (
             <>
               <button type="button" className="settings-browse-btn" disabled={editing.busy} onClick={() => editing.open({ kind: "edit", id: agent.id })}>
-                Edit
+                {t("org.edit")}
               </button>
               <button type="button" className="settings-browse-btn" disabled={editing.busy} onClick={() => editing.open({ kind: "add", under: agent.id })}>
-                Add report
+                {t("org.addReport")}
               </button>
               <button type="button" className="settings-browse-btn" disabled={editing.busy} onClick={() => editing.open({ kind: "remove", id: agent.id })}>
-                Remove
+                {t("org.remove")}
               </button>
             </>
           )}
@@ -343,18 +346,12 @@ function OrganizationView({
 
   return (
     <div className="settings-view">
-      <h2 className="settings-title">Organization</h2>
-      <p className="settings-hint">
-        {member
-          ? editable
-            ? "Who reports to whom among the workspace's agents. The owner let you change the hierarchy: the role and the superior of an agent, a new report, a removal. What the agents may do is the owner's."
-            : "Who reports to whom among the workspace's agents. You can look at the tree; changing it is the owner's."
-          : "Who reports to whom among your agents. An agent that manages or delegates to other agents reaches only the ones below it; an agent outside the hierarchy delegates as before. Every change an agent makes still waits for your yes."}
-      </p>
+      <h2 className="settings-title">{t("org.title")}</h2>
+      <p className="settings-hint">{member ? (editable ? t("org.hintMemberEdit") : t("org.hintMemberView")) : t("org.hintOwner")}</p>
       {error && <p className="usage-error">{error}</p>}
 
       {tree.length === 0 ? (
-        <p className="settings-hint">No agents yet.</p>
+        <p className="settings-hint">{t("org.noAgents")}</p>
       ) : (
         <ul className="org-tree">
           {tree.map((node) => (
@@ -371,19 +368,19 @@ function OrganizationView({
             onDropOn(editing, null);
           }}
         >
-          Drop here to take it out from under its superior (top of the tree)
+          {t("org.dropHere")}
         </div>
       )}
-      {editable && tree.length > 0 && nobodyReports && <p className="settings-hint">Nobody reports to anybody yet: drag a card onto another, or use "Edit" on an agent to pick its superior.</p>}
+      {editable && tree.length > 0 && nobodyReports && <p className="settings-hint">{t("org.nobodyReports")}</p>}
       {panel?.kind === "add" && panel.under === null && <AddForm key="add-top" under={null} editing={editing} />}
       {editable && (
         <div className="org-form-actions">
           <button type="button" className="settings-browse-btn" disabled={busy} onClick={() => editing.open({ kind: "add", under: null })}>
-            Add an agent at the top
+            {t("org.addTop")}
           </button>
           {!member && (
             <button type="button" className="settings-browse-btn" onClick={onEdit}>
-              More settings per agent
+              {t("org.moreSettings")}
             </button>
           )}
         </div>

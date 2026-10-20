@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { t } from "../i18n";
 import { folderPlace, nodeFolderRef, parseNodeFolder, type DirListing, type NodeInfo } from "../lib/workdir";
 
 interface Props {
@@ -51,22 +52,19 @@ function FolderPicker({ listDirs, nodes = [], initialPath, onPick, onCancel }: P
     <div className="settings-modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="folder-picker-title">
       <div className="sync-qr-card settings-modal-card approval-card folder-picker">
         <h2 id="folder-picker-title" className="approval-title">
-          Choose the working folder
+          {t("folderPicker.title")}
         </h2>
-        <p className="settings-hint">
-          The AI reads and writes in this folder, and the shell starts there (each command asks for your yes). It applies to the whole conversation and does not
-          change afterwards.
-        </p>
+        <p className="settings-hint">{t("folderPicker.hint")}</p>
         {nodes.length > 0 && (
           <label className="settings-field folder-picker-machine">
-            <span className="settings-label">Machine</span>
+            <span className="settings-label">{t("folderPicker.machine")}</span>
             <select
               className="settings-input"
               value={machine}
               disabled={loading}
               onChange={(e) => open(e.currentTarget.value ? nodeFolderRef(e.currentTarget.value, "") : undefined)}
             >
-              <option value="">Hub</option>
+              <option value="">{t("folderPicker.hub")}</option>
               {nodes.map((n) => (
                 <option key={n.deviceId} value={n.deviceId}>
                   {n.name}
@@ -76,7 +74,7 @@ function FolderPicker({ listDirs, nodes = [], initialPath, onPick, onCancel }: P
           </label>
         )}
         <div className="folder-picker-here" title={here}>
-          {here ? folderPlace(here, nodes) : "Your folders"}
+          {here ? folderPlace(here, nodes) : t("folderPicker.yours")}
         </div>
         {error && (
           <p className="folder-picker-error" role="alert">
@@ -87,7 +85,7 @@ function FolderPicker({ listDirs, nodes = [], initialPath, onPick, onCancel }: P
           {listing?.parent !== undefined && (
             <li>
               <button type="button" className="folder-picker-item" onClick={() => open(listing.parent || undefined)}>
-                ↑ Up
+                {t("folderPicker.up")}
               </button>
             </li>
           )}
@@ -98,14 +96,14 @@ function FolderPicker({ listDirs, nodes = [], initialPath, onPick, onCancel }: P
               </button>
             </li>
           ))}
-          {listing && listing.dirs.length === 0 && !loading && <li className="folder-picker-empty">No subfolders.</li>}
+          {listing && listing.dirs.length === 0 && !loading && <li className="folder-picker-empty">{t("folderPicker.empty")}</li>}
         </ul>
         <div className="approval-actions">
           <button type="button" className="settings-browse-btn" onClick={onCancel}>
-            Cancel
+            {t("folderPicker.cancel")}
           </button>
           <button type="button" className="settings-save-btn" disabled={!here || loading} onClick={() => onPick(here)}>
-            Use this folder
+            {t("folderPicker.use")}
           </button>
         </div>
       </div>

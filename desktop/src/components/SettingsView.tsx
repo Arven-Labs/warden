@@ -1,10 +1,13 @@
 import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
+import { t } from "../i18n";
+import { rich } from "../i18n/rich";
 import { isMcpServerHttp } from "../types";
 import type { AgentEntry, Combo, GitSyncConfig, McpServer, ModelPolicy, OutreachEntry, ProviderEntry, ProviderKind, Settings, SshHostEntry, ToolCategoryEntry } from "../types";
 import ApiKeysSection from "./ApiKeysSection";
 import BotsSection from "./BotsSection";
+import LanguageSwitch from "./LanguageSwitch";
 import SshAuditLog from "./SshAuditLog";
 import SpendingSection, { validateSpending } from "./SpendingSection";
 import { APPROVAL_CATEGORIES } from "../lib/approvalCategories";
@@ -46,8 +49,8 @@ function ProviderOrderEditor({
   value,
   providers = [],
   candidates,
-  emptyHint = "No providers yet — a combo needs at least one.",
-  addLabel = "+ Add a provider…",
+  emptyHint,
+  addLabel,
   onChange,
 }: {
   value: string[];
@@ -57,6 +60,8 @@ function ProviderOrderEditor({
   addLabel?: string;
   onChange: (next: string[]) => void;
 }) {
+  emptyHint ??= t("st.fallbackEmpty");
+  addLabel ??= t("st.fallbackAdd");
   const available = (candidates ?? providers.map((p) => p.id)).filter((id) => id !== "" && !value.includes(id));
 
   function move(index: number, delta: number) {
@@ -73,7 +78,7 @@ function ProviderOrderEditor({
         <div key={id} className="fallback-row">
           <span className="fallback-order">{index + 1}.</span>
           <span className="fallback-name">{id}</span>
-          <button type="button" className="provider-delete-btn" disabled={index === 0} onClick={() => move(index, -1)} title="Move up" aria-label={`Move ${id} up`}>
+          <button type="button" className="provider-delete-btn" disabled={index === 0} onClick={() => move(index, -1)} title={t("st.moveUp")} aria-label={t("st.moveUpLabel", { id })}>
             ↑
           </button>
           <button
@@ -81,12 +86,12 @@ function ProviderOrderEditor({
             className="provider-delete-btn"
             disabled={index === value.length - 1}
             onClick={() => move(index, 1)}
-            title="Move down"
-            aria-label={`Move ${id} down`}
+            title={t("st.moveDown")}
+            aria-label={t("st.moveDownLabel", { id })}
           >
             ↓
           </button>
-          <button type="button" className="provider-delete-btn" onClick={() => onChange(value.filter((v) => v !== id))} title="Remove" aria-label={`Remove ${id}`}>
+          <button type="button" className="provider-delete-btn" onClick={() => onChange(value.filter((v) => v !== id))} title={t("common.remove")} aria-label={t("st.removeLabel", { id })}>
             ✕
           </button>
         </div>
@@ -127,7 +132,7 @@ function GitSyncForm({ value, onChange }: { value: GitSyncConfig | null; onChang
   return (
     <div className="git-sync-form">
       <label className="settings-field">
-        <span className="settings-label">Remote URL</span>
+        <span className="settings-label">{t("st.git.remoteUrl")}</span>
         <input
           className="settings-input"
           type="text"
@@ -136,36 +141,36 @@ function GitSyncForm({ value, onChange }: { value: GitSyncConfig | null; onChang
           onChange={(e) => set("remoteUrl", e.currentTarget.value)}
         />
       </label>
-      <ApiKeyField label="Token" value={current.token} onChange={(v) => set("token", v)} />
+      <ApiKeyField label={t("st.git.token")} value={current.token} onChange={(v) => set("token", v)} />
     </div>
   );
 }
 
-const PROVIDER_KIND_OPTIONS: { value: ProviderKind; label: string }[] = [
+const providerKindOptions = (): { value: ProviderKind; label: string }[] => [
   { value: "gemini", label: "Gemini" },
   { value: "openai", label: "OpenAI" },
   { value: "anthropic", label: "Anthropic" },
-  { value: "openai_compatible", label: "OpenAI-compatible (Ollama, OpenRouter, Groq, ...)" },
-  { value: "node", label: "A node's model (another machine)" },
-  { value: "cloud", label: "Fabio cloud (or a hub of your own)" },
+  { value: "openai_compatible", label: t("st.kind.openaiCompatible") },
+  { value: "node", label: t("st.kind.node") },
+  { value: "cloud", label: t("st.kind.cloud") },
 ];
 
 /** Known-good starting points for popular integrations — researched 2026-08-29 (Sessão 35; see
  * ARCHITECTURE.md for why GitHub goes through Docker). Env/header values are left blank on
  * purpose — the user fills in their own secret after picking a preset. */
-const MCP_PRESETS: { label: string; server: McpServer }[] = [
+const mcpPresets = (): { label: string; server: McpServer }[] => [
   { label: "Filesystem", server: { name: "filesystem", command: "npx", args: ["-y", "@modelcontextprotocol/server-filesystem", "/path/to/allowed/dir"], env: {} } },
   { label: "Google Workspace", server: { name: "google_workspace", command: "npx", args: ["-y", "@aaronsb/google-workspace-mcp"], env: { GOOGLE_CLIENT_ID: "", GOOGLE_CLIENT_SECRET: "" } } },
   { label: "Notion", server: { name: "notion", command: "npx", args: ["-y", "@notionhq/notion-mcp-server"], env: { NOTION_TOKEN: "" } } },
   {
-    label: "GitHub (via Docker)",
+    label: t("st.mcp.githubDocker"),
     server: { name: "github", command: "docker", args: ["run", "-i", "--rm", "-e", "GITHUB_PERSONAL_ACCESS_TOKEN", "ghcr.io/github/github-mcp-server"], env: { GITHUB_PERSONAL_ACCESS_TOKEN: "" } },
   },
   {
     // Verified endpoint (2026-08-31, Sessão 36 / P25): https://mcp.slack.com/mcp, Streamable
     // HTTP, real OAuth (discovery + Dynamic Client Registration + browser consent — see
     // PENDING.md P26). Click "Connect" on this card after saving to authorize it.
-    label: "Slack (hosted — OAuth)",
+    label: t("st.mcp.slack"),
     server: { name: "slack", url: "https://mcp.slack.com/mcp", headers: {}, oauth: true },
   },
 ];
@@ -190,7 +195,7 @@ export function ApiKeyField({
         <input
           className="settings-input"
           type={revealed ? "text" : "password"}
-          placeholder="Not set"
+          placeholder={t("st.notSet")}
           value={value}
           onChange={(e) => onChange(e.currentTarget.value)}
           autoComplete="off"
@@ -198,7 +203,7 @@ export function ApiKeyField({
         <button
           type="button"
           className="settings-key-toggle"
-          aria-label={revealed ? `Hide ${label}` : `Reveal ${label}`}
+          aria-label={revealed ? t("st.hide", { label }) : t("st.reveal", { label })}
           onClick={() => setRevealed((r) => !r)}
         >
           {revealed ? "🙈" : "👁"}
@@ -253,14 +258,14 @@ function ProviderCard({
   return (
     <div className={`provider-card${isActive ? " provider-card-active" : ""}`}>
       <div className="provider-card-header">
-        <label className="provider-active-toggle" title="Use this provider for new messages">
+        <label className="provider-active-toggle" title={t("st.useProvider")}>
           <input type="radio" name="active-provider" checked={isActive} onChange={onSetActive} />
-          <span>Active</span>
+          <span>{t("st.active")}</span>
         </label>
         <input
           className="settings-input provider-name-input"
           type="text"
-          placeholder="Name (e.g. ollama-local)"
+          placeholder={t("st.provider.namePlaceholder")}
           value={provider.id}
           onChange={(e) => onChange({ ...provider, id: e.currentTarget.value })}
         />
@@ -268,21 +273,21 @@ function ProviderCard({
           type="button"
           className="provider-delete-btn"
           onClick={onDelete}
-          aria-label={`Delete ${provider.id || "this provider"}`}
-          title="Delete this provider"
+          aria-label={t("st.provider.deleteLabel", { name: provider.id || t("st.provider.thisProvider") })}
+          title={t("st.provider.deleteTitle")}
         >
           🗑
         </button>
       </div>
 
       <label className="settings-field">
-        <span className="settings-label">Provider type</span>
+        <span className="settings-label">{t("st.provider.type")}</span>
         <select
           className="settings-select"
           value={provider.kind}
           onChange={(e) => onChange({ ...provider, kind: e.currentTarget.value as ProviderKind })}
         >
-          {PROVIDER_KIND_OPTIONS.map((opt) => (
+          {providerKindOptions().map((opt) => (
             <option key={opt.value} value={opt.value}>
               {opt.label}
             </option>
@@ -292,7 +297,7 @@ function ProviderCard({
 
       {isOpenAiCompatible && (
         <label className="settings-field">
-          <span className="settings-label">Base URL</span>
+          <span className="settings-label">{t("st.provider.baseUrl")}</span>
           <input
             className="settings-input"
             type="text"
@@ -305,7 +310,7 @@ function ProviderCard({
 
       {provider.kind === "cloud" && (
         <label className="settings-field">
-          <span className="settings-label">Base URL (empty = the Fabio cloud; for a hub of your own, its address ending in /v1)</span>
+          <span className="settings-label">{t("st.provider.baseUrlCloud")}</span>
           <input
             className="settings-input"
             type="text"
@@ -318,7 +323,7 @@ function ProviderCard({
 
       {isNode && (
         <label className="settings-field">
-          <span className="settings-label">Node device id</span>
+          <span className="settings-label">{t("st.provider.nodeId")}</span>
           <input
             className="settings-input"
             type="text"
@@ -326,16 +331,13 @@ function ProviderCard({
             value={provider.node ?? ""}
             onChange={(e) => onChange({ ...provider, node: e.currentTarget.value })}
           />
-          <span className="settings-hint">
-            Answers only through a hub with that node online, approved and allowed (Workspace → Nodes). In a combo, the
-            next provider answers while it's out.
-          </span>
+          <span className="settings-hint">{t("st.provider.nodeHint")}</span>
         </label>
       )}
 
       {!isNode && (
         <ApiKeyField
-          label={isOpenAiCompatible ? "API key (optional — most local servers don't need one)" : "API key"}
+          label={isOpenAiCompatible ? t("st.provider.apiKeyOptional") : t("st.provider.apiKey")}
           value={provider.apiKey}
           onChange={(v) => onChange({ ...provider, apiKey: v })}
         />
@@ -344,9 +346,9 @@ function ProviderCard({
       {!isNode && (
         <div className="settings-field">
           <button type="button" className="settings-browse-btn" disabled={testing} onClick={() => void testKey()}>
-            {testing ? "Testing…" : "Test key"}
+            {testing ? t("st.provider.testing") : t("st.provider.test")}
           </button>
-          <span className="settings-hint">Asks the provider for its model list: it costs no tokens and counts against no limit.</span>
+          <span className="settings-hint">{t("st.provider.testHint")}</span>
           {keyTest && (
             <div
               role="status"
@@ -360,11 +362,11 @@ function ProviderCard({
       )}
 
       <label className="settings-field">
-        <span className="settings-label">{isNode ? "Provider on the node" : "Model"}</span>
+        <span className="settings-label">{isNode ? t("st.provider.onNode") : t("st.provider.model")}</span>
         <input
           className="settings-input"
           type="text"
-          placeholder={isNode ? "Its id in the node's config.toml, as in --model (e.g. ollama)" : defaultModel ? `Default: ${defaultModel}` : isOpenAiCompatible ? "Required, e.g. llama3.1" : ""}
+          placeholder={isNode ? t("st.provider.nodeModelPlaceholder") : defaultModel ? t("st.provider.defaultModel", { model: defaultModel }) : isOpenAiCompatible ? t("st.provider.requiredModel") : ""}
           value={provider.model}
           onChange={(e) => onChange({ ...provider, model: e.currentTarget.value })}
         />
@@ -427,7 +429,7 @@ function SshHostCard({
         <input
           className="settings-input provider-name-input"
           type="text"
-          placeholder="Name (e.g. my-vps)"
+          placeholder={t("st.ssh.namePlaceholder")}
           value={host.id}
           onChange={(e) => onChange({ ...host, id: e.currentTarget.value })}
         />
@@ -435,26 +437,26 @@ function SshHostCard({
           type="button"
           className="provider-delete-btn"
           onClick={onDelete}
-          aria-label={`Delete ${host.id || "this server"}`}
-          title="Delete this server"
+          aria-label={t("st.provider.deleteLabel", { name: host.id || t("st.ssh.thisServer") })}
+          title={t("st.ssh.deleteTitle")}
         >
           🗑
         </button>
       </div>
 
       <label className="settings-field">
-        <span className="settings-label">Host</span>
+        <span className="settings-label">{t("st.ssh.host")}</span>
         <input
           className="settings-input"
           type="text"
-          placeholder="203.0.113.7 or server.example.com"
+          placeholder={t("st.ssh.hostPlaceholder")}
           value={host.host}
           onChange={(e) => onChange({ ...host, host: e.currentTarget.value })}
         />
       </label>
 
       <label className="settings-field">
-        <span className="settings-label">User</span>
+        <span className="settings-label">{t("st.ssh.user")}</span>
         <input
           className="settings-input"
           type="text"
@@ -465,7 +467,7 @@ function SshHostCard({
       </label>
 
       <label className="settings-field">
-        <span className="settings-label">Port</span>
+        <span className="settings-label">{t("st.ssh.port")}</span>
         <input
           className="settings-input"
           type="number"
@@ -477,7 +479,7 @@ function SshHostCard({
       </label>
 
       <label className="settings-field">
-        <span className="settings-label">Private key file (optional)</span>
+        <span className="settings-label">{t("st.ssh.identity")}</span>
         <input
           className="settings-input"
           type="text"
@@ -485,16 +487,13 @@ function SshHostCard({
           value={host.identityFile}
           onChange={(e) => onChange({ ...host, identityFile: e.currentTarget.value })}
         />
-        <span className="settings-hint">
-          Only the path is stored — Warden never reads or copies the key. Leave empty to use ssh-agent and your
-          ~/.ssh/config. A key with a passphrase must be loaded in ssh-agent; Warden can't type a passphrase.
-        </span>
+        <span className="settings-hint">{t("st.ssh.identityHint")}</span>
       </label>
 
       <div className="settings-field">
-        <span className="settings-label">Available to</span>
+        <span className="settings-label">{t("st.ssh.availableTo")}</span>
         {agents.length === 0 ? (
-          <span className="settings-hint">No agents configured, so every conversation can use this server.</span>
+          <span className="settings-hint">{t("st.ssh.noAgents")}</span>
         ) : (
           <div className="skill-agent-list">
             {agents.map((a) => (
@@ -505,22 +504,15 @@ function SshHostCard({
             ))}
           </div>
         )}
-        <span className="settings-hint">
-          None ticked means every agent <strong>and every chat without an agent</strong> (Telegram, WhatsApp, mobile)
-          can run commands here. Tick agents to restrict it to them.
-        </span>
+        <span className="settings-hint">{rich("st.ssh.availableHint", { chats: <strong>{t("st.ssh.andEveryChat")}</strong> })}</span>
       </div>
 
       <label className="settings-field settings-checkbox-field">
         <span className="settings-checkbox-row">
           <input type="checkbox" checked={host.enabled} onChange={(e) => onChange({ ...host, enabled: e.currentTarget.checked })} />
-          <span className="settings-label">Let the AI use this server</span>
+          <span className="settings-label">{t("st.ssh.enable")}</span>
         </span>
-        <span className="settings-hint">
-          The AI can run any command as this user, and send or fetch files, with no sandbox — same trust as the
-          local shell. Off keeps the server saved but invisible to it. Every call is logged to
-          ~/.config/warden/ssh_audit.jsonl.
-        </span>
+        <span className="settings-hint">{t("st.ssh.enableHint")}</span>
       </label>
 
       <label className="settings-field settings-checkbox-field">
@@ -530,17 +522,14 @@ function SshHostCard({
             checked={host.requireApproval}
             onChange={(e) => onChange({ ...host, requireApproval: e.currentTarget.checked })}
           />
-          <span className="settings-label">Ask me before every command or file transfer</span>
+          <span className="settings-label">{t("st.ssh.requireApproval")}</span>
         </span>
-        <span className="settings-hint">
-          A prompt shows the exact command or paths and waits for your yes. Only this app and the interactive CLI can
-          ask — on Telegram, WhatsApp, mobile and sub-agents the AI is refused on this server instead.
-        </span>
+        <span className="settings-hint">{t("st.ssh.requireApprovalHint")}</span>
       </label>
 
       <div className="settings-field">
         <button type="button" className="settings-browse-btn" onClick={testConnection} disabled={testing}>
-          {testing ? "Testing…" : "Test connection"}
+          {testing ? t("st.provider.testing") : t("st.ssh.test")}
         </button>
         {testResult && (
           <div className={testResult.ok ? "settings-success-banner" : "settings-error-banner"} role="status">
@@ -572,19 +561,19 @@ function ComboCard({
   return (
     <div className="provider-card">
       <div className="provider-card-header">
-        <label className="provider-active-toggle" title="Use this combo for new messages">
+        <label className="provider-active-toggle" title={t("st.combo.useIt")}>
           <input type="radio" name="active-provider" checked={isActive} onChange={onSetActive} />
-          <span>Active</span>
+          <span>{t("st.active")}</span>
         </label>
         <input
           className="settings-input provider-name-input"
           type="text"
           value={combo.id}
-          placeholder="combo name"
-          aria-label="Combo name"
+          placeholder={t("st.combo.name")}
+          aria-label={t("st.combo.nameLabel")}
           onChange={(e) => onChange({ ...combo, id: e.currentTarget.value })}
         />
-        <button type="button" className="provider-delete-btn" onClick={onDelete} aria-label={`Delete ${combo.id || "this combo"}`} title="Delete this combo">
+        <button type="button" className="provider-delete-btn" onClick={onDelete} aria-label={t("st.combo.deleteLabel", { name: combo.id || t("st.combo.thisCombo") })} title={t("st.combo.deleteTitle")}>
           ✕
         </button>
       </div>
@@ -602,18 +591,18 @@ function ToolCategoryRow({ entry, onChange, onDelete }: { entry: ToolCategoryEnt
           className="settings-input provider-name-input"
           type="text"
           value={entry.tool}
-          placeholder="tool name"
-          aria-label="Tool name"
+          placeholder={t("st.tool.name")}
+          aria-label={t("st.tool.nameLabel")}
           onChange={(e) => onChange({ ...entry, tool: e.currentTarget.value })}
         />
-        <select className="settings-select" value={entry.category} aria-label="Risk category" onChange={(e) => onChange({ ...entry, category: e.currentTarget.value })}>
+        <select className="settings-select" value={entry.category} aria-label={t("st.tool.category")} onChange={(e) => onChange({ ...entry, category: e.currentTarget.value })}>
           {APPROVAL_CATEGORIES.map((c) => (
             <option key={c.id} value={c.id} title={c.hint}>
               {c.label}
             </option>
           ))}
         </select>
-        <button type="button" className="provider-delete-btn" onClick={onDelete} aria-label={`Remove ${entry.tool || "this tool"}`} title="Remove this tool">
+        <button type="button" className="provider-delete-btn" onClick={onDelete} aria-label={t("st.tool.removeLabel", { name: entry.tool || t("st.tool.thisTool") })} title={t("st.tool.removeTitle")}>
           ✕
         </button>
       </div>
@@ -641,29 +630,29 @@ function PolicyCard({
           className="settings-input provider-name-input"
           type="text"
           value={policy.id}
-          placeholder="policy name, e.g. fast"
-          aria-label="Policy name"
+          placeholder={t("st.policy.name")}
+          aria-label={t("st.policy.nameLabel")}
           onChange={(e) => onChange({ ...policy, id: e.currentTarget.value })}
         />
-        <select className="settings-select" value={policy.model} aria-label={`Model that answers ${policy.id || "this policy"}`} onChange={(e) => onChange({ ...policy, model: e.currentTarget.value })}>
-          {!modelChoices.includes(policy.model) && <option value={policy.model}>{policy.model || "(pick a model)"}</option>}
+        <select className="settings-select" value={policy.model} aria-label={t("st.policy.modelLabel", { name: policy.id || t("st.policy.thisPolicy") })} onChange={(e) => onChange({ ...policy, model: e.currentTarget.value })}>
+          {!modelChoices.includes(policy.model) && <option value={policy.model}>{policy.model || t("st.policy.pick")}</option>}
           {modelChoices.map((id) => (
             <option key={id} value={id}>
               {id}
             </option>
           ))}
         </select>
-        <button type="button" className="provider-delete-btn" onClick={onDelete} aria-label={`Delete ${policy.id || "this policy"}`} title="Delete this policy">
+        <button type="button" className="provider-delete-btn" onClick={onDelete} aria-label={t("st.policy.deleteLabel", { name: policy.id || t("st.policy.thisPolicy") })} title={t("st.policy.deleteTitle")}>
           ✕
         </button>
       </div>
       <label className="settings-field">
-        <span className="settings-label">When to pick it</span>
+        <span className="settings-label">{t("st.policy.when")}</span>
         <input
           className="settings-input"
           type="text"
           maxLength={200}
-          placeholder="e.g. simple, quick work where cost matters more than depth"
+          placeholder={t("st.policy.whenPlaceholder")}
           value={policy.description ?? ""}
           onChange={(e) => onChange({ ...policy, description: e.currentTarget.value })}
         />
@@ -708,7 +697,7 @@ function AgentCard({
         <input
           className="settings-input provider-name-input"
           type="text"
-          placeholder="Name (e.g. pirate)"
+          placeholder={t("st.agent.namePlaceholder")}
           value={agent.id}
           onChange={(e) => onChange({ ...agent, id: e.currentTarget.value })}
         />
@@ -716,32 +705,32 @@ function AgentCard({
           type="button"
           className="provider-delete-btn"
           onClick={onDelete}
-          aria-label={`Delete ${agent.id || "this agent"}`}
-          title="Delete this agent"
+          aria-label={t("st.provider.deleteLabel", { name: agent.id || t("st.agent.thisAgent") })}
+          title={t("st.agent.deleteTitle")}
         >
           🗑
         </button>
       </div>
 
       <label className="settings-field">
-        <span className="settings-label">Role</span>
+        <span className="settings-label">{t("st.agent.role")}</span>
         <input
           className="settings-input"
           type="text"
-          placeholder="Optional, e.g. Head of engineering"
+          placeholder={t("st.agent.rolePlaceholder")}
           value={agent.role ?? ""}
           onChange={(e) => onChange({ ...agent, role: e.currentTarget.value })}
         />
       </label>
 
       <label className="settings-field">
-        <span className="settings-label">Reports to</span>
+        <span className="settings-label">{t("st.agent.reportsTo")}</span>
         <select
           className="settings-select"
           value={agent.reportsTo ?? ""}
           onChange={(e) => onChange({ ...agent, reportsTo: e.currentTarget.value || null })}
         >
-          <option value="">(nobody)</option>
+          <option value="">{t("st.agent.nobody")}</option>
           {allAgents
             .filter((other) => other.id !== agent.id && !descendantsOf(allAgents, agent.id).has(other.id))
             .map((other) => (
@@ -750,17 +739,14 @@ function AgentCard({
               </option>
             ))}
         </select>
-        <span className="settings-hint">
-          Shown in the Organization view. It sets the reach of an agent that manages or delegates to other agents: only the ones
-          that report to it, directly or not. Agents outside the hierarchy delegate as before.
-        </span>
+        <span className="settings-hint">{t("st.agent.reportsHint")}</span>
       </label>
 
       <label className="settings-field">
-        <span className="settings-label">Personality</span>
+        <span className="settings-label">{t("st.agent.personality")}</span>
         <textarea
           className="settings-input settings-textarea"
-          placeholder="Describe how this agent should behave, e.g. 'You are a terse, no-nonsense assistant who always answers in bullet points.'"
+          placeholder={t("st.agent.personalityPlaceholder")}
           rows={3}
           value={agent.persona}
           onChange={(e) => onChange({ ...agent, persona: e.currentTarget.value })}
@@ -768,13 +754,13 @@ function AgentCard({
       </label>
 
       <label className="settings-field">
-        <span className="settings-label">Default model</span>
+        <span className="settings-label">{t("st.agent.defaultModel")}</span>
         <select
           className="settings-select"
           value={agent.providerId}
           onChange={(e) => onChange({ ...agent, providerId: e.currentTarget.value })}
         >
-          <option value="">(use the conversation's active provider)</option>
+          <option value="">{t("st.agent.useActive")}</option>
           {providers.map((p) => (
             <option key={p.id} value={p.id}>
               {p.id}
@@ -782,7 +768,7 @@ function AgentCard({
           ))}
           {combos.map((c) => (
             <option key={c.id} value={c.id}>
-              {c.id} (combo)
+              {t("st.agent.comboOption", { id: c.id })}
             </option>
           ))}
         </select>
@@ -795,11 +781,9 @@ function AgentCard({
             checked={agent.canDelegateToAgents}
             onChange={(e) => onChange({ ...agent, canDelegateToAgents: e.currentTarget.checked })}
           />
-          <span className="settings-label">Can delegate to other agents</span>
+          <span className="settings-label">{t("st.agent.canDelegate")}</span>
         </span>
-        <span className="settings-hint">
-          Lets this agent hand off part of a conversation to any other configured agent by name.
-        </span>
+        <span className="settings-hint">{t("st.agent.canDelegateHint")}</span>
       </label>
 
       <label className="settings-field settings-checkbox-field">
@@ -809,13 +793,9 @@ function AgentCard({
             checked={agent.canManageAgents}
             onChange={(e) => onChange({ ...agent, canManageAgents: e.currentTarget.checked })}
           />
-          <span className="settings-label">Can create and edit other agents</span>
+          <span className="settings-label">{t("st.agent.canManage")}</span>
         </span>
-        <span className="settings-hint">
-          Lets this agent write new agents (persona and model) when you ask. Every creation or edit is shown to you
-          first and only happens if you approve it. It can't give any agent this power or the one above — only these
-          checkboxes can — and it can't edit an agent that has either.
-        </span>
+        <span className="settings-hint">{t("st.agent.canManageHint")}</span>
       </label>
 
       <label className="settings-field settings-checkbox-field">
@@ -825,12 +805,9 @@ function AgentCard({
             checked={agent.canMessageAgents}
             onChange={(e) => onChange({ ...agent, canMessageAgents: e.currentTarget.checked })}
           />
-          <span className="settings-label">Can leave messages for other agents</span>
+          <span className="settings-label">{t("st.agent.canMessage")}</span>
         </span>
-        <span className="settings-hint">
-          Lets this agent write to another agent as a colleague. The message and the answer land in a conversation
-          ("this agent → the other") that shows up in your sidebar, where you can also talk to the other agent.
-        </span>
+        <span className="settings-hint">{t("st.agent.canMessageHint")}</span>
       </label>
 
       <label className="settings-field settings-checkbox-field">
@@ -840,13 +817,9 @@ function AgentCard({
             checked={agent.canManageTasks}
             onChange={(e) => onChange({ ...agent, canManageTasks: e.currentTarget.checked })}
           />
-          <span className="settings-label">Can create and edit scheduled tasks</span>
+          <span className="settings-label">{t("st.agent.canTasks")}</span>
         </span>
-        <span className="settings-hint">
-          Lets this agent turn "every weekday at 8, summarize the news" into a task (see Tasks). Every creation or edit
-          is shown to you first and only happens if you approve it. An agent limited to some tools can only schedule
-          agents whose tools fit in its own.
-        </span>
+        <span className="settings-hint">{t("st.agent.canTasksHint")}</span>
       </label>
 
       <label className="settings-field settings-checkbox-field">
@@ -856,12 +829,9 @@ function AgentCard({
             checked={agent.canStartTasks}
             onChange={(e) => onChange({ ...agent, canStartTasks: e.currentTarget.checked })}
           />
-          <span className="settings-label">Can start work in the background</span>
+          <span className="settings-label">{t("st.agent.canStart")}</span>
         </span>
-        <span className="settings-hint">
-          Lets this agent hand a task to a colleague or a worker and keep going, then collect the result with the jobs
-          tool. Off, everything it delegates finishes inside its turn. An agent another agent creates starts with this off.
-        </span>
+        <span className="settings-hint">{t("st.agent.canStartHint")}</span>
       </label>
 
       <label className="settings-field settings-checkbox-field">
@@ -871,12 +841,9 @@ function AgentCard({
             checked={agent.canCreateWorkers}
             onChange={(e) => onChange({ ...agent, canCreateWorkers: e.currentTarget.checked })}
           />
-          <span className="settings-label">Can create temporary workers</span>
+          <span className="settings-label">{t("st.agent.canWorkers")}</span>
         </span>
-        <span className="settings-hint">
-          Lets this agent spin up a helper for one task (it is gone when the turn ends and never joins the organization).
-          An agent another agent creates starts with this off.
-        </span>
+        <span className="settings-hint">{t("st.agent.canWorkersHint")}</span>
       </label>
 
       <label className="settings-field settings-checkbox-field">
@@ -886,12 +853,9 @@ function AgentCard({
             checked={agent.canMessageUser}
             onChange={(e) => onChange({ ...agent, canMessageUser: e.currentTarget.checked })}
           />
-          <span className="settings-label">Permission: can use the tool that messages you</span>
+          <span className="settings-label">{t("st.agent.canMessageUser")}</span>
         </span>
-        <span className="settings-hint">
-          Without it the agent does not get the tool message_user at all. The switch below turns the messages on and says where
-          they go; it only works with this permission. An agent another agent creates starts with this off.
-        </span>
+        <span className="settings-hint">{t("st.agent.canMessageUserHint")}</span>
       </label>
 
       <label className="settings-field settings-checkbox-field">
@@ -901,27 +865,21 @@ function AgentCard({
             checked={agent.canChooseModels}
             onChange={(e) => onChange({ ...agent, canChooseModels: e.currentTarget.checked })}
           />
-          <span className="settings-label">Can choose the model of each task it delegates</span>
+          <span className="settings-label">{t("st.agent.canChoose")}</span>
         </span>
-        <span className="settings-hint">
-          Off, every task it hands out runs on the helper's own model, whatever list of models it has. An agent another
-          agent creates starts with this off.
-        </span>
+        <span className="settings-hint">{t("st.agent.canChooseHint")}</span>
       </label>
 
       <label className="settings-field settings-checkbox-field">
         <span className="settings-checkbox-row">
           <input type="checkbox" checked={outreachOn(outreach, agent.id)} onChange={(e) => onOutreach(setOutreach(outreach, agent.id, e.currentTarget.checked))} />
-          <span className="settings-label">Turn on its messages to you</span>
+          <span className="settings-label">{t("st.agent.outreach")}</span>
         </span>
-        <span className="settings-hint">
-          Lets this agent write to you first, in its own channel (the Agents screen), for an alert, a report or a reminder. It is an
-          ordinary message in its own words, at most 12 an hour. Needs the permission above.
-        </span>
+        <span className="settings-hint">{t("st.agent.outreachHint")}</span>
       </label>
       {outreachOn(outreach, agent.id) && (
         <div className="settings-field">
-          <span className="settings-label">Also send to</span>
+          <span className="settings-label">{t("st.agent.alsoSend")}</span>
           {OUTREACH_CHANNELS.map((channel) => (
             <span key={channel} className="settings-checkbox-row">
               <input
@@ -932,33 +890,28 @@ function AgentCard({
               <span className="settings-label">{channel === "telegram" ? "Telegram" : "WhatsApp"}</span>
             </span>
           ))}
-          <span className="settings-hint">Only for a scheduled task or a webhook, and only to your own chats on that bot.</span>
+          <span className="settings-hint">{t("st.agent.alsoSendHint")}</span>
         </div>
       )}
 
       <label className="settings-field">
-        <span className="settings-label">Autonomy</span>
+        <span className="settings-label">{t("st.agent.autonomy")}</span>
         <select
           className="settings-input"
           value={agent.autonomy}
           onChange={(e) => onChange({ ...agent, autonomy: Number(e.currentTarget.value) })}
         >
-          <option value={1}>1 — Only answers (no tools)</option>
-          <option value={2}>2 — Suggests (never changes anything itself)</option>
-          <option value={3}>3 — Asks before every change</option>
-          <option value={4}>4 — Acts on its own</option>
-          <option value={5}>5 — Acts on its own and manages its subordinates without asking</option>
+          <option value={1}>{t("st.agent.autonomy1")}</option>
+          <option value={2}>{t("st.agent.autonomy2")}</option>
+          <option value={3}>{t("st.agent.autonomy3")}</option>
+          <option value={4}>{t("st.agent.autonomy4")}</option>
+          <option value={5}>{t("st.agent.autonomy5")}</option>
         </select>
-        <span className="settings-hint">
-          Reading tools always work at levels 2 and 3. A delegate never gets more autonomy than the agent that called
-          it. An agent made by another agent starts at 3. Level 5 only changes Manage agents: the agents that report to it
-          are created, changed and removed without your yes, but never its own powers, its own place or an agent outside
-          its branch; a kind of action ticked below still asks.
-        </span>
+        <span className="settings-hint">{t("st.agent.autonomyHint")}</span>
       </label>
 
-      <div className="settings-field" role="group" aria-label={`Actions ${agent.id || "this agent"} must get approved`}>
-        <span className="settings-label">Always ask me before</span>
+      <div className="settings-field" role="group" aria-label={t("st.agent.mustApprove", { name: agent.id || t("st.agent.thisAgent") })}>
+        <span className="settings-label">{t("st.agent.alwaysAsk")}</span>
         {APPROVAL_CATEGORIES.map((category) => (
           <span key={category.id} className="settings-checkbox-row">
             <input
@@ -979,10 +932,7 @@ function AgentCard({
             </label>
           </span>
         ))}
-        <span className="settings-hint">
-          Even at autonomy 4, a call in a ticked kind waits for your yes. Which tool belongs to which kind is built in;
-          add your own under Risk categories below.
-        </span>
+        <span className="settings-hint">{t("st.agent.alwaysAskHint")}</span>
       </div>
 
       <label className="settings-field settings-checkbox-field">
@@ -992,15 +942,12 @@ function AgentCard({
             checked={agent.allowedTools !== null}
             onChange={(e) => onChange({ ...agent, allowedTools: e.currentTarget.checked ? [] : null })}
           />
-          <span className="settings-label">Restrict tools</span>
+          <span className="settings-label">{t("st.agent.restrictTools")}</span>
         </span>
-        <span className="settings-hint">
-          Off: this agent can use every tool the app has. On: only the ones ticked below (also when another agent
-          delegates to it).
-        </span>
+        <span className="settings-hint">{t("st.agent.restrictToolsHint")}</span>
       </label>
       {agent.allowedTools !== null && (
-        <div className="settings-field agent-tool-list" role="group" aria-label={`Tools ${agent.id || "this agent"} may use`}>
+        <div className="settings-field agent-tool-list" role="group" aria-label={t("st.agent.toolsMayUse", { name: agent.id || t("st.agent.thisAgent") })}>
           {[...new Set([...toolNames, ...agent.allowedTools])].map((tool) => (
             <span key={tool} className="settings-checkbox-row">
               <input
@@ -1012,41 +959,36 @@ function AgentCard({
                     ...agent,
                     allowedTools: e.currentTarget.checked
                       ? [...agent.allowedTools!, tool]
-                      : agent.allowedTools!.filter((t) => t !== tool),
+                      : agent.allowedTools!.filter((other) => other !== tool),
                   })
                 }
               />
               <label htmlFor={`tool-${agent.id}-${tool}`}>
                 {tool}
-                {!toolNames.includes(tool) && <span className="settings-hint"> (not available now)</span>}
+                {!toolNames.includes(tool) && <span className="settings-hint">{t("st.agent.notAvailable")}</span>}
               </label>
             </span>
           ))}
-          {agent.allowedTools.length === 0 && (
-            <span className="settings-hint">No tool ticked — this agent can only chat.</span>
-          )}
+          {agent.allowedTools.length === 0 && <span className="settings-hint">{t("st.agent.noToolTicked")}</span>}
         </div>
       )}
       {(agent.canDelegateToAgents || agent.canManageAgents || modelChoices.length > 0) && (
-        <div className="settings-field" role="group" aria-label={`Models ${agent.id || "this agent"} may delegate with`}>
-          <span className="settings-label">Models for the tasks it delegates</span>
-          <span className="settings-hint">
-            Which models this agent may pick when it hands a task to another agent. The first one is what a task gets when the agent names
-            none, so a list of one dictates the model. Empty leaves it open. {delegationSummary(agent.delegationModels)}
-          </span>
+        <div className="settings-field" role="group" aria-label={t("st.agent.delegationModels", { name: agent.id || t("st.agent.thisAgent") })}>
+          <span className="settings-label">{t("st.agent.delegationTitle")}</span>
+          <span className="settings-hint">{t("st.agent.delegationHint", { summary: delegationSummary(agent.delegationModels) })}</span>
           <ProviderOrderEditor
             value={agent.delegationModels ?? []}
             candidates={modelChoices}
-            emptyHint="Open — any model."
-            addLabel="+ Limit to a model…"
+            emptyHint={t("st.agent.delegationEmpty")}
+            addLabel={t("st.agent.delegationAdd")}
             onChange={(next) => onChange({ ...agent, delegationModels: next })}
           />
         </div>
       )}
       {people.length > 0 && (
-        <div className="settings-field agent-tool-list" role="group" aria-label={`People ${agent.id || "this agent"} is shared with`}>
-          <span className="settings-label">Shared with</span>
-          <span className="settings-hint">They use it with their own memory and only the tools you allow them (Workspace → People).</span>
+        <div className="settings-field agent-tool-list" role="group" aria-label={t("st.agent.sharedWithLabel", { name: agent.id || t("st.agent.thisAgent") })}>
+          <span className="settings-label">{t("st.agent.sharedWith")}</span>
+          <span className="settings-hint">{t("st.agent.sharedHint")}</span>
           <span className="settings-checkbox-row">
             <input
               type="checkbox"
@@ -1054,7 +996,7 @@ function AgentCard({
               checked={(agent.sharedWith ?? []).includes("*")}
               onChange={(e) => onChange({ ...agent, sharedWith: e.currentTarget.checked ? ["*"] : [] })}
             />
-            <label htmlFor={`share-${agent.id}-all`}>Everyone</label>
+            <label htmlFor={`share-${agent.id}-all`}>{t("st.agent.everyone")}</label>
           </span>
           {!(agent.sharedWith ?? []).includes("*") &&
             people.map((p) => (
@@ -1129,11 +1071,11 @@ function KeyValueListField({
           <input
             className="settings-input"
             type="password"
-            placeholder="value"
+            placeholder={t("st.kv.value")}
             value={value}
             onChange={(e) => updateEntry(i, key, e.currentTarget.value)}
           />
-          <button type="button" className="provider-delete-btn" onClick={() => removeEntry(i)} aria-label={`Remove ${key || "this entry"}`}>
+          <button type="button" className="provider-delete-btn" onClick={() => removeEntry(i)} aria-label={t("st.kv.removeLabel", { name: key || t("st.kv.thisEntry") })}>
             ✕
           </button>
         </div>
@@ -1199,22 +1141,22 @@ function McpOAuthPanel({ name, url }: { name: string; url: string }) {
 
   return (
     <div className="settings-field">
-      <span className="settings-label">Authorization</span>
+      <span className="settings-label">{t("st.oauth.title")}</span>
       <div className="settings-key-field">
         <span className={`mcp-oauth-status${connected ? " mcp-oauth-status-connected" : ""}`}>
-          {connected === null ? "Checking…" : connected ? "Connected" : "Not connected"}
+          {connected === null ? t("st.oauth.checking") : connected ? t("st.oauth.connected") : t("st.oauth.notConnected")}
         </span>
         {connected ? (
           <button type="button" className="settings-browse-btn" onClick={handleDisconnect} disabled={isBusy}>
-            {isBusy ? "Disconnecting…" : "Disconnect"}
+            {isBusy ? t("st.oauth.disconnecting") : t("st.oauth.disconnect")}
           </button>
         ) : (
           <button type="button" className="settings-browse-btn" onClick={handleConnect} disabled={isBusy || !canConnect}>
-            {isBusy ? "Opening browser…" : "Connect"}
+            {isBusy ? t("st.oauth.opening") : t("st.oauth.connect")}
           </button>
         )}
       </div>
-      {!canConnect && <span className="settings-hint">Name and URL are required before connecting.</span>}
+      {!canConnect && <span className="settings-hint">{t("st.oauth.required")}</span>}
       {error && <p className="settings-error-banner">{error}</p>}
     </div>
   );
@@ -1250,7 +1192,7 @@ function McpServerCard({
         <input
           className="settings-input provider-name-input"
           type="text"
-          placeholder="Name (e.g. notion)"
+          placeholder={t("st.mcp.namePlaceholder")}
           value={server.name}
           onChange={(e) => onChange({ ...server, name: e.currentTarget.value })}
         />
@@ -1258,25 +1200,25 @@ function McpServerCard({
           type="button"
           className="provider-delete-btn"
           onClick={onDelete}
-          aria-label={`Delete ${server.name || "this MCP server"}`}
-          title="Delete this MCP server"
+          aria-label={t("st.provider.deleteLabel", { name: server.name || t("st.mcp.thisServer") })}
+          title={t("st.mcp.deleteTitle")}
         >
           🗑
         </button>
       </div>
 
       <label className="settings-field">
-        <span className="settings-label">Transport</span>
+        <span className="settings-label">{t("st.mcp.transport")}</span>
         <select className="settings-select" value={isHttp ? "http" : "stdio"} onChange={(e) => setTransport(e.currentTarget.value as "stdio" | "http")}>
-          <option value="stdio">Local command (stdio)</option>
-          <option value="http">Remote URL (HTTP)</option>
+          <option value="stdio">{t("st.mcp.stdio")}</option>
+          <option value="http">{t("st.mcp.http")}</option>
         </select>
       </label>
 
       {isHttp ? (
         <>
           <label className="settings-field">
-            <span className="settings-label">URL</span>
+            <span className="settings-label">{t("st.mcp.url")}</span>
             <input
               className="settings-input"
               type="text"
@@ -1289,19 +1231,17 @@ function McpServerCard({
           <label className="settings-field settings-checkbox-field">
             <span className="settings-checkbox-row">
               <input type="checkbox" checked={server.oauth} onChange={(e) => onChange({ ...server, oauth: e.currentTarget.checked })} />
-              <span className="settings-label">Requires OAuth (e.g. Slack)</span>
+              <span className="settings-label">{t("st.mcp.oauth")}</span>
             </span>
-            <span className="settings-hint">
-              Discovery, registration, and browser consent instead of a static token — connect below.
-            </span>
+            <span className="settings-hint">{t("st.mcp.oauthHint")}</span>
           </label>
 
           {server.oauth ? (
             <McpOAuthPanel name={server.name} url={server.url} />
           ) : (
             <KeyValueListField
-              label="Headers"
-              addLabel="Add header"
+              label={t("st.mcp.headers")}
+              addLabel={t("st.mcp.addHeader")}
               keyPlaceholder="Authorization"
               entries={server.headers}
               onChange={(headers) => onChange({ ...server, headers })}
@@ -1311,7 +1251,7 @@ function McpServerCard({
       ) : (
         <>
           <label className="settings-field">
-            <span className="settings-label">Command</span>
+            <span className="settings-label">{t("st.mcp.command")}</span>
             <input
               className="settings-input"
               type="text"
@@ -1322,7 +1262,7 @@ function McpServerCard({
           </label>
 
           <label className="settings-field">
-            <span className="settings-label">Arguments (one per line)</span>
+            <span className="settings-label">{t("st.mcp.args")}</span>
             <textarea
               className="settings-input settings-textarea"
               rows={3}
@@ -1333,8 +1273,8 @@ function McpServerCard({
           </label>
 
           <KeyValueListField
-            label="Environment variables"
-            addLabel="Add variable"
+            label={t("st.mcp.env")}
+            addLabel={t("st.mcp.addVariable")}
             keyPlaceholder="KEY"
             entries={server.env}
             onChange={(env) => onChange({ ...server, env })}
@@ -1584,36 +1524,36 @@ function SettingsView() {
 
     const namelessProvider = form.providers.find((p) => p.id.trim() === "");
     if (namelessProvider) {
-      setError("Every provider needs a name.");
+      setError(t("st.err.providerName"));
       return;
     }
     const ids = form.providers.map((p) => p.id.trim());
     const duplicate = ids.find((id, i) => ids.indexOf(id) !== i);
     if (duplicate) {
-      setError(`Duplicate provider name: ${duplicate}`);
+      setError(t("st.err.providerDup", { name: duplicate }));
       return;
     }
 
     const namelessServer = form.mcpServers.find((s) => s.name.trim() === "");
     if (namelessServer) {
-      setError("Every MCP server needs a name.");
+      setError(t("st.err.mcpName"));
       return;
     }
     const incompleteServer = form.mcpServers.find((s) => (isMcpServerHttp(s) ? s.url.trim() === "" : s.command.trim() === ""));
     if (incompleteServer) {
-      setError(`MCP server '${incompleteServer.name}' needs a ${isMcpServerHttp(incompleteServer) ? "URL" : "command"}.`);
+      setError(t(isMcpServerHttp(incompleteServer) ? "st.err.mcpUrl" : "st.err.mcpCommand", { name: incompleteServer.name }));
       return;
     }
 
     const namelessAgent = form.agents.find((a) => a.id.trim() === "");
     if (namelessAgent) {
-      setError("Every agent needs a name.");
+      setError(t("st.err.agentName"));
       return;
     }
     const agentIds = form.agents.map((a) => a.id.trim());
     const duplicateAgent = agentIds.find((id, i) => agentIds.indexOf(id) !== i);
     if (duplicateAgent) {
-      setError(`Duplicate agent name: ${duplicateAgent}`);
+      setError(t("st.err.agentDup", { name: duplicateAgent }));
       return;
     }
 
@@ -1627,7 +1567,7 @@ function SettingsView() {
     // round-trip.
     const gitSyncFilled = form.gitSync ? [form.gitSync.remoteUrl, form.gitSync.token].filter((s) => s.trim() !== "").length : 0;
     if (gitSyncFilled === 1) {
-      setError("Git sync fields (remote URL and token) must be filled in together, or left entirely blank.");
+      setError(t("st.err.git"));
       return;
     }
 
@@ -1671,25 +1611,30 @@ function SettingsView() {
   if (isLoading) {
     return (
       <div className="settings-view">
-        <p>Loading settings…</p>
+        <p>{t("st.loading")}</p>
       </div>
     );
   }
 
   return (
     <div className="settings-view">
-      <h2 className="settings-title">Settings</h2>
+      <h2 className="settings-title">{t("st.title")}</h2>
+      <section className="settings-section">
+        <div className="settings-section-header">
+          <h3 className="settings-section-title">{t("st.language.title")}</h3>
+          <LanguageSwitch />
+        </div>
+        <p className="settings-hint">{t("st.language.hint")}</p>
+      </section>
       <form className="settings-form" onSubmit={handleSubmit}>
         <section className="settings-section">
           <div className="settings-section-header">
-            <h3 className="settings-section-title">Model providers</h3>
+            <h3 className="settings-section-title">{t("st.providers.title")}</h3>
             <button type="button" className="settings-browse-btn" onClick={addProvider}>
-              + Add provider
+              {t("st.providers.add")}
             </button>
           </div>
-          {form.providers.length === 0 && (
-            <p className="settings-hint">No providers configured yet — add one to start chatting.</p>
-          )}
+          {form.providers.length === 0 && <p className="settings-hint">{t("st.providers.none")}</p>}
           <div className="provider-list">
             {form.providers.map((p, i) => (
               <ProviderCard
@@ -1707,17 +1652,13 @@ function SettingsView() {
 
         <section className="settings-section">
           <div className="settings-section-header">
-            <h3 className="settings-section-title">Combos</h3>
+            <h3 className="settings-section-title">{t("st.combos.title")}</h3>
             <button type="button" className="settings-browse-btn" onClick={addCombo}>
-              + Add combo
+              {t("st.combos.add")}
             </button>
           </div>
-          <p className="settings-hint">
-            A combo is picked like a provider — as the active model, an agent's default or a conversation's model — and
-            tries its providers in order: when one is down (busy, rate-limited or unreachable), the next answers, and the
-            chat says so above the answer. A rejected key or a bad request never switches.
-          </p>
-          {form.combos.length === 0 && <p className="settings-hint">No combos yet.</p>}
+          <p className="settings-hint">{t("st.combos.hint")}</p>
+          {form.combos.length === 0 && <p className="settings-hint">{t("st.combos.none")}</p>}
           <div className="provider-list">
             {form.combos.map((c, i) => (
               <ComboCard
@@ -1735,17 +1676,13 @@ function SettingsView() {
 
         <section className="settings-section">
           <div className="settings-section-header">
-            <h3 className="settings-section-title">Model policies</h3>
+            <h3 className="settings-section-title">{t("st.policies.title")}</h3>
             <button type="button" className="settings-browse-btn" onClick={addPolicy} disabled={form.providers.length === 0 && form.combos.length === 0}>
-              + Add policy
+              {t("st.policies.add")}
             </button>
           </div>
-          <p className="settings-hint">
-            A policy is a word — "fast", "cheap", "reasoning", "code" — that an agent which delegates can use to pick the model of a task,
-            instead of a provider's name. Each one is answered by a provider or a combo, and its description is what the agent reads to know
-            when to pick it. Limit which models an agent may use on its own card, under Agents.
-          </p>
-          {form.modelPolicies.length === 0 && <p className="settings-hint">No policies yet — the agents see the providers and combos by name.</p>}
+          <p className="settings-hint">{t("st.policies.hint")}</p>
+          {form.modelPolicies.length === 0 && <p className="settings-hint">{t("st.policies.none")}</p>}
           <div className="provider-list">
             {form.modelPolicies.map((p, i) => (
               <PolicyCard
@@ -1761,18 +1698,13 @@ function SettingsView() {
 
         <section className="settings-section">
           <div className="settings-section-header">
-            <h3 className="settings-section-title">Agents</h3>
+            <h3 className="settings-section-title">{t("st.agents.title")}</h3>
             <button type="button" className="settings-browse-btn" onClick={addAgent}>
-              + Add agent
+              {t("st.agents.add")}
             </button>
           </div>
-          <p className="settings-hint">
-            Give the agent a name and a personality — every new conversation starts by picking one, alongside the
-            model, and sticks with it for good.
-          </p>
-          {form.agents.length === 0 && (
-            <p className="settings-hint">No agents configured yet — add one here before starting a new conversation.</p>
-          )}
+          <p className="settings-hint">{t("st.agents.hint")}</p>
+          {form.agents.length === 0 && <p className="settings-hint">{t("st.agents.none")}</p>}
           <div className="provider-list">
             {form.agents.map((a, i) => (
               <AgentCard key={i} agent={a} outreach={form.outreach} onOutreach={(next) => setForm((f) => ({ ...f, outreach: next }))} allAgents={form.agents} providers={form.providers} combos={form.combos} modelChoices={delegationCandidates(form.providers, form.combos, form.modelPolicies)} toolNames={toolNames} people={people} onChange={(next) => updateAgent(i, next)} onDelete={() => deleteAgent(i)} />
@@ -1782,21 +1714,17 @@ function SettingsView() {
 
         <section className="settings-section">
           <div className="settings-section-header">
-            <h3 className="settings-section-title">Risk categories</h3>
+            <h3 className="settings-section-title">{t("st.risk.title")}</h3>
             <button
               type="button"
               className="settings-browse-btn"
               onClick={() => setForm((f) => ({ ...f, toolCategories: [...f.toolCategories, { tool: "", category: APPROVAL_CATEGORIES[0].id }] }))}
             >
-              + Add tool
+              {t("st.risk.add")}
             </button>
           </div>
-          <p className="settings-hint">
-            Which kind of action a tool belongs to, for the agents told to get that kind approved. Warden's own tools and
-            what an MCP server says about its tools are classified already; list here a tool they don't cover (a payments
-            or a Slack server), by the exact name the model sees. What you list wins over both.
-          </p>
-          {form.toolCategories.length === 0 && <p className="settings-hint">No tools mapped yet.</p>}
+          <p className="settings-hint">{t("st.risk.hint")}</p>
+          {form.toolCategories.length === 0 && <p className="settings-hint">{t("st.risk.none")}</p>}
           <div className="provider-list">
             {form.toolCategories.map((entry, i) => (
               <ToolCategoryRow
@@ -1810,22 +1738,16 @@ function SettingsView() {
         </section>
 
         <section className="settings-section">
-          <h3 className="settings-section-title">Permissions given with "always"</h3>
-          <p className="settings-hint">
-            When you answer "always" to an agent's question, it stops asking for that kind of action in that conversation. Kept in a
-            file, the permission survives a restart and lapses after the days below without being used (each use renews it);
-            otherwise it ends when the app closes. Deleting data, spending money and critical infrastructure never get an "always".
-            Takes effect when you save; a connection to the hub that was already open without a file only starts keeping on its next
-            connection. Turning it off deletes the file.
-          </p>
+          <h3 className="settings-section-title">{t("st.grants.title")}</h3>
+          <p className="settings-hint">{t("st.grants.hint")}</p>
           <label className="settings-field settings-checkbox-field">
             <span className="settings-checkbox-row">
               <input type="checkbox" checked={form.persistGrants} onChange={(e) => setForm((f) => ({ ...f, persistGrants: e.currentTarget.checked }))} />
-              <span className="settings-label">Keep them in a file</span>
+              <span className="settings-label">{t("st.grants.keep")}</span>
             </span>
           </label>
           <label className="settings-field">
-            <span className="settings-label">Days a permission may go unused before it lapses</span>
+            <span className="settings-label">{t("st.grants.days")}</span>
             <input
               className="settings-input"
               type="number"
@@ -1850,17 +1772,13 @@ function SettingsView() {
 
         <section className="settings-section">
           <div className="settings-section-header">
-            <h3 className="settings-section-title">SSH servers</h3>
+            <h3 className="settings-section-title">{t("st.sshServers.title")}</h3>
             <button type="button" className="settings-browse-btn" onClick={addSshHost}>
-              + Add server
+              {t("st.sshServers.add")}
             </button>
           </div>
-          <p className="settings-hint">
-            Servers the AI can run commands on (a VPS, a home machine). Nothing is shared until you switch a server
-            on. The server's host key must already be trusted in your ~/.ssh/known_hosts — connect once from a
-            terminal first; Warden never accepts an unknown key on its own.
-          </p>
-          {form.sshHosts.length === 0 && <p className="settings-hint">No servers registered yet.</p>}
+          <p className="settings-hint">{t("st.sshServers.hint")}</p>
+          {form.sshHosts.length === 0 && <p className="settings-hint">{t("st.sshServers.none")}</p>}
           <div className="provider-list">
             {form.sshHosts.map((h, i) => (
               <SshHostCard key={i} host={h} agents={form.agents} onChange={(next) => updateSshHost(i, next)} onDelete={() => deleteSshHost(i)} />
@@ -1871,23 +1789,20 @@ function SettingsView() {
 
         <section className="settings-section">
           <div className="settings-section-header">
-            <h3 className="settings-section-title">MCP servers</h3>
+            <h3 className="settings-section-title">{t("st.mcpServers.title")}</h3>
           </div>
-          <p className="settings-hint">
-            Connect external MCP servers to give the agent access to more tools — pick a preset below to start from a
-            known-good command, or add a custom one.
-          </p>
+          <p className="settings-hint">{t("st.mcpServers.hint")}</p>
           <div className="mcp-quick-add-row">
-            {MCP_PRESETS.map((preset) => (
+            {mcpPresets().map((preset) => (
               <button key={preset.label} type="button" className="settings-browse-btn" onClick={() => addMcpPreset(preset.server)}>
                 + {preset.label}
               </button>
             ))}
             <button type="button" className="settings-browse-btn" onClick={addBlankMcpServer}>
-              + Custom
+              {t("st.mcpServers.custom")}
             </button>
           </div>
-          {form.mcpServers.length === 0 && <p className="settings-hint">No MCP servers configured yet.</p>}
+          {form.mcpServers.length === 0 && <p className="settings-hint">{t("st.mcpServers.none")}</p>}
           <div className="provider-list">
             {form.mcpServers.map((s, i) => (
               <McpServerCard key={i} server={s} onChange={(next) => updateMcpServer(i, next)} onDelete={() => deleteMcpServer(i)} />
@@ -1897,61 +1812,53 @@ function SettingsView() {
 
         <section className="settings-section">
           <div className="settings-section-header">
-            <h3 className="settings-section-title">Sync via Git</h3>
+            <h3 className="settings-section-title">{t("st.gitSync.title")}</h3>
           </div>
-          <p className="settings-hint">
-            Your memory (the vault) always lives on this machine; sync keeps it the same on your other devices. A
-            self-hosted/remote git repo (Gitea, GitHub, ...) is the alternative to Arweave for that — free, and fully
-            automatable (no phone approval). Fill this in to unlock manual push/pull and automatic sync on the Sync
-            screen; leaving it blank keeps Arweave (or nothing) as the sync backend.
-          </p>
+          <p className="settings-hint">{t("st.gitSync.hint")}</p>
           <GitSyncForm value={form.gitSync} onChange={(gitSync) => setForm((f) => ({ ...f, gitSync }))} />
         </section>
 
         <label className="settings-field">
-          <span className="settings-label">Vault path</span>
+          <span className="settings-label">{t("st.vaultPath")}</span>
           <div className="settings-key-field">
             <input
               className="settings-input"
               type="text"
-              placeholder="Default: ~/Warden/vault"
+              placeholder={t("st.vaultPathPlaceholder")}
               value={form.vaultPath}
               onChange={(e) => setForm((f) => ({ ...f, vaultPath: e.currentTarget.value }))}
             />
             <button type="button" className="settings-browse-btn" onClick={handleBrowseVaultPath}>
-              Browse…
+              {t("st.browse")}
             </button>
           </div>
         </label>
 
         <label className="settings-field">
-          <span className="settings-label">Generated files path</span>
-          <p className="settings-hint">
-            Where files the model generates (documents, spreadsheets) or oversized media it fetches get saved. Kept
-            separate from the vault — these files aren't synced or searched.
-          </p>
+          <span className="settings-label">{t("st.generatedPath")}</span>
+          <p className="settings-hint">{t("st.generatedPathHint")}</p>
           <div className="settings-key-field">
             <input
               className="settings-input"
               type="text"
-              placeholder="Default: sibling of the vault path (…/generated)"
+              placeholder={t("st.generatedPathPlaceholder")}
               value={form.generatedPath}
               onChange={(e) => setForm((f) => ({ ...f, generatedPath: e.currentTarget.value }))}
             />
             <button type="button" className="settings-browse-btn" onClick={handleBrowseGeneratedPath}>
-              Browse…
+              {t("st.browse")}
             </button>
           </div>
         </label>
 
         <ApiKeyField
-          label="Tavily API key (web search)"
+          label={t("st.tavily")}
           value={form.tavilyKey}
           onChange={(v) => setForm((f) => ({ ...f, tavilyKey: v }))}
         />
 
         <ApiKeyField
-          label="OpenAI voice API key (speech-to-text + text-to-speech)"
+          label={t("st.whisper")}
           value={form.whisperKey}
           onChange={(v) => setForm((f) => ({ ...f, whisperKey: v }))}
         />
@@ -1966,18 +1873,16 @@ function SettingsView() {
                 setForm((f) => ({ ...f, enableShell }));
               }}
             />
-            <span className="settings-label">Enable shell tool</span>
+            <span className="settings-label">{t("st.shell")}</span>
           </span>
-          <span className="settings-hint">
-            Lets the model run any command on this machine, with no sandboxing. Off by default.
-          </span>
+          <span className="settings-hint">{t("st.shellHint")}</span>
         </label>
 
         {error && <p className="settings-error-banner">{error}</p>}
-        {savedAt && !error && <p className="settings-success-banner">Settings saved.</p>}
+        {savedAt && !error && <p className="settings-success-banner">{t("st.saved")}</p>}
 
         <button type="submit" className="settings-save-btn" disabled={isSaving}>
-          {isSaving ? "Saving…" : "Save settings"}
+          {isSaving ? t("common.saving") : t("st.save")}
         </button>
       </form>
 

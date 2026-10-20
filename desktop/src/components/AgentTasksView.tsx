@@ -1,30 +1,31 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { intlTag, t } from "../i18n";
 import type { AgentTask, AgentTaskAction } from "../types";
 import { hubAgentTasks, hubControlAgentTask } from "../lib/hub";
 import { ACTION_LABEL, actionsFor, durationLabel, formatTokens, groupTasks, involvingAgent, STATE_LABEL, STATE_MARK, type TaskGroup } from "../lib/agentTasks";
 import { KeyCancelled, usePairingKey } from "./PairingKeyDialog";
 
 const REFRESH_MS = 3000;
-const dateFormatter = new Intl.DateTimeFormat(undefined, { dateStyle: "short", timeStyle: "short" });
+const dateFormatter = () => new Intl.DateTimeFormat(intlTag(), { dateStyle: "short", timeStyle: "short" });
 
 function GroupHeader({ group }: { group: TaskGroup }) {
   const { counts } = group;
   const parts = [
-    counts.done > 0 && `${counts.done} done`,
-    counts.running > 0 && `${counts.running} running`,
-    counts.waiting > 0 && `${counts.waiting} waiting for an agent`,
-    counts.paused > 0 && `${counts.paused} paused`,
-    counts.pending > 0 && `${counts.pending} pending`,
-    counts.failed > 0 && `${counts.failed} failed`,
-    counts.cancelled > 0 && `${counts.cancelled} cancelled`,
+    counts.done > 0 && t("agentTasks.done", { count: counts.done }),
+    counts.running > 0 && t("agentTasks.running", { count: counts.running }),
+    counts.waiting > 0 && t("agentTasks.waiting", { count: counts.waiting }),
+    counts.paused > 0 && t("agentTasks.paused", { count: counts.paused }),
+    counts.pending > 0 && t("agentTasks.pending", { count: counts.pending }),
+    counts.failed > 0 && t("agentTasks.failed", { count: counts.failed }),
+    counts.cancelled > 0 && t("agentTasks.cancelled", { count: counts.cancelled }),
   ].filter(Boolean);
   return (
     <div className="agent-work-header">
       <div className="agent-work-title">
-        <strong>{group.owner ?? "An agent"}</strong>
-        <span className="settings-hint">{dateFormatter.format(group.createdAtMs)}</span>
-        {group.active && <span className="agent-work-live">working</span>}
+        <strong>{group.owner ?? t("agentTasks.anAgent")}</strong>
+        <span className="settings-hint">{dateFormatter().format(group.createdAtMs)}</span>
+        {group.active && <span className="agent-work-live">{t("agentTasks.working")}</span>}
       </div>
       <div
         className="agent-work-bar"
@@ -32,13 +33,13 @@ function GroupHeader({ group }: { group: TaskGroup }) {
         aria-valuemin={0}
         aria-valuemax={100}
         aria-valuenow={group.percent}
-        aria-label={`${group.finished} of ${group.total} tasks finished`}
+        aria-label={t("agentTasks.progressLabel", { finished: group.finished, total: group.total })}
       >
         <div className="agent-work-bar-fill" style={{ width: `${group.percent}%` }} />
       </div>
       <div className="settings-hint">
-        {group.finished} of {group.total} finished ({group.percent}%) · {parts.join(", ")}
-        {group.totalTokens > 0 && ` · ${formatTokens(group.totalTokens)} tokens`}
+        {t("agentTasks.progress", { finished: group.finished, total: group.total, percent: group.percent, parts: parts.join(", ") })}
+        {group.totalTokens > 0 && ` · ${t("agentTasks.tokens", { count: formatTokens(group.totalTokens) })}`}
       </div>
     </div>
   );
@@ -61,7 +62,7 @@ function TaskItem({ task, depth, now, busy, onAction }: { task: AgentTask; depth
         <span className="agent-work-meta">
           {task.model && <span className="org-badge">{task.model}</span>}
           {duration && <span>{duration}</span>}
-          {task.totalTokens != null && <span>{formatTokens(task.totalTokens)} tok</span>}
+          {task.totalTokens != null && <span>{t("agentTasks.tok", { count: formatTokens(task.totalTokens) })}</span>}
         </span>
       </button>
       {actions.length > 0 && (
@@ -71,10 +72,10 @@ function TaskItem({ task, depth, now, busy, onAction }: { task: AgentTask; depth
               confirmStop ? (
                 <span key={action} className="agent-work-actions">
                   <button type="button" className="provider-delete-btn" disabled={busy} onClick={() => { setConfirmStop(false); onAction(task, action); }}>
-                    Stop it{task.parentId ? "" : " and its subtasks"}
+                    {task.parentId ? t("agentTasks.stop") : t("agentTasks.stopWithSubtasks")}
                   </button>
                   <button type="button" className="settings-browse-btn" onClick={() => setConfirmStop(false)}>
-                    Keep it
+                    {t("agentTasks.keep")}
                   </button>
                 </span>
               ) : (
@@ -92,15 +93,15 @@ function TaskItem({ task, depth, now, busy, onAction }: { task: AgentTask; depth
       )}
       {open && (
         <div className="agent-work-detail">
-          <p className="settings-hint">Task</p>
+          <p className="settings-hint">{t("agentTasks.task")}</p>
           <pre className="approval-detail">{task.objective}</pre>
           {detail ? (
             <>
-              <p className="settings-hint">{task.state === "done" ? "Result" : "Why it stopped"}</p>
+              <p className="settings-hint">{task.state === "done" ? t("agentTasks.result") : t("agentTasks.whyStopped")}</p>
               <pre className="approval-detail">{detail}</pre>
             </>
           ) : (
-            <p className="settings-hint">{STATE_LABEL[task.state]}: no result yet.</p>
+            <p className="settings-hint">{t("agentTasks.noResult", { state: STATE_LABEL[task.state] })}</p>
           )}
         </div>
       )}
@@ -159,32 +160,29 @@ function AgentTasksView({ remote = false, agent = null, onClearAgent }: { remote
 
   return (
     <div className="settings-view">
-      <h2 className="settings-title">Agent work</h2>
-      <p className="settings-hint">
-        Tasks that agents handed to each other in the background, {remote ? "on the hub" : "on this computer"}, with where each one is and what
-        it cost. A manager picks the agent, and the model, of each task.
-      </p>
+      <h2 className="settings-title">{t("agentTasks.title")}</h2>
+      <p className="settings-hint">{remote ? t("agentTasks.hintHub") : t("agentTasks.hintLocal")}</p>
       {agent && (
         <p className="settings-hint">
-          Only the tasks of <strong>{agent}</strong>: the ones it was given and the ones it delegated.{" "}
+          {t("agentTasks.onlyOf", { agent })}{" "}
           {onClearAgent && (
             <button type="button" className="settings-browse-btn" onClick={onClearAgent}>
-              Show everyone
+              {t("agentTasks.showEveryone")}
             </button>
           )}
         </p>
       )}
       {error && <p className="usage-error">{error}</p>}
-      {tasks === null && !error && <p className="settings-hint">Loading…</p>}
+      {tasks === null && !error && <p className="settings-hint">{t("common.loading")}</p>}
       {tasks !== null && groups.length === 0 && (
-        <p className="settings-hint">{agent ? `No task involves ${agent} yet.` : 'Nothing yet. When an agent delegates a task with "background", it shows up here.'}</p>
+        <p className="settings-hint">{agent ? t("agentTasks.noneFor", { agent }) : t("agentTasks.none")}</p>
       )}
       {groups.map((group) => (
         <section key={group.group} className="agent-work-group">
           <GroupHeader group={group} />
           <ul className="agent-work-list">
             {group.rows.map(({ task, depth }) => (
-              <TaskItem key={task.id} task={task} depth={depth} now={now} busy={busy === task.id} onAction={(t, action) => void control(t, action)} />
+              <TaskItem key={task.id} task={task} depth={depth} now={now} busy={busy === task.id} onAction={(item, action) => void control(item, action)} />
             ))}
           </ul>
         </section>

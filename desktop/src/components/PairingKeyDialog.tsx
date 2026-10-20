@@ -1,4 +1,5 @@
 import { useCallback, useRef, useState, type ReactNode } from "react";
+import { t } from "../i18n";
 
 /** Asks the person for the hub's pairing key, for one change. Resolves with what was typed. Rejects with `KeyCancelled`
  * when they close the dialog. */
@@ -49,19 +50,19 @@ function PairingKeyDialog({ reason, onSubmit, onCancel }: { reason: string; onSu
     <div className="settings-modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="pairing-key-title">
       <form className="sync-qr-card settings-modal-card approval-card" onSubmit={submit}>
         <h2 id="pairing-key-title" className="approval-title">
-          Pairing key
+          {t("pairingKeyDialog.title")}
         </h2>
-        <p className="settings-hint">{reason} The hub asks for its pairing key on every change like this one; what you type is used once and not saved.</p>
+        <p className="settings-hint">{t("pairingKeyDialog.hint", { reason })}</p>
         <label className="settings-field">
-          <span className="settings-label">Pairing key</span>
+          <span className="settings-label">{t("pairingKeyDialog.title")}</span>
           <input className="settings-input" type="password" autoComplete="off" value={key} onChange={(e) => setKey(e.currentTarget.value)} autoFocus />
         </label>
         <div className="approval-actions">
           <button type="button" className="settings-browse-btn" onClick={onCancel}>
-            Cancel
+            {t("pairingKeyDialog.cancel")}
           </button>
           <button type="submit" className="settings-save-btn" disabled={key.trim() === ""}>
-            Continue
+            {t("pairingKeyDialog.continue")}
           </button>
         </div>
       </form>

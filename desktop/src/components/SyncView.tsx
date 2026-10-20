@@ -1,41 +1,43 @@
 import { useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
+import { intlTag, t } from "../i18n";
 import type { GitPullResult, GitPushResult, SyncPullResult, SyncPushBegin, SyncPushResult, SyncStatus } from "../types";
 
 function formatTimestamp(ms: number | null): string {
-  if (ms === null) return "never";
-  return new Date(ms).toLocaleString();
+  if (ms === null) return t("sync.never");
+  return new Date(ms).toLocaleString(intlTag());
 }
 
 function StatusCard({ status }: { status: SyncStatus }) {
   return (
     <section className="settings-section">
       <div className="settings-section-header">
-        <h3 className="settings-section-title">Status</h3>
+        <h3 className="settings-section-title">{t("sync.status")}</h3>
       </div>
       <div className="sync-status-grid">
         <div className="sync-status-item">
-          <span className="sync-status-label">Paired</span>
-          <span className="sync-status-value">{status.paired ? "Yes" : "No"}</span>
+          <span className="sync-status-label">{t("sync.paired")}</span>
+          <span className="sync-status-value">{status.paired ? t("sync.yes") : t("sync.no")}</span>
         </div>
         <div className="sync-status-item">
-          <span className="sync-status-label">Owner address (Arweave)</span>
+          <span className="sync-status-label">{t("sync.ownerAddress")}</span>
           <span className="sync-status-value sync-status-value--mono">{status.ownerAddress ?? "—"}</span>
         </div>
         <div className="sync-status-item">
-          <span className="sync-status-label">Last sync</span>
+          <span className="sync-status-label">{t("sync.lastSync")}</span>
           <span className="sync-status-value">{formatTimestamp(status.lastSyncedAtMs)}</span>
         </div>
         <div className="sync-status-item">
-          <span className="sync-status-label">Pending</span>
+          <span className="sync-status-label">{t("sync.pending")}</span>
           <span className="sync-status-value">
-            {status.pendingVaultChanges} file(s){status.pendingConfigChanged ? " + config.toml" : ""}
-            {status.pendingOauthChanges > 0 ? ` + ${status.pendingOauthChanges} MCP login(s)` : ""}
+            {t("sync.pendingFiles", { count: status.pendingVaultChanges })}
+            {status.pendingConfigChanged ? t("sync.pendingConfig") : ""}
+            {status.pendingOauthChanges > 0 ? t("sync.pendingLogins", { count: status.pendingOauthChanges }) : ""}
           </span>
         </div>
         <div className="sync-status-item">
-          <span className="sync-status-label">.syncignore rules</span>
+          <span className="sync-status-label">{t("sync.ignoreRules")}</span>
           <span className="sync-status-value">{status.syncignorePatternCount}</span>
         </div>
       </div>
@@ -95,10 +97,10 @@ function SyncView() {
       refreshStatus();
       const { filesWritten, filesDeleted, configUpdated } = event.payload;
       const parts: string[] = [];
-      if (filesWritten > 0) parts.push(`${filesWritten} file(s) updated`);
-      if (filesDeleted > 0) parts.push(`${filesDeleted} file(s) removed`);
-      if (configUpdated) parts.push("config.toml updated");
-      setAutoSyncMessage(`Automatic sync — ${parts.join(", ")}.`);
+      if (filesWritten > 0) parts.push(t("sync.filesUpdated", { count: filesWritten }));
+      if (filesDeleted > 0) parts.push(t("sync.filesRemoved", { count: filesDeleted }));
+      if (configUpdated) parts.push(t("sync.configUpdated"));
+      setAutoSyncMessage(t("sync.autoPulled", { parts: parts.join(", ") }));
     }).then((fn) => {
       unlisten = fn;
     });
@@ -111,9 +113,9 @@ function SyncView() {
     let unlisten: (() => void) | undefined;
     listen<{ commitSha: string; filesChanged: number; configChanged: boolean }>("auto-sync-pushed", (event) => {
       const { filesChanged, configChanged } = event.payload;
-      const parts: string[] = [`${filesChanged} file(s) sent`];
-      if (configChanged) parts.push("config.toml updated");
-      setAutoSyncMessage(`Automatic sync (git) — ${parts.join(", ")}.`);
+      const parts: string[] = [t("sync.filesSent", { count: filesChanged })];
+      if (configChanged) parts.push(t("sync.configUpdated"));
+      setAutoSyncMessage(t("sync.autoPushed", { parts: parts.join(", ") }));
     }).then((fn) => {
       unlisten = fn;
     });
@@ -174,7 +176,7 @@ function SyncView() {
     try {
       const result = await invoke<GitPushResult | null>("git_sync_push");
       if (result === null) {
-        setGitError("Nothing to send — the vault and the config already match the last push.");
+        setGitError(t("sync.gitNothing"));
       } else {
         setGitPushResult(result);
       }
@@ -244,7 +246,7 @@ function SyncView() {
   if (error && !status) {
     return (
       <div className="settings-view">
-        <h2 className="settings-title">Sync</h2>
+        <h2 className="settings-title">{t("sync.title")}</h2>
         <p className="settings-error-banner">{error}</p>
       </div>
     );
@@ -253,18 +255,15 @@ function SyncView() {
   if (!status) {
     return (
       <div className="settings-view">
-        <p>Loading sync…</p>
+        <p>{t("sync.loading")}</p>
       </div>
     );
   }
 
   return (
     <div className="settings-view">
-      <h2 className="settings-title">Sync</h2>
-      <p className="settings-hint">
-        Syncs the vault and config.toml between your devices through Arweave, paid by the TruthID app. Everything is
-        encrypted on this device before it leaves — neither TruthID nor Arweave can see the content in plain text.
-      </p>
+      <h2 className="settings-title">{t("sync.title")}</h2>
+      <p className="settings-hint">{t("sync.hint")}</p>
 
       {error && <p className="settings-error-banner">{error}</p>}
       {autoSyncMessage && <p className="settings-success-banner">{autoSyncMessage}</p>}
@@ -274,53 +273,46 @@ function SyncView() {
       {!status.paired ? (
         <section className="settings-section">
           <div className="settings-section-header">
-            <h3 className="settings-section-title">Set up</h3>
+            <h3 className="settings-section-title">{t("sync.setUp")}</h3>
           </div>
-          <p className="settings-hint">
-            Is this the first device? Start a new key. Already have another device with sync set up? Ask it to show a
-            pairing code (below).
-          </p>
+          <p className="settings-hint">{t("sync.setUpHint")}</p>
           <button type="button" className="settings-save-btn" onClick={handleInit} disabled={busy}>
-            Start sync on this device
+            {t("sync.start")}
           </button>
         </section>
       ) : (
         <section className="settings-section">
           <div className="settings-section-header">
-            <h3 className="settings-section-title">Send / Pull</h3>
+            <h3 className="settings-section-title">{t("sync.sendPull")}</h3>
           </div>
           <div className="sync-actions-row">
             <button type="button" className="settings-save-btn" onClick={handleSend} disabled={busy}>
-              Send
+              {t("sync.send")}
             </button>
             <button type="button" className="settings-save-btn" onClick={handlePull} disabled={busy}>
-              Pull
+              {t("sync.pull")}
             </button>
           </div>
 
           {pushBegin && (
             <div className="sync-qr-card">
-              <p className="settings-hint">
-                Scan with the TruthID app to approve and publish ({pushBegin.filesChanged} file(s)
-                {pushBegin.configChanged ? " + config.toml" : ""}).
-              </p>
+              <p className="settings-hint">{t("sync.scan", { count: pushBegin.filesChanged, config: pushBegin.configChanged ? t("sync.scanConfig") : "" })}</p>
               <div className="sync-qr-image" dangerouslySetInnerHTML={{ __html: pushBegin.qrSvg }} />
-              <p className="settings-hint">Waiting for approval…</p>
+              <p className="settings-hint">{t("sync.waiting")}</p>
             </div>
           )}
 
-          {pushResult && (
-            <p className="settings-success-banner">
-              Sent — tx {pushResult.txId} ({pushResult.filesChanged} file(s))
-            </p>
-          )}
+          {pushResult && <p className="settings-success-banner">{t("sync.sent", { tx: pushResult.txId, count: pushResult.filesChanged })}</p>}
 
           {pullResult && (
             <div className="settings-success-banner">
               <p>
-                Pull done — {pullResult.filesWritten} written, {pullResult.filesDeleted} removed
-                {pullResult.filesIgnored > 0 ? `, ${pullResult.filesIgnored} ignored` : ""}
-                {pullResult.configUpdated ? ", config.toml updated" : ""}.
+                {t("sync.pullDone", {
+                  written: pullResult.filesWritten,
+                  removed: pullResult.filesDeleted,
+                  ignored: pullResult.filesIgnored > 0 ? t("sync.ignored", { count: pullResult.filesIgnored }) : "",
+                  config: pullResult.configUpdated ? t("sync.configUpdatedComma") : "",
+                })}
               </p>
               {pullResult.warnings.length > 0 && (
                 <ul className="sync-warning-list">
@@ -336,43 +328,39 @@ function SyncView() {
 
       <section className="settings-section">
         <div className="settings-section-header">
-          <h3 className="settings-section-title">Git</h3>
+          <h3 className="settings-section-title">{t("sync.git")}</h3>
         </div>
-        <p className="settings-hint">
-          An alternative to Arweave — a git repository of your own. It needs no approval from the phone, so it is the only one
-          the app can push by itself every few minutes, besides pulling (see "Automatic sync" above).
-        </p>
+        <p className="settings-hint">{t("sync.gitHint")}</p>
 
-        {gitSyncConfigured === false && (
-          <p className="settings-hint">Set the URL and the token in Settings, under "Sync via Git", to use it.</p>
-        )}
+        {gitSyncConfigured === false && <p className="settings-hint">{t("sync.gitNotConfigured")}</p>}
 
         {gitSyncConfigured && (
           <>
             <div className="sync-actions-row">
               <button type="button" className="settings-save-btn" onClick={handleGitPush} disabled={gitBusy}>
-                Push
+                {t("sync.push")}
               </button>
               <button type="button" className="settings-save-btn" onClick={handleGitPull} disabled={gitBusy}>
-                Pull
+                {t("sync.pull")}
               </button>
             </div>
 
             {gitError && <p className="settings-error-banner">{gitError}</p>}
 
             {gitPushResult && (
-              <p className="settings-success-banner">
-                Sent — commit {gitPushResult.commitSha.slice(0, 8)} ({gitPushResult.filesChanged} file(s))
-              </p>
+              <p className="settings-success-banner">{t("sync.gitSent", { sha: gitPushResult.commitSha.slice(0, 8), count: gitPushResult.filesChanged })}</p>
             )}
 
             {gitPullResult && (
               <div className="settings-success-banner">
                 <p>
-                  Pull done — {gitPullResult.commitsApplied} commit(s), {gitPullResult.filesWritten} written,{" "}
-                  {gitPullResult.filesDeleted} removed
-                  {gitPullResult.filesIgnored > 0 ? `, ${gitPullResult.filesIgnored} ignored` : ""}
-                  {gitPullResult.configUpdated ? ", config.toml updated" : ""}.
+                  {t("sync.gitPullDone", {
+                    commits: gitPullResult.commitsApplied,
+                    written: gitPullResult.filesWritten,
+                    removed: gitPullResult.filesDeleted,
+                    ignored: gitPullResult.filesIgnored > 0 ? t("sync.ignored", { count: gitPullResult.filesIgnored }) : "",
+                    config: gitPullResult.configUpdated ? t("sync.configUpdatedComma") : "",
+                  })}
                 </p>
                 {gitPullResult.warnings.length > 0 && (
                   <ul className="sync-warning-list">
@@ -389,28 +377,28 @@ function SyncView() {
 
       <section className="settings-section">
         <div className="settings-section-header">
-          <h3 className="settings-section-title">Pair a new device</h3>
+          <h3 className="settings-section-title">{t("sync.pairNew")}</h3>
         </div>
 
         {status.paired && (
           <div className="sync-pairing-block">
-            <p className="settings-hint">Show this code on the device you want to pair.</p>
+            <p className="settings-hint">{t("sync.showCodeHint")}</p>
             {pairingStatus === "idle" ? (
               <button type="button" className="settings-browse-btn" onClick={handleStartPairing}>
-                Show pairing code
+                {t("sync.showCode")}
               </button>
             ) : (
               <>
                 {pairingCode && <p className="sync-pairing-code">{pairingCode}</p>}
-                {pairingStatus === "hosting" && <p className="settings-hint">Waiting for the other device…</p>}
-                {pairingStatus === "completed" && <p className="settings-success-banner">Paired!</p>}
+                {pairingStatus === "hosting" && <p className="settings-hint">{t("sync.waitingDevice")}</p>}
+                {pairingStatus === "completed" && <p className="settings-success-banner">{t("sync.pairedDone")}</p>}
               </>
             )}
           </div>
         )}
 
         <div className="sync-pairing-block">
-          <p className="settings-hint">Have a code shown on another device? Type it here.</p>
+          <p className="settings-hint">{t("sync.typeCodeHint")}</p>
           <form className="sync-join-form" onSubmit={handleJoin}>
             <input
               type="text"
@@ -423,19 +411,16 @@ function SyncView() {
             <input
               type="text"
               className="settings-input"
-              placeholder="IP (optional)"
+              placeholder={t("sync.ipPlaceholder")}
               value={joinHost}
               onChange={(e) => setJoinHost(e.target.value)}
               disabled={joining}
             />
             <button type="submit" className="settings-save-btn" disabled={joining || joinCode.trim().length === 0}>
-              Pair
+              {t("sync.pair")}
             </button>
           </form>
-          <p className="settings-hint">
-            The IP is the one of the device showing the code (a Tailscale one works, like a hub on a VPS). Without it, the search is
-            only on the local network.
-          </p>
+          <p className="settings-hint">{t("sync.ipHint")}</p>
         </div>
       </section>
     </div>

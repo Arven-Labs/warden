@@ -1,15 +1,17 @@
 import { useEffect, useState } from "react";
+import { intlTag, t } from "../i18n";
+import { rich } from "../i18n/rich";
 import type { AgentEntry, LimitEntry, LimitScope, PriceEntry } from "../types";
 
 /** The channels a limit can be about — the names `SpendContext` gets from each of them. */
 const CHANNELS = ["desktop", "cli", "telegram", "whatsapp", "server"];
 
-const SCOPE_OPTIONS: { value: LimitScope; label: string }[] = [
-  { value: "global", label: "Everything together" },
-  { value: "agent", label: "One agent" },
-  { value: "channel", label: "One channel" },
-  { value: "user", label: "One person on a channel" },
-  { value: "person", label: "One member of the workspace" },
+const scopeOptions = (): { value: LimitScope; label: string }[] => [
+  { value: "global", label: t("spending.scopeGlobal") },
+  { value: "agent", label: t("spending.scopeAgent") },
+  { value: "channel", label: t("spending.scopeChannel") },
+  { value: "user", label: t("spending.scopeUser") },
+  { value: "person", label: t("spending.scopePerson") },
 ];
 
 /** A blank field is `null`; anything that is not a number is `null` too, and the submit check
@@ -93,24 +95,24 @@ function nextLimitId(existing: LimitEntry[]): string {
   return `limit-${n}`;
 }
 
-const formatTokens = (n: number) => n.toLocaleString("en-US");
+const formatTokens = (n: number) => n.toLocaleString(intlTag());
 
 /** The limit in one plain sentence, so the numbers don't have to be decoded from the form. */
 export function describeLimit(limit: LimitEntry): string {
   const who =
     limit.scope === "global"
-      ? "everything together"
+      ? t("spending.whoGlobal")
       : limit.scope === "agent"
-        ? `the agent "${limit.target || "…"}"`
+        ? t("spending.whoAgent", { target: limit.target || "…" })
         : limit.scope === "channel"
-          ? `the ${limit.target || "…"} channel`
+          ? t("spending.whoChannel", { target: limit.target || "…" })
           : `${limit.target || "…"}`;
   const ceilings = [
-    limit.maxTokens !== null ? `${formatTokens(limit.maxTokens)} tokens` : null,
+    limit.maxTokens !== null ? t("spending.tokensCap", { count: formatTokens(limit.maxTokens) }) : null,
     limit.maxCostUsd !== null ? `$${limit.maxCostUsd}` : null,
   ].filter((c) => c !== null);
-  const window = limit.windowHours === 1 ? "any 1 hour" : `any ${limit.windowHours} hours`;
-  return `${who[0].toUpperCase()}${who.slice(1)}: pauses at ${ceilings.join(" or ") || "…"} within ${window}.`;
+  const window = limit.windowHours === 1 ? t("spending.window1") : t("spending.windowN", { count: limit.windowHours });
+  return t("spending.describe", { who: `${who[0].toUpperCase()}${who.slice(1)}`, ceilings: ceilings.join(t("spending.or")) || "…", window });
 }
 
 function LimitCard({
@@ -132,7 +134,7 @@ function LimitCard({
         <input
           className="settings-input provider-name-input"
           type="text"
-          placeholder="Name (e.g. daily-budget)"
+          placeholder={t("spending.namePlaceholder")}
           value={limit.id}
           onChange={(e) => onChange({ ...limit, id: e.currentTarget.value })}
         />
@@ -140,8 +142,8 @@ function LimitCard({
           type="button"
           className="provider-delete-btn"
           onClick={onDelete}
-          aria-label={`Delete ${limit.id || "this limit"}`}
-          title="Delete this limit"
+          aria-label={t("spending.deleteLabel", { name: limit.id || t("spending.thisLimit") })}
+          title={t("spending.deleteTitle")}
         >
           🗑
         </button>
@@ -149,13 +151,13 @@ function LimitCard({
 
       <div className="spend-grid">
         <label className="settings-field">
-          <span className="settings-label">Applies to</span>
+          <span className="settings-label">{t("spending.appliesTo")}</span>
           <select
             className="settings-select"
             value={limit.scope}
             onChange={(e) => onChange({ ...limit, scope: e.currentTarget.value as LimitScope, target: "" })}
           >
-            {SCOPE_OPTIONS.map((o) => (
+            {scopeOptions().map((o) => (
               <option key={o.value} value={o.value}>
                 {o.label}
               </option>
@@ -165,10 +167,10 @@ function LimitCard({
 
         {limit.scope === "agent" && (
           <label className="settings-field">
-            <span className="settings-label">Agent</span>
+            <span className="settings-label">{t("spending.agent")}</span>
             <select className="settings-select" value={limit.target} onChange={(e) => onChange({ ...limit, target: e.currentTarget.value })}>
-              <option value="">(pick an agent)</option>
-              {!knownAgent && limit.target !== "" && <option value={limit.target}>{limit.target} (no longer exists)</option>}
+              <option value="">{t("spending.pickAgent")}</option>
+              {!knownAgent && limit.target !== "" && <option value={limit.target}>{t("spending.agentGone", { id: limit.target })}</option>}
               {agents.map((a) => (
                 <option key={a.id} value={a.id}>
                   {a.id}
@@ -179,9 +181,9 @@ function LimitCard({
         )}
         {limit.scope === "channel" && (
           <label className="settings-field">
-            <span className="settings-label">Channel</span>
+            <span className="settings-label">{t("spending.channel")}</span>
             <select className="settings-select" value={limit.target} onChange={(e) => onChange({ ...limit, target: e.currentTarget.value })}>
-              <option value="">(pick a channel)</option>
+              <option value="">{t("spending.pickChannel")}</option>
               {!knownChannel && limit.target !== "" && <option value={limit.target}>{limit.target}</option>}
               {CHANNELS.map((c) => (
                 <option key={c} value={c}>
@@ -193,7 +195,7 @@ function LimitCard({
         )}
         {limit.scope === "person" && (
           <label className="settings-field">
-            <span className="settings-label">Member (username)</span>
+            <span className="settings-label">{t("spending.member")}</span>
             <input
               className="settings-input"
               type="text"
@@ -201,12 +203,12 @@ function LimitCard({
               value={limit.target}
               onChange={(e) => onChange({ ...limit, target: e.currentTarget.value })}
             />
-            <span className="settings-hint">Covers everything they spend: the web, the phone and their API keys.</span>
+            <span className="settings-hint">{t("spending.memberHint")}</span>
           </label>
         )}
         {limit.scope === "user" && (
           <label className="settings-field">
-            <span className="settings-label">Person (channel:user)</span>
+            <span className="settings-label">{t("spending.personLabel")}</span>
             <input
               className="settings-input"
               type="text"
@@ -217,11 +219,11 @@ function LimitCard({
           </label>
         )}
 
-        <NumberField label="Window (hours)" integer value={limit.windowHours} onChange={(n) => onChange({ ...limit, windowHours: n ?? 0 })} />
-        <NumberField label="Max tokens" integer placeholder="no cap" value={limit.maxTokens} onChange={(n) => onChange({ ...limit, maxTokens: n })} />
-        <NumberField label="Max cost ($)" placeholder="no cap" value={limit.maxCostUsd} onChange={(n) => onChange({ ...limit, maxCostUsd: n })} />
-        <PercentField label="Warn the model at (%)" placeholder="80" value={limit.warnAt} onChange={(n) => onChange({ ...limit, warnAt: n })} />
-        <PercentField label="Each extension adds (%)" placeholder="25" value={limit.extendStep} onChange={(n) => onChange({ ...limit, extendStep: n })} />
+        <NumberField label={t("spending.windowHours")} integer value={limit.windowHours} onChange={(n) => onChange({ ...limit, windowHours: n ?? 0 })} />
+        <NumberField label={t("spending.maxTokens")} integer placeholder={t("spending.noCap")} value={limit.maxTokens} onChange={(n) => onChange({ ...limit, maxTokens: n })} />
+        <NumberField label={t("spending.maxCost")} placeholder={t("spending.noCap")} value={limit.maxCostUsd} onChange={(n) => onChange({ ...limit, maxCostUsd: n })} />
+        <PercentField label={t("spending.warnAt")} placeholder="80" value={limit.warnAt} onChange={(n) => onChange({ ...limit, warnAt: n })} />
+        <PercentField label={t("spending.extendStep")} placeholder="25" value={limit.extendStep} onChange={(n) => onChange({ ...limit, extendStep: n })} />
       </div>
       <p className="settings-hint">{describeLimit(limit)}</p>
     </div>
@@ -243,26 +245,26 @@ function PriceRow({
         className="settings-input"
         type="text"
         list="spend-model-suggestions"
-        placeholder="Model id (exactly as the provider reports it)"
-        aria-label="Model id"
+        placeholder={t("spending.modelId")}
+        aria-label={t("spending.modelIdLabel")}
         value={price.model}
         onChange={(e) => onChange({ ...price, model: e.currentTarget.value })}
       />
       {/* A blank or unreadable price is kept as NaN so `validateSpending` names it on save; the field
           itself sees it as "no number" (NaN never equals itself, which would fight the resync). */}
       <NumberField
-        label="Input $ / 1M tokens"
-        ariaLabel={`Input price for ${price.model || "this model"}`}
+        label={t("spending.inputPrice")}
+        ariaLabel={t("spending.inputPriceFor", { model: price.model || t("spending.thisModel") })}
         value={Number.isNaN(price.inputPerMtok) ? null : price.inputPerMtok}
         onChange={(n) => onChange({ ...price, inputPerMtok: n ?? NaN })}
       />
       <NumberField
-        label="Output $ / 1M tokens"
-        ariaLabel={`Output price for ${price.model || "this model"}`}
+        label={t("spending.outputPrice")}
+        ariaLabel={t("spending.outputPriceFor", { model: price.model || t("spending.thisModel") })}
         value={Number.isNaN(price.outputPerMtok) ? null : price.outputPerMtok}
         onChange={(n) => onChange({ ...price, outputPerMtok: n ?? NaN })}
       />
-      <button type="button" className="provider-delete-btn" onClick={onDelete} aria-label={`Delete price for ${price.model || "this model"}`} title="Delete this price">
+      <button type="button" className="provider-delete-btn" onClick={onDelete} aria-label={t("spending.deletePriceFor", { model: price.model || t("spending.thisModel") })} title={t("spending.deletePrice")}>
         🗑
       </button>
     </div>
@@ -275,25 +277,25 @@ export function validateSpending(limits: LimitEntry[] | null, prices: PriceEntry
   const ids = new Set<string>();
   for (const l of limits ?? []) {
     const id = l.id.trim();
-    if (id === "") return "Every spending limit needs a name.";
-    if (ids.has(id)) return `Duplicate limit name: ${id}`;
+    if (id === "") return t("spending.errNeedName");
+    if (ids.has(id)) return t("spending.errDuplicate", { id });
     ids.add(id);
-    if (!(l.windowHours >= 1)) return `Limit '${id}': the window must be at least 1 hour.`;
-    if (l.maxTokens === null && l.maxCostUsd === null) return `Limit '${id}': set a token cap, a cost cap, or both.`;
-    if (l.maxTokens !== null && !(l.maxTokens > 0)) return `Limit '${id}': the token cap must be above 0.`;
-    if (l.maxCostUsd !== null && !(l.maxCostUsd > 0)) return `Limit '${id}': the cost cap must be above 0.`;
-    if (l.scope !== "global" && l.target.trim() === "") return `Limit '${id}': pick who it applies to.`;
-    if (l.scope === "user" && !l.target.includes(":")) return `Limit '${id}': write the person as channel:user, e.g. telegram:12345.`;
-    if (l.warnAt !== null && !(l.warnAt > 0 && l.warnAt <= 1)) return `Limit '${id}': "Warn the model at" must be between 1 and 100.`;
-    if (l.extendStep !== null && !(l.extendStep > 0)) return `Limit '${id}': "Each extension adds" must be above 0.`;
+    if (!(l.windowHours >= 1)) return t("spending.errWindow", { id });
+    if (l.maxTokens === null && l.maxCostUsd === null) return t("spending.errCaps", { id });
+    if (l.maxTokens !== null && !(l.maxTokens > 0)) return t("spending.errTokens", { id });
+    if (l.maxCostUsd !== null && !(l.maxCostUsd > 0)) return t("spending.errCost", { id });
+    if (l.scope !== "global" && l.target.trim() === "") return t("spending.errTarget", { id });
+    if (l.scope === "user" && !l.target.includes(":")) return t("spending.errUser", { id });
+    if (l.warnAt !== null && !(l.warnAt > 0 && l.warnAt <= 1)) return t("spending.errWarn", { id });
+    if (l.extendStep !== null && !(l.extendStep > 0)) return t("spending.errExtend", { id });
   }
   const models = new Set<string>();
   for (const p of prices) {
     const model = p.model.trim();
-    if (model === "") return "Every price needs a model id.";
-    if (models.has(model)) return `Duplicate price for model: ${model}`;
+    if (model === "") return t("spending.errPriceModel");
+    if (models.has(model)) return t("spending.errPriceDuplicate", { model });
     models.add(model);
-    if (!(p.inputPerMtok >= 0) || !(p.outputPerMtok >= 0)) return `Price for '${model}': both prices must be numbers of 0 or more.`;
+    if (!(p.inputPerMtok >= 0) || !(p.outputPerMtok >= 0)) return t("spending.errPriceNumbers", { model });
   }
   return null;
 }
@@ -327,29 +329,20 @@ export default function SpendingSection({
   return (
     <section className="settings-section">
       <div className="settings-section-header">
-        <h3 className="settings-section-title">Spending limits</h3>
+        <h3 className="settings-section-title">{t("limits.title")}</h3>
         {limits !== null && (
           <button type="button" className="settings-browse-btn" onClick={addLimit}>
-            + Add limit
+            {t("spending.addLimit")}
           </button>
         )}
       </div>
-      <p className="settings-hint">
-        A ceiling on how much the model may use in any sliding stretch of time, so an agent stuck in a loop can't burn
-        through your account. When a limit runs out the turn pauses and asks you whether to allow a bit more (here and in the
-        terminal); Telegram, WhatsApp and the server simply decline. The agent can see how much is left and is told when it
-        gets close.
-      </p>
+      <p className="settings-hint">{t("spending.hint")}</p>
 
-      {disabledByEnv && (
-        <p className="settings-warning-banner">
-          <code>WARDEN_SPEND_LIMITS=off</code> is set in the environment, so every limit below is ignored until it is removed.
-        </p>
-      )}
+      {disabledByEnv && <p className="settings-warning-banner">{rich("spending.disabledByEnv", { flag: <code>WARDEN_SPEND_LIMITS=off</code> })}</p>}
 
       {limits === null && (
         <div className="provider-card">
-          <p className="settings-label">Built-in safety net is on</p>
+          <p className="settings-label">{t("spending.netOn")}</p>
           <ul className="spend-net-list">
             {defaultLimits.map((l) => (
               <li key={l.id} className="settings-hint">
@@ -359,20 +352,16 @@ export default function SpendingSection({
           </ul>
           <div className="mcp-quick-add-row">
             <button type="button" className="settings-browse-btn" onClick={() => onLimitsChange(defaultLimits.map((l) => ({ ...l })))}>
-              Customize limits
+              {t("spending.customize")}
             </button>
             <button type="button" className="settings-browse-btn" onClick={() => onLimitsChange([])}>
-              Turn all limits off
+              {t("spending.allOff")}
             </button>
           </div>
         </div>
       )}
 
-      {limits !== null && limits.length === 0 && (
-        <p className="settings-warning-banner">
-          Every spending limit is off — nothing stops a runaway agent. Add one below or restore the safety net.
-        </p>
-      )}
+      {limits !== null && limits.length === 0 && <p className="settings-warning-banner">{t("spending.noneActive")}</p>}
 
       {limits !== null && (
         <>
@@ -389,28 +378,25 @@ export default function SpendingSection({
           </div>
           <div className="mcp-quick-add-row">
             <button type="button" className="settings-browse-btn" onClick={() => onLimitsChange(null)}>
-              Restore built-in safety net
+              {t("spending.restoreNet")}
             </button>
           </div>
         </>
       )}
 
       <div className="settings-section-header">
-        <h4 className="settings-label">Model prices</h4>
+        <h4 className="settings-label">{t("spending.prices")}</h4>
         <button type="button" className="settings-browse-btn" onClick={() => onPricesChange([...prices, { model: "", inputPerMtok: 0, outputPerMtok: 0 }])}>
-          + Add price
+          {t("spending.addPrice")}
         </button>
       </div>
-      <p className="settings-hint">
-        Needed for a dollar cap. Nothing is built in — prices change, and a wrong figure that looks right is worse than none —
-        so a model with no price here counts against token caps only, and the dollar total says how many calls it left out.
-      </p>
+      <p className="settings-hint">{t("spending.pricesHint")}</p>
       <datalist id="spend-model-suggestions">
         {modelSuggestions.map((m) => (
           <option key={m} value={m} />
         ))}
       </datalist>
-      {prices.length === 0 && <p className="settings-hint">No prices yet.</p>}
+      {prices.length === 0 && <p className="settings-hint">{t("spending.noPrices")}</p>}
       <div className="provider-list">
         {prices.map((p, i) => (
           <PriceRow

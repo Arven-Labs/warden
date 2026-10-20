@@ -1,5 +1,7 @@
 import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { t } from "../i18n";
+import { rich } from "../i18n/rich";
 import type { ProjectEntry } from "../types";
 
 const emptyProject: ProjectEntry = { id: "", name: "", description: "", instructions: "" };
@@ -59,15 +61,13 @@ function ProjectFiles({ projectId }: { projectId: string }) {
 
   return (
     <div className="settings-field">
-      <span className="settings-label">Files</span>
-      <span className="settings-hint">
-        Notes in <code>{prefix}</code> in your vault. In this project's conversations the AI reads and writes only these files.
-      </span>
+      <span className="settings-label">{t("projects.files")}</span>
+      <span className="settings-hint">{rich("projects.filesHint", { prefix: <code>{prefix}</code> })}</span>
       {error && <p className="settings-error-banner">{error}</p>}
       {files === null ? (
-        <span className="settings-hint">Loading…</span>
+        <span className="settings-hint">{t("common.loading")}</span>
       ) : files.length === 0 ? (
-        <span className="settings-hint">No files yet.</span>
+        <span className="settings-hint">{t("projects.noFiles")}</span>
       ) : (
         <ul className="project-file-list">
           {files.map((file) => (
@@ -82,30 +82,30 @@ function ProjectFiles({ projectId }: { projectId: string }) {
           <input
             className="settings-input"
             type="text"
-            placeholder="notes.md"
+            placeholder={t("projects.notePlaceholder")}
             value={draft.name}
             onChange={(e) => setDraft({ ...draft, name: e.currentTarget.value })}
           />
           <textarea
             className="settings-input settings-textarea"
             rows={8}
-            placeholder="The note's text."
+            placeholder={t("projects.noteText")}
             value={draft.content}
             onChange={(e) => setDraft({ ...draft, content: e.currentTarget.value })}
           />
           <div className="skill-editor-actions">
             <button type="button" className="settings-save-btn" onClick={saveDraft} disabled={busy || draft.name.trim() === ""}>
-              {busy ? "Saving…" : "Save note"}
+              {busy ? t("common.saving") : t("projects.saveNote")}
             </button>
             <button type="button" className="settings-browse-btn" onClick={() => setDraft(null)} disabled={busy}>
-              Cancel
+              {t("common.cancel")}
             </button>
           </div>
         </div>
       ) : (
         <div>
           <button type="button" className="settings-browse-btn" onClick={() => setDraft({ name: "", content: "" })}>
-            + Add a note
+            {t("projects.addNote")}
           </button>
         </div>
       )}
@@ -207,28 +207,22 @@ function ProjectsView({ onChanged, onConversationsMoved }: { onChanged: () => vo
 
   return (
     <div className="settings-view">
-      <h2 className="settings-title">Projects</h2>
-      <p className="settings-hint">
-        A project groups conversations around one subject, with instructions and files of its own. In a project's
-        conversations the AI is told the instructions and works only on the project's files — it doesn't see the rest of
-        your vault, your skills, or other conversations, and it gets no shell. Pick the project when you start a
-        conversation; it can't be changed afterwards. Projects are plain folders in <code>projects/</code> in your vault, so
-        they sync with it.
-      </p>
+      <h2 className="settings-title">{t("projects.title")}</h2>
+      <p className="settings-hint">{rich("projects.hint", { folder: <code>projects/</code> })}</p>
 
       {loadError && <p className="settings-error-banner">{loadError}</p>}
       {error && <p className="settings-error-banner">{error}</p>}
 
       {editor && (
         <div className="provider-card skill-editor">
-          <span className="settings-section-title">{editor.mode === "new" ? "New project" : `Edit ${editor.project.name}`}</span>
+          <span className="settings-section-title">{editor.mode === "new" ? t("projects.newProject") : t("projects.editProject", { name: editor.project.name })}</span>
 
           <label className="settings-field">
-            <span className="settings-label">Name</span>
+            <span className="settings-label">{t("projects.name")}</span>
             <input
               className="settings-input"
               type="text"
-              placeholder="Tax return 2026"
+              placeholder={t("projects.namePlaceholder")}
               value={editor.project.name}
               onChange={(e) => {
                 const name = e.currentTarget.value;
@@ -238,11 +232,11 @@ function ProjectsView({ onChanged, onConversationsMoved }: { onChanged: () => vo
           </label>
 
           <label className="settings-field">
-            <span className="settings-label">Folder name</span>
+            <span className="settings-label">{t("projects.folderName")}</span>
             <input
               className="settings-input"
               type="text"
-              placeholder="tax-return-2026"
+              placeholder={t("projects.folderPlaceholder")}
               value={editor.project.id}
               disabled={editor.mode === "edit"}
               onChange={(e) => {
@@ -250,29 +244,29 @@ function ProjectsView({ onChanged, onConversationsMoved }: { onChanged: () => vo
                 updateEditor({ id: e.currentTarget.value });
               }}
             />
-            <span className="settings-hint">Letters, digits, '-' and '_'. It can't be changed after saving.</span>
+            <span className="settings-hint">{t("projects.folderHint")}</span>
           </label>
 
           <label className="settings-field">
-            <span className="settings-label">Description</span>
+            <span className="settings-label">{t("projects.description")}</span>
             <input
               className="settings-input"
               type="text"
-              placeholder="One sentence: what this project is about"
+              placeholder={t("projects.descriptionPlaceholder")}
               value={editor.project.description}
               onChange={(e) => updateEditor({ description: e.currentTarget.value })}
             />
           </label>
 
           <label className="settings-field">
-            <span className="settings-label">Working folder (optional)</span>
+            <span className="settings-label">{t("projects.workdir")}</span>
             <input
               className="settings-input"
-              placeholder="/home/you/code/my-repo"
+              placeholder={t("projects.workdirPlaceholder")}
               value={editor.project.workdir ?? ""}
               onChange={(e) => updateEditor({ workdir: e.currentTarget.value })}
             />
-            <span className="settings-hint">An absolute path on this machine. With it, the project's conversations get a shell that starts there and asks you before every command.</span>
+            <span className="settings-hint">{t("projects.workdirHint")}</span>
           </label>
 
           <label className="settings-checkbox-row">
@@ -282,34 +276,34 @@ function ProjectsView({ onChanged, onConversationsMoved }: { onChanged: () => vo
               disabled={!(editor.project.workdir ?? "").trim()}
               onChange={(e) => updateEditor({ code: e.currentTarget.checked })}
             />
-            <span>Code mode (opencode)</span>
+            <span>{t("projects.codeMode")}</span>
           </label>
-          <span className="settings-hint">Needs the working folder and the opencode installed on the machine running the hub. The project's conversations become opencode sessions in that folder, and each action asks you first.</span>
+          <span className="settings-hint">{t("projects.codeHint")}</span>
 
           <label className="settings-field">
-            <span className="settings-label">Instructions</span>
+            <span className="settings-label">{t("projects.instructions")}</span>
             <textarea
               className="settings-input settings-textarea"
               rows={10}
-              placeholder="What the AI should know and follow in every conversation of this project, in markdown."
+              placeholder={t("projects.instructionsPlaceholder")}
               value={editor.project.instructions}
               onChange={(e) => updateEditor({ instructions: e.currentTarget.value })}
             />
-            <span className="settings-hint">Sent with every message of the project's conversations, so keep it short (up to 16 KB).</span>
+            <span className="settings-hint">{t("projects.instructionsHint")}</span>
           </label>
 
           {editor.mode === "edit" ? (
             <ProjectFiles projectId={editor.project.id} />
           ) : (
-            <span className="settings-hint">Save the project first, then you can add files to it.</span>
+            <span className="settings-hint">{t("projects.saveFirst")}</span>
           )}
 
           <div className="skill-editor-actions">
             <button type="button" className="settings-save-btn" onClick={handleSave} disabled={saving}>
-              {saving ? "Saving…" : "Save project"}
+              {saving ? t("common.saving") : t("projects.save")}
             </button>
             <button type="button" className="settings-browse-btn" onClick={() => setEditor(null)} disabled={saving}>
-              Cancel
+              {t("common.cancel")}
             </button>
           </div>
         </div>
@@ -317,16 +311,16 @@ function ProjectsView({ onChanged, onConversationsMoved }: { onChanged: () => vo
 
       <section className="settings-section">
         <div className="settings-section-header">
-          <h3 className="settings-section-title">Your projects</h3>
+          <h3 className="settings-section-title">{t("projects.yours")}</h3>
           <button type="button" className="settings-browse-btn" onClick={openNew}>
-            + New project
+            {t("projects.add")}
           </button>
         </div>
 
         {projects === null ? (
-          <p className="settings-hint">Loading projects…</p>
+          <p className="settings-hint">{t("projects.loading")}</p>
         ) : projects.length === 0 ? (
-          <p className="settings-hint">No projects yet.</p>
+          <p className="settings-hint">{t("projects.none")}</p>
         ) : (
           <div className="provider-list">
             {projects.map((project) => (
@@ -339,25 +333,25 @@ function ProjectsView({ onChanged, onConversationsMoved }: { onChanged: () => vo
                   <div className="skill-card-actions">
                     {confirmDelete === project.id ? (
                       <>
-                        <span className="settings-hint">Remove this project? Its files stay in the vault.</span>
+                        <span className="settings-hint">{t("projects.confirmRemove")}</span>
                         <button type="button" className="provider-delete-btn" onClick={() => handleDelete(project.id)}>
-                          Remove
+                          {t("common.remove")}
                         </button>
                         <button type="button" className="settings-browse-btn" onClick={() => setConfirmDelete(null)}>
-                          Keep
+                          {t("common.keep")}
                         </button>
                       </>
                     ) : (
                       <>
                         <button type="button" className="settings-browse-btn" onClick={() => openEdit(project)}>
-                          Edit
+                          {t("common.edit")}
                         </button>
                         <button
                           type="button"
                           className="provider-delete-btn"
                           onClick={() => setConfirmDelete(project.id)}
-                          aria-label={`Remove ${project.name}`}
-                          title="Remove this project"
+                          aria-label={t("projects.removeLabel", { name: project.name })}
+                          title={t("projects.removeTitle")}
                         >
                           🗑
                         </button>
@@ -365,7 +359,7 @@ function ProjectsView({ onChanged, onConversationsMoved }: { onChanged: () => vo
                     )}
                   </div>
                 </div>
-                <p className="skill-card-description">{project.description || "(no description)"}</p>
+                <p className="skill-card-description">{project.description || t("projects.noDescription")}</p>
               </div>
             ))}
           </div>
@@ -375,16 +369,14 @@ function ProjectsView({ onChanged, onConversationsMoved }: { onChanged: () => vo
       {onConversationsMoved && projects?.some((p) => p.code) && (
         <section className="settings-section">
           <div className="settings-section-header">
-            <h3 className="settings-section-title">Code conversations on the hub</h3>
+            <h3 className="settings-section-title">{t("projects.codeOnHub")}</h3>
             {confirmShareAll || confirmTakeBack ? (
               <div className="skill-card-actions">
                 <span className="settings-hint">
-                  {confirmShareAll
-                    ? "Move every conversation of a code project to the hub? You can take them back, all at once or one by one from its header."
-                    : "Move every code-project conversation on the hub back to this computer? The phone and the web stop seeing them."}
+                  {confirmShareAll ? t("projects.confirmShare") : t("projects.confirmTakeBack")}
                 </span>
                 <button type="button" className="settings-save-btn" onClick={() => void handleMoveAll(confirmShareAll)} disabled={sharing}>
-                  {sharing ? "Moving…" : confirmShareAll ? "Share all" : "Take all back"}
+                  {sharing ? t("projects.moving") : confirmShareAll ? t("projects.shareAllNow") : t("projects.takeAllBackNow")}
                 </button>
                 <button
                   type="button"
@@ -395,25 +387,29 @@ function ProjectsView({ onChanged, onConversationsMoved }: { onChanged: () => vo
                   }}
                   disabled={sharing}
                 >
-                  Cancel
+                  {t("common.cancel")}
                 </button>
               </div>
             ) : (
               <div className="skill-card-actions">
                 <button type="button" className="settings-browse-btn" onClick={() => setConfirmShareAll(true)}>
-                  Share all with the hub
+                  {t("projects.shareAll")}
                 </button>
                 <button type="button" className="settings-browse-btn" onClick={() => setConfirmTakeBack(true)}>
-                  Take all back
+                  {t("projects.takeAllBack")}
                 </button>
               </div>
             )}
           </div>
-          <p className="settings-hint">Puts the conversations you already have in code projects on the hub, to go on with them from the phone or the web (they see them while the hub is on).</p>
+          <p className="settings-hint">{t("projects.shareHint")}</p>
           {shareError && <p className="settings-error-banner">{shareError}</p>}
           {shareResult && (
             <>
-              <p className="settings-hint">{shareResult.moved.length} moved{shareResult.skipped.length > 0 ? `, ${shareResult.skipped.length} left where they were:` : "."}</p>
+              <p className="settings-hint">
+                {shareResult.skipped.length > 0
+                  ? t("projects.movedSkipped", { count: shareResult.moved.length, skipped: shareResult.skipped.length })
+                  : t("projects.movedDone", { count: shareResult.moved.length })}
+              </p>
               {shareResult.skipped.length > 0 && (
                 <ul className="settings-hint">
                   {shareResult.skipped.map((s) => (
