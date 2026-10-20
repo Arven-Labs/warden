@@ -74,7 +74,7 @@ pub fn sync_push_begin(state: State<'_, AppState>) -> Result<PushBeginPayload, S
         .sync
         .begin_push()
         .map_err(|e| format!("{e:#}"))?
-        .ok_or_else(|| "Nada para enviar — vault e config já batem com o último Enviar".to_string())?;
+        .ok_or_else(|| "Nothing to send — the vault and the config already match the last send".to_string())?;
 
     let qr_json = begin.pending.qr_payload_json().map_err(|e| format!("{e:#}"))?;
     let qr_svg = crate::qr::render_qr_svg(&qr_json)?;

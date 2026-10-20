@@ -163,7 +163,7 @@ pub fn get_hub_pairing_config() -> Result<Option<HubPairingConfigPayload>, Strin
 pub fn save_hub_pairing_config(server_url: String) -> Result<(), String> {
     let server_url = server_url.trim();
     if server_url.is_empty() {
-        return Err("O Server URL é obrigatório".to_string());
+        return Err("The Server URL is required".to_string());
     }
     let path = hub_pairing_config_path()?;
     let config = HubPairingConfig { server_url: server_url.to_string() };

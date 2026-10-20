@@ -136,7 +136,7 @@ impl EmbeddedServerConfigPayload {
             web_ui: self.web_ui,
         };
         if config.port == 0 {
-            return Err("Escolha uma porta válida".to_string());
+            return Err("Pick a valid port".to_string());
         }
         check_embedded_server_config(&config)?;
         Ok(config)
@@ -146,18 +146,18 @@ impl EmbeddedServerConfigPayload {
 /// Also run on every start, so a `config.toml` edited by hand fails with the same message.
 fn check_embedded_server_config(config: &EmbeddedServerConfig) -> Result<(), String> {
     if config.auth_key.is_empty() {
-        return Err("Auth key não pode ficar em branco".to_string());
+        return Err("The auth key can't be blank".to_string());
     }
     if !is_strong_auth_key(&config.auth_key) {
         return Err(weak_auth_key_message());
     }
     if let Some(host) = &config.listen_host {
-        host.parse::<IpAddr>().map_err(|_| format!("\"{host}\" não é um endereço IP (ex.: 0.0.0.0, 127.0.0.1 ou 192.168.1.10)"))?;
+        host.parse::<IpAddr>().map_err(|_| format!("\"{host}\" is not an IP address (e.g. 0.0.0.0, 127.0.0.1 or 192.168.1.10)"))?;
     }
     match (&config.tls_cert, &config.tls_key) {
         (Some(_), None) | (None, Some(_)) => return Err("Informe o certificado e a chave privada juntos".to_string()),
         (Some(_), Some(_)) if config.tailscale_cert => {
-            return Err("Escolha um só: HTTPS via Tailscale ou certificado próprio".to_string());
+            return Err("Pick only one: HTTPS through Tailscale or your own certificate".to_string());
         }
         (None, None) if config.tls_host.is_some() => return Err("O nome do certificado só vale com um certificado próprio".to_string()),
         _ => {}
@@ -252,7 +252,7 @@ pub fn generate_embedded_server_auth_key() -> String {
 }
 
 fn weak_auth_key_message() -> String {
-    format!("A auth key precisa ter pelo menos {MIN_AUTH_KEY_LEN} caracteres — use \"Gerar nova chave\" para criar uma nova (devices já pareados continuam funcionando)")
+    format!("The auth key needs at least {MIN_AUTH_KEY_LEN} characters — use \"Generate a new key\" to make one (devices already paired keep working)")
 }
 
 #[tauri::command]
@@ -268,7 +268,7 @@ pub fn save_embedded_server_config(config: EmbeddedServerConfigPayload) -> Resul
 pub async fn start_embedded_server(state: State<'_, AppState>) -> Result<EmbeddedServerStatusPayload, String> {
     let path = config_path()?;
     let mut config = load_config_from_path(&path, false).map_err(|e| format!("{e:#}"))?;
-    let server_config = config.embedded_server.clone().ok_or_else(|| "configure a porta e a auth key antes de ligar".to_string())?;
+    let server_config = config.embedded_server.clone().ok_or_else(|| "set the port and the auth key before turning it on".to_string())?;
 
     let handle = start_embedded_server_inner(&state, &server_config).await.map_err(|e| format!("{e:#}"))?;
     let status = EmbeddedServerStatusPayload::running(&handle);
