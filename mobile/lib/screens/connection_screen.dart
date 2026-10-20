@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
+import '../l10n/generated/app_localizations.dart';
 import '../services/channel_unread.dart';
 import '../services/chat_notifications.dart';
 import '../services/chat_transcript.dart';
@@ -12,6 +13,7 @@ import '../services/mobile_file_tool.dart';
 import '../services/server_connection.dart';
 import '../src/rust/api/discovery.dart';
 import 'chat_screen.dart';
+import 'language_menu.dart';
 import 'member_account.dart';
 import 'qr_scan_screen.dart';
 import 'skills_screen.dart';
@@ -88,6 +90,8 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
   }
 
   Future<void> _connect() async {
+    // Read before the first await: the failures below are shown in the language the person has now.
+    final l10n = AppLocalizations.of(context);
     final host = _hostController.text.trim();
     final port = int.tryParse(_portController.text.trim());
     final useAccount = _useAccount;
@@ -96,7 +100,7 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
     final password = _passwordController.text;
     final deviceName = _deviceNameController.text.trim();
     final useTls = _useTls;
-    final missing = useAccount ? 'Fill in host, port, username, password and device name' : 'Fill in host, port, auth key and device name';
+    final missing = useAccount ? l10n.connFillAccount : l10n.connFillKey;
 
     if (host.isEmpty || port == null || deviceName.isEmpty) {
       setState(() => _status = ConnectionFailure(missing));
@@ -148,7 +152,7 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
       // P84 — what a member has to get through before the chat: their own password, the recovery
       // code of their data, the workspace's recovery policy and any recovery the owner made.
       if (connection.user != null) {
-        final proceed = await _memberGate(connection);
+        final proceed = await _memberGate(connection, l10n);
         if (!proceed) return;
       }
 
@@ -186,7 +190,7 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
   }
 
   /// P84 — the screens a member passes before the chat. False when they stopped and the connection was closed.
-  Future<bool> _memberGate(ServerConnection connection) async {
+  Future<bool> _memberGate(ServerConnection connection, AppLocalizations l10n) async {
     final user = connection.user!;
     // The hub restarted and doesn't hold their key: a token can't open it, only the password can.
     if (user.locked && !user.mustChangePassword) {
@@ -194,7 +198,7 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
       if (mounted) {
         setState(() {
           _useAccount = true;
-          _status = const ConnectionFailure('Your data is locked because the hub restarted. Sign in with your username and password once to unlock it.');
+          _status = ConnectionFailure(l10n.connLocked);
         });
       }
       return false;
@@ -209,7 +213,7 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
           : null;
       if (change == null) {
         await connection.goodbye('password not changed');
-        if (mounted) setState(() => _status = const ConnectionFailure('Choose your own password to continue'));
+        if (mounted) setState(() => _status = ConnectionFailure(l10n.connChoosePassword));
         return false;
       }
       final code = change.recoveryCode;
@@ -313,16 +317,19 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Warden — Server Connection'),
+        title: Text(l10n.connTitle),
         actions: [
+          // P136 — the language of the app, reachable before anybody is connected.
+          const LanguageMenu(),
           // Fase 9.1 (redefined) — sweeps the LAN for a warden-server hub and fills in host/port
           // from the pick, instead of typing an IP by hand. Only useful before connecting.
           if (!_isConnected && !_isBusy)
             IconButton(
               icon: const Icon(Icons.wifi_find),
-              tooltip: 'Discover hubs on the local network',
+              tooltip: l10n.connDiscoverTooltip,
               onPressed: _discoverHubs,
             ),
           // Fase 9.7 — scans the desktop Workspace screen's pairing QR to fill in host/port/auth
@@ -330,7 +337,7 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
           if (!_isConnected && !_isBusy)
             IconButton(
               icon: const Icon(Icons.qr_code_scanner),
-              tooltip: 'Scan QR to fill in connection',
+              tooltip: l10n.connScanTooltip,
               onPressed: _scanQr,
             ),
           // P84 — a member's own password, recovery code and TruthID, once connected as one.
@@ -338,7 +345,7 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
             IconButton(
               key: const Key('account-button'),
               icon: const Icon(Icons.account_circle),
-              tooltip: 'My account',
+              tooltip: l10n.connAccountTooltip,
               onPressed: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => AccountScreen(connection: _connection!))),
             ),
           // Fase 4.4 — sync doesn't depend on being connected to warden-server (it only talks to
@@ -346,13 +353,13 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
           // this screen's connection state.
           IconButton(
             icon: const Icon(Icons.sync),
-            tooltip: 'Sync',
+            tooltip: l10n.connSyncTooltip,
             onPressed: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const SyncScreen())),
           ),
           // P72 (b) — skills live in this device's local vault, independent of the server connection.
           IconButton(
             icon: const Icon(Icons.auto_awesome),
-            tooltip: 'Skills',
+            tooltip: l10n.connSkillsTooltip,
             onPressed: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const SkillsScreen())),
           ),
         ],
@@ -364,28 +371,28 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
             TextField(
               controller: _hostController,
               enabled: !_isConnected && !_isBusy,
-              decoration: const InputDecoration(labelText: 'Server host'),
+              decoration: InputDecoration(labelText: l10n.connHost),
             ),
             const SizedBox(height: 12),
             TextField(
               controller: _portController,
               enabled: !_isConnected && !_isBusy,
               keyboardType: TextInputType.number,
-              decoration: const InputDecoration(labelText: 'Port'),
+              decoration: InputDecoration(labelText: l10n.connPort),
             ),
             SwitchListTile(
               contentPadding: EdgeInsets.zero,
-              title: const Text('Use TLS (wss://)'),
-              subtitle: const Text('For a hub serving HTTPS — use the name its certificate covers, e.g. hub.tailXXXX.ts.net'),
+              title: Text(l10n.connUseTls),
+              subtitle: Text(l10n.connUseTlsHint),
               value: _useTls,
               onChanged: _isConnected || _isBusy ? null : (value) => setState(() => _useTls = value),
             ),
             const SizedBox(height: 12),
             // P84 — the owner pairs with the hub's key; everyone else with their own account.
             SegmentedButton<bool>(
-              segments: const [
-                ButtonSegment(value: false, label: Text('Pairing key')),
-                ButtonSegment(value: true, label: Text('Username')),
+              segments: [
+                ButtonSegment(value: false, label: Text(l10n.connPairingKey)),
+                ButtonSegment(value: true, label: Text(l10n.connUsername)),
               ],
               selected: {_useAccount},
               onSelectionChanged: _isConnected || _isBusy ? null : (selected) => setState(() => _useAccount = selected.first),
@@ -396,14 +403,14 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
                 controller: _usernameController,
                 enabled: !_isConnected && !_isBusy,
                 autocorrect: false,
-                decoration: const InputDecoration(labelText: 'Username'),
+                decoration: InputDecoration(labelText: l10n.connUsername),
               ),
               const SizedBox(height: 12),
               TextField(
                 controller: _passwordController,
                 enabled: !_isConnected && !_isBusy,
                 obscureText: true,
-                decoration: const InputDecoration(labelText: 'Password', helperText: 'Only needed the first time on this phone'),
+                decoration: InputDecoration(labelText: l10n.connPassword, helperText: l10n.connPasswordHint),
               ),
             ] else
               TextField(
@@ -412,13 +419,13 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
                 obscureText: true,
                 // A hint, not helper text: it takes no room, and the screen has none to spare on a small phone. The key pairs only
                 // the hub's first device (P36); every other one pastes an invite's code here.
-                decoration: const InputDecoration(labelText: 'Auth key', hintText: 'Pairing key, or an invite code'),
+                decoration: InputDecoration(labelText: l10n.connAuthKey, hintText: l10n.connAuthKeyHint),
               ),
             const SizedBox(height: 12),
             TextField(
               controller: _deviceNameController,
               enabled: !_isConnected && !_isBusy,
-              decoration: const InputDecoration(labelText: 'Device name'),
+              decoration: InputDecoration(labelText: l10n.connDeviceName),
             ),
             const SizedBox(height: 24),
             _StatusIndicator(status: _status),
@@ -426,11 +433,11 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
             // P41 — a live connection can be resumed after backing out of the chat, instead of the
             // only way back being disconnect + reconnect.
             if (_isConnected) ...[
-              FilledButton(onPressed: _openChat, child: const Text('Resume chat')),
+              FilledButton(onPressed: _openChat, child: Text(l10n.connResume)),
               const SizedBox(height: 12),
-              OutlinedButton(onPressed: _disconnect, child: const Text('Disconnect')),
+              OutlinedButton(onPressed: _disconnect, child: Text(l10n.connDisconnect)),
             ] else
-              FilledButton(onPressed: _isBusy ? null : _connect, child: const Text('Connect')),
+              FilledButton(onPressed: _isBusy ? null : _connect, child: Text(l10n.connConnect)),
           ],
         ),
       ),
@@ -445,6 +452,7 @@ class _DiscoveredHubsSheet extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
     return SafeArea(
       child: Padding(
         padding: const EdgeInsets.all(16),
@@ -460,23 +468,23 @@ class _DiscoveredHubsSheet extends StatelessWidget {
             if (snapshot.hasError) {
               return Padding(
                 padding: const EdgeInsets.symmetric(vertical: 16),
-                child: Text('Discovery failed: ${snapshot.error}', style: const TextStyle(color: Colors.red)),
+                child: Text(l10n.connDiscoveryFailed('${snapshot.error}'), style: const TextStyle(color: Colors.red)),
               );
             }
             final hubs = snapshot.data!;
             if (hubs.isEmpty) {
-              return const Padding(
-                padding: EdgeInsets.symmetric(vertical: 16),
-                child: Text('No hub answered on the local network.'),
+              return Padding(
+                padding: const EdgeInsets.symmetric(vertical: 16),
+                child: Text(l10n.connNoHub),
               );
             }
             return Column(
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                const Padding(
-                  padding: EdgeInsets.only(bottom: 8),
-                  child: Text('Hubs found', style: TextStyle(fontWeight: FontWeight.bold)),
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 8),
+                  child: Text(l10n.connHubsFound, style: const TextStyle(fontWeight: FontWeight.bold)),
                 ),
                 for (final hub in hubs)
                   ListTile(
@@ -500,11 +508,12 @@ class _StatusIndicator extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
     final (label, color) = switch (status) {
-      Disconnected(:final reason) => (reason == null ? 'Disconnected' : 'Disconnected: $reason', Colors.grey),
-      Connecting() => ('Connecting…', Colors.orange),
-      Connected(:final serverName) => ('Connected to $serverName', Colors.green),
-      ConnectionFailure(:final message) => ('Error: $message', Colors.red),
+      Disconnected(:final reason) => (reason == null ? l10n.connStatusDisconnected : l10n.connStatusDisconnectedWhy(reason), Colors.grey),
+      Connecting() => (l10n.connStatusConnecting, Colors.orange),
+      Connected(:final serverName) => (l10n.connStatusConnected(serverName), Colors.green),
+      ConnectionFailure(:final message) => (l10n.connStatusError(message), Colors.red),
     };
     return Row(
       children: [

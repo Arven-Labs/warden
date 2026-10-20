@@ -3,6 +3,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:mobile/protocol/messages.dart';
 import 'package:mobile/screens/usage_screen.dart';
 
+import '../helpers/test_app.dart';
+
 UsageSummary _summary({
   List<LimitMeter> limits = const [],
   bool limitsEnabled = true,
@@ -32,7 +34,7 @@ UsageSummary _summary({
 Future<void> _open(WidgetTester tester, Future<UsageSummary> Function() load) async {
   // A fresh screen each time: the same widget type in the same place would keep the state (and the report) of the one before.
   await tester.pumpWidget(const SizedBox());
-  await tester.pumpWidget(MaterialApp(home: UsageScreen(load: load)));
+  await tester.pumpWidget(testApp(home: UsageScreen(load: load)));
   await tester.pumpAndSettle();
 }
 

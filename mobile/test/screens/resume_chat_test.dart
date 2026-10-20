@@ -9,6 +9,8 @@ import 'package:mobile/services/server_connection.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:stream_channel/stream_channel.dart';
 
+import '../helpers/test_app.dart';
+
 /// P41 — connect, chat, back out with the back button, then resume: the conversation must still be
 /// there, and a reply that lands while the chat screen is gone must not be lost. Runs the real
 /// `ServerConnection` handshake over an in-process channel (see `server_connection_test.dart`);
@@ -49,7 +51,7 @@ void main() {
 
   testWidgets('backing out of the chat and resuming keeps the conversation', (tester) async {
     await tester.runAsync(() async {}); // let SharedPreferences' mock settle
-    await tester.pumpWidget(MaterialApp(home: ConnectionScreen(connector: fakeConnector)));
+    await tester.pumpWidget(testApp(home: ConnectionScreen(connector: fakeConnector)));
     await tester.pump();
 
     await tester.enterText(find.widgetWithText(TextField, 'Server host'), '10.0.0.1');

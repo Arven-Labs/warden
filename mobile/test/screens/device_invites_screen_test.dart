@@ -5,6 +5,8 @@ import 'package:mobile/screens/device_invites_screen.dart';
 import 'package:mobile/services/device_invites.dart';
 import 'package:mobile/services/server_connection.dart' show HubRequestException;
 
+import '../helpers/test_app.dart';
+
 /// A hub in memory: it checks the pairing key like the real one and records what the screen asked for.
 class _FakeBackend implements DeviceInvitesBackend {
   _FakeBackend({List<String> waiting = const []}) : _waiting = List.of(waiting);
@@ -45,7 +47,7 @@ class _FakeBackend implements DeviceInvitesBackend {
 }
 
 Future<void> _open(WidgetTester tester, _FakeBackend backend) async {
-  await tester.pumpWidget(MaterialApp(home: DeviceInvitesScreen(backend: backend)));
+  await tester.pumpWidget(testApp(home: DeviceInvitesScreen(backend: backend)));
 }
 
 Future<void> _typeKey(WidgetTester tester, String key) async {

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../l10n/generated/app_localizations.dart';
 import '../protocol/messages.dart';
 import '../services/workdir.dart';
 
@@ -100,6 +101,7 @@ class _FolderPickerState extends State<FolderPicker> {
     final here = listing?.path ?? '';
     final parent = listing?.parent;
     final machine = parseNodeFolder(here)?.node ?? '';
+    final l10n = AppLocalizations.of(context);
     return SafeArea(
       child: Padding(
         padding: const EdgeInsets.all(16),
@@ -107,13 +109,9 @@ class _FolderPickerState extends State<FolderPicker> {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('Working folder', style: Theme.of(context).textTheme.titleLarge),
+            Text(l10n.folderTitle, style: Theme.of(context).textTheme.titleLarge),
             const SizedBox(height: 4),
-            Text(
-              'The AI reads and writes in this folder, and the shell starts there (each command asks for your yes). '
-              'It applies to the whole conversation and does not change afterwards.',
-              style: Theme.of(context).textTheme.bodySmall,
-            ),
+            Text(l10n.folderHint, style: Theme.of(context).textTheme.bodySmall),
             const SizedBox(height: 12),
             if (widget.nodes.isNotEmpty) ...[
               DropdownButton<String>(
@@ -122,14 +120,14 @@ class _FolderPickerState extends State<FolderPicker> {
                 // A node that is not in the list (gone offline since) shows as the hub, which is where "Up" and the start lead.
                 value: widget.nodes.any((n) => n.deviceId == machine) ? machine : '',
                 items: [
-                  const DropdownMenuItem(value: '', child: Text('This hub')),
+                  DropdownMenuItem(value: '', child: Text(l10n.folderThisHub)),
                   for (final node in widget.nodes) DropdownMenuItem(value: node.deviceId, child: Text(node.name.isEmpty ? node.deviceId : node.name)),
                 ],
                 onChanged: _loading ? null : (id) => _open(id == null || id.isEmpty ? null : nodeFolderRef(id, '')),
               ),
               const SizedBox(height: 8),
             ],
-            Text(here.isEmpty ? 'Your folders' : folderPlace(here, widget.nodes), key: const Key('folder-here'), style: const TextStyle(fontFamily: 'monospace')),
+            Text(here.isEmpty ? l10n.folderYours : folderPlace(here, widget.nodes), key: const Key('folder-here'), style: const TextStyle(fontFamily: 'monospace')),
             if (_error != null) ...[
               const SizedBox(height: 8),
               Text(_error!, key: const Key('folder-error'), style: TextStyle(color: Theme.of(context).colorScheme.error)),
@@ -145,7 +143,7 @@ class _FolderPickerState extends State<FolderPicker> {
                           ListTile(
                             key: const Key('folder-up'),
                             leading: const Icon(Icons.arrow_upward),
-                            title: const Text('Up'),
+                            title: Text(l10n.folderUp),
                             enabled: !_loading,
                             // An empty parent is the top of a member's list.
                             onTap: () => _open(parent.isEmpty ? null : parent),
@@ -158,7 +156,7 @@ class _FolderPickerState extends State<FolderPicker> {
                             onTap: () => _open(dir.path),
                           ),
                         if (listing != null && listing.dirs.isEmpty && !_loading)
-                          const Padding(padding: EdgeInsets.all(12), child: Text('No subfolders.', key: Key('folder-empty'))),
+                          Padding(padding: const EdgeInsets.all(12), child: Text(l10n.folderEmpty, key: const Key('folder-empty'))),
                       ],
                     ),
             ),
@@ -166,12 +164,12 @@ class _FolderPickerState extends State<FolderPicker> {
             Row(
               mainAxisAlignment: MainAxisAlignment.end,
               children: [
-                TextButton(onPressed: () => Navigator.of(context).pop(), child: const Text('Cancel')),
+                TextButton(onPressed: () => Navigator.of(context).pop(), child: Text(l10n.commonCancel)),
                 const SizedBox(width: 8),
                 FilledButton(
                   key: const Key('folder-use'),
                   onPressed: here.isEmpty || _loading ? null : () => Navigator.of(context).pop(here),
-                  child: const Text('Use this folder'),
+                  child: Text(l10n.folderUse),
                 ),
               ],
             ),

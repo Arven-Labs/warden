@@ -10,6 +10,8 @@ import 'package:mobile/services/server_connection.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:stream_channel/stream_channel.dart';
 
+import '../helpers/test_app.dart';
+
 /// P102 — the working folder picked on the phone: the real `ServerConnection` over an in-process channel
 /// (`controller.local` plays warden-server, which lists folders and records the `chat` frames), through the real
 /// connection screen and chat screen.
@@ -102,7 +104,7 @@ void main() {
 
   Future<void> openChat(WidgetTester tester) async {
     await tester.runAsync(() async {});
-    await tester.pumpWidget(MaterialApp(home: ConnectionScreen(connector: fakeConnector)));
+    await tester.pumpWidget(testApp(home: ConnectionScreen(connector: fakeConnector)));
     await tester.pump();
     await tester.enterText(find.widgetWithText(TextField, 'Server host'), '10.0.0.1');
     await tester.enterText(find.widgetWithText(TextField, 'Auth key'), 'secret');

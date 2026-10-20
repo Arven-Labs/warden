@@ -7,6 +7,8 @@ import 'package:mobile/screens/member_org_tab.dart';
 import 'package:mobile/services/agent_work.dart';
 import 'package:mobile/services/server_connection.dart' show ConversationException, HubRequestException;
 
+import '../helpers/test_app.dart';
+
 /// A hub in memory for one member: it holds the owner's tree and the access the owner gave, and answers like the real one
 /// (the tree with only the id, the role and the superior; a refusal when the access is none or too low to edit).
 class _FakeHub implements MemberOrgBackend {
@@ -65,7 +67,7 @@ const _team = [
 ];
 
 Future<void> _pump(WidgetTester tester, _FakeHub hub, {OrgAccess initial = OrgAccess.none}) async {
-  await tester.pumpWidget(MaterialApp(home: Scaffold(body: MemberOrganizationTab(backend: hub, initialAccess: initial))));
+  await tester.pumpWidget(testApp(home: Scaffold(body: MemberOrganizationTab(backend: hub, initialAccess: initial))));
   await tester.pumpAndSettle();
 }
 

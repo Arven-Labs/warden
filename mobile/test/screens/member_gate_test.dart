@@ -9,6 +9,8 @@ import 'package:mobile/services/server_connection.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:stream_channel/stream_channel.dart';
 
+import '../helpers/test_app.dart';
+
 /// P84 fatia 4 on the phone: what a member passes through, in order, before the chat. `controller.local`
 /// plays warden-server, answering with the `HelloAck` the test gives it.
 void main() {
@@ -50,7 +52,7 @@ void main() {
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.reset);
     await tester.runAsync(() async {});
-    await tester.pumpWidget(MaterialApp(home: ConnectionScreen(connector: fakeConnector)));
+    await tester.pumpWidget(testApp(home: ConnectionScreen(connector: fakeConnector)));
     await tester.pump();
     await tester.enterText(find.widgetWithText(TextField, 'Server host'), '10.0.0.1');
     await tester.tap(find.text('Username'));

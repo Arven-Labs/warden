@@ -5,6 +5,8 @@ import 'package:mobile/screens/agents_screen.dart';
 import 'package:mobile/services/agent_work.dart';
 import 'package:mobile/services/server_connection.dart' show HubRequestException;
 
+import '../helpers/test_app.dart';
+
 /// A hub in memory: it holds the agents and the tasks, checks the pairing key like the real one, and records
 /// what the screen asked for.
 class _FakeBackend implements AgentsBackend {
@@ -133,7 +135,7 @@ Future<void> _pump(
 }) async {
   // Pushed like in the chat, so "Chat" on a node has a screen to leave.
   await tester.pumpWidget(
-    MaterialApp(
+    testApp(
       home: Builder(
         builder: (context) => Scaffold(
           body: ElevatedButton(

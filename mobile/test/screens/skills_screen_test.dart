@@ -3,6 +3,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:mobile/screens/skills_screen.dart';
 import 'package:mobile/services/skills_repository.dart';
 
+import '../helpers/test_app.dart';
+
 /// In-memory stand-in for the Rust bridge, enforcing the two rules the screen depends on: create
 /// refuses a taken name, and an invalid skill surfaces as an exception carrying a message.
 class _FakeRepository implements SkillsRepository {
@@ -34,7 +36,7 @@ const _tip = SkillDto(name: 'tip', description: 'A tip', body: 'Do it.', propose
 const _change = SkillDto(name: 'review-pr-revision', description: 'Reviews a PR', body: 'Check tests first.', proposed: true, revises: 'review-pr');
 
 Future<void> _pump(WidgetTester tester, _FakeRepository repo) async {
-  await tester.pumpWidget(MaterialApp(home: SkillsScreen(repository: repo)));
+  await tester.pumpWidget(testApp(home: SkillsScreen(repository: repo)));
   await tester.pumpAndSettle();
 }
 

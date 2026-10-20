@@ -7,6 +7,8 @@ import 'package:mobile/screens/member_account.dart';
 import 'package:mobile/services/server_connection.dart';
 import 'package:stream_channel/stream_channel.dart';
 
+import '../helpers/test_app.dart';
+
 // P84 fatia 4 and 5 on the phone: the recovery code can't be dismissed before it's saved, the recovery
 // code field shows only after an owner's reset, and the answers of the hub reach the screens.
 
@@ -19,7 +21,7 @@ Future<(ServerConnection, StreamChannelController<dynamic>, StreamQueue<dynamic>
   return (await future, controller, fromClient);
 }
 
-Widget host(Widget Function(BuildContext) body) => MaterialApp(home: Scaffold(body: Builder(builder: body)));
+Widget host(Widget Function(BuildContext) body) => testApp(home: Scaffold(body: Builder(builder: body)));
 
 void main() {
   testWidgets('the recovery code stays until the member says they saved it', (tester) async {
@@ -57,7 +59,7 @@ void main() {
   testWidgets('the recovery code field is there only after an owner reset', (tester) async {
     final (conn, _, _) = await memberConnection();
     for (final needs in [false, true]) {
-      await tester.pumpWidget(MaterialApp(home: Scaffold(body: ChangePasswordDialog(connection: conn, name: 'Ana', needsRecovery: needs))));
+      await tester.pumpWidget(testApp(home: Scaffold(body: ChangePasswordDialog(connection: conn, name: 'Ana', needsRecovery: needs))));
       expect(find.byKey(const Key('change-password-recovery-code')), needs ? findsOneWidget : findsNothing);
     }
     await conn.goodbye('done');
@@ -95,7 +97,7 @@ void main() {
 
   testWidgets('the account screen changes nothing on its own and links a TruthID', (tester) async {
     final (conn, controller, fromClient) = await memberConnection(user: '{"id":"ana","name":"Ana","role":"member","mustChangePassword":false,"encrypted":true}');
-    await tester.pumpWidget(MaterialApp(home: AccountScreen(connection: conn)));
+    await tester.pumpWidget(testApp(home: AccountScreen(connection: conn)));
     expect(find.text('Link my TruthID'), findsOneWidget);
     expect(find.byKey(const Key('account-new-code')), findsOneWidget, reason: 'encrypted members can ask for a new code');
 
@@ -115,7 +117,7 @@ void main() {
 
   testWidgets('a member without encryption is not offered a new recovery code', (tester) async {
     final (conn, _, _) = await memberConnection();
-    await tester.pumpWidget(MaterialApp(home: AccountScreen(connection: conn)));
+    await tester.pumpWidget(testApp(home: AccountScreen(connection: conn)));
     expect(find.byKey(const Key('account-new-code')), findsNothing);
     await conn.goodbye('done');
   });

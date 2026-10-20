@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
 
+import 'l10n/generated/app_localizations.dart';
 import 'screens/connection_screen.dart';
+import 'services/app_language.dart';
 import 'services/chat_notifications.dart';
 import 'src/rust/frb_generated.dart';
 
@@ -14,6 +17,8 @@ Future<void> main() async {
   // any screen can call into it. Must finish before runApp, same reasoning as any other native
   // plugin registration.
   await RustLib.init();
+  // P136 — the language the person picked, read before the first screen is drawn.
+  await AppLanguage.load();
   // Fase 7.5 — registers the Android notification channel before any screen could try to notify.
   await initializeChatNotifications();
   runApp(const WardenApp());
@@ -24,8 +29,24 @@ class WardenApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    return ValueListenableBuilder<Locale?>(
+      valueListenable: AppLanguage.locale,
+      builder: (context, picked, _) => _app(picked),
+    );
+  }
+
+  Widget _app(Locale? picked) {
     return MaterialApp(
       title: 'Warden',
+      locale: picked,
+      localizationsDelegates: const [
+        AppLocalizations.delegate,
+        GlobalMaterialLocalizations.delegate,
+        GlobalWidgetsLocalizations.delegate,
+        GlobalCupertinoLocalizations.delegate,
+      ],
+      supportedLocales: AppLocalizations.supportedLocales,
+      localeListResolutionCallback: AppLanguage.resolve,
       // Matches desktop/src/App.css --color-accent (light #7c3aed, dark #a78bfa) instead of the
       // generic Material seed, so the two apps read as the same brand.
       theme: ThemeData(
