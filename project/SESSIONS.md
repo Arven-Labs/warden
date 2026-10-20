@@ -2,7 +2,18 @@
 
 > **Nota**: Este log foi criado junto com o projeto. As sessões serão registradas aqui conforme o trabalho avança.
 >
-> Última atualização: 2026-10-19 (Sessão 269)
+> Última atualização: 2026-10-20 (Sessão 270)
+
+---
+
+### 2026-10-20 — Sessão 270 (o i18n do desktop: P136)
+
+- **Pedido**: "bora continuar?". Dei `git pull` (o i18n do CLI e da extensão entrou), li o P136 e propus o desktop; planejei em modo de plano (um agente de exploração levantou ~1800 textos, os libs que espelham a web, os testes e o lugar do seletor) e o plano foi aprovado.
+- **Feito**: `desktop/src/i18n/` (módulo copiado da web, catálogos `en/` e `pt-BR/` por parte: lib, shell, chat, hubs, agents, access, usage, automation, org, projects, sync, vault, skills, workspace, settings), `LanguageSwitch` em Configurações, as libs (`activity`, `agentTasks`, `agentWork`, `approvalCategories`, `attachments`, `conversationGroups`, `hub`, `hubMap`, `modelPolicies`, `rawAccess`, `sshAudit`, `threads`, `workdir`, `skillDiff`) e todos os componentes por `t()`/`rich()`; `App` com `useLocale()`. Constante de módulo com texto virou função ou `get` (`STATE_LABEL`, `ACTION_LABEL`, `authNames`, `licenses()`, `mcpPresets()`). Datas e números por `intlTag()`; `sshAudit` mantém `en-GB` em inglês (dia primeiro) e `pt-BR` em português.
+- **Rust**: os 9 textos em português de `sync_cmds.rs`, `server_cmds.rs` e `workspace_cmds.rs` passaram para inglês (sem teste que os assertasse); o backend não recebe o idioma.
+- **Testes**: `tsc` limpo, `cargo check -p desktop` limpo, 180 de 180 de unidade (`tests/i18n.test.mjs` novo), 10 de 10 E2E rodados localmente (`e2e/i18n.test.mjs` novo; `openApp` fixa `locale` em `en-US`). Fotos `desktop-pt-chat` e `desktop-pt-settings` conferidas: nada quebrou de layout.
+- **Mudança de texto**: a dica do convite TruthID diz "Change password" e "Link my TruthID" (os nomes da web em inglês).
+- **Não feito / fica**: nada commitado nem conferido no CI; as frases do hub (P167 a); o mobile; P136b (comentários, logs e testes em português).
 
 ---
 
