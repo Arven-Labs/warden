@@ -92,11 +92,13 @@ export function deferred() {
 
 /**
  * Opens the page with `handlers` answering the backend: a command name to a value, or to a function of its arguments (that may return a
- * promise). A command with no handler gets `[]` when it is a `list_...` and `null` otherwise. Returns the page, every call made
+ * promise). `locale` is the language the browser asks for (English unless a test says otherwise). A command with no handler gets `[]` when
+ * it is a `list_...` and `null` otherwise. Returns the page, every call made
  * (`calls`: `{ cmd, args }`) and the errors the page raised that nothing caught (`errors`), which a test asserts empty.
  */
-export async function openApp(browser, app, { handlers = {}, colorScheme = "light" } = {}) {
-  const context = await browser.newContext({ colorScheme, viewport: { width: 1280, height: 800 } });
+export async function openApp(browser, app, { handlers = {}, colorScheme = "light", locale = "en-US" } = {}) {
+  // The language is pinned (P136): without it the page would follow whatever language the machine running the test is in.
+  const context = await browser.newContext({ colorScheme, locale, viewport: { width: 1280, height: 800 } });
   const page = await context.newPage();
   const calls = [];
   const errors = [];
