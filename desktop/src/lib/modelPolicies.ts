@@ -1,6 +1,7 @@
 // P123 — the models an agent may delegate with, and the named policies ("fast", "reasoning"...) over them, as the Settings form edits
 // them. Pure, so the cascades (a rename or a removal reaching whatever names the model) can be tested without a window.
 
+import { t } from "../i18n/index.ts";
 import type { AgentEntry, ModelPolicy } from "../types";
 
 /** The part of the settings form these cascades read and change. */
@@ -60,7 +61,7 @@ export function nextPolicyId(taken: string[]): string {
 
 /** What the list says about an agent's models, in a sentence the card shows under it. */
 export function delegationSummary(models: string[] | undefined): string {
-  if (!models || models.length === 0) return "Open: the agent picks any model for each task it delegates.";
-  if (models.length === 1) return `Dictated: every task it delegates runs on ${models[0]}.`;
-  return `Limited to ${models.length} models; ${models[0]} is what a task gets when the agent names none.`;
+  if (!models || models.length === 0) return t("policy.open");
+  if (models.length === 1) return t("policy.dictated", { model: models[0] });
+  return t("policy.limited", { count: models.length, model: models[0] });
 }

@@ -1,3 +1,5 @@
+import { t, type Key } from "../i18n/index.ts";
+
 /** P122 — the kinds of action an agent can be told to get approved even when it otherwise acts alone. The ids are
  * `warden_core::autonomy::Category`'s, as the config file, the hub and `approvalRequired` write them. */
 export interface ApprovalCategory {
@@ -6,14 +8,25 @@ export interface ApprovalCategory {
   hint: string;
 }
 
+// Getters, so each read says the words of the language the person has now.
+const category = (id: string): ApprovalCategory => ({
+  id,
+  get label() {
+    return t(`approvalCategory.${id}` as Key);
+  },
+  get hint() {
+    return t(`approvalCategory.${id}.hint` as Key);
+  },
+});
+
 export const APPROVAL_CATEGORIES: ApprovalCategory[] = [
-  { id: "delete_data", label: "Delete data", hint: "Removing an agent or a scheduled task, or a tool that says it destroys." },
-  { id: "spend_money", label: "Spend money", hint: "A paid service or a purchase. Only tools you map to it under Risk categories." },
-  { id: "critical_infra", label: "Change critical infrastructure", hint: "Shell commands, SSH and node commands, files copied onto a server." },
-  { id: "external_message", label: "Send an external message", hint: "Clicking or navigating in your browser, or a tool that reaches the outside world." },
-  { id: "publish_code", label: "Publish code", hint: "A push, a release or a deploy. Only tools you map to it under Risk categories." },
-  { id: "important_config", label: "Change important configuration", hint: "Creating or editing scheduled tasks." },
-  { id: "elevated_agent", label: "Create or change an agent", hint: "Creating or editing agents through manage_agents." },
+  category("delete_data"),
+  category("spend_money"),
+  category("critical_infra"),
+  category("external_message"),
+  category("publish_code"),
+  category("important_config"),
+  category("elevated_agent"),
 ];
 
 /** The label of a category id, or the id itself when a newer hub sends one this app doesn't know. */

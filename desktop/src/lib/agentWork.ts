@@ -2,6 +2,7 @@
 // watching (scheduled tasks and webhooks, `task-*`). Pure, so it is tested without a window. Mirrors `web/src/hub/agentWork.ts`. The ids and
 // the title are the hub's (`activity.rs`).
 
+import { t } from "../i18n/index.ts";
 import type { Conversation } from "../types";
 
 /** The start of the id of a conversation between two agents (`message_agent::thread_id`). */
@@ -51,17 +52,17 @@ export function agentWork(conversations: Pick<Conversation, "id" | "title" | "up
 export function workLabel(item: AgentWorkItem): string {
   switch (item.kind) {
     case "note-out":
-      return `to ${item.other}`;
+      return t("work.to", { name: item.other ?? "" });
     case "note-in":
-      return `from ${item.other}`;
+      return t("work.from", { name: item.other ?? "" });
     case "run-task":
-      return "scheduled task";
+      return t("work.scheduledTask");
     case "run-hook":
-      return "webhook";
+      return t("work.webhook");
   }
 }
 
 /** What the channel's button says: `Notes and runs (3)`, or without the number when there are none. */
 export function workButtonLabel(count: number): string {
-  return count === 0 ? "Notes and runs" : `Notes and runs (${count})`;
+  return count === 0 ? t("work.button") : t("work.buttonCount", { count });
 }

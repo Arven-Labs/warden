@@ -1,5 +1,9 @@
 // P115: line diff between an active skill and the revision the assistant suggested for it.
 
+import { t } from "../i18n/index.ts";
+
+const gap = (skipped: number) => (skipped === 1 ? t("diff.gapOne") : t("diff.gapMany", { count: skipped }));
+
 export type DiffOp = "same" | "add" | "del" | "gap";
 
 export interface DiffLine {
@@ -50,14 +54,14 @@ export function withContext(lines: DiffLine[], context = 2): DiffLine[] {
   let skipped = 0;
   lines.forEach((line, i) => {
     if (near[i]) {
-      if (skipped > 0) out.push({ op: "gap", text: `… ${skipped} ${skipped === 1 ? "identical line" : "identical lines"}` });
+      if (skipped > 0) out.push({ op: "gap", text: gap(skipped) });
       skipped = 0;
       out.push(line);
     } else {
       skipped++;
     }
   });
-  if (skipped > 0) out.push({ op: "gap", text: `… ${skipped} ${skipped === 1 ? "identical line" : "identical lines"}` });
+  if (skipped > 0) out.push({ op: "gap", text: gap(skipped) });
   return out;
 }
 

@@ -1,6 +1,7 @@
 // P123 — the work agents delegate to each other, as the "Agent work" screen shows it: the tasks one turn started are a group,
 // with a progress counted over them. Pure, so it can be tested without a window.
 
+import { intlTag, t } from "../i18n/index.ts";
 import type { AgentTask, AgentTaskAction, AgentTaskState } from "../types";
 
 /** A task as the list shows it: how many levels under the turn's own agent it sits (0 for the tasks the agent started itself). */
@@ -30,14 +31,29 @@ export interface TaskGroup {
   createdAtMs: number;
 }
 
+// Getters, so each read says the words of the language the person has now.
 export const STATE_LABEL: Record<AgentTaskState, string> = {
-  pending: "Pending",
-  running: "Running",
-  waiting: "Waiting for agent",
-  paused: "Paused",
-  done: "Done",
-  failed: "Failed",
-  cancelled: "Cancelled",
+  get pending() {
+    return t("taskState.pending");
+  },
+  get running() {
+    return t("taskState.running");
+  },
+  get waiting() {
+    return t("taskState.waiting");
+  },
+  get paused() {
+    return t("taskState.paused");
+  },
+  get done() {
+    return t("taskState.done");
+  },
+  get failed() {
+    return t("taskState.failed");
+  },
+  get cancelled() {
+    return t("taskState.cancelled");
+  },
 };
 
 /** The mark shown next to a state. */
@@ -70,7 +86,17 @@ export function actionsFor(task: AgentTask): AgentTaskAction[] {
   }
 }
 
-export const ACTION_LABEL: Record<AgentTaskAction, string> = { pause: "Pause", resume: "Resume", cancel: "Stop" };
+export const ACTION_LABEL: Record<AgentTaskAction, string> = {
+  get pause() {
+    return t("taskAction.pause");
+  },
+  get resume() {
+    return t("taskAction.resume");
+  },
+  get cancel() {
+    return t("taskAction.cancel");
+  },
+};
 
 /** The tasks of one group as a tree: each task followed by its subtasks, the subtasks one level deeper. A task whose parent isn't in the
  * group (or a loop that shouldn't exist) is shown at the top rather than lost. */
@@ -200,42 +226,42 @@ export function lastConversationOf(conversations: { agentId?: string | null; upd
 /** How long ago, in a few words: `just now`, `4 min ago`, `2 h ago`, `3 d ago`. */
 export function agoLabel(thenMs: number, nowMs: number): string {
   const minutes = Math.max(0, Math.round((nowMs - thenMs) / 60000));
-  if (minutes < 1) return "just now";
-  if (minutes < 60) return `${minutes} min ago`;
+  if (minutes < 1) return t("ago.now");
+  if (minutes < 60) return t("ago.minutes", { count: minutes });
   const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours} h ago`;
-  return `${Math.floor(hours / 24)} d ago`;
+  if (hours < 24) return t("ago.hours", { count: hours });
+  return t("ago.days", { count: Math.floor(hours / 24) });
 }
 
 /** The spending in a few words: `$1.20 in the last 24 h`, with a note of the calls the figure leaves out. */
 export function spendLabel(spend: AgentSpend): string {
-  const window = `in the last ${spend.windowHours} h`;
-  const unpriced = spend.unpricedCalls > 0 ? `${spend.unpricedCalls} unpriced call${spend.unpricedCalls > 1 ? "s" : ""}` : "";
+  const window = t("spend.window", { hours: spend.windowHours });
+  const unpriced = spend.unpricedCalls > 0 ? t(spend.unpricedCalls > 1 ? "spend.unpricedMany" : "spend.unpricedOne", { count: spend.unpricedCalls }) : "";
   if (spend.costUsd <= 0) return `${unpriced} ${window}`;
-  const dollars = (n: number) => new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(n);
-  const money = spend.costUsd < 0.01 ? `under ${dollars(0.01)}` : dollars(spend.costUsd);
-  return unpriced ? `${money} ${window} (and ${unpriced})` : `${money} ${window}`;
+  const dollars = (n: number) => new Intl.NumberFormat(intlTag(), { style: "currency", currency: "USD" }).format(n);
+  const money = spend.costUsd < 0.01 ? t("spend.lessThan", { amount: dollars(0.01) }) : dollars(spend.costUsd);
+  return unpriced ? t("spend.withUnpriced", { money, window, unpriced }) : `${money} ${window}`;
 }
 
 /** The activity on one line of the tree card: `3 done, 1 failed, 2 running · 12.9K tokens · $1.20 in the last 24 h · delegated 5 · active 4 min ago`. */
 export function activityLine(a: AgentActivity, nowMs: number): string {
   const parts = [
-    a.done > 0 && `${a.done} done`,
-    a.failed > 0 && `${a.failed} failed`,
-    a.cancelled > 0 && `${a.cancelled} stopped`,
-    a.active > 0 && `${a.active} running`,
+    a.done > 0 && t("tally.done", { count: a.done }),
+    a.failed > 0 && t("tally.failed", { count: a.failed }),
+    a.cancelled > 0 && t("tally.stopped", { count: a.cancelled }),
+    a.active > 0 && t("tally.active", { count: a.active }),
   ].filter(Boolean);
   const line = [parts.join(", ")];
-  if (a.tokens > 0) line.push(`${formatTokens(a.tokens)} tokens`);
+  if (a.tokens > 0) line.push(t("tally.tokens", { count: formatTokens(a.tokens) }));
   if (a.spend) line.push(spendLabel(a.spend));
-  if (a.delegated > 0) line.push(`delegated ${a.delegated}`);
-  if (a.lastActiveMs !== null) line.push(`active ${agoLabel(a.lastActiveMs, nowMs)}`);
+  if (a.delegated > 0) line.push(t("tally.delegated", { count: a.delegated }));
+  if (a.lastActiveMs !== null) line.push(t("tally.activeAgo", { ago: agoLabel(a.lastActiveMs, nowMs) }));
   return line.filter(Boolean).join(" · ");
 }
 
 /** `1,284` up to 999, `12.9K` beyond. */
 export function formatTokens(n: number): string {
-  return new Intl.NumberFormat("en-US", { notation: "compact", maximumFractionDigits: 1 }).format(n);
+  return new Intl.NumberFormat(intlTag(), { notation: "compact", maximumFractionDigits: 1 }).format(n);
 }
 
 /** How long a task ran (or has been running), in a short form: `4s`, `2m 05s`, `1h 03m`. `null` before it started. */

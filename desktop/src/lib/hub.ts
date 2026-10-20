@@ -3,6 +3,7 @@
 // `hubMap.ts`. Everything here asks the hub in use; "this computer" is simply not calling these.
 
 import { invoke } from "@tauri-apps/api/core";
+import { t } from "../i18n";
 import type {
   Attachment,
   AgentEntry,
@@ -242,10 +243,10 @@ export function hubTasks(askKey: KeyAsker) {
     async list(): Promise<TaskList> {
       return taskList(await ask<HubTaskReply>({ type: "listTasks" }, "taskList"));
     },
-    save: (originalId: string | null, task: Task) => change("Saving this task changes the hub.", { type: "saveTask", ...(originalId ? { originalId } : {}), task }),
-    setEnabled: (id: string, enabled: boolean) => change(`${enabled ? "Resuming" : "Pausing"} ${id} changes the hub.`, { type: "setTaskEnabled", id, enabled }),
-    remove: (id: string) => change(`Deleting ${id} changes the hub.`, { type: "deleteTask", id }),
-    run: (id: string) => change(`Running ${id} now starts a run on the hub.`, { type: "runTask", id }),
+    save: (originalId: string | null, task: Task) => change(t("askKey.saveTask"), { type: "saveTask", ...(originalId ? { originalId } : {}), task }),
+    setEnabled: (id: string, enabled: boolean) => change(t(enabled ? "askKey.resumeTask" : "askKey.pauseTask", { id }), { type: "setTaskEnabled", id, enabled }),
+    remove: (id: string) => change(t("askKey.deleteTask", { id }), { type: "deleteTask", id }),
+    run: (id: string) => change(t("askKey.runTask", { id }), { type: "runTask", id }),
     /** The task's conversation is `task-<id>`, which the hub gives to any device. */
     async history(id: string): Promise<RunMessage[]> {
       return (await hubHistory(`task-${id}`)).map(({ role, content, createdAt }) => ({ role, content, createdAt }));
@@ -279,7 +280,7 @@ export async function hubActivity(): Promise<ActivityEvent[]> {
 /** Pauses, resumes or stops a task running on the hub in use (P123), with the subtasks below it. It changes what the hub is doing, so it
  * asks for the pairing key. Returns the hub's updated list. */
 export async function hubControlAgentTask(askKey: KeyAsker, taskId: string, action: AgentTaskAction): Promise<AgentTask[]> {
-  const reason = `${action === "cancel" ? "Stopping" : action === "pause" ? "Pausing" : "Resuming"} a task changes what the hub is doing.`;
+  const reason = t(action === "cancel" ? "askKey.cancelAgentTask" : action === "pause" ? "askKey.pauseAgentTask" : "askKey.resumeAgentTask");
   const message = { type: "controlAgentTask", taskId, action, pairingKey: await askKey(reason) };
   return (await ask<{ type: string; tasks: AgentTask[] }>(message, "agentTaskList")).tasks;
 }
@@ -287,7 +288,7 @@ export async function hubControlAgentTask(askKey: KeyAsker, taskId: string, acti
 /** One change to the organization of the hub's agents, from the tree (P120). It changes the hub, so it asks for the pairing key. Resolves
  * when the hub has started again with the change; rejects with the hub's reason when it refuses (a circle, a name already taken, a wrong key). */
 export async function hubEditAgentOrg(askKey: KeyAsker, edit: OrgEdit): Promise<void> {
-  const message = { type: "editAgentOrg", edit, pairingKey: await askKey("Changing the organization changes what the agents of the hub may reach.") };
+  const message = { type: "editAgentOrg", edit, pairingKey: await askKey(t("askKey.editOrg")) };
   await ask(message, "settingsSaved");
 }
 
@@ -322,14 +323,14 @@ export function hubWebhooks(askKey: KeyAsker, hubUrl: string | undefined) {
     async list(): Promise<WebhookList> {
       return listOf(await ask<HubWebhookReply>({ type: "listWebhooks" }, "webhookList"));
     },
-    save: (originalId: string | null, webhook: Webhook) => change("Saving this webhook changes the hub.", { type: "saveWebhook", ...(originalId ? { originalId } : {}), webhook }),
-    setEnabled: (id: string, enabled: boolean) => change(`${enabled ? "Resuming" : "Pausing"} ${id} changes the hub.`, { type: "setWebhookEnabled", id, enabled }),
-    remove: (id: string) => change(`Deleting ${id} changes the hub.`, { type: "deleteWebhook", id }),
-    revoke: (id: string) => change(`Revoking the credential of ${id} changes the hub.`, { type: "revokeWebhookCredential", id }),
+    save: (originalId: string | null, webhook: Webhook) => change(t("askKey.saveWebhook"), { type: "saveWebhook", ...(originalId ? { originalId } : {}), webhook }),
+    setEnabled: (id: string, enabled: boolean) => change(t(enabled ? "askKey.resumeWebhook" : "askKey.pauseWebhook", { id }), { type: "setWebhookEnabled", id, enabled }),
+    remove: (id: string) => change(t("askKey.deleteWebhook", { id }), { type: "deleteWebhook", id }),
+    revoke: (id: string) => change(t("askKey.revokeWebhook", { id }), { type: "revokeWebhookCredential", id }),
     /** The credential comes back once, in this reply, and is not sent again. */
     async makeCredential(id: string): Promise<WebhookCreated> {
       const reply = await ask<HubWebhookReply & { id: string; credential: string; kind: WebhookAuth }>(
-        { type: "createWebhookCredential", id, pairingKey: await askKey(`A new credential for ${id} replaces the old one at once.`) },
+        { type: "createWebhookCredential", id, pairingKey: await askKey(t("askKey.newWebhookCredential", { id })) },
         "webhookCreated",
       );
       return { id: reply.id, credential: reply.credential, kind: reply.kind, list: listOf(reply) };

@@ -2,6 +2,7 @@
 // (`chat_input.rs`: `MAX_ATTACHMENTS_PER_TURN`, `MAX_ATTACHMENTS_BASE64_BYTES`), so a message the hub would refuse is refused
 // here, before it is sent. Mirrors `web/src/hub/attachments.ts`.
 
+import { t } from "../i18n/index.ts";
 import type { Attachment } from "../types";
 
 export const MAX_ATTACHMENTS_PER_TURN = 10;
@@ -22,9 +23,9 @@ export function isAttachmentFile(file: { type: string }): boolean {
 /** A file from the clipboard as an attachment (a screenshot or a copied picture has no path on disk to hand to `read_attachment`).
  * Throws the reason when the type isn't one a message carries or the file is too big. */
 export async function fileToAttachment(file: { type: string; size: number; arrayBuffer: () => Promise<ArrayBuffer> }): Promise<Attachment> {
-  if (!isAttachmentFile(file)) throw new Error("Unsupported file type");
+  if (!isAttachmentFile(file)) throw new Error(t("attach.unsupported"));
   if (file.size > MAX_ATTACHMENT_FILE_BYTES) {
-    throw new Error(`This file is ${(file.size / 1024 / 1024).toFixed(1)} MB; the most a message can carry is ${MAX_ATTACHMENT_FILE_BYTES / 1024 / 1024} MB`);
+    throw new Error(t("attach.fileTooBig", { mb: (file.size / 1024 / 1024).toFixed(1), max: MAX_ATTACHMENT_FILE_BYTES / 1024 / 1024 }));
   }
   const bytes = new Uint8Array(await file.arrayBuffer());
   // In pieces: spreading a whole file into `String.fromCharCode` overflows the stack.
@@ -42,10 +43,10 @@ export function isPdf(attachment: Attachment): boolean {
 
 /** Why `incoming` can't join `current` in one message, or `null` when it can. */
 export function checkAttachmentLimits(current: Attachment[], incoming: Attachment): string | null {
-  if (current.length + 1 > MAX_ATTACHMENTS_PER_TURN) return `A message can carry at most ${MAX_ATTACHMENTS_PER_TURN} images or PDFs`;
+  if (current.length + 1 > MAX_ATTACHMENTS_PER_TURN) return t("attach.tooMany", { max: MAX_ATTACHMENTS_PER_TURN });
   const total = [...current, incoming].reduce((sum, a) => sum + a.data.length, 0);
   if (total > MAX_ATTACHMENTS_BASE64_BYTES) {
-    return `The attachments are too big (${(total / 1024 / 1024).toFixed(1)} MB; the most a message can carry is ${MAX_ATTACHMENTS_BASE64_BYTES / 1024 / 1024} MB)`;
+    return t("attach.tooLarge", { mb: (total / 1024 / 1024).toFixed(1), max: MAX_ATTACHMENTS_BASE64_BYTES / 1024 / 1024 });
   }
   return null;
 }

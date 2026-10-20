@@ -1,6 +1,7 @@
 // P157 — how the sidebar lists the conversations it keeps loose (not in a project): the pinned ones first, then by how recently
 // they were used, with the archived ones apart. Pure, so it can be tested without a window.
 
+import { t } from "../i18n/index.ts";
 import type { Conversation } from "../types";
 
 /** One block of the list: a label and its conversations, newest first. */
@@ -17,6 +18,9 @@ export interface GroupedConversations {
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
+/** The blocks by date, from the most recent to the oldest. */
+const LABELS = ["bucket.today", "bucket.yesterday", "bucket.last7", "bucket.last30", "bucket.older"] as const;
+
 /** The start of `now`'s day on this computer's clock. */
 function startOfDay(now: number): number {
   const date = new Date(now);
@@ -27,14 +31,14 @@ function startOfDay(now: number): number {
  * on the calendar, not as 24 hours back, so "Yesterday" is the whole of yesterday). */
 export function bucketLabel(updatedAt: number, now: number): string {
   const today = startOfDay(now);
-  if (updatedAt >= today) return "Today";
+  if (updatedAt >= today) return t(LABELS[0]);
   const yesterday = startOfDay(today - DAY_MS / 2);
-  if (updatedAt >= yesterday) return "Yesterday";
+  if (updatedAt >= yesterday) return t(LABELS[1]);
   const week = startOfDay(today - 6.5 * DAY_MS);
-  if (updatedAt >= week) return "Previous 7 days";
+  if (updatedAt >= week) return t(LABELS[2]);
   const month = startOfDay(today - 29.5 * DAY_MS);
-  if (updatedAt >= month) return "Previous 30 days";
-  return "Older";
+  if (updatedAt >= month) return t(LABELS[3]);
+  return t(LABELS[4]);
 }
 
 /** Splits `conversations` into the pinned, the blocks by date and the archived. The order each came in is kept inside a block, and
@@ -51,7 +55,7 @@ export function groupConversations(conversations: Conversation[], now: number): 
       byLabel.set(label, [...(byLabel.get(label) ?? []), conversation]);
     }
   }
-  const order = ["Today", "Yesterday", "Previous 7 days", "Previous 30 days", "Older"];
+  const order = LABELS.map((key) => t(key));
   const buckets = order.filter((label) => byLabel.has(label)).map((label) => ({ label, items: byLabel.get(label)! }));
   return { pinned, buckets, archived };
 }

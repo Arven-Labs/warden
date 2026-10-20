@@ -3,6 +3,7 @@
 // `Conversation`, `ChatMessage`, a turn's reply, `AgentEntry` and `ProjectEntry`, and `tests/hubMap.test.mjs` runs them
 // with Node. The wire shapes mirror `crates/warden-server-protocol/src/protocol.rs`.
 
+import { t } from "../i18n/index.ts";
 import type {
   AgentEntry,
   Attachment,
@@ -63,7 +64,7 @@ export function truthIdProgress(state: RemoteState | undefined, qr: TruthIdChall
   if (state?.state === "stopped" && state.error) return { kind: "failed", text: state.error };
   if (!qr) return null;
   const left = qrSecondsLeft(qr.expiresAtMs, nowMs);
-  return left > 0 ? { kind: "waiting", text: `Scan it with the TruthID app — ${left}s left` } : { kind: "expired", text: "The QR ran out. Ask for a new one." };
+  return left > 0 ? { kind: "waiting", text: t("truthId.scan", { seconds: left }) } : { kind: "expired", text: t("truthId.expired") };
 }
 
 export interface HubConversationSummary {
@@ -191,10 +192,10 @@ export function decorateLastAnswer(messages: ChatMessage[], extras: TurnExtras):
 export function turnFromReply(reply: unknown): { content: string } & TurnExtras {
   const r = (reply ?? {}) as Record<string, unknown>;
   if (r.type === "chatError") {
-    throw new HubTurnError(String(r.message ?? "the hub could not answer"), typeof r.spendLimitId === "string" ? r.spendLimitId : undefined);
+    throw new HubTurnError(String(r.message ?? t("hub.couldNotAnswer")), typeof r.spendLimitId === "string" ? r.spendLimitId : undefined);
   }
   if (r.type !== "chatResponse") {
-    throw new HubTurnError(`the hub answered with something else (${String(r.type)})`);
+    throw new HubTurnError(t("hub.somethingElse", { type: String(r.type) }));
   }
   const usage = r.usage as Usage | null | undefined;
   const fallbacks = r.fallbacks as ProviderFallback[] | undefined;
@@ -210,8 +211,8 @@ export function turnFromReply(reply: unknown): { content: string } & TurnExtras 
 export function expectReply<T extends { type: string }>(reply: unknown, ...types: string[]): T {
   const r = (reply ?? {}) as { type?: string; message?: string };
   if (r.type && types.includes(r.type)) return reply as T;
-  if (typeof r.type === "string" && r.type.endsWith("Error")) throw new Error(r.message ?? "the hub refused");
-  throw new Error(`the hub answered with something else (${String(r.type)})`);
+  if (typeof r.type === "string" && r.type.endsWith("Error")) throw new Error(r.message ?? t("hub.refused"));
+  throw new Error(t("hub.somethingElse", { type: String(r.type) }));
 }
 
 export function agentFromHub(agent: HubAgent): AgentEntry {
@@ -320,7 +321,7 @@ export interface VaultFailure {
 export function expectVaultReply<T extends { type: string }>(reply: unknown, ...types: string[]): T {
   const r = (reply ?? {}) as { type?: string; message?: string; conflict?: boolean };
   if (r.type === "vaultError") {
-    const failure: VaultFailure = { message: r.message ?? "the hub refused", conflict: r.conflict === true };
+    const failure: VaultFailure = { message: r.message ?? t("hub.refused"), conflict: r.conflict === true };
     throw failure;
   }
   return expectReply<T>(reply, ...types);

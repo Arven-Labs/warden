@@ -2,6 +2,8 @@
 // folder on a node, written `node:<device id>:<path>` with the path relative to the folder the node lends ("" is that
 // folder itself). Mirrors `warden_bootstrap::node_folder` and the web's `hub/workdir.ts`. Pure: tests/workdir.test.mjs.
 
+import { t } from "../i18n/index.ts";
+
 /** What the picker needs of a node (the hub's `NodeInfoDto`, only these fields). */
 export interface NodeInfo {
   deviceId: string;
@@ -44,7 +46,7 @@ export function folderLabel(workdir: string, nodes: NodeInfo[] = []): string {
   const onNode = parseNodeFolder(workdir);
   if (!onNode) return lastName(workdir);
   const machine = nodes.find((n) => n.deviceId === onNode.node)?.name ?? onNode.node;
-  return `${onNode.path ? lastName(onNode.path) : "shared folder"} · ${machine}`;
+  return `${onNode.path ? lastName(onNode.path) : t("folder.shared")} · ${machine}`;
 }
 
 /** The full place, for a tooltip or the browser's header. */

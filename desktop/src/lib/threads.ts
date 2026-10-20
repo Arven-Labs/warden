@@ -1,6 +1,7 @@
 // P125 — threads: a child conversation tied to one message of another, on a hub. Pure, so it can be tested without a window. Mirrors
 // `web/src/hub/threads.ts`.
 
+import { plural } from "../i18n/index.ts";
 import type { ChatMessage, Conversation } from "../types";
 
 /** The start of the id of an agent's channel (P121): the one conversation an agent keeps with the person. Same as the hub's `CHANNEL_PREFIX`. */
@@ -56,7 +57,7 @@ export function threadHistory(parent: Conversation, messageId: string, thread: C
 
 /** What the chip of a message says: `1 reply`, `3 replies`. */
 export function repliesLabel(replies: number): string {
-  return replies === 1 ? "1 reply" : `${replies} replies`;
+  return plural(replies, "replies.one", "replies.many");
 }
 
 /** The id a thread can start from: on a hub, only a message read from it has one; on this computer every saved message does (its own
