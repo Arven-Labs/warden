@@ -185,7 +185,7 @@ mod tests {
         let config_path = std::env::temp_dir().join("warden-sync-pull-test-no-config.toml");
 
         let err = pull(&arweave, &vault, &config_path, &secrets, manifest).await.unwrap_err();
-        assert!(err.to_string().contains("pareado"));
+        assert!(err.to_string().contains("not paired"));
     }
 
     #[tokio::test]
@@ -263,6 +263,6 @@ mod tests {
 
         let (outcome, _) = pull(&arweave, &dest, &config_path, &secrets, manifest).await.unwrap();
         assert_eq!(outcome.files_written, 0);
-        assert!(outcome.warnings.iter().any(|w| w.contains("atualizado")));
+        assert!(outcome.warnings.iter().any(|w| w.contains("up to date")));
     }
 }
