@@ -13,7 +13,8 @@
 - **Feito**: todas as telas (conexão, seletor de pasta, QR, chat, agentes, uso, convites de dispositivo, organização do membro, skills, sync, conta) por `AppLocalizations.of(context)`; os serviços de rótulo (`approval_categories`, `side_work`, `activity`, `agent_work`, `conversation_groups`) recebem o `l10n` por parâmetro; as notificações usam `AppLanguage.current()`. A ação de balão passou a ter um `id` (a chave do widget não depende mais do rótulo). `DiffLine` ganhou `count` para o "N linhas iguais".
 - **Testes**: `test/helpers/test_app.dart` (`testApp`) nos testes de widget, os de serviço checam inglês e português, `test/l10n_test.dart` novo (mesmas chaves e `{nomes}` nos dois catálogos, detecção, gravação, troca em tempo de execução). `flutter analyze` limpo, 319 de 319.
 - **Fica em inglês**: o texto que o hub manda cru, os erros do bridge Rust, o `defaultDeviceName()` e o `android:label`.
-- **Não feito**: conferência visual em pt no aparelho; CI do mobile com o i18n (conferir após o push); P136b (comentários, logs e testes em português).
+- **CI**: commits `f125787`, `0430164` e `fa92441` empurrados; CI verde no run 39520796175.
+- **Não feito**: conferência visual em pt no aparelho; P136b (comentários, logs e testes em português).
 
 ---
 
