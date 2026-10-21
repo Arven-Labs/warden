@@ -61,11 +61,11 @@ import type { OrgAgent, OrgEdit } from "./org";
 export interface UserList {
   users: UserInfo[];
   tempPassword?: string;
-  /** The invite just made for a TruthID link (P84 fatia 5), shown once. */
+  /** The invite just made for a TruthID link (P84 slice 5), shown once. */
   inviteCode?: string;
   /** Members removed whose encrypted data is still on the hub; `restoreUser` brings them back. */
   removed: RemovedUser[];
-  /** The workspace's recovery policy (P84 fatia 4 parte B): "private", "consent" or "company". */
+  /** The workspace's recovery policy (P84 slice 4 parte B): "private", "consent" or "company". */
   recoveryPolicy?: string;
 }
 
@@ -389,7 +389,7 @@ export class ServerConnection {
     return () => this.orgAccessListeners.delete(listener);
   }
 
-  /** P84 fatia 4: the hub turned encryption on for this member's data when they signed in and sent the
+  /** P84 slice 4: the hub turned encryption on for this member's data when they signed in and sent the
    * recovery code that goes with it. It may have arrived before anyone listened, so the first listener
    * gets it right away. */
   onRecoveryCode(listener: (code: string) => void): () => void {
@@ -1079,7 +1079,7 @@ export class ServerConnection {
     return { ...(reply.recoveryCode !== undefined && { recoveryCode: reply.recoveryCode }) };
   }
 
-  /** P84 fatia 4: a new recovery code, shown once; the old one stops working. Rejects with `UserError`
+  /** P84 slice 4: a new recovery code, shown once; the old one stops working. Rejects with `UserError`
    * (`authRejected`: the password was wrong). */
   async regenerateRecoveryCode(password: string): Promise<string> {
     const reply = await this.request((requestId) => ({ type: "regenerateRecoveryCode", requestId, password }));
@@ -1107,7 +1107,7 @@ export class ServerConnection {
     return this.userRequest((requestId) => ({ type: "restoreUser", requestId, pairingKey, id }));
   }
 
-  /** P84 fatia 5: an invite for a member to link their TruthID, in the reply once. */
+  /** P84 slice 5: an invite for a member to link their TruthID, in the reply once. */
   async createInvite(pairingKey: string, id: string): Promise<UserList> {
     return this.userRequest((requestId) => ({ type: "createInvite", requestId, pairingKey, id }));
   }
@@ -1129,7 +1129,7 @@ export class ServerConnection {
     return this.userRequest((requestId) => ({ type: "removeUser", requestId, pairingKey, id }));
   }
 
-  /** P84 fatia 2: the tools a member may use (`null`: the safe default). Rejects with `UserError`. */
+  /** P84 slice 2: the tools a member may use (`null`: the safe default). Rejects with `UserError`. */
   async setUserTools(pairingKey: string, id: string, tools: string[] | null): Promise<UserList> {
     return this.userRequest((requestId) => ({ type: "setUserTools", requestId, pairingKey, id, tools }));
   }
@@ -1164,7 +1164,7 @@ export class ServerConnection {
     return { settings: reply.settings, version: reply.version, secretsWritable: reply.secretsWritable };
   }
 
-  /** P84 fatia 3: the shared spaces — every one for the owner, a member's own for them. */
+  /** P84 slice 3: the shared spaces — every one for the owner, a member's own for them. */
   async listSpaces(): Promise<SpaceInfo[]> {
     return this.spaceRequest((requestId) => ({ type: "listSpaces", requestId }));
   }
@@ -1225,7 +1225,7 @@ export class ServerConnection {
     };
   }
 
-  /** P84 fatia 4 parte B: the owner sets the workspace's recovery policy. `secret` is the owner's recovery
+  /** P84 slice 4 parte B: the owner sets the workspace's recovery policy. `secret` is the owner's recovery
    * key, only when one was just made — shown once, never kept. Rejects with `UserError`. */
   async setRecoveryPolicy(pairingKey: string, policy: string, newKey = false): Promise<{ policy: string; secret?: string }> {
     const reply = await this.request((requestId) => ({ type: "setRecoveryPolicy", requestId, pairingKey, policy, newKey }));

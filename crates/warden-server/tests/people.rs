@@ -1,4 +1,4 @@
-//! P84, fatia 1, on a real hub: the owner (pairing key) and a member (username and password) on the
+//! P84, slice 1, on a real hub: the owner (pairing key) and a member (username and password) on the
 //! same `Server` at once. The member starts on a provisional password and can do nothing but change
 //! it; then their agent writes to their own vault, never the owner's; conversations don't mix; they
 //! get none of the tools or screens that reach what's the owner's; and removing them closes them out.
@@ -344,7 +344,7 @@ async fn ana_ready(hub: &Hub) -> ServerConnection {
 }
 
 /// Ana's vault as the hub opens it: her data is encrypted on disk, so the test needs her password
-/// (P84 fatia 4) to read what her agent wrote.
+/// (P84 slice 4) to read what her agent wrote.
 fn ana_vault(hub: &Hub, password: &str) -> Vault {
     let config = warden_bootstrap::load_config_from_path(&hub.dir.join("config.toml"), false).unwrap();
     let user = config.users.iter().find(|u| u.id == "ana").unwrap();
@@ -680,7 +680,7 @@ async fn a_member_sees_only_the_folders_the_owner_shares_with_her() {
     assert!(hub.dir.join("vault/casa/lista.md").exists() && hub.dir.join("vault/casa/nova.md").exists());
 }
 
-// ---- fatia 4: a member's data is encrypted on disk ----------------------------------------------
+// ---- slice 4: a member's data is encrypted on disk ----------------------------------------------
 
 /// Every folder and file name under `dir`, and every file's bytes, as one string.
 fn everything_on_disk(dir: &std::path::Path) -> String {
@@ -794,7 +794,7 @@ async fn after_the_owner_resets_her_password_only_her_recovery_code_brings_the_d
 #[tokio::test]
 async fn a_member_from_before_gets_her_data_encrypted_when_she_signs_in() {
     let hub = spin_up().await;
-    // Ana as she was before fatia 4: her own password, plain files and a plain conversation.
+    // Ana as she was before slice 4: her own password, plain files and a plain conversation.
     let config_path = hub.dir.join("config.toml");
     let mut config = warden_bootstrap::load_config_from_path(&config_path, false).unwrap();
     config.users[0].must_change_password = false;
@@ -847,7 +847,7 @@ async fn a_member_asks_for_a_new_recovery_code_with_her_password() {
     assert!(matches!(reply(&mut owner).await, ServerMessage::UserError { .. }));
 }
 
-// ---- fatia 4, parte B: recovery policies -------------------------------------------------------
+// ---- slice 4, parte B: recovery policies -------------------------------------------------------
 
 /// The owner sets the workspace's recovery policy; the private half of their recovery key comes back
 /// only when one was made.

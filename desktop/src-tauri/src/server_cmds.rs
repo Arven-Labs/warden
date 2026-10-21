@@ -1,4 +1,4 @@
-//! Tauri commands backing the desktop app embedding its own `warden-server` hub (Fase 9.1
+//! Tauri commands backing the desktop app embedding its own `warden-server` hub (Phase 9.1
 //! follow-up, "virar o hub desta rede") instead of that always being a separate process the
 //! operator has to start by hand. Reuses the exact same `warden_server::Server`/paths the
 //! standalone binary would — `AppState.orchestrator` (the same one the desktop's own chat already
@@ -159,7 +159,7 @@ fn check_embedded_server_config(config: &EmbeddedServerConfig) -> Result<(), Str
         (Some(_), Some(_)) if config.tailscale_cert => {
             return Err("Pick only one: HTTPS through Tailscale or your own certificate".to_string());
         }
-        (None, None) if config.tls_host.is_some() => return Err("O nome do certificado só vale com um certificado próprio".to_string()),
+        (None, None) if config.tls_host.is_some() => return Err("The certificate name only applies with your own certificate".to_string()),
         _ => {}
     }
     Ok(())
@@ -328,7 +328,7 @@ pub fn embedded_server_status(state: State<'_, AppState>) -> EmbeddedServerStatu
     }
 }
 
-/// Shared by `start_embedded_server` and `run()`'s auto-start-on-launch (Fase 9.1 follow-up) —
+/// Shared by `start_embedded_server` and `run()`'s auto-start-on-launch (Phase 9.1 follow-up) —
 /// builds and spawns the real `warden_server::Server`, wired to `serve_until` so the returned
 /// handle's `shutdown_tx` actually stops it and frees the port later.
 pub(crate) async fn start_embedded_server_inner(state: &AppState, config: &EmbeddedServerConfig) -> anyhow::Result<EmbeddedServerHandle> {

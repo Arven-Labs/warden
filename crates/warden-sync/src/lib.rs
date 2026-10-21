@@ -1,7 +1,7 @@
 //! Decentralized vault + `config.toml` sync via Arweave, paid through the TruthID app's `pin()`
 //! mechanism (P37) — manual "Send"/"Pull", incremental (hash-per-file diff), everything encrypted
 //! client-side before it ever reaches TruthID/Arweave. See `project/ARCHITECTURE.md` ("Sync
-//! descentralizado (Fase 4)") for the full design rationale.
+//! descentralizado (Phase 4)") for the full design rationale.
 //!
 //! `SyncEngine` is the one surface callers (desktop, CLI) need for the Arweave backend —
 //! everything else in this crate is internal plumbing it composes: `manifest` (on-disk secrets/
@@ -94,7 +94,7 @@ impl SyncEngine {
     /// the same key from an already-initialized one.
     pub fn init_fresh(&self) -> anyhow::Result<()> {
         if self.is_initialized() {
-            anyhow::bail!("sync já foi inicializado neste dispositivo ({})", self.secrets_path.display());
+            anyhow::bail!("sync was already initialized on this device ({})", self.secrets_path.display());
         }
         manifest::save_secrets(&self.secrets_path, &manifest::generate_secrets())?;
         manifest::save_manifest(&self.manifest_path, &manifest::SyncManifest { version: 1, ..Default::default() })?;
@@ -203,12 +203,12 @@ impl SyncEngine {
 
     fn load_secrets(&self) -> anyhow::Result<manifest::SyncSecrets> {
         manifest::load_secrets(&self.secrets_path)?
-            .ok_or_else(|| anyhow::anyhow!("sync ainda não foi inicializado neste dispositivo — rode init_fresh ou pareie com um dispositivo existente primeiro"))
+            .ok_or_else(|| anyhow::anyhow!("sync has not been initialized on this device yet — run init_fresh or pair with an existing device first"))
     }
 
     fn adopt_joined_material(&self, material: pairing::JoinedKeyMaterial) -> anyhow::Result<()> {
         if self.is_initialized() {
-            anyhow::bail!("este dispositivo já tem sync configurado — parear agora sobrescreveria a chave existente");
+            anyhow::bail!("this device already has sync set up — pairing now would overwrite the existing key");
         }
         let secrets = manifest::SyncSecrets { version: 1, device_id: manifest::generate_device_id(), vault_key: material.vault_key };
         manifest::save_secrets(&self.secrets_path, &secrets)?;

@@ -127,7 +127,7 @@ pub async fn spin_up_server(provider: MockProvider) -> std::net::SocketAddr {
 }
 
 /// Same as `spin_up_server`, but also hands back the path of this server's (fresh, empty)
-/// pairing registry — needed by any test that exercises `CallDeviceTool` (Fase 9.3 requires the
+/// pairing registry — needed by any test that exercises `CallDeviceTool` (Phase 9.3 requires the
 /// caller and target to be `Approved` there first, see `warden_server::PairingStore`).
 pub async fn spin_up_server_with_devices_path(provider: MockProvider) -> (std::net::SocketAddr, std::path::PathBuf) {
     spin_up_server_with_revocation_check(provider, warden_server::server::DEFAULT_REVOCATION_CHECK_INTERVAL).await

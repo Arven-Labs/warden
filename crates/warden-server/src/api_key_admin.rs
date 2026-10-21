@@ -3,7 +3,7 @@
 //! creating or revoking asks for the pairing key again, with the same 1 s wait and the same per-hub
 //! lock as a settings save, so they all share one guessing rate.
 //!
-//! P84 fatia 2: a member has keys of their own. They see and change only theirs, confirming with
+//! P84 slice 2: a member has keys of their own. They see and change only theirs, confirming with
 //! their own password where the owner gives the pairing key, and a key they make can only speak as
 //! an agent they see.
 

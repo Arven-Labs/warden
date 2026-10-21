@@ -61,7 +61,7 @@ pub async fn pull_with_oauth(
 ) -> anyhow::Result<(PullOutcome, SyncManifest)> {
     let Some(owner) = manifest.owner_address.clone() else {
         anyhow::bail!(
-            "ainda não pareado — pareie com um dispositivo que já sincronizou, ou envie uma vez a partir deste dispositivo primeiro"
+            "not paired yet — pair with a device that has already synced, or push once from this device first"
         );
     };
 
@@ -70,7 +70,7 @@ pub async fn pull_with_oauth(
     };
 
     if manifest.last_tx_id.as_deref() == Some(tx_id.as_str()) {
-        return Ok((PullOutcome::up_to_date(Some(tx_id), "já está atualizado"), manifest));
+        return Ok((PullOutcome::up_to_date(Some(tx_id), "already up to date"), manifest));
     }
 
     let blob = arweave.fetch_tx_data(&tx_id).await?;
@@ -78,7 +78,7 @@ pub async fn pull_with_oauth(
 
     if decoded_bundle.manifest_counter <= manifest.manifest_counter {
         let warning =
-            "o snapshot remoto parece mais antigo (ou igual) ao que já foi aplicado — ignorado para não sobrescrever um estado local mais novo"
+            "the remote snapshot looks older than (or the same as) the one already applied — ignored so as not to overwrite a newer local state"
                 .to_string();
         return Ok((PullOutcome::up_to_date(Some(tx_id), &warning), manifest));
     }
@@ -92,13 +92,13 @@ pub async fn pull_with_oauth(
         let current_hash = std::fs::read(vault.root().join(relative)).ok().map(|bytes| sha256_hex(&bytes));
         let known_hash = manifest.vault_files.get(relative).cloned();
         if current_hash != known_hash {
-            warnings.push(format!("mudança local em {relative} foi sobrescrita pelo pull"));
+            warnings.push(format!("local change to {relative} was overwritten by the pull"));
         }
     }
     if decoded_bundle.config_toml.is_some() || decoded_bundle.config_deleted {
         let current_hash = std::fs::read(config_path).ok().map(|bytes| sha256_hex(&bytes));
         if current_hash != manifest.config_hash {
-            warnings.push("mudança local em config.toml foi sobrescrita pelo pull".to_string());
+            warnings.push("local change to config.toml was overwritten by the pull".to_string());
         }
     }
 

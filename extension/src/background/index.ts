@@ -1,5 +1,5 @@
 /**
- * Background service worker (Fase 8.1/8.2) — owns the single `ServerConnection` instance and
+ * Background service worker (Phase 8.1/8.2) — owns the single `ServerConnection` instance and
  * this session's chat history. Lives here (never in the side panel, which the user can close
  * independently) so the connection survives the panel opening/closing repeatedly while the user
  * chats.
@@ -10,7 +10,7 @@
  * together, and the next connect brings the transcript back. Only which conversation was open is
  * kept in `chrome.storage`, so it reopens on the next connect. No automatic
  * reconnect either: a fresh service worker reports `disconnected`, and the panel shows the
- * connection form again — same accepted gap `server_connection.dart` (Fase 7.2) drew, see its doc
+ * connection form again — same accepted gap `server_connection.dart` (Phase 7.2) drew, see its doc
  * comment.
  */
 

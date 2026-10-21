@@ -1,4 +1,4 @@
-//! Fase 9.3 — persistent device pairing, the piece 9.4/9.5's routing (`CallDeviceTool`) was
+//! Phase 9.3 — persistent device pairing, the piece 9.4/9.5's routing (`CallDeviceTool`) was
 //! missing: knowing the shared `auth_key` is enough to `Hello` and chat, but routing a tool call
 //! to (or from) a device now also requires that device to have been explicitly `approve`d by the
 //! operator (via `warden-server devices approve <id>`, `main.rs`) — not just present and using the

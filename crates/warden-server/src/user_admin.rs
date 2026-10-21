@@ -150,7 +150,7 @@ pub async fn handle_user_change(
     }
 }
 
-/// Where the hub keeps people's data, to open a member's (P84 fatia 4).
+/// Where the hub keeps people's data, to open a member's (P84 slice 4).
 #[derive(Clone, Copy)]
 pub struct DataDirs<'a> {
     /// Every member's folder (`warden_bootstrap::users::default_users_dir`).
@@ -182,7 +182,7 @@ impl DataDirs<'_> {
 
 /// Signing in with the password is the one moment the hub can open a member's key, so it does it
 /// here, before the connection gets a vault: it opens the key (and holds it), or — for a member
-/// from before fatia 4 who's on their own password — creates one and encrypts what they have.
+/// from before slice 4 who's on their own password — creates one and encrypts what they have.
 /// Returns the recovery code when that turned encryption on: shown to them once. `Ok(None)` when
 /// there's nothing to open (no key yet, or the owner reset the password and the recovery code has
 /// to open it first).
@@ -297,7 +297,7 @@ pub async fn handle_regenerate_recovery_code(settings: Option<&dyn SettingsHost>
     }
 }
 
-/// Answers `RedeemInvite` (P84 fatia 5): the member, already signed in, links the TruthID `username`
+/// Answers `RedeemInvite` (P84 slice 5): the member, already signed in, links the TruthID `username`
 /// with the owner's invite `code`, which has to be theirs. The registry on Base is asked first, with
 /// no lock held, since that's a network call; then the invite is checked and used under the lock.
 /// Linking proves nothing about who controls that TruthID — signing in with it will (a later slice).

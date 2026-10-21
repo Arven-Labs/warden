@@ -1,4 +1,4 @@
-//! Semantic search over the vault (Fase 4.5) — chunking, hashing and the on-disk index format.
+//! Semantic search over the vault (Phase 4.5) — chunking, hashing and the on-disk index format.
 //! `TextEmbedding` itself (the ONNX model) is owned by `Vault`, not this module, since it needs to
 //! be loaded once and reused across calls.
 

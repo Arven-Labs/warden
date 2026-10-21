@@ -11,11 +11,11 @@ interface Props {
   name: string;
   /** `true` on the provisional password: nothing else works until it's changed, so there's no way back. */
   required: boolean;
-  /** P84 fatia 4: the owner reset the password of someone whose data is encrypted — the recovery code opens it. */
+  /** P84 slice 4: the owner reset the password of someone whose data is encrypted — the recovery code opens it. */
   needsRecovery?: boolean;
   /** Their data is encrypted, so they can ask for a new recovery code. */
   encrypted?: boolean;
-  /** The TruthID they already linked (P84 fatia 5), if any. */
+  /** The TruthID they already linked (P84 slice 5), if any. */
   truthid?: string;
   /** `recoveryCode`: this change turned encryption on — it has to be shown to them. */
   onDone: (recoveryCode?: string) => void;
@@ -124,7 +124,7 @@ export default function ChangePasswordView({ conn, name, required, needsRecovery
   );
 }
 
-/** P84 fatia 5: the member links their TruthID with the invite the owner gave them. Linking says who they
+/** P84 slice 5: the member links their TruthID with the invite the owner gave them. Linking says who they
  * are on TruthID; signing in with it comes later. */
 function LinkTruthId({ conn, linked }: { conn: ServerConnection; linked?: string }) {
   const [code, setCode] = useState("");

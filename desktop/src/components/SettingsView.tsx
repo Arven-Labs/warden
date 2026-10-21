@@ -155,7 +155,7 @@ const providerKindOptions = (): { value: ProviderKind; label: string }[] => [
   { value: "cloud", label: t("st.kind.cloud") },
 ];
 
-/** Known-good starting points for popular integrations — researched 2026-08-29 (Sessão 35; see
+/** Known-good starting points for popular integrations — researched 2026-08-29 (Session 35; see
  * ARCHITECTURE.md for why GitHub goes through Docker). Env/header values are left blank on
  * purpose — the user fills in their own secret after picking a preset. */
 const mcpPresets = (): { label: string; server: McpServer }[] => [
@@ -167,7 +167,7 @@ const mcpPresets = (): { label: string; server: McpServer }[] => [
     server: { name: "github", command: "docker", args: ["run", "-i", "--rm", "-e", "GITHUB_PERSONAL_ACCESS_TOKEN", "ghcr.io/github/github-mcp-server"], env: { GITHUB_PERSONAL_ACCESS_TOKEN: "" } },
   },
   {
-    // Verified endpoint (2026-08-31, Sessão 36 / P25): https://mcp.slack.com/mcp, Streamable
+    // Verified endpoint (2026-08-31, Session 36 / P25): https://mcp.slack.com/mcp, Streamable
     // HTTP, real OAuth (discovery + Dynamic Client Registration + browser consent — see
     // PENDING.md P26). Click "Connect" on this card after saving to authorize it.
     label: t("st.mcp.slack"),

@@ -1439,7 +1439,7 @@ async fn cmd_extend(terminal: &mut CliTerminal, session: &CliSession, id: String
     }
 }
 
-/// How long ago something happened, in the same words the web screen uses ("agora", "há N min", "há N h", "há N d").
+/// How long ago something happened, in the same words the web screen uses ("now", "N min ago", "N h ago", "N d ago"), in the current language.
 fn ago_label(then_ms: u64, now_ms: u64) -> String {
     let minutes = now_ms.saturating_sub(then_ms) / 60_000;
     match minutes {
@@ -1494,13 +1494,13 @@ async fn cmd_grants_revoke(terminal: &mut CliTerminal, session: &CliSession, cov
     }
 }
 
-// --- Wizard de `[[limits]]`/`[[prices]]` (P4) ---------------------------------------------------
+// --- `[[limits]]`/`[[prices]]` wizard (P4) ------------------------------------------------------
 //
-// `/limits`/`/extend` (acima) só leem o estado já em vigor; o que segue escreve `config.toml`, no
-// mesmo molde do wizard de SSH (`prompt_ssh_host` e cia, mais abaixo neste arquivo): um `prompt_*`
-// que monta a struct inteira campo a campo (cancelável a qualquer ponto, `Esc`/`Ctrl+C`), validada
-// de verdade por `LimitConfig::to_limit()` — a mesma regra que o startup e a tela do desktop usam —
-// e um `wizard_*`/`cmd_*` por comando que carrega, aplica e salva.
+// `/limits`/`/extend` (above) only read the state already in force; what follows writes `config.toml`, in the
+// same mold as the SSH wizard (`prompt_ssh_host` and friends, further down in this file): one `prompt_*`
+// that builds the whole struct field by field (cancellable at any point, `Esc`/`Ctrl+C`), validated
+// for real by `LimitConfig::to_limit()` — the same rule the startup and the desktop screen use —
+// and one `wizard_*`/`cmd_*` per command that loads, applies and saves.
 
 /// Loops a single wizard field through a pure parser until it's valid, re-prompting with the
 /// parser's own error card — the same shape `prompt_provider_kind` uses for its one `match`,

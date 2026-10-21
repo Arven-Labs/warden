@@ -4,7 +4,7 @@ import 'package:saf_stream/saf_stream.dart';
 import 'package:saf_util/saf_util.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-/// Read-only file access on the phone (Fase 7.4) — the model's `list_phone_files`/`read_phone_file` tools,
+/// Read-only file access on the phone (Phase 7.4) — the model's `list_phone_files`/`read_phone_file` tools,
 /// scoped to one root folder the user picks once (Settings-style, mirrors the desktop's
 /// `vault_path`: no per-call picker interrupting the model mid-turn).
 ///
@@ -79,7 +79,7 @@ class MobileFileTool {
     }
   }
 
-  /// Wire shape sent in `Hello.tools` (Fase 7.4) — mirrors
+  /// Wire shape sent in `Hello.tools` (Phase 7.4) — mirrors
   /// `crates/warden-core/src/tool/file_tools.rs`'s `ToolSpec` shape, scoped to this tool's
   /// opaque-path semantics rather than the vault's human-readable relative paths.
   static const listFilesSpec = {

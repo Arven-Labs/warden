@@ -8,7 +8,7 @@ anyhow.workspace = true
 # P84: members' passwords, stored only as an Argon2id hash in `[[users]]`.
 argon2 = "0.5"
 async-trait.workspace = true
-# P84 fatia 4: a member's key and recovery code are kept wrapped as base64 text in `config.toml`.
+# P84 slice 4: a member's key and recovery code are kept wrapped as base64 text in `config.toml`.
 base64.workspace = true
 # P92: scheduled tasks — cron expressions, and the IANA time zone a task runs in.
 chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
@@ -30,9 +30,9 @@ toml.workspace = true
 toml_edit.workspace = true
 # P102: the address of a saved hub (`saved_hubs.rs`) — already in the tree through the WebSocket stack.
 url = "2"
-# P84 fatia 4: wipes a member's key from memory when it's no longer in use.
+# P84 slice 4: wipes a member's key from memory when it's no longer in use.
 zeroize = "1"
-# P84 fatia 4 parte B: the owner's recovery key is a secp256k1 pair (`recovery.rs`), sealed to with the
+# P84 slice 4 parte B: the owner's recovery key is a secp256k1 pair (`recovery.rs`), sealed to with the
 # ECIES `warden-truthid` already has (both are already in the tree through `warden-sync`).
 k256 = "0.13"
 warden-truthid = { path = "../warden-truthid" }

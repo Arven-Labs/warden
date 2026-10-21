@@ -34,7 +34,7 @@ pub struct Vault {
     /// folders in a member's vault). `None` for an ordinary vault, where `MOUNTS_DIR` is just a
     /// folder like any other; `Some` (even empty) makes that folder the mounts' alone.
     mounts: RwLock<Option<Vec<Mount>>>,
-    /// A member's vault (P84, fatia 4): what every file holds, and every folder and file name, is
+    /// A member's vault (P84, slice 4): what every file holds, and every folder and file name, is
     /// encrypted on disk. `None` for the owner's vault and for a shared folder, which stay plain.
     /// Paths given to and returned by this type are always the readable ones; only `path_of`
     /// (where a file is on disk) shows the encrypted spelling.
@@ -87,7 +87,7 @@ impl Vault {
         Self::build(root.into(), None)
     }
 
-    /// A vault whose files and names are encrypted on disk with `cipher` (P84, fatia 4).
+    /// A vault whose files and names are encrypted on disk with `cipher` (P84, slice 4).
     pub fn new_encrypted(root: impl Into<PathBuf>, cipher: Arc<VaultCipher>) -> Self {
         Self::build(root.into(), Some(cipher))
     }
@@ -337,7 +337,7 @@ impl Vault {
     }
 
     /// Every regular file in the vault, any extension — unlike `list_files`, which only returns
-    /// `.md` (the memory `search` reads). Used by sync (Fase 4/P37), which mirrors the whole
+    /// `.md` (the memory `search` reads). Used by sync (Phase 4/P37), which mirrors the whole
     /// vault, not just the markdown subset. Skips dotfiles/dot-directories (OS/editor cruft like
     /// `.DS_Store`, `.git`) — same "good enough for v1" posture as `search`'s naive grep.
     pub fn list_all_files(&self) -> anyhow::Result<Vec<PathBuf>> {
@@ -851,7 +851,7 @@ mod tests {
         assert!(all.contains(&"skills/review.md".to_string()));
     }
 
-    /// P84 fatia 4: a member's vault, encrypted on disk.
+    /// P84 slice 4: a member's vault, encrypted on disk.
     fn encrypted_vault() -> (Vault, PathBuf) {
         let dir = std::env::temp_dir().join(format!(
             "warden-vault-enc-{}",

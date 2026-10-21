@@ -41,7 +41,7 @@ export default function ConnectionForm({ savedSettings, errorMessage, busy, onCo
     setHubs(null);
   }
 
-  // Fase 9.1 (redefined) — sweeps the LAN instead of asking the user to already know the IP. Only
+  // Phase 9.1 (redefined) — sweeps the LAN instead of asking the user to already know the IP. Only
   // ever fills host/port: the probe's reply never carries the auth key, so that stays manual.
   // Sweeps whatever port is already typed in the form (same field used for manual connect) so a
   // hub started with `--listen` on a non-default port is still discoverable.

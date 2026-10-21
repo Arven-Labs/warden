@@ -9,7 +9,7 @@ interface Props {
   onDone: () => void;
 }
 
-/** P84 fatia 4: the recovery code of a member's encrypted data, shown once. It's the only way back to
+/** P84 slice 4: the recovery code of a member's encrypted data, shown once. It's the only way back to
  * the data if the password is lost or the owner resets it, so the screen doesn't go away until the
  * person says they wrote it down. */
 export default function RecoveryCodeView({ code, replacing = false, onDone }: Props) {

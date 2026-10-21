@@ -2200,7 +2200,7 @@ body {
   flex: 0 0 40%;
 }
 
-/* Workspace view (Fase 9.6) */
+/* Workspace view (Phase 9.6) */
 
 .workspace-device-list {
   display: flex;
@@ -2248,7 +2248,7 @@ body {
   flex-shrink: 0;
 }
 
-/* Discovered-hub rows (Fase 9.1, redefined) are `<button>`s picking a Server URL, not device
+/* Discovered-hub rows (Phase 9.1, redefined) are `<button>`s picking a Server URL, not device
    entries — reset the button defaults so they still read as a plain list item. */
 .workspace-device-row--clickable {
   width: 100%;

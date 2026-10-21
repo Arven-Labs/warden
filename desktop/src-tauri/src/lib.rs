@@ -71,7 +71,7 @@ struct AppState {
     /// `open_generated_file` (P64) confines every path it's willing to open to, so a path a
     /// malicious/prompt-injected tool result claimed can never be opened outside of it.
     generated_files_root: PathBuf,
-    /// Set while the desktop is embedding its own `warden-server` hub (Fase 9.1 follow-up, "virar
+    /// Set while the desktop is embedding its own `warden-server` hub (Phase 9.1 follow-up, "virar
     /// o hub desta rede") — `None` when stopped. See `server_cmds.rs`.
     embedded_server: Mutex<Option<server_cmds::EmbeddedServerHandle>>,
     /// Actions waiting for the user's yes/no (P47 SSH, P46 `manage_agents`) — see `approval::TauriApprover`.
@@ -435,7 +435,7 @@ fn stop_recording(state: State<'_, AppState>) -> Result<AttachmentPayload, Strin
     Ok(AttachmentPayload { mime_type: "audio/wav".to_string(), data })
 }
 
-/// One entry of the provider registry (Sessão 35), as read/written by the Settings screen.
+/// One entry of the provider registry (Session 35), as read/written by the Settings screen.
 /// API keys are returned in plain text (the user's own explicit choice for this app — shown
 /// masked with a reveal toggle client-side) rather than just a "configured" boolean, since the
 /// form is meant to be directly editable. Empty string means "not set" throughout, mirroring the
@@ -854,7 +854,7 @@ async fn save_settings(state: State<'_, AppState>, payload: SettingsFormPayload)
         legacy_fallback_providers: Vec::new(),
         mcp_servers,
         agents,
-        // Read and dropped (Sessão 105): the vault always lives locally now.
+        // Read and dropped (Session 105): the vault always lives locally now.
         legacy_storage_provider: None,
         legacy_remote_node: None,
         git_sync,
@@ -875,13 +875,13 @@ async fn save_settings(state: State<'_, AppState>, payload: SettingsFormPayload)
         nodes: existing.nodes,
         // People (P84) are managed on the Workspace screen and the hub, not this form.
         users: existing.users,
-        // Removed members keep their wrapped key here (P84 fatia 4): dropping it would lose their data.
+        // Removed members keep their wrapped key here (P84 slice 4): dropping it would lose their data.
         removed_users: existing.removed_users,
         // The workspace's recovery policy and the owner's public key (parte B) are set with `warden-server recovery`.
         recovery_policy: existing.recovery_policy,
         recovery_public_key: existing.recovery_public_key,
         spaces: existing.spaces,
-        // Where a member's TruthID is looked up (fatia 5) is set in the config file.
+        // Where a member's TruthID is looked up (slice 5) is set in the config file.
         truthid_network: existing.truthid_network,
         truthid_rpc_url: existing.truthid_rpc_url,
         truthid_public_url: existing.truthid_public_url,
@@ -1208,7 +1208,7 @@ pub fn run() {
     // The engine goes where `code_task` looks, following the orchestrator the desktop holds; nothing starts until a task asks.
     app_state.code.install_engine(app_state.orchestrator.clone());
 
-    // Fase 9.1 follow-up ("virar o hub desta rede") — a previously-enabled embedded server comes
+    // Phase 9.1 follow-up ("virar o hub desta rede") — a previously-enabled embedded server comes
     // back up on every launch, same always-on-service expectation as Jellyfin/similar self-hosted
     // apps; the operator flips it off explicitly (`stop_embedded_server`) rather than it silently
     // needing to be turned back on by hand every time.

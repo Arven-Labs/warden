@@ -9,7 +9,7 @@ import 'package:stream_channel/stream_channel.dart';
 
 import '../helpers/test_app.dart';
 
-// P84 fatia 4 and 5 on the phone: the recovery code can't be dismissed before it's saved, the recovery
+// P84 slice 4 and 5 on the phone: the recovery code can't be dismissed before it's saved, the recovery
 // code field shows only after an owner's reset, and the answers of the hub reach the screens.
 
 Future<(ServerConnection, StreamChannelController<dynamic>, StreamQueue<dynamic>)> memberConnection({String user = '{"id":"ana","name":"Ana","role":"member","mustChangePassword":false}'}) async {

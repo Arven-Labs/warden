@@ -165,10 +165,10 @@ export default function App() {
   const [user, setUser] = useState<UserInfo | undefined>(undefined);
   /** A member asked to change their password (the provisional one forces it without asking). */
   const [changingPassword, setChangingPassword] = useState(false);
-  /** P84 fatia 4: a recovery code of the member's encrypted data, waiting to be shown once. `replacing`: it
+  /** P84 slice 4: a recovery code of the member's encrypted data, waiting to be shown once. `replacing`: it
    * takes the place of an earlier one. */
   const [recoveryCode, setRecoveryCode] = useState<{ code: string; replacing: boolean } | null>(null);
-  /** P84 fatia 4 parte B: the person put off the recovery notice (a policy change or a recovery by the owner) this session. */
+  /** P84 slice 4 parte B: the person put off the recovery notice (a policy change or a recovery by the owner) this session. */
   const [noticeLater, setNoticeLater] = useState(false);
   /** Mirrors `conversations` for the connection's callbacks. */
   const conversationsRef = useRef<ConversationSummary[]>([]);
@@ -365,7 +365,7 @@ export default function App() {
         if (event.kind === "prompt") setApprovals((queue) => [...queue, event.prompt]);
         else setApprovals((queue) => queue.filter((p) => p.approvalId !== event.approvalId));
       });
-      // Signing in turned encryption on for this member's data (P84 fatia 4): the code is shown once.
+      // Signing in turned encryption on for this member's data (P84 slice 4): the code is shown once.
       connection.onRecoveryCode((code) => {
         setRecoveryCode({ code, replacing: false });
         setUser((current) => (current ? { ...current, encrypted: true } : current));
@@ -886,7 +886,7 @@ export default function App() {
     );
   }
 
-  // P84 fatia 4 parte B: the workspace's recovery policy changed to a weaker one and needs their yes, or the
+  // P84 slice 4 parte B: the workspace's recovery policy changed to a weaker one and needs their yes, or the
   // owner recovered their data — told before anything else, once their own password is in.
   const hasRecoveryNotice = user !== undefined && !user.mustChangePassword && ((user.policyPending ?? false) || (user.recoveries ?? []).some((r) => !r.seen));
   if (conn && user && hasRecoveryNotice && !noticeLater) {

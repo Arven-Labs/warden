@@ -1,4 +1,4 @@
-//! Encryption at rest for a member's vault (P84, fatia 4): what a file holds, and the names of its
+//! Encryption at rest for a member's vault (P84, slice 4): what a file holds, and the names of its
 //! folders and files, so the disk of the hub shows neither to whoever opens it.
 //!
 //! One 32-byte key per member. Two subkeys come out of it by HKDF, so content and names never

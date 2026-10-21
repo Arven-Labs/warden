@@ -16,7 +16,7 @@
 //!   (`call_<hex>__ts_<base64url>`), so the hub keeps no state between requests;
 //! - nothing is saved as a conversation; the spend goes to the `api` channel, per key, so spending
 //!   limits (P4) apply;
-//! - a key of a workspace member (P84 fatia 2) speaks as them: their vault, the tools the owner
+//! - a key of a workspace member (P84 slice 2) speaks as them: their vault, the tools the owner
 //!   allows them, only the agents they see, and their spending as a person;
 //! - plain HTTP/1.1 written by hand like `web_ui.rs`: one request per connection, `Content-Length`
 //!   bodies only, `Connection: close`.
@@ -65,7 +65,7 @@ pub(crate) struct ApiContext {
     pub users_dir: Option<Arc<PathBuf>>,
     /// The hub's conversations directory — only to describe a member's space; the API saves none.
     pub conversations_root: Arc<PathBuf>,
-    /// The owner's shared folders' vaults (P84 fatia 3), for a member's key.
+    /// The owner's shared folders' vaults (P84 slice 3), for a member's key.
     pub space_vaults: SpaceVaults,
     /// The members' own vaults, one each for the hub's life (P147).
     pub member_vaults: MemberVaults,

@@ -14,7 +14,7 @@ const ANTHROPIC_VERSION: &str = "2023-06-01";
 
 /// Anthropic's Messages API has no concept of an open-ended response — every request must name
 /// a cap. There's no per-request config for it yet (same "no rate limiting/spend cap" scope as
-/// the rest of Fase 5.8's `Usage` tracking), so this is just a generous fixed value.
+/// the rest of Phase 5.8's `Usage` tracking), so this is just a generous fixed value.
 const MAX_TOKENS: u32 = 4096;
 
 pub struct AnthropicProvider {

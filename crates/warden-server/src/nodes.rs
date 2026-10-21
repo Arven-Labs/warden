@@ -33,7 +33,7 @@ pub struct ConnectedNode {
     pub name: String,
     pub offer: NodeOfferDto,
     pub channel: RemoteToolChannel,
-    /// Its model answers in flight (fatia 3).
+    /// Its model answers in flight (slice 3).
     pub models: ModelChannel,
 }
 
@@ -121,7 +121,7 @@ impl Drop for CancelOnDrop {
     }
 }
 
-/// The hub's side of `warden_bootstrap::node_model` (fatia 3): a `kind = "node"` provider's call goes
+/// The hub's side of `warden_bootstrap::node_model` (slice 3): a `kind = "node"` provider's call goes
 /// to that node, when it's online, approved, switched on, open to the asking agent, and lends that
 /// model. Otherwise the call fails as unavailable, so a combo moves on to its next provider.
 pub struct HubNodeModelRouter {

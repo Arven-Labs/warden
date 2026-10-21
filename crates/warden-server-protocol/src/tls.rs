@@ -1,4 +1,4 @@
-//! Client-side TLS for `wss://` hubs (P36 fatia 2).
+//! Client-side TLS for `wss://` hubs (P36 slice 2).
 //!
 //! The certificate a hub serves is expected to be publicly trusted — the intended source is
 //! `tailscale cert` (Let's Encrypt, for the machine's MagicDNS name) — so the default config

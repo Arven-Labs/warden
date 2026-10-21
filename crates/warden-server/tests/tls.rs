@@ -1,4 +1,4 @@
-//! P36 fatia 2 — a TLS-only hub, over real sockets with real certificates (a throwaway CA from
+//! P36 slice 2 — a TLS-only hub, over real sockets with real certificates (a throwaway CA from
 //! `rcgen` standing in for Let's Encrypt/`tailscale cert`).
 
 mod support;

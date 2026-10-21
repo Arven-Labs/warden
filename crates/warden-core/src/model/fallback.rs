@@ -1,5 +1,5 @@
 //! Falling back to another provider when the one a turn uses is down (P79). The alternative to
-//! routing through an external gateway (9Router and the like), decided with the user in Sessão
+//! routing through an external gateway (9Router and the like), decided with the user in Session
 //! 105: the reserves are providers already configured in Warden, in the order the user picked.
 //!
 //! Only an error that says "try again elsewhere" moves on: an HTTP 429 or 5xx, or the connection

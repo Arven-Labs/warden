@@ -1,4 +1,4 @@
-//! Process-level smoke tests for the `warden-telegram` binary (Fase 2), same spirit as
+//! Process-level smoke tests for the `warden-telegram` binary (Phase 2), same spirit as
 //! `warden-cli/tests/cli.rs`: spawn the real compiled binary to catch wiring mistakes in
 //! `main.rs` (arg parsing, config precedence, fail-fast messages) that the in-crate hermetic
 //! tests in `src/telegram.rs` can't see. Every scenario here fails before `run_bot` ever starts

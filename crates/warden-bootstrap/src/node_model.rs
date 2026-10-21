@@ -1,4 +1,4 @@
-//! A node's own model as a provider on the hub (P93, fatia 3): `[[providers]]` with `kind = "node"`,
+//! A node's own model as a provider on the hub (P93, slice 3): `[[providers]]` with `kind = "node"`,
 //! the node's device id and the id of the provider *on the node* ("casa-llama" = the Ollama of the
 //! PC at home). It's picked like any provider — active, an agent's default, a combo member.
 //!

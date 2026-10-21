@@ -1,4 +1,4 @@
-//! Fase 9.1 (redefined) — finding a `warden-server` hub on the local network without already
+//! Phase 9.1 (redefined) — finding a `warden-server` hub on the local network without already
 //! knowing its address, instead of the Tailscale-integration reading of "9.1" the project
 //! originally scoped. Tailscale (or any other network extension) stays entirely the operator's
 //! own infra choice, outside the Warden codebase — this sweep just needs *an* IPv4 subnet to

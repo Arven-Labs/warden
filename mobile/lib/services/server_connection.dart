@@ -9,7 +9,7 @@ import 'agent_work.dart';
 import 'chat_transcript.dart';
 import 'device_invites.dart';
 
-/// Connection state exposed to the UI. Mirrors the lifecycle a Fase 7.2
+/// Connection state exposed to the UI. Mirrors the lifecycle a Phase 7.2
 /// connection screen needs to render — nothing more.
 sealed class ConnectionStatus {
   const ConnectionStatus();
@@ -98,12 +98,12 @@ class HubRequestException implements Exception {
 /// its callbacks swapped) to the connected `ServerConnection` on success —
 /// never a second `.listen()` call on the same stream.
 ///
-/// Deliberately out of scope for Fase 7.2: no automatic reconnect on
+/// Deliberately out of scope for Phase 7.2: no automatic reconnect on
 /// app-lifecycle transitions (foreground/background) and no retry/backoff
 /// on a failed or dropped connection — this phase step only has to prove
 /// connectivity, not be resilient. That's an accepted limitation, not a
 /// silent gap (see `PENDING.md`).
-/// A local tool this client can run when the server asks (Fase 7.4) — `args` is whatever JSON
+/// A local tool this client can run when the server asks (Phase 7.4) — `args` is whatever JSON
 /// object the model passed as the tool call's arguments. Return the JSON-encodable result, or
 /// throw (any exception) to send a `ToolCallErrorMessage` back instead.
 typedef ToolHandler = Future<Object?> Function(Map<String, dynamic> args);
@@ -174,7 +174,7 @@ class ServerConnection implements ConversationBackend, AgentsBackend, MemberOrgB
   ConnectionStatus get status => _status;
   Stream<ConnectionStatus> get statusStream => _statusController.stream;
 
-  // Carries ChatResponseMessage/ChatErrorMessage (Fase 7.3) and ConversationsChangedMessage
+  // Carries ChatResponseMessage/ChatErrorMessage (Phase 7.3) and ConversationsChangedMessage
   // (P87) — everything else stays internal to the handshake/heartbeat machinery above.
   final _chatController = StreamController<ServerMessage>.broadcast();
   Stream<ServerMessage> get chatStream => _chatController.stream;
@@ -192,9 +192,9 @@ class ServerConnection implements ConversationBackend, AgentsBackend, MemberOrgB
   final _pendingHistory = <int, Completer<List<HistoryEntry>>>{};
   // P78 — in-flight conversation list/rename/delete calls, same keying.
   final _pendingConversation = <int, Completer<ServerMessage>>{};
-  // P84 fatia 4 — the recovery code the hub pushed on its own after the HelloAck, until a screen takes it.
+  // P84 slice 4 — the recovery code the hub pushed on its own after the HelloAck, until a screen takes it.
   String? _unclaimedRecoveryCode;
-  // Starts at 1: a `RecoveryCode` with request id 0 is the one the hub pushes on its own (P84 fatia 4).
+  // Starts at 1: a `RecoveryCode` with request id 0 is the one the hub pushes on its own (P84 slice 4).
   int _nextRequestId = 1;
 
   Timer? _heartbeatTimer;
@@ -723,7 +723,7 @@ class ServerConnection implements ConversationBackend, AgentsBackend, MemberOrgB
     return recoveryCode;
   }
 
-  /// P84 fatia 4 — the recovery code the hub sent right after the sign-in (it turned encryption on for a
+  /// P84 slice 4 — the recovery code the hub sent right after the sign-in (it turned encryption on for a
   /// member from before). Taken once: null if there's none or it was already shown.
   String? takeUnclaimedRecoveryCode() {
     final code = _unclaimedRecoveryCode;
@@ -763,7 +763,7 @@ class ServerConnection implements ConversationBackend, AgentsBackend, MemberOrgB
     return username;
   }
 
-  /// P84 fatia 5 — links the member's TruthID with the owner's invite. Returns the username the registry has.
+  /// P84 slice 5 — links the member's TruthID with the owner's invite. Returns the username the registry has.
   Future<String> redeemInvite(String code, String username) async {
     final reply = await _conversationRequest((requestId) => RedeemInviteMessage(requestId, code, username));
     return switch (reply) {

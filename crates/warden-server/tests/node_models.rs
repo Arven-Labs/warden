@@ -1,4 +1,4 @@
-//! P93, fatia 3: a node's own model answering the hub's agents. A `kind = "node"` provider streams
+//! P93, slice 3: a node's own model answering the hub's agents. A `kind = "node"` provider streams
 //! from the node (text in pieces, a tool call that runs on the hub, usage); an agent the node isn't
 //! open to falls through its combo to a real `openai_compatible` spare; a node that drops mid-answer
 //! fails the turn at once; an offline node is unavailable.

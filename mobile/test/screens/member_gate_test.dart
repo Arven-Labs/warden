@@ -11,7 +11,7 @@ import 'package:stream_channel/stream_channel.dart';
 
 import '../helpers/test_app.dart';
 
-/// P84 fatia 4 on the phone: what a member passes through, in order, before the chat. `controller.local`
+/// P84 slice 4 on the phone: what a member passes through, in order, before the chat. `controller.local`
 /// plays warden-server, answering with the `HelloAck` the test gives it.
 void main() {
   late StreamChannelController<dynamic> controller;

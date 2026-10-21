@@ -1,7 +1,7 @@
 import 'dart:convert';
 
 /// Mirrors `crates/warden-server/src/protocol.rs`. Messages sent from this
-/// client to a warden-server, over the WS + JSON protocol (Fase 9.2 / 7.2).
+/// client to a warden-server, over the WS + JSON protocol (Phase 9.2 / 7.2).
 ///
 /// Wire shape: internally-tagged JSON with a `type` field, both the tag and
 /// every field name are camelCase (`#[serde(tag = "type", rename_all =
@@ -35,7 +35,7 @@ final class HelloMessage extends ClientMessage {
   /// The per-device token this hub issued in an earlier `HelloAck` (P36), if any.
   final String? deviceToken;
 
-  /// Local tools this client can run on request (Fase 7.4), e.g.
+  /// Local tools this client can run on request (Phase 7.4), e.g.
   /// `MobileFileTool.listFilesSpec`/`readFileSpec` — each a `{name, description, parameters}`
   /// map mirroring `warden_core::tool::ToolSpec`. Empty when nothing is configured (e.g. no
   /// root folder picked yet) — `warden-server` only builds the remote-tool-dispatch machinery
@@ -47,7 +47,7 @@ final class HelloMessage extends ClientMessage {
   final String? username;
   final String? password;
 
-  /// P84 fatia 4 — this app can show a recovery code, so the hub may turn a member's encryption on
+  /// P84 slice 4 — this app can show a recovery code, so the hub may turn a member's encryption on
   /// (a code nobody sees is a key nobody has). Always true: the screens for it are here.
   final bool recoveryCodes;
 
@@ -74,7 +74,7 @@ final class ChangePasswordMessage extends ClientMessage {
   final String oldPassword;
   final String newPassword;
 
-  /// P84 fatia 4 — after the owner reset the password of someone whose data is encrypted, only the
+  /// P84 slice 4 — after the owner reset the password of someone whose data is encrypted, only the
   /// recovery code opens it again.
   final String? recoveryCode;
 
@@ -88,7 +88,7 @@ final class ChangePasswordMessage extends ClientMessage {
       };
 }
 
-/// P84 fatia 4 — a new recovery code (the old one stops working), with the password. Answered by
+/// P84 slice 4 — a new recovery code (the old one stops working), with the password. Answered by
 /// [RecoveryCodeMessage] or [UserErrorMessage].
 final class RegenerateRecoveryCodeMessage extends ClientMessage {
   const RegenerateRecoveryCodeMessage(this.requestId, this.password);
@@ -100,7 +100,7 @@ final class RegenerateRecoveryCodeMessage extends ClientMessage {
   Map<String, dynamic> toJson() => {'type': 'regenerateRecoveryCode', 'requestId': requestId, 'password': password};
 }
 
-/// P84 fatia 4 parte B — yes to the workspace's recovery policy after a change to a weaker one, with
+/// P84 slice 4 parte B — yes to the workspace's recovery policy after a change to a weaker one, with
 /// the password. Answered by [RecoveryPolicyAcceptedMessage] or [UserErrorMessage].
 final class AcceptRecoveryPolicyMessage extends ClientMessage {
   const AcceptRecoveryPolicyMessage(this.requestId, this.password);
@@ -112,7 +112,7 @@ final class AcceptRecoveryPolicyMessage extends ClientMessage {
   Map<String, dynamic> toJson() => {'type': 'acceptRecoveryPolicy', 'requestId': requestId, 'password': password};
 }
 
-/// P84 fatia 4 parte B — the member has seen the recoveries the owner made. Answered by
+/// P84 slice 4 parte B — the member has seen the recoveries the owner made. Answered by
 /// [RecoveryNoticesAckedMessage].
 final class AckRecoveryNoticesMessage extends ClientMessage {
   const AckRecoveryNoticesMessage(this.requestId);
@@ -123,7 +123,7 @@ final class AckRecoveryNoticesMessage extends ClientMessage {
   Map<String, dynamic> toJson() => {'type': 'ackRecoveryNotices', 'requestId': requestId};
 }
 
-/// P84 fatia 5 — links the member's TruthID with the owner's invite [code]. Answered by
+/// P84 slice 5 — links the member's TruthID with the owner's invite [code]. Answered by
 /// [TruthIdLinkedMessage] or [UserErrorMessage].
 final class RedeemInviteMessage extends ClientMessage {
   const RedeemInviteMessage(this.requestId, this.code, this.username);
@@ -154,7 +154,7 @@ final class GoodbyeMessage extends ClientMessage {
   Map<String, dynamic> toJson() => {'type': 'goodbye', 'reason': reason};
 }
 
-/// A chat turn (Fase 7.3) — answered by the `Orchestrator` `warden-server` hosts, appended to one of
+/// A chat turn (Phase 7.3) — answered by the `Orchestrator` `warden-server` hosts, appended to one of
 /// this device's conversations. [conversationId] picks which (P78): an id the hub has never seen
 /// starts a new one; null is the device's default conversation. [agentId] (P46/P87) speaks as that
 /// configured agent: its persona, skills and tools. [workdir] (P102) is the folder of the hub's machine
@@ -748,7 +748,7 @@ final class ResolveApprovalMessage extends ClientMessage {
   Map<String, dynamic> toJson() => {'type': 'resolveApproval', 'approvalId': approvalId, 'approved': approved};
 }
 
-/// The result of a `ToolCallRequestMessage` this client was asked to run (Fase 7.4).
+/// The result of a `ToolCallRequestMessage` this client was asked to run (Phase 7.4).
 final class ToolCallResultMessage extends ClientMessage {
   const ToolCallResultMessage(this.callId, this.result);
 
@@ -759,7 +759,7 @@ final class ToolCallResultMessage extends ClientMessage {
   Map<String, dynamic> toJson() => {'type': 'toolCallResult', 'callId': callId, 'result': result};
 }
 
-/// This client failed to run a requested tool call (Fase 7.4).
+/// This client failed to run a requested tool call (Phase 7.4).
 final class ToolCallErrorMessage extends ClientMessage {
   const ToolCallErrorMessage(this.callId, this.message);
 
@@ -1005,7 +1005,7 @@ class Usage {
   }
 }
 
-/// Media extracted from an MCP tool result during a turn (P64 frente 2 fatia 3). Mirrors
+/// Media extracted from an MCP tool result during a turn (P64 frente 2 slice 3). Mirrors
 /// `warden_core::model::Attachment` — `data` is base64 with no `data:...;base64,` prefix.
 class Attachment {
   const Attachment({required this.mimeType, required this.data});
@@ -1226,7 +1226,7 @@ final class UserInfo {
   /// Still on the provisional password the owner gave them: the hub only lets them change it.
   final bool mustChangePassword;
 
-  /// P84 fatia 4 — their data is encrypted on the hub with a key only they (or their recovery code) open.
+  /// P84 slice 4 — their data is encrypted on the hub with a key only they (or their recovery code) open.
   final bool encrypted;
 
   /// The owner reset their password, so the data opens only with the recovery code.
@@ -1248,7 +1248,7 @@ final class UserInfo {
   /// Every time the owner recovered their data with the workspace's recovery key.
   final List<RecoveryEvent> recoveries;
 
-  /// P84 fatia 5 — the TruthID username they linked; empty if none.
+  /// P84 slice 5 — the TruthID username they linked; empty if none.
   final String truthid;
 
   /// P120 — what the owner lets them do with the organization of the agents: `view` or `edit`; empty is none.
@@ -1303,7 +1303,7 @@ final class UserInfo {
       );
 }
 
-/// Mirrors `RecoveryEventDto` (P84 fatia 4 parte B): the owner recovered someone's data.
+/// Mirrors `RecoveryEventDto` (P84 slice 4 parte B): the owner recovered someone's data.
 final class RecoveryEvent {
   const RecoveryEvent({required this.atMs, required this.kind, required this.seen});
 
@@ -1329,7 +1329,7 @@ final class PasswordChangedMessage extends ServerMessage {
 
   final int requestId;
 
-  /// P84 fatia 4 — this change turned encryption on for their data: shown once, they have to write it down.
+  /// P84 slice 4 — this change turned encryption on for their data: shown once, they have to write it down.
   final String? recoveryCode;
 }
 
@@ -1342,7 +1342,7 @@ final class RecoveryCodeMessage extends ServerMessage {
   final String code;
 }
 
-/// P84 fatia 4 parte B — the member accepted the policy. [recoveryCode]: entering or leaving `consent`
+/// P84 slice 4 parte B — the member accepted the policy. [recoveryCode]: entering or leaving `consent`
 /// made a new one, shown once.
 final class RecoveryPolicyAcceptedMessage extends ServerMessage {
   const RecoveryPolicyAcceptedMessage(this.requestId, {this.recoveryCode});
@@ -1357,7 +1357,7 @@ final class RecoveryNoticesAckedMessage extends ServerMessage {
   final int requestId;
 }
 
-/// P84 fatia 5 — the member's TruthID is linked.
+/// P84 slice 5 — the member's TruthID is linked.
 final class TruthIdLinkedMessage extends ServerMessage {
   const TruthIdLinkedMessage(this.requestId, this.username);
 
@@ -1386,7 +1386,7 @@ final class PongMessage extends ServerMessage {
   // Dart's `int` is a real 64-bit signed integer on the VM (Android/iOS),
   // matching Rust's u64 for any realistic monotonic counter value. This
   // stops holding if Flutter Web is ever targeted (`int` becomes a JS
-  // double there) — not a concern for the mobile-only scope of Fase 7.
+  // double there) — not a concern for the mobile-only scope of Phase 7.
   final int nonce;
 }
 
@@ -1410,7 +1410,7 @@ final class ChatErrorMessage extends ServerMessage {
   final String? conversationId;
 }
 
-/// Asks this client to run one of the tools it advertised in `Hello.tools` (Fase 7.4).
+/// Asks this client to run one of the tools it advertised in `Hello.tools` (Phase 7.4).
 final class ToolCallRequestMessage extends ServerMessage {
   const ToolCallRequestMessage(this.callId, this.tool, this.arguments);
 

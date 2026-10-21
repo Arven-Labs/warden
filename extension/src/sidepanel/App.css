@@ -267,7 +267,7 @@ button:hover:not(:disabled) {
   flex-basis: 100%;
 }
 
-/* Discovered-hub list (Fase 9.1, redefined) — same visual language as the desktop Workspace
+/* Discovered-hub list (Phase 9.1, redefined) — same visual language as the desktop Workspace
    view's device rows, scoped down to this panel's tokens. */
 .hub-empty {
   color: var(--color-text-muted);

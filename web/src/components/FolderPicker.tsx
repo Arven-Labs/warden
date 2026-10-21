@@ -7,7 +7,7 @@ interface Props {
   /** The folders inside a path (P102): of the hub's machine, or of a node when the path is `node:<id>:<path>`. No path
    * starts where the person may. */
   listDirs: (path?: string) => Promise<DirListing>;
-  /** The machines other than the hub a folder can be picked on (fatia 2): only the owner has any to choose from. */
+  /** The machines other than the hub a folder can be picked on (slice 2): only the owner has any to choose from. */
   nodes?: NodeInfo[];
   /** Where the browser opens: the conversation's current choice, or the start. */
   initialPath?: string;

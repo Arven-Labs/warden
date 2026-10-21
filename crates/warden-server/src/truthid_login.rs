@@ -1,4 +1,4 @@
-//! Signing in as a member with their TruthID (P84 fatia 5, P113). A browser's `Hello` with `truthid_login`
+//! Signing in as a member with their TruthID (P84 slice 5, P113). A browser's `Hello` with `truthid_login`
 //! gets a challenge to show as a QR; the member's TruthID app signs it and posts the answer to this hub's
 //! own `https://` address (`POST /auth/truthid`, `handle_callback`), which checks it and lets the waiting
 //! connection in as whoever that TruthID is linked to. The proof is the signature of a device the TruthID

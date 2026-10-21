@@ -5,7 +5,7 @@ import '../l10n/generated/app_localizations.dart';
 import '../protocol/messages.dart';
 import 'app_language.dart';
 
-/// Fase 7.5 — local notification when a chat reply arrives while the app isn't in the foreground.
+/// Phase 7.5 — local notification when a chat reply arrives while the app isn't in the foreground.
 /// Deliberately NOT true push (no FCM/APNs, no server-side involvement): the app process must
 /// still be alive with its WebSocket connection open, since `ServerConnection` is what actually
 /// receives the reply. Chosen over FCM to avoid the project's first third-party cloud dependency

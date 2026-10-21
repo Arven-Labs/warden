@@ -1,4 +1,4 @@
-//! Fase 4.4 bridge functions for the mobile "Sync" screen — mirrors what `desktop/src-tauri/src/
+//! Phase 4.4 bridge functions for the mobile "Sync" screen — mirrors what `desktop/src-tauri/src/
 //! sync_cmds.rs` exposes to Tauri, minus the QR-as-SVG rendering (the Flutter side renders its
 //! own QR from `push_begin`'s raw `qr_payload_json`) and the Tauri `State`/`AppHandle` plumbing.
 //!
@@ -39,7 +39,7 @@ fn engine(vault_root: &str, config_path: &str, secrets_path: &str, manifest_path
 /// Empty `hosts` means "sweep the real LAN" (the production path); a non-empty list means the
 /// caller supplied an explicit override — e.g. `10.0.2.2` when pairing an Android emulator with a
 /// desktop/CLI on the host machine, whose own subnet the emulator's virtual NIC can't see. See
-/// `project/ARCHITECTURE.md` ("Fase 4.4") for why this is a real feature, not just a test hook —
+/// `project/ARCHITECTURE.md` ("Phase 4.4") for why this is a real feature, not just a test hook —
 /// it's the same fallback any client-isolated wifi would need.
 fn parse_hosts(hosts: Vec<String>) -> Result<Vec<Ipv4Addr>, String> {
     hosts.iter().map(|h| h.parse::<Ipv4Addr>().map_err(|e| format!("invalid host {h:?}: {e}"))).collect()

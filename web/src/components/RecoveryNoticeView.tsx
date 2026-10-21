@@ -24,7 +24,7 @@ function when(atMs: number): string {
   return new Date(atMs).toLocaleString(intlTag());
 }
 
-/** P84 fatia 4 parte B: the workspace's recovery policy changed to a weaker one and needs their yes, and/or the
+/** P84 slice 4 parte B: the workspace's recovery policy changed to a weaker one and needs their yes, and/or the
  * owner recovered their data. Shown after signing in, before the app. */
 export default function RecoveryNoticeView({ conn, user, onAccepted, onAcked, onLater }: Props) {
   const [password, setPassword] = useState("");

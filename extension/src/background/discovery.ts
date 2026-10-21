@@ -1,5 +1,5 @@
 /**
- * Fase 9.1 (redefined) — TypeScript port of `crates/warden-server-protocol/src/discovery.rs`'s
+ * Phase 9.1 (redefined) — TypeScript port of `crates/warden-server-protocol/src/discovery.rs`'s
  * LAN sweep. The extension can't call Rust like the desktop (Tauri) and mobile
  * (`flutter_rust_bridge`) slices do, so this reimplements the same `Discover`/`DiscoverAck` wire
  * exchange directly over `WebSocket` — the server side is unchanged, all three clients speak the

@@ -4,10 +4,10 @@ use serde_json::json;
 use support::{connect_and_approve, spin_up_server_with_devices_path, MockProvider};
 use warden_server::{ClientMessage, PairingStore, ServerConnection, ServerMessage};
 
-/// End-to-end proof of Fase 9.3/9.4's device registry + cross-connection routing: device "a"
+/// End-to-end proof of Phase 9.3/9.4's device registry + cross-connection routing: device "a"
 /// asks the server to run a tool on device "b" (a plain `connect`, no `Hello.tools` advertised —
-/// any connected AND APPROVED device is a valid routing target — Fase 9.3), "b" sees the request
-/// arrive as the same `ToolCallRequest` shape Fase 7.4 already uses, answers for real, and "a"
+/// any connected AND APPROVED device is a valid routing target — Phase 9.3), "b" sees the request
+/// arrive as the same `ToolCallRequest` shape Phase 7.4 already uses, answers for real, and "a"
 /// gets the result back as `DeviceToolResult` correlated by its own `call_id`.
 #[tokio::test]
 async fn routes_a_call_to_the_correct_target_device_and_gets_the_real_result_back() {
@@ -80,7 +80,7 @@ async fn the_target_devices_own_failure_surfaces_back_to_the_caller() {
 
 /// Routing to a `target_device_id` that never connected (typo, or the node is simply offline)
 /// fails immediately with a clear message instead of hanging until some timeout — and wins over
-/// "not approved" (Fase 9.3), since a device that never connected can never be approved either.
+/// "not approved" (Phase 9.3), since a device that never connected can never be approved either.
 #[tokio::test]
 async fn routing_to_a_device_that_isnt_connected_errors_immediately() {
     let (addr, devices_path) = spin_up_server_with_devices_path(MockProvider::replying("unused")).await;
@@ -133,7 +133,7 @@ async fn a_device_that_says_goodbye_is_deregistered_and_stops_being_routable() {
     }
 }
 
-/// Fase 9.3: a caller that connected (so it exists in the registry as `Pending`) but was never
+/// Phase 9.3: a caller that connected (so it exists in the registry as `Pending`) but was never
 /// approved can't route to anyone, even a target that's connected and approved.
 #[tokio::test]
 async fn an_unapproved_caller_cannot_route_even_to_an_approved_target() {
@@ -161,7 +161,7 @@ async fn an_unapproved_caller_cannot_route_even_to_an_approved_target() {
     }
 }
 
-/// Fase 9.3: an approved caller still can't reach a target that's connected but was never
+/// Phase 9.3: an approved caller still can't reach a target that's connected but was never
 /// approved (as opposed to the "never connected at all" case, which errors as "not connected").
 #[tokio::test]
 async fn an_approved_caller_cannot_route_to_an_unapproved_but_connected_target() {
@@ -188,7 +188,7 @@ async fn an_approved_caller_cannot_route_to_an_unapproved_but_connected_target()
     }
 }
 
-/// Fase 9.3: revoking a previously approved device blocks its very next routing attempt, whether
+/// Phase 9.3: revoking a previously approved device blocks its very next routing attempt, whether
 /// it was the caller or the target — no reconnect needed on either side.
 #[tokio::test]
 async fn a_revoked_device_stops_being_routable_without_reconnecting() {

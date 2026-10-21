@@ -1,20 +1,20 @@
-//! Fase 9.2 — the WebSocket + JSON protocol between a Warden "server" node and its clients
+//! Phase 9.2 — the WebSocket + JSON protocol between a Warden "server" node and its clients
 //! (mobile, desktop-as-client, browser extension, the web UI): connection, auth handshake, and
-//! heartbeat. As of Fase 7.3, `Server` also hosts a real `Orchestrator` and answers `Chat` messages
-//! with it. As of Fase 7.4, a client can advertise tools in `Hello` that the server registers as
+//! heartbeat. As of Phase 7.3, `Server` also hosts a real `Orchestrator` and answers `Chat` messages
+//! with it. As of Phase 7.4, a client can advertise tools in `Hello` that the server registers as
 //! `RemoteTool`s on that connection's `Orchestrator` — a round-trip back to the *same* device. As
-//! of Fase 9.3/9.4, `Server` keeps a registry of every connected device and
+//! of Phase 9.3/9.4, `Server` keeps a registry of every connected device and
 //! `ClientMessage::CallDeviceTool` lets one connection route a tool call to a *specific different*
 //! one, answered by `ServerMessage::DeviceToolResult`/`DeviceToolError`. No client uses that
-//! routing today (its only one, P61's `RemoteNodeProvider`, was removed in Sessão 105); it stays
+//! routing today (its only one, P61's `RemoteNodeProvider`, was removed in Session 105); it stays
 //! as the generic piece a cross-device tool would build on.
 //!
 //! The wire protocol and its reusable client-side pieces (`ClientMessage`/`ServerMessage`,
 //! `ServerConnection`) live in `warden-server-protocol`, re-exported below; only
-//! `RemoteTool`/`RemoteToolChannel` (Fase 7.4's own-connection routing, used solely by
+//! `RemoteTool`/`RemoteToolChannel` (Phase 7.4's own-connection routing, used solely by
 //! `server.rs`) live here.
 //!
-//! `device_registry` (Fase 9.3): knowing the shared `auth_key` used to be enough to route a
+//! `device_registry` (Phase 9.3): knowing the shared `auth_key` used to be enough to route a
 //! `CallDeviceTool` to (or from) any connected device. Now a device must also be explicitly
 //! `approve`d by the operator (`warden-server devices approve <id>`, `main.rs`, or the web's
 //! Aparelhos tab) before it can take part in routing — `Hello`/`Chat`/`Ping` are unaffected, only

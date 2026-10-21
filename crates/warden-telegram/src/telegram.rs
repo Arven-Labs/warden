@@ -1,4 +1,4 @@
-//! Telegram Bot API client and receive loop (Fase 2). Long polling only (`getUpdates`, no
+//! Telegram Bot API client and receive loop (Phase 2). Long polling only (`getUpdates`, no
 //! webhook) — matches the project's "no server required" principle (ARCHITECTURE.md): a
 //! personal always-on client process is enough, no public HTTPS endpoint needed. Replies go
 //! through `crate::markdown_v2::to_markdown_v2` (P19) and are sent with `parse_mode:
@@ -88,7 +88,7 @@ struct ApiResponse<T> {
 pub trait TelegramApi: Send + Sync {
     async fn get_updates(&self, offset: Option<i64>, timeout_secs: u64) -> anyhow::Result<Vec<Update>>;
     async fn send_message(&self, chat_id: i64, text: &str) -> anyhow::Result<()>;
-    /// Media extracted from an MCP tool result during a turn (P64 frente 2 fatia 2) — sent as its
+    /// Media extracted from an MCP tool result during a turn (P64 frente 2 slice 2) — sent as its
     /// own message via the matching Bot API method (`sendPhoto`/`sendAudio`/`sendVideo`, falling
     /// back to `sendDocument`), never as a caption on the text reply (see `telegram_media_method`).
     async fn send_attachment(&self, chat_id: i64, attachment: &Attachment) -> anyhow::Result<()>;
@@ -947,7 +947,7 @@ mod tests {
         assert_eq!(telegram_media_method("application/pdf"), ("sendDocument", "document"));
     }
 
-    // --- P64 frente 2 fatia 2: attachments extracted from a tool call are sent to the chat ---
+    // --- P64 frente 2 slice 2: attachments extracted from a tool call are sent to the chat ---
 
     struct ImageTool;
 

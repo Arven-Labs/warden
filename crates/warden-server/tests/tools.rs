@@ -15,7 +15,7 @@ fn list_files_spec() -> ToolSpec {
     }
 }
 
-/// End-to-end proof of the Fase 7.4 wiring: a client advertises a tool in `Hello`, the server
+/// End-to-end proof of the Phase 7.4 wiring: a client advertises a tool in `Hello`, the server
 /// registers a `RemoteTool` proxy for it on this connection's `Orchestrator`, the (mocked) model
 /// calls it mid-turn, the request reaches the client as `ToolCallRequest`, the client's real
 /// answer comes back as `ToolCallResult`, and the final `ChatResponse` reflects it. `RemoteTool`'s
@@ -57,7 +57,7 @@ async fn a_chat_that_calls_an_advertised_client_tool_gets_the_real_result_back()
     }
 }
 
-/// A client that connects without advertising any tools (Fase 7.2/7.3's plain `connect`) must
+/// A client that connects without advertising any tools (Phase 7.2/7.3's plain `connect`) must
 /// keep working exactly as before — the per-connection `Orchestrator` branch in `server.rs` is
 /// skipped entirely when `Hello.tools` is empty.
 #[tokio::test]

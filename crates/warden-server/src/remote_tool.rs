@@ -10,7 +10,7 @@ use warden_core::tool::{RiskHints, Tool, ToolSpec};
 
 use warden_server_protocol::ServerMessage;
 
-/// A model call taking this long to answer is already unusual (Fase 7.3's `Chat` has no timeout
+/// A model call taking this long to answer is already unusual (Phase 7.3's `Chat` has no timeout
 /// at all, since a slow model reply is expected); a *local file read* on a phone taking this long
 /// means the client is gone or stuck, not just slow.
 pub const DEFAULT_TIMEOUT: Duration = Duration::from_secs(30);
@@ -57,9 +57,9 @@ impl RemoteToolChannel {
     /// Sends a `ToolCallRequest` for `tool(arguments)` down this connection and waits (up to
     /// `timeout`) for the matching `ToolCallResult`/`ToolCallError` — the one call-id allocator
     /// and pending map this connection has, shared by every caller that needs to ask *this*
-    /// device to run something. `RemoteTool::call` (Fase 7.4, the model invoking a tool it
+    /// device to run something. `RemoteTool::call` (Phase 7.4, the model invoking a tool it
     /// registered for its own chat) and `server::handle_connection`'s cross-device routing
-    /// (Fase 9.4, a *different* device asking this one to run a tool) both go through here —
+    /// (Phase 9.4, a *different* device asking this one to run a tool) both go through here —
     /// neither could safely allocate call-ids independently without risking two concurrent
     /// requests to the same connection colliding on the same id.
     pub async fn call(&self, tool: String, arguments: Value, timeout: Duration) -> anyhow::Result<Value> {
@@ -86,8 +86,8 @@ impl RemoteToolChannel {
 }
 
 /// A `Tool` that proxies `call()` over a connection instead of running locally — the mechanism
-/// Fase 7.4 needs to give a specific connected client (mobile: file access) a tool the model can
-/// invoke, and the first concrete piece of what Fase 9.4/9.5 will later generalize to arbitrary
+/// Phase 7.4 needs to give a specific connected client (mobile: file access) a tool the model can
+/// invoke, and the first concrete piece of what Phase 9.4/9.5 will later generalize to arbitrary
 /// tool routing.
 pub struct RemoteTool {
     spec: ToolSpec,

@@ -95,7 +95,7 @@ pub fn list_dirs(roots: Option<&[String]>, path: Option<&str>) -> Result<Listing
     read(&dir, parent)
 }
 
-/// Whether the person may work in `path` on node `node` (P102 fatia 2): the owner anywhere the node lends, a member only
+/// Whether the person may work in `path` on node `node` (P102 slice 2): the owner anywhere the node lends, a member only
 /// inside the folders of that node the owner named for them. `path` is the one the node *resolved* (`NodeDirs::path`),
 /// so a link can't lead a member out of what was named.
 pub fn check_node_workdir(entries: Option<&[NodeFolder]>, node: &str, path: &str) -> Result<(), String> {
@@ -160,7 +160,7 @@ pub async fn answer_list_dirs(request_id: u64, path: Option<&str>, roots: Option
     }
 }
 
-/// Whether a conversation may run in the folder `path` of node `node` (P102 fatia 2), asked of the node: it has to be a
+/// Whether a conversation may run in the folder `path` of node `node` (P102 slice 2), asked of the node: it has to be a
 /// folder there, inside what it lends, and — for a member — inside what the owner named. Run on every turn.
 pub async fn check_node_folder(nodes: Option<&NodeToolFactory>, entries: Option<&[NodeFolder]>, node: &str, path: &str) -> Result<(), String> {
     warden_bootstrap::check_node_path(path)?;

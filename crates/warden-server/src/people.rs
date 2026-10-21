@@ -1,7 +1,7 @@
 //! P84 — who is on a connection, and what that changes. The root is whoever paired with the hub's
 //! pairing key; a member paired with their own username and password (`[[users]]`,
 //! `warden_bootstrap::users`). A member gets their own vault and conversations, the agents they own
-//! or the root shared with them, the tools the root allows them (fatia 2), and none of the hub's
+//! or the root shared with them, the tools the root allows them (slice 2), and none of the hub's
 //! administration.
 //!
 //! Pure functions over the orchestrator, the messages and the conversations directory, kept out of
@@ -46,7 +46,7 @@ impl MemberSpace {
     /// per connection; it is opened again only when the folder's state changes (the key was created, opened or lost).
     pub fn new(user: &UserConfig, users_dir: &Path, conversations_root: &Path, cache: &MemberVaults) -> Self {
         let vault_path = user_vault_path(users_dir, &user.id);
-        // P84 fatia 4: an encrypted member's vault opens with the key the hub holds, and is locked
+        // P84 slice 4: an encrypted member's vault opens with the key the hub holds, and is locked
         // (refuses everything) when it doesn't — never a plain vault beside encrypted files.
         let state = member_crypto::dir_state(&users_dir.join(&user.id));
         let mut cached = cache.lock().unwrap_or_else(|e| e.into_inner());
@@ -86,7 +86,7 @@ fn same_state(seen: &DirState, now: &DirState) -> bool {
     }
 }
 
-/// One `Vault` per shared folder of the owner's (P84 fatia 3), kept for the hub's life so a
+/// One `Vault` per shared folder of the owner's (P84 slice 3), kept for the hub's life so a
 /// folder's semantic model loads once, not once per turn.
 pub type SpaceVaults = Arc<Mutex<HashMap<PathBuf, Arc<Vault>>>>;
 

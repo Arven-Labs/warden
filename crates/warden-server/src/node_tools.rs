@@ -204,7 +204,7 @@ impl NodeToolFactory {
     }
 }
 
-/// What a node's `list_dirs` answered (P102 fatia 2): the folder it really opened, relative to the folder it lends, and the
+/// What a node's `list_dirs` answered (P102 slice 2): the folder it really opened, relative to the folder it lends, and the
 /// folders in it as `(name, path)`.
 #[derive(Debug, PartialEq)]
 pub struct NodeDirs {
@@ -240,7 +240,7 @@ impl NodeToolFactory {
     }
 
     /// Scopes `orchestrator` to the folder `path` of what node `node` lends, for one turn of a conversation that
-    /// works there (P102 fatia 2): the same shape as `warden_bootstrap::scope_to_workdir` for a folder of this machine,
+    /// works there (P102 slice 2): the same shape as `warden_bootstrap::scope_to_workdir` for a folder of this machine,
     /// but `read_file`, `write_file` and `shell` are the node's. They go through the node tools' rules on every call
     /// (online, approved, switched on, open to `agent`, a yes when the node asks, logged), and the shell asks before every
     /// command whatever the node says. `approver` is who can be asked — a member has none, so for them that is a refusal.
@@ -678,7 +678,7 @@ impl Tool for NodeTool {
     }
 }
 
-/// One MCP tool a node lends, offered to the model under its own name and schema (P93, fatia 2). The
+/// One MCP tool a node lends, offered to the model under its own name and schema (P93, slice 2). The
 /// same rules as the other node tools apply on every call: the node online, approved, switched on and
 /// open to this agent; a yes first when it asks; logged; never retried if the node drops.
 pub struct NodeMcpTool {

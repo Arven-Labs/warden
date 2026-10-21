@@ -1,4 +1,4 @@
-//! Process-level smoke tests for the `warden-whatsapp` binary (Fase 3), same spirit as
+//! Process-level smoke tests for the `warden-whatsapp` binary (Phase 3), same spirit as
 //! `warden-cli/tests/cli.rs` and `warden-telegram/tests/telegram.rs`: spawn the real compiled
 //! binary to catch wiring mistakes in `main.rs` that the in-crate hermetic tests in
 //! `src/sidecar.rs` can't see. Every scenario here fails before the sidecar's stdout is ever

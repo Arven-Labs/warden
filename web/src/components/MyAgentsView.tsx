@@ -3,7 +3,7 @@ import type { ServerConnection } from "../hub/connection";
 import type { AgentSettings } from "../hub/messages";
 import { t } from "../i18n";
 
-// A member's agents (P84 fatia 2): their own — which only they see, with the tools they have — and
+// A member's agents (P84 slice 2): their own — which only they see, with the tools they have — and
 // the ones the owner shared with them, which they can use but not change. The owner edits theirs in
 // Settings; a member never gets there.
 

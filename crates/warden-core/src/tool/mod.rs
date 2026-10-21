@@ -23,7 +23,7 @@ pub mod spend_tool;
 pub mod ssh;
 
 /// `Serialize`/`Deserialize` let this be reused directly as the wire shape for a client-advertised
-/// tool (`warden-server`'s `ClientMessage::Hello.tools`, Fase 7.4) — no parallel wire struct needed.
+/// tool (`warden-server`'s `ClientMessage::Hello.tools`, Phase 7.4) — no parallel wire struct needed.
 /// `PartialEq` so `ClientMessage` (which derives it for its own round-trip tests) can too.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ToolSpec {

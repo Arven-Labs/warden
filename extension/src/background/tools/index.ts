@@ -1,4 +1,4 @@
-/** DOM tools (Fase 8.3-8.6) — always advertised, no config prerequisite (unlike mobile's
+/** DOM tools (Phase 8.3-8.6) — always advertised, no config prerequisite (unlike mobile's
  * folder-gated file tools). See `dom_executor.ts` for the shared `activeTab` access pattern. */
 
 import type { ToolSpec } from "../../protocol/messages";

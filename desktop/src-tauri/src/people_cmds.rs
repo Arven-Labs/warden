@@ -18,7 +18,7 @@ pub struct PeoplePayload {
     users: Vec<UserInfoDto>,
     /// The provisional password of the member just created or reset — shown once.
     temp_password: Option<String>,
-    /// P84 fatia 5: the invite to link a TruthID just made — shown once.
+    /// P84 slice 5: the invite to link a TruthID just made — shown once.
     invite_code: Option<String>,
 }
 
@@ -57,7 +57,7 @@ pub fn rename_person(id: String, name: String) -> Result<PeoplePayload, String> 
     change(|config| rename_user(config, &id, &name).map(|()| None))
 }
 
-/// P84 fatia 2: which tools a member may use; `None` is the safe default.
+/// P84 slice 2: which tools a member may use; `None` is the safe default.
 #[tauri::command]
 pub fn set_person_tools(id: String, tools: Option<Vec<String>>) -> Result<PeoplePayload, String> {
     change(|config| set_user_tools(config, &id, tools).map(|()| None))
@@ -76,7 +76,7 @@ pub fn set_person_workdirs(id: String, workdirs: Vec<String>, node_workdirs: Vec
     change(|config| set_user_workdirs(config, &id, workdirs, node_workdirs).map(|()| None))
 }
 
-/// P84 fatia 5: an invite for a member to link their TruthID, handed back once (7 days, single use).
+/// P84 slice 5: an invite for a member to link their TruthID, handed back once (7 days, single use).
 #[tauri::command]
 pub fn invite_person(id: String) -> Result<PeoplePayload, String> {
     let mut code = None;
@@ -118,7 +118,7 @@ pub fn remove_person(id: String) -> Result<PeoplePayload, String> {
     Ok(payload)
 }
 
-/// P84 fatia 3: the folders of your vault shared with members, `[[spaces]]` in the same file.
+/// P84 slice 3: the folders of your vault shared with members, `[[spaces]]` in the same file.
 #[tauri::command]
 pub fn list_shared_spaces() -> Result<Vec<SpaceDto>, String> {
     let config = load_config_from_path(&config_path()?, false).map_err(|e| format!("{e:#}"))?;

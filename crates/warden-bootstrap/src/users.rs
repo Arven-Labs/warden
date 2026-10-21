@@ -1,10 +1,10 @@
-//! The people of the workspace (P84, fatia 1). The root is whoever holds the hub's pairing key, as
+//! The people of the workspace (P84, slice 1). The root is whoever holds the hub's pairing key, as
 //! before; `[[users]]` in `config.toml` lists the **members** the root created. A member pairs a
 //! device with their username and password instead of the key, and gets their own vault and
 //! conversations. No `[[users]]` at all is the single-person Warden, unchanged.
 //!
 //! Passwords are only ever stored as an Argon2id hash (PHC string). The file syncs between the
-//! root's machines, so the hashes travel with it — the root's choice (Sessão 110).
+//! root's machines, so the hashes travel with it — the root's choice (Session 110).
 
 use std::path::{Path, PathBuf};
 
@@ -98,12 +98,12 @@ pub struct UserConfig {
     /// change it.
     #[serde(default)]
     pub must_change_password: bool,
-    /// The tools this member may use (P84, fatia 2), by name. `None` is the safe default
+    /// The tools this member may use (P84, slice 2), by name. `None` is the safe default
     /// (`default_member_tool`); a list the owner set replaces it. A name the hub doesn't have is
     /// ignored, and `NEVER_FOR_MEMBERS` stays out whatever the list says.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tools: Option<Vec<String>>,
-    /// The key to this member's data, wrapped (P84 fatia 4). `None`: their data isn't encrypted yet.
+    /// The key to this member's data, wrapped (P84 slice 4). `None`: their data isn't encrypted yet.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub key: Option<KeyWraps>,
     /// The owner reset the password, which the password wrap can't follow: only the recovery code
@@ -113,7 +113,7 @@ pub struct UserConfig {
     /// Every time the owner recovered their data with the workspace's recovery key (parte B).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub recoveries: Vec<RecoveryEvent>,
-    /// The TruthID identity this member linked with an invite (P84 fatia 5).
+    /// The TruthID identity this member linked with an invite (P84 slice 5).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub truthid: Option<TruthIdLink>,
     /// An invite the owner made and nobody has used yet.
@@ -134,7 +134,7 @@ pub struct UserConfig {
     /// folder is theirs.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub workdirs: Vec<String>,
-    /// The same for folders on nodes (P102 fatia 2): each entry is a folder inside what node `node` lends, and
+    /// The same for folders on nodes (P102 slice 2): each entry is a folder inside what node `node` lends, and
     /// anything inside it. `path` is relative to the node's lent folder (empty is all of it), never `..`. A member
     /// gets no folder on a node the owner didn't name.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -225,7 +225,7 @@ pub struct RecoveryEvent {
 /// Shares an agent with every member (`AgentConfig::shared_with`).
 pub const EVERYONE: &str = "*";
 
-/// A folder of the owner's vault shared with members (P84 fatia 3, TOML `[[spaces]]`). It stays the
+/// A folder of the owner's vault shared with members (P84 slice 3, TOML `[[spaces]]`). It stays the
 /// owner's — synced and backed up with the rest of their vault; a member sees it inside their own
 /// vault at `compartilhado/<id>/`. It is also how the owner decides what an agent may know when it
 /// talks to someone else: a member's turn sees these folders and never the rest of the owner's vault.
@@ -607,7 +607,7 @@ fn new_key_wraps(password: &str, policy: RecoveryPolicy, escrow_pub: Option<&str
     Ok((key, wraps, code))
 }
 
-/// A member from before fatia 4, signing in with their own password: turns encryption on with a
+/// A member from before slice 4, signing in with their own password: turns encryption on with a
 /// new key and recovery code. `None` when there's nothing to do (they have a key, or still have
 /// the owner's provisional password — `change_password` creates it then).
 pub fn enable_encryption(config: &mut FileConfig, id: &str, password: &str) -> anyhow::Result<Option<(MemberKey, String)>> {
@@ -1404,7 +1404,7 @@ mod tests {
     fn a_member_from_before_gets_a_key_at_sign_in_and_a_new_recovery_code_replaces_the_old() {
         let mut config = FileConfig::default();
         add_user(&mut config, "ana", "Ana", "provisional-1").unwrap();
-        config.users[0].must_change_password = false; // a member from before fatia 4, on their own password
+        config.users[0].must_change_password = false; // a member from before slice 4, on their own password
         assert!(enable_encryption(&mut config, "ana", "wrong-password").is_err());
         let (key, old_code) = enable_encryption(&mut config, "ana", "provisional-1").unwrap().unwrap();
         assert!(enable_encryption(&mut config, "ana", "provisional-1").unwrap().is_none(), "only once");

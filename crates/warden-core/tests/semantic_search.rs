@@ -1,4 +1,4 @@
-//! End-to-end coverage for `Vault::search_semantic` (Fase 4.5). The deterministic pieces
+//! End-to-end coverage for `Vault::search_semantic` (Phase 4.5). The deterministic pieces
 //! (chunking/hashing/cosine math) are unit-tested in `memory/semantic.rs` without a real model.
 //! These tests exercise the real ONNX model via `fastembed`, which downloads it from Hugging Face
 //! on first use — `#[ignore]`d by default so `cargo test`/CI stay hermetic and fast regardless of

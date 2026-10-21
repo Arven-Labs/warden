@@ -65,7 +65,7 @@ pub fn scope_to_project(orchestrator: &Orchestrator, project_id: &str) -> anyhow
     Ok(Some(scoped))
 }
 
-/// A working folder that lives on a node (P102 fatia 2) is written `node:<device id>:<path>`, the path relative to the
+/// A working folder that lives on a node (P102 slice 2) is written `node:<device id>:<path>`, the path relative to the
 /// folder the node lends (empty is that folder itself). It travels in the same `workdir` string as a folder of the hub's
 /// own machine, whose path always starts with `/` (or a drive letter), so the two can't be mixed up.
 const NODE_FOLDER_PREFIX: &str = "node:";

@@ -1,5 +1,5 @@
 /**
- * Shared plumbing for the DOM tools (Fase 8.3-8.6) — one place to resolve which tab to act on and
+ * Shared plumbing for the DOM tools (Phase 8.3-8.6) — one place to resolve which tab to act on and
  * to run a function inside its page, so the tools don't each duplicate error handling.
  *
  * Chrome constraint that shapes every tool built on `runInPage`: the function passed to

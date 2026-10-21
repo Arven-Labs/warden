@@ -1,4 +1,4 @@
-//! TLS for the hub (P36 fatia 2): serving `wss://` with a certificate that every client can verify
+//! TLS for the hub (P36 slice 2): serving `wss://` with a certificate that every client can verify
 //! without pinning — meant to come from `tailscale cert` (Let's Encrypt, for the machine's
 //! MagicDNS name), which works as-is in browsers and on Android/iOS.
 //!

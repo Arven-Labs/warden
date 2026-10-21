@@ -1,7 +1,7 @@
 import 'dart:convert';
 
 /// The two fields the desktop Workspace screen's "Pareamento por QR" section embeds in its QR
-/// (Fase 9.7, `desktop/src-tauri/src/workspace_cmds.rs::hub_pairing_qr_svg`) — everything
+/// (Phase 9.7, `desktop/src-tauri/src/workspace_cmds.rs::hub_pairing_qr_svg`) — everything
 /// `ConnectionScreen` would otherwise need typed by hand except the device name, which stays
 /// client-chosen.
 class HubPairingPayload {

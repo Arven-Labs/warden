@@ -90,9 +90,9 @@ pub struct LocalNode {
     shell: Option<ShellTool>,
     /// The shared folder, when files are on.
     files: Option<Arc<Vault>>,
-    /// Tools of the MCP servers lent with `--mcp` (fatia 2), already named uniquely.
+    /// Tools of the MCP servers lent with `--mcp` (slice 2), already named uniquely.
     mcp: Vec<Arc<dyn Tool>>,
-    /// Model providers lent with `--model` (fatia 3), by their id in this machine's config.
+    /// Model providers lent with `--model` (slice 3), by their id in this machine's config.
     models: Vec<(String, Arc<dyn ModelProvider>)>,
     /// Where each call is written down, when someone watches (the desktop).
     activity: Option<NodeActivity>,
@@ -280,7 +280,7 @@ fn list_files(vault: &Vault, path: &str) -> anyhow::Result<Value> {
 const MAX_LISTED_DIRS: usize = 500;
 
 /// The folders inside `path` (relative to the lent folder, empty is the folder itself), for the hub's folder picker
-/// (P102 fatia 2). Folders only — no files, links or hidden folders — and nothing outside the lent folder: the path is
+/// (P102 slice 2). Folders only — no files, links or hidden folders — and nothing outside the lent folder: the path is
 /// resolved (links followed) and must still be under it. The reply names the *resolved* path, relative, so the hub
 /// judges what was really opened and not what was asked for.
 fn list_dirs(vault: &Vault, path: &str) -> anyhow::Result<Value> {

@@ -19,7 +19,7 @@ async fn exposes_the_vault_tools_over_real_stdio_mcp() {
     // Explicit HOME override, not just GEMINI_API_KEY — otherwise `bootstrap()` inside the
     // spawned process would fall back to the *real* HOME (glibc's getpwuid fallback when HOME
     // is merely unset, not cleared) and could pick up a real config.toml / real key sitting on
-    // whatever machine runs this test. Same bug class fixed in Sessão 32 for the other channels'
+    // whatever machine runs this test. Same bug class fixed in Session 32 for the other channels'
     // process-level smoke tests.
     let home = unique_temp_dir("home");
     std::fs::create_dir_all(&home).unwrap();

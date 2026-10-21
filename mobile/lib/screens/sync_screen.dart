@@ -5,7 +5,7 @@ import '../l10n/generated/app_localizations.dart';
 import '../services/vault_paths.dart';
 import '../src/rust/api/sync.dart' as bridge;
 
-/// Fase 4.4 — vault + `config.toml` sync via Arweave (paid through the TruthID app), same engine
+/// Phase 4.4 — vault + `config.toml` sync via Arweave (paid through the TruthID app), same engine
 /// (`warden-sync`) the desktop `SyncView.tsx`/`warden-cli`'s `/sync` already drive. Reachable
 /// independent of the `warden-server` connection (`ConnectionScreen`'s AppBar) — sync never talks
 /// to `warden-server` at all, only to the paired device (LAN) and Arweave/TruthID.

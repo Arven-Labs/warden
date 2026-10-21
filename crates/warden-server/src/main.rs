@@ -45,7 +45,7 @@ struct Cli {
 enum Command {
     /// Starts listening for client connections (the long-running hub process).
     Serve(ServeArgs),
-    /// Manage the persistent device pairing registry (Fase 9.3) — `CallDeviceTool` routing only
+    /// Manage the persistent device pairing registry (Phase 9.3) — `CallDeviceTool` routing only
     /// works between devices that have been `approve`d here; a running `serve` process picks up
     /// changes made this way without needing a restart.
     Devices {
@@ -515,7 +515,7 @@ enum ApiKeysAction {
     Revoke { id: String },
 }
 
-/// Warden's server-side WebSocket endpoint (Fase 9/7.3): hosts a real `Orchestrator` (same
+/// Warden's server-side WebSocket endpoint (Phase 9/7.3): hosts a real `Orchestrator` (same
 /// `bootstrap()` every other channel uses) and answers chat over `ws://`, or only over `wss://`
 /// once a certificate is configured (P36 — `--tailscale-cert`, or `--tls-cert`/`--tls-key`).
 #[derive(Parser, Debug)]
@@ -573,7 +573,7 @@ struct ServeArgs {
     #[arg(long)]
     config: Option<String>,
 
-    /// Display name this hub answers with in HelloAck and to a LAN discovery sweep (Fase 9.1,
+    /// Display name this hub answers with in HelloAck and to a LAN discovery sweep (Phase 9.1,
     /// redefined — see `discover_hubs`). Falls back to WARDEN_SERVER_NAME, then the OS hostname.
     #[arg(long)]
     server_name: Option<String>,

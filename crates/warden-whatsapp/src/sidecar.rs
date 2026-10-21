@@ -1,4 +1,4 @@
-//! IPC with the Node/Baileys sidecar (Fase 3): a real WhatsApp connection lives entirely in
+//! IPC with the Node/Baileys sidecar (Phase 3): a real WhatsApp connection lives entirely in
 //! `sidecar/whatsapp/index.mjs`, spoken to over stdin/stdout as one JSON object per line — the
 //! first custom IPC in the project (everything else that spawns a Node process, like the MCP
 //! client, uses a pre-existing protocol). QR pairing is rendered by the sidecar directly to its
@@ -38,21 +38,21 @@ pub enum SidecarEvent {
 #[serde(tag = "type", rename_all = "camelCase")]
 enum SidecarCommand {
     Send { chat_id: String, text: String },
-    /// Media extracted from an MCP tool result during a turn (P64 frente 2 fatia 2) — `data` is
+    /// Media extracted from an MCP tool result during a turn (P64 frente 2 slice 2) — `data` is
     /// the same base64 payload `Attachment` already carries, decoded on the Node side (Baileys'
     /// `sendMessage` wants a `Buffer`, not base64 text).
     SendMedia { chat_id: String, mime_type: String, data: String },
 }
 
 /// Reading events is inherently stateful (lines pulled one at a time off a live stream), unlike
-/// `TelegramApi::get_updates` (Fase 2) which is a fresh HTTP call each time — hence `&mut self`
+/// `TelegramApi::get_updates` (Phase 2) which is a fresh HTTP call each time — hence `&mut self`
 /// here instead of `&self`.
 #[async_trait]
 pub trait WhatsAppSidecar: Send + Sync {
     /// `Ok(None)` means the sidecar process's stdout closed (it exited).
     async fn recv_event(&mut self) -> anyhow::Result<Option<SidecarEvent>>;
     async fn send(&mut self, chat_id: &str, text: &str) -> anyhow::Result<()>;
-    /// Media extracted from an MCP tool result during a turn (P64 frente 2 fatia 2) — sent as its
+    /// Media extracted from an MCP tool result during a turn (P64 frente 2 slice 2) — sent as its
     /// own WhatsApp message, native to whatever kind it is (image/video/audio/document).
     async fn send_attachment(&mut self, chat_id: &str, attachment: &Attachment) -> anyhow::Result<()>;
 }
@@ -798,7 +798,7 @@ mod tests {
         assert!(sidecar.sent.lock().unwrap().is_empty());
     }
 
-    // --- P64 frente 2 fatia 2: attachments extracted from a tool call are sent to the chat ---
+    // --- P64 frente 2 slice 2: attachments extracted from a tool call are sent to the chat ---
 
     struct ImageTool;
 

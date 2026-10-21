@@ -19,8 +19,8 @@ import 'qr_scan_screen.dart';
 import 'skills_screen.dart';
 import 'sync_screen.dart';
 
-/// Fase 7.2 scope: prove connectivity to a warden-server over WebSocket.
-/// A successful connect now pushes straight into the real chat UI (Fase 7.3, `ChatScreen`) —
+/// Phase 7.2 scope: prove connectivity to a warden-server over WebSocket.
+/// A successful connect now pushes straight into the real chat UI (Phase 7.3, `ChatScreen`) —
 /// this screen stays underneath so the user can navigate back to it without hanging up.
 class ConnectionScreen extends StatefulWidget {
   const ConnectionScreen({super.key, this.connector = ServerConnection.connect});
@@ -242,7 +242,7 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
     return true;
   }
 
-  // Fase 9.1 (redefined) — sweeps the LAN instead of asking the user to already know the IP.
+  // Phase 9.1 (redefined) — sweeps the LAN instead of asking the user to already know the IP.
   // Reuses the same `discover_hubs` Rust already exposes to the desktop's WorkspaceView, over the
   // mobile bridge. Only ever fills host/port — the auth key is never part of a hub's reply, so it
   // stays manual on purpose, same security boundary as the desktop and the QR pairing flow. Sweeps
@@ -324,7 +324,7 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
         actions: [
           // P136 — the language of the app, reachable before anybody is connected.
           const LanguageMenu(),
-          // Fase 9.1 (redefined) — sweeps the LAN for a warden-server hub and fills in host/port
+          // Phase 9.1 (redefined) — sweeps the LAN for a warden-server hub and fills in host/port
           // from the pick, instead of typing an IP by hand. Only useful before connecting.
           if (!_isConnected && !_isBusy)
             IconButton(
@@ -332,7 +332,7 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
               tooltip: l10n.connDiscoverTooltip,
               onPressed: _discoverHubs,
             ),
-          // Fase 9.7 — scans the desktop Workspace screen's pairing QR to fill in host/port/auth
+          // Phase 9.7 — scans the desktop Workspace screen's pairing QR to fill in host/port/auth
           // key below, instead of typing them by hand. Only useful before connecting.
           if (!_isConnected && !_isBusy)
             IconButton(
@@ -348,7 +348,7 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
               tooltip: l10n.connAccountTooltip,
               onPressed: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => AccountScreen(connection: _connection!))),
             ),
-          // Fase 4.4 — sync doesn't depend on being connected to warden-server (it only talks to
+          // Phase 4.4 — sync doesn't depend on being connected to warden-server (it only talks to
           // a paired device over LAN and to Arweave/TruthID), so it's reachable independent of
           // this screen's connection state.
           IconButton(

@@ -1,4 +1,4 @@
-//! P78 fatia 1 — the hub serving its web interface on the WebSocket port, over real sockets.
+//! P78 slice 1 — the hub serving its web interface on the WebSocket port, over real sockets.
 
 mod support;
 

@@ -4,7 +4,7 @@
 //! stdio, so any third-party MCP client (Claude Desktop, another agent, ...) can point its own
 //! `mcpServers` config at this binary and use Warden's capabilities. Meant to be launched
 //! on-demand by that client (same `command`/`args` shape MCP configs already use everywhere in
-//! this project) — no persistent network listener, consistent with "servidor é opcional"
+//! this project) — no persistent network listener, consistent with "the server is optional"
 //! (see `ARCHITECTURE.md`).
 
 use std::path::PathBuf;

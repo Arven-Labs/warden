@@ -32,7 +32,7 @@ pub fn git_sync_configured() -> Result<bool, String> {
 fn build_engine_from_fresh_config() -> Result<GitSyncEngine, String> {
     let (config_path, config) = fresh_config()?;
     let vault_path = resolve_vault_path(&Overrides::default(), &config, crate::desktop_default_vault_path());
-    let git_sync = config.git_sync.ok_or_else(|| "configure a URL e o token do git sync em Settings antes de usar".to_string())?;
+    let git_sync = config.git_sync.ok_or_else(|| "set the git sync URL and token in Settings before using it".to_string())?;
     let secrets_path = warden_sync::paths::default_sync_secrets_path().unwrap_or_else(|| PathBuf::from("sync_secrets.json"));
     let manifest_path = warden_sync::paths::default_sync_manifest_path().unwrap_or_else(|| PathBuf::from("sync_manifest.json"));
     let git_repo_path = warden_sync::paths::default_git_sync_repo_path().unwrap_or_else(|| PathBuf::from("git-sync-repo"));

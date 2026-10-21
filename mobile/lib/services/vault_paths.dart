@@ -3,7 +3,7 @@ import 'dart:io';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
-/// Fase 4.4 — where this device's local vault + sync tracking state live. Mirrors the desktop's
+/// Phase 4.4 — where this device's local vault + sync tracking state live. Mirrors the desktop's
 /// use of the OS config dir (`desktop/src-tauri/src/lib.rs::sync_secrets_path`/
 /// `sync_manifest_path`, `warden_sync::paths`) rather than a user-visible Documents folder:
 /// `getApplicationSupportDirectory()` is the Flutter/`path_provider` equivalent — private to the

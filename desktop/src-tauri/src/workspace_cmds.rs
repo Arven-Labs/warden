@@ -1,5 +1,5 @@
-//! Tauri commands backing the "Workspace" screen (Fase 9.6) — lists/approves/revokes devices
-//! paired with a `warden-server` hub (Fase 9.3, `warden_server::PairingStore`). No `AppState`
+//! Tauri commands backing the "Workspace" screen (Phase 9.6) — lists/approves/revokes devices
+//! paired with a `warden-server` hub (Phase 9.3, `warden_server::PairingStore`). No `AppState`
 //! needed: `PairingStore` is stateless by design (just a `PathBuf`, rereads the JSON file on every
 //! call — see `device_registry.rs`'s module docs), so a fresh one is built per command.
 //!
@@ -152,7 +152,7 @@ fn hub_pairing_config_path() -> Result<std::path::PathBuf, String> {
 }
 
 /// What the Workspace screen's "Pareamento por QR" section pre-fills its Server URL/Auth key
-/// fields from (Fase 9.7) — `None` until the operator has saved it at least once.
+/// fields from (Phase 9.7) — `None` until the operator has saved it at least once.
 #[tauri::command]
 pub fn get_hub_pairing_config() -> Result<Option<HubPairingConfigPayload>, String> {
     let path = hub_pairing_config_path()?;
@@ -170,10 +170,10 @@ pub fn save_hub_pairing_config(server_url: String) -> Result<(), String> {
     warden_bootstrap::save_hub_pairing_config(&path, &config).map_err(|e| format!("{e:#}"))
 }
 
-/// Draws the pairing QR (Fase 9.7) from the address saved with `save_hub_pairing_config` — a new client (today, the mobile app's
+/// Draws the pairing QR (Phase 9.7) from the address saved with `save_hub_pairing_config` — a new client (today, the mobile app's
 /// `ConnectionScreen`) scans this to skip typing the address and the key by hand. The key in it is a one-use invite made now, on
 /// this machine's registry (P36: the hub's pairing key pairs only its first device), valid for `QR_INVITE_MINUTES`. `device_id`/
-/// `device_name` stay client-chosen, and approving the device for `CallDeviceTool` routing (Fase 9.3/9.6) still happens separately.
+/// `device_name` stay client-chosen, and approving the device for `CallDeviceTool` routing (Phase 9.3/9.6) still happens separately.
 #[tauri::command]
 pub fn hub_pairing_qr_svg() -> Result<HubPairingQr, String> {
     let path = hub_pairing_config_path()?;
@@ -206,7 +206,7 @@ impl From<DiscoveredHub> for DiscoveredHubPayload {
     }
 }
 
-/// Sweeps the local network for `warden-server` hubs (Fase 9.1, redefined — see
+/// Sweeps the local network for `warden-server` hubs (Phase 9.1, redefined — see
 /// `warden_server_protocol::discovery`) and lets the "Pareamento por QR" section's "Server URL"
 /// field be filled by picking one instead of typing an IP by hand. Never reveals or needs the
 /// auth key — that stays manual, same security boundary the discovery probe itself keeps. `port`
@@ -258,7 +258,7 @@ mod tests {
         );
     }
 
-    // Locks in the exact camelCase JSON shape embedded in the pairing QR (Fase 9.7) — this is
+    // Locks in the exact camelCase JSON shape embedded in the pairing QR (Phase 9.7) — this is
     // what `mobile/lib/services/hub_pairing_qr.dart::parseHubPairingQr` decodes on the other end,
     // so the two sides must agree on field names without either one importing the other's types.
     #[test]

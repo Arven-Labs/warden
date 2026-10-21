@@ -28,7 +28,7 @@ import 'attachment_kind.dart';
 import 'folder_picker.dart';
 import 'language_menu.dart';
 
-/// Fase 7.3: the real chat UI, built on top of the connection 7.2 proved works. The transcript is
+/// Phase 7.3: the real chat UI, built on top of the connection 7.2 proved works. The transcript is
 /// kept in memory by the [ChatTranscript] the caller passes in (P41: it outlives this screen, so
 /// leaving with the back button and resuming keeps the conversation), which since P40 also starts
 /// with the conversation `warden-server` persisted for this device, so reopening the app (or
@@ -150,8 +150,8 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     widget.transcript.setForeground(state == AppLifecycleState.resumed);
   }
 
-  /// P71 fatia 2 — pulls sync changes silently when the app comes back to the foreground,
-  /// mirroring the desktop's periodic `spawn_auto_pull` (Fase 4.7 fatia 1) as closely as a
+  /// P71 slice 2 — pulls sync changes silently when the app comes back to the foreground,
+  /// mirroring the desktop's periodic `spawn_auto_pull` (Phase 4.7 slice 1) as closely as a
   /// process without a long-lived background daemon allows. Skips silently when sync was never
   /// paired on this device (`bridgeStatus` is safe to call even then — see
   /// `warden-sync::SyncEngine::status`); any other failure (e.g. no network) is only logged, never
@@ -1142,7 +1142,7 @@ class _MessageBubble extends StatelessWidget {
 }
 
 /// Media extracted from an MCP tool result (P64 frente 2). `image/*` renders via `Image.memory`
-/// (fatia 3); `audio/*`/`video/*` play for real too now (P66) — audio straight from bytes
+/// (slice 3); `audio/*`/`video/*` play for real too now (P66) — audio straight from bytes
 /// (`audioplayers`'s `BytesSource`), video via a temp file (`video_player` has no bytes source).
 /// Anything else still falls back to a caption instead of vanishing silently, same
 /// graceful-degradation spirit as `MEDIA_REPLY` on the WhatsApp side for *received* media.

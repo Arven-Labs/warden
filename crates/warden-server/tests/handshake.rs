@@ -127,7 +127,7 @@ async fn discover_gets_an_ack_with_the_hub_name_and_no_device_registration() {
 
     assert_eq!(hubs.len(), 1);
     assert_eq!(hubs[0].server_name, "Test Hub");
-    // A discovery probe never becomes a "connected device" — the pairing registry (Fase 9.3)
+    // A discovery probe never becomes a "connected device" — the pairing registry (Phase 9.3)
     // stays empty, unlike a real Hello (see `hello_handshake_and_heartbeat_round_trip` and
     // `PairingStore::authenticate`).
     let store = warden_server::PairingStore::new(devices_path);

@@ -1,4 +1,4 @@
-//! Fase 9.1 (redefined) bridge function for the mobile `ConnectionScreen` — reuses the exact same
+//! Phase 9.1 (redefined) bridge function for the mobile `ConnectionScreen` — reuses the exact same
 //! LAN sweep the desktop's `WorkspaceView.tsx` calls (`warden_server_protocol::discover_hubs`),
 //! not a Dart reimplementation. Same "plain `pub fn`, own Tokio runtime" shape as `api::sync`'s
 //! bridge functions — see that module's docs for why.

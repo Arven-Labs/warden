@@ -112,7 +112,7 @@ impl GitSyncEngine {
 
     fn load_secrets(&self) -> anyhow::Result<SyncSecrets> {
         manifest::load_secrets(&self.secrets_path)?.ok_or_else(|| {
-            anyhow::anyhow!("sync ainda não foi inicializado neste dispositivo — rode init_fresh ou pareie com um dispositivo existente primeiro")
+            anyhow::anyhow!("sync has not been initialized on this device yet — run init_fresh or pair with an existing device first")
         })
     }
 
@@ -165,7 +165,7 @@ impl GitSyncEngine {
         if let Err(err) = run_git_authenticated(&self.local_repo_path, &["push", &push_url, &refspec], &self.token) {
             let text = err.to_string();
             if text.contains("rejected") || text.contains("fetch first") || text.contains("non-fast-forward") {
-                anyhow::bail!("push rejeitado — outro dispositivo publicou primeiro; rode pull e tente de novo");
+                anyhow::bail!("push rejected — another device published first; run pull and try again");
             }
             return Err(err);
         }
@@ -198,7 +198,7 @@ impl GitSyncEngine {
         };
 
         if manifest.last_tx_id.as_deref() == Some(remote_head.as_str()) {
-            return Ok(GitPullOutcome::up_to_date("já está atualizado"));
+            return Ok(GitPullOutcome::up_to_date("already up to date"));
         }
 
         let fetch_url = maybe_authenticated_url(&self.remote_url, &self.token);
@@ -206,7 +206,7 @@ impl GitSyncEngine {
 
         let shas_to_replay = commits_to_replay(&self.local_repo_path, manifest.last_tx_id.as_deref())?;
         if shas_to_replay.is_empty() {
-            return Ok(GitPullOutcome::up_to_date("já está atualizado"));
+            return Ok(GitPullOutcome::up_to_date("already up to date"));
         }
 
         let ignore = SyncIgnore::load(&self.vault)?;
@@ -230,13 +230,13 @@ impl GitSyncEngine {
                 let current_hash = std::fs::read(self.vault.root().join(relative)).ok().map(|bytes| diff::sha256_hex(&bytes));
                 let known_hash = current_manifest.vault_files.get(relative).cloned();
                 if current_hash != known_hash {
-                    warnings.push(format!("mudança local em {relative} foi sobrescrita pelo pull"));
+                    warnings.push(format!("local change to {relative} was overwritten by the pull"));
                 }
             }
             if decoded.config_toml.is_some() || decoded.config_deleted {
                 let current_hash = std::fs::read(&self.config_path).ok().map(|bytes| diff::sha256_hex(&bytes));
                 if current_hash != current_manifest.config_hash {
-                    warnings.push("mudança local em config.toml foi sobrescrita pelo pull".to_string());
+                    warnings.push("local change to config.toml was overwritten by the pull".to_string());
                 }
             }
 
@@ -362,14 +362,14 @@ fn run_git_authenticated(repo_dir: &Path, args: &[&str], token: &str) -> anyhow:
 fn run_git_in(dir: &Path, args: &[&str]) -> anyhow::Result<String> {
     let output = Command::new("git").current_dir(dir).args(args).output().map_err(|err| {
         if err.kind() == std::io::ErrorKind::NotFound {
-            anyhow::anyhow!("git não encontrado no PATH — instale o git pra usar sync via git remoto")
+            anyhow::anyhow!("git not found on PATH — install git to use sync through a git remote")
         } else {
-            anyhow::anyhow!("falha ao executar git {}: {err}", args.join(" "))
+            anyhow::anyhow!("failed to run git {}: {err}", args.join(" "))
         }
     })?;
 
     if !output.status.success() {
-        anyhow::bail!("git {} falhou: {}", args.join(" "), String::from_utf8_lossy(&output.stderr).trim());
+        anyhow::bail!("git {} failed: {}", args.join(" "), String::from_utf8_lossy(&output.stderr).trim());
     }
     Ok(String::from_utf8_lossy(&output.stdout).to_string())
 }
@@ -379,13 +379,13 @@ fn run_git_in(dir: &Path, args: &[&str]) -> anyhow::Result<String> {
 fn run_git_bytes(dir: &Path, args: &[&str]) -> anyhow::Result<Vec<u8>> {
     let output = Command::new("git").current_dir(dir).args(args).output().map_err(|err| {
         if err.kind() == std::io::ErrorKind::NotFound {
-            anyhow::anyhow!("git não encontrado no PATH — instale o git pra usar sync via git remoto")
+            anyhow::anyhow!("git not found on PATH — install git to use sync through a git remote")
         } else {
-            anyhow::anyhow!("falha ao executar git {}: {err}", args.join(" "))
+            anyhow::anyhow!("failed to run git {}: {err}", args.join(" "))
         }
     })?;
     if !output.status.success() {
-        anyhow::bail!("git {} falhou: {}", args.join(" "), String::from_utf8_lossy(&output.stderr).trim());
+        anyhow::bail!("git {} failed: {}", args.join(" "), String::from_utf8_lossy(&output.stderr).trim());
     }
     Ok(output.stdout)
 }
@@ -569,7 +569,7 @@ mod tests {
         std::fs::write(b_dir.join("slack.json"), "edited on b").unwrap();
         let pulled = device_b.pull().await.unwrap();
         assert_eq!(std::fs::read_to_string(b_dir.join("slack.json")).unwrap(), "t2");
-        assert_eq!(pulled.warnings, ["mudança local no login MCP slack foi sobrescrita pelo pull"]);
+        assert_eq!(pulled.warnings, ["local change to the MCP login slack was overwritten by the pull"]);
 
         // A disconnects the server: it goes from B too.
         std::fs::remove_file(a_dir.join("slack.json")).unwrap();

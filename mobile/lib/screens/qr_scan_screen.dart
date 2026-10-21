@@ -4,7 +4,7 @@ import 'package:mobile_scanner/mobile_scanner.dart';
 import '../l10n/generated/app_localizations.dart';
 import '../services/hub_pairing_qr.dart';
 
-/// Fase 9.7 — scans the QR the desktop Workspace screen shows, so `ConnectionScreen` doesn't need
+/// Phase 9.7 — scans the QR the desktop Workspace screen shows, so `ConnectionScreen` doesn't need
 /// the server host/port/auth key typed by hand. Pops with a [HubPairingPayload] on a valid scan;
 /// pops with `null` if the user backs out without one.
 class QrScanScreen extends StatefulWidget {

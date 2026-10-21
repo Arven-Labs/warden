@@ -637,7 +637,7 @@ mod tests {
         assert!(store.vault.search("needle", 5).unwrap().is_empty());
     }
 
-    /// P84 fatia 4: a member's skills live in an encrypted vault and work the same.
+    /// P84 slice 4: a member's skills live in an encrypted vault and work the same.
     #[test]
     fn skills_and_attachments_work_in_an_encrypted_vault() {
         let dir = std::env::temp_dir().join(format!(

@@ -5,8 +5,8 @@
  * `background/index.ts` for why, and for the reasoning behind the 20s heartbeat below (Chrome
  * 116+ resets the service worker's idle-shutdown timer on WebSocket message activity).
  *
- * Tool-call handling (Fase 8.3-8.6) also ports `_handleToolCallRequest` from the Dart client.
- * Deliberately still out of scope, same cut line `server_connection.dart` drew for Fase 7.2: no
+ * Tool-call handling (Phase 8.3-8.6) also ports `_handleToolCallRequest` from the Dart client.
+ * Deliberately still out of scope, same cut line `server_connection.dart` drew for Phase 7.2: no
  * automatic reconnect on a dropped/failed connection.
  */
 
@@ -34,7 +34,7 @@ import {
   type ToolSpec,
 } from "../protocol/messages";
 
-/** A local tool this client can run when the server asks (Fase 8.3-8.6) — `args` is whatever
+/** A local tool this client can run when the server asks (Phase 8.3-8.6) — `args` is whatever
  * JSON value the model passed as the tool call's arguments. Return the JSON-encodable result, or
  * throw (any exception) to send a `toolCallError` back instead. */
 export type ToolHandler = (args: unknown) => Promise<unknown>;

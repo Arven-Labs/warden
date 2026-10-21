@@ -507,7 +507,7 @@ pub struct SecretStatusDto {
     pub hint: Option<String>,
 }
 
-/// A device's standing in the hub's pairing registry (Fase 9.3) — mirrors `warden-server`'s
+/// A device's standing in the hub's pairing registry (Phase 9.3) — mirrors `warden-server`'s
 /// `PairingStatus`, which this crate can't see.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -517,7 +517,7 @@ pub enum DeviceStatusDto {
     Revoked,
 }
 
-/// One device that has ever said `Hello` to the hub, for the web's device list (Sessão 103).
+/// One device that has ever said `Hello` to the hub, for the web's device list (Session 103).
 /// Never its token or token hash.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -556,7 +556,7 @@ pub struct NodeOfferDto {
     /// Reads and writes files in one folder.
     #[serde(default)]
     pub files: bool,
-    /// Tools of the MCP servers this node lends (fatia 2), each with its own schema, as the node names
+    /// Tools of the MCP servers this node lends (slice 2), each with its own schema, as the node names
     /// them. The hub offers each as a tool of its own, `<node>__<tool>`.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub mcp_tools: Vec<ToolSpec>,
@@ -564,7 +564,7 @@ pub struct NodeOfferDto {
     /// says nothing is not here; a node from before this field sends none, and its tools are classified by name only.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub mcp_hints: BTreeMap<String, RiskHints>,
-    /// Model providers this node lends (fatia 3), by their id on the node. A hub reaches one through
+    /// Model providers this node lends (slice 3), by their id on the node. A hub reaches one through
     /// a `[[providers]]` entry with `kind = "node"`.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub models: Vec<String>,
@@ -681,7 +681,7 @@ pub struct WebhookInfoDto {
     pub conversation: String,
 }
 
-/// A folder of the owner's vault shared with members (P84 fatia 3). A member sees it at
+/// A folder of the owner's vault shared with members (P84 slice 3). A member sees it at
 /// `compartilhado/<id>/` in their own vault.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -708,13 +708,13 @@ pub struct UserInfoDto {
     /// Still on the provisional password the root set: the hub only lets them change it.
     #[serde(default)]
     pub must_change_password: bool,
-    /// P84 fatia 2: the tools the owner set for them; `None` is the safe default.
+    /// P84 slice 2: the tools the owner set for them; `None` is the safe default.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tools: Option<Vec<String>>,
     /// Their own agents' ids — the owner sees that they exist, not what they say.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub agents: Vec<String>,
-    /// P84 fatia 4: their data is encrypted on this hub, with a key only they (and their recovery
+    /// P84 slice 4: their data is encrypted on this hub, with a key only they (and their recovery
     /// code) can open.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub encrypted: bool,
@@ -726,7 +726,7 @@ pub struct UserInfoDto {
     /// with the password), so their data can't be opened until they do.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub locked: bool,
-    /// P84 fatia 4 parte B: who besides them may open their data — `private`, `consent` or `company`;
+    /// P84 slice 4 parte B: who besides them may open their data — `private`, `consent` or `company`;
     /// empty while it isn't encrypted. What their data follows now, which is the workspace's policy
     /// unless a change to a weaker one still waits for their yes (`policy_pending`).
     #[serde(default, skip_serializing_if = "String::is_empty")]
@@ -753,7 +753,7 @@ pub struct UserInfoDto {
     /// Every time the owner recovered their data with the workspace's recovery key.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub recoveries: Vec<RecoveryEventDto>,
-    /// P84 fatia 5: the TruthID username they linked, empty if none.
+    /// P84 slice 5: the TruthID username they linked, empty if none.
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub truthid: String,
     /// An invite to link a TruthID is open (made by the owner, not used or expired yet).
@@ -762,7 +762,7 @@ pub struct UserInfoDto {
     /// P102: the folders of the hub's machine the owner allowed them to work in (absolute paths).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub workdirs: Vec<String>,
-    /// P102 fatia 2: the same on nodes.
+    /// P102 slice 2: the same on nodes.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub node_workdirs: Vec<NodeFolderDto>,
     /// P100: the providers and combos (by id) the owner released for their own agents; empty is only the hub's default model.
@@ -770,7 +770,7 @@ pub struct UserInfoDto {
     pub models: Vec<String>,
 }
 
-/// A folder on a node a member may work in (P102 fatia 2): `path` is relative to the folder the node lends.
+/// A folder on a node a member may work in (P102 slice 2): `path` is relative to the folder the node lends.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct NodeFolderDto {
@@ -779,7 +779,7 @@ pub struct NodeFolderDto {
     pub path: String,
 }
 
-/// A member the owner removed whose encrypted data is still on disk, with the key that opens it (P84 fatia 4).
+/// A member the owner removed whose encrypted data is still on disk, with the key that opens it (P84 slice 4).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RemovedUserDto {
@@ -787,7 +787,7 @@ pub struct RemovedUserDto {
     pub name: String,
 }
 
-/// The owner recovered someone's data with the workspace's recovery key (P84 fatia 4, parte B).
+/// The owner recovered someone's data with the workspace's recovery key (P84 slice 4, parte B).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RecoveryEventDto {
@@ -1657,7 +1657,7 @@ pub enum ClientMessage {
         /// after the operator rotates the pairing key; stops working once the device is revoked.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         device_token: Option<String>,
-        /// Local tools this client can execute on request (Fase 7.4) — e.g. mobile's
+        /// Local tools this client can execute on request (Phase 7.4) — e.g. mobile's
         /// `list_files`/`read_file`. `#[serde(default)]` so a client that predates this (or
         /// simply has none configured, like the desktop-as-client) doesn't need to send anything;
         /// `Server` only builds the remote-tool-dispatch machinery when this is non-empty.
@@ -1677,12 +1677,12 @@ pub enum ClientMessage {
         username: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         password: Option<String>,
-        /// P84 fatia 4: this client can show a member's recovery code, once, and make them keep it.
+        /// P84 slice 4: this client can show a member's recovery code, once, and make them keep it.
         /// The hub only turns encryption on for someone's data from a client that says so: a code
         /// nobody sees is a key nobody has.
         #[serde(default, skip_serializing_if = "std::ops::Not::not")]
         recovery_codes: bool,
-        /// P84 fatia 5: asks to sign in as a member with their TruthID instead of a password. The hub
+        /// P84 slice 5: asks to sign in as a member with their TruthID instead of a password. The hub
         /// answers `TruthIdChallenge` (a QR for the TruthID app) and, once the phone approves, `HelloAck`.
         #[serde(default, skip_serializing_if = "std::ops::Not::not")]
         truthid_login: bool,
@@ -1690,7 +1690,7 @@ pub enum ClientMessage {
     Ping {
         nonce: u64,
     },
-    /// A chat turn (Fase 7.3) — answered by the `Orchestrator` `Server` now hosts, appended to one
+    /// A chat turn (Phase 7.3) — answered by the `Orchestrator` `Server` now hosts, appended to one
     /// of this device's conversations. `conversation_id` picks which (P78): an id the hub has never
     /// seen starts a new conversation, titled from this first message; `None` means the device's
     /// default conversation, the only one a client from before P78 ever used.
@@ -1754,12 +1754,12 @@ pub enum ClientMessage {
         conversation_id: String,
         mode: String,
     },
-    /// The result of a `ServerMessage::ToolCallRequest` this client was asked to run (Fase 7.4).
+    /// The result of a `ServerMessage::ToolCallRequest` this client was asked to run (Phase 7.4).
     ToolCallResult {
         call_id: u64,
         result: Value,
     },
-    /// The client failed to run a requested tool call (Fase 7.4) — same "carry the real error
+    /// The client failed to run a requested tool call (Phase 7.4) — same "carry the real error
     /// text" posture as `ServerMessage::ChatError`.
     ToolCallError {
         call_id: u64,
@@ -1782,8 +1782,8 @@ pub enum ClientMessage {
         #[serde(default)]
         transient: bool,
     },
-    /// Asks the server to route a tool call to a *different* connected device (Fase 9.3/9.4) —
-    /// unlike `Hello.tools`/`ToolCallRequest` (Fase 7.4, always a round-trip back to the same
+    /// Asks the server to route a tool call to a *different* connected device (Phase 9.3/9.4) —
+    /// unlike `Hello.tools`/`ToolCallRequest` (Phase 7.4, always a round-trip back to the same
     /// connection that advertised the tool), this lets any connected client reach a specific
     /// other one by `target_device_id`. `call_id` is this connection's own id (allocated the same
     /// way `Ping`'s `nonce` is, by the caller) — echoed back on the matching
@@ -2231,18 +2231,18 @@ pub enum ClientMessage {
         request_id: u64,
         old_password: String,
         new_password: String,
-        /// P84 fatia 4: needed only after the owner reset the password of a member whose data is
+        /// P84 slice 4: needed only after the owner reset the password of a member whose data is
         /// encrypted — it's what opens the data, since the old password can't.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         recovery_code: Option<String>,
     },
-    /// P84 fatia 4: the member asks for a new recovery code (the old one stops working), with their
+    /// P84 slice 4: the member asks for a new recovery code (the old one stops working), with their
     /// password. Answered by `RecoveryCode` or `UserError`.
     RegenerateRecoveryCode {
         request_id: u64,
         password: String,
     },
-    /// P84 fatia 4 parte B: the member says yes to the workspace's recovery policy when it changed to a
+    /// P84 slice 4 parte B: the member says yes to the workspace's recovery policy when it changed to a
     /// weaker one, with their password (which opens their key). Answered by `RecoveryPolicyAccepted`
     /// or `UserError`.
     AcceptRecoveryPolicy {
@@ -2301,7 +2301,7 @@ pub enum ClientMessage {
         pairing_key: String,
         id: String,
     },
-    /// P84 fatia 5: the owner makes an invite for a member to link their TruthID, shown once in
+    /// P84 slice 5: the owner makes an invite for a member to link their TruthID, shown once in
     /// `UserList` (`invite_code`). A new one replaces an open one.
     CreateInvite {
         request_id: u64,
@@ -2321,7 +2321,7 @@ pub enum ClientMessage {
         code: String,
         username: String,
     },
-    /// P84 fatia 4: the owner brings back a member they removed whose encrypted data was kept, with the
+    /// P84 slice 4: the owner brings back a member they removed whose encrypted data was kept, with the
     /// password they had. Their devices were revoked when they were removed: they pair again. Answered
     /// by `UserList`.
     RestoreUser {
@@ -2335,7 +2335,7 @@ pub enum ClientMessage {
         pairing_key: String,
         id: String,
     },
-    /// P84 fatia 2: the tools a member may use (`None`: the safe default). Answered by `UserList`.
+    /// P84 slice 2: the tools a member may use (`None`: the safe default). Answered by `UserList`.
     SetUserTools {
         request_id: u64,
         pairing_key: String,
@@ -2386,7 +2386,7 @@ pub enum ClientMessage {
         request_id: u64,
         id: String,
     },
-    /// P84 fatia 3: the shared spaces, answered by `SpaceList` — all of them for the owner, the ones
+    /// P84 slice 3: the shared spaces, answered by `SpaceList` — all of them for the owner, the ones
     /// they're in for a member.
     ListSpaces {
         request_id: u64,
@@ -2443,7 +2443,7 @@ pub enum ClientMessage {
         pairing_key: String,
         action: SyncActionDto,
     },
-    /// An unauthenticated presence probe (Fase 9.1 redefined — LAN discovery, not the
+    /// An unauthenticated presence probe (Phase 9.1 redefined — LAN discovery, not the
     /// authenticated connection Hello starts). No `auth_key`/`device_id` on purpose: the whole
     /// point is finding a hub *before* knowing its credential. Answered by `DiscoverAck` and the
     /// connection closes right after — never reaches `Hello`'s device-registry bookkeeping.
@@ -2487,7 +2487,7 @@ pub enum ServerMessage {
     ChatResponse {
         content: String,
         usage: Option<Usage>,
-        /// Media extracted from an MCP tool result during this turn (P64 frente 2 fatia 3).
+        /// Media extracted from an MCP tool result during this turn (P64 frente 2 slice 3).
         /// `#[serde(default)]` so a peer from before this field existed (older client build, or a
         /// stored fixture) still parses.
         #[serde(default)]
@@ -2520,7 +2520,7 @@ pub enum ServerMessage {
         conversation_id: String,
         event: ChatEventDto,
     },
-    /// Asks a connected client to run one of the tools it advertised in `Hello.tools` (Fase 7.4).
+    /// Asks a connected client to run one of the tools it advertised in `Hello.tools` (Phase 7.4).
     /// `call_id` is scoped to this connection (a simple counter, mirrors `Ping`'s `nonce`) — the
     /// client echoes it back on `ToolCallResult`/`ToolCallError` so the server can correlate the
     /// reply even if several calls are in flight at once.
@@ -2542,7 +2542,7 @@ pub enum ServerMessage {
     ModelCancel {
         request_id: u64,
     },
-    /// Reply to a `ClientMessage::CallDeviceTool` (Fase 9.4) — the target device answered. Same
+    /// Reply to a `ClientMessage::CallDeviceTool` (Phase 9.4) — the target device answered. Same
     /// `call_id` the caller allocated for that request.
     DeviceToolResult {
         call_id: u64,
@@ -2866,10 +2866,10 @@ pub enum ServerMessage {
         users: Vec<UserInfoDto>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         temp_password: Option<String>,
-        /// P84 fatia 5: the invite just made, shown once.
+        /// P84 slice 5: the invite just made, shown once.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         invite_code: Option<String>,
-        /// P84 fatia 4 parte B: the workspace's recovery policy (empty from a hub that predates it).
+        /// P84 slice 4 parte B: the workspace's recovery policy (empty from a hub that predates it).
         #[serde(default, skip_serializing_if = "String::is_empty")]
         recovery_policy: String,
         /// Members the owner removed whose encrypted data is still on disk: `RestoreUser` brings them back.
@@ -2910,7 +2910,7 @@ pub enum ServerMessage {
     },
     PasswordChanged {
         request_id: u64,
-        /// P84 fatia 4: the member's data is encrypted from this change on, and this is the
+        /// P84 slice 4: the member's data is encrypted from this change on, and this is the
         /// recovery code that opens it if they lose the password. Sent once, never stored in the
         /// clear: the client has to make them write it down.
         #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -2922,7 +2922,7 @@ pub enum ServerMessage {
         request_id: u64,
         code: String,
     },
-    /// P84 fatia 3: the shared spaces.
+    /// P84 slice 3: the shared spaces.
     SpaceList {
         request_id: u64,
         spaces: Vec<SpaceDto>,
@@ -3132,7 +3132,7 @@ mod tests {
 
     #[test]
     fn client_hello_without_a_tools_field_defaults_to_empty() {
-        // A client written before Fase 7.4 (or one with nothing to advertise) never sends `tools`
+        // A client written before Phase 7.4 (or one with nothing to advertise) never sends `tools`
         // at all — must still parse, not error.
         let json = r#"{"type":"hello","deviceId":"dev-1","deviceName":"Test Device","authKey":"secret"}"#;
         let msg = serde_json::from_str::<ClientMessage>(json).unwrap();

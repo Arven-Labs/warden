@@ -1,4 +1,4 @@
-//! Encryption of a member's data at rest (P84, fatia 4): the key, how it's kept, and what is done
+//! Encryption of a member's data at rest (P84, slice 4): the key, how it's kept, and what is done
 //! with the files already on disk.
 //!
 //! Each member has one random 32-byte key. It never touches the disk in the clear: `config.toml`
@@ -130,7 +130,7 @@ static KEYRING: RwLock<Option<HashMap<PathBuf, Arc<VaultCipher>>>> = RwLock::new
 /// What a member's folder needs.
 #[derive(Clone)]
 pub enum DirState {
-    /// Never encrypted (the owner's, or a member from before fatia 4 who hasn't signed in since).
+    /// Never encrypted (the owner's, or a member from before slice 4 who hasn't signed in since).
     Plain,
     Unlocked(Arc<VaultCipher>),
     /// Encrypted, and the hub doesn't hold the key.

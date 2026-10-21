@@ -1,5 +1,5 @@
-//! Tiny shared helper around the `qrcode` crate — split out of `sync_cmds.rs` (Fase 4.2, the
-//! Send/Pull QR) once `workspace_cmds.rs` needed the exact same rendering for the Fase 9.7 pairing
+//! Tiny shared helper around the `qrcode` crate — split out of `sync_cmds.rs` (Phase 4.2, the
+//! Send/Pull QR) once `workspace_cmds.rs` needed the exact same rendering for the Phase 9.7 pairing
 //! QR. Nothing app-specific lives here; both callers build their own JSON payload beforehand.
 
 pub fn render_qr_svg(data: &str) -> Result<String, String> {

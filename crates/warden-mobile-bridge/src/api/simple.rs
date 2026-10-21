@@ -1,6 +1,6 @@
-/// Toolchain smoke test (Fase 4.4, Estágio A) — proves the Android-compiled `.so` links and runs
+/// Toolchain smoke test (Phase 4.4, Stage A) — proves the Android-compiled `.so` links and runs
 /// inside the Flutter app before any real sync logic is wired in. Superseded by the real
-/// `SyncEngine` bridge functions in Estágio B; kept as a cheap sanity check even after that lands.
+/// `SyncEngine` bridge functions in Stage B; kept as a cheap sanity check even after that lands.
 #[flutter_rust_bridge::frb(sync)]
 pub fn ping() -> String {
     "pong from warden-mobile-bridge".to_string()

@@ -79,18 +79,18 @@ const TLS_HANDSHAKE_RECORD: u8 = 0x16;
 const TLS_ACCEPT_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// Every currently-connected device's `RemoteToolChannel`, keyed by `device_id` — populated on a
-/// successful `Hello` (Fase 9.3), regardless of whether that device advertised any `Hello.tools`
+/// successful `Hello` (Phase 9.3), regardless of whether that device advertised any `Hello.tools`
 /// (a device is a valid routing *target* just by being connected; advertising tools only matters
-/// for Fase 7.4's "the model chatting with this same device can invoke them"). Consulted by
-/// `ClientMessage::CallDeviceTool` (Fase 9.4) to reach a specific *other* connection. Known
+/// for Phase 7.4's "the model chatting with this same device can invoke them"). Consulted by
+/// `ClientMessage::CallDeviceTool` (Phase 9.4) to reach a specific *other* connection. Known
 /// limitation, not handled here: a device that reconnects while its previous connection's cleanup
 /// is still unwinding could have the new registration clobbered by the old one's removal — no
 /// reconnect scenario exists yet to make that a real problem.
 type DeviceRegistry = Arc<Mutex<HashMap<String, RemoteToolChannel>>>;
 
-/// The server side of the Fase 9 client↔server WebSocket protocol.
+/// The server side of the Phase 9 client↔server WebSocket protocol.
 ///
-/// As of Fase 7.3, hosts a real `Orchestrator` and answers `Chat` messages with it. As of Fase
+/// As of Phase 7.3, hosts a real `Orchestrator` and answers `Chat` messages with it. As of Phase
 /// 9.3/9.4, also keeps a registry of every connected device and routes `CallDeviceTool` from one
 /// connection to a specific other one (no client uses it today — see `lib.rs`).
 pub struct Server {
@@ -408,7 +408,7 @@ impl Server {
 
     /// Same accept loop as `serve`, but also races a `shutdown` future — resolving it stops the
     /// loop and drops the listener (freeing the port) instead of running forever. Used by the
-    /// desktop's embedded server (Fase 9.1 follow-up, "virar o hub") so switching the toggle off
+    /// desktop's embedded server (Phase 9.1 follow-up, "virar o hub") so switching the toggle off
     /// actually releases the port instead of leaking a task that accepts forever.
     pub async fn serve_until(self, shutdown: impl std::future::Future<Output = ()>) -> anyhow::Result<()> {
         let listener = self.listener;
@@ -554,15 +554,15 @@ struct ConnectionContext {
     /// A member's access to the organization changed (P120): who, and the new level.
     org_access_changes: broadcast::Sender<(String, String)>,
     nodes: NodeRegistry,
-    /// Rebuilds the nodes' MCP tools when one joins or leaves (fatia 2). `None` without a settings file.
+    /// Rebuilds the nodes' MCP tools when one joins or leaves (slice 2). `None` without a settings file.
     node_tools: Option<NodeToolFactory>,
     /// Where members' own vaults live (P84); `None` when members can't sign in here.
     users_dir: Option<Arc<PathBuf>>,
-    /// The owner's shared folders' vaults (P84 fatia 3), shared by every connection and the API.
+    /// The owner's shared folders' vaults (P84 slice 3), shared by every connection and the API.
     space_vaults: SpaceVaults,
     /// The members' own vaults (P147), shared by every connection and the API so a member's search model loads once.
     member_vaults: MemberVaults,
-    /// The TruthID logins waiting for a phone (P84 fatia 5, P113).
+    /// The TruthID logins waiting for a phone (P84 slice 5, P113).
     truthid_logins: Arc<TruthIdLogins>,
     /// See `Server::with_machine_settings`.
     allow_machine_settings: bool,
@@ -596,7 +596,7 @@ fn workdir_roots(member: Option<&MemberSpace>, settings: Option<&dyn SettingsHos
     Some(config.users.iter().find(|u| u.id == member.id).map(|u| u.workdirs.clone()).unwrap_or_default())
 }
 
-/// The folders on nodes the owner named for `member` (P102 fatia 2), or `None` for the owner, who may use any a node
+/// The folders on nodes the owner named for `member` (P102 slice 2), or `None` for the owner, who may use any a node
 /// lends.
 fn node_workdirs(member: Option<&MemberSpace>, settings: Option<&dyn SettingsHost>) -> Option<Vec<warden_bootstrap::users::NodeFolder>> {
     let member = member?;
@@ -605,7 +605,7 @@ fn node_workdirs(member: Option<&MemberSpace>, settings: Option<&dyn SettingsHos
 }
 
 /// The vault a person's requests read and write: the owner's, or the member's with the spaces
-/// shared with them right now (P84 fatia 3).
+/// shared with them right now (P84 slice 3).
 fn person_vault(member: Option<&MemberSpace>, settings: Option<&dyn SettingsHost>, owner: &Orchestrator, space_vaults: &SpaceVaults) -> Arc<warden_core::memory::Vault> {
     let Some(member) = member else { return owner.vault().clone() };
     let config = settings.and_then(|host| load_config_from_path(&host.config_path(), false).ok()).unwrap_or_default();
@@ -662,7 +662,7 @@ fn describe_offer(offer: &warden_server_protocol::protocol::NodeOfferDto) -> Str
     }
 }
 
-/// A member's `SaveOwnAgent`/`DeleteOwnAgent` (P84 fatia 2), answered with their settings view.
+/// A member's `SaveOwnAgent`/`DeleteOwnAgent` (P84 slice 2), answered with their settings view.
 /// The owner edits agents on the Settings screen instead.
 async fn handle_own_agent(
     settings: Option<&dyn SettingsHost>,
@@ -1048,7 +1048,7 @@ async fn handle_connection<S: Transport>(ws: WebSocketStream<S>, peer: SocketAdd
             recovery_codes,
             truthid_login,
         }) => (device_id, device_name, provided, device_token, (tools, tool_hints), node, username.zip(password), recovery_codes, truthid_login),
-        // Fase 9.1 (redefined): an unauthenticated presence probe from a LAN-discovery sweep —
+        // Phase 9.1 (redefined): an unauthenticated presence probe from a LAN-discovery sweep —
         // answered and closed right here, before any of the Hello/auth-key/device-registry
         // machinery below runs. Never becomes a "connected device".
         Ok(ClientMessage::Discover) => {
@@ -1077,7 +1077,7 @@ async fn handle_connection<S: Transport>(ws: WebSocketStream<S>, peer: SocketAdd
 
     // P36: the shared key only pairs; a paired device authenticates with its own token. The
     // pairing status itself (Pending/Approved) stays silent here — a `Pending` device still gets a
-    // normal `HelloAck` and can chat; only `CallDeviceTool` checks for `Approved` (Fase 9.3).
+    // normal `HelloAck` and can chat; only `CallDeviceTool` checks for `Approved` (Phase 9.3).
     let auth_key = pairing_key.current();
     let pairing_key_ok = crate::settings::keys_match(&provided_key, auth_key.as_ref());
     // P84: the members, read fresh — a member added or removed a moment ago counts.
@@ -1147,7 +1147,7 @@ async fn handle_connection<S: Transport>(ws: WebSocketStream<S>, peer: SocketAdd
             return reject(&mut sink, "server could not check this device's pairing").await;
         }
     };
-    // P84 fatia 4: signing in with the password is the one moment the hub can open the member's
+    // P84 slice 4: signing in with the password is the one moment the hub can open the member's
     // data key, so it happens here, before their connection gets a vault. A member from before
     // gets a key now (and their recovery code, sent below).
     let mut recovery_code_to_show = None;
@@ -1220,7 +1220,7 @@ async fn handle_connection<S: Transport>(ws: WebSocketStream<S>, peer: SocketAdd
         user,
     })
     .await?;
-    // P84 fatia 4: this sign-in turned encryption on for a member from before — the code is shown
+    // P84 slice 4: this sign-in turned encryption on for a member from before — the code is shown
     // once, and the client has to make them write it down.
     if let Some(code) = recovery_code_to_show {
         send(&mut sink, &ServerMessage::RecoveryCode { request_id: 0, code }).await?;
@@ -1289,7 +1289,7 @@ async fn handle_connection<S: Transport>(ws: WebSocketStream<S>, peer: SocketAdd
         }
     }));
 
-    // Fase 9.3: every connected device is a valid routing target for `CallDeviceTool`, whether or
+    // Phase 9.3: every connected device is a valid routing target for `CallDeviceTool`, whether or
     // not it advertised any `Hello.tools` — registered before the loop starts so a routed call
     // arriving right after this device's own Hello can never race the registration.
     let tool_channel = RemoteToolChannel::new(tx.clone());
@@ -1304,7 +1304,7 @@ async fn handle_connection<S: Transport>(ws: WebSocketStream<S>, peer: SocketAdd
         refresh_node_mcp_tools(&shared_orchestrator, node_tools.as_ref());
     }
 
-    // Fase 7.4: a client that advertised tools in Hello gets its own Orchestrator (cheap clone —
+    // Phase 7.4: a client that advertised tools in Hello gets its own Orchestrator (cheap clone —
     // Orchestrator is Arc-backed) with a RemoteTool proxy per advertised spec, so the model can
     // invoke a capability that only exists on *this* device (mobile's file access, to start). A
     // client with nothing to advertise (tools empty) just reuses the shared, server-wide instance.
@@ -1629,7 +1629,7 @@ async fn handle_connection<S: Transport>(ws: WebSocketStream<S>, peer: SocketAdd
                         // P104: `search_history` reads the owner's conversations, the ones this hub keeps for them.
                         None => orchestrator.with_conversations_dir(&conversation_dirs.device).with_approver(Arc::new(warden_core::autonomy::RememberingApprover::new(Arc::new(approver.clone()), grants.of(&conversation_id, agent_id.as_deref())))),
                     };
-                    // P102 fatia 2: a conversation that works in a folder on a node reads, writes and runs there. Set up
+                    // P102 slice 2: a conversation that works in a folder on a node reads, writes and runs there. Set up
                     // here because the node tools are the hub's; a member has nobody to ask, so for them a command that
                     // needs a yes is refused.
                     let orchestrator = match (effective_workdir.as_deref().and_then(warden_bootstrap::node_folder), &node_tools) {
@@ -2230,7 +2230,7 @@ fn scope_chat_agent(
 }
 
 /// One connection's view of the hub's orchestrator: the shared one, plus a `RemoteTool` for every
-/// tool this device advertised in `Hello` (Fase 7.4). Built again only when a settings save has
+/// tool this device advertised in `Hello` (Phase 7.4). Built again only when a settings save has
 /// swapped the shared orchestrator (P78), so a turn costs a pointer comparison, not a rebuild.
 struct ConnectionOrchestrator {
     shared: SharedOrchestrator,
@@ -2290,7 +2290,7 @@ impl ConnectionOrchestrator {
     }
 }
 
-/// Fase 9.3 gate on `CallDeviceTool`: the calling device must be `Approved` in the persistent
+/// Phase 9.3 gate on `CallDeviceTool`: the calling device must be `Approved` in the persistent
 /// pairing registry — being connected and knowing the shared `auth_key` is no longer enough on
 /// its own to route a call *to* someone else.
 fn check_caller_approved(store: &PairingStore, caller_id: &str) -> Result<(), String> {
@@ -2402,7 +2402,7 @@ async fn send<S: Transport>(sink: &mut WsSink<S>, msg: &ServerMessage) -> anyhow
 /// fallback shape `crates/warden-sync/src/pairing/join.rs::device_name()` uses, so a hub with
 /// nothing configured still answers a discovery sweep with something recognizable instead of an
 /// empty string. Shared by the standalone `warden-server` binary (`main.rs`) and the desktop's
-/// embedded server (Fase 9.1 follow-up) so both resolve a name the same way.
+/// embedded server (Phase 9.1 follow-up) so both resolve a name the same way.
 pub fn resolve_server_name(explicit: Option<String>) -> String {
     explicit
         .or_else(|| std::env::var("WARDEN_SERVER_NAME").ok())

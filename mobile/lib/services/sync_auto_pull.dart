@@ -1,6 +1,6 @@
 import 'package:flutter/widgets.dart';
 
-/// P71 fatia 2 — pulled out as pure functions so they're testable without a platform channel,
+/// P71 slice 2 — pulled out as pure functions so they're testable without a platform channel,
 /// same split as `chat_notifications.dart`'s `shouldNotifyFor`/`notificationContentFor`.
 
 /// True only on the transition INTO resumed (never while already resumed, never on other

@@ -25,9 +25,9 @@ function newConfig(authKey: string): EmbeddedServerConfig {
   return { port: 7420, listenHost: null, authKey, serverName: null, tailscaleCert: false, tlsCert: null, tlsKey: null, tlsHost: null, webUi: true };
 }
 
-/** Fase 9.1 follow-up ("virar o hub desta rede") — lets this same desktop app embed its own
+/** Phase 9.1 follow-up ("virar o hub desta rede") — lets this same desktop app embed its own
  * `warden-server` instead of that always being a separate process. Every `warden-server serve`
- * flag has a field here (Sessão 103), so nothing needs the terminal. The inputs lock while
+ * flag has a field here (Session 103), so nothing needs the terminal. The inputs lock while
  * running, since they only apply on the next start. */
 function EmbeddedServerSection() {
   const [config, setConfig] = useState<EmbeddedServerConfig>(newConfig(""));
@@ -257,7 +257,7 @@ function EmbeddedServerSection() {
   );
 }
 
-/** Fase 9.7 — lets the operator save the hub's connection details once and generate a QR a new
+/** Phase 9.7 — lets the operator save the hub's connection details once and generate a QR a new
  * client (today, the mobile app's `ConnectionScreen`) scans instead of typing them by hand.
  * Doesn't touch `PairingStore`/approval at all — a scanned device still shows up as `pending`
  * above like any other, same as one that connected with hand-typed values. */
@@ -434,7 +434,7 @@ function HubPairingQrSection() {
     }
   }
 
-  // Fase 9.1 (redefined) — sweeps the LAN instead of asking the operator to already know the IP.
+  // Phase 9.1 (redefined) — sweeps the LAN instead of asking the operator to already know the IP.
   // Only ever fills Server URL: the probe's reply has no secret in it.
   async function handleDiscover() {
     setSearchError(null);
@@ -770,7 +770,7 @@ function PeopleSection() {
   );
 }
 
-/** Mirrors `SpaceDto` (P84 fatia 3). */
+/** Mirrors `SpaceDto` (P84 slice 3). */
 interface SharedSpace {
   id: string;
   folder: string;
@@ -799,7 +799,7 @@ function withSpaceAccess(space: SharedSpace, who: string, access: SpaceAccess): 
 }
 
 /**
- * P84 fatia 3 — folders of your vault that members see inside theirs, at `compartilhado/<name>/`:
+ * P84 slice 3 — folders of your vault that members see inside theirs, at `compartilhado/<name>/`:
  * `[[spaces]]` in config.toml, synced like the people above. An agent talking to a member reads (and,
  * if you let it, writes) only in these folders, never the rest of your vault.
  */

@@ -4,7 +4,7 @@ import type { SpaceInfo, UserInfo } from "../hub/messages";
 import { t } from "../i18n";
 import { rich } from "../i18n/rich";
 
-// Shared spaces (P84 fatia 3): folders of the owner's vault that members see at
+// Shared spaces (P84 slice 3): folders of the owner's vault that members see at
 // `compartilhado/<name>/` in their own vault — reading only, or writing too. A member's turn never
 // sees the rest of the owner's vault. Every change asks for the pairing key, like the people above.
 

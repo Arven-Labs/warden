@@ -1,6 +1,6 @@
 /**
  * Mirrors `crates/warden-server-protocol/src/protocol.rs` — now including the tool-call variants
- * (Fase 8.3-8.6), since `Hello.tools` is no longer always empty (see `background/tools/index.ts`).
+ * (Phase 8.3-8.6), since `Hello.tools` is no longer always empty (see `background/tools/index.ts`).
  * Wire shape: internally-tagged JSON with a `type` field, both the tag and every field name
  * camelCase (`#[serde(tag = "type", rename_all = "camelCase", rename_all_fields =
  * "camelCase")]` on the Rust side) — locked by `protocol.rs`'s own round-trip tests, not guessed.
@@ -288,7 +288,7 @@ export type ClientMessage =
   /** P157 — pins or archives a conversation; a flag left out stays as it is. Archiving unpins, and pinning an archived one brings it
    * back. Answered by `conversationOk`/`conversationError`. */
   | { type: "setConversationFlags"; requestId: number; conversationId: string; pinned?: boolean; archived?: boolean }
-  /** Fase 9.1 (redefined) — an unauthenticated presence probe, answered by `discoverAck` below.
+  /** Phase 9.1 (redefined) — an unauthenticated presence probe, answered by `discoverAck` below.
    * No `authKey`/`deviceId` on purpose: the point is finding a hub before knowing its credential. */
   | { type: "discover" }
   | { type: "goodbye"; reason: string | null };

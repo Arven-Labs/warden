@@ -1,4 +1,4 @@
-//! P102 fatia 2 on a real hub with a real node (`node_client::serve_once`): a conversation works in a folder on the node,
+//! P102 slice 2 on a real hub with a real node (`node_client::serve_once`): a conversation works in a folder on the node,
 //! written `node:<id>:<path>` (the path inside what the node lends). The owner browses the node's folders and works in
 //! one — files written and read there, a shell command only after a yes — and a member only inside the folders of that
 //! node the owner named for them, on every turn. The model is a script: what it asks for is what is proved.

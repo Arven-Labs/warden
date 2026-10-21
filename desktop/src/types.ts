@@ -116,7 +116,7 @@ export interface ProjectEntry {
  * Groq, DeepSeek, etc. — via a configurable `baseUrl` instead of one dedicated kind per company. */
 export type ProviderKind = "gemini" | "openai" | "anthropic" | "openai_compatible" | "node" | "cloud";
 
-/** One entry of the provider registry (Sessão 35) — the user can add/edit/delete any number of
+/** One entry of the provider registry (Session 35) — the user can add/edit/delete any number of
  * these in Settings, each independently selectable as the active one. Empty string means
  * "not set" for every field, including `apiKey` (shown in the UI masked, with a reveal toggle,
  * and directly editable — this app's own explicit choice, same as before the registry existed). */
@@ -373,7 +373,7 @@ export interface SpendStatus {
 }
 
 /** Mirrors `warden_server::PairedDevice` (via `workspace_cmds::PairedDeviceInfo`) — one row of the
- * "Workspace" nav view's device list (Fase 9.6). `firstSeenMs`/`lastSeenMs` are epoch
+ * "Workspace" nav view's device list (Phase 9.6). `firstSeenMs`/`lastSeenMs` are epoch
  * milliseconds. Assumes the desktop app runs on the same machine as the `warden-server` hub whose
  * `devices.json` this reads — see `workspace_cmds.rs`'s module docs for why. */
 export interface PairedDevice {
@@ -385,7 +385,7 @@ export interface PairedDevice {
 }
 
 /** Mirrors `warden_bootstrap::HubPairingConfig` (via `workspace_cmds::HubPairingConfigPayload`,
- * Fase 9.7) — what the Workspace screen's "Pareamento por QR" section saves: the hub's address, which goes in the QR a
+ * Phase 9.7) — what the Workspace screen's "Pareamento por QR" section saves: the hub's address, which goes in the QR a
  * new client scans. The secret in the QR is a one-use invite made when it is drawn (P36), so none is saved. */
 export interface HubPairingConfig {
   serverUrl: string;
@@ -398,7 +398,7 @@ export interface HubPairingQr {
 }
 
 /** Mirrors `warden_server_protocol::discovery::DiscoveredHub` (via
- * `workspace_cmds::DiscoveredHubPayload`, Fase 9.1 redefined) — one hub found by a LAN discovery
+ * `workspace_cmds::DiscoveredHubPayload`, Phase 9.1 redefined) — one hub found by a LAN discovery
  * sweep, listed so the operator can pick it instead of typing `serverUrl` by hand. */
 export interface DiscoveredHub {
   host: string;
@@ -542,7 +542,7 @@ export interface SavedHub {
 }
 
 /** Mirrors `warden_bootstrap::EmbeddedServerConfig` (via
- * `server_cmds::EmbeddedServerConfigPayload`, Fase 9.1 follow-up "virar o hub desta rede") — the
+ * `server_cmds::EmbeddedServerConfigPayload`, Phase 9.1 follow-up "virar o hub desta rede") — the
  * persisted port/auth key/name for the desktop's own embedded `warden-server`. `enabled` isn't
  * part of this payload on purpose (see `server_cmds.rs`'s module docs) — that lives only in
  * `EmbeddedServerStatus.running`, driven by the start/stop commands, not this form. */

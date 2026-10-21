@@ -5,7 +5,7 @@ import '../l10n/generated/app_localizations.dart';
 import '../protocol/messages.dart';
 import '../services/server_connection.dart';
 
-// P84 fatia 4 and 5 on the phone: what a member sees about their own data. Everything here mirrors
+// P84 slice 4 and 5 on the phone: what a member sees about their own data. Everything here mirrors
 // the web's `ChangePasswordView`, `RecoveryCodeView` and `RecoveryNoticeView`, and talks to the same
 // hub messages.
 
@@ -179,7 +179,7 @@ class _ChangePasswordDialogState extends State<ChangePasswordDialog> {
   }
 }
 
-/// The workspace's recovery policy changed to a weaker one (P84 fatia 4 parte B): their data follows it
+/// The workspace's recovery policy changed to a weaker one (P84 slice 4 parte B): their data follows it
 /// only if they say yes, with their password. Pops the new recovery code (or an empty string when there
 /// isn't one) once accepted, null for "Not now".
 class AcceptPolicyDialog extends StatefulWidget {
@@ -252,7 +252,7 @@ class _AcceptPolicyDialogState extends State<AcceptPolicyDialog> {
   }
 }
 
-/// The owner recovered their data (P84 fatia 4 parte B): they're told, once.
+/// The owner recovered their data (P84 slice 4 parte B): they're told, once.
 class RecoveryNoticeDialog extends StatelessWidget {
   const RecoveryNoticeDialog({super.key, required this.events});
 

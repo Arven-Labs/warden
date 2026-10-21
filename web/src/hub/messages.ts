@@ -566,7 +566,7 @@ export interface HubDeviceInvite {
 }
 
 /** Mirrors `UserInfoDto` (P84): a member of the workspace, never the password or its hash. */
-/** Mirrors `NodeFolderDto` (P102 fatia 2): a folder on a node a member may work in; `path` is relative to the folder the node lends. */
+/** Mirrors `NodeFolderDto` (P102 slice 2): a folder on a node a member may work in; `path` is relative to the folder the node lends. */
 export interface NodeFolder {
   node: string;
   path: string;
@@ -579,21 +579,21 @@ export interface UserInfo {
   role: string;
   /** Still on the provisional password: the hub only accepts `changePassword` until it's changed. */
   mustChangePassword: boolean;
-  /** P84 fatia 2 — the tools the owner set for them; absent/null is the safe default. */
+  /** P84 slice 2 — the tools the owner set for them; absent/null is the safe default. */
   tools?: string[] | null;
   /** P102 — the folders of the hub's machine they may pick as a working folder (absolute paths); absent: none. */
   workdirs?: string[];
-  /** P102 fatia 2 — the same on nodes; absent: none. */
+  /** P102 slice 2 — the same on nodes; absent: none. */
   nodeWorkdirs?: NodeFolder[];
   /** Their own agents' names. */
   agents: string[];
-  /** P84 fatia 4 — their data is encrypted on the hub with a key only they (or their recovery code) can open. */
+  /** P84 slice 4 — their data is encrypted on the hub with a key only they (or their recovery code) can open. */
   encrypted?: boolean;
   /** The owner reset their password: the data opens only with the recovery code, given when they pick a new password. */
   needsRecovery?: boolean;
   /** Only in `helloAck`: the hub doesn't hold their key (it restarted), so their data is shut until they sign in with the password. */
   locked?: boolean;
-  /** P84 fatia 4 parte B — who besides them may open their data right now: "private", "consent" or "company"; absent while it isn't encrypted. */
+  /** P84 slice 4 parte B — who besides them may open their data right now: "private", "consent" or "company"; absent while it isn't encrypted. */
   memberPolicy?: string;
   /** The workspace's policy is a weaker one they haven't accepted yet (or needs a new recovery code this client couldn't show). */
   policyPending?: boolean;
@@ -611,19 +611,19 @@ export interface UserInfo {
   learningEnabled?: boolean;
   /** Every time the owner recovered their data with the workspace's recovery key. */
   recoveries?: RecoveryEvent[];
-  /** P84 fatia 5 — the TruthID username they linked; absent if none. */
+  /** P84 slice 5 — the TruthID username they linked; absent if none. */
   truthid?: string;
   /** An invite to link a TruthID is open (not used or expired yet). */
   inviteOpen?: boolean;
 }
 
-/** Mirrors `RemovedUserDto` (P84 fatia 4): removed, with their encrypted data still on the hub's disk. */
+/** Mirrors `RemovedUserDto` (P84 slice 4): removed, with their encrypted data still on the hub's disk. */
 export interface RemovedUser {
   id: string;
   name: string;
 }
 
-/** Mirrors `RecoveryEventDto` (P84 fatia 4 parte B). */
+/** Mirrors `RecoveryEventDto` (P84 slice 4 parte B). */
 export interface RecoveryEvent {
   /** Milliseconds since the epoch. */
   atMs: number;
@@ -633,7 +633,7 @@ export interface RecoveryEvent {
   seen: boolean;
 }
 
-/** P84 fatia 3 — a folder of the owner's vault shared with members, who see it at
+/** P84 slice 3 — a folder of the owner's vault shared with members, who see it at
  * `compartilhado/<id>/` in their own vault. To a member, `folder` is that path. */
 export interface SpaceInfo {
   id: string;
@@ -982,9 +982,9 @@ export type ClientMessage =
   | { type: "syncAction"; requestId: number; pairingKey: string; action: SyncAction }
   /** P84 — a member picks their own password; the owner manages the members with the pairing key. */
   | { type: "changePassword"; requestId: number; oldPassword: string; newPassword: string; recoveryCode?: string }
-  /** P84 fatia 4 — a new recovery code, with the password; the old one stops working. */
+  /** P84 slice 4 — a new recovery code, with the password; the old one stops working. */
   | { type: "regenerateRecoveryCode"; requestId: number; password: string }
-  /** P84 fatia 4 parte B — a member says yes to a weaker recovery policy, with their password; the owner sets the
+  /** P84 slice 4 parte B — a member says yes to a weaker recovery policy, with their password; the owner sets the
    * policy and recovers a member with the workspace's recovery key (`consent` also needs the person's `code`). */
   | { type: "acceptRecoveryPolicy"; requestId: number; password: string }
   | { type: "ackRecoveryNotices"; requestId: number }
@@ -995,14 +995,14 @@ export type ClientMessage =
   | { type: "saveUser"; requestId: number; pairingKey: string; id: string; name: string; isNew: boolean }
   | { type: "resetPassword"; requestId: number; pairingKey: string; id: string }
   | { type: "removeUser"; requestId: number; pairingKey: string; id: string }
-  /** P84 fatia 4 — the owner brings back a removed member whose encrypted data was kept. */
+  /** P84 slice 4 — the owner brings back a removed member whose encrypted data was kept. */
   | { type: "restoreUser"; requestId: number; pairingKey: string; id: string }
-  /** P84 fatia 5 — the owner makes an invite to link a TruthID (shown once, in `userList`) or unties one; a member
+  /** P84 slice 5 — the owner makes an invite to link a TruthID (shown once, in `userList`) or unties one; a member
    * links theirs with the invite `code` and their TruthID `username`. */
   | { type: "createInvite"; requestId: number; pairingKey: string; id: string }
   | { type: "unlinkTruthId"; requestId: number; pairingKey: string; id: string }
   | { type: "redeemInvite"; requestId: number; code: string; username: string }
-  /** P84 fatia 2 — the owner sets a member's tools (`null`: the safe default). */
+  /** P84 slice 2 — the owner sets a member's tools (`null`: the safe default). */
   | { type: "setUserTools"; requestId: number; pairingKey: string; id: string; tools: string[] | null }
   /** P102 — the folders a member may pick as a working folder; empty lists take them all away. Answered by `userList`. */
   | { type: "setUserWorkdirs"; requestId: number; pairingKey: string; id: string; workdirs: string[]; nodeWorkdirs: NodeFolder[] }
@@ -1012,7 +1012,7 @@ export type ClientMessage =
   /** A member's own agents, answered by `settings` (their view) or `settingsError`. */
   | { type: "saveOwnAgent"; requestId: number; originalId?: string; agent: AgentSettings }
   | { type: "deleteOwnAgent"; requestId: number; id: string }
-  /** P84 fatia 3 — the shared spaces; the owner changes them with the pairing key. */
+  /** P84 slice 3 — the shared spaces; the owner changes them with the pairing key. */
   | { type: "listSpaces"; requestId: number }
   | { type: "saveSpace"; requestId: number; pairingKey: string; originalId?: string; space: SpaceInfo }
   | { type: "deleteSpace"; requestId: number; pairingKey: string; id: string }
@@ -1023,7 +1023,7 @@ export type ClientMessage =
   /** P10 — checks a provider's key without spending a conversation. `provider` is the form: `keep` on its key uses the
    * saved one (found by `originalId`), `set` is a key typed but not saved. Answered by `providerTest` or `userError`. */
   | { type: "testProvider"; requestId: number; pairingKey: string; provider: ProviderEdit }
-  /** Fase 9.1 (redefined) — an unauthenticated presence probe, answered by `discoverAck` below.
+  /** Phase 9.1 (redefined) — an unauthenticated presence probe, answered by `discoverAck` below.
    * No `authKey`/`deviceId` on purpose: the point is finding a hub before knowing its credential. */
   | { type: "discover" }
   | { type: "goodbye"; reason: string | null };
@@ -1109,10 +1109,10 @@ export type ServerMessage =
   | { type: "syncError"; requestId: number; message: string; authRejected: boolean }
   /** P84 — `tempPassword`: the provisional password of the member just created or reset, shown once. */
   | { type: "userList"; requestId: number; users: UserInfo[]; tempPassword?: string; inviteCode?: string; recoveryPolicy?: string; removed?: RemovedUser[] }
-  /** P84 fatia 5 (P113) — the answer to a `hello` with `truthidLogin`: the QR's JSON for the TruthID app, good until
+  /** P84 slice 5 (P113) — the answer to a `hello` with `truthidLogin`: the QR's JSON for the TruthID app, good until
    * `expiresAtMs`. The `helloAck` follows once the phone approves. */
   | { type: "truthIdChallenge"; payload: string; expiresAtMs: number }
-  /** P84 fatia 5 — the member's TruthID is linked. */
+  /** P84 slice 5 — the member's TruthID is linked. */
   | { type: "truthIdLinked"; requestId: number; username: string }
   /** `secret`: the owner's recovery key, only when one was just made — shown once, never kept. */
   | { type: "recoveryPolicy"; requestId: number; policy: string; secret?: string }

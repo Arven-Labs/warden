@@ -112,7 +112,7 @@ pub fn apply(bundle: &SyncBundle, dir: Option<&Path>) -> anyhow::Result<Vec<Stri
 }
 
 /// Warnings for the logins `bundle` is about to overwrite or remove although they changed here since the last sync, like the
-/// vault's "mudança local em ... foi sobrescrita pelo pull".
+/// vault's "local change to ... was overwritten by the pull".
 pub fn overwrite_warnings(bundle: &SyncBundle, dir: Option<&Path>, manifest: &SyncManifest) -> Vec<String> {
     let Some(dir) = dir else { return Vec::new() };
     let mut names: Vec<&String> = bundle.oauth_files.keys().chain(bundle.deleted_oauth_files.iter()).filter(|n| is_login_file_name(n)).collect();
@@ -120,7 +120,7 @@ pub fn overwrite_warnings(bundle: &SyncBundle, dir: Option<&Path>, manifest: &Sy
     names
         .into_iter()
         .filter(|name| std::fs::read(dir.join(name)).ok().map(|bytes| sha256_hex(&bytes)) != manifest.oauth_files.get(*name).cloned())
-        .map(|name| format!("mudança local no login MCP {} foi sobrescrita pelo pull", name.trim_end_matches(".json")))
+        .map(|name| format!("local change to the MCP login {} was overwritten by the pull", name.trim_end_matches(".json")))
         .collect()
 }
 
@@ -257,6 +257,6 @@ mod tests {
         bundle.oauth_files.insert("slack.json".into(), BASE64.encode("theirs"));
         bundle.oauth_files.insert("calm.json".into(), BASE64.encode("theirs"));
 
-        assert_eq!(overwrite_warnings(&bundle, Some(&dir), &manifest), ["mudança local no login MCP slack foi sobrescrita pelo pull"]);
+        assert_eq!(overwrite_warnings(&bundle, Some(&dir), &manifest), ["local change to the MCP login slack was overwritten by the pull"]);
     }
 }

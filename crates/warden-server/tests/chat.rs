@@ -345,7 +345,7 @@ async fn a_ping_sent_during_a_slow_chat_call_is_answered_immediately() {
     assert!(matches!(second, Some(ServerMessage::ChatResponse { .. })), "expected ChatResponse second, got {second:?}");
 }
 
-/// Always answers 503, like the Gemini outage of Sessão 104.
+/// Always answers 503, like the Gemini outage of Session 104.
 struct Busy;
 
 #[async_trait::async_trait]

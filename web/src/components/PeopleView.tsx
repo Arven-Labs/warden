@@ -71,7 +71,7 @@ function toolsLabel(user: UserInfo): string {
   return t("people.tools", { tools: user.tools.join(", ") });
 }
 
-/** P84 fatia 4: whether a person's data is encrypted on the hub — the owner sees the state, never the data. */
+/** P84 slice 4: whether a person's data is encrypted on the hub — the owner sees the state, never the data. */
 function dataLabel(user: UserInfo): string {
   if (!user.encrypted) return t("people.dataPlain");
   if (user.needsRecovery) return t("people.dataNeedsCode");
@@ -84,9 +84,9 @@ function message(err: unknown): string {
 
 export default function PeopleView({ conn }: { conn: ServerConnection | null }) {
   const [users, setUsers] = useState<UserInfo[] | null>(null);
-  /** Removed members whose encrypted data the hub kept (P84 fatia 4). */
+  /** Removed members whose encrypted data the hub kept (P84 slice 4). */
   const [removed, setRemoved] = useState<RemovedUser[]>([]);
-  /** The workspace's recovery policy (P84 fatia 4 parte B). */
+  /** The workspace's recovery policy (P84 slice 4 parte B). */
   const [recoveryPolicy, setRecoveryPolicy] = useState("private");
   const [error, setError] = useState<string | null>(null);
   const [asking, setAsking] = useState<Asking | null>(null);

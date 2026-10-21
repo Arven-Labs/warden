@@ -3,7 +3,7 @@ import { UserError, type ServerConnection } from "../hub/connection";
 import type { UserInfo } from "../hub/messages";
 import { intlTag, t, type Key } from "../i18n";
 
-// Recovery (P84 fatia 4 parte B): who besides a person may open their encrypted data. `private`: nobody.
+// Recovery (P84 slice 4 parte B): who besides a person may open their encrypted data. `private`: nobody.
 // `consent`: the owner's recovery key and the person's recovery code, together. `company`: the owner
 // alone, recorded and told to the person. The owner's key is shown once, when it's made, and typed in
 // for each recovery — the hub only keeps its public half. Every change asks for the pairing key.

@@ -1,5 +1,5 @@
 /**
- * The popup↔background message contract (Fase 8.2) — a separate, side-effect-free module from
+ * The popup↔background message contract (Phase 8.2) — a separate, side-effect-free module from
  * `index.ts` on purpose: the popup imports these types too, and `index.ts` registers a real
  * `chrome.runtime.onMessage` listener at module load, which must never run inside the popup's own
  * bundle.

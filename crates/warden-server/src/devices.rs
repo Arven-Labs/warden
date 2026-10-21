@@ -1,4 +1,4 @@
-//! The pairing registry from a client (Sessão 103): the same list/approve/revoke as
+//! The pairing registry from a client (Session 103): the same list/approve/revoke as
 //! `warden-server devices`, so a hub with no screen can be managed from the web. Listing is open
 //! to any paired device, like reading settings; approving or revoking asks for the pairing key
 //! again, with the same 1 s wait and the same per-hub lock as a settings save, so both share one

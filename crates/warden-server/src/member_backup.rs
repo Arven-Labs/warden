@@ -1,4 +1,4 @@
-//! Backup and restore of the members' data (P84, fatia 4).
+//! Backup and restore of the members' data (P84, slice 4).
 //!
 //! A member's data is already encrypted on the hub's disk, so a backup is a copy: the owner can
 //! make one, keep it anywhere, and still can't read a byte of it. What makes it worth having is the
@@ -14,7 +14,7 @@
 //! conversations/<id>/…         their conversations
 //! ```
 //!
-//! A member whose data isn't encrypted yet (from before fatia 4, and who hasn't signed in since) is
+//! A member whose data isn't encrypted yet (from before slice 4, and who hasn't signed in since) is
 //! left out and reported: a copy of it would be readable, so it isn't made without saying so.
 
 use std::path::Path;
@@ -159,7 +159,7 @@ mod tests {
     }
 
     /// Ana, encrypted, with a note and a conversation on disk; Bruno, who never signed in since
-    /// before fatia 4 (no key, plain data).
+    /// before slice 4 (no key, plain data).
     fn setup() -> Setup {
         let dir = temp_dir("hub");
         let (config_path, users_dir, conversations) = (dir.join("config.toml"), dir.join("users"), dir.join("conversations"));

@@ -1,13 +1,13 @@
-//! Exportar e importar a instância (P141, `HOSPEDAGEM.md` fase 1): o cliente hospedado nunca fica preso.
+//! Exporting and importing the instance (P141, `HOSPEDAGEM.md` phase 1): the hosted customer is never locked in.
 //!
-//! O pacote é uma **pasta**: `warden-export.json` (o manifesto) mais os arquivos nos mesmos caminhos relativos da pasta de
-//! dados. Só entra o que está na lista de inclusão abaixo (nunca "tudo menos"): a config, o cofre, as conversas, os membros
-//! (já cifrados em disco), os logins MCP e as tarefas. Os pareamentos de dispositivos, as chaves da API, os tokens de
-//! webhook, a chave do sync, o razão de gastos, as auditorias, os modelos e o TLS são do operador ou do destino, e ficam de fora.
+//! The package is a **folder**: `warden-export.json` (the manifest) plus the files at the same relative paths as in the data
+//! folder. Only what is on the inclusion list below goes in (never "everything except"): the config, the vault, the conversations, the members
+//! (already encrypted on disk), the MCP logins and the tasks. Device pairings, API keys, webhook tokens, the sync key, the spend
+//! ledger, the audits, the models and the TLS belong to the operator or to the destination, and stay out.
 //!
-//! Segredos: as chaves dos provedores moram em `config.secrets.toml` (`secrets.rs`) e **só vão com `with_secrets`**. A chave
-//! e o endereço do provedor `Cloud` (o gateway hospedado) nunca vão: o cliente põe as próprias chaves no destino. O `config.toml`
-//! pode ter outros tokens (bots, `git_sync`, variáveis de MCP) e isto não os remove.
+//! Secrets: the providers' keys live in `config.secrets.toml` (`secrets.rs`) and **only go with `with_secrets`**. The key
+//! and the address of the `Cloud` provider (the hosted gateway) never go: the customer puts their own keys at the destination. The `config.toml`
+//! may hold other tokens (bots, `git_sync`, MCP variables) and this does not strip them.
 
 use std::collections::BTreeSet;
 use std::path::{Component, Path, PathBuf};

@@ -1,4 +1,4 @@
-//! P78 fatia 1 — the hub's own web interface, served on the same port as the WebSocket protocol
+//! P78 slice 1 — the hub's own web interface, served on the same port as the WebSocket protocol
 //! (Jellyfin-style: open `http(s)://<hub>:<port>` in a browser and get the Warden UI). The page
 //! lives in `web/` (its own React project, see `project/ARCHITECTURE.md`) and talks to the hub
 //! over the same `Hello`/`Chat`/... protocol every other client uses, as one more paired device.

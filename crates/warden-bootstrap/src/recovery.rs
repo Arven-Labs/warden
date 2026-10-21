@@ -1,4 +1,4 @@
-//! The owner's recovery key and the recovery policies of the workspace (P84, fatia 4, parte B).
+//! The owner's recovery key and the recovery policies of the workspace (P84, slice 4, parte B).
 //!
 //! A member's data key (`member_crypto`) opens with their password or their recovery code. The
 //! owner can be given a way to help someone who lost both, by the workspace's **policy**:
