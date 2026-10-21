@@ -1,22 +1,22 @@
 #!/usr/bin/env python3
-"""Monta as notas de uma release a partir dos commits entre duas tags (P164 a).
+"""Builds the notes of a release from the commits between two tags (P164 a).
 
-Os commits do Warden vão direto na main, com a mensagem `tipo: o que mudou, P123, Sessão 45`. Aqui eles se agrupam pelo tipo:
-`feat` em "Novidades", `fix` em "Correções" e o resto (docs, test, ci, chore, refactor, perf, sem tipo) em "Outras mudanças",
-dobradas, porque para quem baixa o instalador o que importa são as duas primeiras. Cada linha leva o hash curto. As referências
-internas (", P152", ", Sessão 225") ficam na linha: quem escreveu o commit as quis lá.
+Warden's commits go straight to main, with the message `type: what changed, P123, Session 45`. Here they are grouped by type:
+`feat` under "Features", `fix` under "Fixes" and the rest (docs, test, ci, chore, refactor, perf, no type) under "Other changes",
+folded, because for whoever downloads the installer only the first two matter. Each line carries the short hash. The internal
+references (", P152", ", Session 225") stay on the line: whoever wrote the commit wanted them there.
 
-É uma PROPOSTA: o `release-notes.yml` só a grava no corpo de um release em rascunho, que o Fabio revisa e publica.
+It is a PROPOSAL: `release-notes.yml` only writes it into the body of a draft release, which Fabio reviews and publishes.
 
-Uso: scripts/release-notes.py TAG [--previous TAG]   (sem --previous, a tag `v*` anterior mais próxima; a primeira release lista tudo)
-Só biblioteca padrão; precisa do histórico completo e das tags (`fetch-depth: 0`).
+Usage: scripts/release-notes.py TAG [--previous TAG]   (without --previous, the nearest earlier `v*` tag; the first release lists everything)
+Standard library only; needs the full history and the tags (`fetch-depth: 0`).
 """
 import argparse
 import re
 import subprocess
 import sys
 
-KINDS = {"feat": "Novidades", "fix": "Correções"}
+KINDS = {"feat": "Features", "fix": "Fixes"}
 SUBJECT = re.compile(r"^(?P<kind>[a-z]+)(\([^)]*\))?!?:\s*(?P<text>.+)$")
 
 
@@ -25,7 +25,7 @@ def git(*args):
 
 
 def previous_tag(tag):
-    """A tag `v*` que vem antes de `tag` na história, ou None na primeira release."""
+    """The `v*` tag that comes before `tag` in the history, or None for the first release."""
     try:
         return git("describe", "--tags", "--abbrev=0", "--match", "v*", f"{tag}^").strip() or None
     except subprocess.CalledProcessError:
@@ -39,41 +39,41 @@ def commits(tag, previous):
 
 
 def notes(tag, previous):
-    groups = {"Novidades": [], "Correções": [], "Outras mudanças": []}
+    groups = {"Features": [], "Fixes": [], "Other changes": []}
     for sha, subject in commits(tag, previous):
         m = SUBJECT.match(subject)
         kind = KINDS.get(m["kind"]) if m else None
         text = m["text"] if m and kind else (m["text"] if m else subject)
-        label = kind or "Outras mudanças"
-        # Em "Outras mudanças" o tipo ajuda a achar (docs, test, ci...): fica na linha.
-        if label == "Outras mudanças" and m:
+        label = kind or "Other changes"
+        # Under "Other changes" the type helps to find things (docs, test, ci...): it stays on the line.
+        if label == "Other changes" and m:
             text = f"{m['kind']}: {text}"
         groups[label].append(f"- {text} (`{sha}`)")
 
     lines = [f"## Warden {tag}", ""]
     if previous:
-        lines += [f"Mudanças desde a {previous}. Esta é uma proposta montada dos commits: revise antes de publicar.", ""]
+        lines += [f"Changes since {previous}. This is a proposal built from the commits: review it before publishing.", ""]
     else:
-        lines += ["Primeira versão. Esta é uma proposta montada dos commits: revise antes de publicar.", ""]
-    for label in ("Novidades", "Correções"):
+        lines += ["First version. This is a proposal built from the commits: review it before publishing.", ""]
+    for label in ("Features", "Fixes"):
         if groups[label]:
             lines += [f"### {label}", "", *groups[label], ""]
-    if groups["Outras mudanças"]:
-        lines += [f"<details><summary>Outras mudanças ({len(groups['Outras mudanças'])})</summary>", "", *groups["Outras mudanças"], "", "</details>", ""]
+    if groups["Other changes"]:
+        lines += [f"<details><summary>Other changes ({len(groups['Other changes'])})</summary>", "", *groups["Other changes"], "", "</details>", ""]
     if not any(groups.values()):
-        lines += ["Nenhum commit novo entre as duas tags.", ""]
+        lines += ["No new commits between the two tags.", ""]
     return "\n".join(lines)
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("tag")
-    parser.add_argument("--previous", help="a tag de onde contar (padrão: a `v*` anterior)")
+    parser.add_argument("--previous", help="the tag to count from (default: the previous `v*`)")
     args = parser.parse_args()
     try:
         git("rev-parse", "--verify", "--quiet", f"{args.tag}^{{commit}}")
     except subprocess.CalledProcessError:
-        sys.exit(f"não achei a tag {args.tag} (o checkout precisa de `fetch-depth: 0`)")
+        sys.exit(f"could not find the tag {args.tag} (the checkout needs `fetch-depth: 0`)")
     sys.stdout.write(notes(args.tag, args.previous or previous_tag(args.tag)))
 
 

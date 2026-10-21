@@ -1,16 +1,17 @@
 #!/usr/bin/env python3
-"""Compara uma medição de RSS do hub (scripts/measure-rss.py --json) com a de referência e diz se algum cenário passou do limite (P162).
+"""Compares a hub RSS measurement (scripts/measure-rss.py --json) with the baseline and says whether any scenario went over the limit (P162).
 
-Só o RSS conta: o tempo do 1º turno varia uns 15% entre rodadas do mesmo código (runs 38968961049 a 38993373650 do measure-rss.yml),
-e o RSS, 1 a 2%. Um cenário passa do limite quando sobe mais que o maior entre `--limit` (fração da referência, 0,10) e `--floor-mb`
-(5 MB, para o ocioso de 24 MB não alertar por 1 MB). Descer não alerta ("melhorou"); cenário que só existe de um lado é dito e não alerta.
+Only RSS counts: the 1st-turn time varies about 15% between runs of the same code (runs 38968961049 to 38993373650 of measure-rss.yml),
+and RSS, 1 to 2%. A scenario goes over the limit when it grows more than the larger of `--limit` (a fraction of the baseline, 0.10) and
+`--floor-mb` (5 MB, so the 24 MB idle one does not alert for 1 MB). Going down does not alert ("improved"); a scenario that exists on only one side is
+reported and does not alert.
 
-A referência é `scripts/rss-baseline.json`, no git. **Quando uma mudança de propósito altera a memória (um modelo que passa a
-descarregar, um lote novo), a referência é atualizada num commit à parte, com a medição nova**: é o que deixa a próxima semana
-comparar com o que se aceitou, e não com o que já passou do limite.
+The baseline is `scripts/rss-baseline.json`, in git. **When a deliberate change alters memory (a model that now unloads, a new
+batch), the baseline is updated in a separate commit, with the new measurement**: that is what lets next week compare against what was
+accepted, and not against what already went over the limit.
 
-Uso: scripts/compare-rss.py referencia.json atual.json [--limit 0.10] [--floor-mb 5]
-Imprime a tabela em Markdown; com GITHUB_OUTPUT definido, escreve `regressed=true` ou `regressed=false`. Sai com 1 quando passou do limite.
+Usage: scripts/compare-rss.py baseline.json current.json [--limit 0.10] [--floor-mb 5]
+Prints the table as Markdown; with GITHUB_OUTPUT set, writes `regressed=true` or `regressed=false`. Exits 1 when it went over the limit.
 """
 import argparse
 import json
@@ -27,8 +28,8 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("baseline")
     parser.add_argument("current")
-    parser.add_argument("--limit", type=float, default=0.10, help="fração da referência que o RSS pode subir (0,10 = 10%%)")
-    parser.add_argument("--floor-mb", type=float, default=5.0, help="subida mínima em MB para contar, qualquer que seja a fração")
+    parser.add_argument("--limit", type=float, default=0.10, help="fraction of the baseline that RSS may grow (0.10 = 10%%)")
+    parser.add_argument("--floor-mb", type=float, default=5.0, help="minimum growth in MB to count, whatever the fraction")
     args = parser.parse_args()
 
     baseline = load(args.baseline)
@@ -39,30 +40,30 @@ def main():
         before = baseline.get(name, {}).get("rss")
         after = current.get(name, {}).get("rss")
         if before is None:
-            rows.append((name, "-", f"{after:.0f}", "-", "novo (sem referência)"))
+            rows.append((name, "-", f"{after:.0f}", "-", "new (no baseline)"))
         elif after is None:
-            rows.append((name, f"{before:.0f}", "-", "-", "não medido desta vez"))
+            rows.append((name, f"{before:.0f}", "-", "-", "not measured this time"))
         else:
             delta = after - before
             allowed = max(args.limit * before, args.floor_mb)
             if delta > allowed:
-                state = f"**PASSOU** (limite +{allowed:.0f} MB)"
+                state = f"**OVER** (limit +{allowed:.0f} MB)"
                 regressed.append(name)
             elif delta < -allowed:
-                state = "melhorou"
+                state = "improved"
             else:
-                state = "dentro do limite"
+                state = "within the limit"
             rows.append((name, f"{before:.0f}", f"{after:.0f}", f"{delta:+.0f}", state))
 
-    print("| Cenário | Referência (MB) | Agora (MB) | Diferença (MB) | Estado |")
+    print("| Scenario | Baseline (MB) | Now (MB) | Difference (MB) | State |")
     print("|---|---:|---:|---:|---|")
     for row in rows:
         print("| " + " | ".join(row) + " |")
     print()
     if regressed:
-        print(f"{len(regressed)} cenário(s) passaram do limite de {args.limit:.0%} (no mínimo {args.floor_mb:.0f} MB): " + ", ".join(regressed) + ".")
+        print(f"{len(regressed)} scenario(s) went over the {args.limit:.0%} limit (at least {args.floor_mb:.0f} MB): " + ", ".join(regressed) + ".")
     else:
-        print(f"Nenhum cenário passou do limite de {args.limit:.0%} (no mínimo {args.floor_mb:.0f} MB).")
+        print(f"No scenario went over the {args.limit:.0%} limit (at least {args.floor_mb:.0f} MB).")
 
     out = os.environ.get("GITHUB_OUTPUT")
     if out:

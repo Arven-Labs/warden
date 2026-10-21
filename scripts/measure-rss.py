@@ -1,17 +1,17 @@
 #!/usr/bin/env python3
-"""Mede o RSS do `warden-server` em release (P145, P146, P147): ocioso sem e com os modelos de busca, depois do 1º turno
-com cofres de tamanhos diferentes, depois de o modelo do cofre ser descarregado por ociosidade e com vários membros, contra
-o que a Sessão 222 mediu (HOSPEDAGEM.md seção K). Também mede a espera de buscas de membros diferentes ao mesmo tempo,
-já que o modelo do cofre é um só por processo (P153). Só biblioteca padrão, Linux.
+"""Measures the RSS of `warden-server` in release (P145, P146, P147): idle without and with the search models, after the 1st turn
+with vaults of different sizes, after the vault model is unloaded for idleness and with several members, against
+what Session 222 measured (HOSPEDAGEM.md section K). It also measures the wait of searches by different members at the same time,
+since the vault model is one per process (P153). Standard library only, Linux.
 
-Cada cenário sobe um hub novo numa pasta de dados nova, com um modelo de mentira (scripts/fake-openai.py) no lugar do
-provedor; o turno vai pela API compatível com a OpenAI e o RSS vem de /proc/<pid>/status (conferido com GET /status), o
-pico (VmHWM) também. Notas sintéticas em português, com semente fixa: "curta" = 2 a 8 linhas de 4 a 10 palavras, "longa" =
-10 a 30 linhas de 8 a 18 palavras (a definição da seção K.1). Não é um cofre real e a qualidade da busca não é avaliada.
-O modelo do histórico não é medido: ele só carrega num `search_history` pedido pelo modelo, e o de mentira não pede tool.
+Each scenario starts a new hub in a new data folder, with a fake model (scripts/fake-openai.py) in place of the
+provider; the turn goes through the OpenAI-compatible API and RSS comes from /proc/<pid>/status (checked against GET /status), and so does
+the peak (VmHWM). Synthetic notes in Portuguese, with a fixed seed: "short" = 2 to 8 lines of 4 to 10 words, "long" =
+10 to 30 lines of 8 to 18 words (the definition of section K.1). It is not a real vault and search quality is not evaluated.
+The history model is not measured: it only loads on a `search_history` the model asks for, and the fake one asks for no tool.
 
-Uso: scripts/measure-rss.py [--bin target/release/warden-server] [--models-dir DIR] [--only TEXTO ...]
-Imprime tabelas Markdown em stdout; o progresso vai para stderr.
+Usage: scripts/measure-rss.py [--bin target/release/warden-server] [--models-dir DIR] [--only TEXT ...]
+Prints Markdown tables to stdout; progress goes to stderr.
 """
 import argparse
 import json
@@ -29,16 +29,17 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 HUB_PORT = 17430
 FAKE_PORT = 17431
-KEY = "measure-rss-pairing-key-0123456789abcdef"  # o hub exige 32 caracteres ou mais
+KEY = "measure-rss-pairing-key-0123456789abcdef"  # the hub requires 32 characters or more
 CLK_TCK = os.sysconf("SC_CLK_TCK")
 MEMBERS = 3
 MEMBER_NOTES = 50
 MEMBER_FOLLOW_UPS = 5
-CONCURRENT_MEMBERS = 4  # membros do cenário de buscas simultâneas (P153), cada um com MEMBER_NOTES notas
-BIG_NOTES = 1000  # o membro que indexa um cofre grande enquanto os outros perguntam
+CONCURRENT_MEMBERS = 4  # members of the simultaneous-searches scenario (P153), each with MEMBER_NOTES notes
+BIG_NOTES = 1000  # the member that indexes a big vault while the others ask
 CONCURRENT_ROUNDS = 5
-IDLE_SECS = 5  # --embedding-idle-secs do cenário de descarregamento
+IDLE_SECS = 5  # --embedding-idle-secs of the unload scenario
 
+# Portuguese on purpose: the benchmark of section K measured notes in Portuguese.
 WORDS = (
     "chave rotação sexta projeto reunião cliente servidor memória nota agenda tarefa relatório código revisão "
     "entrega prazo equipe orçamento contrato fatura pagamento backup instância cofre modelo busca índice vetor "
@@ -46,14 +47,14 @@ WORDS = (
     "margem crédito saldo plano assinatura suporte incidente alerta métrica painel gráfico dado tabela arquivo"
 ).split()
 
-# Cenário: (nome, notas, tamanho, com warm-up, dá um turno?, o que a Sessão 222 mediu em MB, e o alvo do benchmark)
+# Scenario: (name, notes, size, with warm-up, runs a turn?, what Session 222 measured in MB, and the benchmark target)
 SCENARIOS = [
-    ("ocioso, sem modelos", 0, "short", False, False, "24,8", "~25"),
-    ("ocioso, warm-up dos dois modelos", 0, "short", True, False, "960", "~960"),
-    ("1º turno, 50 notas curtas", 50, "short", False, True, "358", "-"),
-    ("1º turno, 300 notas curtas", 300, "short", False, True, "1290", "-"),
-    ("1º turno, 1000 notas curtas", 1000, "short", False, True, "1700", "~470"),
-    ("1º turno, 300 notas longas", 300, "long", False, True, "8200", "~1111"),
+    ("idle, no models", 0, "short", False, False, "24.8", "~25"),
+    ("idle, both models warmed up", 0, "short", True, False, "960", "~960"),
+    ("1st turn, 50 short notes", 50, "short", False, True, "358", "-"),
+    ("1st turn, 300 short notes", 300, "short", False, True, "1290", "-"),
+    ("1st turn, 1000 short notes", 1000, "short", False, True, "1700", "~470"),
+    ("1st turn, 300 long notes", 300, "long", False, True, "8200", "~1111"),
 ]
 
 
@@ -77,7 +78,7 @@ def http(url, headers=None, body=None, timeout=30):
 
 
 def rss_mb(pid):
-    """RSS e pico, em MB, de /proc/<pid>/status."""
+    """RSS and peak, in MB, from /proc/<pid>/status."""
     fields = {}
     for line in Path(f"/proc/{pid}/status").read_text().splitlines():
         if line.startswith(("VmRSS:", "VmHWM:")):
@@ -87,9 +88,9 @@ def rss_mb(pid):
 
 
 def cpu_seconds(pid):
-    """CPU (usuário + sistema) que o processo já gastou, de /proc/<pid>/stat."""
+    """CPU (user + system) the process has already spent, from /proc/<pid>/stat."""
     stat = Path(f"/proc/{pid}/stat").read_text()
-    fields = stat[stat.rindex(")") + 2 :].split()  # depois do "(comm)"; o campo 3 do stat é o índice 0
+    fields = stat[stat.rindex(")") + 2 :].split()  # after the "(comm)"; field 3 of stat is index 0
     return (int(fields[11]) + int(fields[12])) / CLK_TCK
 
 
@@ -99,7 +100,7 @@ def status_rss_mb(hub_url):
 
 
 def wait_settled(pid, minimum, maximum):
-    """Espera o RSS parar de mexer (o warm-up carrega os modelos em segundo plano)."""
+    """Waits for RSS to stop moving (the warm-up loads the models in the background)."""
     start = time.time()
     last, stable = -1.0, 0
     while time.time() - start < maximum:
@@ -109,11 +110,11 @@ def wait_settled(pid, minimum, maximum):
         last = now
         if stable >= 5 and time.time() - start >= minimum:
             return
-    log("  aviso: o RSS não estabilizou no prazo")
+    log("  warning: RSS did not settle in time")
 
 
 class Hub:
-    """Um hub novo numa pasta de dados nova, com o modelo de mentira ao lado. Uso: `with Hub(binary, models) as hub:`."""
+    """A new hub in a new data folder, with the fake model next to it. Usage: `with Hub(binary, models) as hub:`."""
 
     def __init__(self, binary, models_dir):
         self.binary = binary
@@ -126,7 +127,7 @@ class Hub:
 
     def __enter__(self):
         self.data = Path(tempfile.mkdtemp(prefix="measure-rss-"))
-        # Os modelos baixados são compartilhados entre os cenários (e, no CI, entre as rodadas).
+        # The downloaded models are shared between scenarios (and, in CI, between runs).
         self.models_dir.mkdir(parents=True, exist_ok=True)
         (self.data / "models").symlink_to(self.models_dir)
         (self.data / "config.toml").write_text(
@@ -146,7 +147,7 @@ class Hub:
         shutil.rmtree(self.data, ignore_errors=True)
 
     def cli(self, *args):
-        """Um subcomando do próprio hub contra a pasta de dados; devolve o que ele imprimiu em stdout."""
+        """A subcommand of the hub itself against the data folder; returns what it printed to stdout."""
         cmd = [str(self.binary), "--data-dir", str(self.data), *args]
         return subprocess.run(cmd, env=self.env, check=True, capture_output=True, text=True).stdout.strip()
 
@@ -164,16 +165,16 @@ class Hub:
                 return
             except OSError:
                 if self.proc.poll() is not None:
-                    raise RuntimeError("o hub parou antes de responder /health")
+                    raise RuntimeError("the hub stopped before answering /health")
                 time.sleep(0.5)
-        raise RuntimeError("o hub não respondeu /health em 60 s")
+        raise RuntimeError("the hub did not answer /health in 60 s")
 
     @property
     def pid(self):
         return self.proc.pid
 
     def turn(self, api_key):
-        """Um turno pela API. Devolve (segundos de relógio, segundos de CPU do hub)."""
+        """One turn through the API. Returns (wall-clock seconds, the hub's CPU seconds)."""
         started, cpu = time.time(), cpu_seconds(self.pid)
         payload = json.dumps({"model": "warden", "messages": [{"role": "user", "content": "Quando a chave roda?"}]})
         http(
@@ -200,12 +201,12 @@ def run_scenario(binary, models_dir, scenario):
             wait_settled(hub.pid, 10, 300)
         after, peak = rss_mb(hub.pid)
         reported = status_rss_mb(hub.url)
-        log(f"  {name}: antes {before:.0f} MB, depois {after:.0f} MB, pico {peak:.0f} MB, /status {reported:.0f} MB")
+        log(f"  {name}: before {before:.0f} MB, after {after:.0f} MB, peak {peak:.0f} MB, /status {reported:.0f} MB")
         return {"after": after, "peak": peak, "seconds": seconds}
 
 
 def run_unload(binary, models_dir):
-    """P146 c: depois do 1º turno com 1000 notas o modelo do cofre fica ocioso e é descarregado; um 2º turno o recarrega."""
+    """P146 c: after the 1st turn with 1000 notes the vault model goes idle and is unloaded; a 2nd turn reloads it."""
     with Hub(binary, models_dir) as hub:
         write_notes(hub.data / "vault", 1000, "short")
         api_key = hub.cli("api-keys", "create", "measure")
@@ -213,21 +214,21 @@ def run_unload(binary, models_dir):
         first, _ = hub.turn(api_key)
         wait_settled(hub.pid, 2, 30)
         loaded, loaded_peak = rss_mb(hub.pid)
-        time.sleep(IDLE_SECS + 10)  # a tarefa confere a cada idle/4 (no mínimo 1 s)
+        time.sleep(IDLE_SECS + 10)  # the task checks every idle/4 (at least 1 s)
         unloaded, _ = rss_mb(hub.pid)
         again, _ = hub.turn(api_key)
         wait_settled(hub.pid, 2, 30)
         reloaded, reloaded_peak = rss_mb(hub.pid)
-        log(f"  descarregamento: carregado {loaded:.0f} MB, ocioso {unloaded:.0f} MB, recarregado {reloaded:.0f} MB")
+        log(f"  unload: loaded {loaded:.0f} MB, idle {unloaded:.0f} MB, reloaded {reloaded:.0f} MB")
         return [
-            ("1000 notas curtas, depois do 1º turno", loaded, loaded_peak, first, "1700", "-"),
-            (f"… {IDLE_SECS + 10} s ocioso (`--embedding-idle-secs {IDLE_SECS}`)", unloaded, None, None, "76 (só o modelo, K.2)", "~76"),
-            ("… 2º turno (recarrega o modelo)", reloaded, reloaded_peak, again, "-", "-"),
+            ("1000 short notes, after the 1st turn", loaded, loaded_peak, first, "1700", "-"),
+            (f"… {IDLE_SECS + 10} s idle (`--embedding-idle-secs {IDLE_SECS}`)", unloaded, None, None, "76 (the model only, K.2)", "~76"),
+            ("… 2nd turn (reloads the model)", reloaded, reloaded_peak, again, "-", "-"),
         ]
 
 
 def run_members(binary, models_dir):
-    """P147: vários membros, cada um com a sua chave. O `Vault` (e o modelo) de cada um deve viver entre as requisições."""
+    """P147: several members, each with their own key. Each one's `Vault` (and model) must live between requests."""
     rows = []
     with Hub(binary, models_dir) as hub:
         keys = {}
@@ -238,7 +239,7 @@ def run_members(binary, models_dir):
             keys[member] = hub.cli("api-keys", "create", f"key-{member}", "--user", member)
         hub.start()
         base = rss_mb(hub.pid)[0]
-        log(f"  membros: hub parado com {MEMBERS} membros, {base:.0f} MB")
+        log(f"  members: idle hub with {MEMBERS} members, {base:.0f} MB")
         for member, key in keys.items():
             first_secs, first_cpu = hub.turn(key)
             wait_settled(hub.pid, 2, 30)
@@ -246,13 +247,13 @@ def run_members(binary, models_dir):
             follow = [hub.turn(key) for _ in range(MEMBER_FOLLOW_UPS)]
             secs = sum(s for s, _ in follow) / len(follow)
             cpu = sum(c for _, c in follow) / len(follow)
-            log(f"  {member}: RSS {after:.0f} MB, 1ª {first_secs:.2f} s / {first_cpu:.2f} s de CPU, seguintes {secs:.2f} s / {cpu:.2f} s")
+            log(f"  {member}: RSS {after:.0f} MB, 1st {first_secs:.2f} s / {first_cpu:.2f} s of CPU, following {secs:.2f} s / {cpu:.2f} s")
             rows.append((member, after, first_secs, first_cpu, secs, cpu))
     return rows
 
 
 def add_members(hub, members):
-    """Cria os membros `(nome, notas, semente)` com as suas notas e uma chave cada; devolve {nome: chave}."""
+    """Creates the members `(name, notes, seed)` with their notes and one key each; returns {name: key}."""
     keys = {}
     for member, notes, seed in members:
         hub.cli("users", "add", member, "--name", f"Membro {member}")
@@ -270,9 +271,9 @@ def average(values):
 
 
 def run_concurrency(binary, models_dir):
-    """P153: o modelo do cofre é um só, então buscas de membros diferentes esperam a vez. Mede a espera: (1) a 1ª requisição de
-    vários membros em sequência e ao mesmo tempo, (2) requisições de cofres já indexados, em sequência e ao mesmo tempo, e (3) as
-    requisições desses membros enquanto outro indexa um cofre grande (a indexação solta o modelo a cada fatia de 16 chunks)."""
+    """P153: the vault model is one, so searches by different members wait their turn. Measures the wait: (1) the 1st request of
+    several members in sequence and at the same time, (2) requests on vaults already indexed, in sequence and at the same time, and (3) the
+    requests of those members while another indexes a big vault (indexing releases the model every slice of 16 chunks)."""
     small = [(f"m{i}", MEMBER_NOTES, i) for i in range(1, CONCURRENT_MEMBERS + 1)]
     with Hub(binary, models_dir) as hub:
         keys = add_members(hub, small)
@@ -280,7 +281,7 @@ def run_concurrency(binary, models_dir):
         sequential_first = [wall_secs(hub, key) for key in keys.values()]
         wait_settled(hub.pid, 2, 30)
         rss_sequential = rss_mb(hub.pid)[0]
-        log(f"  1ª requisição em sequência: {sum(sequential_first):.2f} s no total, RSS {rss_sequential:.0f} MB")
+        log(f"  1st request in sequence: {sum(sequential_first):.2f} s in total, RSS {rss_sequential:.0f} MB")
     with Hub(binary, models_dir) as hub:
         keys = add_members(hub, small + [("big", BIG_NOTES, 99)])
         big_key = keys.pop("big")
@@ -290,16 +291,16 @@ def run_concurrency(binary, models_dir):
             parallel_first = list(pool.map(lambda key: wall_secs(hub, key), keys.values()))
             parallel_total = time.time() - started
             wait_settled(hub.pid, 2, 30)
-            log(f"  1ª requisição ao mesmo tempo: {parallel_total:.2f} s no total, a mais lenta {max(parallel_first):.2f} s")
+            log(f"  1st request at the same time: {parallel_total:.2f} s in total, the slowest {max(parallel_first):.2f} s")
             sequential_warm = [wall_secs(hub, key) for _ in range(CONCURRENT_ROUNDS) for key in keys.values()]
             concurrent_warm = []
             for _ in range(CONCURRENT_ROUNDS):
                 concurrent_warm += pool.map(lambda key: wall_secs(hub, key), keys.values())
-            log(f"  já indexados: média {average(sequential_warm):.3f} s em sequência, {average(concurrent_warm):.3f} s ao mesmo tempo")
+            log(f"  already indexed: average {average(sequential_warm):.3f} s in sequence, {average(concurrent_warm):.3f} s at the same time")
         during = []
         with ThreadPoolExecutor(max_workers=1) as pool:
             big = pool.submit(wall_secs, hub, big_key)
-            time.sleep(2)  # o turno do membro grande já está indexando
+            time.sleep(2)  # the big member's turn is already indexing
             while not big.done():
                 for key in keys.values():
                     if big.done():
@@ -308,7 +309,7 @@ def run_concurrency(binary, models_dir):
             big_secs = big.result()
         wait_settled(hub.pid, 2, 30)
         rss_concurrent = rss_mb(hub.pid)[0]
-        log(f"  durante a indexação de {BIG_NOTES} notas ({big_secs:.1f} s): {len(during)} requisições, a mais lenta {max(during, default=0):.2f} s")
+        log(f"  during the indexing of {BIG_NOTES} notes ({big_secs:.1f} s): {len(during)} requests, the slowest {max(during, default=0):.2f} s")
     return {
         "sequential_first": sequential_first,
         "parallel_first": parallel_first,
@@ -335,38 +336,38 @@ def fmt(value, digits=0, empty="-"):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--bin", default="target/release/warden-server", help="o binário em release")
+    parser.add_argument("--bin", default="target/release/warden-server", help="the release binary")
     parser.add_argument(
         "--models-dir",
         default=str(Path.home() / ".cache" / "warden" / "models"),
-        help="onde ficam os modelos de busca já baixados (compartilhado entre os cenários)",
+        help="where the already downloaded search models live (shared between scenarios)",
     )
-    parser.add_argument("--only", nargs="*", help="rodar só os cenários cujo nome contém algum destes textos")
+    parser.add_argument("--only", nargs="*", help="run only the scenarios whose name contains any of these texts")
     parser.add_argument(
         "--json",
-        metavar="ARQUIVO",
-        help="grava também o RSS e o pico (MB) de cada linha da tabela principal, para scripts/compare-rss.py (P162)",
+        metavar="FILE",
+        help="also writes the RSS and the peak (MB) of each row of the main table, for scripts/compare-rss.py (P162)",
     )
     args = parser.parse_args()
     binary = Path(args.bin).resolve()
     models = Path(args.models_dir)
     if not binary.exists():
-        sys.exit(f"não achei o binário {binary} (cargo build --release -p warden-server)")
+        sys.exit(f"could not find the binary {binary} (cargo build --release -p warden-server)")
 
     def wanted(name):
         return not args.only or any(token in name for token in args.only)
 
     rows = []
-    results = {}  # o que vai para --json: só o RSS, que se repete entre rodadas (o tempo do 1º turno varia uns 15%)
+    results = {}  # what goes to --json: only RSS, which repeats between runs (the 1st-turn time varies about 15%)
     for scenario in SCENARIOS:
         if not wanted(scenario[0]):
             continue
-        log(f"cenário: {scenario[0]}")
+        log(f"scenario: {scenario[0]}")
         r = run_scenario(binary, models, scenario)
         rows.append([scenario[0], fmt(r["after"]), fmt(r["peak"]), fmt(r["seconds"], 1), scenario[5], scenario[6]])
         results[scenario[0]] = {"rss": round(r["after"], 1), "peak": round(r["peak"], 1)}
-    if wanted("descarregamento"):
-        log("cenário: descarregamento por ociosidade")
+    if wanted("unload"):
+        log("scenario: unload on idleness")
         for name, rss, peak, secs, ref, target in run_unload(binary, models):
             rows.append([name, fmt(rss), fmt(peak), fmt(secs, 1), ref, target])
             results[name] = {"rss": round(rss, 1), "peak": None if peak is None else round(peak, 1)}
@@ -374,43 +375,43 @@ def main():
         Path(args.json).write_text(json.dumps(results, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     if rows:
         table(
-            ["Cenário", "RSS depois (MB)", "Pico (MB)", "1º turno (s)", "Sessão 222 (MB)", "Alvo do benchmark (MB)"],
+            ["Scenario", "RSS after (MB)", "Peak (MB)", "1st turn (s)", "Session 222 (MB)", "Benchmark target (MB)"],
             "lrrrrr",
             rows,
         )
 
-    if wanted("membros"):
-        log("cenário: membros")
+    if wanted("members"):
+        log("scenario: members")
         member_rows = [
             [m, fmt(rss), fmt(s1, 2), fmt(c1, 2), fmt(s2, 2), fmt(c2, 2)] for m, rss, s1, c1, s2, c2 in run_members(binary, models)
         ]
-        print(f"Membros ({MEMBERS}, {MEMBER_NOTES} notas curtas cada, uma chave por membro; a Sessão 222 mediu 532, 616 e 598 MB):\n")
+        print(f"Members ({MEMBERS}, {MEMBER_NOTES} short notes each, one key per member; Session 222 measured 532, 616 and 598 MB):\n")
         table(
-            ["Membro", "RSS depois do 1º (MB)", "1ª requisição (s)", "CPU da 1ª (s)", f"Média das {MEMBER_FOLLOW_UPS} seguintes (s)", "CPU média das seguintes (s)"],
+            ["Member", "RSS after the 1st (MB)", "1st request (s)", "CPU of the 1st (s)", f"Average of the next {MEMBER_FOLLOW_UPS} (s)", "Average CPU of the next ones (s)"],
             "lrrrrr",
             member_rows,
         )
 
-    if wanted("simultâneas"):
-        log("cenário: buscas simultâneas")
+    if wanted("concurrent"):
+        log("scenario: simultaneous searches")
         r = run_concurrency(binary, models)
         warm = r["sequential_warm"]
         print(
-            f"Buscas simultâneas ({CONCURRENT_MEMBERS} membros de {MEMBER_NOTES} notas curtas e um com {BIG_NOTES}; "
-            "segundos por requisição, num runner que pode ter outros núcleos que a sua máquina):\n"
+            f"Simultaneous searches ({CONCURRENT_MEMBERS} members with {MEMBER_NOTES} short notes and one with {BIG_NOTES}; "
+            "seconds per request, on a runner that may have other cores than your machine):\n"
         )
         table(
-            ["Medida", "Sequencial (s)", "Simultâneo (s)"],
+            ["Measure", "Sequential (s)", "Simultaneous (s)"],
             "lrr",
             [
-                [f"1ª requisição dos {CONCURRENT_MEMBERS} membros, tempo total", fmt(sum(r["sequential_first"]), 2), fmt(r["parallel_total"], 2)],
-                ["1ª requisição, a mais lenta", fmt(max(r["sequential_first"]), 2), fmt(max(r["parallel_first"]), 2)],
-                ["cofre já indexado, média por requisição", fmt(average(warm), 3), fmt(average(r["concurrent_warm"]), 3)],
-                ["cofre já indexado, a mais lenta", fmt(max(warm), 3), fmt(max(r["concurrent_warm"]), 3)],
-                [f"durante a indexação de {BIG_NOTES} notas de outro membro, média", fmt(average(warm), 3), fmt(average(r["during"]), 3)],
-                [f"durante a indexação de {BIG_NOTES} notas de outro membro, a mais lenta", fmt(max(warm), 3), fmt(max(r["during"], default=None), 3)],
-                [f"turno do membro com {BIG_NOTES} notas ({len(r['during'])} requisições dos outros no meio)", "-", fmt(r["big_secs"], 1)],
-                ["RSS no fim (MB; o do simultâneo inclui o membro grande)", fmt(r["rss"][0]), fmt(r["rss"][1])],
+                [f"1st request of the {CONCURRENT_MEMBERS} members, total time", fmt(sum(r["sequential_first"]), 2), fmt(r["parallel_total"], 2)],
+                ["1st request, the slowest", fmt(max(r["sequential_first"]), 2), fmt(max(r["parallel_first"]), 2)],
+                ["vault already indexed, average per request", fmt(average(warm), 3), fmt(average(r["concurrent_warm"]), 3)],
+                ["vault already indexed, the slowest", fmt(max(warm), 3), fmt(max(r["concurrent_warm"]), 3)],
+                [f"during the indexing of another member's {BIG_NOTES} notes, average", fmt(average(warm), 3), fmt(average(r["during"]), 3)],
+                [f"during the indexing of another member's {BIG_NOTES} notes, the slowest", fmt(max(warm), 3), fmt(max(r["during"], default=None), 3)],
+                [f"turn of the member with {BIG_NOTES} notes ({len(r['during'])} requests from the others in between)", "-", fmt(r["big_secs"], 1)],
+                ["RSS at the end (MB; the simultaneous one includes the big member)", fmt(r["rss"][0]), fmt(r["rss"][1])],
             ],
         )
 

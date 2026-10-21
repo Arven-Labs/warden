@@ -1,8 +1,8 @@
-name: E2E do desktop
+name: Desktop E2E
 
-# As telas só do desktop (Publicar uma skill, a Galeria, o QR do Sync) e o chat, fotografadas num navegador sem janela sobre `desktop/dist`,
-# com um backend de mentira no lugar do Tauri (`desktop/e2e/harness.mjs`) e dados inventados. Prova a tela e o que ela pede ao backend, não
-# o Rust por trás. O CI sempre sobe as fotos, para alguém olhar cada uma (`project/AUTOMACAO.md`). Não compila Rust: só `tsc` e `vite`.
+# The desktop-only screens (Publish a skill, the Gallery, the Sync QR) and the chat, photographed in a headless browser over `desktop/dist`,
+# with a fake backend in place of Tauri (`desktop/e2e/harness.mjs`) and made-up data. It proves the screen and what it asks of the backend, not
+# the Rust behind it. CI always uploads the photos, for someone to look at each one (`project/AUTOMACAO.md`). It does not compile Rust: only `tsc` and `vite`.
 on:
   push:
     branches: [main]
@@ -21,7 +21,7 @@ permissions:
 
 jobs:
   e2e:
-    name: Telas do desktop num navegador
+    name: Desktop screens in a browser
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
@@ -39,7 +39,7 @@ jobs:
         working-directory: desktop
         run: npm ci
 
-      - name: Build da página
+      - name: Build the page
         working-directory: desktop
         run: npm run build
 
@@ -47,16 +47,16 @@ jobs:
         working-directory: desktop
         run: npx playwright-core install --with-deps chromium
 
-      # Um teste que trava falha sozinho em 4 minutos e o passo todo em 10, em vez de a rodada ficar parada sem log.
-      - name: Testes de navegador
+      # A test that hangs fails by itself in 4 minutes and the whole step in 10, instead of the run sitting still with no log.
+      - name: Browser tests
         working-directory: desktop
         timeout-minutes: 10
         env:
           WARDEN_E2E_SCREENS: ${{ github.workspace }}/e2e-screens
         run: node --test --test-reporter=tap --test-timeout=240000 e2e/*.test.mjs
 
-      # Sempre, não só em falha: as fotos são para olhar mesmo com tudo verde.
-      - name: Fotos das telas
+      # Always, not only on failure: the photos are meant to be looked at even when everything is green.
+      - name: Screen photos
         if: always()
         uses: actions/upload-artifact@v7
         with:

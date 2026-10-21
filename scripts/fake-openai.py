@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Um modelo de mentira, compatível com a API da OpenAI, para o teste de fumaça da imagem (scripts/image-smoke.sh).
+"""A fake model, compatible with the OpenAI API, for the image smoke test (scripts/image-smoke.sh).
 
-Responde "pong" a qualquer conversa (em SSE, como o hub pede) e lista nenhum modelo. Só biblioteca padrão.
-Uso: fake-openai.py PORTA
+Answers "pong" to any conversation (as SSE, the way the hub asks for it) and lists no models. Standard library only.
+Usage: fake-openai.py PORT
 """
 import json
 import sys
@@ -10,7 +10,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 
 class Handler(BaseHTTPRequestHandler):
-    def log_message(self, *args):  # sem ruído no log do CI
+    def log_message(self, *args):  # no noise in the CI log
         pass
 
     def _json(self, status, payload):

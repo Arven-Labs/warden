@@ -1,18 +1,18 @@
-name: Roteiro com modelo real
+name: Script with a real model
 
-# O `real_model.rs` (P156): o que só passou com modelo de mentira, agora com um modelo de verdade (skills, tarefas, delegação em dois níveis).
-# Chama uma API PAGA, então só por botão, nunca por agenda:
-#   gh workflow run real-model.yml                       # o modelo padrão
-#   gh workflow run real-model.yml -f model=<id>         # outro modelo da OpenRouter
-# A chave é a da OpenRouter, num segredo do repositório (só o Fabio a tem; ela nunca passa pelo Claude):
+# `real_model.rs` (P156): what only passed with a fake model, now with a real model (skills, tasks, two-level delegation).
+# It calls a PAID API, so it only runs by button, never on a schedule:
+#   gh workflow run real-model.yml                       # the default model
+#   gh workflow run real-model.yml -f model=<id>         # another OpenRouter model
+# The key is OpenRouter's, in a repository secret (only Fabio has it; it never goes through Claude):
 #   ! gh secret set WARDEN_EVAL_KEY < ~/Documents/api.txt
-# Sem o segredo o primeiro passo falha dizendo isso, antes de compilar. O resultado de cada teste sai no resumo do run. Um modelo não é
-# determinístico: um teste vermelho diz o que o modelo fez no lugar, e é preciso ler os eventos impressos antes de culpar o código.
+# Without the secret the first step fails saying so, before compiling. Each test's result goes in the run summary. A model is not
+# deterministic: a red test says what the model did instead, and the printed events must be read before blaming the code.
 on:
   workflow_dispatch:
     inputs:
       model:
-        description: 'Id do modelo na OpenRouter'
+        description: 'Model id on OpenRouter'
         required: true
         default: 'deepseek/deepseek-v4.1-flash'
 
@@ -25,17 +25,17 @@ env:
 
 jobs:
   real-model:
-    name: Roteiro com o modelo ${{ inputs.model }}
-    # 24.04: o ONNX Runtime pronto do `ort` pede glibc 2.38+ (ver ci.yml).
+    name: Script with the model ${{ inputs.model }}
+    # 24.04: the ready-made ONNX Runtime of `ort` needs glibc 2.38+ (see ci.yml).
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     steps:
-      - name: A chave existe?
+      - name: Does the key exist?
         env:
           KEY: ${{ secrets.WARDEN_EVAL_KEY }}
         run: |
           if [ -z "$KEY" ]; then
-            echo "::error::O segredo WARDEN_EVAL_KEY não existe neste repositório. Crie-o uma vez, com o arquivo da chave da OpenRouter: ! gh secret set WARDEN_EVAL_KEY < ~/Documents/api.txt"
+            echo "::error::The secret WARDEN_EVAL_KEY does not exist in this repository. Create it once, with the OpenRouter key file: ! gh secret set WARDEN_EVAL_KEY < ~/Documents/api.txt"
             exit 1
           fi
 
@@ -48,8 +48,8 @@ jobs:
       - name: Cache Rust
         uses: Swatinem/rust-cache@v2
 
-      # `--test-threads=1`: os testes dividem o mesmo modelo e a conta; o comando é o do cabeçalho do `real_model.rs`.
-      - name: Roteiro
+      # `--test-threads=1`: the tests share the same model and the account; the command is the one in the header of `real_model.rs`.
+      - name: Script
         shell: bash
         env:
           WARDEN_EVAL_PROVIDER: openai_compatible
@@ -62,14 +62,14 @@ jobs:
           status=${PIPESTATUS[0]}
           set -e
           {
-            echo "## Roteiro com modelo real: ${WARDEN_EVAL_MODEL}"
+            echo "## Script with a real model: ${WARDEN_EVAL_MODEL}"
             echo
             echo '```'
-            grep -E '^test .* \.\.\. ' real-model.log || echo "nenhum teste rodou"
+            grep -E '^test .* \.\.\. ' real-model.log || echo "no test ran"
             echo '```'
             if [ "$status" -ne 0 ]; then
               echo
-              echo "<details><summary>O que o modelo fez (fim do log)</summary>"
+              echo "<details><summary>What the model did (end of the log)</summary>"
               echo
               echo '```'
               tail -n 120 real-model.log

@@ -1,19 +1,19 @@
-name: Publicar a imagem do hub
+name: Publish the hub image
 
-# Ao criar uma tag de versão (v0.1.0), constrói a imagem, roda a fumaça com a raiz só de leitura (`image.yml`) e, só se ela
-# passar, publica no GitHub Container Registry:  ghcr.io/arven-labs/warden-server
-#   v0.1.0 -> :0.1.0, :0.1 e :latest   (um pré-lançamento como v0.2.0-rc.1 não leva :latest)
-# A imagem é pública, como o repositório. Só linux/amd64.
+# When a version tag is created (v0.1.0), builds the image, runs the smoke test with the read-only root (`image.yml`) and, only if it
+# passes, publishes to the GitHub Container Registry:  ghcr.io/arven-labs/warden-server
+#   v0.1.0 -> :0.1.0, :0.1 and :latest   (a pre-release such as v0.2.0-rc.1 gets no :latest)
+# The image is public, like the repository. linux/amd64 only.
 #
 #   docker run --read-only --tmpfs /tmp -v warden-data:/data -p 7420:7420 \
 #     -e WARDEN_SERVER_AUTH_KEY="$(openssl rand -hex 32)" -e GEMINI_API_KEY=... ghcr.io/arven-labs/warden-server:latest
 #
-# A tag também dispara o `build.yml` (instaladores do desktop); os dois são independentes.
+# The tag also triggers `build.yml` (the desktop installers); the two are independent.
 on:
   push:
     tags:
       - 'v*'
-  # À mão só roda a fumaça: o `publish` abaixo exige uma tag, então o botão serve para conferir o arquivo sem publicar.
+  # By hand it only runs the smoke test: the `publish` below requires a tag, so the button is for checking the file without publishing.
   workflow_dispatch:
 
 permissions:
@@ -21,11 +21,11 @@ permissions:
 
 jobs:
   image:
-    name: Imagem e teste de fumaça
+    name: Image and smoke test
     uses: ./.github/workflows/image.yml
 
   publish:
-    name: Publicar no GHCR
+    name: Publish to GHCR
     needs: image
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-24.04
@@ -44,9 +44,9 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      # Nomes e rótulos OCI, inclusive `org.opencontainers.image.source`, que liga o pacote a este repositório (e o faz
-      # herdar a visibilidade pública dele). O GHCR exige o nome em minúsculas.
-      - name: Nomes e rótulos
+      # OCI names and labels, including `org.opencontainers.image.source`, which ties the package to this repository (and makes it
+      # inherit its public visibility). GHCR requires the name in lowercase.
+      - name: Names and labels
         id: meta
         uses: docker/metadata-action@v6
         with:
@@ -55,8 +55,8 @@ jobs:
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
 
-      # A camada cara (o `cargo build`) vem do cache que a fumaça acabou de gravar.
-      - name: Build e push
+      # The expensive layer (`cargo build`) comes from the cache the smoke test just wrote.
+      - name: Build and push
         uses: docker/build-push-action@v7
         with:
           context: .

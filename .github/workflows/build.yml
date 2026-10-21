@@ -1,6 +1,6 @@
 name: Build
 
-# Dispara apenas quando uma tag de versão é criada (ex: v0.1.0)
+# Triggers only when a version tag is created (e.g. v0.1.0)
 on:
   push:
     tags:
@@ -15,7 +15,7 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # 24.04: o ONNX Runtime pronto do `ort` pede glibc 2.38+ (ver ci.yml), então o .deb também pede.
+          # 24.04: the ready-made ONNX Runtime of `ort` needs glibc 2.38+ (see ci.yml), so the .deb needs it too.
           - os: ubuntu-24.04
             artifact: '*.deb'
           - os: windows-latest
@@ -40,10 +40,10 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
 
       - name: Cache Rust
-        # O `desktop/src-tauri` é membro do workspace da raiz, então o `target/` (o que se guarda) fica na raiz.
+        # `desktop/src-tauri` is a member of the root workspace, so the `target/` (what gets cached) sits at the root.
         uses: Swatinem/rust-cache@v2
 
-      # Dependências nativas do Linux que o Tauri, o keyring e o áudio (cpal) precisam
+      # Native Linux dependencies that Tauri, the keyring and the audio (cpal) need
       - name: Linux deps
         if: matrix.os == 'ubuntu-24.04'
         run: |
@@ -76,10 +76,10 @@ jobs:
           releaseDraft: true
           includeDebug: false
 
-  # O APK do Android no mesmo release (rascunho) dos instaladores, para o GUIA-DE-USO.md poder mandar baixar em vez de
-  # construir. Assinado com a chave de DEBUG do `build.gradle.kts`, que muda a cada runner: instala (com "fontes
-  # desconhecidas" permitidas), mas uma versão nova só entra por cima depois de desinstalar a antiga. Uma chave fixa
-  # (segredo do repositório) é decisão pendente (P156). `needs: build` porque o `tauri-action` é quem cria o rascunho.
+  # The Android APK in the same (draft) release as the installers, so GUIA-DE-USO.md can tell people to download it instead of
+  # building it. Signed with the DEBUG key of `build.gradle.kts`, which changes on every runner: it installs (with "unknown
+  # sources" allowed), but a new version only goes over the old one after uninstalling it. A fixed key
+  # (a repository secret) is a pending decision (P156). `needs: build` because `tauri-action` is what creates the draft.
   android:
     needs: build
     runs-on: ubuntu-24.04
@@ -113,25 +113,25 @@ jobs:
       - name: APK
         run: flutter build apk --release --target-platform android-arm64
 
-      # `gh release upload` por tag não enxerga um rascunho; pelo id, a API envia o arquivo ao rascunho.
-      - name: Anexa o APK ao release
+      # `gh release upload` by tag does not see a draft; by id, the API sends the file to the draft.
+      - name: Attach the APK to the release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: ${{ github.ref_name }}
         working-directory: .
         run: |
           id="$(gh api "repos/$GITHUB_REPOSITORY/releases" --paginate --jq ".[] | select(.tag_name == \"$TAG\") | .id" | head -n 1)"
-          [ -n "$id" ] || { echo "não achei o release da tag $TAG" >&2; exit 1; }
+          [ -n "$id" ] || { echo "could not find the release of tag $TAG" >&2; exit 1; }
           name="Warden_${TAG#v}_android-arm64.apk"
           curl -fsS -X POST \
             -H "Authorization: Bearer $GH_TOKEN" \
             -H "Content-Type: application/vnd.android.package-archive" \
             --data-binary @mobile/build/app/outputs/flutter-apk/app-release.apk \
             "https://uploads.github.com/repos/$GITHUB_REPOSITORY/releases/$id/assets?name=$name" >/dev/null
-          echo "anexado: $name"
+          echo "attached: $name"
 
-  # As notas propostas, dos commits desde a tag anterior, no corpo do rascunho (P164 a). Depois dos instaladores e do APK, que são quem cria e
-  # mexe no rascunho; roda mesmo se uma plataforma falhar, porque as notas não dependem dela. Nunca publica: o Fabio revisa e publica.
+  # The proposed notes, from the commits since the previous tag, in the body of the draft (P164 a). After the installers and the APK, which are what create and
+  # touch the draft; it runs even if a platform fails, because the notes do not depend on it. It never publishes: Fabio reviews and publishes.
   notes:
     needs: [build, android]
     if: ${{ !cancelled() }}

@@ -1,9 +1,9 @@
-name: E2E da web
+name: Web E2E
 
-# Os testes de navegador da página web (`web/e2e`): um hub de verdade com dados inventados e um Chromium sem janela. Antes
-# deste arquivo eles só rodavam à mão (Sessão 261). Também fotografam as telas (`snap` em `web/e2e/harness.mjs`) e o CI sempre
-# sobe as fotos como artefato, para alguém olhar cada uma (`project/AUTOMACAO.md`). Fica fora do `ci.yml` porque compila o
-# hub e instala o navegador, o que alongaria todo push.
+# The browser tests of the web page (`web/e2e`): a real hub with made-up data and a headless Chromium. Before
+# this file they only ran by hand (Session 261). They also photograph the screens (`snap` in `web/e2e/harness.mjs`) and CI always
+# uploads the photos as an artifact, for someone to look at each one (`project/AUTOMACAO.md`). It stays out of `ci.yml` because it compiles the
+# hub and installs the browser, which would lengthen every push.
 on:
   push:
     branches: [main]
@@ -28,8 +28,8 @@ env:
 
 jobs:
   e2e:
-    name: Navegador contra um hub de verdade
-    # 24.04: o ONNX Runtime pronto do `ort` pede glibc 2.38+ (ver ci.yml).
+    name: Browser against a real hub
+    # 24.04: the ready-made ONNX Runtime of `ort` needs glibc 2.38+ (see ci.yml).
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     steps:
@@ -47,8 +47,8 @@ jobs:
         working-directory: web
         run: npm ci
 
-      # O hub embute `web/dist`.
-      - name: Build da página
+      # The hub embeds `web/dist`.
+      - name: Build the page
         working-directory: web
         run: npm run build
 
@@ -58,24 +58,24 @@ jobs:
       - name: Cache Rust
         uses: Swatinem/rust-cache@v2
 
-      - name: Build do hub
+      - name: Build the hub
         run: cargo build -p warden-server --bin warden-server
 
       - name: Chromium
         working-directory: web
         run: npx playwright-core install --with-deps chromium
 
-      # Um teste que trava falha sozinho em 4 minutos e o passo todo em 25, em vez de a rodada ficar parada até o limite do job
-      # sem log (a primeira rodada, na Sessão 261, ficou 42 minutos aqui sem dizer nada).
-      - name: Testes de navegador
+      # A test that hangs fails by itself in 4 minutes and the whole step in 25, instead of the run sitting still until the job limit
+      # with no log (the first run, in Session 261, sat here for 42 minutes saying nothing).
+      - name: Browser tests
         working-directory: web
         timeout-minutes: 25
         env:
           WARDEN_E2E_SCREENS: ${{ github.workspace }}/e2e-screens
         run: node --test --test-reporter=tap --test-timeout=240000 e2e/*.test.mjs
 
-      # Sempre, não só em falha: as fotos são para olhar mesmo com tudo verde.
-      - name: Fotos das telas
+      # Always, not only on failure: the photos are meant to be looked at even when everything is green.
+      - name: Screen photos
         if: always()
         uses: actions/upload-artifact@v7
         with:

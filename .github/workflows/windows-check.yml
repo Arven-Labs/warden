@@ -1,10 +1,10 @@
-name: Windows (compila?)
+name: Windows (does it compile?)
 
-# Compila o workspace inteiro para Windows, sem testar nada (P152): a tag `v0.1.0` foi a primeira vez que algo compilou lá,
-# e o compilador parou no primeiro crate que falhou. `--keep-going` lista todos os crates que quebram de uma vez, sem gastar
-# uma tag (que também republicaria a imagem do hub). Só à mão:
+# Compiles the whole workspace for Windows, testing nothing (P152): the `v0.1.0` tag was the first time anything compiled there,
+# and the compiler stopped at the first crate that failed. `--keep-going` lists every crate that breaks at once, without spending
+# a tag (which would also republish the hub image). By hand only:
 #   gh workflow run windows-check.yml
-# `cargo check` não prova que o `.msi` sai (o empacotamento do Tauri só roda no `build.yml`), só que compila.
+# `cargo check` does not prove the `.msi` comes out (Tauri's packaging only runs in `build.yml`), only that it compiles.
 on:
   workflow_dispatch:
 
@@ -17,7 +17,7 @@ env:
 
 jobs:
   check:
-    name: cargo check no Windows
+    name: cargo check on Windows
     runs-on: windows-latest
     timeout-minutes: 90
     steps:
@@ -30,6 +30,6 @@ jobs:
       - name: Cache Rust
         uses: Swatinem/rust-cache@v2
 
-      # Como o `ci.yml` no Linux: o workspace inteiro, com os testes, e todos os erros de uma vez.
+      # Like `ci.yml` on Linux: the whole workspace, with the tests, and all the errors at once.
       - name: cargo check
         run: cargo check --workspace --all-targets --locked --keep-going

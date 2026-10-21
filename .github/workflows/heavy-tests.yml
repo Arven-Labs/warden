@@ -1,9 +1,9 @@
-name: Testes pesados
+name: Heavy tests
 
-# Os testes `#[ignore]` que baixam os modelos de embedding de verdade (~120 MB cada) e rodam a busca por
-# significado: a "rodada de testes" que antes ficava pendente na máquina (Sessão 223). Só manual:
+# The `#[ignore]` tests that download the real embedding models (~120 MB each) and run the semantic
+# search: the "test round" that used to stay pending on the machine (Session 223). Manual only:
 #   gh workflow run heavy-tests.yml
-# Fica de fora o teste do `opencode` (`code_engine/process.rs`), que precisa do programa instalado.
+# The `opencode` test (`code_engine/process.rs`) stays out, since it needs the program installed.
 on:
   workflow_dispatch:
 
@@ -16,8 +16,8 @@ env:
 
 jobs:
   embeddings:
-    name: Modelos de embedding (cofre e histórico)
-    # 24.04: o ONNX Runtime pronto do `ort` pede glibc 2.38+ (ver ci.yml).
+    name: Embedding models (vault and history)
+    # 24.04: the ready-made ONNX Runtime of `ort` needs glibc 2.38+ (see ci.yml).
     runs-on: ubuntu-24.04
     steps:
       - name: Checkout
@@ -29,18 +29,18 @@ jobs:
       - name: Cache Rust
         uses: Swatinem/rust-cache@v2
 
-      # Onde o `model_cache_dir()` do warden-core guarda os modelos baixados.
-      - name: Cache dos modelos
+      # Where warden-core's `model_cache_dir()` keeps the downloaded models.
+      - name: Models cache
         uses: actions/cache@v6
         with:
           path: ~/.cache/warden/models
           key: warden-models-${{ hashFiles('crates/warden-core/Cargo.toml') }}
 
-      - name: Testes com modelo real
+      - name: Tests with the real model
         run: cargo test -p warden-core --test semantic_search --test history_embed -- --ignored --nocapture
 
-      # P156: quanta memória o modelo do histórico devolve ao ser descarregado, com o arena padrão do glibc e com um só.
-      - name: Memória do modelo do histórico ao descarregar
+      # P156: how much memory the history model gives back when unloaded, with glibc's default arenas and with a single one.
+      - name: History model memory on unload
         run: |
           cargo test -p warden-core --test history_embed_memory -- --ignored --nocapture
           MALLOC_ARENA_MAX=1 cargo test -p warden-core --test history_embed_memory -- --ignored --nocapture

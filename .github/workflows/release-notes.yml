@@ -1,9 +1,9 @@
-name: Notas da release
+name: Release notes
 
-# Monta as notas de uma release dos commits entre a tag anterior e esta (`scripts/release-notes.py`, P164 a) e, com `apply`, grava no
-# corpo do release EM RASCUNHO, para o Fabio revisar e publicar. Nunca publica e nunca mexe num release já publicado (recusa).
-# Roda sozinho no fim do `build.yml`, depois que o rascunho e os instaladores existem, e à mão para ver o que sairia:
-#   gh workflow run release-notes.yml -f tag=v0.1.1              # só o resumo do run
+# Builds a release's notes from the commits between the previous tag and this one (`scripts/release-notes.py`, P164 a) and, with `apply`, writes them into the
+# body of the DRAFT release, for Fabio to review and publish. It never publishes and never touches an already published release (it refuses).
+# It runs by itself at the end of `build.yml`, after the draft and the installers exist, and by hand to see what would come out:
+#   gh workflow run release-notes.yml -f tag=v0.1.1              # only the run summary
 #   gh workflow run release-notes.yml -f tag=v0.1.2 -f apply=true
 on:
   workflow_call:
@@ -17,10 +17,10 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: 'A tag da release (ex.: v0.1.2)'
+        description: 'The release tag (e.g. v0.1.2)'
         required: true
       apply:
-        description: 'Gravar no corpo do rascunho (um release publicado é recusado)'
+        description: 'Write into the draft body (a published release is refused)'
         type: boolean
         default: false
 
@@ -29,41 +29,41 @@ permissions:
 
 jobs:
   notes:
-    name: Notas de ${{ inputs.tag }}
+    name: Notes of ${{ inputs.tag }}
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
       - name: Checkout
         uses: actions/checkout@v7
         with:
-          # O histórico e as tags inteiros: as notas vêm do `git log` entre duas tags.
+          # The whole history and the tags: the notes come from the `git log` between two tags.
           fetch-depth: 0
 
-      - name: Montar as notas
+      - name: Build the notes
         env:
           TAG: ${{ inputs.tag }}
         run: |
           python3 scripts/release-notes.py "$TAG" | tee notes.md
           {
-            echo "## Notas propostas para $TAG"
+            echo "## Proposed notes for $TAG"
             echo
             cat notes.md
           } >> "$GITHUB_STEP_SUMMARY"
 
-      # Pelo id, como o passo do APK do `build.yml`: `gh release edit` por tag não enxerga um rascunho.
-      - name: Gravar no rascunho
+      # By id, like the APK step of `build.yml`: `gh release edit` by tag does not see a draft.
+      - name: Write into the draft
         if: inputs.apply
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: ${{ inputs.tag }}
         run: |
           release="$(gh api "repos/$GITHUB_REPOSITORY/releases" --paginate --jq ".[] | select(.tag_name == \"$TAG\") | [.id, .draft] | @tsv" | head -n 1)"
-          [ -n "$release" ] || { echo "::error::não achei o release da tag $TAG" >&2; exit 1; }
+          [ -n "$release" ] || { echo "::error::could not find the release of tag $TAG" >&2; exit 1; }
           id="${release%%$'\t'*}"
           draft="${release##*$'\t'}"
           if [ "$draft" != "true" ]; then
-            echo "::error::o release $TAG já está publicado: as notas não são trocadas por um passo automático" >&2
+            echo "::error::the release $TAG is already published: its notes are not replaced by an automatic step" >&2
             exit 1
           fi
           gh api -X PATCH "repos/$GITHUB_REPOSITORY/releases/$id" -F body=@notes.md --silent
-          echo "Notas gravadas no rascunho $TAG (id $id). Revise e publique." >> "$GITHUB_STEP_SUMMARY"
+          echo "Notes written into the draft $TAG (id $id). Review and publish." >> "$GITHUB_STEP_SUMMARY"

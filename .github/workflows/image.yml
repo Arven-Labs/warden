@@ -1,8 +1,8 @@
-name: Imagem do hub
+name: Hub image
 
-# Constrói a imagem (Dockerfile) e roda o teste de fumaça com a raiz só de leitura (P143 e). Não publica nada.
-# O build de release é pesado, então não roda a cada push de código: só quando a própria imagem muda, ou à mão
-# ("Run workflow"). Quem muda o hub e quer ver a imagem de pé dispara à mão.
+# Builds the image (Dockerfile) and runs the smoke test with the read-only root (P143 e). It publishes nothing.
+# The release build is heavy, so it does not run on every code push: only when the image itself changes, or by hand
+# ("Run workflow"). Whoever changes the hub and wants to see the image up triggers it by hand.
 on:
   push:
     branches: [main]
@@ -16,7 +16,7 @@ on:
       - 'crates/warden-orchestrator/**'
       - '.github/workflows/image.yml'
   workflow_dispatch:
-  # Chamado por `image-publish.yml` (a publicação numa tag `v*`), que só publica se esta fumaça passar.
+  # Called by `image-publish.yml` (the publication on a `v*` tag), which only publishes if this smoke test passes.
   workflow_call:
 
 concurrency:
@@ -28,7 +28,7 @@ permissions:
 
 jobs:
   image:
-    name: Imagem e teste de fumaça
+    name: Image and smoke test
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     steps:
@@ -45,19 +45,19 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-      - name: Teste de fumaça (raiz só de leitura)
+      - name: Smoke test (read-only root)
         run: bash scripts/image-smoke.sh warden-server:smoke
 
-      # O orquestrador (P138, fase 4) contra Docker de verdade, com a imagem que acabou de passar na fumaça: provisionar,
-      # suspender, retomar, reciclar e apagar uma instância.
+      # The orchestrator (P138, phase 4) against real Docker, with the image that just passed the smoke test: provision,
+      # suspend, resume, recycle and delete an instance.
       - name: Rust
         uses: dtolnay/rust-toolchain@stable
 
       - name: Cache Rust
         uses: Swatinem/rust-cache@v2
 
-      - name: Build do orquestrador
+      - name: Build the orchestrator
         run: cargo build --release --locked -p warden-orchestrator
 
-      - name: Teste de fumaça do orquestrador
+      - name: Orchestrator smoke test
         run: bash scripts/orchestrator-smoke.sh warden-server:smoke target/release/warden-orchestrator

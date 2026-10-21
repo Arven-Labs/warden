@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# Teste de fumaça do orquestrador (P138, fase 4) com Docker de verdade: provisiona uma instância a partir da imagem do hub,
-# suspende, retoma, recicla, faz backup cifrado, verifica e restaura, e apaga, conferindo em cada passo o que o Docker mostra
-# e que os dados do cliente sobrevivem.
-# Uso: scripts/orchestrator-smoke.sh [imagem] [binário]   (padrões: warden-server:smoke e target/release/warden-orchestrator).
-# Precisa de docker e curl. A imagem é a mesma da fumaça da imagem (scripts/image-smoke.sh).
+# Smoke test of the orchestrator (P138, phase 4) with real Docker: provisions an instance from the hub image,
+# suspends, resumes, recycles, makes an encrypted backup, verifies and restores, and deletes, checking at every step what Docker shows
+# and that the customer's data survives.
+# Usage: scripts/orchestrator-smoke.sh [image] [binary]   (defaults: warden-server:smoke and target/release/warden-orchestrator).
+# Needs docker and curl. The image is the same as in the image smoke test (scripts/image-smoke.sh).
 set -euo pipefail
 
 IMAGE="${1:-warden-server:smoke}"
@@ -13,8 +13,8 @@ CONTAINER="warden-$CUSTOMER"
 VOLUME="warden-data-$CUSTOMER"
 STATE_DIR="$(mktemp -d)"
 
-# Um hub sem provedor de modelo se recusa a subir, então a instância nasce com uma config (o provedor nunca é chamado
-# aqui: o endereço não existe). É o que o `provision --config-file` põe no volume.
+# A hub with no model provider refuses to start, so the instance is born with a config (the provider is never called
+# here: the address does not exist). It is what `provision --config-file` puts in the volume.
 CONFIG_FILE="$STATE_DIR/start-config.toml"
 cat > "$CONFIG_FILE" <<'EOF'
 active_provider = "main"
@@ -39,14 +39,14 @@ cleanup() {
 trap cleanup EXIT
 
 fail() {
-  echo "FALHOU: $*" >&2
-  echo "---- log do contêiner ----" >&2
+  echo "FAILED: $*" >&2
+  echo "---- container log ----" >&2
   docker logs "$CONTAINER" >&2 2>&1 || true
   exit 1
 }
 
 started_at() { docker inspect -f '{{.State.StartedAt}}' "$CONTAINER"; }
-# "true", "false" ou "gone" (o docker inspect de um contêiner que não existe sai com erro, mas imprime uma linha em branco).
+# "true", "false" or "gone" (docker inspect of a container that does not exist exits with an error, but prints a blank line).
 running() {
   local out
   if out="$(docker inspect -f '{{.State.Running}}' "$CONTAINER" 2>/dev/null)"; then echo "$out"; else echo "gone"; fi
@@ -58,154 +58,154 @@ wait_health() {
     if curl -fsS "$url" >/dev/null 2>&1; then return 0; fi
     sleep 1
   done
-  fail "o hub não respondeu /health em 60 s ($url)"
+  fail "the hub did not answer /health in 60 s ($url)"
 }
 
-# 1. Provisionar: o contêiner sobe, publicado só no loopback, com a raiz só de leitura e sem capacidades.
-out="$(orch provision "$CUSTOMER" --image "$IMAGE" --config-file "$CONFIG_FILE")" || fail "provision falhou"
+# 1. Provision: the container starts, published on loopback only, with a read-only root and no capabilities.
+out="$(orch provision "$CUSTOMER" --image "$IMAGE" --config-file "$CONFIG_FILE")" || fail "provision failed"
 echo "provision: $out"
 PORT="${out##*:}"
 wait_health
-[ "$(running)" = "true" ] || fail "o contêiner não está rodando depois do provision"
-docker inspect -f '{{.HostConfig.ReadonlyRootfs}}' "$CONTAINER" | grep -q true || fail "a raiz do contêiner não é só de leitura"
-docker inspect -f '{{.HostConfig.CapDrop}}' "$CONTAINER" | grep -q ALL || fail "o contêiner não largou as capacidades"
+[ "$(running)" = "true" ] || fail "the container is not running after provision"
+docker inspect -f '{{.HostConfig.ReadonlyRootfs}}' "$CONTAINER" | grep -q true || fail "the container root is not read-only"
+docker inspect -f '{{.HostConfig.CapDrop}}' "$CONTAINER" | grep -q ALL || fail "the container did not drop its capabilities"
 docker inspect -f '{{range $p, $b := .NetworkSettings.Ports}}{{range $b}}{{.HostIp}} {{end}}{{end}}' "$CONTAINER" | grep -q '127.0.0.1' \
-  || fail "a porta não está publicada no 127.0.0.1"
-echo "contêiner de pé em 127.0.0.1:$PORT, raiz só de leitura, sem capacidades: ok"
+  || fail "the port is not published on 127.0.0.1"
+echo "container up on 127.0.0.1:$PORT, read-only root, no capabilities: ok"
 
-# 2. A chave do orquestrador abre o /status do hub; sem ela, não.
+# 2. The orchestrator's key opens the hub's /status; without it, no.
 KEY="$(orch key "$CUSTOMER")"
-[ "$(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:$PORT/status")" = "401" ] || fail "/status sem chave não deu 401"
-curl -fsS -H "Authorization: Bearer $KEY" "http://127.0.0.1:$PORT/status" | grep -q '"rss_bytes"' || fail "/status com a chave do orquestrador falhou"
-echo "/status com a chave: ok"
+[ "$(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:$PORT/status")" = "401" ] || fail "/status without a key did not give 401"
+curl -fsS -H "Authorization: Bearer $KEY" "http://127.0.0.1:$PORT/status" | grep -q '"rss_bytes"' || fail "/status with the orchestrator's key failed"
+echo "/status with the key: ok"
 
-# 3. Pedir de novo, igual, não muda nada; pedir diferente é recusado.
+# 3. Asking again, the same, changes nothing; asking differently is refused.
 first_start="$(started_at)"
-again="$(orch provision "$CUSTOMER" --image "$IMAGE" --config-file "$CONFIG_FILE")" || fail "o segundo provision, igual, falhou"
-[ "$again" = "$out" ] || fail "o segundo provision mudou a resposta: '$again' contra '$out'"
-[ "$(started_at)" = "$first_start" ] || fail "o segundo provision reiniciou o contêiner"
+again="$(orch provision "$CUSTOMER" --image "$IMAGE" --config-file "$CONFIG_FILE")" || fail "the second, identical provision failed"
+[ "$again" = "$out" ] || fail "the second provision changed the answer: '$again' against '$out'"
+[ "$(started_at)" = "$first_start" ] || fail "the second provision restarted the container"
 if orch provision "$CUSTOMER" --image "$IMAGE" --config-file "$CONFIG_FILE" --memory-mb 256 >/dev/null 2>&1; then
-  fail "provision com outro corpo para o mesmo cliente deveria ser recusado"
+  fail "provision with a different body for the same customer should be refused"
 fi
-echo "provision idempotente: ok"
+echo "idempotent provision: ok"
 
-# 4. Um dado do cliente em /data, para provar que sobrevive a tudo abaixo.
-docker exec "$CONTAINER" sh -c 'echo guardado > /data/marker' || fail "não consegui gravar em /data"
+# 4. A piece of customer data in /data, to prove it survives everything below.
+docker exec "$CONTAINER" sh -c 'echo customer-marker > /data/marker' || fail "could not write to /data"
 
-# 5. Suspender: o contêiner para, o volume fica e a reciclagem não mexe nele.
-orch suspend "$CUSTOMER" >/dev/null || fail "suspend falhou"
-[ "$(running)" = "false" ] || fail "o contêiner continua rodando depois do suspend"
-docker volume inspect "$VOLUME" >/dev/null 2>&1 || fail "o volume sumiu no suspend"
-orch recycle --rss-threshold-mb 1 --min-idle-secs 0 --min-uptime-secs 0 >/dev/null 2>&1 || fail "recycle falhou com uma instância suspensa"
-[ "$(running)" = "false" ] || fail "a reciclagem acordou uma instância suspensa"
+# 5. Suspend: the container stops, the volume stays and recycling does not touch it.
+orch suspend "$CUSTOMER" >/dev/null || fail "suspend failed"
+[ "$(running)" = "false" ] || fail "the container is still running after suspend"
+docker volume inspect "$VOLUME" >/dev/null 2>&1 || fail "the volume vanished on suspend"
+orch recycle --rss-threshold-mb 1 --min-idle-secs 0 --min-uptime-secs 0 >/dev/null 2>&1 || fail "recycle failed with a suspended instance"
+[ "$(running)" = "false" ] || fail "recycling woke up a suspended instance"
 echo "suspend: ok"
 
-# 6. Retomar: sobe de novo com os mesmos dados.
-orch resume "$CUSTOMER" >/dev/null || fail "resume falhou"
+# 6. Resume: starts again with the same data.
+orch resume "$CUSTOMER" >/dev/null || fail "resume failed"
 wait_health
-docker exec "$CONTAINER" cat /data/marker | grep -q guardado || fail "o dado do cliente não sobreviveu ao suspend e ao resume"
-echo "resume com os mesmos dados: ok"
+docker exec "$CONTAINER" cat /data/marker | grep -q customer-marker || fail "the customer's data did not survive suspend and resume"
+echo "resume with the same data: ok"
 
-# 7. Reciclagem: com a política padrão o hub leve é deixado em paz; com limiares que o pegam, é reiniciado e os dados ficam.
+# 7. Recycling: with the default policy the light hub is left alone; with thresholds that catch it, it is restarted and the data stays.
 before="$(started_at)"
-recycle_out="$(orch recycle 2>&1)" || fail "recycle (política padrão) falhou: $recycle_out"
-echo "$recycle_out" | grep -q 'kept' || fail "a política padrão devia deixar o hub em paz: $recycle_out"
-[ "$(started_at)" = "$before" ] || fail "a política padrão reiniciou um hub leve"
-recycle_out="$(orch recycle --rss-threshold-mb 1 --min-idle-secs 0 --min-uptime-secs 0 2>&1)" || fail "recycle (forçado) falhou: $recycle_out"
-echo "$recycle_out" | grep -q 'recycled' || fail "o recycle forçado não reciclou: $recycle_out"
-[ "$(started_at)" != "$before" ] || fail "o recycle disse que reciclou mas o contêiner não reiniciou"
+recycle_out="$(orch recycle 2>&1)" || fail "recycle (default policy) failed: $recycle_out"
+echo "$recycle_out" | grep -q 'kept' || fail "the default policy should have left the hub alone: $recycle_out"
+[ "$(started_at)" = "$before" ] || fail "the default policy restarted a light hub"
+recycle_out="$(orch recycle --rss-threshold-mb 1 --min-idle-secs 0 --min-uptime-secs 0 2>&1)" || fail "recycle (forced) failed: $recycle_out"
+echo "$recycle_out" | grep -q 'recycled' || fail "the forced recycle did not recycle: $recycle_out"
+[ "$(started_at)" != "$before" ] || fail "recycle said it recycled but the container did not restart"
 wait_health
-docker exec "$CONTAINER" cat /data/marker | grep -q guardado || fail "o dado do cliente não sobreviveu à reciclagem"
-echo "reciclagem: ok"
+docker exec "$CONTAINER" cat /data/marker | grep -q customer-marker || fail "the customer's data did not survive recycling"
+echo "recycling: ok"
 
-# 8. Backup: o hub para durante a cópia e volta, o arquivo é cifrado (o marcador não aparece em claro), e a verificação
-# sobe um hub descartável (sem rede) num volume novo, sem deixar nada para trás. Um arquivo adulterado é recusado.
-backup_file="$(orch backup "$CUSTOMER")" || fail "backup falhou"
-[ -f "$backup_file" ] || fail "o backup não criou o arquivo ($backup_file)"
-orch backups "$CUSTOMER" | grep -q "$backup_file" || fail "o backup não aparece em 'backups'"
-if grep -a -q guardado "$backup_file"; then fail "o marcador aparece em claro no arquivo do backup"; fi
-[ "$(running)" = "true" ] || fail "o hub não voltou depois do backup"
+# 8. Backup: the hub stops during the copy and comes back, the file is encrypted (the marker does not show in the clear), and the
+# verification starts a throwaway hub (no network) on a new volume, leaving nothing behind. A tampered file is refused.
+backup_file="$(orch backup "$CUSTOMER")" || fail "backup failed"
+[ -f "$backup_file" ] || fail "the backup did not create the file ($backup_file)"
+orch backups "$CUSTOMER" | grep -q "$backup_file" || fail "the backup does not show up in 'backups'"
+if grep -a -q customer-marker "$backup_file"; then fail "the marker shows in the clear in the backup file"; fi
+[ "$(running)" = "true" ] || fail "the hub did not come back after the backup"
 wait_health
-docker exec "$CONTAINER" cat /data/marker | grep -q guardado || fail "o dado do cliente se perdeu no backup"
-echo "backup cifrado, hub de volta: ok"
+docker exec "$CONTAINER" cat /data/marker | grep -q customer-marker || fail "the customer's data was lost in the backup"
+echo "encrypted backup, hub back: ok"
 
-# Fora do host: o comando do operador roda depois do backup e a cópia é idêntica e passa no verify; se ele falha, o backup
-# continua aqui e o comando sai com erro dizendo que não foi enviado. A chave sai por um comando à parte.
+# Off the host: the operator's command runs after the backup and the copy is identical and passes verify; if it fails, the backup
+# stays here and the command exits with an error saying it was not shipped. The key comes out through a separate command.
 OFFSITE="$STATE_DIR/offsite"
 mkdir -p "$OFFSITE"
-shipped="$(orch --after-backup "cp {file} $OFFSITE/" backup "$CUSTOMER")" || fail "backup com --after-backup falhou"
+shipped="$(orch --after-backup "cp {file} $OFFSITE/" backup "$CUSTOMER")" || fail "backup with --after-backup failed"
 copy="$OFFSITE/$(basename "$shipped")"
-[ -f "$copy" ] || fail "o comando do operador não deixou a cópia em $copy"
-cmp "$shipped" "$copy" || fail "a cópia de fora não é idêntica ao backup"
-orch verify "$CUSTOMER" "$copy" >/dev/null || fail "o verify recusou a cópia de fora"
+[ -f "$copy" ] || fail "the operator's command did not leave the copy at $copy"
+cmp "$shipped" "$copy" || fail "the off-host copy is not identical to the backup"
+orch verify "$CUSTOMER" "$copy" >/dev/null || fail "verify refused the off-host copy"
 if ship_out="$(orch --after-backup false backup "$CUSTOMER" 2>&1)"; then
-  fail "um --after-backup que falha deveria fazer o backup sair com erro: $ship_out"
+  fail "an --after-backup that fails should make the backup exit with an error: $ship_out"
 fi
-echo "$ship_out" | grep -q 'could not be shipped' || fail "o erro não diz que o backup não foi enviado: $ship_out"
-echo "$ship_out" | grep -q '\.wbk' || fail "o erro não diz onde o backup ficou: $ship_out"
-[ "$(running)" = "true" ] || fail "o hub não voltou depois de um envio que falhou"
+echo "$ship_out" | grep -q 'could not be shipped' || fail "the error does not say the backup was not shipped: $ship_out"
+echo "$ship_out" | grep -q '\.wbk' || fail "the error does not say where the backup stayed: $ship_out"
+[ "$(running)" = "true" ] || fail "the hub did not come back after a failed shipment"
 wait_health
 key_hex="$(orch backup-key 2>/dev/null)"
-[ "${#key_hex}" -eq 64 ] || fail "o backup-key não imprimiu 64 caracteres: '$key_hex'"
-[ "$key_hex" = "$(cat "$STATE_DIR/backup.key")" ] || fail "o backup-key difere do arquivo backup.key"
-echo "backup fora do host (cópia idêntica e válida, falha dita, chave à parte): ok"
+[ "${#key_hex}" -eq 64 ] || fail "backup-key did not print 64 characters: '$key_hex'"
+[ "$key_hex" = "$(cat "$STATE_DIR/backup.key")" ] || fail "backup-key differs from the backup.key file"
+echo "off-host backup (identical, valid copy, failure reported, key apart): ok"
 
-orch verify "$CUSTOMER" || fail "verify de um backup bom falhou"
-[ -z "$(docker ps -a -q --filter name=warden-verify-)" ] || fail "o verify deixou um contêiner de teste"
-[ -z "$(docker volume ls -q --filter name=warden-data-verify-)" ] || fail "o verify deixou um volume de teste"
-bad_file="$STATE_DIR/adulterado.wbk"
+orch verify "$CUSTOMER" || fail "verify of a good backup failed"
+[ -z "$(docker ps -a -q --filter name=warden-verify-)" ] || fail "verify left a test container"
+[ -z "$(docker volume ls -q --filter name=warden-data-verify-)" ] || fail "verify left a test volume"
+bad_file="$STATE_DIR/tampered.wbk"
 cp "$backup_file" "$bad_file"
 printf '\377' | dd of="$bad_file" bs=1 seek=40 conv=notrunc 2>/dev/null
-if orch verify "$CUSTOMER" "$bad_file" >/dev/null 2>&1; then fail "um backup adulterado foi aceito"; fi
-[ -z "$(docker volume ls -q --filter name=warden-data-verify-)" ] || fail "o verify de um backup ruim deixou um volume de teste"
-echo "verify (bom aceito, adulterado recusado, sem sobras): ok"
+if orch verify "$CUSTOMER" "$bad_file" >/dev/null 2>&1; then fail "a tampered backup was accepted"; fi
+[ -z "$(docker volume ls -q --filter name=warden-data-verify-)" ] || fail "verify of a bad backup left a test volume"
+echo "verify (good accepted, tampered refused, no leftovers): ok"
 
-# Restaurar: apagar os dados do cliente, trazer de volta do backup e provisionar igual; o marcador volta.
-orch delete "$CUSTOMER" --purge-data >/dev/null || fail "delete --purge-data falhou antes do restore"
-if docker volume inspect "$VOLUME" >/dev/null 2>&1; then fail "o volume continua existindo antes do restore"; fi
-orch restore "$CUSTOMER" latest --image "$IMAGE" >/dev/null || fail "restore falhou"
-docker volume inspect "$VOLUME" >/dev/null 2>&1 || fail "o restore não criou o volume"
-if orch restore "$CUSTOMER" latest --image "$IMAGE" >/dev/null 2>&1; then fail "restore sobre um volume que já existe deveria ser recusado"; fi
-out="$(orch provision "$CUSTOMER" --image "$IMAGE" --config-file "$CONFIG_FILE")" || fail "provision depois do restore falhou"
+# Restore: delete the customer's data, bring it back from the backup and provision again; the marker comes back.
+orch delete "$CUSTOMER" --purge-data >/dev/null || fail "delete --purge-data failed before the restore"
+if docker volume inspect "$VOLUME" >/dev/null 2>&1; then fail "the volume still exists before the restore"; fi
+orch restore "$CUSTOMER" latest --image "$IMAGE" >/dev/null || fail "restore failed"
+docker volume inspect "$VOLUME" >/dev/null 2>&1 || fail "the restore did not create the volume"
+if orch restore "$CUSTOMER" latest --image "$IMAGE" >/dev/null 2>&1; then fail "restore over a volume that already exists should be refused"; fi
+out="$(orch provision "$CUSTOMER" --image "$IMAGE" --config-file "$CONFIG_FILE")" || fail "provision after the restore failed"
 PORT="${out##*:}"
 wait_health
-docker exec "$CONTAINER" cat /data/marker | grep -q guardado || fail "o dado do cliente não voltou com o restore"
+docker exec "$CONTAINER" cat /data/marker | grep -q customer-marker || fail "the customer's data did not come back with the restore"
 echo "restore: ok"
 
-# 9. Upgrade: a imagem nova (a mesma, com outra etiqueta) entra no lugar da antiga no mesmo volume, com backup antes; pedir de
-# novo não faz nada. Uma imagem que nunca fica saudável é desfeita: o contêiner volta à imagem anterior, de pé e com os dados.
+# 9. Upgrade: the new image (the same, with another tag) takes the old one's place on the same volume, with a backup first; asking
+# again does nothing. An image that never becomes healthy is undone: the container goes back to the previous image, up and with the data.
 NEXT="$IMAGE-next"
 BAD="$IMAGE-bad"
 docker tag "$IMAGE" "$NEXT"
-upgrade_out="$(orch upgrade --image "$NEXT" --soak-secs 2 2>&1)" || fail "upgrade para a imagem nova falhou: $upgrade_out"
-echo "$upgrade_out" | grep -q 'upgraded' || fail "o upgrade não disse 'upgraded': $upgrade_out"
-[ "$(docker inspect -f '{{.Config.Image}}' "$CONTAINER")" = "$NEXT" ] || fail "o contêiner não está na imagem nova"
+upgrade_out="$(orch upgrade --image "$NEXT" --soak-secs 2 2>&1)" || fail "upgrade to the new image failed: $upgrade_out"
+echo "$upgrade_out" | grep -q 'upgraded' || fail "the upgrade did not say 'upgraded': $upgrade_out"
+[ "$(docker inspect -f '{{.Config.Image}}' "$CONTAINER")" = "$NEXT" ] || fail "the container is not on the new image"
 wait_health
-docker exec "$CONTAINER" cat /data/marker | grep -q guardado || fail "o dado do cliente não sobreviveu ao upgrade"
-[ "$(orch backups "$CUSTOMER" | wc -l)" -ge 2 ] || fail "o upgrade não tirou um backup antes"
-again_out="$(orch upgrade --image "$NEXT" 2>&1)" || fail "o segundo upgrade, igual, falhou: $again_out"
-echo "$again_out" | grep -q 'already on' || fail "o segundo upgrade devia dizer que está tudo na imagem: $again_out"
+docker exec "$CONTAINER" cat /data/marker | grep -q customer-marker || fail "the customer's data did not survive the upgrade"
+[ "$(orch backups "$CUSTOMER" | wc -l)" -ge 2 ] || fail "the upgrade did not take a backup first"
+again_out="$(orch upgrade --image "$NEXT" 2>&1)" || fail "the second, identical upgrade failed: $again_out"
+echo "$again_out" | grep -q 'already on' || fail "the second upgrade should say everything is on the image: $again_out"
 echo "upgrade: ok"
 
-printf 'FROM %s\nENTRYPOINT ["sh","-c","exit 1"]\n' "$NEXT" | docker build -q -t "$BAD" - >/dev/null || fail "não consegui montar a imagem ruim"
+printf 'FROM %s\nENTRYPOINT ["sh","-c","exit 1"]\n' "$NEXT" | docker build -q -t "$BAD" - >/dev/null || fail "could not build the bad image"
 if bad_out="$(orch upgrade --image "$BAD" --soak-secs 0 --health-timeout-secs 15 2>&1)"; then
-  fail "o upgrade para uma imagem que não sobe deveria sair com erro: $bad_out"
+  fail "the upgrade to an image that does not start should exit with an error: $bad_out"
 fi
-echo "$bad_out" | grep -q 'rolled back' || fail "o upgrade ruim devia dizer 'rolled back': $bad_out"
-[ "$(docker inspect -f '{{.Config.Image}}' "$CONTAINER")" = "$NEXT" ] || fail "depois do rollback o contêiner não voltou à imagem anterior"
-[ "$(running)" = "true" ] || fail "o hub não está de pé depois do rollback"
+echo "$bad_out" | grep -q 'rolled back' || fail "the bad upgrade should say 'rolled back': $bad_out"
+[ "$(docker inspect -f '{{.Config.Image}}' "$CONTAINER")" = "$NEXT" ] || fail "after the rollback the container did not go back to the previous image"
+[ "$(running)" = "true" ] || fail "the hub is not up after the rollback"
 wait_health
-docker exec "$CONTAINER" cat /data/marker | grep -q guardado || fail "o dado do cliente não sobreviveu ao rollback"
-echo "rollback de uma imagem que não sobe: ok"
+docker exec "$CONTAINER" cat /data/marker | grep -q customer-marker || fail "the customer's data did not survive the rollback"
+echo "rollback of an image that does not start: ok"
 
-# 10. Apagar: o contêiner e o registro vão embora, o volume fica; com --purge-data, o volume também. Apagar de novo é ok.
-orch delete "$CUSTOMER" >/dev/null || fail "delete falhou"
-[ "$(running)" = "gone" ] || fail "o contêiner continua existindo depois do delete"
-docker volume inspect "$VOLUME" >/dev/null 2>&1 || fail "o delete apagou o volume sem --purge-data"
-if orch list | grep -q "$CUSTOMER"; then fail "o registro continua na lista depois do delete"; fi
-orch delete "$CUSTOMER" --purge-data >/dev/null || fail "delete --purge-data falhou"
-if docker volume inspect "$VOLUME" >/dev/null 2>&1; then fail "o volume continua existindo depois do --purge-data"; fi
-orch delete "$CUSTOMER" >/dev/null || fail "apagar de novo deveria dar certo"
+# 10. Delete: the container and the record go away, the volume stays; with --purge-data, the volume too. Deleting again is ok.
+orch delete "$CUSTOMER" >/dev/null || fail "delete failed"
+[ "$(running)" = "gone" ] || fail "the container still exists after delete"
+docker volume inspect "$VOLUME" >/dev/null 2>&1 || fail "delete removed the volume without --purge-data"
+if orch list | grep -q "$CUSTOMER"; then fail "the record is still in the list after delete"; fi
+orch delete "$CUSTOMER" --purge-data >/dev/null || fail "delete --purge-data failed"
+if docker volume inspect "$VOLUME" >/dev/null 2>&1; then fail "the volume still exists after --purge-data"; fi
+orch delete "$CUSTOMER" >/dev/null || fail "deleting again should work"
 echo "delete: ok"
 
-echo "OK: o orquestrador provisiona, suspende, retoma, recicla, faz backup cifrado, verifica, restaura, faz upgrade com rollback e apaga uma instância de verdade, sem perder os dados do cliente."
+echo "OK: the orchestrator provisions, suspends, resumes, recycles, makes an encrypted backup, verifies, restores, upgrades with rollback and deletes a real instance, without losing the customer's data."
