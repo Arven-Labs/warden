@@ -24,7 +24,7 @@ Ou seja: **a loja não é um produto pago.** Quem hospeda por conta própria tem
 | # | Decisão | Consequência |
 |---|---|---|
 | 1 | **Uma instância (contêiner) por cliente** primeiro. O multi-tenant num processo só fica **preparado** para depois. | Funciona com o código de hoje; o custo é RAM por cliente e um orquestrador novo. Os estados globais por processo viram dívida registrada (seção G). |
-| 2 | **O plano de controle mora no "site mãe"** da organização: contas, planos, pagamento, tela de provisionamento. | O site mãe não existe neste repositório. Este documento define só o **contrato** (seção B). Sem repositórios novos; crates novos neste repo são aceitos. |
+| 2 | **O plano de controle mora no "site mãe"** da organização: contas, planos, pagamento, tela de provisionamento. | O site mãe não existe neste repositório ainda. Este documento define só o **contrato** (seção B). Sem repositórios novos; crates novos neste repo são aceitos. **Atualizado na Sessão 272 (direção, nada implementado)**: o site mãe passa a morar neste repositório, numa pasta `site/` (React e TypeScript) que também leva a landing e a documentação (P137); o `web/` segue sendo só o app de cada instância. O dinheiro (ledger, saldo, cobrança) continua nos crates, nunca no front. |
 | 3 | **Cobrança só por créditos pré-pagos** no início. Planos (e o abatimento entre plano e crédito) são estudados depois; no fim existirão os dois. | A questão ética do abatimento continua aberta e **não é decidida aqui**. |
 | 4 | **Loja gratuita nos dois modos, curada só pelo Fabio** no início. Contém plugins/integrações, skills e agentes pré-prontos. | Terceiros só depois de existirem sandbox e revisão (seção E). A loja precisa funcionar para o self-host sem conta nem login. |
 
