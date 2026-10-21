@@ -4,10 +4,13 @@ import 'dart:math' as math;
 enum DiffOp { same, add, del, gap }
 
 class DiffLine {
-  const DiffLine(this.op, this.text);
+  const DiffLine(this.op, this.text, {this.count});
 
   final DiffOp op;
   final String text;
+
+  /// For a gap: how many identical lines it folds, so the screen can say it in the language of the app (P136). [text] is the English line.
+  final int? count;
 
   @override
   bool operator ==(Object other) => other is DiffLine && other.op == op && other.text == text;
@@ -63,7 +66,7 @@ List<DiffLine> withContext(List<DiffLine> lines, {int context = 2}) {
     return false;
   }
 
-  DiffLine gap(int n) => DiffLine(DiffOp.gap, '… $n ${n == 1 ? 'identical line' : 'identical lines'}');
+  DiffLine gap(int n) => DiffLine(DiffOp.gap, '… $n ${n == 1 ? 'identical line' : 'identical lines'}', count: n);
 
   final out = <DiffLine>[];
   var skipped = 0;

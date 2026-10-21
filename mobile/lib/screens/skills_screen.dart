@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../l10n/generated/app_localizations.dart';
 import '../services/skills_repository.dart';
 import 'skill_diff.dart';
 
@@ -48,17 +49,18 @@ class _SkillsScreenState extends State<SkillsScreen> {
     if (saved == true) await _load();
   }
 
-  Future<void> _confirmReject(SkillDto skill) => _confirmDelete(skill, verb: 'Reject');
+  Future<void> _confirmReject(SkillDto skill) => _confirmDelete(skill, reject: true);
 
-  Future<void> _confirmDelete(SkillDto skill, {String verb = 'Delete'}) async {
+  Future<void> _confirmDelete(SkillDto skill, {bool reject = false}) async {
+    final l10n = AppLocalizations.of(context);
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
-        title: Text("$verb '${skill.name}'?"),
-        content: const Text('This removes the skill file and can\'t be undone.'),
+        title: Text(reject ? l10n.skillsRejectTitle(skill.name) : l10n.skillsDeleteTitle(skill.name)),
+        content: Text(l10n.skillsDeleteBody),
         actions: [
-          TextButton(onPressed: () => Navigator.of(context).pop(false), child: const Text('Cancel')),
-          TextButton(onPressed: () => Navigator.of(context).pop(true), child: Text(verb)),
+          TextButton(onPressed: () => Navigator.of(context).pop(false), child: Text(l10n.commonCancel)),
+          TextButton(onPressed: () => Navigator.of(context).pop(true), child: Text(reject ? l10n.skillsReject : l10n.commonDelete)),
         ],
       ),
     );
@@ -89,14 +91,15 @@ class _SkillsScreenState extends State<SkillsScreen> {
   Widget _diffView(SkillDto target, SkillDto revision) {
     final diff = diffLines(target.body, revision.body);
     final scheme = Theme.of(context).colorScheme;
+    final l10n = AppLocalizations.of(context);
     final mono = Theme.of(context).textTheme.bodySmall?.copyWith(fontFamily: 'monospace');
     return ExpansionTile(
       tilePadding: EdgeInsets.zero,
-      title: Text('See what changes in ${target.name}', style: Theme.of(context).textTheme.bodyMedium),
+      title: Text(l10n.skillsSeeChanges(target.name), style: Theme.of(context).textTheme.bodyMedium),
       childrenPadding: const EdgeInsets.only(bottom: 4),
       children: [
         if (!hasChanges(diff))
-          const Align(alignment: Alignment.centerLeft, child: Text('No change in the instruction text.'))
+          Align(alignment: Alignment.centerLeft, child: Text(l10n.skillsNoChange))
         else
           for (final line in withContext(diff))
             Container(
@@ -107,7 +110,7 @@ class _SkillsScreenState extends State<SkillsScreen> {
                 _ => null,
               },
               child: Text(
-                '${switch (line.op) { DiffOp.add => '+ ', DiffOp.del => '- ', _ => '  ' }}${line.text}',
+                '${switch (line.op) { DiffOp.add => '+ ', DiffOp.del => '- ', _ => '  ' }}${line.op == DiffOp.gap && line.count != null ? (line.count == 1 ? l10n.diffGapOne : l10n.diffGapMany(line.count!)) : line.text}',
                 style: line.op == DiffOp.same || line.op == DiffOp.gap ? mono?.copyWith(color: scheme.onSurfaceVariant) : mono,
               ),
             ),
@@ -119,6 +122,7 @@ class _SkillsScreenState extends State<SkillsScreen> {
     final origin = skill.source;
     final revises = skill.revises;
     final target = revises == null ? null : active.where((s) => s.name == revises).firstOrNull;
+    final l10n = AppLocalizations.of(context);
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(12),
@@ -128,20 +132,20 @@ class _SkillsScreenState extends State<SkillsScreen> {
             Row(
               children: [
                 Expanded(child: Text(skill.name, style: Theme.of(context).textTheme.titleMedium)),
-                Chip(label: Text(skill.revises == null ? 'Suggested' : 'Change to ${skill.revises}'), visualDensity: VisualDensity.compact),
+                Chip(label: Text(skill.revises == null ? l10n.skillsSuggested : l10n.skillsChangeTo(skill.revises!)), visualDensity: VisualDensity.compact),
               ],
             ),
             if (skill.description.isNotEmpty) Padding(padding: const EdgeInsets.only(top: 4), child: Text(skill.description)),
-            if (origin != null && origin.isNotEmpty) Padding(padding: const EdgeInsets.only(top: 4), child: Text('From: $origin', style: Theme.of(context).textTheme.bodySmall)),
+            if (origin != null && origin.isNotEmpty) Padding(padding: const EdgeInsets.only(top: 4), child: Text(l10n.skillsFrom(origin), style: Theme.of(context).textTheme.bodySmall)),
             if (target != null) _diffView(target, skill),
             Padding(
               padding: const EdgeInsets.only(top: 8),
               child: Wrap(
                 spacing: 8,
                 children: [
-                  FilledButton(onPressed: () => _accept(skill), child: const Text('Accept')),
-                  OutlinedButton(onPressed: () => _openForm(existing: skill), child: const Text('Edit')),
-                  TextButton(onPressed: () => _confirmReject(skill), child: const Text('Reject')),
+                  FilledButton(onPressed: () => _accept(skill), child: Text(l10n.skillsAccept)),
+                  OutlinedButton(onPressed: () => _openForm(existing: skill), child: Text(l10n.commonEdit)),
+                  TextButton(onPressed: () => _confirmReject(skill), child: Text(l10n.skillsReject)),
                 ],
               ),
             ),
@@ -154,25 +158,26 @@ class _SkillsScreenState extends State<SkillsScreen> {
   @override
   Widget build(BuildContext context) {
     final skills = _skills;
+    final l10n = AppLocalizations.of(context);
     final suggested = (skills ?? const <SkillDto>[]).where((s) => s.proposed).toList();
     final active = (skills ?? const <SkillDto>[]).where((s) => !s.proposed).toList();
     return Scaffold(
-      appBar: AppBar(title: const Text('Skills')),
+      appBar: AppBar(title: Text(l10n.skillsTitle)),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: () => _openForm(),
         icon: const Icon(Icons.add),
-        label: const Text('New skill'),
+        label: Text(l10n.skillsNew),
       ),
       body: _error != null && skills == null
           ? Padding(padding: const EdgeInsets.all(16), child: Text(_error!, style: TextStyle(color: Theme.of(context).colorScheme.error)))
           : skills == null
               ? const Center(child: CircularProgressIndicator())
               : skills.isEmpty
-                  ? const Center(
+                  ? Center(
                       child: Padding(
-                        padding: EdgeInsets.all(24),
+                        padding: const EdgeInsets.all(24),
                         child: Text(
-                          'No skills yet. Create one here, or ask the AI to write one in chat — they sync with the rest of the vault.',
+                          l10n.skillsNone,
                           textAlign: TextAlign.center,
                         ),
                       ),
@@ -188,25 +193,25 @@ class _SkillsScreenState extends State<SkillsScreen> {
                         if (suggested.isNotEmpty) ...[
                           Padding(
                             padding: const EdgeInsets.only(top: 4, bottom: 4),
-                            child: Text('Suggested by the AI', style: Theme.of(context).textTheme.titleSmall),
+                            child: Text(l10n.skillsSuggestedTitle, style: Theme.of(context).textTheme.titleSmall),
                           ),
-                          const Padding(
-                            padding: EdgeInsets.only(bottom: 8),
-                            child: Text('Not active yet — the AI only uses a suggestion after you accept it.'),
+                          Padding(
+                            padding: const EdgeInsets.only(bottom: 8),
+                            child: Text(l10n.skillsSuggestedNote),
                           ),
                           for (final skill in suggested) _suggestedCard(skill, active),
                           const SizedBox(height: 16),
-                          if (active.isNotEmpty) Text('Your skills', style: Theme.of(context).textTheme.titleSmall),
+                          if (active.isNotEmpty) Text(l10n.skillsYours, style: Theme.of(context).textTheme.titleSmall),
                         ],
                         for (final skill in active)
                           Card(
                             child: ListTile(
                               title: Text(skill.name),
-                              subtitle: Text(skill.description.isEmpty ? '(no description)' : skill.description, maxLines: 2, overflow: TextOverflow.ellipsis),
+                              subtitle: Text(skill.description.isEmpty ? l10n.skillsNoDescription : skill.description, maxLines: 2, overflow: TextOverflow.ellipsis),
                               onTap: () => _openForm(existing: skill),
                               trailing: IconButton(
                                 icon: const Icon(Icons.delete_outline),
-                                tooltip: 'Delete ${skill.name}',
+                                tooltip: l10n.skillsDeleteTooltip(skill.name),
                                 onPressed: () => _confirmDelete(skill),
                               ),
                             ),
@@ -276,8 +281,9 @@ class _SkillFormScreenState extends State<SkillFormScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
     return Scaffold(
-      appBar: AppBar(title: Text(_isEdit ? 'Edit skill' : 'New skill')),
+      appBar: AppBar(title: Text(_isEdit ? l10n.skillsEdit : l10n.skillsNew)),
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
@@ -285,20 +291,20 @@ class _SkillFormScreenState extends State<SkillFormScreen> {
             controller: _name,
             enabled: !_isEdit,
             autocorrect: false,
-            decoration: const InputDecoration(
-              labelText: 'Name',
-              helperText: 'Lowercase letters, digits and hyphens — it becomes the file name.',
-              border: OutlineInputBorder(),
+            decoration: InputDecoration(
+              labelText: l10n.skillsName,
+              helperText: l10n.skillsNameHelper,
+              border: const OutlineInputBorder(),
             ),
           ),
           const SizedBox(height: 16),
           TextField(
             controller: _description,
             maxLength: 300,
-            decoration: const InputDecoration(
-              labelText: 'Description',
-              helperText: 'When to use it — the AI reads this every turn.',
-              border: OutlineInputBorder(),
+            decoration: InputDecoration(
+              labelText: l10n.skillsDescription,
+              helperText: l10n.skillsDescriptionHelper,
+              border: const OutlineInputBorder(),
             ),
           ),
           const SizedBox(height: 16),
@@ -307,17 +313,17 @@ class _SkillFormScreenState extends State<SkillFormScreen> {
             minLines: 8,
             maxLines: null,
             keyboardType: TextInputType.multiline,
-            decoration: const InputDecoration(
-              labelText: 'Instructions',
+            decoration: InputDecoration(
+              labelText: l10n.skillsInstructions,
               alignLabelWithHint: true,
-              border: OutlineInputBorder(),
+              border: const OutlineInputBorder(),
             ),
           ),
           if (_isSuggestion)
             SwitchListTile(
               contentPadding: EdgeInsets.zero,
-              title: const Text('Accept this skill'),
-              subtitle: const Text('Off: it stays a suggestion and the AI still ignores it.'),
+              title: Text(l10n.skillsAcceptThis),
+              subtitle: Text(l10n.skillsAcceptThisHint),
               value: _accept,
               onChanged: (v) => setState(() => _accept = v),
             ),
@@ -327,7 +333,7 @@ class _SkillFormScreenState extends State<SkillFormScreen> {
               child: Text(_error!, style: TextStyle(color: Theme.of(context).colorScheme.error)),
             ),
           const SizedBox(height: 16),
-          FilledButton(onPressed: _saving ? null : _save, child: Text(_saving ? 'Saving…' : 'Save')),
+          FilledButton(onPressed: _saving ? null : _save, child: Text(_saving ? l10n.skillsSaving : l10n.commonSave)),
         ],
       ),
     );

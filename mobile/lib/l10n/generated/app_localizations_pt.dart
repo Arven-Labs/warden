@@ -1106,6 +1106,621 @@ class AppLocalizationsPt extends AppLocalizations {
   String get inputHint => 'Mensagem';
 
   @override
+  String get usageTitle => 'Uso';
+
+  @override
+  String usageLoadFailed(String error) {
+    return 'Não foi possível carregar o uso: $error';
+  }
+
+  @override
+  String get usageTokens => 'Tokens';
+
+  @override
+  String get usageCalls => 'Chamadas ao modelo';
+
+  @override
+  String usageSpent(String window) {
+    return 'Gasto, últimas $window';
+  }
+
+  @override
+  String get usageWindowDay => '24 h';
+
+  @override
+  String usageWindowDays(int count) {
+    return '$count dias';
+  }
+
+  @override
+  String usageWindowHours(int count) {
+    return '$count h';
+  }
+
+  @override
+  String get usageLimits => 'Limites';
+
+  @override
+  String get usageLimitsOff =>
+      'Os limites de gasto estão desligados neste hub.';
+
+  @override
+  String get usageLimitsNone => 'Nenhum limite foi definido para você.';
+
+  @override
+  String get usageLimitsNote =>
+      'Só os limites escritos para você aparecem aqui. Para liberar mais, fale com quem cuida deste Warden.';
+
+  @override
+  String get usageByDay => 'Por dia';
+
+  @override
+  String get usageNoConversation => 'Nenhuma conversa ainda.';
+
+  @override
+  String usageCallsCount(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count chamadas',
+      one: '1 chamada',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String usageTokensCount(String tokens) {
+    return '$tokens tokens';
+  }
+
+  @override
+  String usageTokensCost(String tokens, String cost) {
+    return '$tokens tokens · $cost';
+  }
+
+  @override
+  String get usageByAgent => 'Por agente';
+
+  @override
+  String get usageNoAgent => 'Sem agente';
+
+  @override
+  String get usageByProvider => 'Por provedor';
+
+  @override
+  String get usageDefaultProvider => 'Provedor padrão';
+
+  @override
+  String get usageByCombo => 'Por combo';
+
+  @override
+  String get usageNoCombo => 'Sem combo';
+
+  @override
+  String usageSpentByCombo(String window) {
+    return 'Gasto por combo, últimas $window';
+  }
+
+  @override
+  String usageUnpriced(String cost, int count) {
+    return '$cost (+$count sem preço)';
+  }
+
+  @override
+  String usageBucketLine(String tokens, String calls) {
+    return '$tokens tokens · $calls';
+  }
+
+  @override
+  String usageLimitTokens(String used, String max) {
+    return '$used de $max tokens';
+  }
+
+  @override
+  String usageLimitCost(String used, String max) {
+    return '$used de $max';
+  }
+
+  @override
+  String get usageStateOver => 'Esgotado';
+
+  @override
+  String get usageStateWarn => 'Perto do limite';
+
+  @override
+  String get usageStateOk => 'Há folga';
+
+  @override
+  String usageLimitTitle(String id, String window) {
+    return '$id · últimas $window';
+  }
+
+  @override
+  String usageLimitState(String state, int percent, String parts) {
+    return '$state · $percent% · $parts';
+  }
+
+  @override
+  String get invCancelTitle => 'Cancelar convite';
+
+  @override
+  String invCancelMessage(String name) {
+    return 'Cancela o convite de $name; o código dele deixa de funcionar.';
+  }
+
+  @override
+  String get invFill =>
+      'Preencha para quem é e uma validade de pelo menos 1 minuto.';
+
+  @override
+  String get invCreateTitle => 'Criar convite';
+
+  @override
+  String invCreateMessage(int minutes) {
+    return 'O código funciona uma vez, por $minutes minutos.';
+  }
+
+  @override
+  String get invRotateTitle => 'Trocar a chave de pareamento';
+
+  @override
+  String get invRotateMessage =>
+      'A chave antiga deixa de abrir a administração do hub. Os dispositivos já pareados continuam funcionando.';
+
+  @override
+  String get invTitle => 'Dispositivos';
+
+  @override
+  String get invHint =>
+      'A chave de pareamento pareia só o primeiro dispositivo do hub. Para cada outro, crie um convite e dê o código à pessoa: ela o cola onde iria a chave. Funciona uma vez.';
+
+  @override
+  String get invWho => 'Para quem é';
+
+  @override
+  String get invWhoHint => 'Celular da Ana';
+
+  @override
+  String get invMinutes => 'Vale por (minutos)';
+
+  @override
+  String get invCreate => 'Criar convite';
+
+  @override
+  String invCancelled(String name) {
+    return 'Convite de $name cancelado.';
+  }
+
+  @override
+  String get invWaiting => 'Convites esperando';
+
+  @override
+  String invValidUntil(String when) {
+    return 'vale até $when';
+  }
+
+  @override
+  String invMade(String name, String when) {
+    return 'Convite de $name, vale até $when. O código aparece só agora:';
+  }
+
+  @override
+  String get invNewKey => 'Nova chave de pareamento, aparece só agora:';
+
+  @override
+  String get memberOrgNone =>
+      'O dono do espaço de trabalho não deu a você acesso à organização dos agentes.';
+
+  @override
+  String get memberOrgEdit =>
+      'Quem reporta a quem entre os agentes do espaço de trabalho. O dono deixou você mudar a hierarquia: o cargo e o superior de um agente, um subordinado novo, uma remoção. O que os agentes podem fazer é do dono.';
+
+  @override
+  String get memberOrgView =>
+      'Quem reporta a quem entre os agentes do espaço de trabalho. Você pode olhar a árvore; mudá-la é do dono.';
+
+  @override
+  String get skillsTitle => 'Skills';
+
+  @override
+  String skillsDeleteTitle(String name) {
+    return 'Apagar \'$name\'?';
+  }
+
+  @override
+  String skillsRejectTitle(String name) {
+    return 'Rejeitar \'$name\'?';
+  }
+
+  @override
+  String get skillsDeleteBody =>
+      'Isto remove o arquivo da skill e não dá para desfazer.';
+
+  @override
+  String get skillsReject => 'Rejeitar';
+
+  @override
+  String get skillsAccept => 'Aceitar';
+
+  @override
+  String skillsSeeChanges(String name) {
+    return 'Ver o que muda em $name';
+  }
+
+  @override
+  String get skillsNoChange => 'Nenhuma mudança no texto das instruções.';
+
+  @override
+  String get skillsSuggested => 'Sugerida';
+
+  @override
+  String skillsChangeTo(String name) {
+    return 'Mudança em $name';
+  }
+
+  @override
+  String skillsFrom(String origin) {
+    return 'De: $origin';
+  }
+
+  @override
+  String get skillsNew => 'Nova skill';
+
+  @override
+  String get skillsEdit => 'Editar skill';
+
+  @override
+  String get skillsNone =>
+      'Nenhuma skill ainda. Crie uma aqui, ou peça à IA para escrever uma no chat — elas sincronizam com o resto do cofre.';
+
+  @override
+  String get skillsSuggestedTitle => 'Sugeridas pela IA';
+
+  @override
+  String get skillsSuggestedNote =>
+      'Ainda não ativa — a IA só usa uma sugestão depois que você a aceita.';
+
+  @override
+  String get skillsYours => 'Suas skills';
+
+  @override
+  String get skillsNoDescription => '(sem descrição)';
+
+  @override
+  String skillsDeleteTooltip(String name) {
+    return 'Apagar $name';
+  }
+
+  @override
+  String get skillsName => 'Nome';
+
+  @override
+  String get skillsNameHelper =>
+      'Letras minúsculas, dígitos e hifens — vira o nome do arquivo.';
+
+  @override
+  String get skillsDescription => 'Descrição';
+
+  @override
+  String get skillsDescriptionHelper =>
+      'Quando usar — a IA lê isto a cada turno.';
+
+  @override
+  String get skillsInstructions => 'Instruções';
+
+  @override
+  String get skillsAcceptThis => 'Aceitar esta skill';
+
+  @override
+  String get skillsAcceptThisHint =>
+      'Desligado: ela continua sendo uma sugestão e a IA a ignora.';
+
+  @override
+  String get skillsSaving => 'Salvando…';
+
+  @override
+  String get diffGapOne => '… 1 linha igual';
+
+  @override
+  String diffGapMany(int count) {
+    return '… $count linhas iguais';
+  }
+
+  @override
+  String get syncTitle => 'Warden — Sincronização';
+
+  @override
+  String get syncNothingToSend =>
+      'Nada a enviar — o cofre e a configuração já batem com o último envio.';
+
+  @override
+  String get syncShowCode => 'Mostrar código de pareamento';
+
+  @override
+  String get syncWaitingDevice => 'Esperando outro dispositivo…';
+
+  @override
+  String get syncPaired => 'Pareado com sucesso!';
+
+  @override
+  String get syncIntro =>
+      'Sincroniza o cofre e o config.toml entre seus dispositivos via Arweave, pago pelo app TruthID. Tudo é criptografado neste dispositivo antes de sair — nem o TruthID nem o Arweave veem o conteúdo em texto claro.';
+
+  @override
+  String get syncSetUp => 'Configurar';
+
+  @override
+  String get syncSetUpHint =>
+      'Primeiro dispositivo? Inicialize uma chave nova. Já tem outro dispositivo com a sincronização configurada? Peça a ele para mostrar um código de pareamento (abaixo).';
+
+  @override
+  String get syncInit => 'Iniciar a sincronização neste dispositivo';
+
+  @override
+  String get syncSendPull => 'Enviar / Baixar';
+
+  @override
+  String get syncSend => 'Enviar';
+
+  @override
+  String get syncPull => 'Baixar';
+
+  @override
+  String syncSent(String tx, int files) {
+    return 'Enviado — tx $tx ($files arquivo(s)).';
+  }
+
+  @override
+  String syncPulled(int written, int deleted, String config) {
+    return 'Download concluído — $written gravados, $deleted apagados$config.';
+  }
+
+  @override
+  String get syncConfigUpdated => ', config.toml atualizado';
+
+  @override
+  String get syncPairDevice => 'Parear um dispositivo';
+
+  @override
+  String get syncShowThisCode =>
+      'Mostre este código no dispositivo que você quer parear.';
+
+  @override
+  String get syncHaveCode =>
+      'Tem um código mostrado em outro dispositivo? Digite aqui.';
+
+  @override
+  String get syncCodeLabel => 'Código de pareamento';
+
+  @override
+  String get syncHostLabel => 'IP do outro dispositivo (opcional)';
+
+  @override
+  String get syncHostHint =>
+      'ex.: um IP do Tailscale para um hub em uma VPS — sem isso, só a rede local é procurada';
+
+  @override
+  String get syncPair => 'Parear';
+
+  @override
+  String get syncNever => 'nunca';
+
+  @override
+  String get syncStatus => 'Estado';
+
+  @override
+  String get syncStatusPaired => 'Pareado';
+
+  @override
+  String get syncYes => 'Sim';
+
+  @override
+  String get syncNo => 'Não';
+
+  @override
+  String get syncOwner => 'Endereço do dono (Arweave)';
+
+  @override
+  String get syncLast => 'Última sincronização';
+
+  @override
+  String get syncPending => 'Pendente';
+
+  @override
+  String syncPendingValue(int files, String config) {
+    return '$files arquivo(s)$config';
+  }
+
+  @override
+  String get syncPlusConfig => ' + config.toml';
+
+  @override
+  String syncScan(int files, String config) {
+    return 'Leia com o app TruthID para aprovar e publicar ($files arquivo(s)$config).';
+  }
+
+  @override
+  String get syncWaitingApproval => 'Esperando a aprovação…';
+
+  @override
+  String get acctCodeNewTitle => 'Seu novo código de recuperação';
+
+  @override
+  String get acctCodeTitle => 'Seus dados agora estão criptografados';
+
+  @override
+  String get acctCodeBodyNew =>
+      'O código antigo parou de funcionar. Guarde este: é o único jeito de recuperar tudo se você esquecer a senha, ou se quem cuida do hub a redefinir.';
+
+  @override
+  String get acctCodeBody =>
+      'Guarde este código: é o único jeito de recuperar tudo se você esquecer a senha, ou se quem cuida do hub a redefinir.';
+
+  @override
+  String get acctCodeOnce =>
+      'Ele aparece só desta vez, e ninguém no hub consegue vê-lo depois — nem quem cuida dele. Anote em um lugar seguro, longe deste celular.';
+
+  @override
+  String get acctCodeSaved => 'Guardei o código em um lugar seguro';
+
+  @override
+  String get acctContinue => 'Continuar';
+
+  @override
+  String acctPasswordShort(int min) {
+    return 'A senha nova precisa ter pelo menos $min caracteres.';
+  }
+
+  @override
+  String get acctPasswordMismatch => 'As duas senhas novas não são iguais.';
+
+  @override
+  String get acctNeedCode =>
+      'Informe o seu código de recuperação para manter os seus dados.';
+
+  @override
+  String get acctWrongProvisional => 'A senha provisória está errada.';
+
+  @override
+  String get acctWrongCurrent => 'A senha atual está errada.';
+
+  @override
+  String get acctChooseTitle => 'Escolha a sua senha';
+
+  @override
+  String get acctChangeTitle => 'Troque a sua senha';
+
+  @override
+  String acctHi(String name) {
+    return 'Olá, $name. Antes de começar, troque a senha provisória por uma sua.';
+  }
+
+  @override
+  String get acctProvisional => 'Senha provisória';
+
+  @override
+  String get acctCurrent => 'Senha atual';
+
+  @override
+  String get acctRecoveryCode => 'Código de recuperação';
+
+  @override
+  String get acctRecoveryHelper =>
+      'Quem cuida do hub redefiniu a sua senha. Os seus dados só voltam com o código que você anotou.';
+
+  @override
+  String get acctNewPassword => 'Senha nova';
+
+  @override
+  String get acctNewPasswordAgain => 'Senha nova de novo';
+
+  @override
+  String get acctWrongThat => 'Essa senha está errada.';
+
+  @override
+  String get acctPolicyTitle =>
+      'Mudou quem pode ajudar a recuperar os seus dados';
+
+  @override
+  String get acctPolicyCompany =>
+      'Quem cuida do hub pode recuperar os seus dados sozinho, com a chave de recuperação dele. Toda recuperação é registrada e você é avisado.';
+
+  @override
+  String get acctPolicyConsent =>
+      'Quem cuida do hub só pode recuperar os seus dados junto com o seu código de recuperação: nenhum dos dois abre sozinho.';
+
+  @override
+  String get acctPolicyToday =>
+      'Hoje os seus dados seguem a regra anterior; só seguem esta se você aceitar.';
+
+  @override
+  String get acctPolicyKeep =>
+      'Lembre-se: quem controla a máquina em que o hub roda sempre pode, tecnicamente, ver o que o agente vê enquanto trabalha. O registro e o aviso não protegem contra alguém que edite os arquivos do hub.';
+
+  @override
+  String get acctPolicyPassword => 'Sua senha, para aceitar';
+
+  @override
+  String get acctNotNow => 'Agora não';
+
+  @override
+  String get acctAccept => 'Aceitar';
+
+  @override
+  String get acctRecoveredTitle => 'Seus dados foram recuperados';
+
+  @override
+  String get acctRecoveredBody =>
+      'Quem cuida do hub recuperou os seus dados, com a chave de recuperação dele, e você acabou de entrar com a senha provisória que ele deu.';
+
+  @override
+  String get acctRecoveredCompany => 'recuperação pela empresa';
+
+  @override
+  String get acctRecoveredConsent => 'recuperação com o seu consentimento';
+
+  @override
+  String get acctRecoveredNotYou =>
+      'Se não foi você quem pediu, avise quem cuida do hub e troque a sua senha.';
+
+  @override
+  String get acctGotIt => 'Entendi';
+
+  @override
+  String get acctNewCodeTitle => 'Novo código de recuperação';
+
+  @override
+  String get acctNewCodeHint =>
+      'O código antigo para de funcionar. Digite a sua senha para receber um novo.';
+
+  @override
+  String get acctTitle => 'Conta';
+
+  @override
+  String get acctEncrypted => 'Seus dados estão criptografados no hub';
+
+  @override
+  String get acctNotEncrypted =>
+      'Seus dados ainda não estão criptografados — ficam quando você entra com a sua senha';
+
+  @override
+  String get acctChangePassword => 'Trocar a senha';
+
+  @override
+  String get acctGetNewCode => 'Receber um novo código de recuperação';
+
+  @override
+  String get acctOldStops => 'O antigo para de funcionar';
+
+  @override
+  String get acctLinkTruthid => 'Vincular o meu TruthID';
+
+  @override
+  String acctTruthidIs(String name) {
+    return 'TruthID: @$name';
+  }
+
+  @override
+  String get acctLinkHint =>
+      'Com o código de convite que quem cuida do hub deu a você';
+
+  @override
+  String get acctLinkedHint =>
+      'Para mudar, peça um novo convite a quem cuida do hub';
+
+  @override
+  String get acctPassword => 'Senha';
+
+  @override
+  String get acctInviteCode => 'Código de convite';
+
+  @override
+  String get acctUsername => 'Meu usuário do TruthID';
+
+  @override
+  String get acctLink => 'Vincular';
+
+  @override
   String get bucketLast7 => 'Últimos 7 dias';
 
   @override

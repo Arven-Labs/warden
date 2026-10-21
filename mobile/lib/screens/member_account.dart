@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../l10n/generated/app_localizations.dart';
 import '../protocol/messages.dart';
 import '../services/server_connection.dart';
 
@@ -37,37 +38,36 @@ class _RecoveryCodeDialogState extends State<RecoveryCodeDialog> {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
     return AlertDialog(
-      title: Text(widget.replacing ? 'Your new recovery code' : 'Your data is now encrypted'),
+      title: Text(widget.replacing ? l10n.acctCodeNewTitle : l10n.acctCodeTitle),
       content: SingleChildScrollView(
         child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(widget.replacing
-                ? 'The old code stopped working. Keep this one: it is the only way to recover everything if you forget your password, or if whoever runs the hub resets it.'
-                : 'Keep this code: it is the only way to recover everything if you forget your password, or if whoever runs the hub resets it.'),
+            Text(widget.replacing ? l10n.acctCodeBodyNew : l10n.acctCodeBody),
             const SizedBox(height: 12),
             SelectableText(widget.code, key: const Key('recovery-code'), style: const TextStyle(fontFamily: 'monospace', fontSize: 16, fontWeight: FontWeight.w600)),
             TextButton.icon(
               onPressed: () => Clipboard.setData(ClipboardData(text: widget.code)),
               icon: const Icon(Icons.copy, size: 18),
-              label: const Text('Copy'),
+              label: Text(l10n.commonCopy),
             ),
-            const Text('It is shown only this once, and nobody on the hub can see it afterwards — not even whoever runs it. Write it down somewhere safe, away from this phone.'),
+            Text(l10n.acctCodeOnce),
             CheckboxListTile(
               key: const Key('recovery-code-saved'),
               contentPadding: EdgeInsets.zero,
               controlAffinity: ListTileControlAffinity.leading,
               value: _saved,
               onChanged: (value) => setState(() => _saved = value ?? false),
-              title: const Text('I saved the code somewhere safe'),
+              title: Text(l10n.acctCodeSaved),
             ),
           ],
         ),
       ),
       actions: [
-        FilledButton(onPressed: _saved ? () => Navigator.of(context).pop() : null, child: const Text('Continue')),
+        FilledButton(onPressed: _saved ? () => Navigator.of(context).pop() : null, child: Text(l10n.acctContinue)),
       ],
     );
   }
@@ -104,16 +104,17 @@ class _ChangePasswordDialogState extends State<ChangePasswordDialog> {
   bool _busy = false;
 
   Future<void> _submit() async {
+    final l10n = AppLocalizations.of(context);
     if (_next.text.length < minPasswordLength) {
-      setState(() => _error = 'The new password needs at least $minPasswordLength characters.');
+      setState(() => _error = l10n.acctPasswordShort(minPasswordLength));
       return;
     }
     if (_next.text != _again.text) {
-      setState(() => _error = "The two new passwords don't match.");
+      setState(() => _error = l10n.acctPasswordMismatch);
       return;
     }
     if (widget.needsRecovery && _code.text.trim().isEmpty) {
-      setState(() => _error = 'Give your recovery code to keep your data.');
+      setState(() => _error = l10n.acctNeedCode);
       return;
     }
     setState(() {
@@ -124,7 +125,7 @@ class _ChangePasswordDialogState extends State<ChangePasswordDialog> {
       final code = await widget.connection.changePassword(_current.text, _next.text, recoveryCode: widget.needsRecovery ? _code.text.trim() : null);
       if (mounted) Navigator.of(context).pop(PasswordChange(recoveryCode: code));
     } on PasswordException catch (e) {
-      if (mounted) setState(() => _error = e.wrongPassword ? 'The ${widget.required ? 'provisional' : 'current'} password is wrong.' : e.message);
+      if (mounted) setState(() => _error = e.wrongPassword ? (widget.required ? l10n.acctWrongProvisional : l10n.acctWrongCurrent) : e.message);
     } catch (e) {
       if (mounted) setState(() => _error = e.toString());
     } finally {
@@ -143,35 +144,36 @@ class _ChangePasswordDialogState extends State<ChangePasswordDialog> {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
     return AlertDialog(
-      title: Text(widget.required ? 'Choose your password' : 'Change your password'),
+      title: Text(widget.required ? l10n.acctChooseTitle : l10n.acctChangeTitle),
       content: SingleChildScrollView(
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            if (widget.required) Text('Hi ${widget.name}. Before you start, replace the provisional password with one of your own.'),
-            TextField(controller: _current, obscureText: true, decoration: InputDecoration(labelText: widget.required ? 'Provisional password' : 'Current password')),
+            if (widget.required) Text(l10n.acctHi(widget.name)),
+            TextField(controller: _current, obscureText: true, decoration: InputDecoration(labelText: widget.required ? l10n.acctProvisional : l10n.acctCurrent)),
             if (widget.needsRecovery)
               TextField(
                 key: const Key('change-password-recovery-code'),
                 controller: _code,
                 autocorrect: false,
                 textCapitalization: TextCapitalization.characters,
-                decoration: const InputDecoration(
-                  labelText: 'Recovery code',
-                  helperText: 'Whoever runs the hub reset your password. Your data only comes back with the code you wrote down.',
+                decoration: InputDecoration(
+                  labelText: l10n.acctRecoveryCode,
+                  helperText: l10n.acctRecoveryHelper,
                   helperMaxLines: 3,
                 ),
               ),
-            TextField(controller: _next, obscureText: true, decoration: const InputDecoration(labelText: 'New password')),
-            TextField(controller: _again, obscureText: true, decoration: const InputDecoration(labelText: 'New password again')),
+            TextField(controller: _next, obscureText: true, decoration: InputDecoration(labelText: l10n.acctNewPassword)),
+            TextField(controller: _again, obscureText: true, decoration: InputDecoration(labelText: l10n.acctNewPasswordAgain)),
             if (_error != null) Padding(padding: const EdgeInsets.only(top: 12), child: Text(_error!, style: const TextStyle(color: Colors.red))),
           ],
         ),
       ),
       actions: [
-        TextButton(onPressed: _busy ? null : () => Navigator.of(context).pop(), child: const Text('Cancel')),
-        FilledButton(onPressed: _busy ? null : _submit, child: const Text('Save')),
+        TextButton(onPressed: _busy ? null : () => Navigator.of(context).pop(), child: Text(l10n.commonCancel)),
+        FilledButton(onPressed: _busy ? null : _submit, child: Text(l10n.commonSave)),
       ],
     );
   }
@@ -198,6 +200,7 @@ class _AcceptPolicyDialogState extends State<AcceptPolicyDialog> {
   bool _busy = false;
 
   Future<void> _accept() async {
+    final l10n = AppLocalizations.of(context);
     setState(() {
       _busy = true;
       _error = null;
@@ -206,7 +209,7 @@ class _AcceptPolicyDialogState extends State<AcceptPolicyDialog> {
       final code = await widget.connection.acceptRecoveryPolicy(_password.text);
       if (mounted) Navigator.of(context).pop(code ?? '');
     } on PasswordException catch (e) {
-      if (mounted) setState(() => _error = e.wrongPassword ? 'That password is wrong.' : e.message);
+      if (mounted) setState(() => _error = e.wrongPassword ? l10n.acctWrongThat : e.message);
     } catch (e) {
       if (mounted) setState(() => _error = e.toString());
     } finally {
@@ -223,28 +226,27 @@ class _AcceptPolicyDialogState extends State<AcceptPolicyDialog> {
   @override
   Widget build(BuildContext context) {
     final company = widget.policy == 'company';
+    final l10n = AppLocalizations.of(context);
     return AlertDialog(
-      title: const Text('Who can help recover your data changed'),
+      title: Text(l10n.acctPolicyTitle),
       content: SingleChildScrollView(
         child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(company
-                ? 'Whoever runs the hub can recover your data alone, with their recovery key. Every recovery is recorded and you are told.'
-                : 'Whoever runs the hub can recover your data only together with your recovery code: neither opens it alone.'),
+            Text(company ? l10n.acctPolicyCompany : l10n.acctPolicyConsent),
             const SizedBox(height: 8),
-            const Text('Today your data follows the previous rule; it only follows this one if you accept.'),
+            Text(l10n.acctPolicyToday),
             const SizedBox(height: 8),
-            const Text('Keep in mind: whoever controls the machine the hub runs on can always, technically, see what the agent sees while it works. The record and the notice do not protect against someone editing the hub\'s files.'),
-            TextField(key: const Key('accept-policy-password'), controller: _password, obscureText: true, onChanged: (_) => setState(() {}), decoration: const InputDecoration(labelText: 'Your password, to accept')),
+            Text(l10n.acctPolicyKeep),
+            TextField(key: const Key('accept-policy-password'), controller: _password, obscureText: true, onChanged: (_) => setState(() {}), decoration: InputDecoration(labelText: l10n.acctPolicyPassword)),
             if (_error != null) Padding(padding: const EdgeInsets.only(top: 12), child: Text(_error!, style: const TextStyle(color: Colors.red))),
           ],
         ),
       ),
       actions: [
-        TextButton(onPressed: _busy ? null : () => Navigator.of(context).pop(), child: const Text('Not now')),
-        FilledButton(onPressed: _busy || _password.text.isEmpty ? null : _accept, child: const Text('Accept')),
+        TextButton(onPressed: _busy ? null : () => Navigator.of(context).pop(), child: Text(l10n.acctNotNow)),
+        FilledButton(onPressed: _busy || _password.text.isEmpty ? null : _accept, child: Text(l10n.acctAccept)),
       ],
     );
   }
@@ -264,24 +266,25 @@ class RecoveryNoticeDialog extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
     return AlertDialog(
-      title: const Text('Your data was recovered'),
+      title: Text(l10n.acctRecoveredTitle),
       content: SingleChildScrollView(
         child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text('Whoever runs the hub recovered your data, with their recovery key, and you signed in just now with the provisional password they gave you.'),
+            Text(l10n.acctRecoveredBody),
             const SizedBox(height: 8),
-            for (final event in events) Text('${_when(event.atMs)} — ${event.kind == 'company' ? 'company recovery' : 'recovery with your consent'}'),
+            for (final event in events) Text('${_when(event.atMs)} — ${event.kind == 'company' ? l10n.acctRecoveredCompany : l10n.acctRecoveredConsent}'),
             const SizedBox(height: 8),
-            const Text("If it wasn't you who asked, tell whoever runs the hub and change your password."),
+            Text(l10n.acctRecoveredNotYou),
           ],
         ),
       ),
       actions: [
-        TextButton(onPressed: () => Navigator.of(context).pop(false), child: const Text('Not now')),
-        FilledButton(onPressed: () => Navigator.of(context).pop(true), child: const Text('Got it')),
+        TextButton(onPressed: () => Navigator.of(context).pop(false), child: Text(l10n.acctNotNow)),
+        FilledButton(onPressed: () => Navigator.of(context).pop(true), child: Text(l10n.acctGotIt)),
       ],
     );
   }
@@ -318,13 +321,14 @@ class _AccountScreenState extends State<AccountScreen> {
   }
 
   Future<void> _newCode() async {
-    final password = await showDialog<String>(context: context, builder: (_) => const _AskPasswordDialog(title: 'New recovery code', hint: 'The old code stops working. Type your password to get a new one.'));
+    final l10n = AppLocalizations.of(context);
+    final password = await showDialog<String>(context: context, builder: (_) => _AskPasswordDialog(title: l10n.acctNewCodeTitle, hint: l10n.acctNewCodeHint));
     if (password == null || !mounted) return;
     try {
       final code = await widget.connection.regenerateRecoveryCode(password);
       if (mounted) await showRecoveryCode(context, code, replacing: true);
     } on PasswordException catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.wrongPassword ? 'That password is wrong.' : e.message)));
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.wrongPassword ? l10n.acctWrongThat : e.message)));
     }
   }
 
@@ -336,18 +340,19 @@ class _AccountScreenState extends State<AccountScreen> {
   @override
   Widget build(BuildContext context) {
     final user = widget.connection.user;
+    final l10n = AppLocalizations.of(context);
     return Scaffold(
-      appBar: AppBar(title: Text(user?.name ?? 'Account')),
+      appBar: AppBar(title: Text(user?.name ?? l10n.acctTitle)),
       body: ListView(
         children: [
-          ListTile(leading: const Icon(Icons.person), title: Text(user?.id ?? ''), subtitle: Text(user?.encrypted ?? false ? 'Your data is encrypted on the hub' : 'Your data is not encrypted yet — it is once you sign in with your password')),
-          ListTile(key: const Key('account-change-password'), leading: const Icon(Icons.lock_reset), title: const Text('Change password'), onTap: _changePassword),
-          if (user?.encrypted ?? false) ListTile(key: const Key('account-new-code'), leading: const Icon(Icons.key), title: const Text('Get a new recovery code'), subtitle: const Text('The old one stops working'), onTap: _newCode),
+          ListTile(leading: const Icon(Icons.person), title: Text(user?.id ?? ''), subtitle: Text(user?.encrypted ?? false ? l10n.acctEncrypted : l10n.acctNotEncrypted)),
+          ListTile(key: const Key('account-change-password'), leading: const Icon(Icons.lock_reset), title: Text(l10n.acctChangePassword), onTap: _changePassword),
+          if (user?.encrypted ?? false) ListTile(key: const Key('account-new-code'), leading: const Icon(Icons.key), title: Text(l10n.acctGetNewCode), subtitle: Text(l10n.acctOldStops), onTap: _newCode),
           ListTile(
             key: const Key('account-link-truthid'),
             leading: const Icon(Icons.verified_user),
-            title: Text(_truthid == null ? 'Link my TruthID' : 'TruthID: @$_truthid'),
-            subtitle: Text(_truthid == null ? 'With the invite code whoever runs the hub gave you' : 'To change it, ask whoever runs the hub for a new invite'),
+            title: Text(_truthid == null ? l10n.acctLinkTruthid : l10n.acctTruthidIs(_truthid!)),
+            subtitle: Text(_truthid == null ? l10n.acctLinkHint : l10n.acctLinkedHint),
             onTap: _truthid == null ? _linkTruthId : null,
           ),
         ],
@@ -377,15 +382,16 @@ class _AskPasswordDialogState extends State<_AskPasswordDialog> {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
     return AlertDialog(
       title: Text(widget.title),
       content: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
         Text(widget.hint),
-        TextField(controller: _password, obscureText: true, autofocus: true, decoration: const InputDecoration(labelText: 'Password')),
+        TextField(controller: _password, obscureText: true, autofocus: true, decoration: InputDecoration(labelText: l10n.acctPassword)),
       ]),
       actions: [
-        TextButton(onPressed: () => Navigator.of(context).pop(), child: const Text('Cancel')),
-        FilledButton(onPressed: () => Navigator.of(context).pop(_password.text), child: const Text('Continue')),
+        TextButton(onPressed: () => Navigator.of(context).pop(), child: Text(l10n.commonCancel)),
+        FilledButton(onPressed: () => Navigator.of(context).pop(_password.text), child: Text(l10n.acctContinue)),
       ],
     );
   }
@@ -432,18 +438,19 @@ class _LinkTruthIdDialogState extends State<_LinkTruthIdDialog> {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
     return AlertDialog(
-      title: const Text('Link my TruthID'),
+      title: Text(l10n.acctLinkTruthid),
       content: SingleChildScrollView(
         child: Column(mainAxisSize: MainAxisSize.min, children: [
-          TextField(key: const Key('truthid-invite-code'), controller: _code, autocorrect: false, decoration: const InputDecoration(labelText: 'Invite code')),
-          TextField(key: const Key('truthid-username'), controller: _username, autocorrect: false, decoration: const InputDecoration(labelText: 'My TruthID username', hintText: 'ana.silva')),
+          TextField(key: const Key('truthid-invite-code'), controller: _code, autocorrect: false, decoration: InputDecoration(labelText: l10n.acctInviteCode)),
+          TextField(key: const Key('truthid-username'), controller: _username, autocorrect: false, decoration: InputDecoration(labelText: l10n.acctUsername, hintText: 'ana.silva')),
           if (_error != null) Padding(padding: const EdgeInsets.only(top: 12), child: Text(_error!, style: const TextStyle(color: Colors.red))),
         ]),
       ),
       actions: [
-        TextButton(onPressed: _busy ? null : () => Navigator.of(context).pop(), child: const Text('Cancel')),
-        FilledButton(onPressed: _busy ? null : _link, child: const Text('Link')),
+        TextButton(onPressed: _busy ? null : () => Navigator.of(context).pop(), child: Text(l10n.commonCancel)),
+        FilledButton(onPressed: _busy ? null : _link, child: Text(l10n.acctLink)),
       ],
     );
   }

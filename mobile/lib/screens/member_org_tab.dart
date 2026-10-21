@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import '../l10n/generated/app_localizations.dart';
 import '../protocol/messages.dart';
 import '../services/agent_work.dart';
 import '../services/server_connection.dart' show HubRequestException;
@@ -138,18 +139,16 @@ class _MemberOrganizationTabState extends State<MemberOrganizationTab> with Widg
   Future<void> _remove(OrgNode node) async {
     final agent = node.agent;
     final count = node.children.length;
-    final goesTo = agent.reportsTo ?? 'nobody (the top of the tree)';
+    final l10n = AppLocalizations.of(context);
+    final goesTo = agent.reportsTo ?? l10n.orgNobodyTop;
     final ok = await showDialog<bool>(
       context: context,
       builder: (dialogContext) => AlertDialog(
-        title: Text('Remove ${agent.id}?'),
-        content: Text(
-          '${count == 0 ? '' : '${count == 1 ? 'Its report goes' : 'Its $count reports go'} to report to $goesTo. '}'
-          'The conversations stay; this can\'t be undone.',
-        ),
+        title: Text(l10n.orgRemoveTitle(agent.id)),
+        content: Text(l10n.orgRemoveBody(count, goesTo)),
         actions: [
-          TextButton(onPressed: () => Navigator.of(dialogContext).pop(false), child: const Text('Keep')),
-          FilledButton(onPressed: () => Navigator.of(dialogContext).pop(true), child: const Text('Remove')),
+          TextButton(onPressed: () => Navigator.of(dialogContext).pop(false), child: Text(l10n.commonKeep)),
+          FilledButton(onPressed: () => Navigator.of(dialogContext).pop(true), child: Text(l10n.commonRemove)),
         ],
       ),
     );
@@ -158,6 +157,7 @@ class _MemberOrganizationTabState extends State<MemberOrganizationTab> with Widg
   }
 
   List<Widget> _rows(List<OrgNode> nodes, List<AgentInfo> all, int depth) {
+    final l10n = AppLocalizations.of(context);
     final rows = <Widget>[];
     for (final node in nodes) {
       final agent = node.agent;
@@ -172,7 +172,7 @@ class _MemberOrganizationTabState extends State<MemberOrganizationTab> with Widg
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   if (agent.role != null && agent.role!.isNotEmpty) Text(agent.role!),
-                  if (node.children.isNotEmpty) Text(node.children.length == 1 ? '1 report' : '${node.children.length} reports', style: Theme.of(context).textTheme.bodySmall),
+                  if (node.children.isNotEmpty) Text(l10n.orgReports(node.children.length), style: Theme.of(context).textTheme.bodySmall),
                 ],
               ),
               trailing: _access != OrgAccess.edit
@@ -190,10 +190,10 @@ class _MemberOrganizationTabState extends State<MemberOrganizationTab> with Widg
                             _remove(node);
                         }
                       },
-                      itemBuilder: (_) => const [
-                        PopupMenuItem(value: 'edit', child: Text('Edit position')),
-                        PopupMenuItem(value: 'add', child: Text('Add a report')),
-                        PopupMenuItem(value: 'remove', child: Text('Remove')),
+                      itemBuilder: (_) => [
+                        PopupMenuItem(value: 'edit', child: Text(l10n.menuEditPosition)),
+                        PopupMenuItem(value: 'add', child: Text(l10n.menuAddReport)),
+                        PopupMenuItem(value: 'remove', child: Text(l10n.commonRemove)),
                       ],
                     ),
             ),
@@ -208,15 +208,16 @@ class _MemberOrganizationTabState extends State<MemberOrganizationTab> with Widg
   @override
   Widget build(BuildContext context) {
     final errorStyle = TextStyle(color: Theme.of(context).colorScheme.error);
+    final l10n = AppLocalizations.of(context);
     if (_access == OrgAccess.none) {
       return RefreshIndicator(
         onRefresh: _load,
         child: ListView(
           padding: const EdgeInsets.all(16),
           children: [
-            const Text(
-              key: Key('member-org-none'),
-              "The workspace's owner hasn't given you access to the organization of the agents.",
+            Text(
+              key: const Key('member-org-none'),
+              l10n.memberOrgNone,
             ),
             if (_error != null) Padding(padding: const EdgeInsets.only(top: 8), child: Text(_error!, style: errorStyle)),
           ],
@@ -237,21 +238,19 @@ class _MemberOrganizationTabState extends State<MemberOrganizationTab> with Widg
         padding: const EdgeInsets.all(12),
         children: [
           Text(
-            editable
-                ? "Who reports to whom among the workspace's agents. The owner let you change the hierarchy: the role and the superior of an agent, a new report, a removal. What the agents may do is the owner's."
-                : "Who reports to whom among the workspace's agents. You can look at the tree; changing it is the owner's.",
+            editable ? l10n.memberOrgEdit : l10n.memberOrgView,
             key: const Key('member-org-hint'),
             style: Theme.of(context).textTheme.bodySmall,
           ),
           if (_error != null) Padding(padding: const EdgeInsets.only(top: 8), child: Text(_error!, style: errorStyle)),
           const SizedBox(height: 8),
-          if (tree.isEmpty) const Text('No agents yet.') else ..._rows(tree, agents, 0),
+          if (tree.isEmpty) Text(l10n.orgNone) else ..._rows(tree, agents, 0),
           if (editable)
             TextButton.icon(
               key: const Key('member-add-top'),
               onPressed: _busy ? null : () => _add(null),
               icon: const Icon(Icons.add),
-              label: const Text('Add an agent at the top'),
+              label: Text(l10n.orgAddTop),
             ),
         ],
       ),

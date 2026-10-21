@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 
+import '../l10n/generated/app_localizations.dart';
 import '../services/vault_paths.dart';
 import '../src/rust/api/sync.dart' as bridge;
 
@@ -95,6 +96,7 @@ class _SyncScreenState extends State<SyncScreen> {
   Future<void> _handleSend() async {
     final paths = _paths;
     if (paths == null) return;
+    final l10n = AppLocalizations.of(context);
     setState(() {
       _busy = true;
       _error = null;
@@ -108,7 +110,7 @@ class _SyncScreenState extends State<SyncScreen> {
         manifestPath: paths.manifestPath,
       );
       if (begin == null) {
-        setState(() => _error = 'Nothing to send — vault and config already match the last Send.');
+        setState(() => _error = l10n.syncNothingToSend);
         return;
       }
       setState(() => _pushBegin = begin);
@@ -210,21 +212,21 @@ class _SyncScreenState extends State<SyncScreen> {
     }
   }
 
-  Widget _buildPairingHostStatus() {
+  Widget _buildPairingHostStatus(AppLocalizations l10n) {
     switch (_pairingHostStatus) {
       case _PairingHostStatus.idle:
-        return OutlinedButton(onPressed: _handleStartPairingHost, child: const Text('Show pairing code'));
+        return OutlinedButton(onPressed: _handleStartPairingHost, child: Text(l10n.syncShowCode));
       case _PairingHostStatus.hosting:
         return Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             if (_pairingCode case final code?) _PairingCodeText(code: code),
             const SizedBox(height: 4),
-            const Text('Waiting for another device…'),
+            Text(l10n.syncWaitingDevice),
           ],
         );
       case _PairingHostStatus.completed:
-        return const _SuccessBanner(message: 'Paired successfully!');
+        return _SuccessBanner(message: l10n.syncPaired);
       case _PairingHostStatus.failed:
         return _pairingCode == null ? const SizedBox.shrink() : _PairingCodeText(code: _pairingCode!);
     }
@@ -233,60 +235,53 @@ class _SyncScreenState extends State<SyncScreen> {
   @override
   Widget build(BuildContext context) {
     final status = _status;
+    final l10n = AppLocalizations.of(context);
     return Scaffold(
-      appBar: AppBar(title: const Text('Warden — Sync')),
+      appBar: AppBar(title: Text(l10n.syncTitle)),
       body: status == null
           ? const Center(child: CircularProgressIndicator())
           : ListView(
               padding: const EdgeInsets.all(16),
               children: [
-                const Text(
-                  'Syncs the vault and config.toml across your devices via Arweave, paid by the TruthID app. '
-                  'Everything is encrypted on this device before it leaves — neither TruthID nor Arweave ever '
-                  'see the content in plain text.',
-                ),
+                Text(l10n.syncIntro),
                 const SizedBox(height: 16),
                 if (_error != null) _ErrorBanner(message: _error!),
                 _StatusCard(status: status),
                 const SizedBox(height: 16),
                 if (!status.paired) ...[
                   _Section(
-                    title: 'Set up',
+                    title: l10n.syncSetUp,
                     children: [
-                      const Text(
-                        'First device? Initialize a fresh key. Already have another device with sync set up? '
-                        'Ask it to show a pairing code (below) instead.',
-                      ),
+                      Text(l10n.syncSetUpHint),
                       const SizedBox(height: 12),
                       FilledButton(
                         onPressed: _busy ? null : _handleInit,
-                        child: const Text('Initialize sync on this device'),
+                        child: Text(l10n.syncInit),
                       ),
                     ],
                   ),
                 ] else ...[
                   _Section(
-                    title: 'Send / Pull',
+                    title: l10n.syncSendPull,
                     children: [
                       Row(
                         children: [
-                          FilledButton(onPressed: _busy ? null : _handleSend, child: const Text('Send')),
+                          FilledButton(onPressed: _busy ? null : _handleSend, child: Text(l10n.syncSend)),
                           const SizedBox(width: 12),
-                          OutlinedButton(onPressed: _busy ? null : _handlePull, child: const Text('Pull')),
+                          OutlinedButton(onPressed: _busy ? null : _handlePull, child: Text(l10n.syncPull)),
                         ],
                       ),
                       if (_pushBegin case final begin?) _PushQrCard(begin: begin),
                       if (_pushResult case final result?) ...[
                         const SizedBox(height: 12),
                         _SuccessBanner(
-                          message: 'Sent — tx ${result.txId} (${result.filesChanged} file(s)).',
+                          message: l10n.syncSent(result.txId, result.filesChanged),
                         ),
                       ],
                       if (_pullResult case final result?) ...[
                         const SizedBox(height: 12),
                         _SuccessBanner(
-                          message: 'Pull complete — ${result.filesWritten} written, ${result.filesDeleted} deleted'
-                              '${result.configUpdated ? ", config.toml updated" : ""}.',
+                          message: l10n.syncPulled(result.filesWritten, result.filesDeleted, result.configUpdated ? l10n.syncConfigUpdated : ''),
                         ),
                         for (final warning in result.warnings)
                           Padding(padding: const EdgeInsets.only(top: 4), child: Text('• $warning')),
@@ -296,35 +291,35 @@ class _SyncScreenState extends State<SyncScreen> {
                 ],
                 const SizedBox(height: 16),
                 _Section(
-                  title: 'Pair a device',
+                  title: l10n.syncPairDevice,
                   children: [
                     if (status.paired) ...[
-                      const Text('Show this code on the device you want to pair.'),
+                      Text(l10n.syncShowThisCode),
                       const SizedBox(height: 8),
-                      _buildPairingHostStatus(),
+                      _buildPairingHostStatus(l10n),
                       const SizedBox(height: 16),
                     ],
-                    const Text('Have a code shown on another device? Enter it here.'),
+                    Text(l10n.syncHaveCode),
                     const SizedBox(height: 8),
                     TextField(
                       controller: _joinCodeController,
                       enabled: !_joining,
-                      decoration: const InputDecoration(labelText: 'Pairing code', hintText: 'XXXXXXXX'),
+                      decoration: InputDecoration(labelText: l10n.syncCodeLabel, hintText: 'XXXXXXXX'),
                       textCapitalization: TextCapitalization.characters,
                     ),
                     const SizedBox(height: 8),
                     TextField(
                       controller: _joinHostController,
                       enabled: !_joining,
-                      decoration: const InputDecoration(
-                        labelText: 'Other device\'s IP (optional)',
-                        hintText: 'e.g. a Tailscale IP for a hub on a VPS — without it, only the local network is searched',
+                      decoration: InputDecoration(
+                        labelText: l10n.syncHostLabel,
+                        hintText: l10n.syncHostHint,
                       ),
                     ),
                     const SizedBox(height: 12),
                     FilledButton(
                       onPressed: _joining || _joinCodeController.text.trim().isEmpty ? null : _handleJoin,
-                      child: const Text('Pair'),
+                      child: Text(l10n.syncPair),
                     ),
                   ],
                 ),
@@ -339,22 +334,23 @@ class _StatusCard extends StatelessWidget {
 
   final bridge.SyncStatusDto status;
 
-  String _formatTimestamp(int? ms) {
-    if (ms == null) return 'never';
+  String _formatTimestamp(int? ms, AppLocalizations l10n) {
+    if (ms == null) return l10n.syncNever;
     return DateTime.fromMillisecondsSinceEpoch(ms).toLocal().toString();
   }
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
     return _Section(
-      title: 'Status',
+      title: l10n.syncStatus,
       children: [
-        _StatusRow(label: 'Paired', value: status.paired ? 'Yes' : 'No'),
-        _StatusRow(label: 'Owner address (Arweave)', value: status.ownerAddress ?? '—'),
-        _StatusRow(label: 'Last synced', value: _formatTimestamp(status.lastSyncedAtMs)),
+        _StatusRow(label: l10n.syncStatusPaired, value: status.paired ? l10n.syncYes : l10n.syncNo),
+        _StatusRow(label: l10n.syncOwner, value: status.ownerAddress ?? '—'),
+        _StatusRow(label: l10n.syncLast, value: _formatTimestamp(status.lastSyncedAtMs, l10n)),
         _StatusRow(
-          label: 'Pending',
-          value: '${status.pendingVaultChanges} file(s)${status.pendingConfigChanged ? " + config.toml" : ""}',
+          label: l10n.syncPending,
+          value: l10n.syncPendingValue(status.pendingVaultChanges, status.pendingConfigChanged ? l10n.syncPlusConfig : ''),
         ),
       ],
     );
@@ -389,18 +385,16 @@ class _PushQrCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
     return Padding(
       padding: const EdgeInsets.only(top: 12),
       child: Column(
         children: [
-          Text(
-            'Scan with the TruthID app to approve and publish '
-            '(${begin.filesChanged} file(s)${begin.configChanged ? " + config.toml" : ""}).',
-          ),
+          Text(l10n.syncScan(begin.filesChanged, begin.configChanged ? l10n.syncPlusConfig : '')),
           const SizedBox(height: 12),
           QrImageView(data: begin.qrPayloadJson, size: 220),
           const SizedBox(height: 8),
-          const Text('Waiting for approval…'),
+          Text(l10n.syncWaitingApproval),
         ],
       ),
     );

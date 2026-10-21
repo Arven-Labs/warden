@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../l10n/generated/app_localizations.dart';
 import '../protocol/messages.dart' show PendingDeviceInvite;
 import '../services/device_invites.dart';
 import 'agents_screen.dart' show askPairingKey;
@@ -53,10 +54,11 @@ class _DeviceInvitesScreenState extends State<DeviceInvitesScreen> {
       _cancelled = null;
     });
     List<PendingDeviceInvite>? left;
+    final l10n = AppLocalizations.of(context);
     final ok = await askPairingKey(
       context,
-      title: 'Cancel invite',
-      message: "Cancels the invite for ${invite.name}; its code stops working.",
+      title: l10n.invCancelTitle,
+      message: l10n.invCancelMessage(invite.name),
       submit: (key) async => left = await widget.backend.cancelDeviceInvite(key, invite.name),
       onError: (error) {
         if (mounted) setState(() => _error = error);
@@ -85,8 +87,9 @@ class _DeviceInvitesScreenState extends State<DeviceInvitesScreen> {
   Future<void> _createInvite() async {
     final name = _name.text.trim();
     final ttl = _ttl;
+    final l10n = AppLocalizations.of(context);
     if (name.isEmpty || ttl == null) {
-      setState(() => _error = 'Fill in who it is for and a validity of at least 1 minute.');
+      setState(() => _error = l10n.invFill);
       return;
     }
     setState(() {
@@ -98,8 +101,8 @@ class _DeviceInvitesScreenState extends State<DeviceInvitesScreen> {
     DeviceInvite? made;
     final ok = await askPairingKey(
       context,
-      title: 'Create invite',
-      message: 'The code works once, for $ttl minutes.',
+      title: l10n.invCreateTitle,
+      message: l10n.invCreateMessage(ttl),
       submit: (key) async => made = await widget.backend.createDeviceInvite(key, name, ttl),
       onError: (error) {
         if (mounted) setState(() => _error = error);
@@ -122,10 +125,11 @@ class _DeviceInvitesScreenState extends State<DeviceInvitesScreen> {
       _cancelled = null;
     });
     String? made;
+    final l10n = AppLocalizations.of(context);
     final ok = await askPairingKey(
       context,
-      title: 'Change the pairing key',
-      message: 'The old key stops opening the hub\'s administration. Devices already paired keep working.',
+      title: l10n.invRotateTitle,
+      message: l10n.invRotateMessage,
       submit: (key) async => made = await widget.backend.rotatePairingKey(key),
       onError: (error) {
         if (mounted) setState(() => _error = error);
@@ -138,34 +142,32 @@ class _DeviceInvitesScreenState extends State<DeviceInvitesScreen> {
   Widget build(BuildContext context) {
     final invite = _invite;
     final newKey = _newKey;
+    final l10n = AppLocalizations.of(context);
     return Scaffold(
-      appBar: AppBar(title: const Text('Devices')),
+      appBar: AppBar(title: Text(l10n.invTitle)),
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
-          const Text(
-            "The pairing key pairs only the hub's first device. For each other one, make an invite and give the person the code: "
-            'they paste it where the key would go. It works once.',
-          ),
+          Text(l10n.invHint),
           const SizedBox(height: 16),
           TextField(
             key: const Key('invite-name'),
             controller: _name,
-            decoration: const InputDecoration(labelText: 'Who is it for', hintText: "Ana's phone"),
+            decoration: InputDecoration(labelText: l10n.invWho, hintText: l10n.invWhoHint),
           ),
           const SizedBox(height: 12),
           TextField(
             key: const Key('invite-minutes'),
             controller: _minutes,
             keyboardType: TextInputType.number,
-            decoration: const InputDecoration(labelText: 'Valid for (minutes)'),
+            decoration: InputDecoration(labelText: l10n.invMinutes),
           ),
           const SizedBox(height: 16),
           Row(
             children: [
-              FilledButton(key: const Key('invite-create'), onPressed: _createInvite, child: const Text('Create invite')),
+              FilledButton(key: const Key('invite-create'), onPressed: _createInvite, child: Text(l10n.invCreate)),
               const SizedBox(width: 12),
-              TextButton(key: const Key('rotate-key'), onPressed: _rotateKey, child: const Text('Change the pairing key')),
+              TextButton(key: const Key('rotate-key'), onPressed: _rotateKey, child: Text(l10n.invRotateTitle)),
             ],
           ),
           if (_error != null) ...[
@@ -174,33 +176,33 @@ class _DeviceInvitesScreenState extends State<DeviceInvitesScreen> {
           ],
           if (_cancelled != null) ...[
             const SizedBox(height: 12),
-            Text('Invite for $_cancelled cancelled.', key: const Key('invite-cancelled')),
+            Text(l10n.invCancelled(_cancelled!), key: const Key('invite-cancelled')),
           ],
           if (_waiting.isNotEmpty) ...[
             const SizedBox(height: 16),
-            const Text('Invites waiting', style: TextStyle(fontWeight: FontWeight.bold)),
+            Text(l10n.invWaiting, style: const TextStyle(fontWeight: FontWeight.bold)),
             for (final waiting in _waiting)
               ListTile(
                 key: Key('waiting-${waiting.name}'),
                 contentPadding: EdgeInsets.zero,
                 title: Text(waiting.name),
-                subtitle: Text('valid until ${_when(waiting.expiresMs)}'),
+                subtitle: Text(l10n.invValidUntil(_when(waiting.expiresMs))),
                 trailing: TextButton(
                   key: Key('cancel-${waiting.name}'),
                   onPressed: () => _cancel(waiting),
-                  child: const Text('Cancel'),
+                  child: Text(l10n.commonCancel),
                 ),
               ),
           ],
           if (invite != null) ...[
             const SizedBox(height: 16),
-            Text('Invite for ${invite.name}, valid until ${_when(invite.expiresMs)}. The code shows only now:'),
+            Text(l10n.invMade(invite.name, _when(invite.expiresMs))),
             const SizedBox(height: 8),
             _Secret(secret: invite.code, valueKey: const Key('invite-code')),
           ],
           if (newKey != null) ...[
             const SizedBox(height: 16),
-            const Text('New pairing key, shown only now:'),
+            Text(l10n.invNewKey),
             const SizedBox(height: 8),
             _Secret(secret: newKey, valueKey: const Key('new-key')),
           ],
@@ -229,7 +231,7 @@ class _Secret extends StatelessWidget {
       children: [
         Expanded(child: SelectableText(secret, key: valueKey, style: const TextStyle(fontFamily: 'monospace'))),
         IconButton(
-          tooltip: 'Copy',
+          tooltip: AppLocalizations.of(context).commonCopy,
           icon: const Icon(Icons.copy),
           onPressed: () => Clipboard.setData(ClipboardData(text: secret)),
         ),

@@ -1105,6 +1105,618 @@ class AppLocalizationsEn extends AppLocalizations {
   String get inputHint => 'Message';
 
   @override
+  String get usageTitle => 'Usage';
+
+  @override
+  String usageLoadFailed(String error) {
+    return 'Couldn\'t load the usage: $error';
+  }
+
+  @override
+  String get usageTokens => 'Tokens';
+
+  @override
+  String get usageCalls => 'Model calls';
+
+  @override
+  String usageSpent(String window) {
+    return 'Spent, last $window';
+  }
+
+  @override
+  String get usageWindowDay => '24 h';
+
+  @override
+  String usageWindowDays(int count) {
+    return '$count days';
+  }
+
+  @override
+  String usageWindowHours(int count) {
+    return '$count h';
+  }
+
+  @override
+  String get usageLimits => 'Limits';
+
+  @override
+  String get usageLimitsOff => 'Spending limits are switched off on this hub.';
+
+  @override
+  String get usageLimitsNone => 'No limit is set for you.';
+
+  @override
+  String get usageLimitsNote =>
+      'Only the limits written for you show here. To allow more, ask whoever runs this Warden.';
+
+  @override
+  String get usageByDay => 'By day';
+
+  @override
+  String get usageNoConversation => 'No conversation yet.';
+
+  @override
+  String usageCallsCount(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count calls',
+      one: '1 call',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String usageTokensCount(String tokens) {
+    return '$tokens tokens';
+  }
+
+  @override
+  String usageTokensCost(String tokens, String cost) {
+    return '$tokens tokens · $cost';
+  }
+
+  @override
+  String get usageByAgent => 'By agent';
+
+  @override
+  String get usageNoAgent => 'No agent';
+
+  @override
+  String get usageByProvider => 'By provider';
+
+  @override
+  String get usageDefaultProvider => 'Default provider';
+
+  @override
+  String get usageByCombo => 'By combo';
+
+  @override
+  String get usageNoCombo => 'No combo';
+
+  @override
+  String usageSpentByCombo(String window) {
+    return 'Spent by combo, last $window';
+  }
+
+  @override
+  String usageUnpriced(String cost, int count) {
+    return '$cost (+$count unpriced)';
+  }
+
+  @override
+  String usageBucketLine(String tokens, String calls) {
+    return '$tokens tokens · $calls';
+  }
+
+  @override
+  String usageLimitTokens(String used, String max) {
+    return '$used of $max tokens';
+  }
+
+  @override
+  String usageLimitCost(String used, String max) {
+    return '$used of $max';
+  }
+
+  @override
+  String get usageStateOver => 'Used up';
+
+  @override
+  String get usageStateWarn => 'Close to the limit';
+
+  @override
+  String get usageStateOk => 'Plenty left';
+
+  @override
+  String usageLimitTitle(String id, String window) {
+    return '$id · last $window';
+  }
+
+  @override
+  String usageLimitState(String state, int percent, String parts) {
+    return '$state · $percent% · $parts';
+  }
+
+  @override
+  String get invCancelTitle => 'Cancel invite';
+
+  @override
+  String invCancelMessage(String name) {
+    return 'Cancels the invite for $name; its code stops working.';
+  }
+
+  @override
+  String get invFill =>
+      'Fill in who it is for and a validity of at least 1 minute.';
+
+  @override
+  String get invCreateTitle => 'Create invite';
+
+  @override
+  String invCreateMessage(int minutes) {
+    return 'The code works once, for $minutes minutes.';
+  }
+
+  @override
+  String get invRotateTitle => 'Change the pairing key';
+
+  @override
+  String get invRotateMessage =>
+      'The old key stops opening the hub\'s administration. Devices already paired keep working.';
+
+  @override
+  String get invTitle => 'Devices';
+
+  @override
+  String get invHint =>
+      'The pairing key pairs only the hub\'s first device. For each other one, make an invite and give the person the code: they paste it where the key would go. It works once.';
+
+  @override
+  String get invWho => 'Who is it for';
+
+  @override
+  String get invWhoHint => 'Ana\'s phone';
+
+  @override
+  String get invMinutes => 'Valid for (minutes)';
+
+  @override
+  String get invCreate => 'Create invite';
+
+  @override
+  String invCancelled(String name) {
+    return 'Invite for $name cancelled.';
+  }
+
+  @override
+  String get invWaiting => 'Invites waiting';
+
+  @override
+  String invValidUntil(String when) {
+    return 'valid until $when';
+  }
+
+  @override
+  String invMade(String name, String when) {
+    return 'Invite for $name, valid until $when. The code shows only now:';
+  }
+
+  @override
+  String get invNewKey => 'New pairing key, shown only now:';
+
+  @override
+  String get memberOrgNone =>
+      'The workspace\'s owner hasn\'t given you access to the organization of the agents.';
+
+  @override
+  String get memberOrgEdit =>
+      'Who reports to whom among the workspace\'s agents. The owner let you change the hierarchy: the role and the superior of an agent, a new report, a removal. What the agents may do is the owner\'s.';
+
+  @override
+  String get memberOrgView =>
+      'Who reports to whom among the workspace\'s agents. You can look at the tree; changing it is the owner\'s.';
+
+  @override
+  String get skillsTitle => 'Skills';
+
+  @override
+  String skillsDeleteTitle(String name) {
+    return 'Delete \'$name\'?';
+  }
+
+  @override
+  String skillsRejectTitle(String name) {
+    return 'Reject \'$name\'?';
+  }
+
+  @override
+  String get skillsDeleteBody =>
+      'This removes the skill file and can\'t be undone.';
+
+  @override
+  String get skillsReject => 'Reject';
+
+  @override
+  String get skillsAccept => 'Accept';
+
+  @override
+  String skillsSeeChanges(String name) {
+    return 'See what changes in $name';
+  }
+
+  @override
+  String get skillsNoChange => 'No change in the instruction text.';
+
+  @override
+  String get skillsSuggested => 'Suggested';
+
+  @override
+  String skillsChangeTo(String name) {
+    return 'Change to $name';
+  }
+
+  @override
+  String skillsFrom(String origin) {
+    return 'From: $origin';
+  }
+
+  @override
+  String get skillsNew => 'New skill';
+
+  @override
+  String get skillsEdit => 'Edit skill';
+
+  @override
+  String get skillsNone =>
+      'No skills yet. Create one here, or ask the AI to write one in chat — they sync with the rest of the vault.';
+
+  @override
+  String get skillsSuggestedTitle => 'Suggested by the AI';
+
+  @override
+  String get skillsSuggestedNote =>
+      'Not active yet — the AI only uses a suggestion after you accept it.';
+
+  @override
+  String get skillsYours => 'Your skills';
+
+  @override
+  String get skillsNoDescription => '(no description)';
+
+  @override
+  String skillsDeleteTooltip(String name) {
+    return 'Delete $name';
+  }
+
+  @override
+  String get skillsName => 'Name';
+
+  @override
+  String get skillsNameHelper =>
+      'Lowercase letters, digits and hyphens — it becomes the file name.';
+
+  @override
+  String get skillsDescription => 'Description';
+
+  @override
+  String get skillsDescriptionHelper =>
+      'When to use it — the AI reads this every turn.';
+
+  @override
+  String get skillsInstructions => 'Instructions';
+
+  @override
+  String get skillsAcceptThis => 'Accept this skill';
+
+  @override
+  String get skillsAcceptThisHint =>
+      'Off: it stays a suggestion and the AI still ignores it.';
+
+  @override
+  String get skillsSaving => 'Saving…';
+
+  @override
+  String get diffGapOne => '… 1 identical line';
+
+  @override
+  String diffGapMany(int count) {
+    return '… $count identical lines';
+  }
+
+  @override
+  String get syncTitle => 'Warden — Sync';
+
+  @override
+  String get syncNothingToSend =>
+      'Nothing to send — vault and config already match the last Send.';
+
+  @override
+  String get syncShowCode => 'Show pairing code';
+
+  @override
+  String get syncWaitingDevice => 'Waiting for another device…';
+
+  @override
+  String get syncPaired => 'Paired successfully!';
+
+  @override
+  String get syncIntro =>
+      'Syncs the vault and config.toml across your devices via Arweave, paid by the TruthID app. Everything is encrypted on this device before it leaves — neither TruthID nor Arweave ever see the content in plain text.';
+
+  @override
+  String get syncSetUp => 'Set up';
+
+  @override
+  String get syncSetUpHint =>
+      'First device? Initialize a fresh key. Already have another device with sync set up? Ask it to show a pairing code (below) instead.';
+
+  @override
+  String get syncInit => 'Initialize sync on this device';
+
+  @override
+  String get syncSendPull => 'Send / Pull';
+
+  @override
+  String get syncSend => 'Send';
+
+  @override
+  String get syncPull => 'Pull';
+
+  @override
+  String syncSent(String tx, int files) {
+    return 'Sent — tx $tx ($files file(s)).';
+  }
+
+  @override
+  String syncPulled(int written, int deleted, String config) {
+    return 'Pull complete — $written written, $deleted deleted$config.';
+  }
+
+  @override
+  String get syncConfigUpdated => ', config.toml updated';
+
+  @override
+  String get syncPairDevice => 'Pair a device';
+
+  @override
+  String get syncShowThisCode =>
+      'Show this code on the device you want to pair.';
+
+  @override
+  String get syncHaveCode =>
+      'Have a code shown on another device? Enter it here.';
+
+  @override
+  String get syncCodeLabel => 'Pairing code';
+
+  @override
+  String get syncHostLabel => 'Other device\'s IP (optional)';
+
+  @override
+  String get syncHostHint =>
+      'e.g. a Tailscale IP for a hub on a VPS — without it, only the local network is searched';
+
+  @override
+  String get syncPair => 'Pair';
+
+  @override
+  String get syncNever => 'never';
+
+  @override
+  String get syncStatus => 'Status';
+
+  @override
+  String get syncStatusPaired => 'Paired';
+
+  @override
+  String get syncYes => 'Yes';
+
+  @override
+  String get syncNo => 'No';
+
+  @override
+  String get syncOwner => 'Owner address (Arweave)';
+
+  @override
+  String get syncLast => 'Last synced';
+
+  @override
+  String get syncPending => 'Pending';
+
+  @override
+  String syncPendingValue(int files, String config) {
+    return '$files file(s)$config';
+  }
+
+  @override
+  String get syncPlusConfig => ' + config.toml';
+
+  @override
+  String syncScan(int files, String config) {
+    return 'Scan with the TruthID app to approve and publish ($files file(s)$config).';
+  }
+
+  @override
+  String get syncWaitingApproval => 'Waiting for approval…';
+
+  @override
+  String get acctCodeNewTitle => 'Your new recovery code';
+
+  @override
+  String get acctCodeTitle => 'Your data is now encrypted';
+
+  @override
+  String get acctCodeBodyNew =>
+      'The old code stopped working. Keep this one: it is the only way to recover everything if you forget your password, or if whoever runs the hub resets it.';
+
+  @override
+  String get acctCodeBody =>
+      'Keep this code: it is the only way to recover everything if you forget your password, or if whoever runs the hub resets it.';
+
+  @override
+  String get acctCodeOnce =>
+      'It is shown only this once, and nobody on the hub can see it afterwards — not even whoever runs it. Write it down somewhere safe, away from this phone.';
+
+  @override
+  String get acctCodeSaved => 'I saved the code somewhere safe';
+
+  @override
+  String get acctContinue => 'Continue';
+
+  @override
+  String acctPasswordShort(int min) {
+    return 'The new password needs at least $min characters.';
+  }
+
+  @override
+  String get acctPasswordMismatch => 'The two new passwords don\'t match.';
+
+  @override
+  String get acctNeedCode => 'Give your recovery code to keep your data.';
+
+  @override
+  String get acctWrongProvisional => 'The provisional password is wrong.';
+
+  @override
+  String get acctWrongCurrent => 'The current password is wrong.';
+
+  @override
+  String get acctChooseTitle => 'Choose your password';
+
+  @override
+  String get acctChangeTitle => 'Change your password';
+
+  @override
+  String acctHi(String name) {
+    return 'Hi $name. Before you start, replace the provisional password with one of your own.';
+  }
+
+  @override
+  String get acctProvisional => 'Provisional password';
+
+  @override
+  String get acctCurrent => 'Current password';
+
+  @override
+  String get acctRecoveryCode => 'Recovery code';
+
+  @override
+  String get acctRecoveryHelper =>
+      'Whoever runs the hub reset your password. Your data only comes back with the code you wrote down.';
+
+  @override
+  String get acctNewPassword => 'New password';
+
+  @override
+  String get acctNewPasswordAgain => 'New password again';
+
+  @override
+  String get acctWrongThat => 'That password is wrong.';
+
+  @override
+  String get acctPolicyTitle => 'Who can help recover your data changed';
+
+  @override
+  String get acctPolicyCompany =>
+      'Whoever runs the hub can recover your data alone, with their recovery key. Every recovery is recorded and you are told.';
+
+  @override
+  String get acctPolicyConsent =>
+      'Whoever runs the hub can recover your data only together with your recovery code: neither opens it alone.';
+
+  @override
+  String get acctPolicyToday =>
+      'Today your data follows the previous rule; it only follows this one if you accept.';
+
+  @override
+  String get acctPolicyKeep =>
+      'Keep in mind: whoever controls the machine the hub runs on can always, technically, see what the agent sees while it works. The record and the notice do not protect against someone editing the hub\'s files.';
+
+  @override
+  String get acctPolicyPassword => 'Your password, to accept';
+
+  @override
+  String get acctNotNow => 'Not now';
+
+  @override
+  String get acctAccept => 'Accept';
+
+  @override
+  String get acctRecoveredTitle => 'Your data was recovered';
+
+  @override
+  String get acctRecoveredBody =>
+      'Whoever runs the hub recovered your data, with their recovery key, and you signed in just now with the provisional password they gave you.';
+
+  @override
+  String get acctRecoveredCompany => 'company recovery';
+
+  @override
+  String get acctRecoveredConsent => 'recovery with your consent';
+
+  @override
+  String get acctRecoveredNotYou =>
+      'If it wasn\'t you who asked, tell whoever runs the hub and change your password.';
+
+  @override
+  String get acctGotIt => 'Got it';
+
+  @override
+  String get acctNewCodeTitle => 'New recovery code';
+
+  @override
+  String get acctNewCodeHint =>
+      'The old code stops working. Type your password to get a new one.';
+
+  @override
+  String get acctTitle => 'Account';
+
+  @override
+  String get acctEncrypted => 'Your data is encrypted on the hub';
+
+  @override
+  String get acctNotEncrypted =>
+      'Your data is not encrypted yet — it is once you sign in with your password';
+
+  @override
+  String get acctChangePassword => 'Change password';
+
+  @override
+  String get acctGetNewCode => 'Get a new recovery code';
+
+  @override
+  String get acctOldStops => 'The old one stops working';
+
+  @override
+  String get acctLinkTruthid => 'Link my TruthID';
+
+  @override
+  String acctTruthidIs(String name) {
+    return 'TruthID: @$name';
+  }
+
+  @override
+  String get acctLinkHint =>
+      'With the invite code whoever runs the hub gave you';
+
+  @override
+  String get acctLinkedHint =>
+      'To change it, ask whoever runs the hub for a new invite';
+
+  @override
+  String get acctPassword => 'Password';
+
+  @override
+  String get acctInviteCode => 'Invite code';
+
+  @override
+  String get acctUsername => 'My TruthID username';
+
+  @override
+  String get acctLink => 'Link';
+
+  @override
   String get bucketLast7 => 'Previous 7 days';
 
   @override

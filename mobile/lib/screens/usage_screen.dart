@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../l10n/generated/app_localizations.dart';
 import '../protocol/messages.dart';
 
 /// P99 — the person's own usage: tokens and calls, the dollars the hub's ledger still holds, a line per day and the limits that apply
@@ -42,15 +43,16 @@ class _UsageScreenState extends State<UsageScreen> {
   @override
   Widget build(BuildContext context) {
     final summary = _summary;
+    final l10n = AppLocalizations.of(context);
     return Scaffold(
-      appBar: AppBar(title: const Text('Usage')),
+      appBar: AppBar(title: Text(l10n.usageTitle)),
       body: RefreshIndicator(
         onRefresh: _refresh,
         child: ListView(
           physics: const AlwaysScrollableScrollPhysics(),
           padding: const EdgeInsets.all(16),
           children: [
-            if (_error != null) Text("Couldn't load the usage: $_error", key: const Key('usage-error'), style: TextStyle(color: Theme.of(context).colorScheme.error)),
+            if (_error != null) Text(l10n.usageLoadFailed('$_error'), key: const Key('usage-error'), style: TextStyle(color: Theme.of(context).colorScheme.error)),
             if (summary == null && _error == null) const Center(child: Padding(padding: EdgeInsets.all(32), child: CircularProgressIndicator())),
             if (summary != null) ..._content(context, summary),
           ],
@@ -61,19 +63,20 @@ class _UsageScreenState extends State<UsageScreen> {
 
   List<Widget> _content(BuildContext context, UsageSummary summary) {
     final theme = Theme.of(context);
+    final l10n = AppLocalizations.of(context);
     final days = summary.days.where((day) => day.calls > 0).toList().reversed.toList();
     return [
       Row(
         children: [
-          Expanded(child: _Tile(key: const Key('usage-tokens'), label: 'Tokens', value: _compact(summary.totalTokens))),
+          Expanded(child: _Tile(key: const Key('usage-tokens'), label: l10n.usageTokens, value: _compact(summary.totalTokens))),
           const SizedBox(width: 12),
-          Expanded(child: _Tile(key: const Key('usage-calls'), label: 'Model calls', value: '${summary.calls}')),
+          Expanded(child: _Tile(key: const Key('usage-calls'), label: l10n.usageCalls, value: '${summary.calls}')),
           if (summary.windowHours > 0) ...[
             const SizedBox(width: 12),
             Expanded(
               child: _Tile(
                 key: const Key('usage-cost'),
-                label: 'Spent, last ${_window(summary.windowHours)}',
+                label: l10n.usageSpent(_window(summary.windowHours, l10n)),
                 value: summary.costInWindowUsd > 0 ? _usd(summary.costInWindowUsd) : '—',
               ),
             ),
@@ -81,20 +84,20 @@ class _UsageScreenState extends State<UsageScreen> {
         ],
       ),
       const SizedBox(height: 24),
-      Text('Limits', style: theme.textTheme.titleMedium),
+      Text(l10n.usageLimits, style: theme.textTheme.titleMedium),
       const SizedBox(height: 8),
       if (!summary.limitsEnabled)
-        const Text('Spending limits are switched off on this hub.')
+        Text(l10n.usageLimitsOff)
       else if (summary.limits.isEmpty)
-        const Text('No limit is set for you.')
+        Text(l10n.usageLimitsNone)
       else
         for (final limit in summary.limits) _LimitCard(limit: limit),
-      if (summary.limitsEnabled) Text('Only the limits written for you show here. To allow more, ask whoever runs this Warden.', style: theme.textTheme.bodySmall),
+      if (summary.limitsEnabled) Text(l10n.usageLimitsNote, style: theme.textTheme.bodySmall),
       const SizedBox(height: 24),
-      Text('By day', style: theme.textTheme.titleMedium),
+      Text(l10n.usageByDay, style: theme.textTheme.titleMedium),
       const SizedBox(height: 8),
       if (days.isEmpty)
-        const Text('No conversation yet.')
+        Text(l10n.usageNoConversation)
       else
         for (final day in days)
           ListTile(
@@ -102,15 +105,15 @@ class _UsageScreenState extends State<UsageScreen> {
             dense: true,
             contentPadding: EdgeInsets.zero,
             title: Text(_shortDate(day.date)),
-            subtitle: Text('${day.calls} ${day.calls == 1 ? 'call' : 'calls'}'),
-            trailing: Text(day.costUsd != null && day.costUsd! > 0 ? '${_compact(day.tokens)} tokens · ${_usd(day.costUsd!)}' : '${_compact(day.tokens)} tokens'),
+            subtitle: Text(l10n.usageCallsCount(day.calls)),
+            trailing: Text(day.costUsd != null && day.costUsd! > 0 ? l10n.usageTokensCost(_compact(day.tokens), _usd(day.costUsd!)) : l10n.usageTokensCount(_compact(day.tokens))),
           ),
-      _Breakdown(title: 'By agent', prefix: 'agent', emptyLabel: 'No agent', buckets: summary.byAgent),
-      _Breakdown(title: 'By provider', prefix: 'provider', emptyLabel: 'Default provider', buckets: summary.byProvider),
-      _Breakdown(title: 'By combo', prefix: 'combo', emptyLabel: 'No combo', buckets: summary.byCombo),
+      _Breakdown(title: l10n.usageByAgent, prefix: 'agent', emptyLabel: l10n.usageNoAgent, buckets: summary.byAgent),
+      _Breakdown(title: l10n.usageByProvider, prefix: 'provider', emptyLabel: l10n.usageDefaultProvider, buckets: summary.byProvider),
+      _Breakdown(title: l10n.usageByCombo, prefix: 'combo', emptyLabel: l10n.usageNoCombo, buckets: summary.byCombo),
       if (summary.comboSpend.isNotEmpty) ...[
         const SizedBox(height: 16),
-        Text('Spent by combo, last ${_window(summary.windowHours)}', style: theme.textTheme.titleSmall),
+        Text(l10n.usageSpentByCombo(_window(summary.windowHours, l10n)), style: theme.textTheme.titleSmall),
         for (final spend in [...summary.comboSpend]..sort((a, b) => b.costUsd.compareTo(a.costUsd)))
           ListTile(
             key: Key('usage-spend-combo-${spend.key}'),
@@ -118,7 +121,7 @@ class _UsageScreenState extends State<UsageScreen> {
             contentPadding: EdgeInsets.zero,
             title: Text(spend.key),
             trailing: Text(
-              spend.unpricedCalls > 0 ? '${_usd(spend.costUsd)} (+${spend.unpricedCalls} unpriced)' : _usd(spend.costUsd),
+              spend.unpricedCalls > 0 ? l10n.usageUnpriced(_usd(spend.costUsd), spend.unpricedCalls) : _usd(spend.costUsd),
             ),
           ),
       ],
@@ -141,6 +144,7 @@ class _Breakdown extends StatelessWidget {
   Widget build(BuildContext context) {
     if (buckets.isEmpty) return const SizedBox.shrink();
     final theme = Theme.of(context);
+    final l10n = AppLocalizations.of(context);
     final biggest = buckets.map((b) => b.tokens).reduce((a, b) => a > b ? a : b);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -158,7 +162,7 @@ class _Breakdown extends StatelessWidget {
                 Row(
                   children: [
                     Expanded(child: Text(bucket.key ?? emptyLabel, overflow: TextOverflow.ellipsis)),
-                    Text('${_compact(bucket.tokens)} tokens · ${bucket.calls} ${bucket.calls == 1 ? 'call' : 'calls'}', style: theme.textTheme.bodySmall),
+                    Text(l10n.usageBucketLine(_compact(bucket.tokens), l10n.usageCallsCount(bucket.calls)), style: theme.textTheme.bodySmall),
                   ],
                 ),
                 const SizedBox(height: 4),
@@ -203,12 +207,13 @@ class _LimitCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final l10n = AppLocalizations.of(context);
     final color = limit.exceeded ? theme.colorScheme.error : (limit.warn ? Colors.orange : theme.colorScheme.primary);
     final parts = [
-      if (limit.maxTokens != null) '${_compact(limit.usedTokens)} of ${_compact(limit.maxTokens!)} tokens',
-      if (limit.maxCostUsd != null) '${_usd(limit.usedCostUsd)} of ${_usd(limit.maxCostUsd!)}',
+      if (limit.maxTokens != null) l10n.usageLimitTokens(_compact(limit.usedTokens), _compact(limit.maxTokens!)),
+      if (limit.maxCostUsd != null) l10n.usageLimitCost(_usd(limit.usedCostUsd), _usd(limit.maxCostUsd!)),
     ];
-    final state = limit.exceeded ? 'Used up' : (limit.warn ? 'Close to the limit' : 'Plenty left');
+    final state = limit.exceeded ? l10n.usageStateOver : (limit.warn ? l10n.usageStateWarn : l10n.usageStateOk);
     return Card(
       key: Key('usage-limit-${limit.id}'),
       child: Padding(
@@ -216,11 +221,11 @@ class _LimitCard extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('${limit.id} · last ${_window(limit.windowHours)}', style: theme.textTheme.titleSmall),
+            Text(l10n.usageLimitTitle(limit.id, _window(limit.windowHours, l10n)), style: theme.textTheme.titleSmall),
             const SizedBox(height: 8),
             LinearProgressIndicator(value: limit.fraction.clamp(0, 1).toDouble(), color: color, minHeight: 8),
             const SizedBox(height: 8),
-            Text('$state · ${(limit.fraction * 100).round()}% · ${parts.join(' · ')}', style: theme.textTheme.bodySmall),
+            Text(l10n.usageLimitState(state, (limit.fraction * 100).round(), parts.join(' · ')), style: theme.textTheme.bodySmall),
           ],
         ),
       ),
@@ -236,7 +241,7 @@ String _compact(int value) {
 
 String _usd(double value) => 'US\$ ${value.toStringAsFixed(value < 1 ? 4 : 2)}';
 
-String _window(int hours) => hours % 24 == 0 ? (hours == 24 ? '24 h' : '${hours ~/ 24} days') : '$hours h';
+String _window(int hours, AppLocalizations l10n) => hours % 24 == 0 ? (hours == 24 ? l10n.usageWindowDay : l10n.usageWindowDays(hours ~/ 24)) : l10n.usageWindowHours(hours);
 
 /// `2026-09-25` → `25/09`.
 String _shortDate(String date) {
