@@ -2822,6 +2822,42 @@ abstract class AppLocalizations {
   /// **'Link'**
   String get acctLink;
 
+  /// No description provided for @notifChannel.
+  ///
+  /// In en, this message translates to:
+  /// **'Chat messages'**
+  String get notifChannel;
+
+  /// No description provided for @notifChannelDesc.
+  ///
+  /// In en, this message translates to:
+  /// **'Notifies you when Warden replies while the app isn\'t in the foreground'**
+  String get notifChannelDesc;
+
+  /// No description provided for @notifAgentChannel.
+  ///
+  /// In en, this message translates to:
+  /// **'Agent messages'**
+  String get notifAgentChannel;
+
+  /// No description provided for @notifAgentChannelDesc.
+  ///
+  /// In en, this message translates to:
+  /// **'Notifies you when an agent writes to you in its channel'**
+  String get notifAgentChannelDesc;
+
+  /// No description provided for @notifError.
+  ///
+  /// In en, this message translates to:
+  /// **'{server} — Error'**
+  String notifError(String server);
+
+  /// No description provided for @notifApproval.
+  ///
+  /// In en, this message translates to:
+  /// **'{server} — Approval needed'**
+  String notifApproval(String server);
+
   /// No description provided for @bucketLast7.
   ///
   /// In en, this message translates to:

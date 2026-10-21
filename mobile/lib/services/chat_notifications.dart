@@ -1,7 +1,9 @@
 import 'package:flutter/widgets.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 
+import '../l10n/generated/app_localizations.dart';
 import '../protocol/messages.dart';
+import 'app_language.dart';
 
 /// Fase 7.5 — local notification when a chat reply arrives while the app isn't in the foreground.
 /// Deliberately NOT true push (no FCM/APNs, no server-side involvement): the app process must
@@ -16,14 +18,10 @@ const _notificationId = 1;
 /// P87 — an approval gets its own notification, so a reply arriving after it doesn't replace it.
 const _approvalNotificationId = 2;
 const _channelId = 'chat_messages';
-const _channelName = 'Chat messages';
-const _channelDescription = "Notifies you when Warden replies while the app isn't in the foreground";
 
 /// P121 — what agents say on their own (`message_user`): a channel of its own, and ids from here up, one per agent.
 const _agentNotificationBase = 1000;
 const _agentChannelId = 'agent_messages';
-const _agentChannelName = 'Agent messages';
-const _agentChannelDescription = 'Notifies you when an agent writes to you in its channel';
 
 const _bodyMaxChars = 200;
 
@@ -37,12 +35,15 @@ bool shouldNotifyFor(AppLifecycleState state) => state != AppLifecycleState.resu
 /// Title/body for a chat notification. Pulled out as a pure function so it's testable without a
 /// platform channel — mirrors `warden-cli`'s `wrap_spans`/`card_width` split (pure formatting
 /// logic tested directly, the actual terminal/notification write stays a thin, untested wrapper).
-({String title, String body}) notificationContentFor(ServerMessage message, {required String serverName}) {
+///
+/// P136 — the titles come in the language of the app ([l10n], the current one when not given); the body is what the hub or the agent said.
+({String title, String body}) notificationContentFor(ServerMessage message, {required String serverName, AppLocalizations? l10n}) {
+  final words = l10n ?? AppLanguage.current();
   final (title, rawBody) = switch (message) {
     ChatResponseMessage(:final content) => (serverName, content),
-    ChatErrorMessage(:final message) => ('$serverName — Error', message),
+    ChatErrorMessage(:final message) => (words.notifError(serverName), message),
     ApprovalRequestMessage(:final action, :final target, :final detail, :final category) => (
-        '$serverName — Approval needed',
+        words.notifApproval(serverName),
         '$action: $target${category == null ? '' : ' [$category]'}${detail.isEmpty ? '' : ' — $detail'}'
       ),
     _ => (serverName, ''),
@@ -86,15 +87,16 @@ Future<void> requestNotificationPermission() async {
 /// the same agent replaces the last in the tray), titled with the agent's name, in a channel of its own so it can be turned off apart.
 Future<void> showAgentMessageNotification(String agent, String text) async {
   try {
+    final l10n = AppLanguage.current();
     await _plugin.show(
       id: _agentNotificationBase + (agent.hashCode & 0x3ff),
       title: agent,
       body: _truncate(text),
-      notificationDetails: const NotificationDetails(
+      notificationDetails: NotificationDetails(
         android: AndroidNotificationDetails(
           _agentChannelId,
-          _agentChannelName,
-          channelDescription: _agentChannelDescription,
+          l10n.notifAgentChannel,
+          channelDescription: l10n.notifAgentChannelDesc,
           importance: Importance.high,
           priority: Priority.high,
         ),
@@ -107,16 +109,17 @@ Future<void> showAgentMessageNotification(String agent, String text) async {
 }
 
 Future<void> showChatNotification(ServerMessage message, {required String serverName}) async {
-  final (:title, :body) = notificationContentFor(message, serverName: serverName);
+  final l10n = AppLanguage.current();
+  final (:title, :body) = notificationContentFor(message, serverName: serverName, l10n: l10n);
   await _plugin.show(
     id: message is ApprovalRequestMessage ? _approvalNotificationId : _notificationId,
     title: title,
     body: body,
-    notificationDetails: const NotificationDetails(
+    notificationDetails: NotificationDetails(
       android: AndroidNotificationDetails(
         _channelId,
-        _channelName,
-        channelDescription: _channelDescription,
+        l10n.notifChannel,
+        channelDescription: l10n.notifChannelDesc,
         importance: Importance.high,
         priority: Priority.high,
       ),

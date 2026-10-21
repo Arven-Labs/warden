@@ -1721,6 +1721,30 @@ class AppLocalizationsPt extends AppLocalizations {
   String get acctLink => 'Vincular';
 
   @override
+  String get notifChannel => 'Mensagens do chat';
+
+  @override
+  String get notifChannelDesc =>
+      'Avisa quando o Warden responde com o app fora de primeiro plano';
+
+  @override
+  String get notifAgentChannel => 'Mensagens dos agentes';
+
+  @override
+  String get notifAgentChannelDesc =>
+      'Avisa quando um agente escreve para você no canal dele';
+
+  @override
+  String notifError(String server) {
+    return '$server — Erro';
+  }
+
+  @override
+  String notifApproval(String server) {
+    return '$server — Aprovação necessária';
+  }
+
+  @override
   String get bucketLast7 => 'Últimos 7 dias';
 
   @override

@@ -1717,6 +1717,30 @@ class AppLocalizationsEn extends AppLocalizations {
   String get acctLink => 'Link';
 
   @override
+  String get notifChannel => 'Chat messages';
+
+  @override
+  String get notifChannelDesc =>
+      'Notifies you when Warden replies while the app isn\'t in the foreground';
+
+  @override
+  String get notifAgentChannel => 'Agent messages';
+
+  @override
+  String get notifAgentChannelDesc =>
+      'Notifies you when an agent writes to you in its channel';
+
+  @override
+  String notifError(String server) {
+    return '$server — Error';
+  }
+
+  @override
+  String notifApproval(String server) {
+    return '$server — Approval needed';
+  }
+
+  @override
   String get bucketLast7 => 'Previous 7 days';
 
   @override
