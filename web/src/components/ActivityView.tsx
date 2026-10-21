@@ -7,8 +7,8 @@ import { intlTag, t } from "../i18n";
 const REFRESH_MS = 3000;
 const timeFormatter = { format: (ms: number) => new Intl.DateTimeFormat(intlTag(), { timeStyle: "short" }).format(ms) };
 
-/** P121 — o feed de atividade: quem fez o quê entre os agentes, do mais novo ao mais velho, sem abrir cada conversa. Atualiza enquanto a
- * aba está aberta. Um clique leva ao que o evento toca: as tarefas do agente, a conversa entre dois agentes ou o canal dele. */
+/** P121 — the activity feed: who did what among the agents, newest to oldest, without opening each conversation. Updates while the
+ * tab is open. A click goes to what the event touches: the agent's tasks, the conversation between two agents or its channel. */
 export default function ActivityView({ conn, onOpen }: { conn: ServerConnection | null; onOpen: (to: Destination) => void }) {
   const [events, setEvents] = useState<ActivityEvent[] | null>(null);
   const [error, setError] = useState<string | null>(null);

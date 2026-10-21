@@ -14,9 +14,9 @@ const CATEGORY_KEY: Record<string, Key> = {
   elevated_agent: "grants.cat.elevated_agent",
 };
 
-/** P122 — o que a pessoa disse "sempre" nesta conexão: uma categoria de risco ou uma ferramenta, por conversa e agente. Guardado em arquivo,
- * vence depois dos dias que o hub tem configurados sem uso; senão vale só até a conexão fechar. Aqui dá para ver e tirar um, e o agente
- * volta a perguntar. */
+/** P122 — what the person said "always" to on this connection: a risk category or a tool, per conversation and agent. Kept in a file, it
+ * expires after the number of unused days the hub has configured; otherwise it lasts only until the connection closes. Here one can be
+ * seen and removed, and the agent goes back to asking. */
 export default function GrantsSection({ conn, conversations }: { conn: ServerConnection | null; conversations: ConversationSummary[] }) {
   const [view, setView] = useState<GrantsView | null>(null);
   const grants = view?.grants ?? null;

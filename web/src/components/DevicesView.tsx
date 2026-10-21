@@ -5,7 +5,7 @@ import DeviceInvites from "./DeviceInvites";
 import NodesSection from "./NodesSection";
 import { intlTag, t } from "../i18n";
 
-// The hub's paired devices (Sessão 103) — the same list, approve and revoke as the desktop's
+// The hub's paired devices (Session 103) — the same list, approve and revoke as the desktop's
 // Workspace screen and `warden-server devices`, so a hub with no screen can be managed from here.
 // Listing is open to any logged-in browser; approving or revoking asks for the pairing key each
 // time, like saving settings. Invites and changing the pairing key (P36) are in `DeviceInvites`.

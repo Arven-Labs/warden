@@ -1,12 +1,12 @@
-// P157 — como a lista guarda as conversas soltas (fora de projeto): as fixadas primeiro, depois por quão recentes são, e as arquivadas à
-// parte. Pura, para testar sem janela. Espelha `desktop/src/lib/conversationGroups.ts`.
+// P157 — how the list groups the loose conversations (outside a project): the pinned ones first, then by how recent they are, and the archived
+// ones apart. Pure, to test without a window. Mirrors `desktop/src/lib/conversationGroups.ts`.
 
 import { t } from "../i18n/index.ts";
 import type { ConversationSummary } from "./messages";
 
 type Groupable = Pick<ConversationSummary, "updatedAt" | "pinned" | "archived">;
 
-/** Um bloco da lista: o nome e as conversas dele, na ordem em que vieram. */
+/** A block of the list: its name and its conversations, in the order they came. */
 export interface ConversationBucket<T> {
   label: string;
   items: T[];
@@ -20,17 +20,17 @@ export interface GroupedConversations<T> {
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
-/** Os blocos por data, do mais recente ao mais antigo. */
+/** The date blocks, from the most recent to the oldest. */
 const LABELS = ["bucket.today", "bucket.yesterday", "bucket.last7", "bucket.last30", "bucket.older"] as const;
 
-/** O começo do dia de `now` no relógio deste computador. */
+/** The start of the day of `now` on this computer's clock. */
 function startOfDay(now: number): number {
   const date = new Date(now);
   return new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime();
 }
 
-/** Em que bloco cai uma conversa usada pela última vez em `updatedAt`. O dia conta no calendário, não em 24 horas para trás: "Ontem" é o dia
- * inteiro de ontem. */
+/** Which block a conversation last used at `updatedAt` falls into. The day counts on the calendar, not 24 hours back: "Yesterday" is the whole
+ * of yesterday. */
 export function bucketLabel(updatedAt: number, now: number): string {
   const today = startOfDay(now);
   if (updatedAt >= today) return t(LABELS[0]);
@@ -40,8 +40,8 @@ export function bucketLabel(updatedAt: number, now: number): string {
   return t(LABELS[4]);
 }
 
-/** Separa `conversations` em fixadas, blocos por data e arquivadas. Dentro de cada parte a ordem de chegada se mantém, e um bloco sem nada
- * fica de fora. Uma conversa arquivada só aparece em `archived`, diga o que disser o resto. */
+/** Splits `conversations` into pinned, date blocks and archived. Within each part the arrival order is kept, and an empty block
+ * is left out. An archived conversation only appears in `archived`, whatever else says otherwise. */
 export function groupConversations<T extends Groupable>(conversations: T[], now: number): GroupedConversations<T> {
   const pinned: T[] = [];
   const archived: T[] = [];

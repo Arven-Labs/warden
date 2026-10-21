@@ -1,7 +1,7 @@
 import { t, type Key } from "../i18n/index.ts";
 
-/** P122 — os tipos de ação que um agente pode ser obrigado a ter aprovados mesmo quando age sozinho. Os ids são os de
- * `warden_core::autonomy::Category`, como o config, o hub e `approvalRequired` os escrevem. */
+/** P122 — the kinds of action an agent can be required to have approved even when it acts alone. The ids are those of
+ * `warden_core::autonomy::Category`, as the config, the hub and `approvalRequired` write them. */
 export interface ApprovalCategory {
   id: string;
   label: string;
@@ -24,7 +24,7 @@ export const APPROVAL_CATEGORIES: ApprovalCategory[] = [
   category("elevated_agent", "approvalCategory.elevated_agent"),
 ];
 
-/** O nome de uma categoria, ou o próprio id quando um hub mais novo manda uma que esta tela não conhece. */
+/** A category's name, or the id itself when a newer hub sends one this screen does not know. */
 export function approvalCategoryLabel(id: string): string {
   return APPROVAL_CATEGORIES.find((c) => c.id === id)?.label ?? id;
 }

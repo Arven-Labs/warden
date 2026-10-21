@@ -2,9 +2,9 @@ import type { AdvancedSettings, EmbeddedServer, MachineEdit, MachineSettings, Mc
 import { t } from "../i18n";
 import { KEEP, keyed, type Keyed, type SecretDraft } from "./settingsParts";
 
-// The drafts behind the "Máquina do hub" and "Avançado" sections (P119): what the screen edits, how it
+// The drafts behind the "Hub machine" and "Advanced" sections (P119): what the screen edits, how it
 // turns into what the hub is sent, what it refuses before sending, and what it tells the person a save
-// will change. The hub checks everything again; these checks only spare a round trip and say it in Portuguese.
+// will change. The hub checks everything again; these checks only spare a round trip and say it in the person's language.
 
 /** One env entry or header of an MCP server: its name, and a value the page never sees. */
 export type McpEntryDraft = Keyed<{ name: string; secret: SecretDraft }>;

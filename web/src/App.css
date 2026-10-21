@@ -1176,7 +1176,7 @@ button:focus-visible {
   overflow-y: visible;
 }
 
-/* Organização (P120): a árvore, só leitura. */
+/* Organization (P120): the tree, read-only. */
 
 .org-tree,
 .org-children {
@@ -1205,16 +1205,16 @@ button:focus-visible {
   border: 1px solid rgba(127, 127, 127, 0.35);
 }
 
-/* Arrastar um cartão para outro muda o superior (P120): o cartão arrastado fica mais fraco e os alvos que aceitam ganham um contorno. */
+/* Dragging a card onto another changes the superior (P120): the dragged card fades and the targets that accept it get an outline. */
 .org-card[draggable="true"] {
   cursor: grab;
 }
 
-.org-card--arrastando {
+.org-card--dragging {
   opacity: 0.5;
 }
 
-.org-card--alvo {
+.org-card--target {
   outline: 2px dashed currentColor;
   outline-offset: 2px;
 }
@@ -1225,7 +1225,7 @@ button:focus-visible {
   opacity: 0.75;
 }
 
-.org-topo {
+.org-top {
   padding: 0.6em 0.8em;
   border-radius: 8px;
   border: 2px dashed rgba(127, 127, 127, 0.6);
@@ -1278,7 +1278,7 @@ button:focus-visible {
   gap: 0.6em;
 }
 
-/* Atividade dos agentes (P121) */
+/* Agent activity (P121) */
 
 .activity-filter {
   max-width: 18rem;
@@ -1345,7 +1345,7 @@ button:focus-visible {
   overflow-wrap: anywhere;
 }
 
-/* Trabalho dos agentes (P123) */
+/* Agent work (P123) */
 
 .agent-work-group {
   display: flex;
@@ -1639,7 +1639,7 @@ button:focus-visible {
   overflow-wrap: anywhere;
 }
 
-/* P47: o registro de uso do SSH tem sete colunas de texto, então volta ao layout automático e rola de lado em tela estreita. */
+/* P47: the SSH usage log has seven text columns, so it goes back to the automatic layout and scrolls sideways on a narrow screen. */
 .ssh-audit-scroll {
   overflow-x: auto;
 }
@@ -2240,7 +2240,7 @@ label.checkbox-row input {
   overflow-wrap: anywhere;
 }
 
-/* P119 — "Máquina do hub": a warning that stays in view, and one fieldset that locks every control at once. */
+/* P119 — "Hub machine": a warning that stays in view, and one fieldset that locks every control at once. */
 .banner.settings-danger {
   border-radius: 8px;
   background: var(--color-danger-soft);
@@ -2284,7 +2284,7 @@ label.checkbox-row input {
   }
 }
 
-/* Devices (Sessão 103) */
+/* Devices (Session 103) */
 
 .devices-you {
   font-weight: 400;

@@ -19,14 +19,14 @@ interface EditorState {
 
 const emptySkill: SkillDto = { name: "", description: "", body: "", agents: [] };
 
-/** As licenças oferecidas ao compartilhar uma skill: o que quem a fez deixa os outros fazerem com ela. */
+/** The licenses offered when sharing a skill: what its author lets others do with it. */
 const LICENSES: Array<{ id: string; label: Key }> = [
   { id: "CC0-1.0", label: "skills.license.cc0" },
   { id: "MIT", label: "skills.license.mit" },
   { id: "CC-BY-4.0", label: "skills.license.ccby" },
 ];
 
-/** A skill sendo compartilhada: os dados do arquivo, pedidos antes de gerá-lo. */
+/** The skill being shared: the file's data, asked for before generating it. */
 interface ExportState {
   name: string;
   version: string;
@@ -34,19 +34,19 @@ interface ExportState {
   license: string;
 }
 
-/** Um pacote sendo importado: o texto e, depois de lido e conferido, o que ele diz. */
+/** A package being imported: the text and, once read and checked, what it says. */
 interface ImportState {
   content: string;
   preview: PackagePreviewDto | null;
-  /** A pessoa leu um texto com alerta e quer instalar mesmo assim. */
+  /** The person read a text with a warning and wants to install it anyway. */
   allowFlagged: boolean;
-  /** A pessoa aceita trocar uma skill dela de mesmo nome que é diferente. */
+  /** The person agrees to replace one of their skills of the same name that is different. */
   replace: boolean;
-  /** Um endereço do Arweave digitado para buscar um pacote publicado, em vez de escolher um arquivo. */
+  /** An Arweave address typed in to fetch a published package, instead of choosing a file. */
   address: string;
 }
 
-/** Baixa `content` como um arquivo, pelo navegador. */
+/** Downloads `content` as a file, through the browser. */
 function downloadText(fileName: string, content: string) {
   const url = URL.createObjectURL(new Blob([content], { type: "application/json" }));
   const link = document.createElement("a");
@@ -75,7 +75,7 @@ export default function SkillsView({
   const [editor, setEditor] = useState<EditorState | null>(null);
   const [saving, setSaving] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
-  // A galeria de skills prontas (P140): `null` enquanto carrega ou quando o hub não a tem (um hub anterior à galeria).
+  // The gallery of ready-made skills (P140): `null` while loading or when the hub does not have it (a hub older than the gallery).
   const [catalog, setCatalog] = useState<CatalogSkillDto[] | null>(null);
   const [confirmReplace, setConfirmReplace] = useState<string | null>(null);
   const [installing, setInstalling] = useState<string | null>(null);
@@ -114,21 +114,21 @@ export default function SkillsView({
     );
   }
 
-  /** Lê e confere o texto; nada é instalado ainda. */
+  /** Reads and checks the text; nothing is installed yet. */
   function handleCheckImport(content: string) {
     if (!conn) return;
     setError(null);
     conn.previewSkillPackage(content).then(
       (preview) => setImporting({ content, preview, allowFlagged: false, replace: false, address: "" }),
       (err) => {
-        // Fica no passo de colar, com o texto, para poder corrigir ou trocar.
+        // Stays on the paste step, with the text, so it can be fixed or swapped.
         setImporting({ content, preview: null, allowFlagged: false, replace: false, address: "" });
         setError(message(err));
       },
     );
   }
 
-  /** Baixa o pacote publicado no endereço digitado e o lê como se fosse um arquivo. */
+  /** Downloads the package published at the typed address and reads it as if it were a file. */
   function handleFetchImport() {
     if (!conn || !importing) return;
     setError(null);

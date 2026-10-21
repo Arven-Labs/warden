@@ -1,12 +1,12 @@
-// P157 — a parte pura de "regenerar a resposta" e "editar uma mensagem minha": de qual mensagem o refazer parte e como fica a lista cortada.
-// Pura, para testar sem janela. Espelha `desktop/src/lib/regenerate.ts`, mas sobre as entradas da conversa. Refazer manda o turno de novo
-// com o id da mensagem de onde parte (`replaceFrom`); o turno toma o lugar dela e de tudo o que veio depois. O id só existe numa entrada que
-// o hub já guardou (`withMessageIds`), então uma entrada sem id não se refaz.
+// P157 — the pure part of "regenerate the reply" and "edit my message": which message the redo starts from and what the trimmed list looks like.
+// Pure, to test without a window. Mirrors `desktop/src/lib/regenerate.ts`, but over the conversation's entries. Redoing sends the turn again
+// with the id of the message it starts from (`replaceFrom`); the turn takes the place of that message and of everything after it. The id only exists
+// on an entry the hub already stored (`withMessageIds`), so an entry with no id cannot be redone.
 
 import { t } from "../i18n/index.ts";
 import type { ChatEntry } from "./connection";
 
-/** A última mensagem que a pessoa mandou e que o hub já guardou, ou `undefined`. */
+/** The last message the person sent that the hub already stored, or `undefined`. */
 export function lastUserEntry(entries: ChatEntry[]): ChatEntry | undefined {
   for (let i = entries.length - 1; i >= 0; i--) {
     if (entries[i].role === "user" && entries[i].id) return entries[i];
@@ -14,27 +14,27 @@ export function lastUserEntry(entries: ChatEntry[]): ChatEntry | undefined {
   return undefined;
 }
 
-/** Se `entry` é a última resposta do assistente (as de erro não contam) e dá para regenerá-la. */
+/** Whether `entry` is the assistant's last answer (error ones do not count) and can be regenerated. */
 export function isLastAnswer(entries: ChatEntry[], index: number): boolean {
   const entry = entries[index];
   if (!entry || entry.role !== "assistant" || !entry.id) return false;
   return !entries.slice(index + 1).some((e) => e.role !== "error");
 }
 
-/** As entradas antes da de id `from`; todas, se ela não está na lista. */
+/** The entries before the one with id `from`; all of them, if it is not in the list. */
 export function entriesBefore(entries: ChatEntry[], from: string): ChatEntry[] {
   const at = entries.findIndex((e) => e.id === from);
   return at === -1 ? entries : entries.slice(0, at);
 }
 
-/** Quantas mensagens vêm depois da de id `from` (0 se é a última ou não está): o que uma edição também apaga. Os erros não contam, o hub não os guarda. */
+/** How many messages come after the one with id `from` (0 if it is the last or is not there): what an edit also deletes. Errors do not count, the hub does not keep them. */
 export function messagesAfter(entries: ChatEntry[], from: string): number {
   const at = entries.findIndex((e) => e.id === from);
   return at === -1 ? 0 : entries.slice(at + 1).filter((e) => e.role !== "error").length;
 }
 
-/** Por que uma conversa não pode ser refeita agora, ou `null` quando pode: ainda não está no hub, é uma thread (o contexto dela é de outra
- * conversa), é de um projeto de código (a sessão do motor não volta atrás), há um turno em andamento ou o hub está fora. */
+/** Why a conversation cannot be redone now, or `null` when it can: it is not on the hub yet, it is a thread (its context belongs to another
+ * conversation), it belongs to a code project (the engine's session cannot go back), a turn is in progress or the hub is offline. */
 export function redoBlock(state: { onHub: boolean; thread: boolean; code: boolean; busy: boolean; offline: boolean }): string | null {
   if (state.offline) return t("redo.offline");
   if (state.busy) return t("redo.busy");

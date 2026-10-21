@@ -1,4 +1,4 @@
-// P126 — the pure half of the token breakdowns of the Uso screen ("Por agente", "Por provedor", "Por combo").
+// P126 — the pure half of the token breakdowns of the Usage screen ("By agent", "By provider", "By combo").
 
 import type { UsageByKey } from "../../protocol/messages";
 

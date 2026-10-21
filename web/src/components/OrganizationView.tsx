@@ -7,72 +7,72 @@ import { addReportEdit, buildOrg, moveEdit, positionEdit, superiorChoices, type 
 import { t, type Key } from "../i18n";
 import { rich } from "../i18n/rich";
 
-const AUTONOMIA: Record<number, Key> = { 1: "org.autonomy.1", 2: "org.autonomy.2", 3: "org.autonomy.3", 4: "org.autonomy.4", 5: "org.autonomy.5" };
+const AUTONOMY_LABELS: Record<number, Key> = { 1: "org.autonomy.1", 2: "org.autonomy.2", 3: "org.autonomy.3", 4: "org.autonomy.4", 5: "org.autonomy.5" };
 
-/** O agente tem os poderes das Configurações (o dono os recebe; um membro só recebe o id, o cargo e o superior). */
-function temPoderes(agent: OrgAgent): agent is AgentSettings {
+/** The agent has the Settings powers (the owner receives them; a member only receives the id, the role and the superior). */
+function hasPowers(agent: OrgAgent): agent is AgentSettings {
   return "autonomy" in agent;
 }
 
-/** O que o agente pode fazer, como a tela de Configurações define. */
-function selos(agent: OrgAgent): string[] {
-  if (!temPoderes(agent)) return [];
-  const lista: string[] = [];
-  if (agent.canDelegateToAgents) lista.push(t("org.badge.delegates"));
-  if (agent.canManageAgents) lista.push(t("org.badge.manages"));
-  if (agent.canMessageAgents) lista.push(t("org.badge.notes"));
-  if (agent.canManageTasks) lista.push(t("org.badge.schedules"));
-  if (agent.autonomy !== 4) lista.push(t("org.badge.autonomy", { level: agent.autonomy, what: AUTONOMIA[agent.autonomy] ? t(AUTONOMIA[agent.autonomy]) : "" }).trim());
-  if (agent.approvalRequired.length > 0) lista.push(t("org.badge.asksFirst", { what: agent.approvalRequired.map(approvalCategoryLabel).join(", ").toLowerCase() }));
-  return lista;
+/** What the agent can do, as the Settings screen defines it. */
+function badges(agent: OrgAgent): string[] {
+  if (!hasPowers(agent)) return [];
+  const list: string[] = [];
+  if (agent.canDelegateToAgents) list.push(t("org.badge.delegates"));
+  if (agent.canManageAgents) list.push(t("org.badge.manages"));
+  if (agent.canMessageAgents) list.push(t("org.badge.notes"));
+  if (agent.canManageTasks) list.push(t("org.badge.schedules"));
+  if (agent.autonomy !== 4) list.push(t("org.badge.autonomy", { level: agent.autonomy, what: AUTONOMY_LABELS[agent.autonomy] ? t(AUTONOMY_LABELS[agent.autonomy]) : "" }).trim());
+  if (agent.approvalRequired.length > 0) list.push(t("org.badge.asksFirst", { what: agent.approvalRequired.map(approvalCategoryLabel).join(", ").toLowerCase() }));
+  return list;
 }
 
-/** O que está aberto na árvore: o cargo de um agente, um subordinado novo sob um agente (`null`: no topo) ou a remoção de um. */
-type Painel = { kind: "edit"; id: string } | { kind: "add"; under: string | null } | { kind: "remove"; id: string };
+/** What is open in the tree: an agent's role, a new subordinate under an agent (`null`: at the top) or the removal of one. */
+type Panel = { kind: "edit"; id: string } | { kind: "add"; under: string | null } | { kind: "remove"; id: string };
 
-interface Edicao {
-  /** Abre uma conversa nova com este agente, ou as tarefas que ele recebeu e delegou. */
+interface OrgUi {
+  /** Opens a new conversation with this agent, or the tasks it received and delegated. */
   onOpenChat: (id: string) => void;
   onOpenTasks: (id: string) => void;
   agents: OrgAgent[];
-  /** Quem olha a árvore pode mudá-la: o dono sempre, um membro só com o acesso `edit`. */
-  editavel: boolean;
-  /** Um membro: sem conversa nem tarefas por nó (os agentes do dono nem sempre são dele) e sem os poderes de cada agente. */
-  membro: boolean;
-  painel: Painel | null;
-  ocupado: boolean;
-  abrir: (painel: Painel | null) => void;
-  /** Pede a chave de pareamento para a mudança. */
-  aplicar: (edit: OrgEdit) => void;
-  /** O agente cujo cartão está sendo arrastado (P120): outro cartão, ou o topo, aceita soltá-lo se a mudança é válida. */
-  arrastando: string | null;
-  arrastar: (id: string | null) => void;
-  /** O que o agente andou fazendo, numa linha, tirado das tarefas do hub; `null` sem nenhuma tarefa dele. */
-  atividade: (id: string) => string | null;
+  /** Whoever looks at the tree can change it: the owner always, a member only with `edit` access. */
+  editable: boolean;
+  /** A member: no conversation or tasks per node (the owner's agents are not always theirs) and no powers for each agent. */
+  member: boolean;
+  panel: Panel | null;
+  busy: boolean;
+  open: (panel: Panel | null) => void;
+  /** Asks for the pairing key for the change. */
+  apply: (edit: OrgEdit) => void;
+  /** The agent whose card is being dragged (P120): another card, or the top, accepts the drop if the change is valid. */
+  dragging: string | null;
+  drag: (id: string | null) => void;
+  /** What the agent has been doing, in one line, taken from the hub's tasks; `null` with no task of theirs. */
+  activity: (id: string) => string | null;
 }
 
-/** Soltar o cartão arrastado sobre `alvo` (`null`: o topo): a mudança, se houver. Um cartão que vira filho de um descendente fecharia um círculo. */
-function aoSoltar(edicao: Edicao, alvo: string | null): void {
-  const edit = edicao.arrastando === null ? null : moveEdit(edicao.agents, edicao.arrastando, alvo);
-  edicao.arrastar(null);
-  if (edit) edicao.aplicar(edit);
+/** Drops the dragged card onto `target` (`null`: the top): the change, if any. A card that becomes the child of a descendant would close a cycle. */
+function onDrop(ui: OrgUi, target: string | null): void {
+  const edit = ui.dragging === null ? null : moveEdit(ui.agents, ui.dragging, target);
+  ui.drag(null);
+  if (edit) ui.apply(edit);
 }
 
-function FormularioCargo({ agent, edicao }: { agent: OrgAgent; edicao: Edicao }) {
-  const [cargo, setCargo] = useState(agent.role ?? "");
+function RoleForm({ agent, ui }: { agent: OrgAgent; ui: OrgUi }) {
+  const [role, setRole] = useState(agent.role ?? "");
   const [superior, setSuperior] = useState(agent.reportsTo ?? "");
-  const opcoes = superiorChoices(edicao.agents, agent.id);
+  const options = superiorChoices(ui.agents, agent.id);
   return (
     <div className="org-form">
       <label className="settings-field">
         {t("org.role")}
-        <input type="text" value={cargo} maxLength={80} placeholder={t("org.rolePlaceholder")} onChange={(e) => setCargo(e.target.value)} />
+        <input type="text" value={role} maxLength={80} placeholder={t("org.rolePlaceholder")} onChange={(e) => setRole(e.target.value)} />
       </label>
       <label className="settings-field">
         {t("org.reportsTo")}
         <select value={superior} onChange={(e) => setSuperior(e.target.value)}>
           <option value="">{t("org.nobodyTop")}</option>
-          {opcoes.map((a) => (
+          {options.map((a) => (
             <option key={a.id} value={a.id}>
               {a.id}
             </option>
@@ -81,10 +81,10 @@ function FormularioCargo({ agent, edicao }: { agent: OrgAgent; edicao: Edicao })
         <span className="field-hint">{t("org.reportsHint", { id: agent.id })}</span>
       </label>
       <div className="skills-actions">
-        <button type="button" className="primary-button" disabled={edicao.ocupado} onClick={() => edicao.aplicar(positionEdit(agent.id, cargo, superior))}>
+        <button type="button" className="primary-button" disabled={ui.busy} onClick={() => ui.apply(positionEdit(agent.id, role, superior))}>
           {t("common.save")}
         </button>
-        <button type="button" className="link-button" disabled={edicao.ocupado} onClick={() => edicao.abrir(null)}>
+        <button type="button" className="link-button" disabled={ui.busy} onClick={() => ui.open(null)}>
           {t("common.cancel")}
         </button>
       </div>
@@ -92,11 +92,11 @@ function FormularioCargo({ agent, edicao }: { agent: OrgAgent; edicao: Edicao })
   );
 }
 
-function FormularioNovo({ under, edicao }: { under: string | null; edicao: Edicao }) {
+function NewAgentForm({ under, ui }: { under: string | null; ui: OrgUi }) {
   const [id, setId] = useState("");
-  const [cargo, setCargo] = useState("");
+  const [role, setRole] = useState("");
   const [persona, setPersona] = useState("");
-  const pronto = id.trim() !== "" && persona.trim() !== "";
+  const ready = id.trim() !== "" && persona.trim() !== "";
   return (
     <div className="org-form">
       <label className="settings-field">
@@ -105,7 +105,7 @@ function FormularioNovo({ under, edicao }: { under: string | null; edicao: Edica
       </label>
       <label className="settings-field">
         {t("org.role")}
-        <input type="text" value={cargo} maxLength={80} placeholder={t("org.optional")} onChange={(e) => setCargo(e.target.value)} />
+        <input type="text" value={role} maxLength={80} placeholder={t("org.optional")} onChange={(e) => setRole(e.target.value)} />
       </label>
       <label className="settings-field">
         {t("org.whatItDoes")}
@@ -116,10 +116,10 @@ function FormularioNovo({ under, edicao }: { under: string | null; edicao: Edica
         </span>
       </label>
       <div className="skills-actions">
-        <button type="button" className="primary-button" disabled={edicao.ocupado || !pronto} onClick={() => edicao.aplicar(addReportEdit(id, persona, cargo, under))}>
+        <button type="button" className="primary-button" disabled={ui.busy || !ready} onClick={() => ui.apply(addReportEdit(id, persona, role, under))}>
           {t("org.addAgent")}
         </button>
-        <button type="button" className="link-button" disabled={edicao.ocupado} onClick={() => edicao.abrir(null)}>
+        <button type="button" className="link-button" disabled={ui.busy} onClick={() => ui.open(null)}>
           {t("common.cancel")}
         </button>
       </div>
@@ -127,7 +127,7 @@ function FormularioNovo({ under, edicao }: { under: string | null; edicao: Edica
   );
 }
 
-function ConfirmarRemocao({ node, edicao }: { node: OrgNode<OrgAgent>; edicao: Edicao }) {
+function ConfirmRemoval({ node, ui }: { node: OrgNode<OrgAgent>; ui: OrgUi }) {
   const { agent, children } = node;
   return (
     <div className="org-form">
@@ -138,10 +138,10 @@ function ConfirmarRemocao({ node, edicao }: { node: OrgNode<OrgAgent>; edicao: E
         {t("org.conversationsStay")}
       </p>
       <div className="skills-actions">
-        <button type="button" className="primary-button" disabled={edicao.ocupado} onClick={() => edicao.aplicar({ kind: "remove", id: agent.id })}>
+        <button type="button" className="primary-button" disabled={ui.busy} onClick={() => ui.apply({ kind: "remove", id: agent.id })}>
           {t("common.remove")}
         </button>
-        <button type="button" className="link-button" disabled={edicao.ocupado} onClick={() => edicao.abrir(null)}>
+        <button type="button" className="link-button" disabled={ui.busy} onClick={() => ui.open(null)}>
           {t("common.keep")}
         </button>
       </div>
@@ -149,74 +149,74 @@ function ConfirmarRemocao({ node, edicao }: { node: OrgNode<OrgAgent>; edicao: E
   );
 }
 
-function Node({ node, edicao }: { node: OrgNode<OrgAgent>; edicao: Edicao }) {
+function Node({ node, ui }: { node: OrgNode<OrgAgent>; ui: OrgUi }) {
   const { agent, children } = node;
-  const { painel } = edicao;
-  const alvoValido = edicao.arrastando !== null && moveEdit(edicao.agents, edicao.arrastando, agent.id) !== null;
+  const { panel } = ui;
+  const validTarget = ui.dragging !== null && moveEdit(ui.agents, ui.dragging, agent.id) !== null;
   return (
     <li className="org-node">
-      {/* O arrastar fica no cartão, não no <li>: o `dragover` dos subordinados não deve subir para o cartão do pai. */}
+      {/* Dragging lives on the card, not on the <li>: the subordinates' `dragover` must not bubble up to the parent's card. */}
       <div
-        className={`org-card${edicao.arrastando === agent.id ? " org-card--arrastando" : ""}${alvoValido ? " org-card--alvo" : ""}`}
-        draggable={edicao.editavel && !edicao.ocupado}
+        className={`org-card${ui.dragging === agent.id ? " org-card--dragging" : ""}${validTarget ? " org-card--target" : ""}`}
+        draggable={ui.editable && !ui.busy}
         onDragStart={(e) => {
           e.dataTransfer.setData("text/plain", agent.id);
           e.dataTransfer.effectAllowed = "move";
-          edicao.arrastar(agent.id);
+          ui.drag(agent.id);
         }}
-        onDragEnd={() => edicao.arrastar(null)}
+        onDragEnd={() => ui.drag(null)}
         onDragOver={(e) => {
-          if (alvoValido) e.preventDefault();
+          if (validTarget) e.preventDefault();
         }}
         onDrop={(e) => {
           e.preventDefault();
-          aoSoltar(edicao, agent.id);
+          onDrop(ui, agent.id);
         }}
       >
         <span className="org-name">{agent.id}</span>
         {agent.role && <span className="org-role">{agent.role}</span>}
         <span className="org-badges">
-          {selos(agent).map((selo) => (
-            <span key={selo} className="org-badge">
-              {selo}
+          {badges(agent).map((badge) => (
+            <span key={badge} className="org-badge">
+              {badge}
             </span>
           ))}
         </span>
         {children.length > 0 && <span className="org-count">{children.length === 1 ? t("org.oneSubordinate") : t("org.nSubordinates", { count: children.length })}</span>}
-        {edicao.atividade(agent.id) && <span className="org-activity">{edicao.atividade(agent.id)}</span>}
+        {ui.activity(agent.id) && <span className="org-activity">{ui.activity(agent.id)}</span>}
         <span className="org-actions">
-          {!edicao.membro && (
+          {!ui.member && (
             <>
-              <button type="button" className="link-button" onClick={() => edicao.onOpenChat(agent.id)} title={t("org.startChat", { id: agent.id })}>
+              <button type="button" className="link-button" onClick={() => ui.onOpenChat(agent.id)} title={t("org.startChat", { id: agent.id })}>
                 {t("org.chat")}
               </button>
-              <button type="button" className="link-button" onClick={() => edicao.onOpenTasks(agent.id)} title={t("org.tasksOf", { id: agent.id })}>
+              <button type="button" className="link-button" onClick={() => ui.onOpenTasks(agent.id)} title={t("org.tasksOf", { id: agent.id })}>
                 {t("tab.tasks")}
               </button>
             </>
           )}
-          {edicao.editavel && (
+          {ui.editable && (
             <>
-              <button type="button" className="link-button" disabled={edicao.ocupado} onClick={() => edicao.abrir({ kind: "edit", id: agent.id })}>
+              <button type="button" className="link-button" disabled={ui.busy} onClick={() => ui.open({ kind: "edit", id: agent.id })}>
                 {t("common.edit")}
               </button>
-              <button type="button" className="link-button" disabled={edicao.ocupado} onClick={() => edicao.abrir({ kind: "add", under: agent.id })}>
+              <button type="button" className="link-button" disabled={ui.busy} onClick={() => ui.open({ kind: "add", under: agent.id })}>
                 {t("org.addSubordinate")}
               </button>
-              <button type="button" className="link-button" disabled={edicao.ocupado} onClick={() => edicao.abrir({ kind: "remove", id: agent.id })}>
+              <button type="button" className="link-button" disabled={ui.busy} onClick={() => ui.open({ kind: "remove", id: agent.id })}>
                 {t("common.remove")}
               </button>
             </>
           )}
         </span>
       </div>
-      {painel?.kind === "edit" && painel.id === agent.id && <FormularioCargo key={`edit-${agent.id}`} agent={agent} edicao={edicao} />}
-      {painel?.kind === "remove" && painel.id === agent.id && <ConfirmarRemocao node={node} edicao={edicao} />}
-      {painel?.kind === "add" && painel.under === agent.id && <FormularioNovo key={`add-${agent.id}`} under={agent.id} edicao={edicao} />}
+      {panel?.kind === "edit" && panel.id === agent.id && <RoleForm key={`edit-${agent.id}`} agent={agent} ui={ui} />}
+      {panel?.kind === "remove" && panel.id === agent.id && <ConfirmRemoval node={node} ui={ui} />}
+      {panel?.kind === "add" && panel.under === agent.id && <NewAgentForm key={`add-${agent.id}`} under={agent.id} ui={ui} />}
       {children.length > 0 && (
         <ul className="org-children">
           {children.map((child) => (
-            <Node key={child.agent.id} node={child} edicao={edicao} />
+            <Node key={child.agent.id} node={child} ui={ui} />
           ))}
         </ul>
       )}
@@ -224,9 +224,9 @@ function Node({ node, edicao }: { node: OrgNode<OrgAgent>; edicao: Edicao }) {
   );
 }
 
-/** P120 — quem reporta a quem entre os agentes, e onde isso se muda: dar um cargo a um agente, passá-lo para baixo de outro, adicionar um
- * subordinado, remover um. Cada mudança é escrita sozinha (nada mais das configurações é tocado) e pede a chave de pareamento do hub; quem
- * gerencia (`manage_agents`) ou delega (`delegate_to_agent`) alcança só os que estão abaixo dele, então a árvore define o alcance. */
+/** P120 — who reports to whom among the agents, and where that is changed: give an agent a role, move it under another, add a
+ * subordinate, remove one. Each change is written on its own (nothing else in the settings is touched) and asks for the hub's pairing key;
+ * whoever manages (`manage_agents`) or delegates (`delegate_to_agent`) reaches only those below them, so the tree defines the reach. */
 export default function OrganizationView({
   conn,
   onEdit,
@@ -238,29 +238,29 @@ export default function OrganizationView({
   onEdit: () => void;
   onOpenChat: (id: string) => void;
   onOpenTasks: (id: string) => void;
-  /** Um membro (P120): o acesso que o dono deu, `view` ou `edit`. Ausente para o dono. O membro lê e edita pela sessão dele, sem chave de
-   * pareamento, e só recebe o id, o cargo e o superior de cada agente. */
+  /** A member (P120): the access the owner gave, `view` or `edit`. Absent for the owner. The member reads and edits through their own session,
+   * with no pairing key, and only receives the id, the role and the superior of each agent. */
   memberAccess?: OrgAccess;
 }) {
-  const membro = memberAccess !== undefined;
-  const editavel = memberAccess === undefined || memberAccess === "edit";
+  const member = memberAccess !== undefined;
+  const editable = memberAccess === undefined || memberAccess === "edit";
   const [agents, setAgents] = useState<OrgAgent[] | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [painel, setPainel] = useState<Painel | null>(null);
+  const [panel, setPanel] = useState<Panel | null>(null);
   const [asking, setAsking] = useState<OrgEdit | null>(null);
   const [pairingKey, setPairingKey] = useState("");
   const [keyError, setKeyError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const [arrastando, setArrastando] = useState<string | null>(null);
+  const [dragging, setDragging] = useState<string | null>(null);
   const [tasks, setTasks] = useState<AgentTask[]>([]);
-  // Só o dono: o gasto de cada agente e as conversas que ele já teve (P123). Um membro não os pede nem os vê.
+  // Owner only: each agent's spend and the conversations it has had (P123). A member neither asks for nor sees them.
   const [usage, setUsage] = useState<UsageReport | null>(null);
   const [conversations, setConversations] = useState<ConversationSummary[]>([]);
 
   const load = useCallback(async () => {
     if (!conn) return;
     try {
-      if (membro) {
+      if (member) {
         setAgents((await conn.listAgentOrg()).agents);
       } else {
         const loaded = await conn.requestSettings();
@@ -270,24 +270,24 @@ export default function OrganizationView({
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     }
-    if (membro) return;
-    // A atividade de cada nó é um extra: sem as tarefas, o cartão só não mostra a linha.
+    if (member) return;
+    // Each node's activity is an extra: without the tasks, the card just does not show the line.
     try {
       setTasks(await conn.listAgentTasks());
     } catch {
-      /* ignorado */
+      /* ignored */
     }
     try {
       setUsage(await conn.requestUsage());
     } catch {
-      /* ignorado */
+      /* ignored */
     }
     try {
       setConversations(await conn.listConversations());
     } catch {
-      /* ignorado */
+      /* ignored */
     }
-  }, [conn, membro]);
+  }, [conn, member]);
 
   useEffect(() => {
     void load();
@@ -299,14 +299,14 @@ export default function OrganizationView({
     setKeyError(null);
   }
 
-  /** Um membro com acesso `edit`: a sessão dele é a autorização, então a mudança vai direto, sem pedir chave. */
-  async function aplicarComoMembro(edit: OrgEdit) {
+  /** A member with `edit` access: their session is the authorization, so the change goes straight through, with no key prompt. */
+  async function applyAsMember(edit: OrgEdit) {
     if (!conn) return;
     setBusy(true);
     setError(null);
     try {
       setAgents((await conn.editAgentOrgAsMember(edit)).agents);
-      setPainel(null);
+      setPanel(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -320,7 +320,7 @@ export default function OrganizationView({
     setKeyError(null);
     try {
       setAgents(await conn.editAgentOrg(pairingKey, asking));
-      setPainel(null);
+      setPanel(null);
       setError(null);
       cancelKey();
     } catch (err) {
@@ -339,37 +339,37 @@ export default function OrganizationView({
     return <div className="usage-view">{error ? <p className="error-banner">{error}</p> : <p className="skills-hint">{t("common.loading")}</p>}</div>;
   }
 
-  const edicao: Edicao = {
+  const ui: OrgUi = {
     onOpenChat,
     onOpenTasks,
     agents,
-    editavel,
-    membro,
-    painel,
-    ocupado: busy || asking !== null,
-    abrir: (next) => {
+    editable,
+    member,
+    panel,
+    busy: busy || asking !== null,
+    open: (next) => {
       setError(null);
-      setPainel(next);
+      setPanel(next);
     },
-    aplicar: (edit) => {
+    apply: (edit) => {
       setError(null);
       setKeyError(null);
-      if (membro) {
-        void aplicarComoMembro(edit);
+      if (member) {
+        void applyAsMember(edit);
       } else {
         setAsking(edit);
       }
     },
-    arrastando,
-    arrastar: setArrastando,
-    atividade: (id) => {
+    dragging,
+    drag: setDragging,
+    activity: (id) => {
       const activity = activityOf(tasks, id, { spend: spendOf(usage, id), lastConversationMs: lastConversationOf(conversations, id) });
       return activity ? activityLine(activity, Date.now()) : null;
     },
   };
-  const topoValido = arrastando !== null && moveEdit(agents, arrastando, null) !== null;
+  const topIsValid = dragging !== null && moveEdit(agents, dragging, null) !== null;
   const tree = buildOrg(agents);
-  const ninguemReporta = tree.every((node) => node.children.length === 0);
+  const nobodyReports = tree.every((node) => node.children.length === 0);
 
   const keyPrompt = asking && (
     <form
@@ -399,7 +399,7 @@ export default function OrganizationView({
   return (
     <div className="usage-view">
       <div className="skills-toolbar">
-        <span className="skills-hint">{membro ? (editavel ? t("org.introMemberEdit") : t("org.introMemberView")) : t("org.introOwner")}</span>
+        <span className="skills-hint">{member ? (editable ? t("org.introMemberEdit") : t("org.introMemberView")) : t("org.introOwner")}</span>
         <button type="button" className="link-button" onClick={() => void load()} disabled={!conn || busy}>
           {t("common.refresh")}
         </button>
@@ -411,31 +411,31 @@ export default function OrganizationView({
       ) : (
         <ul className="org-tree">
           {tree.map((node) => (
-            <Node key={node.agent.id} node={node} edicao={edicao} />
+            <Node key={node.agent.id} node={node} ui={ui} />
           ))}
         </ul>
       )}
-      {topoValido && (
+      {topIsValid && (
         <div
-          className="org-topo"
+          className="org-top"
           onDragOver={(e) => e.preventDefault()}
           onDrop={(e) => {
             e.preventDefault();
-            aoSoltar(edicao, null);
+            onDrop(ui, null);
           }}
         >
           {t("org.dropHere")}
         </div>
       )}
-      {tree.length > 0 && ninguemReporta && !edicao.editavel && <p className="skills-hint">{t("org.nobodyReports")}</p>}
-      {tree.length > 0 && ninguemReporta && edicao.editavel && <p className="skills-hint">{t("org.nobodyReportsEdit")}</p>}
-      {painel?.kind === "add" && painel.under === null && <FormularioNovo key="add-top" under={null} edicao={edicao} />}
-      {editavel && (
+      {tree.length > 0 && nobodyReports && !ui.editable && <p className="skills-hint">{t("org.nobodyReports")}</p>}
+      {tree.length > 0 && nobodyReports && ui.editable && <p className="skills-hint">{t("org.nobodyReportsEdit")}</p>}
+      {panel?.kind === "add" && panel.under === null && <NewAgentForm key="add-top" under={null} ui={ui} />}
+      {editable && (
         <div className="skills-actions">
-          <button type="button" className="link-button" disabled={edicao.ocupado} onClick={() => edicao.abrir({ kind: "add", under: null })}>
+          <button type="button" className="link-button" disabled={ui.busy} onClick={() => ui.open({ kind: "add", under: null })}>
             {t("org.addAtTop")}
           </button>
-          {!membro && (
+          {!member && (
             <button type="button" className="link-button" onClick={onEdit}>
               {t("org.moreSettings")}
             </button>

@@ -18,8 +18,8 @@ function shortDate(millis: number): string {
     : date.toLocaleDateString(intlTag(), { day: "2-digit", month: "2-digit" });
 }
 
-/** P121 — o que um agente fez fora do canal: os recados que trocou com outros agentes e as execuções sem ninguém olhando. Cada um abre no
- * chat como a conversa que é. */
+/** P121 — what an agent did outside its channel: the notes it exchanged with other agents and the runs with nobody watching. Each one opens in the
+ * chat as the conversation it is. */
 export default function AgentWorkList({ agent, items, pendingIds, onOpen, onBack }: Props) {
   return (
     <div className="channels-view">

@@ -1,8 +1,8 @@
 import { intlTag, t, type Key } from "../i18n/index.ts";
 import type { SshAuditEntry } from "./messages";
 
-// P47 — o registro de uso do SSH: o que cada chamada das tools de SSH pediu e como terminou, em palavras de gente. O log guarda o
-// comando (que pode ter um segredo) e nunca a saída.
+// P47 — the SSH usage log: what each call to the SSH tools asked for and how it ended, in plain words. The log keeps the
+// command (which may hold a secret) and never the output.
 
 const APPROVAL: Record<string, Key> = {
   not_required: "ssh.approval.not_required",
@@ -13,7 +13,7 @@ const APPROVAL: Record<string, Key> = {
 
 const ACTION: Record<string, Key> = { exec: "ssh.action.exec", upload: "ssh.action.upload", download: "ssh.action.download" };
 
-/** A aprovação como a pessoa lê; o que o hub mandar e esta tela não conhecer aparece como veio. */
+/** The approval as the person reads it; whatever the hub sends that this screen does not know shows as it came. */
 export function approvalLabel(approval: string): string {
   return APPROVAL[approval] ? t(APPROVAL[approval]) : approval;
 }
@@ -22,12 +22,12 @@ export function actionLabel(action: string): string {
   return ACTION[action] ? t(ACTION[action]) : action;
 }
 
-/** Se a chamada foi barrada antes de rodar: a pessoa recusou, ou não havia ninguém para perguntar. */
+/** Whether the call was blocked before it ran: the person refused, or there was nobody to ask. */
 export function wasRefused(entry: SshAuditEntry): boolean {
   return entry.approval === "denied" || entry.approval === "unavailable";
 }
 
-/** Do que se tratava: o comando, ou `origem → destino` numa cópia (um download sai do servidor). */
+/** What it was about: the command, or `source → destination` for a copy (a download comes from the server). */
 export function detailOf(entry: SshAuditEntry): string {
   if (entry.command !== undefined) return entry.command;
   const local = entry.localPath ?? "?";
@@ -42,7 +42,7 @@ function size(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toLocaleString(intlTag(), { maximumFractionDigits: 1 })} MB`;
 }
 
-/** Como terminou, em poucas palavras; vazio quando nada rodou e não há motivo a dar. */
+/** How it ended, in a few words; empty when nothing ran and there is no reason to give. */
 export function outcomeOf(entry: SshAuditEntry): string {
   if (entry.error !== undefined) return t("ssh.error", { error: entry.error });
   if (entry.timedOut) return t("ssh.timedOut");

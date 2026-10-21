@@ -29,9 +29,9 @@ interface Props {
   onExtendLimit: (limitId: string) => Promise<void>;
   /** Shift+Tab in the box, as in Claude Code: the next mode of a code conversation. Absent when there is no mode to change. */
   onCycleMode?: () => void;
-  /** P125 — abre a thread de uma mensagem (pelo id dela). Ausente onde não há threads (a própria thread, um hub antigo, uma conversa de código). */
+  /** P125 — opens the thread of a message (by its id). Absent where there are no threads (a thread itself, an older hub, a code conversation). */
   onOpenThread?: (messageId: string) => void;
-  /** As threads desta conversa, pelo id da mensagem de onde saíram: o chip "N respostas" no lugar do botão. */
+  /** The threads of this conversation, by the id of the message they came from: the "N replies" chip in place of the button. */
   threads?: Record<string, ThreadInfo>;
 }
 
@@ -71,7 +71,7 @@ function ExternalLink({ children, ...props }: AnchorHTMLAttributes<HTMLAnchorEle
   );
 }
 
-/** A mensagem da pessoa virada numa caixa para mudá-la (P157). Enviar pergunta antes quando a edição também apaga o que veio depois. */
+/** The person's message turned into a box to change it (P157). Sending asks first when the edit also deletes what came after. */
 function EditBox({ entry, after, onSend, onCancel }: { entry: ChatEntry; after: number; onSend: (message: string) => void; onCancel: () => void }) {
   const [text, setText] = useState(entry.content);
 
@@ -168,7 +168,7 @@ function LiveBubble({ live }: { live: LiveTurn }) {
 }
 
 export default function ChatView({ entries, pending, live, onCancel, disabled, onSend, onRedo, onTranscribe, onExtendLimit, onCycleMode, onOpenThread, threads }: Props) {
-  // A mensagem da pessoa que está sendo editada (P157), pelo id; só uma de cada vez.
+  // The person's message being edited (P157), by id; only one at a time.
   const [editingId, setEditingId] = useState<string | null>(null);
   const lastUser = lastUserEntry(entries);
   const [draft, setDraft] = useState("");

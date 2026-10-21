@@ -31,7 +31,7 @@ function toAgent(draft: Draft): AgentSettings {
     canManageAgents: false,
     canMessageAgents: false,
     canManageTasks: false,
-    // O agente de um membro faz o que sempre fez: os workers e o segundo plano fazem parte das ferramentas dele.
+    // A member's agent does what it always did: the workers and the background work are part of its tools.
     canStartTasks: true,
     canCreateWorkers: true,
     canMessageUser: true,

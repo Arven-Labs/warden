@@ -1,8 +1,8 @@
 import { useState, type ReactNode } from "react";
 import { t } from "../i18n/index.ts";
 
-/** Pede a chave de pareamento do hub para uma mudança (P120, P123): ela é pedida a cada mudança e não fica guardada em lugar nenhum,
- * nem aqui, nem no background. `error` é o recado de uma chave errada. */
+/** Asks for the hub's pairing key for a change (P120, P123): it is asked for on every change and is not stored anywhere,
+ * neither here nor in the background. `error` is the message for a wrong key. */
 export default function PairingKeyForm({
   children,
   busy,

@@ -67,11 +67,11 @@ interface Draft {
   combos: Keyed<Combo>[];
   /** P123 — named model policies. */
   modelPolicies: Keyed<ModelPolicy>[];
-  /** P121 — os agentes que podem iniciar mensagens, por nome de agente (acompanha renomear e remover). */
+  /** P121 — the agents that can start messages, by agent name (follows renaming and removal). */
   outreach: OutreachEntry[];
-  /** P122 — o mapa de ferramenta para categoria de risco. */
+  /** P122 — the map from tool to risk category. */
   toolCategories: ToolCategoryEntry[];
-  /** P122 — o "sempre" em arquivo. Um hub antigo não manda os dois campos: a seção some e nada disso é enviado. */
+  /** P122 — the "always" kept in a file. An older hub does not send the two fields: the section disappears and none of this is sent. */
   grantsSupported: boolean;
   persistGrants: boolean;
   grantTtlDays: string;
@@ -500,7 +500,7 @@ export default function SettingsView({ conn }: { conn: ServerConnection | null }
       return {
         ...d,
         agents: renamed ? renameInReports(agents, before.id, patch.id!) : agents,
-        // P121: a entrada de quem pode iniciar mensagens também acompanha o nome novo.
+        // P121: the entry of who can start messages also follows the new name.
         outreach: renamed ? renameOutreach(d.outreach, before.id, patch.id!) : d.outreach,
       };
     });

@@ -738,7 +738,7 @@ button:hover:not(:disabled) {
   color: var(--color-text-muted);
 }
 
-/* Agentes (P120, P123): a árvore da organização e o trabalho que os agentes delegam. */
+/* Agents (P120, P123): the organization tree and the work the agents delegate. */
 .agents-view,
 .agents-pane {
   display: flex;
@@ -750,7 +750,7 @@ button:hover:not(:disabled) {
   margin-bottom: 0.25rem;
 }
 
-/* Uso (P126): os totais e as barras de tokens por agente, provedor e combo. */
+/* Usage (P126): the totals and the token bars per agent, provider and combo. */
 .usage-totals {
   margin: 0;
 }
@@ -819,21 +819,21 @@ button:hover:not(:disabled) {
   background: var(--color-surface);
 }
 
-/* Arrastar um cartão para outro muda o superior (P120): o cartão arrastado fica mais fraco e os alvos que aceitam ganham um contorno. */
+/* Dragging a card onto another changes the superior (P120): the dragged card fades and the targets that accept it get an outline. */
 .org-card[draggable="true"] {
   cursor: grab;
 }
 
-.org-card--arrastando {
+.org-card--dragging {
   opacity: 0.5;
 }
 
-.org-card--alvo {
+.org-card--target {
   outline: 2px dashed var(--color-accent);
   outline-offset: 2px;
 }
 
-.org-topo {
+.org-top {
   padding: 0.5rem 0.6rem;
   border-radius: 6px;
   border: 2px dashed var(--color-border);

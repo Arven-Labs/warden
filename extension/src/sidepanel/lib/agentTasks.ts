@@ -1,10 +1,10 @@
-// P123 — o trabalho que os agentes passam uns aos outros, como a aba "Trabalho dos agentes" mostra: as tarefas que um turno
-// começou formam um grupo, com um progresso contado sobre elas. Espelha `desktop/src/lib/agentTasks.ts`.
+// P123 — the work the agents hand to each other, as the "Agent work" tab shows it: the tasks one turn
+// started form a group, with a progress count over them. Mirrors `desktop/src/lib/agentTasks.ts`.
 
 import { intlTag, t } from "../../i18n/index.ts";
 import type { AgentTask, AgentTaskAction, AgentTaskState } from "../../protocol/messages";
 
-/** Uma tarefa como a lista a mostra: quantos níveis abaixo do agente do turno ela está (0 para as que o próprio agente começou). */
+/** A task as the list shows it: how many levels below the turn's agent it sits (0 for the ones the agent itself started). */
 export interface TaskRow {
   task: AgentTask;
   depth: number;
@@ -12,21 +12,21 @@ export interface TaskRow {
 
 export interface TaskGroup {
   group: string;
-  /** O agente que delegou, se houve. */
+  /** The agent that delegated, if any. */
   owner: string | null;
-  /** Da mais antiga à mais nova, na ordem em que o turno as começou. */
+  /** Oldest to newest, in the order the turn started them. */
   tasks: AgentTask[];
-  /** As mesmas tarefas como árvore achatada para mostrar: cada uma seguida das suas subtarefas. */
+  /** The same tasks as a flattened tree for display: each one followed by its subtasks. */
   rows: TaskRow[];
   total: number;
-  /** Concluídas, falhas ou canceladas: nada mais a esperar. */
+  /** Done, failed or cancelled: nothing left to wait for. */
   finished: number;
   counts: Record<AgentTaskState, number>;
-  /** Percentual inteiro das tarefas que terminaram. */
+  /** Whole percentage of the tasks that finished. */
   percent: number;
-  /** Tokens usados pelas tarefas que informaram. */
+  /** Tokens used by the tasks that reported them. */
   totalTokens: number;
-  /** Algo no grupo ainda está pendente ou rodando. */
+  /** Something in the group is still pending or running. */
   active: boolean;
   createdAtMs: number;
 }
@@ -68,8 +68,8 @@ export const STATE_MARK: Record<AgentTaskState, string> = {
 
 const emptyCounts = (): Record<AgentTaskState, number> => ({ pending: 0, running: 0, waiting: 0, paused: 0, done: 0, failed: 0, cancelled: 0 });
 
-/** O que dá para fazer com esta tarefa agora: só a que roda no processo do hub que respondeu. A que ainda não começou só pode ser parada;
- * a pausada pode ser retomada; uma delegação que o agente espera também só pode ser parada. */
+/** What can be done to this task now: only one that runs in the process of the hub that answered. One that has not started can only be stopped;
+ * a paused one can be resumed; a delegation the agent is waiting on can also only be stopped. */
 export function actionsFor(task: AgentTask): AgentTaskAction[] {
   if (!task.controllable) return [];
   switch (task.state) {
@@ -97,8 +97,8 @@ export const ACTION_LABEL: Record<AgentTaskAction, string> = {
   },
 };
 
-/** As tarefas de um grupo como árvore: cada tarefa seguida das suas subtarefas, um nível abaixo. Uma tarefa cujo pai não está no grupo
- * (ou um laço que não deveria existir) aparece no topo em vez de se perder. */
+/** A group's tasks as a tree: each task followed by its subtasks, one level down. A task whose parent is not in the group
+ * (or a cycle that should not exist) shows at the top instead of getting lost. */
 function treeRows(ordered: AgentTask[]): TaskRow[] {
   const ids = new Set(ordered.map((t) => t.id));
   const rows: TaskRow[] = [];
@@ -113,7 +113,7 @@ function treeRows(ordered: AgentTask[]): TaskRow[] {
   return rows;
 }
 
-/** As tarefas agrupadas pelo turno que as começou, o grupo mais novo primeiro. Um estado desconhecido conta como pendente. */
+/** The tasks grouped by the turn that started them, newest group first. An unknown state counts as pending. */
 export function groupTasks(tasks: AgentTask[]): TaskGroup[] {
   const byGroup = new Map<string, AgentTask[]>();
   for (const task of tasks) {
@@ -144,45 +144,45 @@ export function groupTasks(tasks: AgentTask[]): TaskGroup[] {
   return groups.sort((a, b) => b.createdAtMs - a.createdAtMs);
 }
 
-/** As tarefas que envolvem um agente: as que ele recebeu e as que ele delegou (P120, a partir de um nó da árvore). */
+/** The tasks that involve an agent: the ones it received and the ones it delegated (P120, from a node of the tree). */
 export function involvingAgent(tasks: AgentTask[], agent: string): AgentTask[] {
   return tasks.filter((t) => t.assignee === agent || t.owner === agent);
 }
 
-/** O que um agente andou fazendo, tirado só das tarefas que o hub guarda (P120): o que ele recebeu (`assignee`), quantas delegou (`owner`) e
- * quando mexeu em algo pela última vez. O log guarda só as mais recentes, e conversas diretas e recados não entram. */
+/** What an agent has been doing, taken only from the tasks the hub keeps (P120): what it received (`assignee`), how many it delegated (`owner`) and
+ * when it last touched something. The log keeps only the most recent ones, and direct conversations and notes do not count. */
 export interface AgentActivity {
-  /** Tarefas que ele recebeu, por onde estão. */
+  /** Tasks it received, by where they stand. */
   done: number;
   failed: number;
   cancelled: number;
-  /** Pendentes, rodando, aguardando agente ou pausadas. */
+  /** Pending, running, waiting on an agent or paused. */
   active: number;
-  /** Tokens das tarefas que ele recebeu e que informaram. */
+  /** Tokens of the tasks it received that reported them. */
   tokens: number;
-  /** Quantas tarefas ele delegou a outros. */
+  /** How many tasks it delegated to others. */
   delegated: number;
-  /** A última coisa que aconteceu: numa tarefa dele (criada, começada ou terminada) ou numa conversa com ele. `null` quando só se sabe o gasto. */
+  /** The last thing that happened: on one of its tasks (created, started or finished) or in a conversation with it. `null` when only the spend is known. */
   lastActiveMs: number | null;
-  /** O que ele gastou na janela do livro-caixa do hub. Só aparece quando a tela o informa. */
+  /** What it spent in the hub's ledger window. Only shows when the screen reports it. */
   spend?: AgentSpend;
 }
 
-/** O gasto de um agente no livro-caixa do hub, que só guarda as últimas `windowHours` (o maior limite). */
+/** An agent's spend in the hub's ledger, which only keeps the last `windowHours` (the largest limit). */
 export interface AgentSpend {
   costUsd: number;
-  /** Chamadas sem preço conhecido: o valor em dólar as deixa de fora. */
+  /** Calls with no known price: the dollar amount leaves them out. */
   unpricedCalls: number;
   windowHours: number;
 }
 
-/** O que a atividade usa além das tarefas (P123): o gasto e a conversa mais recente do agente. */
+/** What the activity uses besides the tasks (P123): the agent's spend and most recent conversation. */
 export interface ActivityExtras {
   spend?: AgentSpend;
   lastConversationMs?: number;
 }
 
-/** A atividade de `agent`, ou `null` quando nada o envolve: nem tarefa, nem conversa recente, nem gasto. */
+/** The activity of `agent`, or `null` when nothing involves it: no task, no recent conversation, no spend. */
 export function activityOf(tasks: AgentTask[], agent: string, extras: ActivityExtras = {}): AgentActivity | null {
   const received = tasks.filter((t) => t.assignee === agent);
   const delegated = tasks.filter((t) => t.owner === agent);
@@ -205,7 +205,7 @@ export function activityOf(tasks: AgentTask[], agent: string, extras: ActivityEx
   };
 }
 
-/** O gasto de `agent` no relatório de uso do hub, ou `undefined` quando o hub não o conta (hub antigo, ou agente sem gasto na janela). */
+/** The spend of `agent` in the hub's usage report, or `undefined` when the hub does not count it (older hub, or an agent with no spend in the window). */
 export function spendOf(
   report: { recent?: { windowHours: number; byAgent?: { key: string; costUsd: number; unpricedCalls: number }[] } | null } | null,
   agent: string,
@@ -215,7 +215,7 @@ export function spendOf(
   return { costUsd: bucket.costUsd, unpricedCalls: bucket.unpricedCalls, windowHours: report.recent.windowHours };
 }
 
-/** Quando foi a última conversa de `agent` (a mais recente que falou com ele, sem contar as threads), ou `undefined` quando não houve. */
+/** When the last conversation of `agent` was (the most recent one that talked to it, not counting threads), or `undefined` when there was none. */
 export function lastConversationOf(conversations: { agentId?: string | null; updatedAt: number; parent?: unknown }[], agent: string): number | undefined {
   const times = conversations.filter((c) => c.agentId === agent && !c.parent).map((c) => c.updatedAt);
   return times.length > 0 ? Math.max(...times) : undefined;
@@ -243,12 +243,12 @@ export function spendLabel(spend: AgentSpend): string {
 
 export interface ComboSpendRow {
   combo: string;
-  /** `US$ 1,20 nas últimas 24 h`, com as chamadas que o valor deixa de fora. */
+  /** `$1.20 in the last 24 h`, with a note of the calls the value leaves out. */
   label: string;
 }
 
-/** P126 — o que cada combo gastou na janela do ledger, o maior primeiro. A janela é a do ledger, e não a dos tokens por combo (essa não tem limite
- * de tempo), por isso são linhas à parte. Um hub antigo, ou nenhuma chamada por um combo, não dá linha nenhuma. */
+/** P126 — what each combo spent in the ledger window, biggest first. The window is the ledger's, not the per-combo tokens' (which has no time
+ * limit), hence the separate rows. An older hub, or no call through a combo, gives no row at all. */
 export function comboSpendRows(report: { recent?: { windowHours: number; byCombo?: { key: string; costUsd: number; unpricedCalls: number }[] } | null }): ComboSpendRow[] {
   const recent = report.recent;
   if (!recent?.byCombo) return [];
@@ -257,7 +257,7 @@ export function comboSpendRows(report: { recent?: { windowHours: number; byCombo
     .map((b) => ({ combo: b.key, label: spendLabel({ costUsd: b.costUsd, unpricedCalls: b.unpricedCalls, windowHours: recent.windowHours }) }));
 }
 
-/** A atividade numa linha do cartão da árvore: `3 concluídas, 1 falhou, 2 em andamento · 12,9 mil tokens · US$ 1,20 nas últimas 24 h · delegou 5 · ativo há 4 min`. */
+/** The activity on one line of the tree card: `3 done, 1 failed, 2 in progress · 12.9K tokens · $1.20 in the last 24 h · delegated 5 · active 4 min ago`. */
 export function activityLine(a: AgentActivity, nowMs: number): string {
   const parts = [
     a.done > 0 && t(a.done > 1 ? "tally.doneMany" : "tally.doneOne", { count: a.done }),
@@ -277,7 +277,7 @@ export function formatTokens(n: number): string {
   return new Intl.NumberFormat(intlTag(), { notation: "compact", maximumFractionDigits: 1 }).format(n);
 }
 
-/** Quanto tempo uma tarefa levou (ou está levando): `4s`, `2m 05s`, `1h 03m`. `null` antes de começar. */
+/** How long a task took (or is taking): `4s`, `2m 05s`, `1h 03m`. `null` before it starts. */
 export function durationLabel(task: AgentTask, now: number): string | null {
   if (task.startedAtMs == null) return null;
   const seconds = Math.max(0, Math.round(((task.finishedAtMs ?? now) - task.startedAtMs) / 1000));

@@ -1,20 +1,20 @@
-// P121 — o que um agente fez fora do canal dele: os recados que trocou com outros agentes ("A → B", `message_agent`) e as execuções sem
-// ninguém olhando (tarefas agendadas e webhooks, `task-*`). Puro, para testar sem janela. Espelha `web/src/hub/agentWork.ts`. Os ids e o
-// título são os do hub (`activity.rs`).
+// P121 — what an agent did outside its channel: the notes it exchanged with other agents ("A → B", `message_agent`) and the runs with
+// nobody watching (scheduled tasks and webhooks, `task-*`). Pure, to test without a window. Mirrors `web/src/hub/agentWork.ts`. The ids and the
+// title are the hub's (`activity.rs`).
 
 import { t } from "../../i18n/index.ts";
 import type { ConversationSummary } from "../../protocol/messages";
 
-/** O começo do id da conversa entre dois agentes (`message_agent::thread_id`). */
+/** The start of the id of the conversation between two agents (`message_agent::thread_id`). */
 export const NOTE_PREFIX = "agents-";
-/** O começo do id da conversa de uma tarefa agendada (`tasks::CONVERSATION_PREFIX`); a de um webhook é `task-hook-`. */
+/** The start of the id of a scheduled task's conversation (`tasks::CONVERSATION_PREFIX`); a webhook's is `task-hook-`. */
 export const RUN_PREFIX = "task-";
 const HOOK_PREFIX = "task-hook-";
 const ARROW = " → ";
 
 export type AgentWorkKind = "note-out" | "note-in" | "run-task" | "run-hook";
 
-/** Uma conversa do agente fora do canal. `other` é o colega de um recado. */
+/** A conversation of the agent outside the channel. `other` is the counterpart of a note. */
 export interface AgentWorkItem {
   id: string;
   title: string;
@@ -23,15 +23,15 @@ export interface AgentWorkItem {
   updatedAt: number;
 }
 
-/** Os dois lados de uma conversa "A → B", ou `null` quando o título não tem a seta. */
+/** The two sides of an "A → B" conversation, or `null` when the title has no arrow. */
 function ends(title: string): [string, string] | null {
   const at = title.indexOf(ARROW);
   if (at < 0) return null;
   return [title.slice(0, at).trim(), title.slice(at + ARROW.length).trim()];
 }
 
-/** As conversas de `agent` fora do canal, as mais novas primeiro: os recados que deixou ou recebeu e as execuções que fez. Uma thread (P125)
- * não entra, ela aparece a partir da mensagem de onde saiu. */
+/** The conversations of `agent` outside the channel, newest first: the notes it left or received and the runs it made. A thread (P125)
+ * does not count, it shows from the message it came from. */
 export function agentWork(conversations: ConversationSummary[], agent: string): AgentWorkItem[] {
   const items: AgentWorkItem[] = [];
   for (const c of conversations) {
@@ -48,7 +48,7 @@ export function agentWork(conversations: ConversationSummary[], agent: string): 
   return items.sort((a, b) => b.updatedAt - a.updatedAt || a.id.localeCompare(b.id));
 }
 
-/** O que a lista diz de uma conversa: `para ana`, `de ana`, `tarefa agendada`, `webhook`. */
+/** What the list says about a conversation: `to ana`, `from ana`, `scheduled task`, `webhook`. */
 export function workLabel(item: AgentWorkItem): string {
   switch (item.kind) {
     case "note-out":

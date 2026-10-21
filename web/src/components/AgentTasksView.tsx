@@ -90,9 +90,9 @@ function TaskItem({ task, depth, now, onAsk }: { task: AgentTask; depth: number;
   );
 }
 
-/** P123 — o trabalho que os agentes passaram uns aos outros em segundo plano: quem faz o quê, até onde foi o lote de cada
- * gerente e quanto custou. Atualiza enquanto a aba está aberta. Uma tarefa que ainda roda no hub pode ser pausada, retomada ou
- * parada (com as subtarefas), e isso pede a chave de pareamento, como toda mudança no hub. */
+/** P123 — the work the agents handed to each other in the background: who does what, how far each manager's batch got
+ * and what it cost. Updates while the tab is open. A task still running on the hub can be paused, resumed or
+ * stopped (along with its subtasks), and that asks for the pairing key, like every change on the hub. */
 export default function AgentTasksView({ conn, agent = null, onClearAgent }: { conn: ServerConnection | null; agent?: string | null; onClearAgent?: () => void }) {
   const [tasks, setTasks] = useState<AgentTask[] | null>(null);
   const [error, setError] = useState<string | null>(null);

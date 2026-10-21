@@ -14,9 +14,9 @@ const CATEGORY_KEY: Record<string, Key> = {
   elevated_agent: "grants.cat.elevated_agent",
 };
 
-/** P122 — o que a pessoa disse "sempre" nesta conexão: uma categoria de risco ou uma ferramenta, por conversa e agente. Guardado em arquivo,
- * vence depois dos dias que o hub tem configurados sem uso; senão vale até a conexão fechar. Tirar um faz o agente voltar a perguntar; isso
- * só o deixa mais cauteloso, então não pede a chave de pareamento. */
+/** P122 — what the person said "always" to on this connection: a risk category or a tool, per conversation and agent. Kept in a file, it
+ * expires after the number of unused days the hub has configured; otherwise it lasts until the connection closes. Removing one makes the agent go
+ * back to asking; that only makes it more cautious, so it does not ask for the pairing key. */
 export default function GrantsSection() {
   const [grants, setGrants] = useState<Grant[] | null>(null);
   const [ttlDays, setTtlDays] = useState<number | undefined>(undefined);

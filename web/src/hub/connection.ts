@@ -764,7 +764,7 @@ export class ServerConnection {
   /** P160 — packs a skill of the vault into the text of a `*.warden-skill.json` file. `attachmentsSkipped`: its attached files are not in it. */
   async exportSkill(name: string, version: string, author: string | null, license: string): Promise<{ content: string; attachmentsSkipped: boolean }> {
     const reply = await this.request((requestId) => ({ type: "exportSkill", requestId, name, version, ...(author ? { author } : {}), license }));
-    if (reply.type !== "skillPackageFile") throw new Error("resposta inesperada do hub");
+    if (reply.type !== "skillPackageFile") throw new Error("unexpected reply from the hub");
     return { content: reply.content, attachmentsSkipped: reply.attachmentsSkipped ?? false };
   }
 
@@ -772,14 +772,14 @@ export class ServerConnection {
    * is not valid, nothing is there yet, it is too big or it is not a package. The text is then previewed like a file. */
   async fetchSkillPackage(address: string): Promise<string> {
     const reply = await this.request((requestId) => ({ type: "fetchSkillPackage", requestId, address }));
-    if (reply.type !== "skillPackageFile") throw new Error("resposta inesperada do hub");
+    if (reply.type !== "skillPackageFile") throw new Error("unexpected reply from the hub");
     return reply.content;
   }
 
   /** Reads and checks a skill file without installing it. Rejects when it is not a valid package. */
   async previewSkillPackage(content: string): Promise<PackagePreviewDto> {
     const reply = await this.request((requestId) => ({ type: "previewSkillPackage", requestId, content }));
-    if (reply.type !== "skillPackagePreview") throw new Error("resposta inesperada do hub");
+    if (reply.type !== "skillPackagePreview") throw new Error("unexpected reply from the hub");
     return reply.preview;
   }
 
@@ -816,7 +816,7 @@ export class ServerConnection {
 
   async readVaultNote(path: string): Promise<VaultNote> {
     const reply = await this.request((requestId) => ({ type: "readVaultNote", requestId, path }));
-    if (reply.type !== "vaultNote") throw new Error("resposta inesperada do hub");
+    if (reply.type !== "vaultNote") throw new Error("unexpected reply from the hub");
     return { content: reply.content, version: reply.version };
   }
 
@@ -830,7 +830,7 @@ export class ServerConnection {
       content,
       ...(expectedVersion !== undefined && { expectedVersion }),
     }));
-    if (reply.type !== "vaultSaved") throw new Error("resposta inesperada do hub");
+    if (reply.type !== "vaultSaved") throw new Error("unexpected reply from the hub");
     return reply.version;
   }
 
@@ -848,21 +848,21 @@ export class ServerConnection {
     // `getTimezoneOffset` is minutes *behind* UTC (180 at UTC−3); the hub wants the offset itself.
     const tzOffsetMinutes = -new Date().getTimezoneOffset();
     const reply = await this.request((requestId) => ({ type: "requestUsage", requestId, tzOffsetMinutes }));
-    if (reply.type !== "usageReport") throw new Error("resposta inesperada do hub");
+    if (reply.type !== "usageReport") throw new Error("unexpected reply from the hub");
     return reply.report;
   }
 
   /** Lets a spending limit go one step further for the rest of its window; returns where it stands. */
   async extendLimit(limitId: string): Promise<LimitStatus> {
     const reply = await this.request((requestId) => ({ type: "extendLimit", requestId, limitId }));
-    if (reply.type !== "limitExtended") throw new Error("resposta inesperada do hub");
+    if (reply.type !== "limitExtended") throw new Error("unexpected reply from the hub");
     return reply.limit;
   }
 
   /** The part of the hub's config the web edits (P78) — never any API key, only whether one is set. */
   async requestSettings(): Promise<LoadedSettings> {
     const reply = await this.request((requestId) => ({ type: "requestSettings", requestId }));
-    if (reply.type !== "settings") throw new Error("resposta inesperada do hub");
+    if (reply.type !== "settings") throw new Error("unexpected reply from the hub");
     return { settings: reply.settings, version: reply.version, secretsWritable: reply.secretsWritable };
   }
 
@@ -873,128 +873,128 @@ export class ServerConnection {
       (requestId) => ({ type: "saveSettings", requestId, pairingKey, baseVersion, update }),
       SAVE_SETTINGS_TIMEOUT_MS,
     );
-    if (reply.type !== "settingsSaved") throw new Error("resposta inesperada do hub");
+    if (reply.type !== "settingsSaved") throw new Error("unexpected reply from the hub");
     return { settings: reply.settings, version: reply.version };
   }
 
-  /** Uma mudança na organização dos agentes, pela árvore (P120): um cargo e superior, um subordinado novo, uma remoção. Pede a chave de
-   * pareamento e reinicia o orquestrador do hub com a mudança; devolve os agentes de agora. Rejeita com `SettingsError` (chave errada, um
-   * ciclo, um nome já usado...). */
+  /** A change to the agents' organization, through the tree (P120): a role and superior, a new subordinate, a removal. Asks for the pairing
+   * key and restarts the hub's orchestrator with the change; returns the current agents. Rejects with `SettingsError` (wrong key, a
+   * cycle, a name already in use...). */
   async editAgentOrg(pairingKey: string, edit: OrgEdit): Promise<AgentSettings[]> {
     const reply = await this.request((requestId) => ({ type: "editAgentOrg", requestId, pairingKey, edit }), SAVE_SETTINGS_TIMEOUT_MS);
-    if (reply.type !== "settingsSaved") throw new Error("resposta inesperada do hub");
+    if (reply.type !== "settingsSaved") throw new Error("unexpected reply from the hub");
     return reply.settings.agents;
   }
 
-  /** A árvore da organização (P120) como o hub a mostra a um membro: só o id, o cargo e o superior, e o acesso que ele tem (`view` ou
-   * `edit`). Rejeita com `SettingsError` quando o dono não deu acesso. */
+  /** The organization tree (P120) as the hub shows it to a member: only the id, the role and the superior, and the access they have (`view` or
+   * `edit`). Rejects with `SettingsError` when the owner gave no access. */
   async listAgentOrg(): Promise<{ agents: OrgAgent[]; access: string }> {
     const reply = await this.request((requestId) => ({ type: "listAgentOrg", requestId }));
-    if (reply.type !== "agentOrgList") throw new Error("resposta inesperada do hub");
+    if (reply.type !== "agentOrgList") throw new Error("unexpected reply from the hub");
     return { agents: reply.agents, access: reply.access };
   }
 
-  /** O mesmo que `editAgentOrg`, para um membro com acesso `edit` (P120): a sessão dele é a autorização, então não há chave. Só as três
-   * edições da árvore são dele (cargo e superior, subordinado novo, remoção). Devolve a árvore de agora. */
+  /** The same as `editAgentOrg`, for a member with `edit` access (P120): their session is the authorization, so there is no key. Only the three
+   * tree edits are theirs (role and superior, new subordinate, removal). Returns the current tree. */
   async editAgentOrgAsMember(edit: OrgEdit): Promise<{ agents: OrgAgent[]; access: string }> {
     const reply = await this.request((requestId) => ({ type: "editAgentOrg", requestId, edit }), SAVE_SETTINGS_TIMEOUT_MS);
-    if (reply.type !== "agentOrgList") throw new Error("resposta inesperada do hub");
+    if (reply.type !== "agentOrgList") throw new Error("unexpected reply from the hub");
     return { agents: reply.agents, access: reply.access };
   }
 
-  /** O dono diz o que um membro faz com a organização dos agentes: `none`, `view` ou `edit` (P120). */
+  /** The owner says what a member can do with the agents' organization: `none`, `view` or `edit` (P120). */
   async setUserOrgAccess(pairingKey: string, id: string, access: string): Promise<UserList> {
     return this.userRequest((requestId) => ({ type: "setUserOrgAccess", requestId, pairingKey, id, access }));
   }
 
-  /** Every device that has ever connected to the hub (Sessão 103). */
+  /** Every device that has ever connected to the hub (Session 103). */
   async listDevices(): Promise<DeviceList> {
     const reply = await this.request((requestId) => ({ type: "listDevices", requestId }));
-    if (reply.type !== "deviceList") throw new Error("resposta inesperada do hub");
+    if (reply.type !== "deviceList") throw new Error("unexpected reply from the hub");
     return { devices: reply.devices, you: reply.you };
   }
 
   /** The Warden API's keys (P12), oldest first. */
   async listApiKeys(): Promise<ApiKey[]> {
     const reply = await this.request((requestId) => ({ type: "listApiKeys", requestId }));
-    if (reply.type !== "apiKeyList") throw new Error("resposta inesperada do hub");
+    if (reply.type !== "apiKeyList") throw new Error("unexpected reply from the hub");
     return reply.keys;
   }
 
   /** A new key: `key` is the only time it's ever sent. Rejects with `ApiKeyError`. */
   async createApiKey(pairingKey: string, name: string, agentId?: string): Promise<{ key: string; keys: ApiKey[] }> {
     const reply = await this.request((requestId) => ({ type: "createApiKey", requestId, pairingKey, name, ...(agentId && { agentId }) }));
-    if (reply.type !== "apiKeyCreated") throw new Error("resposta inesperada do hub");
+    if (reply.type !== "apiKeyCreated") throw new Error("unexpected reply from the hub");
     return { key: reply.key, keys: reply.keys };
   }
 
   async revokeApiKey(pairingKey: string, id: string): Promise<ApiKey[]> {
     const reply = await this.request((requestId) => ({ type: "revokeApiKey", requestId, pairingKey, id }));
-    if (reply.type !== "apiKeyList") throw new Error("resposta inesperada do hub");
+    if (reply.type !== "apiKeyList") throw new Error("unexpected reply from the hub");
     return reply.keys;
   }
 
   /** P131: replaces which providers and combos a key may call straight (their ids, or "*"); empty takes it away. The owner's, for a general key. */
   async setApiKeyRaw(pairingKey: string, id: string, raw: string[]): Promise<ApiKey[]> {
     const reply = await this.request((requestId) => ({ type: "setApiKeyRaw", requestId, pairingKey, id, raw }));
-    if (reply.type !== "apiKeyList") throw new Error("resposta inesperada do hub");
+    if (reply.type !== "apiKeyList") throw new Error("unexpected reply from the hub");
     return reply.keys;
   }
 
   /** Nodes (P93): connected or allowed, with what each offers and who may use it. */
   async listNodes(): Promise<NodeInfo[]> {
     const reply = await this.request((requestId) => ({ type: "listNodes", requestId }));
-    if (reply.type !== "nodeList") throw new Error("resposta inesperada do hub");
+    if (reply.type !== "nodeList") throw new Error("unexpected reply from the hub");
     return reply.nodes;
   }
 
   /** Writes a node's access; rejects with `NodeError` (wrong pairing key: `authRejected`). */
   async setNodeAccess(pairingKey: string, deviceId: string, enabled: boolean, agents: string[], requireApproval: boolean): Promise<NodeInfo[]> {
     const reply = await this.request((requestId) => ({ type: "setNodeAccess", requestId, pairingKey, deviceId, enabled, agents, requireApproval }));
-    if (reply.type !== "nodeList") throw new Error("resposta inesperada do hub");
+    if (reply.type !== "nodeList") throw new Error("unexpected reply from the hub");
     return reply.nodes;
   }
 
-  /** O trabalho que os agentes passaram uns aos outros em segundo plano (P123), do mais novo ao mais antigo. Só leitura. */
+  /** The work the agents handed to each other in the background (P123), newest to oldest. Read-only. */
   async listAgentTasks(): Promise<AgentTask[]> {
     const reply = await this.request((requestId) => ({ type: "listAgentTasks", requestId }));
-    if (reply.type !== "agentTaskList") throw new Error("resposta inesperada do hub");
+    if (reply.type !== "agentTaskList") throw new Error("unexpected reply from the hub");
     return reply.tasks;
   }
 
-  /** O que a pessoa disse "sempre" nesta conexão (P122), por conversa e agente. */
+  /** What the person said "always" to on this connection (P122), per conversation and agent. */
   async listGrants(): Promise<GrantsView> {
     const reply = await this.request((requestId) => ({ type: "listGrants", requestId }));
-    if (reply.type !== "grantList") throw new Error("resposta inesperada do hub");
+    if (reply.type !== "grantList") throw new Error("unexpected reply from the hub");
     return { grants: reply.grants, ttlDays: reply.ttlDays };
   }
 
-  /** Tira um "sempre": o agente volta a perguntar. Não pede chave (só deixa o agente mais cauteloso). Devolve a lista nova. */
+  /** Removes an "always": the agent goes back to asking. Asks for no key (it only makes the agent more cautious). Returns the new list. */
   async revokeGrant(grant: Grant): Promise<GrantsView> {
     const reply = await this.request((requestId) => ({ type: "revokeGrant", requestId, conversationId: grant.conversationId, ...(grant.agentId ? { agentId: grant.agentId } : {}), covers: grant.covers }));
-    if (reply.type !== "grantList") throw new Error("resposta inesperada do hub");
+    if (reply.type !== "grantList") throw new Error("unexpected reply from the hub");
     return { grants: reply.grants, ttlDays: reply.ttlDays };
   }
 
-  /** O feed de atividade (P121): o que aconteceu entre os agentes, do mais novo ao mais antigo. Só leitura. */
+  /** The activity feed (P121): what happened among the agents, newest to oldest. Read-only. */
   async listActivity(): Promise<ActivityEvent[]> {
     const reply = await this.request((requestId) => ({ type: "listActivity", requestId }));
-    if (reply.type !== "activityList") throw new Error("resposta inesperada do hub");
+    if (reply.type !== "activityList") throw new Error("unexpected reply from the hub");
     return reply.events;
   }
 
-  /** O registro de uso do SSH (P47): as últimas chamadas das tools de SSH neste hub, da mais nova à mais antiga. Só leitura, só o dono. */
+  /** The SSH usage log (P47): the latest calls to the SSH tools on this hub, newest to oldest. Read-only, owner only. */
   async listSshAudit(): Promise<SshAuditEntry[]> {
     const reply = await this.request((requestId) => ({ type: "listSshAudit", requestId }));
-    if (reply.type !== "sshAuditList") throw new Error("resposta inesperada do hub");
+    if (reply.type !== "sshAuditList") throw new Error("unexpected reply from the hub");
     return reply.entries;
   }
 
-  /** Pausa, retoma ou para uma tarefa delegada que roda no hub (P123), com as subtarefas abaixo dela. Pede a chave de pareamento; rejeita
-   * com `TaskError` (chave errada, ou a tarefa não roda aí). Devolve a lista atualizada. */
+  /** Pauses, resumes or stops a delegated task running on the hub (P123), along with the subtasks below it. Asks for the pairing key; rejects
+   * with `TaskError` (wrong key, or the task does not run there). Returns the updated list. */
   async controlAgentTask(pairingKey: string, taskId: string, action: AgentTaskAction): Promise<AgentTask[]> {
     const reply = await this.request((requestId) => ({ type: "controlAgentTask", requestId, pairingKey, taskId, action }));
-    if (reply.type !== "agentTaskList") throw new Error("resposta inesperada do hub");
+    if (reply.type !== "agentTaskList") throw new Error("unexpected reply from the hub");
     return reply.tasks;
   }
 
@@ -1023,7 +1023,7 @@ export class ServerConnection {
 
   private async taskRequest(build: (requestId: number) => ClientMessage): Promise<TaskList> {
     const reply = await this.request(build);
-    if (reply.type !== "taskList") throw new Error("resposta inesperada do hub");
+    if (reply.type !== "taskList") throw new Error("unexpected reply from the hub");
     return { tasks: reply.tasks, runsHere: reply.runsHere };
   }
 
@@ -1050,7 +1050,7 @@ export class ServerConnection {
    * back once, here. */
   async createWebhookCredential(pairingKey: string, id: string): Promise<WebhookCreated> {
     const reply = await this.request((requestId) => ({ type: "createWebhookCredential", requestId, pairingKey, id }));
-    if (reply.type !== "webhookCreated") throw new Error("resposta inesperada do hub");
+    if (reply.type !== "webhookCreated") throw new Error("unexpected reply from the hub");
     return { id: reply.id, credential: reply.credential, kind: reply.kind, webhooks: reply.webhooks, servesHere: reply.servesHere };
   }
 
@@ -1061,7 +1061,7 @@ export class ServerConnection {
 
   private async webhookRequest(build: (requestId: number) => ClientMessage): Promise<WebhookList> {
     const reply = await this.request(build);
-    if (reply.type !== "webhookList") throw new Error("resposta inesperada do hub");
+    if (reply.type !== "webhookList") throw new Error("unexpected reply from the hub");
     return { webhooks: reply.webhooks, servesHere: reply.servesHere };
   }
 
@@ -1075,7 +1075,7 @@ export class ServerConnection {
       newPassword,
       ...(recoveryCode && { recoveryCode }),
     }));
-    if (reply.type !== "passwordChanged") throw new Error("resposta inesperada do hub");
+    if (reply.type !== "passwordChanged") throw new Error("unexpected reply from the hub");
     return { ...(reply.recoveryCode !== undefined && { recoveryCode: reply.recoveryCode }) };
   }
 
@@ -1083,7 +1083,7 @@ export class ServerConnection {
    * (`authRejected`: the password was wrong). */
   async regenerateRecoveryCode(password: string): Promise<string> {
     const reply = await this.request((requestId) => ({ type: "regenerateRecoveryCode", requestId, password }));
-    if (reply.type !== "recoveryCode") throw new Error("resposta inesperada do hub");
+    if (reply.type !== "recoveryCode") throw new Error("unexpected reply from the hub");
     return reply.code;
   }
 
@@ -1120,7 +1120,7 @@ export class ServerConnection {
   /** A member links their TruthID with the owner's invite. Answers with the username the registry has. */
   async redeemInvite(code: string, username: string): Promise<string> {
     const reply = await this.request((requestId) => ({ type: "redeemInvite", requestId, code, username }));
-    if (reply.type !== "truthIdLinked") throw new Error("resposta inesperada do hub");
+    if (reply.type !== "truthIdLinked") throw new Error("unexpected reply from the hub");
     return reply.username;
   }
 
@@ -1154,13 +1154,13 @@ export class ServerConnection {
    * settings view. Rejects with `SettingsError`. */
   async saveOwnAgent(agent: AgentSettings, originalId?: string): Promise<LoadedSettings> {
     const reply = await this.request((requestId) => ({ type: "saveOwnAgent", requestId, agent, ...(originalId && { originalId }) }));
-    if (reply.type !== "settings") throw new Error("resposta inesperada do hub");
+    if (reply.type !== "settings") throw new Error("unexpected reply from the hub");
     return { settings: reply.settings, version: reply.version, secretsWritable: reply.secretsWritable };
   }
 
   async deleteOwnAgent(id: string): Promise<LoadedSettings> {
     const reply = await this.request((requestId) => ({ type: "deleteOwnAgent", requestId, id }));
-    if (reply.type !== "settings") throw new Error("resposta inesperada do hub");
+    if (reply.type !== "settings") throw new Error("unexpected reply from the hub");
     return { settings: reply.settings, version: reply.version, secretsWritable: reply.secretsWritable };
   }
 
@@ -1196,26 +1196,26 @@ export class ServerConnection {
    * (a wrong pairing key, an address to save first, a key typed over a connection that isn't encrypted). */
   async testProvider(pairingKey: string, provider: ProviderEdit): Promise<{ ok: boolean; kind: string; message: string }> {
     const reply = await this.request((requestId) => ({ type: "testProvider", requestId, pairingKey, provider }));
-    if (reply.type !== "providerTest") throw new Error("resposta inesperada do hub");
+    if (reply.type !== "providerTest") throw new Error("unexpected reply from the hub");
     return { ok: reply.ok, kind: reply.kind, message: reply.message };
   }
 
   private async botPairingRequest(build: (requestId: number) => ClientMessage): Promise<BotPairingsView> {
     const reply = await this.request(build);
-    if (reply.type !== "botPairings") throw new Error("resposta inesperada do hub");
+    if (reply.type !== "botPairings") throw new Error("unexpected reply from the hub");
     // A hub from before the choice of member sends none: nobody can be chosen, the owner is what there was.
     return { pairings: reply.pairings, members: reply.members ?? [] };
   }
 
   private async spaceRequest(build: (requestId: number) => ClientMessage): Promise<SpaceInfo[]> {
     const reply = await this.request(build);
-    if (reply.type !== "spaceList") throw new Error("resposta inesperada do hub");
+    if (reply.type !== "spaceList") throw new Error("unexpected reply from the hub");
     return reply.spaces;
   }
 
   private async userRequest(build: (requestId: number) => ClientMessage): Promise<UserList> {
     const reply = await this.request(build);
-    if (reply.type !== "userList") throw new Error("resposta inesperada do hub");
+    if (reply.type !== "userList") throw new Error("unexpected reply from the hub");
     return {
       users: reply.users,
       ...(reply.tempPassword !== undefined && { tempPassword: reply.tempPassword }),
@@ -1229,7 +1229,7 @@ export class ServerConnection {
    * key, only when one was just made — shown once, never kept. Rejects with `UserError`. */
   async setRecoveryPolicy(pairingKey: string, policy: string, newKey = false): Promise<{ policy: string; secret?: string }> {
     const reply = await this.request((requestId) => ({ type: "setRecoveryPolicy", requestId, pairingKey, policy, newKey }));
-    if (reply.type !== "recoveryPolicy") throw new Error("resposta inesperada do hub");
+    if (reply.type !== "recoveryPolicy") throw new Error("unexpected reply from the hub");
     return { policy: reply.policy, ...(reply.secret !== undefined && { secret: reply.secret }) };
   }
 
@@ -1242,7 +1242,7 @@ export class ServerConnection {
   /** A member says yes to a weaker recovery policy. `recoveryCode`: entering or leaving "consent" made a new one. */
   async acceptRecoveryPolicy(password: string): Promise<{ recoveryCode?: string }> {
     const reply = await this.request((requestId) => ({ type: "acceptRecoveryPolicy", requestId, password }));
-    if (reply.type !== "recoveryPolicyAccepted") throw new Error("resposta inesperada do hub");
+    if (reply.type !== "recoveryPolicyAccepted") throw new Error("unexpected reply from the hub");
     return { ...(reply.recoveryCode !== undefined && { recoveryCode: reply.recoveryCode }) };
   }
 
@@ -1251,18 +1251,18 @@ export class ServerConnection {
    * Rejects with `UserError` (the owner has no such switch over the wire). */
   async setLearning(enabled: boolean): Promise<void> {
     const reply = await this.request((requestId) => ({ type: "setLearning", requestId, enabled }));
-    if (reply.type !== "learningSet") throw new Error("resposta inesperada do hub");
+    if (reply.type !== "learningSet") throw new Error("unexpected reply from the hub");
   }
 
   async ackRecoveryNotices(): Promise<void> {
     const reply = await this.request((requestId) => ({ type: "ackRecoveryNotices", requestId }));
-    if (reply.type !== "recoveryNoticesAcked") throw new Error("resposta inesperada do hub");
+    if (reply.type !== "recoveryNoticesAcked") throw new Error("unexpected reply from the hub");
   }
 
   /** Approves or revokes a device; rejects with `DeviceError` on a wrong pairing key. */
   async setDeviceStatus(pairingKey: string, deviceId: string, action: "approve" | "revoke"): Promise<DeviceList> {
     const reply = await this.request((requestId) => ({ type: "setDeviceStatus", requestId, pairingKey, deviceId, action }));
-    if (reply.type !== "deviceList") throw new Error("resposta inesperada do hub");
+    if (reply.type !== "deviceList") throw new Error("unexpected reply from the hub");
     return { devices: reply.devices, you: reply.you };
   }
 
@@ -1270,14 +1270,14 @@ export class ServerConnection {
    * `DeviceError` on a wrong pairing key or a name/time the hub refuses. */
   async createDeviceInvite(pairingKey: string, name: string, ttlMinutes: number): Promise<{ name: string; code: string; expiresMs: number }> {
     const reply = await this.request((requestId) => ({ type: "createDeviceInvite", requestId, pairingKey, name, ttlMinutes }));
-    if (reply.type !== "deviceInvite") throw new Error("resposta inesperada do hub");
+    if (reply.type !== "deviceInvite") throw new Error("unexpected reply from the hub");
     return { name: reply.name, code: reply.code, expiresMs: reply.expiresMs };
   }
 
   /** The invites that wait to be used (P36), by name; the hub never says their codes. */
   async listDeviceInvites(): Promise<HubDeviceInvite[]> {
     const reply = await this.request((requestId) => ({ type: "listDeviceInvites", requestId }));
-    if (reply.type !== "deviceInviteList") throw new Error("resposta inesperada do hub");
+    if (reply.type !== "deviceInviteList") throw new Error("unexpected reply from the hub");
     return reply.invites;
   }
 
@@ -1285,7 +1285,7 @@ export class ServerConnection {
    * key, or when no such invite waits (it was used, lapsed or already cancelled). */
   async cancelDeviceInvite(pairingKey: string, name: string): Promise<HubDeviceInvite[]> {
     const reply = await this.request((requestId) => ({ type: "cancelDeviceInvite", requestId, pairingKey, name }));
-    if (reply.type !== "deviceInviteList") throw new Error("resposta inesperada do hub");
+    if (reply.type !== "deviceInviteList") throw new Error("unexpected reply from the hub");
     return reply.invites;
   }
 
@@ -1293,14 +1293,14 @@ export class ServerConnection {
    * for the administration. Rejects with `DeviceError`. */
   async rotatePairingKey(pairingKey: string): Promise<string> {
     const reply = await this.request((requestId) => ({ type: "rotatePairingKey", requestId, pairingKey }));
-    if (reply.type !== "pairingKeyRotated") throw new Error("resposta inesperada do hub");
+    if (reply.type !== "pairingKeyRotated") throw new Error("unexpected reply from the hub");
     return reply.newKey;
   }
 
   /** Where the hub's vault syncs to and how its last round went (P61). */
   async requestSyncStatus(): Promise<SyncStatus> {
     const reply = await this.request((requestId) => ({ type: "requestSyncStatus", requestId }));
-    if (reply.type !== "syncStatus") throw new Error("resposta inesperada do hub");
+    if (reply.type !== "syncStatus") throw new Error("unexpected reply from the hub");
     return reply.status;
   }
 
@@ -1308,14 +1308,14 @@ export class ServerConnection {
    * network or a pairing can take minutes, hence the longer wait. */
   async syncAction(pairingKey: string, action: SyncAction): Promise<SyncStatus> {
     const reply = await this.request((requestId) => ({ type: "syncAction", requestId, pairingKey, action }), SYNC_ACTION_TIMEOUT_MS);
-    if (reply.type !== "syncStatus") throw new Error("resposta inesperada do hub");
+    if (reply.type !== "syncStatus") throw new Error("unexpected reply from the hub");
     return reply.status;
   }
 
   /** Has the hub show a pairing code (P88); asking again while one is up gives the same code. */
   async startPairHost(pairingKey: string): Promise<{ status: SyncStatus; code: string }> {
     const reply = await this.request((requestId) => ({ type: "syncAction", requestId, pairingKey, action: { kind: "pairHost" } }));
-    if (reply.type !== "syncStatus" || !reply.pairingCode) throw new Error("resposta inesperada do hub");
+    if (reply.type !== "syncStatus" || !reply.pairingCode) throw new Error("unexpected reply from the hub");
     return { status: reply.status, code: reply.pairingCode };
   }
 

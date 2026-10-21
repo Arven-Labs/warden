@@ -275,7 +275,7 @@ export interface AgentSettings {
   canMessageAgents: boolean;
   /** P92 — the `manage_tasks` tool. */
   canManageTasks: boolean;
-  /** P122 — trabalho em segundo plano (`jobs`) e workers temporários (`delegate_task`); ligados quando o hub não diz nada. */
+  /** P122 — background work (`jobs`) and temporary workers (`delegate_task`); on when the hub says nothing. */
   canStartTasks?: boolean;
   canCreateWorkers?: boolean;
   canMessageUser?: boolean;
@@ -285,33 +285,33 @@ export interface AgentSettings {
   autonomy: number;
   /** P122 — the kinds of action (ids, see `approvalCategories.ts`) that need the person's yes even at autonomy 4. */
   approvalRequired: string[];
-  /** P120 — o cargo e o superior (id de outro agente); só aparecem na tela Organização por enquanto. */
+  /** P120 — the role and the superior (another agent's id); for now they only show on the Organization screen. */
   role?: string | null;
   reportsTo?: string | null;
   /** P84 — members this agent is shared with, or ["*"] for everyone. */
   sharedWith?: string[];
   /** P84 — in a member's view, their username on their own agents; absent on the shared ones. */
   owner?: string;
-  /** P123 — os modelos (ids de provedor, combo ou política) que este agente pode escolher para as tarefas que delega; o primeiro é o que uma
-   * delegação sem `model` recebe, então uma lista de um dita o modelo. Vazia ou ausente deixa a escolha aberta. */
+  /** P123 — the models (provider, combo or policy ids) this agent may choose for the tasks it delegates; the first is what a delegation
+   * without `model` gets, so a list of one dictates the model. Empty or absent leaves the choice open. */
   delegationModels?: string[];
 }
 
-/** Espelha `ModelPolicyDto` (P123): um nome ("fast", "reasoning"...) que um agente que delega pode usar para o modelo de uma tarefa,
- * respondido por `model` (um provedor ou combo). `description` é o que o agente lê para saber quando escolher. */
+/** Mirrors `ModelPolicyDto` (P123): a name ("fast", "reasoning"...) that a delegating agent can use for a task's model,
+ * answered by `model` (a provider or combo). `description` is what the agent reads to know when to pick it. */
 export interface ModelPolicy {
   id: string;
   model: string;
   description?: string;
 }
 
-/** P47 — uma chamada das tools de SSH como o log de auditoria a guardou: o servidor, o agente que pediu, o que foi pedido, se uma pessoa
- * aprovou (`not_required`, `approved`, `denied`, `unavailable`) e como terminou. Nunca a saída de um comando. */
+/** P47 — a call to the SSH tools as the audit log stored it: the server, the agent that asked, what was asked, whether a person
+ * approved it (`not_required`, `approved`, `denied`, `unavailable`) and how it ended. Never a command's output. */
 export interface SshAuditEntry {
   atMs: number;
   hostId: string;
   agent?: string;
-  /** `exec`, `upload` ou `download`. */
+  /** `exec`, `upload` or `download`. */
   action: string;
   approval: string;
   command?: string;
@@ -324,9 +324,9 @@ export interface SshAuditEntry {
   error?: string;
 }
 
-/** P121 — algo que aconteceu entre os agentes, no feed de atividade. `kind`: `delegated`, `started`, `done`, `failed`, `cancelled` (as
- * tarefas, com `taskId`), `note`, `reply` (agentes escrevendo uns aos outros) ou `messaged_user` (o agente escrevendo primeiro para a
- * pessoa); os três últimos trazem a `conversationId`. `actor` vazio é o assistente que atende sem agente escolhido. */
+/** P121 — something that happened between the agents, in the activity feed. `kind`: `delegated`, `started`, `done`, `failed`, `cancelled` (the
+ * tasks, with `taskId`), `note`, `reply` (agents writing to each other) or `messaged_user` (the agent writing to the person first);
+ * the last three carry the `conversationId`. An empty `actor` is the assistant that answers with no agent chosen. */
 export interface ActivityEvent {
   id: string;
   atMs: number;
@@ -385,9 +385,9 @@ export interface HubSettings {
   outreach?: OutreachEntry[];
   /** Which risk category a tool belongs to, for the tools the hub has no entry for (P122). */
   toolCategories?: ToolCategoryEntry[];
-  /** P122 — se o "sempre" fica guardado em arquivo e sobrevive a um reinício. Ausente num hub antigo. */
+  /** P122 — whether "always" is kept in a file and survives a restart. Absent on an older hub. */
   persistGrants?: boolean;
-  /** P122 — dias que um "sempre" pode ficar sem uso antes de vencer. Ausente num hub antigo, e é isso que esconde a opção na tela. */
+  /** P122 — days an "always" can go unused before it expires. Absent on an older hub, which is what hides the option on the screen. */
   grantTtlDays?: number;
   agents: AgentSettings[];
   tavilyKey: SecretStatus;
@@ -399,7 +399,7 @@ export interface HubSettings {
   prices: PriceSettings[];
   defaultModels: Record<string, string>;
   toolNames: string[];
-  /** P100 — só na tela de um membro: os provedores e combos (por id) que o dono liberou para os agentes próprios dele. */
+  /** P100 — only on a member's screen: the providers and combos (by id) the owner released for the member's own agents. */
   memberModels?: string[];
   /** `[git_sync]` (P61): `remoteUrl` empty = no git sync; the token is never sent. */
   gitSync: { remoteUrl: string; token: SecretStatus };
@@ -603,7 +603,7 @@ export interface UserInfo {
   learningOptOut?: boolean;
   /** P115 — the provider or combo the owner chose for learning from their conversations; absent: the workspace's. */
   learningProvider?: string;
-  /** P100 — os provedores e combos (por id) que o dono liberou para os agentes próprios dele; ausente: só o modelo padrão do hub. */
+  /** P100 — the providers and combos (by id) the owner released for the member's own agents; absent: only the hub's default model. */
   models?: string[];
   /** P120 — what the owner lets them do with the organization of the agents: "view" or "edit"; absent: none. */
   orgAccess?: string;
@@ -686,14 +686,14 @@ export interface NodeInfo {
 }
 
 /** Mirrors `TaskDto` (P92): one scheduled task. Exactly one of `every`, `cron` and `once`. */
-/** Onde uma tarefa delegada está (P123). */
+/** Where a delegated task stands (P123). */
 export type AgentTaskState = "pending" | "running" | "waiting" | "paused" | "done" | "failed" | "cancelled";
 
-/** O que dá para fazer com uma tarefa em andamento, pela tela. */
+/** What can be done to a task in progress, from the screen. */
 export type AgentTaskAction = "pause" | "resume" | "cancel";
 
-/** P122 — um "sempre" dado numa conversa: `covers` é uma categoria de risco (`delete_data`) ou o nome de uma ferramenta; sem `agentId`, o agente padrão.
- * `lastUsedMs`: quando foi dado ou quando livrou o agente de perguntar pela última vez (ausente num hub antigo). */
+/** P122 — an "always" given in a conversation: `covers` is a risk category (`delete_data`) or a tool name; with no `agentId`, the default agent.
+ * `lastUsedMs`: when it was given or when it last spared the agent from asking (absent on an older hub). */
 export interface Grant {
   conversationId: string;
   agentId?: string;
@@ -701,22 +701,22 @@ export interface Grant {
   lastUsedMs?: number;
 }
 
-/** Os "sempre" dados e em quantos dias sem uso um vence. `ttlDays` falta quando o hub não os guarda em arquivo (acabam com a conexão) e
- * num hub antigo. */
+/** The "always" grants given and after how many unused days one expires. `ttlDays` is missing when the hub does not keep them in a file (they end
+ * with the connection) and on an older hub. */
 export interface GrantsView {
   grants: Grant[];
   ttlDays?: number;
 }
 
-/** Espelha `AgentTaskDto` (P123): uma tarefa que um agente delegou em segundo plano. `group` é comum às tarefas que um turno começou. */
+/** Mirrors `AgentTaskDto` (P123): a task an agent delegated in the background. `group` is shared by the tasks one turn started. */
 export interface AgentTask {
   id: string;
   group: string;
-  /** O agente que delegou. */
+  /** The agent that delegated. */
   owner?: string | null;
-  /** Quem faz o trabalho, ou o nome dado a um ajudante temporário. */
+  /** Who does the work, or the name given to a temporary helper. */
   assignee: string;
-  /** A tarefa de que esta é subtarefa, quando o agente dela a começou de dentro de outra tarefa. */
+  /** The task this is a subtask of, when its agent started it from inside another task. */
   parentId?: string | null;
   objective: string;
   model?: string | null;
@@ -730,9 +730,9 @@ export interface AgentTask {
   createdAtMs: number;
   startedAtMs?: number | null;
   finishedAtMs?: number | null;
-  /** Roda no processo do hub que respondeu: dá para pausar, retomar ou parar por aqui. */
+  /** Runs in the process of the hub that answered: it can be paused, resumed or stopped from here. */
   controllable?: boolean;
-  /** Entre essas, as que também podem ser pausadas: uma delegação que o agente espera só pode ser parada. */
+  /** Among those, the ones that can also be paused: a delegation the agent is waiting on can only be stopped. */
   pausable?: boolean;
 }
 
@@ -930,7 +930,7 @@ export type ClientMessage =
   /** P78 — the hub's settings. A save repeats the pairing key and sends the `version` it loaded. */
   | { type: "requestSettings"; requestId: number }
   | { type: "saveSettings"; requestId: number; pairingKey: string; baseVersion: string; update: HubSettingsUpdate }
-  /** Sessão 103 — the hub's paired devices; approving or revoking repeats the pairing key. */
+  /** Session 103 — the hub's paired devices; approving or revoking repeats the pairing key. */
   | { type: "listDevices"; requestId: number }
   | { type: "listApiKeys"; requestId: number }
   | { type: "createApiKey"; requestId: number; pairingKey: string; name: string; agentId?: string }
@@ -941,23 +941,23 @@ export type ClientMessage =
   | { type: "setNodeAccess"; requestId: number; pairingKey: string; deviceId: string; enabled: boolean; agents: string[]; requireApproval: boolean }
   /** P92 — scheduled tasks; every change repeats the pairing key. */
   | { type: "listTasks"; requestId: number }
-  /** P123 — o trabalho que os agentes passaram uns aos outros em segundo plano, respondido por `agentTaskList`. */
+  /** P123 — the work the agents handed to each other in the background, answered by `agentTaskList`. */
   | { type: "listAgentTasks"; requestId: number }
-  /** P122 — o que a pessoa disse "sempre" nesta conexão, respondido por `grantList`; `revokeGrant` tira um e devolve a lista nova. */
+  /** P122 — what the person said "always" to on this connection, answered by `grantList`; `revokeGrant` removes one and returns the new list. */
   | { type: "listGrants"; requestId: number }
   | { type: "revokeGrant"; requestId: number; conversationId: string; agentId?: string; covers: string }
-  /** P121 — o feed de atividade, respondido por `activityList`. Só o dono; o membro recebe a lista vazia. */
+  /** P121 — the activity feed, answered by `activityList`. Owner only; a member gets the empty list. */
   | { type: "listActivity"; requestId: number }
-  /** P47 — as chamadas das tools de SSH neste hub, respondido por `sshAuditList`. Só o dono; o membro recebe a lista vazia. */
+  /** P47 — the SSH tool calls on this hub, answered by `sshAuditList`. Owner only; a member gets the empty list. */
   | { type: "listSshAudit"; requestId: number }
-  /** Pausa, retoma ou para (`pause`, `resume`, `cancel`) uma tarefa que roda no hub, com as subtarefas. Dono; pede a chave de pareamento. */
+  /** Pauses, resumes or stops (`pause`, `resume`, `cancel`) a task running on the hub, along with its subtasks. Owner; asks for the pairing key. */
   | { type: "controlAgentTask"; requestId: number; pairingKey: string; taskId: string; action: AgentTaskAction }
-  /** P120 — uma mudança na organização dos agentes, pela árvore. O dono pede a chave de pareamento e é respondido como um salvar
-   * (`settingsSaved`); um membro com acesso `edit` não manda chave e é respondido com `agentOrgList`. */
+  /** P120 — a change to the agents' organization, through the tree. The owner asks for the pairing key and is answered like a save
+   * (`settingsSaved`); a member with `edit` access sends no key and is answered with `agentOrgList`. */
   | { type: "editAgentOrg"; requestId: number; pairingKey?: string; edit: OrgEdit }
-  /** P120 — a árvore da organização, para o dono ou um membro com acesso `view` ou `edit`; respondida por `agentOrgList`. */
+  /** P120 — the organization tree, for the owner or a member with `view` or `edit` access; answered by `agentOrgList`. */
   | { type: "listAgentOrg"; requestId: number }
-  /** P120 — o que um membro faz com a organização: "none", "view" ou "edit". Dono; pede a chave; respondida por `userList`. */
+  /** P120 — what a member can do with the organization: "none", "view" or "edit". Owner; asks for the key; answered by `userList`. */
   | { type: "setUserOrgAccess"; requestId: number; pairingKey: string; id: string; access: string }
   | { type: "saveTask"; requestId: number; pairingKey: string; originalId?: string; task: Task }
   | { type: "setTaskEnabled"; requestId: number; pairingKey: string; id: string; enabled: boolean }
@@ -1006,7 +1006,7 @@ export type ClientMessage =
   | { type: "setUserTools"; requestId: number; pairingKey: string; id: string; tools: string[] | null }
   /** P102 — the folders a member may pick as a working folder; empty lists take them all away. Answered by `userList`. */
   | { type: "setUserWorkdirs"; requestId: number; pairingKey: string; id: string; workdirs: string[]; nodeWorkdirs: NodeFolder[] }
-  /** P100 — os provedores e combos que um membro pode dar aos agentes próprios; lista vazia tira todos. Respondido por `userList`. */
+  /** P100 — the providers and combos a member can give their own agents; an empty list removes them all. Answered by `userList`. */
   | { type: "setUserModels"; requestId: number; pairingKey: string; id: string; models: string[] }
   | { type: "setUserLearningProvider"; requestId: number; pairingKey: string; id: string; provider: string | null }
   /** A member's own agents, answered by `settings` (their view) or `settingsError`. */
@@ -1077,7 +1077,7 @@ export type ServerMessage =
   /** `secretsWritable` is false on plain http:// from another machine, where the hub refuses a new key. */
   | { type: "settings"; requestId: number; settings: HubSettings; version: string; secretsWritable: boolean }
   | { type: "settingsSaved"; requestId: number; settings: HubSettings; version: string }
-  /** P120 — a árvore como um membro a vê: só o id, o cargo e o superior de cada agente do dono. `access`: "view" ou "edit". */
+  /** P120 — the tree as a member sees it: only the id, the role and the superior of each of the owner's agents. `access`: "view" or "edit". */
   | { type: "agentOrgList"; requestId: number; agents: OrgAgent[]; access: string }
   | { type: "settingsError"; requestId: number; message: string; conflict: boolean; authRejected: boolean }
   /** `you` is this browser's own device id. */

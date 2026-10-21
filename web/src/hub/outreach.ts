@@ -1,30 +1,30 @@
-// P121 — os agentes que podem iniciar mensagens (`message_user`, `[[outreach]]`) e os canais externos para onde elas também vão, como o
-// formulário de Configurações os edita. Puro; espelha `desktop/src/lib/outreach.ts`.
+// P121 — the agents that can start messages (`message_user`, `[[outreach]]`) and the external channels they are also forwarded to, as the
+// Settings form edits them. Pure; mirrors `desktop/src/lib/outreach.ts`.
 
 import type { OutreachEntry } from "./messages";
 
-/** Os canais externos a que uma mensagem iniciada pelo agente pode ir também. */
+/** The external channels a message started by the agent can also go to. */
 export const OUTREACH_CHANNELS = ["telegram", "whatsapp"] as const;
 
 export type OutreachChannel = (typeof OUTREACH_CHANNELS)[number];
 
-/** O agente pode iniciar mensagens. */
+/** Whether the agent can start messages. */
 export function outreachOn(list: OutreachEntry[], agent: string): boolean {
   return list.some((o) => o.agent === agent);
 }
 
-/** Os canais externos de um agente (vazio se ele não pode iniciar mensagens). */
+/** An agent's external channels (empty if it cannot start messages). */
 export function outreachForward(list: OutreachEntry[], agent: string): string[] {
   return list.find((o) => o.agent === agent)?.forward ?? [];
 }
 
-/** Liga ou desliga o agente. Ligar começa sem canal externo; desligar esquece os canais dele. */
+/** Turns the agent on or off. Turning on starts with no external channel; turning off forgets its channels. */
 export function setOutreach(list: OutreachEntry[], agent: string, on: boolean): OutreachEntry[] {
   if (on) return outreachOn(list, agent) ? list : [...list, { agent, forward: [] }];
   return list.filter((o) => o.agent !== agent);
 }
 
-/** Liga ou desliga um canal externo de um agente que pode iniciar mensagens; para um que não pode, não muda nada. */
+/** Turns an external channel on or off for an agent that can start messages; for one that cannot, nothing changes. */
 export function setForward(list: OutreachEntry[], agent: string, channel: OutreachChannel, on: boolean): OutreachEntry[] {
   return list.map((o) => {
     if (o.agent !== agent) return o;
@@ -33,7 +33,7 @@ export function setForward(list: OutreachEntry[], agent: string, channel: Outrea
   });
 }
 
-/** Um agente foi renomeado: a entrada dele o segue. */
+/** An agent was renamed: its entry follows it. */
 export function renameOutreach(list: OutreachEntry[], from: string, to: string): OutreachEntry[] {
   if (from === to) return list;
   return list.map((o) => (o.agent === from ? { ...o, agent: to } : o));

@@ -6,9 +6,9 @@ import OrgView from "./OrgView";
 import UsageView from "./UsageView";
 import { t } from "../i18n/index.ts";
 
-/** P120, P123, P121 — a organização dos agentes, o trabalho que eles passam uns aos outros e o feed do que aconteceu, lado a lado. Um nó da
- * árvore abre as tarefas do agente (o filtro daqui) ou uma conversa nova com ele (quem monta esta tela decide como, porque o chat é de outra
- * aba). Um evento do feed abre as tarefas do agente, a conversa entre dois agentes ou o canal dele, os dois últimos também pelo chat. */
+/** P120, P123, P121 — the agents' organization, the work they hand to each other and the feed of what happened, side by side. A node of the
+ * tree opens the agent's tasks (the filter here) or a new conversation with it (whoever assembles this screen decides how, because the chat belongs to another
+ * tab). A feed event opens the agent's tasks, the conversation between two agents or its channel, the last two also through the chat. */
 export default function AgentsView({
   onOpenChat,
   onOpenConversation,

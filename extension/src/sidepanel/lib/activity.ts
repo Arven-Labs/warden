@@ -1,5 +1,5 @@
-// P121 — o feed de atividade: quem fez o quê entre os agentes, do mais novo ao mais velho. Puro; a tela só desenha o que sai daqui.
-// Espelha `web/src/hub/activity.ts`.
+// P121 — the activity feed: who did what among the agents, newest to oldest. Pure; the screen only draws what comes out of here.
+// Mirrors `web/src/hub/activity.ts`.
 
 import { intlTag, t } from "../../i18n/index.ts";
 import type { ActivityEvent } from "../../protocol/messages";
@@ -7,13 +7,13 @@ import type { ActivityEvent } from "../../protocol/messages";
 /** What the screen calls the agent that answers when nobody was picked (an event with no `actor`). */
 const who = (name: string) => (name.trim() === "" ? t("activity.noAgent") : name);
 
-/** As execuções de tarefa agendada e de webhook: o alvo delas é o id da tarefa ou do webhook, não um agente. */
+/** The runs of scheduled tasks and webhooks: their target is the task's or webhook's id, not an agent. */
 const RUN_KINDS = new Set(["scheduled_ran", "scheduled_failed", "webhook_ran", "webhook_failed"]);
 
-/** O agente que o evento atinge, quando o alvo dele é um agente. */
+/** The agent the event reaches, when its target is an agent. */
 const targetAgent = (event: ActivityEvent) => (RUN_KINDS.has(event.kind) ? undefined : event.target ?? undefined);
 
-/** A frase de um evento, sem o texto dele (o texto é o objetivo, a resposta ou a mensagem). */
+/** An event's sentence, without its text (the text is the objective, the reply or the message). */
 export function headline(event: ActivityEvent): string {
   const actor = who(event.actor);
   const target = event.target ? who(event.target) : "";
@@ -53,7 +53,7 @@ export function headline(event: ActivityEvent): string {
   }
 }
 
-/** Uma marca curta por tipo, para varrer a lista com o olho. */
+/** A short mark per kind, to scan the list by eye. */
 export function mark(kind: string): string {
   switch (kind) {
     case "delegated":
@@ -88,12 +88,12 @@ export function mark(kind: string): string {
   }
 }
 
-/** Os eventos em que o agente aparece, fazendo ou recebendo. */
+/** The events the agent appears in, doing or receiving. */
 export function involving(events: ActivityEvent[], agent: string): ActivityEvent[] {
   return events.filter((e) => e.actor === agent || targetAgent(e) === agent);
 }
 
-/** Os agentes que aparecem nos eventos, em ordem alfabética, sem o assistente sem nome (nem o id de uma tarefa agendada ou de um webhook). */
+/** The agents that appear in the events, in alphabetical order, without the unnamed assistant (nor the id of a scheduled task or a webhook). */
 export function agentsIn(events: ActivityEvent[]): string[] {
   const names = new Set<string>();
   for (const e of events) {
@@ -104,7 +104,7 @@ export function agentsIn(events: ActivityEvent[]): string[] {
   return [...names].sort((a, b) => a.localeCompare(b));
 }
 
-/** O que um clique num evento abre: as tarefas do agente, a conversa entre dois agentes ou o canal do agente. */
+/** What a click on an event opens: the agent's tasks, the conversation between two agents or the agent's channel. */
 export type Destination = { kind: "tasks"; agent: string } | { kind: "conversation"; id: string } | { kind: "channel"; agent: string; id: string };
 
 export function destination(event: ActivityEvent): Destination | null {
@@ -118,7 +118,7 @@ export function destination(event: ActivityEvent): Destination | null {
 }
 
 export interface DayGroup {
-  /** "Hoje", "Ontem" ou a data. */
+  /** "Today", "Yesterday" or the date. */
   label: string;
   events: ActivityEvent[];
 }
@@ -128,7 +128,7 @@ const dayKey = (ms: number) => {
   return d.getFullYear() * 10000 + (d.getMonth() + 1) * 100 + d.getDate();
 };
 
-/** Os eventos (já do mais novo ao mais velho) separados por dia, com o rótulo de cada dia. */
+/** The events (already newest to oldest) split by day, with each day's label. */
 export function groupByDay(events: ActivityEvent[], now: number): DayGroup[] {
   const formatter = new Intl.DateTimeFormat(intlTag(), { day: "2-digit", month: "long", year: "numeric" });
   const today = dayKey(now);

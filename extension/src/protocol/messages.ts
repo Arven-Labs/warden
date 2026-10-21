@@ -94,15 +94,15 @@ export interface ApprovalPrompt {
   category?: string;
 }
 
-/** Onde uma tarefa delegada está (P123). */
+/** Where a delegated task stands (P123). */
 export type AgentTaskState = "pending" | "running" | "waiting" | "paused" | "done" | "failed" | "cancelled";
 
-/** O que dá para fazer com uma tarefa em andamento, pela tela. */
+/** What can be done to a task in progress, from the screen. */
 export type AgentTaskAction = "pause" | "resume" | "cancel";
 
-/** Mirrors `ActivityEventDto` (P121): algo que aconteceu entre os agentes, no feed de atividade. `kind`: `delegated`, `started`, `done`, `failed`,
- * `cancelled` (as tarefas, com `taskId`), `note`, `reply` (agentes escrevendo uns aos outros) ou `messaged_user` (o agente escrevendo primeiro para
- * a pessoa); os três últimos trazem a `conversationId`. `actor` vazio é o assistente que atende sem agente escolhido. */
+/** Mirrors `ActivityEventDto` (P121): something that happened between the agents, in the activity feed. `kind`: `delegated`, `started`, `done`, `failed`,
+ * `cancelled` (the tasks, with `taskId`), `note`, `reply` (agents writing to each other) or `messaged_user` (the agent writing to
+ * the person first); the last three carry the `conversationId`. An empty `actor` is the assistant that answers with no agent chosen. */
 export interface ActivityEvent {
   id: string;
   atMs: number;
@@ -114,8 +114,8 @@ export interface ActivityEvent {
   conversationId?: string;
 }
 
-/** Mirrors `GrantDto` (P122): um "sempre" dado numa conversa. `covers` é uma categoria de risco (`delete_data`) ou o nome de uma ferramenta; sem `agentId`, o agente padrão.
- * `lastUsedMs`: quando foi dado ou quando livrou o agente de perguntar pela última vez (ausente num hub antigo). */
+/** Mirrors `GrantDto` (P122): an "always" given in a conversation. `covers` is a risk category (`delete_data`) or a tool name; with no `agentId`, the default agent.
+ * `lastUsedMs`: when it was given or when it last spared the agent from asking (absent on an older hub). */
 export interface Grant {
   conversationId: string;
   agentId?: string;
@@ -123,22 +123,22 @@ export interface Grant {
   lastUsedMs?: number;
 }
 
-/** Os "sempre" dados e em quantos dias sem uso um vence. `ttlDays` falta quando o hub não os guarda em arquivo (acabam com a conexão) e
- * num hub antigo. */
+/** The "always" grants given and after how many unused days one expires. `ttlDays` is missing when the hub does not keep them in a file (they end
+ * with the connection) and on an older hub. */
 export interface GrantsView {
   grants: Grant[];
   ttlDays?: number;
 }
 
-/** Mirrors `AgentTaskDto` (P123): uma tarefa que um agente delegou em segundo plano. `group` é comum às tarefas que um turno começou. */
+/** Mirrors `AgentTaskDto` (P123): a task an agent delegated in the background. `group` is shared by the tasks one turn started. */
 export interface AgentTask {
   id: string;
   group: string;
-  /** O agente que delegou. */
+  /** The agent that delegated. */
   owner?: string | null;
-  /** Quem faz o trabalho, ou o nome dado a um ajudante temporário. */
+  /** Who does the work, or the name given to a temporary helper. */
   assignee: string;
-  /** A tarefa de que esta é subtarefa, quando o agente dela a começou de dentro de outra tarefa. */
+  /** The task this is a subtask of, when its agent started it from inside another task. */
   parentId?: string | null;
   objective: string;
   model?: string | null;
@@ -152,13 +152,13 @@ export interface AgentTask {
   createdAtMs: number;
   startedAtMs?: number | null;
   finishedAtMs?: number | null;
-  /** Roda no processo do hub que respondeu: dá para pausar, retomar ou parar por aqui. */
+  /** Runs in the process of the hub that answered: it can be paused, resumed or stopped from here. */
   controllable?: boolean;
-  /** Entre essas, as que também podem ser pausadas: uma delegação que o agente espera só pode ser parada. */
+  /** Among those, the ones that can also be paused: a delegation the agent is waiting on can only be stopped. */
   pausable?: boolean;
 }
 
-/** O que a tela de Organização lê de um agente nas configurações do hub (P120, P123): o resto do `AgentSettings` fica de fora. */
+/** What the Organization screen reads of an agent in the hub's settings (P120, P123): the rest of `AgentSettings` is left out. */
 export interface AgentInfo {
   id: string;
   role?: string | null;
@@ -167,26 +167,26 @@ export interface AgentInfo {
   canManageAgents: boolean;
   canMessageAgents: boolean;
   canManageTasks: boolean;
-  /** P122 — ligadas por padrão; desligadas, o agente não inicia trabalho em segundo plano, não cria agentes temporários, não puxa conversa nem escolhe o modelo das tarefas. */
+  /** P122 — on by default; when off, the agent does not start background work, does not create temporary agents, does not start conversations and does not choose the tasks' model. */
   canStartTasks: boolean;
   canCreateWorkers: boolean;
   canMessageUser: boolean;
   canChooseModels: boolean;
-  /** 1 só responde, 2 sugere, 3 pede antes, 4 age sozinho, 5 também gerencia os subordinados sem perguntar. */
+  /** 1 only answers, 2 suggests, 3 asks before every change, 4 acts alone, 5 also manages its subordinates without asking. */
   autonomy: number;
   approvalRequired: string[];
-  /** Os modelos que o agente pode escolher ao delegar; vazio = aberto. */
+  /** The models the agent may choose when delegating; empty = open. */
   delegationModels: string[];
 }
 
-/** Mirrors `ModelPolicyDto` (P123): um nome ("fast", "reasoning"...) que um agente que delega usa para o modelo de uma tarefa. */
+/** Mirrors `ModelPolicyDto` (P123): a name ("fast", "reasoning"...) that a delegating agent uses for a task's model. */
 export interface ModelPolicy {
   id: string;
   model: string;
   description?: string;
 }
 
-/** Uma mudança feita pela árvore, como o hub a recebe (`AgentOrgEdit`). `role` e `reportsTo` ausentes querem dizer nenhum. */
+/** A change made through the tree, as the hub receives it (`AgentOrgEdit`). An absent `role` or `reportsTo` means none. */
 export type OrgEdit =
   | { kind: "setPosition"; id: string; role?: string; reportsTo?: string }
   | { kind: "addReport"; id: string; persona: string; role?: string; reportsTo?: string }

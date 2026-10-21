@@ -33,8 +33,8 @@ function Breakdown({ title, entries, emptyLabel }: { title: string; entries: Usa
   );
 }
 
-/** P126 — os tokens do hub inteiro, por agente, por provedor e por combo (o que o turno usou pelo qual o agente começou, quem respondeu e o
- * combo por onde passou). Atualiza enquanto a aba está aberta. Um hub antigo não manda as listas: a tela diz isso em vez de ficar vazia. */
+/** P126 — the whole hub's tokens, by agent, by provider and by combo (what the turn used by the agent it started with, who answered and the
+ * combo it went through). Updates while the tab is open. An older hub does not send the lists: the screen says so instead of staying empty. */
 export default function UsageView() {
   const [usage, setUsage] = useState<SpendReport | null>(null);
   const [error, setError] = useState<string | null>(null);

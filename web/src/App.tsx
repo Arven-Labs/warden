@@ -145,7 +145,7 @@ export default function App() {
   const [seen, setSeen] = useState<SeenMap | null>(loadSeen);
   /** A thread open beside the chat (P125): the message it comes from and the conversation it lives in. Closed when the chat moves to another conversation. */
   const [thread, setThread] = useState<{ messageId: string; threadId: string } | null>(null);
-  /** O agente cujas tarefas a aba "Trabalho dos agentes" mostra (definido a partir da árvore da organização). */
+  /** The agent whose tasks the "Agent work" tab shows (set from the organization tree). */
   const [agentWorkFilter, setAgentWorkFilter] = useState<string | null>(null);
   /** The person's projects (P103), for the chat's picker and the list's groups. */
   const [projects, setProjects] = useState<ProjectDto[]>([]);
@@ -654,7 +654,7 @@ export default function App() {
     if (connection) void loadConversation(connection, id);
   }
 
-  /** Uma conversa nova com `id`, a partir da árvore da organização. */
+  /** A new conversation with `id`, from the organization tree. */
   function openChatWith(id: string) {
     setSidebarOpen(false);
     setView("chat");

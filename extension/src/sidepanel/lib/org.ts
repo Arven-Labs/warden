@@ -1,8 +1,8 @@
 import { t, type Key } from "../../i18n/index.ts";
 import type { OrgEdit } from "../../protocol/messages";
 
-/** P120 — a organização dos agentes: cada um pode ter um cargo e um superior (`reportsTo`, o id de outro agente).
- * Por enquanto só aparece: não muda nada do que um agente pode fazer. Espelha `warden_bootstrap::org`. */
+/** P120 — the agents' organization: each can have a role and a superior (`reportsTo`, another agent's id).
+ * For now it only shows: it changes nothing about what an agent can do. Mirrors `warden_bootstrap::org`. */
 export interface OrgAgent {
   id: string;
   role?: string | null;
@@ -14,8 +14,8 @@ export interface OrgNode<T extends OrgAgent = OrgAgent> {
   children: OrgNode<T>[];
 }
 
-/** Os agentes como uma floresta: quem não tem superior fica no topo, na ordem em que vieram, com os seus subordinados
- * embaixo. Quem tem o superior sumido aparece no topo em vez de se perder, e um ciclo (que o hub recusa) nunca trava a árvore. */
+/** The agents as a forest: those with no superior sit at the top, in the order they came, with their subordinates
+ * below. One whose superior is gone shows at the top instead of getting lost, and a cycle (which the hub refuses) never hangs the tree. */
 export function buildOrg<T extends OrgAgent>(agents: T[]): OrgNode<T>[] {
   const ids = new Set(agents.map((a) => a.id));
   const seen = new Set<string>();
@@ -30,7 +30,7 @@ export function buildOrg<T extends OrgAgent>(agents: T[]): OrgNode<T>[] {
   return agents.filter((a) => !a.reportsTo || !ids.has(a.reportsTo)).map(nodeOf);
 }
 
-/** Todos abaixo de `id`, em qualquer nível: a quem ele não pode passar a reportar. */
+/** Everyone below `id`, at any level: the ones it cannot start reporting to. */
 export function descendantsOf(agents: OrgAgent[], id: string): Set<string> {
   const below = new Set<string>();
   const queue = [id];
@@ -46,22 +46,22 @@ export function descendantsOf(agents: OrgAgent[], id: string): Set<string> {
   return below;
 }
 
-/** A quem `id` pode passar a reportar: todos menos ele mesmo e quem está abaixo dele (fecharia um ciclo). */
+/** Who `id` can start reporting to: everyone except itself and those below it (that would close a cycle). */
 export function superiorChoices<T extends OrgAgent>(agents: T[], id: string): T[] {
   const below = descendantsOf(agents, id);
   return agents.filter((a) => a.id !== id && !below.has(a.id));
 }
 
-// Uma mudança feita pela árvore, como o hub a recebe (`AgentOrgEdit`): o tipo mora com o protocolo, em `protocol/messages.ts`.
+// A change made through the tree, as the hub receives it (`AgentOrgEdit`): the type lives with the protocol, in `protocol/messages.ts`.
 export type { OrgEdit };
 
-/** Um campo em branco é nenhum valor: a mudança o deixa de fora em vez de mandar uma string vazia. */
+/** A blank field is no value: the change leaves it out instead of sending an empty string. */
 export function positionEdit(id: string, role: string, reportsTo: string): OrgEdit {
   return { kind: "setPosition", id, ...(role.trim() ? { role: role.trim() } : {}), ...(reportsTo ? { reportsTo } : {}) };
 }
 
-/** P122 — os tipos de ação que um agente pode ser obrigado a ter aprovados mesmo quando age sozinho. Os ids são os de
- * `warden_core::autonomy::Category`, como o hub e `approvalRequired` os escrevem (a mesma lista da web). */
+/** P122 — the kinds of action an agent can be required to have approved even when it acts alone. The ids are those of
+ * `warden_core::autonomy::Category`, as the hub and `approvalRequired` write them (the same list as the web's). */
 const category = (id: string, key: Key): { id: string; label: string } => ({
   id,
   get label() {
@@ -79,12 +79,12 @@ export const APPROVAL_CATEGORIES: { id: string; label: string }[] = [
   category("elevated_agent", "approvalCategory.elevated_agent"),
 ];
 
-/** O nome de uma categoria, ou o próprio id quando um hub mais novo manda uma que esta tela não conhece. */
+/** A category's name, or the id itself when a newer hub sends one this screen does not know. */
 export function approvalCategoryLabel(id: string): string {
   return APPROVAL_CATEGORIES.find((c) => c.id === id)?.label ?? id;
 }
 
-/** O que cada nível de autonomia quer dizer, em uma linha (P122). */
+/** What each autonomy level means, in one line (P122). */
 const autonomyLevel = (level: number, key: Key): { level: number; label: string } => ({
   level,
   get label() {
@@ -106,12 +106,12 @@ export interface Powers {
   canCreateWorkers: boolean;
   canMessageUser: boolean;
   canChooseModels: boolean;
-  /** Os ids marcados, em qualquer ordem. */
+  /** The checked ids, in any order. */
   approvalRequired: Iterable<string>;
 }
 
-/** P122 — a mudança de poderes de `id`. As categorias saem na ordem fixa da lista (as marcadas que a tela conhece, e as que só o hub conhece
- * depois delas), sem repetir, para o mesmo conjunto dar sempre a mesma mudança. */
+/** P122 — the powers change for `id`. The categories come out in the list's fixed order (the checked ones the screen knows, and those only the hub
+ * knows after them), with no repeats, so the same set always gives the same change. */
 export function powersEdit(id: string, powers: Powers): OrgEdit {
   const marked = new Set(powers.approvalRequired);
   const known = APPROVAL_CATEGORIES.map((c) => c.id).filter((c) => marked.has(c));
@@ -132,9 +132,9 @@ export function addReportEdit(id: string, persona: string, role: string, reports
   return { kind: "addReport", id: id.trim(), persona: persona.trim(), ...(role.trim() ? { role: role.trim() } : {}), ...(reportsTo ? { reportsTo } : {}) };
 }
 
-/** Soltar o cartão de `draggedId` sobre o de `targetId` (ou `null`: o topo da árvore): a mudança de posição que o hub recebe, com o cargo que
- * ele já tem. `null` quando não há o que mudar: o agente não existe, o alvo é ele mesmo ou alguém abaixo dele (fecharia um ciclo, o hub também
- * recusa) ou o superior de hoje já é o alvo. */
+/** Dropping the card of `draggedId` onto that of `targetId` (or `null`: the top of the tree): the position change the hub receives, with the role
+ * it already has. `null` when there is nothing to change: the agent does not exist, the target is itself or someone below it (that would close a
+ * cycle, which the hub also refuses) or the current superior already is the target. */
 export function moveEdit(agents: OrgAgent[], draggedId: string, targetId: string | null): OrgEdit | null {
   const dragged = agents.find((a) => a.id === draggedId);
   if (!dragged) return null;
@@ -143,13 +143,13 @@ export function moveEdit(agents: OrgAgent[], draggedId: string, targetId: string
   return positionEdit(draggedId, dragged.role ?? "", targetId ?? "");
 }
 
-/** Um agente foi renomeado: quem reportava a ele acompanha o nome novo. */
+/** An agent was renamed: whoever reported to it follows the new name. */
 export function renameInReports<T extends OrgAgent>(agents: T[], from: string, to: string): T[] {
   if (from === to) return agents;
   return agents.map((a) => (a.reportsTo === from ? { ...a, reportsTo: to } : a));
 }
 
-/** `removed` está saindo: quem reportava a ele passa a reportar ao superior dele (ou a ninguém). A lista volta sem ele. */
+/** `removed` is leaving: whoever reported to it now reports to its superior (or to nobody). The list comes back without it. */
 export function removeFromOrg<T extends OrgAgent>(agents: T[], removed: string): T[] {
   const superior = agents.find((a) => a.id === removed)?.reportsTo ?? null;
   return agents.filter((a) => a.id !== removed).map((a) => (a.reportsTo === removed ? { ...a, reportsTo: superior } : a));

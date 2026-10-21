@@ -1,23 +1,23 @@
-// P123 — os modelos com que um agente pode delegar, e as políticas nomeadas ("fast", "reasoning"...) sobre eles, como o formulário de
-// Configurações os edita. Puro; espelha `desktop/src/lib/modelPolicies.ts`.
+// P123 — the models an agent can delegate with, and the named policies ("fast", "reasoning"...) over them, as the Settings
+// form edits them. Pure; mirrors `desktop/src/lib/modelPolicies.ts`.
 
 import { t } from "../i18n/index.ts";
 import type { AgentSettings, ModelPolicy } from "./messages";
 
-/** A parte do formulário que estas cascatas leem e mudam. */
+/** The part of the form that these cascades read and change. */
 export interface PolicyForm {
   agents: AgentSettings[];
   modelPolicies: ModelPolicy[];
 }
 
-/** Todo id a que um agente pode ser limitado: os provedores, depois os combos, depois as políticas. */
+/** Every id an agent can be limited to: the providers, then the combos, then the policies. */
 export function delegationCandidates(providers: { id: string }[], combos: { id: string }[], policies: { id: string }[]): string[] {
   return [...providers, ...combos, ...policies].map((m) => m.id).filter((id) => id.trim() !== "");
 }
 
 const renameIn = (list: string[] | undefined, from: string, to: string) => list?.map((m) => (m === from ? to : m));
 
-/** Um provedor ou combo foi renomeado: as políticas que ele responde o seguem, e os agentes que o listavam também. */
+/** A provider or combo was renamed: the policies it answers follow it, and so do the agents that listed it. */
 export function renameModel<T extends PolicyForm>(form: T, from: string, to: string): T {
   if (from === to) return form;
   return {
@@ -27,14 +27,14 @@ export function renameModel<T extends PolicyForm>(form: T, from: string, to: str
   };
 }
 
-/** Uma política foi renomeada: os agentes que a listavam a seguem. */
+/** A policy was renamed: the agents that listed it follow it. */
 export function renamePolicy<T extends PolicyForm>(form: T, from: string, to: string): T {
   if (from === to) return form;
   return { ...form, agents: form.agents.map((a) => (a.delegationModels?.includes(from) ? { ...a, delegationModels: renameIn(a.delegationModels, from, to) } : a)) };
 }
 
-/** Um provedor ou combo vai embora: as políticas que ele respondia vão junto, e a lista de todo agente o esquece, e a elas. Uma lista que
- * fica vazia deixa a escolha aberta de novo. */
+/** A provider or combo goes away: the policies it answered go with it, and every agent's list forgets it, and them. A list that
+ * ends up empty leaves the choice open again. */
 export function dropModel<T extends PolicyForm>(form: T, id: string): T {
   const gone = new Set([id, ...form.modelPolicies.filter((p) => p.model === id).map((p) => p.id)]);
   return {
@@ -44,7 +44,7 @@ export function dropModel<T extends PolicyForm>(form: T, id: string): T {
   };
 }
 
-/** Uma política vai embora: os agentes que a listavam a esquecem. */
+/** A policy goes away: the agents that listed it forget it. */
 export function dropPolicy<T extends PolicyForm>(form: T, id: string): T {
   return {
     ...form,
@@ -53,14 +53,14 @@ export function dropPolicy<T extends PolicyForm>(form: T, id: string): T {
   };
 }
 
-/** O nome com que uma política nova começa: `policy-1`, `policy-2`... livre entre provedores, combos e políticas. */
+/** The name a new policy starts with: `policy-1`, `policy-2`... free among providers, combos and policies. */
 export function nextPolicyId(taken: string[]): string {
   let n = 1;
   while (taken.includes(`policy-${n}`)) n += 1;
   return `policy-${n}`;
 }
 
-/** O que a lista diz sobre os modelos de um agente, numa frase que o cartão mostra embaixo. */
+/** What the list says about an agent's models, in a sentence the card shows underneath. */
 export function delegationSummary(models: string[] | undefined): string {
   if (!models || models.length === 0) return t("policy.open");
   if (models.length === 1) return t("policy.dictated", { model: models[0] });

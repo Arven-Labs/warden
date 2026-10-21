@@ -13,9 +13,9 @@ type Request =
   | { type: "rotatePairingKey"; pairingKey: string }
   | { type: "cancelDeviceInvite"; pairingKey: string; name: string };
 
-/** Aparelhos (P36): cria um convite de uso único para parear mais um aparelho e troca a chave de pareamento do hub. A chave de pareamento
- * só pareia o primeiro aparelho; os outros entram com o código do convite. A chave é pedida a cada ação e não fica guardada em lugar nenhum;
- * o código do convite (e a chave nova) aparecem uma vez só, porque o hub guarda apenas o hash do código. */
+/** Devices (P36): creates a single-use invite to pair one more device and rotates the hub's pairing key. The pairing key
+ * only pairs the first device; the others join with the invite code. The key is asked for on every action and is not stored anywhere;
+ * the invite code (and the new key) show only once, because the hub keeps only the code's hash. */
 export default function DeviceInvites() {
   const [name, setName] = useState("");
   const [ttlMinutes, setTtlMinutes] = useState("15");
@@ -24,7 +24,7 @@ export default function DeviceInvites() {
   const [made, setMade] = useState<Made | null>(null);
   const [confirmRotate, setConfirmRotate] = useState(false);
   const [busy, setBusy] = useState(false);
-  // Os convites que esperam, que qualquer aparelho pareado pode ver (pelo nome, nunca o código).
+  // The invites that are waiting, which any paired device can see (by name, never the code).
   const [waiting, setWaiting] = useState<DeviceInviteInfo[]>([]);
 
   function refreshWaiting() {

@@ -4,8 +4,8 @@ import type { SshAuditEntry } from "../hub/messages";
 import { actionLabel, approvalLabel, detailOf, outcomeOf, whenLabel, wasRefused } from "../hub/sshAudit";
 import { t } from "../i18n";
 
-// "Registro de uso do SSH" (P47): as últimas chamadas das tools de SSH neste hub. Só leitura, só o dono. Carrega ao abrir, porque o log
-// pode ser grande, e não guarda a saída dos comandos, mas os comandos em si podem ter um segredo.
+// "SSH usage log" (P47): the latest calls to the SSH tools on this hub. Read-only, owner only. Loads on open, because the log
+// can be large, and it does not keep the commands' output, but the commands themselves may hold a secret.
 
 export default function SshAuditLog({ conn }: { conn: ServerConnection | null }) {
   const [entries, setEntries] = useState<SshAuditEntry[] | null>(null);

@@ -1,30 +1,30 @@
-// P125 — as threads: uma conversa filha ligada a uma mensagem de outra. Pura, para testar sem janela. Espelha `web/src/hub/threads.ts`.
+// P125 — threads: a child conversation tied to a message of another. Pure, to test without a window. Mirrors `web/src/hub/threads.ts`.
 
 import { t } from "../i18n/index.ts";
 import type { ConversationSummary } from "./messages";
 
-/** O começo do id do canal de um agente (P121): a conversa fixa que ele mantém com a pessoa. Igual ao `CHANNEL_PREFIX` do hub. */
+/** The start of an agent's channel id (P121): the fixed conversation it keeps with the person. Same as the hub's `CHANNEL_PREFIX`. */
 export const CHANNEL_PREFIX = "channel-";
 
-/** Se `id` é o canal de um agente. */
+/** Whether `id` is an agent's channel. */
 export function isAgentChannel(id: string): boolean {
   return id.startsWith(CHANNEL_PREFIX);
 }
 
-/** As conversas que a lista mostra: as threads ficam de fora, só aparecem a partir da mensagem de onde saíram, e os canais dos agentes
- * também, que têm a aba deles. */
+/** The conversations the list shows: threads are left out, they only appear from the message they came from, and so are the agents'
+ * channels, which have their own tab. */
 export function visibleConversations<T extends Pick<ConversationSummary, "parent" | "id">>(conversations: T[]): T[] {
   return conversations.filter((c) => !c.parent && !isAgentChannel(c.id));
 }
 
-/** Uma thread de uma mensagem: a conversa dela e quantas mensagens a pessoa mandou nela. */
+/** A message's thread: its conversation and how many messages the person sent in it. */
 export interface ThreadInfo {
   conversationId: string;
   replies: number;
 }
 
-/** As threads de uma conversa, pelo id da mensagem de onde saíram. Uma mensagem tem no máximo uma; se por uma corrida entre dois aparelhos
- * houver duas, vale a que tem mais respostas. */
+/** The threads of a conversation, by the id of the message they came from. A message has at most one; if a race between two devices
+ * produces two, the one with more replies wins. */
 export function threadsOf(conversations: ConversationSummary[], conversationId: string): Record<string, ThreadInfo> {
   const found: Record<string, ThreadInfo> = {};
   for (const c of conversations) {
@@ -36,9 +36,9 @@ export function threadsOf(conversations: ConversationSummary[], conversationId: 
   return found;
 }
 
-/** Cola os ids do histórico do hub nas mensagens que já estão na tela e ainda não os têm (a resposta que acabou de chegar). Só vale quando
- * as mensagens da tela, fora os erros (que o hub não guarda), são tantas quanto as do histórico: do contrário há um turno no meio do caminho
- * e as posições não casam, então a lista fica como está. */
+/** Attaches the hub history's ids to the messages already on screen that do not have them yet (the reply that just arrived). Only applies when
+ * the messages on screen, minus the errors (which the hub does not keep), are as many as the history's: otherwise a turn is in flight
+ * and the positions do not line up, so the list stays as it is. */
 export function withMessageIds<T extends { role: string; id?: string }>(entries: T[], history: Array<{ id?: string }>): T[] {
   if (entries.filter((e) => e.role !== "error").length !== history.length) return entries;
   let next = 0;

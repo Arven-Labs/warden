@@ -11,10 +11,10 @@ function errorText(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
 
-/** P125 — a thread de uma mensagem: um chat à parte, à direita da conversa, ligado a uma conversa filha dela. O modelo vê a conversa até a
- * mensagem de onde a thread saiu e depois só o que se diz aqui; nada volta para a conversa principal, só o contador de respostas na
- * mensagem. `threadId` é a conversa da thread (a que já existe, ou um id novo que o hub cria com a primeira resposta), e `parent` é a
- * mensagem de onde ela sai, dita só na primeira. */
+/** P125 — the thread of a message: a separate chat, to the right of the conversation, tied to a child conversation of it. The model sees the
+ * conversation up to the message the thread came from and then only what is said here; nothing goes back to the main conversation, only the
+ * reply counter on the message. `threadId` is the thread's conversation (the one that already exists, or a new id the hub creates with the
+ * first reply), and `parent` is the message it comes from, sent only with the first one. */
 export default function ThreadPanel({
   conn,
   threadId,
@@ -28,11 +28,11 @@ export default function ThreadPanel({
   conn: ServerConnection;
   threadId: string;
   parent: { conversationId: string; messageId: string };
-  /** A mensagem de onde a thread saiu, para o topo do painel. */
+  /** The message the thread came from, for the top of the panel. */
   anchor: ChatEntry;
-  /** Os agentes configurados no hub, para escolher com quem a thread fala. */
+  /** The agents configured on the hub, to choose who the thread talks to. */
   agentIds: string[];
-  /** Com quem a thread começa: o agente com que ela falou da última vez, ou o da conversa principal se é nova. A pessoa troca no painel. */
+  /** Who the thread starts with: the agent it last talked to, or the main conversation's if it is new. The person changes it in the panel. */
   initialAgentId: string;
   disabled: boolean;
   onClose: () => void;
@@ -43,7 +43,7 @@ export default function ThreadPanel({
   const threadRef = useRef(threadId);
   threadRef.current = threadId;
 
-  // O histórico da thread, se ela já existe (uma que ainda não existe vem vazia).
+  // The thread's history, if it already exists (one that does not exist yet comes back empty).
   useEffect(() => {
     let alive = true;
     setEntries([]);
@@ -57,7 +57,7 @@ export default function ThreadPanel({
     };
   }, [conn, threadId]);
 
-  // A resposta (ou o erro) da thread chega pela mesma conexão do chat principal, marcada com o id dela.
+  // The thread's reply (or error) arrives over the same connection as the main chat, tagged with its id.
   useEffect(
     () =>
       conn.onChatMessage((entry, conversationId) => {
@@ -87,7 +87,7 @@ export default function ThreadPanel({
       <div className="thread-header">
         <strong>{t("thread.title")}</strong>
         {(agentIds.length > 0 || agentId !== "") && (
-          // Cada thread fala com o agente que a pessoa escolher, o mesmo da conversa principal ou outro; trava enquanto a resposta não vem.
+          // Each thread talks to the agent the person picks, the same as the main conversation's or another; locked while the reply is pending.
           <label className="agent-picker">
             <span className="agent-picker-label">{t("picker.agent")}</span>
             <select value={agentId} onChange={(e) => setAgentId(e.target.value)} disabled={pending}>

@@ -58,9 +58,9 @@ export async function runInPage<A extends unknown[], R>(func: (...args: A) => R,
     const message = err instanceof Error ? err.message : String(err);
     const hint =
       explicitTabId !== undefined
-        ? "a aba pode ter navegado desde que foi adicionada ao grupo — remova e adicione de novo no painel lateral"
-        : "abra o painel lateral nessa aba e tente de novo";
-    throw new Error(`sem acesso à aba (${message}) — ${hint}`);
+        ? "the tab may have navigated since it was added to the group — remove it and add it again in the side panel"
+        : "open the side panel on that tab and try again";
+    throw new Error(`no access to the tab (${message}) — ${hint}`);
   }
 }
 
