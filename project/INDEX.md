@@ -1,10 +1,10 @@
 # Warden — Estado do Projeto
 
-> Última atualização: 2026-10-20 (Sessão 271)
+> Última atualização: 2026-10-21 (Sessão 272)
 
 > Modelo de negócio hospedado (Sessão 220, só desenho, nada implementado): self-host grátis ou assinatura em que o Fabio hospeda o Warden do cliente, com acesso a modelos por créditos pré-pagos, e uma loja gratuita de integrações, skills e agentes prontos, nos dois modos. Ver `HOSPEDAGEM.md` e `PENDING.md` P138 a P148. A seção K do `HOSPEDAGEM.md` (Sessão 222) traz a medição de RAM por instância e a decisão de custo.
 
-> Para o final do projeto (Sessão 217): i18n multi-idioma com inglês como padrão e código em inglês (P136), e a documentação do projeto (P137). Ver `PENDING.md`.
+> Para o final do projeto (Sessão 217): i18n multi-idioma com inglês como padrão e código em inglês (P136, feito até a Sessão 272: as seis superfícies e o código), e a documentação do projeto (P137, a seguir). Ver `PENDING.md`.
 
 > A spec do router de modelos e da nuvem do Fabio (`SPEC-warden-router-e-futuro.md`) foi removida da raiz na Sessão 221; o conteúdo está no `PENDING.md` P131 e em `HOSPEDAGEM.md` (contexto e preferências), e o arquivo segue no histórico do git (commit `cf00ff7`).
 

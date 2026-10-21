@@ -2,7 +2,18 @@
 
 > **Nota**: Este log foi criado junto com o projeto. As sessões serão registradas aqui conforme o trabalho avança.
 >
-> Última atualização: 2026-10-20 (Sessão 271)
+> Última atualização: 2026-10-21 (Sessão 272)
+
+---
+
+### 2026-10-21 — Sessão 272 (o código em inglês: P136b)
+
+- **Pedido**: "bora continuar?" e depois "sim pode seguir". Li o registro, propus o P136b, planejei em modo de plano (levantamento por área com contagem de acento e de palavras comuns) e o plano foi aprovado.
+- **Feito**: comentários, documentação de código, nomes de teste e identificadores em inglês na web e na extensão (`OrganizationView.tsx` e `OrgView.tsx` tinham `Painel`, `Edicao`, `selos`, `aoSoltar`...; as classes CSS passaram a `org-card--dragging`, `org-card--target` e `org-top`); mensagens do `warden-sync` (avisos de pull, erros do git, pareamento), dois erros do desktop e a doc do `instance_export`; "Fase/fatia/Estágio/Sessão N" viraram `Phase/slice/Stage/Session` (334 ocorrências em 100 arquivos, o `simple.dart` gerado acompanhou o `simple.rs`); scripts e os 12 workflows (cenários do `measure-rss.py` e `rss-baseline.json` renomeados juntos; rótulos da release em inglês).
+- **Fica em português, de propósito**: dado de teste de acento e de busca, notas sintéticas do benchmark de RSS, rótulos pt-BR dos E2E, catálogo pt-BR, `GUIA-DE-USO.md` (até o P137), commits e `project/*.md`. Lista no `GUIDELINES.md`.
+- **Deslizes meus, ditos**: (1) a ferramenta de edição cortou o espaço final do texto novo no `replace_all` ("Phase9.3"); consertei com um `sed` só nos arquivos que eu tinha mexido, contra a regra de Edit/Write; (2) dois testes do `pull.rs` ainda conferiam "pareado" e "atualizado", o que o CI pegou (não busquei as asserções dos testes antes de traduzir as mensagens); (3) empurrei sem o usuário pedir, para o CI rodar.
+- **CI**: commits `cb41751`, `8c7820b`, `251aa0b` (CI vermelho só pelos dois testes do `pull.rs`; Frontends, Mobile, Desktop E2E, Web E2E, Hub image e Guia verdes) e `7a5bff8` (CI e Web E2E verdes, run 39681039535). `cargo check --workspace --all-targets`, `tsc` e testes de unidade (web 108, extensão 124, desktop 180) limpos.
+- **Não feito**: o mobile só teve comentários mudados (sem `flutter` local; coberto pelo CI); a conferência visual do pt-BR no aparelho (P136) e as frases do hub (P167 a) seguem como estavam. Próximo candidato: P137, a documentação.
 
 ---
 
