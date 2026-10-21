@@ -7,6 +7,7 @@ import 'package:flutter/material.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:video_player/video_player.dart';
 
+import '../l10n/generated/app_localizations.dart';
 import '../protocol/messages.dart';
 import '../services/agent_work.dart' show orgAccessOf;
 import '../services/chat_notifications.dart';
@@ -96,11 +97,12 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     if (_approvalShown != null || _approvals.isEmpty || !mounted) return;
     final request = _approvals.first;
     _approvalShown = request.approvalId;
+    final l10n = AppLocalizations.of(context);
     final approved = await showDialog<bool>(
       context: context,
       barrierDismissible: false,
       builder: (dialogContext) => AlertDialog(
-        title: const Text('Approval needed'),
+        title: Text(l10n.chatApprovalTitle),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -108,14 +110,14 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
             Text('${request.action}: ${request.target}', style: const TextStyle(fontWeight: FontWeight.bold)),
             if (request.category != null) ...[
               const SizedBox(height: 4),
-              Text('Category: ${request.category} (this agent asks for approval on this)'),
+              Text(l10n.chatApprovalCategory(request.category!)),
             ],
             if (request.detail.isNotEmpty) ...[const SizedBox(height: 8), Text(request.detail)],
           ],
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.of(dialogContext).pop(false), child: const Text('Deny')),
-          FilledButton(onPressed: () => Navigator.of(dialogContext).pop(true), child: const Text('Approve')),
+          TextButton(onPressed: () => Navigator.of(dialogContext).pop(false), child: Text(l10n.chatDeny)),
+          FilledButton(onPressed: () => Navigator.of(dialogContext).pop(true), child: Text(l10n.chatApprove)),
         ],
       ),
     );
@@ -177,7 +179,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
         configUpdated: result.configUpdated,
       );
       if (message != null && mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Sync: $message')));
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(AppLocalizations.of(context).chatSyncSnack(message))));
       }
     } catch (e) {
       debugPrint('mobile: auto-pull on resume failed: $e');
@@ -210,10 +212,11 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     final transcript = widget.transcript;
     final after = transcript.messagesAfter(index);
     final controller = TextEditingController(text: transcript.entries[index].text);
+    final l10n = AppLocalizations.of(context);
     final text = await showDialog<String>(
       context: context,
       builder: (dialogContext) => AlertDialog(
-        title: const Text('Edit message'),
+        title: Text(l10n.chatEditTitle),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -221,16 +224,13 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
             TextField(controller: controller, autofocus: true, minLines: 1, maxLines: 8),
             if (after > 0) ...[
               const SizedBox(height: 12),
-              Text(
-                'Sending this deletes the ${after == 1 ? 'message' : '$after messages'} after it, and the threads on ${after == 1 ? 'it' : 'them'}.',
-                style: Theme.of(dialogContext).textTheme.bodySmall,
-              ),
+              Text(l10n.chatEditWarning(after), style: Theme.of(dialogContext).textTheme.bodySmall),
             ],
           ],
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.of(dialogContext).pop(), child: const Text('Cancel')),
-          TextButton(onPressed: () => Navigator.of(dialogContext).pop(controller.text), child: const Text('Send')),
+          TextButton(onPressed: () => Navigator.of(dialogContext).pop(), child: Text(l10n.commonCancel)),
+          TextButton(onPressed: () => Navigator.of(dialogContext).pop(controller.text), child: Text(l10n.chatSend)),
         ],
       ),
     );
@@ -253,6 +253,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   /// P121 — the agents as contacts: one conversation each, its channel. Picking one opens it in the chat.
   void _openChannels() {
     unawaited(widget.transcript.refreshAgents());
+    final l10n = AppLocalizations.of(context);
     showModalBottomSheet<void>(
       context: context,
       showDragHandle: true,
@@ -264,7 +265,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
           try {
             await widget.transcript.openAgentChannel(agent);
           } catch (e) {
-            messenger.showSnackBar(SnackBar(content: Text("Couldn't open the channel: $e")));
+            messenger.showSnackBar(SnackBar(content: Text(l10n.chatChannelFailed('$e'))));
           }
         },
       ),
@@ -292,6 +293,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
 
   /// P120, P123 — the agents screen. "Chat" on a node leaves it and starts an empty conversation as that agent.
   void _openAgents() {
+    final l10n = AppLocalizations.of(context);
     Navigator.of(context).push(
       MaterialPageRoute(
         builder: (_) => AgentsScreen(
@@ -309,7 +311,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
             try {
               await widget.transcript.openAgentChannel(agent);
             } catch (e) {
-              messenger.showSnackBar(SnackBar(content: Text("Couldn't open the channel: $e")));
+              messenger.showSnackBar(SnackBar(content: Text(l10n.chatChannelFailed('$e'))));
             }
           },
         ),
@@ -335,12 +337,13 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   Future<void> _openFilesDialog() async {
     final fileTool = MobileFileTool();
     if (!mounted) return;
+    final l10n = AppLocalizations.of(context);
     await showDialog<void>(
       context: context,
       builder: (dialogContext) => StatefulBuilder(
         builder: (dialogContext, setDialogState) {
           return AlertDialog(
-            title: const Text('Files'),
+            title: Text(l10n.chatFilesTitle),
             content: FutureBuilder<String?>(
               future: fileTool.rootFolderUri(),
               builder: (context, snapshot) {
@@ -350,13 +353,9 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                   mainAxisSize: MainAxisSize.min,
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(uri == null ? 'No folder configured yet.' : 'Configured folder:\n$uri'),
+                    Text(uri == null ? l10n.chatFilesNone : l10n.chatFilesConfigured(uri)),
                     const SizedBox(height: 8),
-                    const Text(
-                      'Lets the model list and read text files under this folder. '
-                      'Takes effect the next time you connect.',
-                      style: TextStyle(fontSize: 12),
-                    ),
+                    Text(l10n.chatFilesHint, style: const TextStyle(fontSize: 12)),
                   ],
                 );
               },
@@ -367,18 +366,18 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                   await fileTool.clearRootFolder();
                   setDialogState(() {});
                 },
-                child: const Text('Clear'),
+                child: Text(l10n.chatFilesClear),
               ),
               TextButton(
                 onPressed: () async {
                   await fileTool.pickRootFolder();
                   setDialogState(() {});
                 },
-                child: const Text('Choose folder'),
+                child: Text(l10n.chatFilesChoose),
               ),
               TextButton(
                 onPressed: () => Navigator.of(dialogContext).pop(),
-                child: const Text('Done'),
+                child: Text(l10n.commonDone),
               ),
             ],
           );
@@ -389,6 +388,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
     final serverName = switch (_status) {
       Connected(:final serverName) => serverName,
       _ => widget.connection.serverName,
@@ -402,9 +402,9 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
           builder: (context, _) => Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(widget.transcript.channelAgent ?? widget.transcript.activeTitle ?? 'New conversation', overflow: TextOverflow.ellipsis),
+              Text(widget.transcript.channelAgent ?? widget.transcript.activeTitle ?? l10n.chatNewConversation, overflow: TextOverflow.ellipsis),
               Text(
-                [serverName, if (widget.transcript.selectedAgentId != null) 'as ${widget.transcript.selectedAgentId}'].join(' · '),
+                [serverName, if (widget.transcript.selectedAgentId != null) l10n.chatAs(widget.transcript.selectedAgentId!)].join(' · '),
                 style: Theme.of(context).textTheme.bodySmall,
                 overflow: TextOverflow.ellipsis,
               ),
@@ -427,7 +427,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                 key: const Key('channels-button'),
                 onPressed: _openChannels,
                 icon: Badge(isLabelVisible: unread > 0, label: Text('$unread'), child: const Icon(Icons.chat_outlined)),
-                tooltip: unread > 0 ? 'Agent channels ($unread new)' : 'Agent channels',
+                tooltip: unread > 0 ? l10n.chatChannelsTooltipNew(unread) : l10n.chatChannelsTooltip,
               );
             },
           ),
@@ -436,14 +436,14 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
             key: const Key('agents-button'),
             onPressed: _openAgents,
             icon: const Icon(Icons.account_tree_outlined),
-            tooltip: 'Agents',
+            tooltip: l10n.chatAgentsTooltip,
           ),
           // P99 — what the person spent, and the limits that apply to them.
           IconButton(
             key: const Key('usage-button'),
             onPressed: _openUsage,
             icon: const Icon(Icons.bar_chart_outlined),
-            tooltip: 'Usage',
+            tooltip: l10n.chatUsageTooltip,
           ),
           // P36 — invites for new devices and the pairing key: the owner's, since a member has no key to ask for.
           if (widget.connection.user == null)
@@ -451,23 +451,23 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
               key: const Key('devices-button'),
               onPressed: _openDevices,
               icon: const Icon(Icons.devices_outlined),
-              tooltip: 'Devices',
+              tooltip: l10n.chatDevicesTooltip,
             ),
           Builder(
             builder: (context) => IconButton(
               onPressed: () => Scaffold.of(context).openEndDrawer(),
               icon: const Icon(Icons.forum_outlined),
-              tooltip: 'Conversations',
+              tooltip: l10n.chatConversationsTooltip,
             ),
           ),
           IconButton(
             onPressed: _openFilesDialog,
             icon: const Icon(Icons.folder_outlined),
-            tooltip: 'Files',
+            tooltip: l10n.chatFilesTooltip,
           ),
           TextButton(
             onPressed: _disconnect,
-            child: const Text('Disconnect'),
+            child: Text(l10n.chatDisconnect),
           ),
         ],
       ),
@@ -486,7 +486,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                       key: const Key('thread-back'),
                       onPressed: widget.transcript.closeThread,
                       icon: const Icon(Icons.arrow_back),
-                      label: const Text('Back to the conversation'),
+                      label: Text(l10n.chatThreadBack),
                     ),
                   ),
           ),
@@ -502,13 +502,13 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                     key: const Key('channel-back'),
                     onPressed: widget.transcript.leaveChannel,
                     icon: const Icon(Icons.arrow_back),
-                    label: const Text('Back to the conversations'),
+                    label: Text(l10n.chatChannelBack),
                   ),
                   const Spacer(),
                   TextButton(
                     key: const Key('channel-work'),
                     onPressed: () => _openWork(agent),
-                    child: Text(sideWorkButtonLabel(sideWork(widget.transcript.conversations, agent).length)),
+                    child: Text(sideWorkButtonLabel(sideWork(widget.transcript.conversations, agent).length, l10n)),
                   ),
                 ],
               );
@@ -529,7 +529,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                     _openWork(open.agent);
                   },
                   icon: const Icon(Icons.arrow_back),
-                  label: const Text('Back to notes and runs'),
+                  label: Text(l10n.chatWorkBack),
                 ),
               );
             },
@@ -569,9 +569,9 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                           : _ThreadLink(replies: threads[id]?.replies ?? 0, onTap: () => widget.transcript.openThread(id)),
                       // P157 — edit a message of the person's, or generate the last answer again.
                       actions: [
-                        if (_status is Connected && widget.transcript.canEdit(index)) _BubbleAction(label: 'Edit', onTap: () => _edit(index)),
+                        if (_status is Connected && widget.transcript.canEdit(index)) _BubbleAction(id: 'edit', label: l10n.commonEdit, onTap: () => _edit(index)),
                         if (_status is Connected && widget.transcript.canRegenerate(index))
-                          _BubbleAction(label: 'Regenerate', onTap: widget.transcript.regenerate),
+                          _BubbleAction(id: 'regenerate', label: l10n.chatRegenerate, onTap: widget.transcript.regenerate),
                       ],
                     );
                   },
@@ -612,6 +612,7 @@ class _FolderBar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final folder = transcript.workdir;
+    final l10n = AppLocalizations.of(context);
     if (transcript.canPickFolder) {
       return Align(
         alignment: Alignment.centerLeft,
@@ -623,8 +624,8 @@ class _FolderBar extends StatelessWidget {
               ActionChip(
                 key: const Key('folder-button'),
                 avatar: const Icon(Icons.folder_special_outlined, size: 18),
-                label: Text(folder == null ? 'Working folder: none' : folderLabel(folder, transcript.nodes)),
-                tooltip: folder == null ? 'Pick a folder of the hub or of a node for the AI to work in' : folderPlace(folder, transcript.nodes),
+                label: Text(folder == null ? l10n.folderBarNone : folderLabel(folder, transcript.nodes)),
+                tooltip: folder == null ? l10n.folderBarTooltip : folderPlace(folder, transcript.nodes),
                 onPressed: connected ? () => _pick(context) : null,
               ),
               if (folder != null)
@@ -632,7 +633,7 @@ class _FolderBar extends StatelessWidget {
                   key: const Key('folder-clear'),
                   onPressed: () => transcript.selectWorkdir(null),
                   icon: const Icon(Icons.close, size: 18),
-                  tooltip: 'Remove the folder',
+                  tooltip: l10n.folderBarClear,
                 ),
             ],
           ),
@@ -676,6 +677,7 @@ class _ChannelsSheet extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
     return SafeArea(
       child: ListenableBuilder(
         listenable: transcript,
@@ -689,7 +691,7 @@ class _ChannelsSheet extends StatelessWidget {
               ),
           ]..sort((a, b) => (b.channel?.updatedAt ?? 0).compareTo(a.channel?.updatedAt ?? 0));
           if (rows.isEmpty) {
-            return const Padding(padding: EdgeInsets.all(24), child: Text('No agents configured yet.', textAlign: TextAlign.center));
+            return Padding(padding: const EdgeInsets.all(24), child: Text(l10n.channelsNone, textAlign: TextAlign.center));
           }
           return ListView(
             shrinkWrap: true,
@@ -705,7 +707,7 @@ class _ChannelsSheet extends StatelessWidget {
                     child: const Icon(Icons.person_outline),
                   ),
                   title: Text(row.agent),
-                  trailing: Text(row.answering ? 'answering…' : (row.channel == null ? 'new' : _when(row.channel!.updatedAt))),
+                  trailing: Text(row.answering ? l10n.channelsAnswering : (row.channel == null ? l10n.channelsNew : _when(row.channel!.updatedAt))),
                   onTap: () => onPick(row.agent),
                 ),
             ],
@@ -726,6 +728,7 @@ class _WorkSheet extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
     return SafeArea(
       child: ListenableBuilder(
         listenable: transcript,
@@ -734,7 +737,7 @@ class _WorkSheet extends StatelessWidget {
           if (items.isEmpty) {
             return Padding(
               padding: const EdgeInsets.all(24),
-              child: Text('$agent has not traded notes with other agents or run on its own yet.', textAlign: TextAlign.center),
+              child: Text(l10n.workNone(agent), textAlign: TextAlign.center),
             );
           }
           return ListView(
@@ -744,8 +747,8 @@ class _WorkSheet extends StatelessWidget {
                 ListTile(
                   key: Key('work-${item.id}'),
                   title: Text(item.title, overflow: TextOverflow.ellipsis),
-                  subtitle: Text(sideWorkLabel(item)),
-                  trailing: Text(transcript.isAnswering(item.id) ? 'answering…' : _ChannelsSheet._when(item.updatedAt)),
+                  subtitle: Text(sideWorkLabel(item, l10n)),
+                  trailing: Text(transcript.isAnswering(item.id) ? l10n.channelsAnswering : _ChannelsSheet._when(item.updatedAt)),
                   onTap: () => onPick(item.id),
                 ),
             ],
@@ -769,17 +772,18 @@ class _AgentMenu extends StatelessWidget {
     final selected = transcript.selectedAgentId;
     final ids = transcript.agentIds;
     if (ids.isEmpty && selected == null) return const SizedBox.shrink();
+    final l10n = AppLocalizations.of(context);
     return PopupMenuButton<String>(
       enabled: !transcript.waitingForReply,
-      tooltip: 'Agent',
+      tooltip: l10n.agentMenuTooltip,
       icon: Icon(selected == null ? Icons.person_outline : Icons.person),
       initialValue: selected ?? _none,
       onOpened: () => unawaited(transcript.refreshAgents()),
       onSelected: (id) => transcript.selectAgent(id == _none ? null : id),
       itemBuilder: (context) => [
-        const PopupMenuItem(value: _none, child: Text('No agent')),
+        PopupMenuItem(value: _none, child: Text(l10n.agentMenuNone)),
         for (final id in ids) PopupMenuItem(value: id, child: Text(id)),
-        if (selected != null && !ids.contains(selected)) PopupMenuItem(value: selected, child: Text('$selected (removed)')),
+        if (selected != null && !ids.contains(selected)) PopupMenuItem(value: selected, child: Text(l10n.agentMenuRemoved(selected))),
       ],
     );
   }
@@ -796,10 +800,11 @@ class _ConversationDrawer extends StatelessWidget {
 
   Future<void> _rename(BuildContext context, ConversationSummary conversation) async {
     final controller = TextEditingController(text: conversation.title);
+    final l10n = AppLocalizations.of(context);
     final title = await showDialog<String>(
       context: context,
       builder: (dialogContext) => AlertDialog(
-        title: const Text('Rename conversation'),
+        title: Text(l10n.drawerRenameTitle),
         content: TextField(
           controller: controller,
           autofocus: true,
@@ -807,8 +812,8 @@ class _ConversationDrawer extends StatelessWidget {
           onSubmitted: (value) => Navigator.of(dialogContext).pop(value),
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.of(dialogContext).pop(), child: const Text('Cancel')),
-          TextButton(onPressed: () => Navigator.of(dialogContext).pop(controller.text), child: const Text('Save')),
+          TextButton(onPressed: () => Navigator.of(dialogContext).pop(), child: Text(l10n.commonCancel)),
+          TextButton(onPressed: () => Navigator.of(dialogContext).pop(controller.text), child: Text(l10n.commonSave)),
         ],
       ),
     );
@@ -818,14 +823,15 @@ class _ConversationDrawer extends StatelessWidget {
   }
 
   Future<void> _delete(BuildContext context, ConversationSummary conversation) async {
+    final l10n = AppLocalizations.of(context);
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (dialogContext) => AlertDialog(
-        title: const Text('Delete conversation?'),
-        content: Text('"${conversation.title}" will be deleted from the hub. This can\'t be undone.'),
+        title: Text(l10n.drawerDeleteTitle),
+        content: Text(l10n.drawerDeleteBody(conversation.title)),
         actions: [
-          TextButton(onPressed: () => Navigator.of(dialogContext).pop(false), child: const Text('Cancel')),
-          TextButton(onPressed: () => Navigator.of(dialogContext).pop(true), child: const Text('Delete')),
+          TextButton(onPressed: () => Navigator.of(dialogContext).pop(false), child: Text(l10n.commonCancel)),
+          TextButton(onPressed: () => Navigator.of(dialogContext).pop(true), child: Text(l10n.commonDelete)),
         ],
       ),
     );
@@ -844,10 +850,11 @@ class _ConversationDrawer extends StatelessWidget {
 
   Widget _tile(BuildContext context, ConversationSummary conversation) {
     final answering = transcript.isAnswering(conversation.id);
+    final l10n = AppLocalizations.of(context);
     return ListTile(
       selected: conversation.id == transcript.activeConversationId,
-      title: Text(conversation.title.isEmpty ? 'Untitled' : conversation.title, maxLines: 1, overflow: TextOverflow.ellipsis),
-      subtitle: answering ? const Text('Answering…') : null,
+      title: Text(conversation.title.isEmpty ? l10n.drawerUntitled : conversation.title, maxLines: 1, overflow: TextOverflow.ellipsis),
+      subtitle: answering ? Text(l10n.drawerAnswering) : null,
       onTap: () {
         transcript.open(conversation.id);
         Navigator.of(context).pop();
@@ -855,7 +862,7 @@ class _ConversationDrawer extends StatelessWidget {
       trailing: PopupMenuButton<String>(
         // Nothing on the hub to change yet, or its answer is still on the way.
         enabled: connected && !answering,
-        tooltip: 'Conversation actions',
+        tooltip: l10n.drawerActions,
         onSelected: (action) => switch (action) {
           'rename' => _rename(context, conversation),
           'pin' => _run(context, () => transcript.setFlags(conversation.id, pinned: !conversation.pinned)),
@@ -863,10 +870,10 @@ class _ConversationDrawer extends StatelessWidget {
           _ => _delete(context, conversation),
         },
         itemBuilder: (_) => [
-          if (!conversation.archived) PopupMenuItem(value: 'pin', child: Text(conversation.pinned ? 'Unpin' : 'Pin to the top')),
-          PopupMenuItem(value: 'archive', child: Text(conversation.archived ? 'Unarchive' : 'Archive')),
-          const PopupMenuItem(value: 'rename', child: Text('Rename')),
-          const PopupMenuItem(value: 'delete', child: Text('Delete')),
+          if (!conversation.archived) PopupMenuItem(value: 'pin', child: Text(conversation.pinned ? l10n.drawerUnpin : l10n.drawerPin)),
+          PopupMenuItem(value: 'archive', child: Text(conversation.archived ? l10n.drawerUnarchive : l10n.drawerArchive)),
+          PopupMenuItem(value: 'rename', child: Text(l10n.drawerRename)),
+          PopupMenuItem(value: 'delete', child: Text(l10n.commonDelete)),
         ],
       ),
     );
@@ -874,6 +881,7 @@ class _ConversationDrawer extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
     return Drawer(
       child: SafeArea(
         child: ListenableBuilder(
@@ -894,7 +902,7 @@ class _ConversationDrawer extends StatelessWidget {
                       Navigator.of(context).pop();
                     },
                     icon: const Icon(Icons.add),
-                    label: const Text('New conversation'),
+                    label: Text(l10n.drawerNew),
                   ),
                 ),
                 if (error != null)
@@ -903,24 +911,24 @@ class _ConversationDrawer extends StatelessWidget {
                     child: Text(error, style: TextStyle(color: Theme.of(context).colorScheme.error)),
                   ),
                 if (conversations.isEmpty && error == null)
-                  const Padding(
-                    padding: EdgeInsets.all(16),
-                    child: Text('No conversations yet.', textAlign: TextAlign.center),
+                  Padding(
+                    padding: const EdgeInsets.all(16),
+                    child: Text(l10n.drawerNone, textAlign: TextAlign.center),
                   ),
                 Expanded(
                   child: ListView(
                     children: [
                       if (groups.pinned.isNotEmpty) ...[
-                        const _GroupHeader('Pinned'),
+                        _GroupHeader(l10n.drawerPinned),
                         for (final c in groups.pinned) _tile(context, c),
                       ],
                       for (final bucket in groups.buckets) ...[
-                        _GroupHeader(bucket.label),
+                        _GroupHeader(bucketTitle(bucket.label, l10n)),
                         for (final c in bucket.items) _tile(context, c),
                       ],
                       if (groups.archived.isNotEmpty)
                         ExpansionTile(
-                          title: Text('Archived (${groups.archived.length})'),
+                          title: Text(l10n.drawerArchived(groups.archived.length)),
                           children: [for (final c in groups.archived) _tile(context, c)],
                         ),
                     ],
@@ -958,10 +966,11 @@ class _DisconnectedBanner extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
     final label = switch (status) {
-      Disconnected(:final reason) => reason == null ? 'Disconnected' : 'Disconnected: $reason',
-      Connecting() => 'Connecting…',
-      ConnectionFailure(:final message) => 'Connection error: $message',
+      Disconnected(:final reason) => reason == null ? l10n.bannerDisconnected : l10n.bannerDisconnectedWhy(reason),
+      Connecting() => l10n.bannerConnecting,
+      ConnectionFailure(:final message) => l10n.bannerError(message),
       Connected() => '',
     };
     return Container(
@@ -1028,7 +1037,7 @@ class _LiveBubble extends StatelessWidget {
                   ),
               },
             if (live.notice != null) Text(live.notice!, style: muted.copyWith(fontStyle: FontStyle.italic)),
-            if (onStop != null) TextButton(onPressed: onStop, child: const Text('Stop')),
+            if (onStop != null) TextButton(onPressed: onStop, child: Text(AppLocalizations.of(context).liveStop)),
           ],
         ),
       ),
@@ -1041,13 +1050,13 @@ class _ThinkingIndicator extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return const Padding(
-      padding: EdgeInsets.symmetric(vertical: 8, horizontal: 4),
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 4),
       child: Row(
         children: [
-          SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2)),
-          SizedBox(width: 8),
-          Text('Thinking…'),
+          const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2)),
+          const SizedBox(width: 8),
+          Text(AppLocalizations.of(context).thinking),
         ],
       ),
     );
@@ -1067,22 +1076,24 @@ class _ThreadLink extends StatelessWidget {
       key: const Key('thread-link'),
       style: TextButton.styleFrom(visualDensity: VisualDensity.compact, padding: EdgeInsets.zero, minimumSize: const Size(0, 28)),
       onPressed: onTap,
-      child: Text(replies == 0 ? 'Reply in thread' : (replies == 1 ? '1 reply' : '$replies replies')),
+      child: Text(replies == 0 ? AppLocalizations.of(context).threadReply : AppLocalizations.of(context).threadReplies(replies)),
     );
   }
 }
 
 /// P157 — a small button under a message: "Edit" on the person's, "Regenerate" on the last answer.
 class _BubbleAction extends StatelessWidget {
-  const _BubbleAction({required this.label, required this.onTap});
+  const _BubbleAction({required this.id, required this.label, required this.onTap});
 
+  /// What the action is, whatever the language the label is in (it makes the key).
+  final String id;
   final String label;
   final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
     return TextButton(
-      key: Key('bubble-action-${label.toLowerCase()}'),
+      key: Key('bubble-action-$id'),
       style: TextButton.styleFrom(visualDensity: VisualDensity.compact, padding: EdgeInsets.zero, minimumSize: const Size(0, 28)),
       onPressed: onTap,
       child: Text(label),
@@ -1160,7 +1171,7 @@ class _UnsupportedAttachment extends StatelessWidget {
     return Padding(
       padding: const EdgeInsets.only(top: 6),
       child: Text(
-        '📎 ${attachment.mimeType} attached (playback not supported here yet)',
+        AppLocalizations.of(context).attachmentUnsupported(attachment.mimeType),
         style: TextStyle(color: foreground, fontSize: 12, fontStyle: FontStyle.italic),
       ),
     );
@@ -1172,12 +1183,15 @@ class _AttachmentError extends StatelessWidget {
 
   final Attachment attachment;
   final Color foreground;
+
+  /// What failed: `decode` or `play`.
   final String verb;
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
     return Text(
-      'Could not $verb ${attachment.mimeType} attachment',
+      verb == 'decode' ? l10n.attachmentDecodeFailed(attachment.mimeType) : l10n.attachmentPlayFailed(attachment.mimeType),
       style: TextStyle(color: foreground, fontSize: 12, fontStyle: FontStyle.italic),
     );
   }
@@ -1372,6 +1386,7 @@ class _InputBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
     return SafeArea(
       child: Padding(
         padding: const EdgeInsets.all(8),
@@ -1383,10 +1398,10 @@ class _InputBar extends StatelessWidget {
                 enabled: enabled,
                 minLines: 1,
                 maxLines: 5,
-                decoration: const InputDecoration(
-                  hintText: 'Message',
-                  border: OutlineInputBorder(),
-                  contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                decoration: InputDecoration(
+                  hintText: l10n.inputHint,
+                  border: const OutlineInputBorder(),
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                 ),
                 onSubmitted: (_) => enabled ? onSend() : null,
               ),
@@ -1395,7 +1410,7 @@ class _InputBar extends StatelessWidget {
             if (onStop != null)
               IconButton.filled(
                 onPressed: onStop,
-                tooltip: 'Stop',
+                tooltip: l10n.liveStop,
                 icon: const Icon(Icons.stop),
               )
             else

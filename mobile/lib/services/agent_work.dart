@@ -1,3 +1,4 @@
+import '../l10n/generated/app_localizations.dart';
 import '../protocol/messages.dart';
 
 /// The agents as the hub's settings hold them, the model policies and the ids of the providers and combos (P120, P123).
@@ -134,10 +135,10 @@ List<AgentInfo> superiorChoices(List<AgentInfo> agents, String id) {
 }
 
 /// What the limit of models of an agent says, in a sentence for its card. Mirrors `delegationSummary` of the web.
-String delegationSummary(List<String> models) {
-  if (models.isEmpty) return 'Open: the agent picks any model for each task it delegates.';
-  if (models.length == 1) return 'Dictated: every task it delegates runs on ${models.first}.';
-  return 'Limited to ${models.length} models; ${models.first} is what a task gets when the agent does not pick.';
+String delegationSummary(List<String> models, AppLocalizations l10n) {
+  if (models.isEmpty) return l10n.delegationOpen;
+  if (models.length == 1) return l10n.delegationDictated(models.first);
+  return l10n.delegationLimited(models.length, models.first);
 }
 
 /// Everything an agent may be limited to: the providers and combos, then the policies.
@@ -184,15 +185,17 @@ String nextPolicyId(List<String> taken) {
 
 const taskStates = ['pending', 'running', 'waiting', 'paused', 'done', 'failed', 'cancelled'];
 
-const taskStateLabel = {
-  'pending': 'Pending',
-  'running': 'Running',
-  'waiting': 'Waiting for an agent',
-  'paused': 'Paused',
-  'done': 'Done',
-  'failed': 'Failed',
-  'cancelled': 'Stopped',
-};
+/// The name of a task state, in the language of the app; a state only a newer hub knows is shown as it came.
+String taskStateLabel(String state, AppLocalizations l10n) => switch (state) {
+      'pending' => l10n.taskPending,
+      'running' => l10n.taskRunning,
+      'waiting' => l10n.taskWaiting,
+      'paused' => l10n.taskPaused,
+      'done' => l10n.taskDone,
+      'failed' => l10n.taskFailed,
+      'cancelled' => l10n.taskCancelled,
+      _ => state,
+    };
 
 const taskStateMark = {
   'pending': '○',
@@ -204,18 +207,24 @@ const taskStateMark = {
   'cancelled': '⏹',
 };
 
-const taskActionLabel = {'pause': 'Pause', 'resume': 'Resume', 'cancel': 'Stop'};
+String taskActionLabel(String action, AppLocalizations l10n) => switch (action) {
+      'pause' => l10n.taskActionPause,
+      'resume' => l10n.taskActionResume,
+      'cancel' => l10n.taskActionCancel,
+      _ => action,
+    };
 
 /// What a risk category (`Grant.covers`) is called on screen; a tool name is shown as it is.
-const grantCategoryLabel = {
-  'delete_data': 'Delete data',
-  'spend_money': 'Spend money',
-  'critical_infra': 'Critical infrastructure',
-  'external_message': 'External message',
-  'publish_code': 'Publish code',
-  'important_config': 'Important configuration',
-  'elevated_agent': 'Agent with elevated permission',
-};
+String grantCategoryLabel(String covers, AppLocalizations l10n) => switch (covers) {
+      'delete_data' => l10n.grantDeleteData,
+      'spend_money' => l10n.grantSpendMoney,
+      'critical_infra' => l10n.grantCriticalInfra,
+      'external_message' => l10n.grantExternalMessage,
+      'publish_code' => l10n.grantPublishCode,
+      'important_config' => l10n.grantImportantConfig,
+      'elevated_agent' => l10n.grantElevatedAgent,
+      _ => covers,
+    };
 
 /// A task as the list shows it: how many levels below the agent of the turn it is (0 for the ones that agent started).
 class TaskRow {
@@ -435,39 +444,39 @@ int? lastConversationOf(List<ConversationSummary> conversations, String agent) {
 }
 
 /// The spending in a few words: `$1.20 in the last 24 h`, with a note of the calls the figure leaves out.
-String spendLabel(AgentSpend spend) {
-  final window = 'in the last ${spend.windowHours} h';
-  final unpriced = spend.unpricedCalls > 0 ? '${spend.unpricedCalls} unpriced call${spend.unpricedCalls > 1 ? 's' : ''}' : '';
+String spendLabel(AgentSpend spend, AppLocalizations l10n) {
+  final window = l10n.spendWindow(spend.windowHours);
+  final unpriced = spend.unpricedCalls > 0 ? (spend.unpricedCalls > 1 ? l10n.spendUnpricedMany(spend.unpricedCalls) : l10n.spendUnpricedOne(spend.unpricedCalls)) : '';
   if (spend.costUsd <= 0) return '$unpriced $window';
-  final money = spend.costUsd < 0.01 ? 'under \$0.01' : '\$${spend.costUsd.toStringAsFixed(2)}';
-  return unpriced.isEmpty ? '$money $window' : '$money $window (and $unpriced)';
+  final money = spend.costUsd < 0.01 ? l10n.spendUnder('\$0.01') : '\$${spend.costUsd.toStringAsFixed(2)}';
+  return unpriced.isEmpty ? '$money $window' : l10n.spendWithUnpriced(money, window, unpriced);
 }
 
 /// How long ago, in a few words: `just now`, `4 min ago`, `2 h ago`, `3 d ago`.
-String agoLabel(int thenMs, int nowMs) {
+String agoLabel(int thenMs, int nowMs, AppLocalizations l10n) {
   final elapsed = ((nowMs - thenMs) / 60000).round();
   final minutes = elapsed < 0 ? 0 : elapsed;
-  if (minutes < 1) return 'just now';
-  if (minutes < 60) return '$minutes min ago';
+  if (minutes < 1) return l10n.agoNow;
+  if (minutes < 60) return l10n.agoMinutes(minutes);
   final hours = minutes ~/ 60;
-  if (hours < 24) return '$hours h ago';
-  return '${hours ~/ 24} d ago';
+  if (hours < 24) return l10n.agoHours(hours);
+  return l10n.agoDays(hours ~/ 24);
 }
 
 /// The activity on one line of the tree card: `3 done, 1 failed, 2 running · 12.9k tokens · $1.20 in the last 24 h · delegated 5 · active 4 min ago`.
-String activityLine(AgentActivity a, int nowMs) {
+String activityLine(AgentActivity a, int nowMs, AppLocalizations l10n) {
   final parts = [
-    if (a.done > 0) '${a.done} done',
-    if (a.failed > 0) '${a.failed} failed',
-    if (a.cancelled > 0) '${a.cancelled} stopped',
-    if (a.active > 0) '${a.active} running',
+    if (a.done > 0) l10n.tallyDone(a.done),
+    if (a.failed > 0) l10n.tallyFailed(a.failed),
+    if (a.cancelled > 0) l10n.tallyStopped(a.cancelled),
+    if (a.active > 0) l10n.tallyRunning(a.active),
   ];
   return [
     if (parts.isNotEmpty) parts.join(', '),
-    if (a.tokens > 0) '${formatTokens(a.tokens)} tokens',
-    if (a.spend != null) spendLabel(a.spend!),
-    if (a.delegated > 0) 'delegated ${a.delegated}',
-    if (a.lastActiveMs != null) 'active ${agoLabel(a.lastActiveMs!, nowMs)}',
+    if (a.tokens > 0) l10n.tallyTokens(formatTokens(a.tokens)),
+    if (a.spend != null) spendLabel(a.spend!, l10n),
+    if (a.delegated > 0) l10n.tallyDelegated(a.delegated),
+    if (a.lastActiveMs != null) l10n.tallyActiveAgo(agoLabel(a.lastActiveMs!, nowMs, l10n)),
   ].join(' · ');
 }
 

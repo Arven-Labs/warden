@@ -1,9 +1,18 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:mobile/l10n/generated/app_localizations_en.dart';
+import 'package:mobile/l10n/generated/app_localizations_pt.dart';
 import 'package:mobile/protocol/messages.dart';
-import 'package:mobile/services/agent_work.dart';
+import 'package:mobile/services/agent_work.dart' as words;
+import 'package:mobile/services/agent_work.dart' hide activityLine, agoLabel, delegationSummary, spendLabel;
 
 // P120, P123 — the pure half of the agents screen. Same cases as the web's and the extension's `org.test.mjs` and
-// `agentTasks.test.mjs`.
+// `agentTasks.test.mjs`. They read in English (these four wrap the functions with the English words); the last test says it in Portuguese.
+
+final _en = AppLocalizationsEn();
+String activityLine(AgentActivity a, int nowMs) => words.activityLine(a, nowMs, _en);
+String agoLabel(int thenMs, int nowMs) => words.agoLabel(thenMs, nowMs, _en);
+String delegationSummary(List<String> models) => words.delegationSummary(models, _en);
+String spendLabel(AgentSpend spend) => words.spendLabel(spend, _en);
 
 AgentInfo _agent(String id, [String? reportsTo]) => AgentInfo(id: id, reportsTo: reportsTo);
 
@@ -329,6 +338,22 @@ void main() {
       expect(group.active, isTrue);
       expect(group.counts['paused'], 1);
       expect(group.finished, 1);
+    });
+  });
+
+  group('in Portuguese', () {
+    final pt = AppLocalizationsPt();
+
+    test('the times, the sentences and the names of the states read in Portuguese', () {
+      expect(words.agoLabel(0, 59 * 60000, pt), 'há 59 min');
+      expect(words.agoLabel(1000, 1000, pt), 'agora há pouco');
+      expect(words.spendLabel(const AgentSpend(costUsd: 2, unpricedCalls: 3, windowHours: 24), pt), '\$2.00 nas últimas 24 h (e 3 chamadas sem preço)');
+      expect(words.delegationSummary(['fast', 'deep'], pt), startsWith('Limitado a 2 modelos; fast'));
+      expect(words.taskStateLabel('running', pt), 'Em andamento');
+      expect(words.taskStateLabel('brand_new', pt), 'brand_new', reason: 'a state only a newer hub knows shows as it came');
+      expect(words.taskActionLabel('cancel', pt), 'Parar');
+      expect(words.grantCategoryLabel('spend_money', pt), 'Gastar dinheiro');
+      expect(words.grantCategoryLabel('send_email', pt), 'send_email', reason: 'a tool name shows as it is');
     });
   });
 }

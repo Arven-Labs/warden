@@ -427,6 +427,1542 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Error: {message}'**
   String connStatusError(String message);
+
+  /// No description provided for @qrTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Scan the hub\'s QR'**
+  String get qrTitle;
+
+  /// No description provided for @qrNotRecognized.
+  ///
+  /// In en, this message translates to:
+  /// **'QR code not recognized — scan the QR of the desktop\'s Workspace.'**
+  String get qrNotRecognized;
+
+  /// No description provided for @categoryDeleteData.
+  ///
+  /// In en, this message translates to:
+  /// **'Delete data'**
+  String get categoryDeleteData;
+
+  /// No description provided for @categorySpendMoney.
+  ///
+  /// In en, this message translates to:
+  /// **'Spend money'**
+  String get categorySpendMoney;
+
+  /// No description provided for @categoryCriticalInfra.
+  ///
+  /// In en, this message translates to:
+  /// **'Touch critical infrastructure (shell, SSH, nodes)'**
+  String get categoryCriticalInfra;
+
+  /// No description provided for @categoryExternalMessage.
+  ///
+  /// In en, this message translates to:
+  /// **'Send an external message (browser, outside services)'**
+  String get categoryExternalMessage;
+
+  /// No description provided for @categoryPublishCode.
+  ///
+  /// In en, this message translates to:
+  /// **'Publish code'**
+  String get categoryPublishCode;
+
+  /// No description provided for @categoryImportantConfig.
+  ///
+  /// In en, this message translates to:
+  /// **'Change important configuration (scheduled tasks)'**
+  String get categoryImportantConfig;
+
+  /// No description provided for @categoryElevatedAgent.
+  ///
+  /// In en, this message translates to:
+  /// **'Create or change agents'**
+  String get categoryElevatedAgent;
+
+  /// No description provided for @autonomy1.
+  ///
+  /// In en, this message translates to:
+  /// **'1 — only answers, no tools'**
+  String get autonomy1;
+
+  /// No description provided for @autonomy2.
+  ///
+  /// In en, this message translates to:
+  /// **'2 — suggests: reads, refuses the rest with a suggestion'**
+  String get autonomy2;
+
+  /// No description provided for @autonomy3.
+  ///
+  /// In en, this message translates to:
+  /// **'3 — asks for your yes before any change'**
+  String get autonomy3;
+
+  /// No description provided for @autonomy4.
+  ///
+  /// In en, this message translates to:
+  /// **'4 — acts on its own (the checked kinds still ask)'**
+  String get autonomy4;
+
+  /// No description provided for @autonomy5.
+  ///
+  /// In en, this message translates to:
+  /// **'5 — also manages its reports on its own'**
+  String get autonomy5;
+
+  /// No description provided for @sideTo.
+  ///
+  /// In en, this message translates to:
+  /// **'to {name}'**
+  String sideTo(String name);
+
+  /// No description provided for @sideFrom.
+  ///
+  /// In en, this message translates to:
+  /// **'from {name}'**
+  String sideFrom(String name);
+
+  /// No description provided for @sideScheduledTask.
+  ///
+  /// In en, this message translates to:
+  /// **'scheduled task'**
+  String get sideScheduledTask;
+
+  /// No description provided for @sideWebhook.
+  ///
+  /// In en, this message translates to:
+  /// **'webhook'**
+  String get sideWebhook;
+
+  /// No description provided for @sideButton.
+  ///
+  /// In en, this message translates to:
+  /// **'Notes and runs'**
+  String get sideButton;
+
+  /// No description provided for @sideButtonCount.
+  ///
+  /// In en, this message translates to:
+  /// **'Notes and runs ({count})'**
+  String sideButtonCount(int count);
+
+  /// No description provided for @commonWait.
+  ///
+  /// In en, this message translates to:
+  /// **'Wait…'**
+  String get commonWait;
+
+  /// No description provided for @commonConfirm.
+  ///
+  /// In en, this message translates to:
+  /// **'Confirm'**
+  String get commonConfirm;
+
+  /// No description provided for @agentsTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Agents'**
+  String get agentsTitle;
+
+  /// No description provided for @agentsTabOrganization.
+  ///
+  /// In en, this message translates to:
+  /// **'Organization'**
+  String get agentsTabOrganization;
+
+  /// No description provided for @agentsTabTasks.
+  ///
+  /// In en, this message translates to:
+  /// **'Tasks'**
+  String get agentsTabTasks;
+
+  /// No description provided for @agentsTabActivity.
+  ///
+  /// In en, this message translates to:
+  /// **'Activity'**
+  String get agentsTabActivity;
+
+  /// No description provided for @pairingWrong.
+  ///
+  /// In en, this message translates to:
+  /// **'Wrong pairing key.'**
+  String get pairingWrong;
+
+  /// No description provided for @pairingLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Hub\'s pairing key'**
+  String get pairingLabel;
+
+  /// No description provided for @pairingHelper.
+  ///
+  /// In en, this message translates to:
+  /// **'Asked on every change; never kept.'**
+  String get pairingHelper;
+
+  /// No description provided for @positionTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Position of {agent}'**
+  String positionTitle(String agent);
+
+  /// No description provided for @positionRole.
+  ///
+  /// In en, this message translates to:
+  /// **'Role'**
+  String get positionRole;
+
+  /// No description provided for @positionRoleHint.
+  ///
+  /// In en, this message translates to:
+  /// **'e.g. backend lead'**
+  String get positionRoleHint;
+
+  /// No description provided for @positionReportsTo.
+  ///
+  /// In en, this message translates to:
+  /// **'Reports to'**
+  String get positionReportsTo;
+
+  /// No description provided for @positionReportsHelper.
+  ///
+  /// In en, this message translates to:
+  /// **'Whoever reports to {agent} goes with it.'**
+  String positionReportsHelper(String agent);
+
+  /// No description provided for @positionNobody.
+  ///
+  /// In en, this message translates to:
+  /// **'Nobody (top of the tree)'**
+  String get positionNobody;
+
+  /// No description provided for @powersTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Powers of {agent}'**
+  String powersTitle(String agent);
+
+  /// No description provided for @powersAutonomy.
+  ///
+  /// In en, this message translates to:
+  /// **'Autonomy'**
+  String get powersAutonomy;
+
+  /// No description provided for @powersLevel5.
+  ///
+  /// In en, this message translates to:
+  /// **'Level 5 only counts for an agent that may manage agents, and {agent} may not: that is turned on in the settings.'**
+  String powersLevel5(String agent);
+
+  /// No description provided for @powersStartTasks.
+  ///
+  /// In en, this message translates to:
+  /// **'Can start background work'**
+  String get powersStartTasks;
+
+  /// No description provided for @powersCreateWorkers.
+  ///
+  /// In en, this message translates to:
+  /// **'Can create temporary agents'**
+  String get powersCreateWorkers;
+
+  /// No description provided for @powersMessageUser.
+  ///
+  /// In en, this message translates to:
+  /// **'Can start a conversation with you'**
+  String get powersMessageUser;
+
+  /// No description provided for @powersChooseModels.
+  ///
+  /// In en, this message translates to:
+  /// **'Can pick the model of the tasks it delegates'**
+  String get powersChooseModels;
+
+  /// No description provided for @powersAsks.
+  ///
+  /// In en, this message translates to:
+  /// **'Asks for your yes before (even when acting on its own):'**
+  String get powersAsks;
+
+  /// No description provided for @limitTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Models of {agent}'**
+  String limitTitle(String agent);
+
+  /// No description provided for @limitHint.
+  ///
+  /// In en, this message translates to:
+  /// **'The models it can pick for the tasks it delegates. None checked leaves the choice open; with one, it dictates the model.'**
+  String get limitHint;
+
+  /// No description provided for @limitNone.
+  ///
+  /// In en, this message translates to:
+  /// **'The hub has no providers or policies to pick from.'**
+  String get limitNone;
+
+  /// No description provided for @limitPolicy.
+  ///
+  /// In en, this message translates to:
+  /// **'{id} (policy)'**
+  String limitPolicy(String id);
+
+  /// No description provided for @limitDefault.
+  ///
+  /// In en, this message translates to:
+  /// **'Default'**
+  String get limitDefault;
+
+  /// No description provided for @limitDefaultHelper.
+  ///
+  /// In en, this message translates to:
+  /// **'What a task gets when {agent} does not pick.'**
+  String limitDefaultHelper(String agent);
+
+  /// No description provided for @policyNew.
+  ///
+  /// In en, this message translates to:
+  /// **'New policy'**
+  String get policyNew;
+
+  /// No description provided for @policyTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Policy {id}'**
+  String policyTitle(String id);
+
+  /// No description provided for @policyName.
+  ///
+  /// In en, this message translates to:
+  /// **'Name'**
+  String get policyName;
+
+  /// No description provided for @policyAnsweredBy.
+  ///
+  /// In en, this message translates to:
+  /// **'Answered by'**
+  String get policyAnsweredBy;
+
+  /// No description provided for @policyWhen.
+  ///
+  /// In en, this message translates to:
+  /// **'When to pick it (one line)'**
+  String get policyWhen;
+
+  /// No description provided for @policyWhenHint.
+  ///
+  /// In en, this message translates to:
+  /// **'e.g. simple, cheap work'**
+  String get policyWhenHint;
+
+  /// No description provided for @policySave.
+  ///
+  /// In en, this message translates to:
+  /// **'Save policy'**
+  String get policySave;
+
+  /// No description provided for @newAgentTop.
+  ///
+  /// In en, this message translates to:
+  /// **'New agent at the top'**
+  String get newAgentTop;
+
+  /// No description provided for @newAgentUnder.
+  ///
+  /// In en, this message translates to:
+  /// **'New agent under {parent}'**
+  String newAgentUnder(String parent);
+
+  /// No description provided for @newAgentName.
+  ///
+  /// In en, this message translates to:
+  /// **'Name'**
+  String get newAgentName;
+
+  /// No description provided for @newAgentNameHint.
+  ///
+  /// In en, this message translates to:
+  /// **'e.g. reviewer'**
+  String get newAgentNameHint;
+
+  /// No description provided for @newAgentRole.
+  ///
+  /// In en, this message translates to:
+  /// **'Role (optional)'**
+  String get newAgentRole;
+
+  /// No description provided for @newAgentDoes.
+  ///
+  /// In en, this message translates to:
+  /// **'What it does'**
+  String get newAgentDoes;
+
+  /// No description provided for @newAgentHelper.
+  ///
+  /// In en, this message translates to:
+  /// **'Starts careful: read-only tools, asks before any change, and cannot delegate or manage agents until a person turns that on.'**
+  String get newAgentHelper;
+
+  /// No description provided for @newAgentAdd.
+  ///
+  /// In en, this message translates to:
+  /// **'Add agent'**
+  String get newAgentAdd;
+
+  /// No description provided for @orgRestarts.
+  ///
+  /// In en, this message translates to:
+  /// **'The hub restarts with the change.'**
+  String get orgRestarts;
+
+  /// No description provided for @orgChange.
+  ///
+  /// In en, this message translates to:
+  /// **'Change {agent}'**
+  String orgChange(String agent);
+
+  /// No description provided for @orgAdd.
+  ///
+  /// In en, this message translates to:
+  /// **'Add {agent}'**
+  String orgAdd(String agent);
+
+  /// No description provided for @orgSavePolicy.
+  ///
+  /// In en, this message translates to:
+  /// **'Save the policy {id}'**
+  String orgSavePolicy(String id);
+
+  /// No description provided for @orgRemovePolicy.
+  ///
+  /// In en, this message translates to:
+  /// **'Remove the policy {id}'**
+  String orgRemovePolicy(String id);
+
+  /// No description provided for @delegationOpen.
+  ///
+  /// In en, this message translates to:
+  /// **'Open: the agent picks any model for each task it delegates.'**
+  String get delegationOpen;
+
+  /// No description provided for @delegationDictated.
+  ///
+  /// In en, this message translates to:
+  /// **'Dictated: every task it delegates runs on {model}.'**
+  String delegationDictated(String model);
+
+  /// No description provided for @delegationLimited.
+  ///
+  /// In en, this message translates to:
+  /// **'Limited to {count} models; {model} is what a task gets when the agent does not pick.'**
+  String delegationLimited(int count, String model);
+
+  /// No description provided for @taskPending.
+  ///
+  /// In en, this message translates to:
+  /// **'Pending'**
+  String get taskPending;
+
+  /// No description provided for @taskRunning.
+  ///
+  /// In en, this message translates to:
+  /// **'Running'**
+  String get taskRunning;
+
+  /// No description provided for @taskWaiting.
+  ///
+  /// In en, this message translates to:
+  /// **'Waiting for an agent'**
+  String get taskWaiting;
+
+  /// No description provided for @taskPaused.
+  ///
+  /// In en, this message translates to:
+  /// **'Paused'**
+  String get taskPaused;
+
+  /// No description provided for @taskDone.
+  ///
+  /// In en, this message translates to:
+  /// **'Done'**
+  String get taskDone;
+
+  /// No description provided for @taskFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Failed'**
+  String get taskFailed;
+
+  /// No description provided for @taskCancelled.
+  ///
+  /// In en, this message translates to:
+  /// **'Stopped'**
+  String get taskCancelled;
+
+  /// No description provided for @taskActionPause.
+  ///
+  /// In en, this message translates to:
+  /// **'Pause'**
+  String get taskActionPause;
+
+  /// No description provided for @taskActionResume.
+  ///
+  /// In en, this message translates to:
+  /// **'Resume'**
+  String get taskActionResume;
+
+  /// No description provided for @taskActionCancel.
+  ///
+  /// In en, this message translates to:
+  /// **'Stop'**
+  String get taskActionCancel;
+
+  /// No description provided for @grantDeleteData.
+  ///
+  /// In en, this message translates to:
+  /// **'Delete data'**
+  String get grantDeleteData;
+
+  /// No description provided for @grantSpendMoney.
+  ///
+  /// In en, this message translates to:
+  /// **'Spend money'**
+  String get grantSpendMoney;
+
+  /// No description provided for @grantCriticalInfra.
+  ///
+  /// In en, this message translates to:
+  /// **'Critical infrastructure'**
+  String get grantCriticalInfra;
+
+  /// No description provided for @grantExternalMessage.
+  ///
+  /// In en, this message translates to:
+  /// **'External message'**
+  String get grantExternalMessage;
+
+  /// No description provided for @grantPublishCode.
+  ///
+  /// In en, this message translates to:
+  /// **'Publish code'**
+  String get grantPublishCode;
+
+  /// No description provided for @grantImportantConfig.
+  ///
+  /// In en, this message translates to:
+  /// **'Important configuration'**
+  String get grantImportantConfig;
+
+  /// No description provided for @grantElevatedAgent.
+  ///
+  /// In en, this message translates to:
+  /// **'Agent with elevated permission'**
+  String get grantElevatedAgent;
+
+  /// No description provided for @spendWindow.
+  ///
+  /// In en, this message translates to:
+  /// **'in the last {hours} h'**
+  String spendWindow(int hours);
+
+  /// No description provided for @spendUnpricedOne.
+  ///
+  /// In en, this message translates to:
+  /// **'{count} unpriced call'**
+  String spendUnpricedOne(int count);
+
+  /// No description provided for @spendUnpricedMany.
+  ///
+  /// In en, this message translates to:
+  /// **'{count} unpriced calls'**
+  String spendUnpricedMany(int count);
+
+  /// No description provided for @spendUnder.
+  ///
+  /// In en, this message translates to:
+  /// **'under {amount}'**
+  String spendUnder(String amount);
+
+  /// No description provided for @spendWithUnpriced.
+  ///
+  /// In en, this message translates to:
+  /// **'{money} {window} (and {unpriced})'**
+  String spendWithUnpriced(String money, String window, String unpriced);
+
+  /// No description provided for @agoNow.
+  ///
+  /// In en, this message translates to:
+  /// **'just now'**
+  String get agoNow;
+
+  /// No description provided for @agoMinutes.
+  ///
+  /// In en, this message translates to:
+  /// **'{count} min ago'**
+  String agoMinutes(int count);
+
+  /// No description provided for @agoHours.
+  ///
+  /// In en, this message translates to:
+  /// **'{count} h ago'**
+  String agoHours(int count);
+
+  /// No description provided for @agoDays.
+  ///
+  /// In en, this message translates to:
+  /// **'{count} d ago'**
+  String agoDays(int count);
+
+  /// No description provided for @tallyDone.
+  ///
+  /// In en, this message translates to:
+  /// **'{count} done'**
+  String tallyDone(int count);
+
+  /// No description provided for @tallyFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'{count} failed'**
+  String tallyFailed(int count);
+
+  /// No description provided for @tallyStopped.
+  ///
+  /// In en, this message translates to:
+  /// **'{count} stopped'**
+  String tallyStopped(int count);
+
+  /// No description provided for @tallyRunning.
+  ///
+  /// In en, this message translates to:
+  /// **'{count} running'**
+  String tallyRunning(int count);
+
+  /// No description provided for @tallyWaiting.
+  ///
+  /// In en, this message translates to:
+  /// **'{count} waiting for an agent'**
+  String tallyWaiting(int count);
+
+  /// No description provided for @tallyPaused.
+  ///
+  /// In en, this message translates to:
+  /// **'{count} paused'**
+  String tallyPaused(int count);
+
+  /// No description provided for @tallyPending.
+  ///
+  /// In en, this message translates to:
+  /// **'{count} pending'**
+  String tallyPending(int count);
+
+  /// No description provided for @tallyTokens.
+  ///
+  /// In en, this message translates to:
+  /// **'{tokens} tokens'**
+  String tallyTokens(String tokens);
+
+  /// No description provided for @tallyDelegated.
+  ///
+  /// In en, this message translates to:
+  /// **'delegated {count}'**
+  String tallyDelegated(int count);
+
+  /// No description provided for @tallyActiveAgo.
+  ///
+  /// In en, this message translates to:
+  /// **'active {ago}'**
+  String tallyActiveAgo(String ago);
+
+  /// No description provided for @activityNoAgent.
+  ///
+  /// In en, this message translates to:
+  /// **'The assistant'**
+  String get activityNoAgent;
+
+  /// No description provided for @activityCreatedAgent.
+  ///
+  /// In en, this message translates to:
+  /// **'{actor} created the agent {target}'**
+  String activityCreatedAgent(String actor, String target);
+
+  /// No description provided for @activityRemovedAgent.
+  ///
+  /// In en, this message translates to:
+  /// **'{actor} removed the agent {target}'**
+  String activityRemovedAgent(String actor, String target);
+
+  /// No description provided for @activityUpdatedAgent.
+  ///
+  /// In en, this message translates to:
+  /// **'{actor} changed the agent {target}'**
+  String activityUpdatedAgent(String actor, String target);
+
+  /// No description provided for @activityScheduledRan.
+  ///
+  /// In en, this message translates to:
+  /// **'{actor} ran the scheduled task {target}'**
+  String activityScheduledRan(String actor, String target);
+
+  /// No description provided for @activityScheduledFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'The scheduled task {target} failed'**
+  String activityScheduledFailed(String target);
+
+  /// No description provided for @activityWebhookRan.
+  ///
+  /// In en, this message translates to:
+  /// **'{actor} answered the webhook {target}'**
+  String activityWebhookRan(String actor, String target);
+
+  /// No description provided for @activityWebhookFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'The webhook {target} failed'**
+  String activityWebhookFailed(String target);
+
+  /// No description provided for @activityDelegated.
+  ///
+  /// In en, this message translates to:
+  /// **'{actor} delegated a task to {target}'**
+  String activityDelegated(String actor, String target);
+
+  /// No description provided for @activityStarted.
+  ///
+  /// In en, this message translates to:
+  /// **'{actor} started the task'**
+  String activityStarted(String actor);
+
+  /// No description provided for @activityDone.
+  ///
+  /// In en, this message translates to:
+  /// **'{actor} finished the task'**
+  String activityDone(String actor);
+
+  /// No description provided for @activityFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'{actor} could not finish the task'**
+  String activityFailed(String actor);
+
+  /// No description provided for @activityCancelled.
+  ///
+  /// In en, this message translates to:
+  /// **'{actor}\'s task was cancelled'**
+  String activityCancelled(String actor);
+
+  /// No description provided for @activityNote.
+  ///
+  /// In en, this message translates to:
+  /// **'{actor} left a note for {target}'**
+  String activityNote(String actor, String target);
+
+  /// No description provided for @activityReply.
+  ///
+  /// In en, this message translates to:
+  /// **'{actor} answered {target}'**
+  String activityReply(String actor, String target);
+
+  /// No description provided for @activityMessagedUser.
+  ///
+  /// In en, this message translates to:
+  /// **'{actor} wrote to you'**
+  String activityMessagedUser(String actor);
+
+  /// No description provided for @activityToday.
+  ///
+  /// In en, this message translates to:
+  /// **'Today'**
+  String get activityToday;
+
+  /// No description provided for @activityYesterday.
+  ///
+  /// In en, this message translates to:
+  /// **'Yesterday'**
+  String get activityYesterday;
+
+  /// No description provided for @activityDate.
+  ///
+  /// In en, this message translates to:
+  /// **'{day} {month, select, 1{January} 2{February} 3{March} 4{April} 5{May} 6{June} 7{July} 8{August} 9{September} 10{October} 11{November} other{December}} {year}'**
+  String activityDate(int day, String month, int year);
+
+  /// No description provided for @orgRemoveTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Remove {agent}?'**
+  String orgRemoveTitle(String agent);
+
+  /// No description provided for @orgRemoveBody.
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =0{} one{Its report goes to report to {goesTo}. } other{Its {count} reports go to report to {goesTo}. }}The conversations stay; this can\'t be undone.'**
+  String orgRemoveBody(int count, String goesTo);
+
+  /// No description provided for @orgRemove.
+  ///
+  /// In en, this message translates to:
+  /// **'Remove {agent}'**
+  String orgRemove(String agent);
+
+  /// No description provided for @orgNobodyTop.
+  ///
+  /// In en, this message translates to:
+  /// **'nobody (the top of the tree)'**
+  String get orgNobodyTop;
+
+  /// No description provided for @badgeDelegates.
+  ///
+  /// In en, this message translates to:
+  /// **'delegates'**
+  String get badgeDelegates;
+
+  /// No description provided for @badgeManages.
+  ///
+  /// In en, this message translates to:
+  /// **'manages agents'**
+  String get badgeManages;
+
+  /// No description provided for @badgeNotes.
+  ///
+  /// In en, this message translates to:
+  /// **'leaves notes'**
+  String get badgeNotes;
+
+  /// No description provided for @badgeTasks.
+  ///
+  /// In en, this message translates to:
+  /// **'schedules tasks'**
+  String get badgeTasks;
+
+  /// No description provided for @badgeNoBackground.
+  ///
+  /// In en, this message translates to:
+  /// **'no background work'**
+  String get badgeNoBackground;
+
+  /// No description provided for @badgeNoTemp.
+  ///
+  /// In en, this message translates to:
+  /// **'no temporary agents'**
+  String get badgeNoTemp;
+
+  /// No description provided for @badgeNoChat.
+  ///
+  /// In en, this message translates to:
+  /// **'cannot start a chat'**
+  String get badgeNoChat;
+
+  /// No description provided for @badgeNoModels.
+  ///
+  /// In en, this message translates to:
+  /// **'cannot pick models'**
+  String get badgeNoModels;
+
+  /// No description provided for @badgeAutonomy.
+  ///
+  /// In en, this message translates to:
+  /// **'autonomy {level}: {label}'**
+  String badgeAutonomy(int level, String label);
+
+  /// No description provided for @autonomyShort1.
+  ///
+  /// In en, this message translates to:
+  /// **'only answers'**
+  String get autonomyShort1;
+
+  /// No description provided for @autonomyShort2.
+  ///
+  /// In en, this message translates to:
+  /// **'suggests'**
+  String get autonomyShort2;
+
+  /// No description provided for @autonomyShort3.
+  ///
+  /// In en, this message translates to:
+  /// **'asks first'**
+  String get autonomyShort3;
+
+  /// No description provided for @autonomyShort4.
+  ///
+  /// In en, this message translates to:
+  /// **'acts alone'**
+  String get autonomyShort4;
+
+  /// No description provided for @autonomyShort5.
+  ///
+  /// In en, this message translates to:
+  /// **'manages alone'**
+  String get autonomyShort5;
+
+  /// No description provided for @badgeAsksFirst.
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, one{asks first: 1 kind of action} other{asks first: {count} kinds of action}}'**
+  String badgeAsksFirst(int count);
+
+  /// No description provided for @orgReports.
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, one{1 report} other{{count} reports}}'**
+  String orgReports(int count);
+
+  /// No description provided for @menuChat.
+  ///
+  /// In en, this message translates to:
+  /// **'Chat'**
+  String get menuChat;
+
+  /// No description provided for @menuTasks.
+  ///
+  /// In en, this message translates to:
+  /// **'Tasks'**
+  String get menuTasks;
+
+  /// No description provided for @menuEditPosition.
+  ///
+  /// In en, this message translates to:
+  /// **'Edit position'**
+  String get menuEditPosition;
+
+  /// No description provided for @menuPowers.
+  ///
+  /// In en, this message translates to:
+  /// **'Powers'**
+  String get menuPowers;
+
+  /// No description provided for @menuModels.
+  ///
+  /// In en, this message translates to:
+  /// **'Models it can pick'**
+  String get menuModels;
+
+  /// No description provided for @menuAddReport.
+  ///
+  /// In en, this message translates to:
+  /// **'Add a report'**
+  String get menuAddReport;
+
+  /// No description provided for @orgHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Who reports to whom. An agent that manages or delegates to others reaches only the ones below it. Anything an agent changes still waits for your yes.'**
+  String get orgHint;
+
+  /// No description provided for @orgNone.
+  ///
+  /// In en, this message translates to:
+  /// **'No agents yet.'**
+  String get orgNone;
+
+  /// No description provided for @orgNobodyReports.
+  ///
+  /// In en, this message translates to:
+  /// **'Nobody reports to anybody yet: use \"Edit position\" on an agent to pick its superior.'**
+  String get orgNobodyReports;
+
+  /// No description provided for @orgAddTop.
+  ///
+  /// In en, this message translates to:
+  /// **'Add an agent at the top'**
+  String get orgAddTop;
+
+  /// No description provided for @policiesTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Model policies'**
+  String get policiesTitle;
+
+  /// No description provided for @policiesNone.
+  ///
+  /// In en, this message translates to:
+  /// **'None: an agent that delegates sees only the model ids.'**
+  String get policiesNone;
+
+  /// No description provided for @grantsTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Permissions given with \"always\"'**
+  String get grantsTitle;
+
+  /// No description provided for @grantsHintKept.
+  ///
+  /// In en, this message translates to:
+  /// **'They hold per conversation and agent. {ttl, plural, one{Kept in a file, they survive a restart and lapse after 1 day unused (each use renews them).} other{Kept in a file, they survive a restart and lapse after {ttl} days unused (each use renews them).}} Taking one back makes the agent ask again.'**
+  String grantsHintKept(int ttl);
+
+  /// No description provided for @grantsHintSession.
+  ///
+  /// In en, this message translates to:
+  /// **'They hold per conversation and agent. They end when the connection closes. Taking one back makes the agent ask again.'**
+  String get grantsHintSession;
+
+  /// No description provided for @grantsNone.
+  ///
+  /// In en, this message translates to:
+  /// **'None yet.'**
+  String get grantsNone;
+
+  /// No description provided for @grantDefaultAgent.
+  ///
+  /// In en, this message translates to:
+  /// **'default agent'**
+  String get grantDefaultAgent;
+
+  /// No description provided for @grantConversation.
+  ///
+  /// In en, this message translates to:
+  /// **'conversation {id}'**
+  String grantConversation(String id);
+
+  /// No description provided for @grantUsed.
+  ///
+  /// In en, this message translates to:
+  /// **'used {ago}'**
+  String grantUsed(String ago);
+
+  /// No description provided for @grantTakeBack.
+  ///
+  /// In en, this message translates to:
+  /// **'Take back'**
+  String get grantTakeBack;
+
+  /// No description provided for @taskControlTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'{action} the task of {agent}'**
+  String taskControlTitle(String action, String agent);
+
+  /// No description provided for @taskControlStops.
+  ///
+  /// In en, this message translates to:
+  /// **'Its subtasks stop too.'**
+  String get taskControlStops;
+
+  /// No description provided for @taskControlOnly.
+  ///
+  /// In en, this message translates to:
+  /// **'Only a task running on this hub can be controlled.'**
+  String get taskControlOnly;
+
+  /// No description provided for @taskAnAgent.
+  ///
+  /// In en, this message translates to:
+  /// **'An agent'**
+  String get taskAnAgent;
+
+  /// No description provided for @taskWorking.
+  ///
+  /// In en, this message translates to:
+  /// **'working'**
+  String get taskWorking;
+
+  /// No description provided for @taskProgress.
+  ///
+  /// In en, this message translates to:
+  /// **'{finished} of {total} finished ({percent}%) · {parts}'**
+  String taskProgress(int finished, int total, int percent, String parts);
+
+  /// No description provided for @taskTok.
+  ///
+  /// In en, this message translates to:
+  /// **'{tokens} tok'**
+  String taskTok(String tokens);
+
+  /// No description provided for @taskDetailTask.
+  ///
+  /// In en, this message translates to:
+  /// **'Task'**
+  String get taskDetailTask;
+
+  /// No description provided for @taskDetailResult.
+  ///
+  /// In en, this message translates to:
+  /// **'Result'**
+  String get taskDetailResult;
+
+  /// No description provided for @taskDetailWhy.
+  ///
+  /// In en, this message translates to:
+  /// **'Why it stopped'**
+  String get taskDetailWhy;
+
+  /// No description provided for @taskNoResult.
+  ///
+  /// In en, this message translates to:
+  /// **'{state}: no result yet.'**
+  String taskNoResult(String state);
+
+  /// No description provided for @tasksHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Tasks the agents handed each other in the background on this hub, where each one is and what it cost.'**
+  String get tasksHint;
+
+  /// No description provided for @tasksOnly.
+  ///
+  /// In en, this message translates to:
+  /// **'Only the tasks of {agent}: the ones it received and the ones it delegated.'**
+  String tasksOnly(String agent);
+
+  /// No description provided for @tasksShowAll.
+  ///
+  /// In en, this message translates to:
+  /// **'Show all'**
+  String get tasksShowAll;
+
+  /// No description provided for @tasksNoneFor.
+  ///
+  /// In en, this message translates to:
+  /// **'No task involves {agent} yet.'**
+  String tasksNoneFor(String agent);
+
+  /// No description provided for @tasksNone.
+  ///
+  /// In en, this message translates to:
+  /// **'Nothing yet. When an agent delegates a task with \"background\", it shows up here.'**
+  String get tasksNone;
+
+  /// No description provided for @activityHint.
+  ///
+  /// In en, this message translates to:
+  /// **'What happened among the agents on this hub: who delegated, started and finished what, the notes they left each other and the messages an agent wrote first to you.'**
+  String get activityHint;
+
+  /// No description provided for @activityAll.
+  ///
+  /// In en, this message translates to:
+  /// **'All agents'**
+  String get activityAll;
+
+  /// No description provided for @activityNothingFor.
+  ///
+  /// In en, this message translates to:
+  /// **'Nothing involves {agent} yet.'**
+  String activityNothingFor(String agent);
+
+  /// No description provided for @activityNothing.
+  ///
+  /// In en, this message translates to:
+  /// **'Nothing yet. When agents delegate tasks, leave each other notes or write to you, it shows up here.'**
+  String get activityNothing;
+
+  /// No description provided for @chatApprovalTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Approval needed'**
+  String get chatApprovalTitle;
+
+  /// No description provided for @chatApprovalCategory.
+  ///
+  /// In en, this message translates to:
+  /// **'Category: {category} (this agent asks for approval on this)'**
+  String chatApprovalCategory(String category);
+
+  /// No description provided for @chatDeny.
+  ///
+  /// In en, this message translates to:
+  /// **'Deny'**
+  String get chatDeny;
+
+  /// No description provided for @chatApprove.
+  ///
+  /// In en, this message translates to:
+  /// **'Approve'**
+  String get chatApprove;
+
+  /// No description provided for @chatSyncSnack.
+  ///
+  /// In en, this message translates to:
+  /// **'Sync: {message}'**
+  String chatSyncSnack(String message);
+
+  /// No description provided for @chatEditTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Edit message'**
+  String get chatEditTitle;
+
+  /// No description provided for @chatSend.
+  ///
+  /// In en, this message translates to:
+  /// **'Send'**
+  String get chatSend;
+
+  /// No description provided for @chatEditWarning.
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, one{Sending this deletes the message after it, and the threads on it.} other{Sending this deletes the {count} messages after it, and the threads on them.}}'**
+  String chatEditWarning(int count);
+
+  /// No description provided for @chatChannelFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Couldn\'t open the channel: {error}'**
+  String chatChannelFailed(String error);
+
+  /// No description provided for @chatFilesTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Files'**
+  String get chatFilesTitle;
+
+  /// No description provided for @chatFilesNone.
+  ///
+  /// In en, this message translates to:
+  /// **'No folder configured yet.'**
+  String get chatFilesNone;
+
+  /// No description provided for @chatFilesConfigured.
+  ///
+  /// In en, this message translates to:
+  /// **'Configured folder:\n{uri}'**
+  String chatFilesConfigured(String uri);
+
+  /// No description provided for @chatFilesHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Lets the model list and read text files under this folder. Takes effect the next time you connect.'**
+  String get chatFilesHint;
+
+  /// No description provided for @chatFilesClear.
+  ///
+  /// In en, this message translates to:
+  /// **'Clear'**
+  String get chatFilesClear;
+
+  /// No description provided for @chatFilesChoose.
+  ///
+  /// In en, this message translates to:
+  /// **'Choose folder'**
+  String get chatFilesChoose;
+
+  /// No description provided for @chatNewConversation.
+  ///
+  /// In en, this message translates to:
+  /// **'New conversation'**
+  String get chatNewConversation;
+
+  /// No description provided for @chatAs.
+  ///
+  /// In en, this message translates to:
+  /// **'as {agent}'**
+  String chatAs(String agent);
+
+  /// No description provided for @chatChannelsTooltip.
+  ///
+  /// In en, this message translates to:
+  /// **'Agent channels'**
+  String get chatChannelsTooltip;
+
+  /// No description provided for @chatChannelsTooltipNew.
+  ///
+  /// In en, this message translates to:
+  /// **'Agent channels ({count} new)'**
+  String chatChannelsTooltipNew(int count);
+
+  /// No description provided for @chatAgentsTooltip.
+  ///
+  /// In en, this message translates to:
+  /// **'Agents'**
+  String get chatAgentsTooltip;
+
+  /// No description provided for @chatUsageTooltip.
+  ///
+  /// In en, this message translates to:
+  /// **'Usage'**
+  String get chatUsageTooltip;
+
+  /// No description provided for @chatDevicesTooltip.
+  ///
+  /// In en, this message translates to:
+  /// **'Devices'**
+  String get chatDevicesTooltip;
+
+  /// No description provided for @chatConversationsTooltip.
+  ///
+  /// In en, this message translates to:
+  /// **'Conversations'**
+  String get chatConversationsTooltip;
+
+  /// No description provided for @chatFilesTooltip.
+  ///
+  /// In en, this message translates to:
+  /// **'Files'**
+  String get chatFilesTooltip;
+
+  /// No description provided for @chatDisconnect.
+  ///
+  /// In en, this message translates to:
+  /// **'Disconnect'**
+  String get chatDisconnect;
+
+  /// No description provided for @chatThreadBack.
+  ///
+  /// In en, this message translates to:
+  /// **'Back to the conversation'**
+  String get chatThreadBack;
+
+  /// No description provided for @chatChannelBack.
+  ///
+  /// In en, this message translates to:
+  /// **'Back to the conversations'**
+  String get chatChannelBack;
+
+  /// No description provided for @chatWorkBack.
+  ///
+  /// In en, this message translates to:
+  /// **'Back to notes and runs'**
+  String get chatWorkBack;
+
+  /// No description provided for @chatRegenerate.
+  ///
+  /// In en, this message translates to:
+  /// **'Regenerate'**
+  String get chatRegenerate;
+
+  /// No description provided for @folderBarNone.
+  ///
+  /// In en, this message translates to:
+  /// **'Working folder: none'**
+  String get folderBarNone;
+
+  /// No description provided for @folderBarTooltip.
+  ///
+  /// In en, this message translates to:
+  /// **'Pick a folder of the hub or of a node for the AI to work in'**
+  String get folderBarTooltip;
+
+  /// No description provided for @folderBarClear.
+  ///
+  /// In en, this message translates to:
+  /// **'Remove the folder'**
+  String get folderBarClear;
+
+  /// No description provided for @channelsNone.
+  ///
+  /// In en, this message translates to:
+  /// **'No agents configured yet.'**
+  String get channelsNone;
+
+  /// No description provided for @channelsAnswering.
+  ///
+  /// In en, this message translates to:
+  /// **'answering…'**
+  String get channelsAnswering;
+
+  /// No description provided for @channelsNew.
+  ///
+  /// In en, this message translates to:
+  /// **'new'**
+  String get channelsNew;
+
+  /// No description provided for @workNone.
+  ///
+  /// In en, this message translates to:
+  /// **'{agent} has not traded notes with other agents or run on its own yet.'**
+  String workNone(String agent);
+
+  /// No description provided for @agentMenuTooltip.
+  ///
+  /// In en, this message translates to:
+  /// **'Agent'**
+  String get agentMenuTooltip;
+
+  /// No description provided for @agentMenuNone.
+  ///
+  /// In en, this message translates to:
+  /// **'No agent'**
+  String get agentMenuNone;
+
+  /// No description provided for @agentMenuRemoved.
+  ///
+  /// In en, this message translates to:
+  /// **'{agent} (removed)'**
+  String agentMenuRemoved(String agent);
+
+  /// No description provided for @attachmentUnsupported.
+  ///
+  /// In en, this message translates to:
+  /// **'📎 {mime} attached (playback not supported here yet)'**
+  String attachmentUnsupported(String mime);
+
+  /// No description provided for @attachmentDecodeFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Could not decode {mime} attachment'**
+  String attachmentDecodeFailed(String mime);
+
+  /// No description provided for @attachmentPlayFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Could not play {mime} attachment'**
+  String attachmentPlayFailed(String mime);
+
+  /// No description provided for @inputHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Message'**
+  String get inputHint;
+
+  /// No description provided for @bucketLast7.
+  ///
+  /// In en, this message translates to:
+  /// **'Previous 7 days'**
+  String get bucketLast7;
+
+  /// No description provided for @bucketLast30.
+  ///
+  /// In en, this message translates to:
+  /// **'Previous 30 days'**
+  String get bucketLast30;
+
+  /// No description provided for @bucketOlder.
+  ///
+  /// In en, this message translates to:
+  /// **'Older'**
+  String get bucketOlder;
+
+  /// No description provided for @drawerRenameTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Rename conversation'**
+  String get drawerRenameTitle;
+
+  /// No description provided for @drawerDeleteTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Delete conversation?'**
+  String get drawerDeleteTitle;
+
+  /// No description provided for @drawerDeleteBody.
+  ///
+  /// In en, this message translates to:
+  /// **'\"{title}\" will be deleted from the hub. This can\'t be undone.'**
+  String drawerDeleteBody(String title);
+
+  /// No description provided for @drawerUntitled.
+  ///
+  /// In en, this message translates to:
+  /// **'Untitled'**
+  String get drawerUntitled;
+
+  /// No description provided for @drawerAnswering.
+  ///
+  /// In en, this message translates to:
+  /// **'Answering…'**
+  String get drawerAnswering;
+
+  /// No description provided for @drawerActions.
+  ///
+  /// In en, this message translates to:
+  /// **'Conversation actions'**
+  String get drawerActions;
+
+  /// No description provided for @drawerUnpin.
+  ///
+  /// In en, this message translates to:
+  /// **'Unpin'**
+  String get drawerUnpin;
+
+  /// No description provided for @drawerPin.
+  ///
+  /// In en, this message translates to:
+  /// **'Pin to the top'**
+  String get drawerPin;
+
+  /// No description provided for @drawerUnarchive.
+  ///
+  /// In en, this message translates to:
+  /// **'Unarchive'**
+  String get drawerUnarchive;
+
+  /// No description provided for @drawerArchive.
+  ///
+  /// In en, this message translates to:
+  /// **'Archive'**
+  String get drawerArchive;
+
+  /// No description provided for @drawerRename.
+  ///
+  /// In en, this message translates to:
+  /// **'Rename'**
+  String get drawerRename;
+
+  /// No description provided for @drawerNew.
+  ///
+  /// In en, this message translates to:
+  /// **'New conversation'**
+  String get drawerNew;
+
+  /// No description provided for @drawerNone.
+  ///
+  /// In en, this message translates to:
+  /// **'No conversations yet.'**
+  String get drawerNone;
+
+  /// No description provided for @drawerPinned.
+  ///
+  /// In en, this message translates to:
+  /// **'Pinned'**
+  String get drawerPinned;
+
+  /// No description provided for @drawerArchived.
+  ///
+  /// In en, this message translates to:
+  /// **'Archived ({count})'**
+  String drawerArchived(int count);
+
+  /// No description provided for @bannerDisconnected.
+  ///
+  /// In en, this message translates to:
+  /// **'Disconnected'**
+  String get bannerDisconnected;
+
+  /// No description provided for @bannerDisconnectedWhy.
+  ///
+  /// In en, this message translates to:
+  /// **'Disconnected: {reason}'**
+  String bannerDisconnectedWhy(String reason);
+
+  /// No description provided for @bannerConnecting.
+  ///
+  /// In en, this message translates to:
+  /// **'Connecting…'**
+  String get bannerConnecting;
+
+  /// No description provided for @bannerError.
+  ///
+  /// In en, this message translates to:
+  /// **'Connection error: {message}'**
+  String bannerError(String message);
+
+  /// No description provided for @liveStop.
+  ///
+  /// In en, this message translates to:
+  /// **'Stop'**
+  String get liveStop;
+
+  /// No description provided for @thinking.
+  ///
+  /// In en, this message translates to:
+  /// **'Thinking…'**
+  String get thinking;
+
+  /// No description provided for @threadReply.
+  ///
+  /// In en, this message translates to:
+  /// **'Reply in thread'**
+  String get threadReply;
+
+  /// No description provided for @threadReplies.
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, one{1 reply} other{{count} replies}}'**
+  String threadReplies(int count);
 }
 
 class _AppLocalizationsDelegate

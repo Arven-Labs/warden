@@ -2,14 +2,13 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import '../l10n/generated/app_localizations.dart';
 import '../protocol/messages.dart';
 import '../services/activity.dart';
 import '../services/agent_work.dart';
 import '../services/approval_categories.dart';
 import '../services/server_connection.dart' show HubRequestException;
 import 'member_org_tab.dart';
-
-const _autonomy = {1: 'only answers', 2: 'suggests', 3: 'asks first', 4: 'acts alone', 5: 'manages alone'};
 
 /// P120, P123 — the organization of the agents and the work they hand each other, on the phone: the tree (a role and a
 /// superior for each agent, add or remove one, open a chat with it or its tasks) and the background tasks (state, progress,
@@ -71,15 +70,16 @@ class _AgentsScreenState extends State<AgentsScreen> with SingleTickerProviderSt
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Agents'),
+        title: Text(l10n.agentsTitle),
         bottom: TabBar(
           controller: _tabs,
-          tabs: const [
-            Tab(key: Key('tab-organization'), text: 'Organization'),
-            Tab(key: Key('tab-tasks'), text: 'Tasks'),
-            Tab(key: Key('tab-activity'), text: 'Activity'),
+          tabs: [
+            Tab(key: const Key('tab-organization'), text: l10n.agentsTabOrganization),
+            Tab(key: const Key('tab-tasks'), text: l10n.agentsTabTasks),
+            Tab(key: const Key('tab-activity'), text: l10n.agentsTabActivity),
           ],
         ),
       ),
@@ -186,7 +186,7 @@ class _PairingKeyDialogState extends State<_PairingKeyDialog> {
       if (e.authRejected) {
         setState(() {
           _busy = false;
-          _keyError = 'Wrong pairing key.';
+          _keyError = AppLocalizations.of(context).pairingWrong;
         });
       } else {
         Navigator.of(context).pop(false);
@@ -201,6 +201,7 @@ class _PairingKeyDialogState extends State<_PairingKeyDialog> {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
     return AlertDialog(
       title: Text(widget.title),
       content: Column(
@@ -215,17 +216,17 @@ class _PairingKeyDialogState extends State<_PairingKeyDialog> {
             autofocus: true,
             obscureText: true,
             enabled: !_busy,
-            decoration: InputDecoration(labelText: "Hub's pairing key", helperText: 'Asked on every change; never kept.', errorText: _keyError),
+            decoration: InputDecoration(labelText: l10n.pairingLabel, helperText: l10n.pairingHelper, errorText: _keyError),
             onSubmitted: (_) => _controller.text.trim().isEmpty || _busy ? null : _confirm(),
           ),
         ],
       ),
       actions: [
-        TextButton(onPressed: _busy ? null : () => Navigator.of(context).pop(false), child: const Text('Cancel')),
+        TextButton(onPressed: _busy ? null : () => Navigator.of(context).pop(false), child: Text(l10n.commonCancel)),
         FilledButton(
           key: const Key('pairing-key-confirm'),
           onPressed: _busy ? null : () => _controller.text.trim().isEmpty ? null : _confirm(),
-          child: Text(_busy ? 'Wait…' : 'Confirm'),
+          child: Text(_busy ? l10n.commonWait : l10n.commonConfirm),
         ),
       ],
     );
@@ -258,8 +259,9 @@ class _PositionDialogState extends State<PositionDialog> {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
     return AlertDialog(
-      title: Text('Position of ${widget.agent.id}'),
+      title: Text(l10n.positionTitle(widget.agent.id)),
       content: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
@@ -267,14 +269,14 @@ class _PositionDialogState extends State<PositionDialog> {
             key: const Key('role-field'),
             controller: _role,
             maxLength: 80,
-            decoration: const InputDecoration(labelText: 'Role', hintText: 'e.g. backend lead'),
+            decoration: InputDecoration(labelText: l10n.positionRole, hintText: l10n.positionRoleHint),
           ),
           DropdownButtonFormField<String>(
             key: const Key('superior-field'),
             initialValue: _superior,
-            decoration: InputDecoration(labelText: 'Reports to', helperText: 'Whoever reports to ${widget.agent.id} goes with it.'),
+            decoration: InputDecoration(labelText: l10n.positionReportsTo, helperText: l10n.positionReportsHelper(widget.agent.id)),
             items: [
-              const DropdownMenuItem(value: '', child: Text('Nobody (top of the tree)')),
+              DropdownMenuItem(value: '', child: Text(l10n.positionNobody)),
               for (final a in widget.choices) DropdownMenuItem(value: a.id, child: Text(a.id)),
             ],
             onChanged: (value) => setState(() => _superior = value ?? ''),
@@ -282,8 +284,8 @@ class _PositionDialogState extends State<PositionDialog> {
         ],
       ),
       actions: [
-        TextButton(onPressed: () => Navigator.of(context).pop(), child: const Text('Cancel')),
-        FilledButton(onPressed: () => Navigator.of(context).pop((role: _role.text, superior: _superior)), child: const Text('Save')),
+        TextButton(onPressed: () => Navigator.of(context).pop(), child: Text(l10n.commonCancel)),
+        FilledButton(onPressed: () => Navigator.of(context).pop((role: _role.text, superior: _superior)), child: Text(l10n.commonSave)),
       ],
     );
   }
@@ -322,10 +324,11 @@ class _PowersDialogState extends State<_PowersDialog> {
   @override
   Widget build(BuildContext context) {
     final agent = widget.agent;
+    final l10n = AppLocalizations.of(context);
     // An id only a newer hub knows is shown by its own id, so it does not vanish on Save.
-    final unknown = [for (final id in _categories) if (!approvalCategories.any((c) => c.id == id)) id];
+    final unknown = [for (final id in _categories) if (!approvalCategoryIds.contains(id)) id];
     return AlertDialog(
-      title: Text('Powers of ${agent.id}'),
+      title: Text(l10n.powersTitle(agent.id)),
       content: SingleChildScrollView(
         child: Column(
           mainAxisSize: MainAxisSize.min,
@@ -335,41 +338,38 @@ class _PowersDialogState extends State<_PowersDialog> {
               key: const Key('powers-autonomy'),
               initialValue: _autonomy,
               isExpanded: true,
-              decoration: const InputDecoration(labelText: 'Autonomy'),
-              items: [for (final n in autonomyLevels) DropdownMenuItem(value: n.level, child: Text(n.label, overflow: TextOverflow.ellipsis))],
+              decoration: InputDecoration(labelText: l10n.powersAutonomy),
+              items: [for (final n in autonomyLevels) DropdownMenuItem(value: n, child: Text(autonomyLabel(n, l10n), overflow: TextOverflow.ellipsis))],
               onChanged: (value) => setState(() => _autonomy = value ?? _autonomy),
             ),
             if (_autonomy == 5 && !agent.canManageAgents)
               Padding(
                 padding: const EdgeInsets.only(top: 4),
-                child: Text(
-                  'Level 5 only counts for an agent that may manage agents, and ${agent.id} may not: that is turned on in the settings.',
-                  style: Theme.of(context).textTheme.bodySmall,
-                ),
+                child: Text(l10n.powersLevel5(agent.id), style: Theme.of(context).textTheme.bodySmall),
               ),
             const SizedBox(height: 8),
-            _switch('powers-start-tasks', 'Can start background work', _startTasks, (on) => _startTasks = on),
-            _switch('powers-create-workers', 'Can create temporary agents', _createWorkers, (on) => _createWorkers = on),
-            _switch('powers-message-user', 'Can start a conversation with you', _messageUser, (on) => _messageUser = on),
-            _switch('powers-choose-models', 'Can pick the model of the tasks it delegates', _chooseModels, (on) => _chooseModels = on),
+            _switch('powers-start-tasks', l10n.powersStartTasks, _startTasks, (on) => _startTasks = on),
+            _switch('powers-create-workers', l10n.powersCreateWorkers, _createWorkers, (on) => _createWorkers = on),
+            _switch('powers-message-user', l10n.powersMessageUser, _messageUser, (on) => _messageUser = on),
+            _switch('powers-choose-models', l10n.powersChooseModels, _chooseModels, (on) => _chooseModels = on),
             const SizedBox(height: 8),
-            Text('Asks for your yes before (even when acting on its own):', style: Theme.of(context).textTheme.bodySmall),
-            for (final c in approvalCategories)
+            Text(l10n.powersAsks, style: Theme.of(context).textTheme.bodySmall),
+            for (final id in approvalCategoryIds)
               CheckboxListTile(
-                key: Key('powers-category-${c.id}'),
+                key: Key('powers-category-$id'),
                 dense: true,
                 contentPadding: EdgeInsets.zero,
                 controlAffinity: ListTileControlAffinity.leading,
-                title: Text(c.label),
-                value: _categories.contains(c.id),
-                onChanged: (on) => setState(() => on == true ? _categories.add(c.id) : _categories.remove(c.id)),
+                title: Text(approvalCategoryLabel(id, l10n)),
+                value: _categories.contains(id),
+                onChanged: (on) => setState(() => on == true ? _categories.add(id) : _categories.remove(id)),
               ),
             for (final id in unknown)
               CheckboxListTile(
                 dense: true,
                 contentPadding: EdgeInsets.zero,
                 controlAffinity: ListTileControlAffinity.leading,
-                title: Text(approvalCategoryLabel(id)),
+                title: Text(approvalCategoryLabel(id, l10n)),
                 value: true,
                 onChanged: (_) => setState(() => _categories.remove(id)),
               ),
@@ -377,7 +377,7 @@ class _PowersDialogState extends State<_PowersDialog> {
         ),
       ),
       actions: [
-        TextButton(onPressed: () => Navigator.of(context).pop(), child: const Text('Cancel')),
+        TextButton(onPressed: () => Navigator.of(context).pop(), child: Text(l10n.commonCancel)),
         FilledButton(
           key: const Key('powers-save'),
           onPressed: () => Navigator.of(context).pop(
@@ -391,7 +391,7 @@ class _PowersDialogState extends State<_PowersDialog> {
               approvalRequired: orderedCategories(_categories),
             ),
           ),
-          child: const Text('Save'),
+          child: Text(l10n.commonSave),
         ),
       ],
     );
@@ -422,25 +422,23 @@ class _LimitDialogState extends State<_LimitDialog> {
   Widget build(BuildContext context) {
     final chosen = _chosen;
     final shownDefault = chosen.contains(_default) ? _default : (chosen.isEmpty ? '' : chosen.first);
+    final l10n = AppLocalizations.of(context);
     return AlertDialog(
-      title: Text('Models of ${widget.agent.id}'),
+      title: Text(l10n.limitTitle(widget.agent.id)),
       content: SingleChildScrollView(
         child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(
-              'The models it can pick for the tasks it delegates. None checked leaves the choice open; with one, it dictates the model.',
-              style: Theme.of(context).textTheme.bodySmall,
-            ),
-            if (widget.candidates.isEmpty) const Text('The hub has no providers or policies to pick from.'),
+            Text(l10n.limitHint, style: Theme.of(context).textTheme.bodySmall),
+            if (widget.candidates.isEmpty) Text(l10n.limitNone),
             for (final id in widget.candidates)
               CheckboxListTile(
                 key: Key('limit-$id'),
                 dense: true,
                 contentPadding: EdgeInsets.zero,
                 controlAffinity: ListTileControlAffinity.leading,
-                title: Text(widget.policyIds.contains(id) ? '$id (policy)' : id),
+                title: Text(widget.policyIds.contains(id) ? l10n.limitPolicy(id) : id),
                 value: _checked.contains(id),
                 onChanged: (on) => setState(() => on == true ? _checked.add(id) : _checked.remove(id)),
               ),
@@ -448,7 +446,7 @@ class _LimitDialogState extends State<_LimitDialog> {
               DropdownButtonFormField<String>(
                 key: const Key('limit-default'),
                 initialValue: shownDefault,
-                decoration: InputDecoration(labelText: 'Default', helperText: 'What a task gets when ${widget.agent.id} does not pick.'),
+                decoration: InputDecoration(labelText: l10n.limitDefault, helperText: l10n.limitDefaultHelper(widget.agent.id)),
                 items: [for (final id in chosen) DropdownMenuItem(value: id, child: Text(id))],
                 onChanged: (value) => setState(() => _default = value ?? ''),
               ),
@@ -456,11 +454,11 @@ class _LimitDialogState extends State<_LimitDialog> {
         ),
       ),
       actions: [
-        TextButton(onPressed: () => Navigator.of(context).pop(), child: const Text('Cancel')),
+        TextButton(onPressed: () => Navigator.of(context).pop(), child: Text(l10n.commonCancel)),
         FilledButton(
           key: const Key('limit-save'),
           onPressed: () => Navigator.of(context).pop(limitModels(widget.candidates, _checked, shownDefault)),
-          child: const Text('Save'),
+          child: Text(l10n.commonSave),
         ),
       ],
     );
@@ -495,8 +493,9 @@ class _PolicyDialogState extends State<_PolicyDialog> {
   @override
   Widget build(BuildContext context) {
     final ready = _id.text.trim().isNotEmpty && _model.isNotEmpty;
+    final l10n = AppLocalizations.of(context);
     return AlertDialog(
-      title: Text(widget.original == null ? 'New policy' : 'Policy ${widget.original!.id}'),
+      title: Text(widget.original == null ? l10n.policyNew : l10n.policyTitle(widget.original!.id)),
       content: SingleChildScrollView(
         child: Column(
           mainAxisSize: MainAxisSize.min,
@@ -505,13 +504,13 @@ class _PolicyDialogState extends State<_PolicyDialog> {
               key: const Key('policy-name-field'),
               controller: _id,
               maxLength: 64,
-              decoration: const InputDecoration(labelText: 'Name'),
+              decoration: InputDecoration(labelText: l10n.policyName),
               onChanged: (_) => setState(() {}),
             ),
             DropdownButtonFormField<String>(
               key: const Key('policy-model-field'),
               initialValue: _model.isEmpty ? null : _model,
-              decoration: const InputDecoration(labelText: 'Answered by'),
+              decoration: InputDecoration(labelText: l10n.policyAnsweredBy),
               items: [for (final id in widget.modelIds) DropdownMenuItem(value: id, child: Text(id))],
               onChanged: (value) => setState(() => _model = value ?? ''),
             ),
@@ -519,17 +518,17 @@ class _PolicyDialogState extends State<_PolicyDialog> {
               key: const Key('policy-description-field'),
               controller: _description,
               maxLength: 200,
-              decoration: const InputDecoration(labelText: 'When to pick it (one line)', hintText: 'e.g. simple, cheap work'),
+              decoration: InputDecoration(labelText: l10n.policyWhen, hintText: l10n.policyWhenHint),
             ),
           ],
         ),
       ),
       actions: [
-        TextButton(onPressed: () => Navigator.of(context).pop(), child: const Text('Cancel')),
+        TextButton(onPressed: () => Navigator.of(context).pop(), child: Text(l10n.commonCancel)),
         FilledButton(
           key: const Key('policy-save'),
           onPressed: ready ? () => Navigator.of(context).pop(ModelPolicy(id: _id.text, model: _model, description: _description.text)) : null,
-          child: const Text('Save policy'),
+          child: Text(l10n.policySave),
         ),
       ],
     );
@@ -562,8 +561,9 @@ class _NewAgentDialogState extends State<NewAgentDialog> {
   @override
   Widget build(BuildContext context) {
     final ready = _id.text.trim().isNotEmpty && _persona.text.trim().isNotEmpty;
+    final l10n = AppLocalizations.of(context);
     return AlertDialog(
-      title: Text(widget.under == null ? 'New agent at the top' : 'New agent under ${widget.under}'),
+      title: Text(widget.under == null ? l10n.newAgentTop : l10n.newAgentUnder(widget.under!)),
       content: SingleChildScrollView(
         child: Column(
           mainAxisSize: MainAxisSize.min,
@@ -572,23 +572,23 @@ class _NewAgentDialogState extends State<NewAgentDialog> {
               key: const Key('new-name-field'),
               controller: _id,
               maxLength: 64,
-              decoration: const InputDecoration(labelText: 'Name', hintText: 'e.g. reviewer'),
+              decoration: InputDecoration(labelText: l10n.newAgentName, hintText: l10n.newAgentNameHint),
               onChanged: (_) => setState(() {}),
             ),
             TextField(
               key: const Key('new-role-field'),
               controller: _role,
               maxLength: 80,
-              decoration: const InputDecoration(labelText: 'Role (optional)'),
+              decoration: InputDecoration(labelText: l10n.newAgentRole),
             ),
             TextField(
               key: const Key('new-persona-field'),
               controller: _persona,
               minLines: 2,
               maxLines: 5,
-              decoration: const InputDecoration(
-                labelText: 'What it does',
-                helperText: 'Starts careful: read-only tools, asks before any change, and cannot delegate or manage agents until a person turns that on.',
+              decoration: InputDecoration(
+                labelText: l10n.newAgentDoes,
+                helperText: l10n.newAgentHelper,
                 helperMaxLines: 4,
               ),
               onChanged: (_) => setState(() {}),
@@ -597,11 +597,11 @@ class _NewAgentDialogState extends State<NewAgentDialog> {
         ),
       ),
       actions: [
-        TextButton(onPressed: () => Navigator.of(context).pop(), child: const Text('Cancel')),
+        TextButton(onPressed: () => Navigator.of(context).pop(), child: Text(l10n.commonCancel)),
         FilledButton(
           key: const Key('new-agent-confirm'),
           onPressed: ready ? () => Navigator.of(context).pop((id: _id.text, role: _role.text, persona: _persona.text)) : null,
-          child: const Text('Add agent'),
+          child: Text(l10n.newAgentAdd),
         ),
       ],
     );
@@ -667,7 +667,7 @@ class _OrganizationTabState extends State<OrganizationTab> {
       spend: spendOf(_extras.spend, agent),
       lastConversationMs: lastConversationOf(_extras.conversations, agent),
     );
-    return activity == null ? null : activityLine(activity, DateTime.now().millisecondsSinceEpoch);
+    return activity == null ? null : activityLine(activity, DateTime.now().millisecondsSinceEpoch, AppLocalizations.of(context));
   }
 
   /// Asks for the key and applies [edit]; the screen shows what the hub holds afterwards.
@@ -676,7 +676,7 @@ class _OrganizationTabState extends State<OrganizationTab> {
     await askPairingKey(
       context,
       title: what,
-      message: 'The hub restarts with the change.',
+      message: AppLocalizations.of(context).orgRestarts,
       submit: (key) async {
         final hub = await widget.backend.editAgentOrg(key, edit);
         if (mounted) setState(() => _hub = hub);
@@ -693,7 +693,7 @@ class _OrganizationTabState extends State<OrganizationTab> {
       builder: (_) => PositionDialog(agent: agent, choices: superiorChoices(all, agent.id)),
     );
     if (picked == null || !mounted) return;
-    await _apply(SetPositionEdit(agent.id, role: picked.role, reportsTo: picked.superior), 'Change ${agent.id}');
+    await _apply(SetPositionEdit(agent.id, role: picked.role, reportsTo: picked.superior), AppLocalizations.of(context).orgChange(agent.id));
   }
 
   Future<void> _add(String? under) async {
@@ -702,14 +702,14 @@ class _OrganizationTabState extends State<OrganizationTab> {
       builder: (_) => NewAgentDialog(under: under),
     );
     if (picked == null || !mounted) return;
-    await _apply(AddReportEdit(picked.id, picked.persona, role: picked.role, reportsTo: under), 'Add ${picked.id}');
+    await _apply(AddReportEdit(picked.id, picked.persona, role: picked.role, reportsTo: under), AppLocalizations.of(context).orgAdd(picked.id));
   }
 
   /// What [agent] may do on its own (P122): autonomy, permissions and the kinds of action that ask for the person's yes.
   Future<void> _powers(AgentInfo agent) async {
     final picked = await showDialog<SetPowersEdit>(context: context, builder: (_) => _PowersDialog(agent: agent));
     if (picked == null || !mounted) return;
-    await _apply(picked, 'Powers of ${agent.id}');
+    await _apply(picked, AppLocalizations.of(context).powersTitle(agent.id));
   }
 
   /// The models [agent] may pick when it delegates (P123).
@@ -721,7 +721,7 @@ class _OrganizationTabState extends State<OrganizationTab> {
       builder: (_) => _LimitDialog(agent: agent, candidates: delegationCandidates(hub.modelIds, hub.modelPolicies), policyIds: {for (final p in hub.modelPolicies) p.id}),
     );
     if (picked == null || !mounted) return;
-    await _apply(SetDelegationModelsEdit(agent.id, picked), 'Models of ${agent.id}');
+    await _apply(SetDelegationModelsEdit(agent.id, picked), AppLocalizations.of(context).limitTitle(agent.id));
   }
 
   /// A model policy (P123): [original] is the one being edited, null for a new one.
@@ -737,52 +737,51 @@ class _OrganizationTabState extends State<OrganizationTab> {
       ),
     );
     if (picked == null || !mounted) return;
-    await _apply(SetModelPoliciesEdit(policiesWith(hub.modelPolicies, picked, original?.id)), 'Save the policy ${picked.id.trim()}');
+    await _apply(SetModelPoliciesEdit(policiesWith(hub.modelPolicies, picked, original?.id)), AppLocalizations.of(context).orgSavePolicy(picked.id.trim()));
   }
 
   Future<void> _removePolicy(ModelPolicy policy) async {
     final hub = _hub;
     if (hub == null) return;
-    await _apply(SetModelPoliciesEdit(policiesWithout(hub.modelPolicies, policy.id)), 'Remove the policy ${policy.id}');
+    await _apply(SetModelPoliciesEdit(policiesWithout(hub.modelPolicies, policy.id)), AppLocalizations.of(context).orgRemovePolicy(policy.id));
   }
 
   Future<void> _remove(OrgNode node) async {
     final agent = node.agent;
     final count = node.children.length;
-    final goesTo = agent.reportsTo ?? 'nobody (the top of the tree)';
+    final l10n = AppLocalizations.of(context);
+    final goesTo = agent.reportsTo ?? l10n.orgNobodyTop;
     final ok = await showDialog<bool>(
       context: context,
       builder: (dialogContext) => AlertDialog(
-        title: Text('Remove ${agent.id}?'),
-        content: Text(
-          '${count == 0 ? '' : '${count == 1 ? 'Its report goes' : 'Its $count reports go'} to report to $goesTo. '}'
-          'The conversations stay; this can\'t be undone.',
-        ),
+        title: Text(l10n.orgRemoveTitle(agent.id)),
+        content: Text(l10n.orgRemoveBody(count, goesTo)),
         actions: [
-          TextButton(onPressed: () => Navigator.of(dialogContext).pop(false), child: const Text('Keep')),
-          FilledButton(onPressed: () => Navigator.of(dialogContext).pop(true), child: const Text('Remove')),
+          TextButton(onPressed: () => Navigator.of(dialogContext).pop(false), child: Text(l10n.commonKeep)),
+          FilledButton(onPressed: () => Navigator.of(dialogContext).pop(true), child: Text(l10n.commonRemove)),
         ],
       ),
     );
     if (ok != true || !mounted) return;
-    await _apply(RemoveAgentEdit(agent.id), 'Remove ${agent.id}');
+    await _apply(RemoveAgentEdit(agent.id), l10n.orgRemove(agent.id));
   }
 
-  List<String> _badges(AgentInfo a) => [
-        if (a.canDelegateToAgents) 'delegates',
-        if (a.canManageAgents) 'manages agents',
-        if (a.canMessageAgents) 'leaves notes',
-        if (a.canManageTasks) 'schedules tasks',
+  List<String> _badges(AgentInfo a, AppLocalizations l10n) => [
+        if (a.canDelegateToAgents) l10n.badgeDelegates,
+        if (a.canManageAgents) l10n.badgeManages,
+        if (a.canMessageAgents) l10n.badgeNotes,
+        if (a.canManageTasks) l10n.badgeTasks,
         // On by default: only what was taken away shows.
-        if (!a.canStartTasks) 'no background work',
-        if (!a.canCreateWorkers) 'no temporary agents',
-        if (!a.canMessageUser) 'cannot start a chat',
-        if (!a.canChooseModels) 'cannot pick models',
-        if (a.autonomy != 4) 'autonomy ${a.autonomy}: ${_autonomy[a.autonomy] ?? ''}'.trim(),
-        if (a.approvalRequired.isNotEmpty) 'asks first: ${a.approvalRequired.length} kind${a.approvalRequired.length > 1 ? 's' : ''} of action',
+        if (!a.canStartTasks) l10n.badgeNoBackground,
+        if (!a.canCreateWorkers) l10n.badgeNoTemp,
+        if (!a.canMessageUser) l10n.badgeNoChat,
+        if (!a.canChooseModels) l10n.badgeNoModels,
+        if (a.autonomy != 4) l10n.badgeAutonomy(a.autonomy, autonomyShortLabel(a.autonomy, l10n)).trim(),
+        if (a.approvalRequired.isNotEmpty) l10n.badgeAsksFirst(a.approvalRequired.length),
       ];
 
   List<Widget> _rows(List<OrgNode> nodes, List<AgentInfo> all, int depth) {
+    final l10n = AppLocalizations.of(context);
     final rows = <Widget>[];
     for (final node in nodes) {
       final agent = node.agent;
@@ -797,9 +796,9 @@ class _OrganizationTabState extends State<OrganizationTab> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   if (agent.role != null && agent.role!.isNotEmpty) Text(agent.role!),
-                  if (_badges(agent).isNotEmpty) Wrap(spacing: 4, children: [for (final b in _badges(agent)) Chip(label: Text(b), visualDensity: VisualDensity.compact)]),
-                  if (agent.canDelegateToAgents) Text(delegationSummary(agent.delegationModels), style: Theme.of(context).textTheme.bodySmall),
-                  if (node.children.isNotEmpty) Text(node.children.length == 1 ? '1 report' : '${node.children.length} reports', style: Theme.of(context).textTheme.bodySmall),
+                  if (_badges(agent, l10n).isNotEmpty) Wrap(spacing: 4, children: [for (final b in _badges(agent, l10n)) Chip(label: Text(b), visualDensity: VisualDensity.compact)]),
+                  if (agent.canDelegateToAgents) Text(delegationSummary(agent.delegationModels, l10n), style: Theme.of(context).textTheme.bodySmall),
+                  if (node.children.isNotEmpty) Text(l10n.orgReports(node.children.length), style: Theme.of(context).textTheme.bodySmall),
                   if (_activity(agent.id) != null) Text(_activity(agent.id)!, key: Key('activity-${agent.id}'), style: Theme.of(context).textTheme.bodySmall),
                 ],
               ),
@@ -825,13 +824,13 @@ class _OrganizationTabState extends State<OrganizationTab> {
                   }
                 },
                 itemBuilder: (_) => [
-                  if (widget.onOpenChat != null) const PopupMenuItem(value: 'chat', child: Text('Chat')),
-                  const PopupMenuItem(value: 'tasks', child: Text('Tasks')),
-                  const PopupMenuItem(value: 'edit', child: Text('Edit position')),
-                  const PopupMenuItem(value: 'powers', child: Text('Powers')),
-                  if (agent.canDelegateToAgents) const PopupMenuItem(value: 'models', child: Text('Models it can pick')),
-                  const PopupMenuItem(value: 'add', child: Text('Add a report')),
-                  const PopupMenuItem(value: 'remove', child: Text('Remove')),
+                  if (widget.onOpenChat != null) PopupMenuItem(value: 'chat', child: Text(l10n.menuChat)),
+                  PopupMenuItem(value: 'tasks', child: Text(l10n.menuTasks)),
+                  PopupMenuItem(value: 'edit', child: Text(l10n.menuEditPosition)),
+                  PopupMenuItem(value: 'powers', child: Text(l10n.menuPowers)),
+                  if (agent.canDelegateToAgents) PopupMenuItem(value: 'models', child: Text(l10n.menuModels)),
+                  PopupMenuItem(value: 'add', child: Text(l10n.menuAddReport)),
+                  PopupMenuItem(value: 'remove', child: Text(l10n.commonRemove)),
                 ],
               ),
             ),
@@ -854,25 +853,22 @@ class _OrganizationTabState extends State<OrganizationTab> {
       );
     }
     final tree = buildOrg(hub.agents);
+    final l10n = AppLocalizations.of(context);
     return RefreshIndicator(
       onRefresh: _load,
       child: ListView(
         padding: const EdgeInsets.all(12),
         children: [
-          Text(
-            'Who reports to whom. An agent that manages or delegates to others reaches only the ones below it. '
-            'Anything an agent changes still waits for your yes.',
-            style: Theme.of(context).textTheme.bodySmall,
-          ),
+          Text(l10n.orgHint, style: Theme.of(context).textTheme.bodySmall),
           if (_error != null) Padding(padding: const EdgeInsets.only(top: 8), child: Text(_error!, style: TextStyle(color: Theme.of(context).colorScheme.error))),
           const SizedBox(height: 8),
-          if (tree.isEmpty) const Text('No agents yet.') else ..._rows(tree, hub.agents, 0),
+          if (tree.isEmpty) Text(l10n.orgNone) else ..._rows(tree, hub.agents, 0),
           if (tree.isNotEmpty && tree.every((n) => n.children.isEmpty))
-            const Padding(padding: EdgeInsets.symmetric(vertical: 8), child: Text('Nobody reports to anybody yet: use "Edit position" on an agent to pick its superior.')),
-          TextButton.icon(key: const Key('add-top'), onPressed: () => _add(null), icon: const Icon(Icons.add), label: const Text('Add an agent at the top')),
+            Padding(padding: const EdgeInsets.symmetric(vertical: 8), child: Text(l10n.orgNobodyReports)),
+          TextButton.icon(key: const Key('add-top'), onPressed: () => _add(null), icon: const Icon(Icons.add), label: Text(l10n.orgAddTop)),
           const Divider(),
-          Text('Model policies', style: Theme.of(context).textTheme.titleSmall),
-          if (hub.modelPolicies.isEmpty) const Text('None: an agent that delegates sees only the model ids.'),
+          Text(l10n.policiesTitle, style: Theme.of(context).textTheme.titleSmall),
+          if (hub.modelPolicies.isEmpty) Text(l10n.policiesNone),
           for (final p in hub.modelPolicies)
             ListTile(
               key: Key('policy-${p.id}'),
@@ -883,9 +879,9 @@ class _OrganizationTabState extends State<OrganizationTab> {
               trailing: PopupMenuButton<String>(
                 key: Key('policy-menu-${p.id}'),
                 onSelected: (action) => action == 'edit' ? _policy(p) : _removePolicy(p),
-                itemBuilder: (_) => const [
-                  PopupMenuItem(value: 'edit', child: Text('Edit')),
-                  PopupMenuItem(value: 'remove', child: Text('Remove')),
+                itemBuilder: (_) => [
+                  PopupMenuItem(value: 'edit', child: Text(l10n.commonEdit)),
+                  PopupMenuItem(value: 'remove', child: Text(l10n.commonRemove)),
                 ],
               ),
             ),
@@ -893,7 +889,7 @@ class _OrganizationTabState extends State<OrganizationTab> {
             key: const Key('new-policy'),
             onPressed: hub.modelIds.isEmpty ? null : () => _policy(null),
             icon: const Icon(Icons.add),
-            label: const Text('New policy'),
+            label: Text(l10n.policyNew),
           ),
         ],
       ),
@@ -976,31 +972,27 @@ class _AgentTasksTabState extends State<AgentTasksTab> {
     if (view == null) return const SizedBox.shrink();
     final grants = view.grants;
     final ttlDays = view.ttlDays;
+    final l10n = AppLocalizations.of(context);
     return Column(
       key: const Key('grants-section'),
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         const SizedBox(height: 16),
-        Text('Permissions given with "always"', style: Theme.of(context).textTheme.titleSmall),
+        Text(l10n.grantsTitle, style: Theme.of(context).textTheme.titleSmall),
         const SizedBox(height: 4),
-        Text(
-          'They hold per conversation and agent. '
-          '${ttlDays != null ? 'Kept in a file, they survive a restart and lapse after $ttlDays ${ttlDays == 1 ? 'day' : 'days'} unused (each use renews them).' : 'They end when the connection closes.'}'
-          ' Taking one back makes the agent ask again.',
-          style: Theme.of(context).textTheme.bodySmall,
-        ),
-        if (grants.isEmpty) const Padding(padding: EdgeInsets.symmetric(vertical: 8), child: Text('None yet.')),
+        Text(ttlDays != null ? l10n.grantsHintKept(ttlDays) : l10n.grantsHintSession, style: Theme.of(context).textTheme.bodySmall),
+        if (grants.isEmpty) Padding(padding: const EdgeInsets.symmetric(vertical: 8), child: Text(l10n.grantsNone)),
         for (final g in grants)
           ListTile(
             key: Key('grant-${g.conversationId}-${g.agentId ?? ''}-${g.covers}'),
             contentPadding: EdgeInsets.zero,
-            title: Text(grantCategoryLabel[g.covers] ?? g.covers),
+            title: Text(grantCategoryLabel(g.covers, l10n)),
             subtitle: Text([
-              g.agentId ?? 'default agent',
-              'conversation ${g.conversationId.length > 8 ? g.conversationId.substring(0, 8) : g.conversationId}',
-              if (g.lastUsedMs != null) 'used ${agoLabel(g.lastUsedMs!, DateTime.now().millisecondsSinceEpoch)}',
+              g.agentId ?? l10n.grantDefaultAgent,
+              l10n.grantConversation(g.conversationId.length > 8 ? g.conversationId.substring(0, 8) : g.conversationId),
+              if (g.lastUsedMs != null) l10n.grantUsed(agoLabel(g.lastUsedMs!, DateTime.now().millisecondsSinceEpoch, l10n)),
             ].join(' · ')),
-            trailing: TextButton(key: Key('revoke-${g.conversationId}-${g.agentId ?? ''}-${g.covers}'), onPressed: () => _revoke(g), child: const Text('Take back')),
+            trailing: TextButton(key: Key('revoke-${g.conversationId}-${g.agentId ?? ''}-${g.covers}'), onPressed: () => _revoke(g), child: Text(l10n.grantTakeBack)),
           ),
       ],
     );
@@ -1008,10 +1000,11 @@ class _AgentTasksTabState extends State<AgentTasksTab> {
 
   Future<void> _control(AgentTask task, String action) async {
     setState(() => _error = null);
+    final l10n = AppLocalizations.of(context);
     await askPairingKey(
       context,
-      title: '${taskActionLabel[action]} the task of ${task.assignee}',
-      message: action == 'cancel' ? 'Its subtasks stop too.' : 'Only a task running on this hub can be controlled.',
+      title: l10n.taskControlTitle(taskActionLabel(action, l10n), task.assignee),
+      message: action == 'cancel' ? l10n.taskControlStops : l10n.taskControlOnly,
       submit: (key) async {
         final tasks = await widget.backend.controlAgentTask(key, task.id, action);
         if (mounted) setState(() => _tasks = tasks);
@@ -1024,14 +1017,15 @@ class _AgentTasksTabState extends State<AgentTasksTab> {
 
   Widget _header(TaskGroup g) {
     final c = g.counts;
+    final l10n = AppLocalizations.of(context);
     final parts = [
-      if (c['done']! > 0) '${c['done']} done',
-      if (c['running']! > 0) '${c['running']} running',
-      if (c['waiting']! > 0) '${c['waiting']} waiting for an agent',
-      if (c['paused']! > 0) '${c['paused']} paused',
-      if (c['pending']! > 0) '${c['pending']} pending',
-      if (c['failed']! > 0) '${c['failed']} failed',
-      if (c['cancelled']! > 0) '${c['cancelled']} stopped',
+      if (c['done']! > 0) l10n.tallyDone(c['done']!),
+      if (c['running']! > 0) l10n.tallyRunning(c['running']!),
+      if (c['waiting']! > 0) l10n.tallyWaiting(c['waiting']!),
+      if (c['paused']! > 0) l10n.tallyPaused(c['paused']!),
+      if (c['pending']! > 0) l10n.tallyPending(c['pending']!),
+      if (c['failed']! > 0) l10n.tallyFailed(c['failed']!),
+      if (c['cancelled']! > 0) l10n.tallyStopped(c['cancelled']!),
     ];
     return Padding(
       padding: const EdgeInsets.fromLTRB(4, 12, 4, 4),
@@ -1039,16 +1033,16 @@ class _AgentTasksTabState extends State<AgentTasksTab> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(children: [
-            Text(g.owner ?? 'An agent', style: Theme.of(context).textTheme.titleSmall),
+            Text(g.owner ?? l10n.taskAnAgent, style: Theme.of(context).textTheme.titleSmall),
             const SizedBox(width: 8),
             Text(_clock(g.createdAtMs), style: Theme.of(context).textTheme.bodySmall),
-            if (g.active) ...[const SizedBox(width: 8), const Text('working')],
+            if (g.active) ...[const SizedBox(width: 8), Text(l10n.taskWorking)],
           ]),
           const SizedBox(height: 4),
           LinearProgressIndicator(value: g.percent / 100),
           const SizedBox(height: 4),
           Text(
-            '${g.finished} of ${g.total} finished (${g.percent}%) · ${parts.join(', ')}${g.totalTokens > 0 ? ' · ${formatTokens(g.totalTokens)} tokens' : ''}',
+            '${l10n.taskProgress(g.finished, g.total, g.percent, parts.join(', '))}${g.totalTokens > 0 ? ' · ${l10n.tallyTokens(formatTokens(g.totalTokens))}' : ''}',
             style: Theme.of(context).textTheme.bodySmall,
           ),
         ],
@@ -1058,19 +1052,20 @@ class _AgentTasksTabState extends State<AgentTasksTab> {
 
   Widget _row(TaskRow row) {
     final task = row.task;
+    final l10n = AppLocalizations.of(context);
     final duration = durationLabel(task, DateTime.now().millisecondsSinceEpoch);
     final detail = task.state == 'done' ? task.result : task.error;
     final meta = [
       if (task.model != null) task.model!,
       ?duration,
-      if (task.totalTokens != null) '${formatTokens(task.totalTokens!)} tok',
+      if (task.totalTokens != null) l10n.taskTok(formatTokens(task.totalTokens!)),
     ].join(' · ');
     return Padding(
       padding: EdgeInsets.only(left: row.depth * 16.0),
       child: Card(
         key: Key('task-${task.id}'),
         child: ExpansionTile(
-          leading: Text(taskStateMark[task.state] ?? taskStateMark['pending']!, semanticsLabel: taskStateLabel[task.state]),
+          leading: Text(taskStateMark[task.state] ?? taskStateMark['pending']!, semanticsLabel: taskStateLabel(task.state, l10n)),
           title: Text(task.assignee),
           subtitle: Text(
             [task.objective, if (meta.isNotEmpty) meta].join('\n'),
@@ -1080,16 +1075,16 @@ class _AgentTasksTabState extends State<AgentTasksTab> {
           childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
           expandedCrossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('Task', style: Theme.of(context).textTheme.labelSmall),
+            Text(l10n.taskDetailTask, style: Theme.of(context).textTheme.labelSmall),
             SelectableText(task.objective),
             const SizedBox(height: 8),
-            Text(task.state == 'done' ? 'Result' : 'Why it stopped', style: Theme.of(context).textTheme.labelSmall),
-            detail != null && detail.isNotEmpty ? SelectableText(detail) : Text('${taskStateLabel[task.state] ?? task.state}: no result yet.'),
+            Text(task.state == 'done' ? l10n.taskDetailResult : l10n.taskDetailWhy, style: Theme.of(context).textTheme.labelSmall),
+            detail != null && detail.isNotEmpty ? SelectableText(detail) : Text(l10n.taskNoResult(taskStateLabel(task.state, l10n))),
             Wrap(
               spacing: 8,
               children: [
                 for (final action in actionsFor(task))
-                  TextButton(key: Key('task-${task.id}-$action'), onPressed: () => _control(task, action), child: Text(taskActionLabel[action]!)),
+                  TextButton(key: Key('task-${task.id}-$action'), onPressed: () => _control(task, action), child: Text(taskActionLabel(action, l10n))),
               ],
             ),
           ],
@@ -1110,25 +1105,23 @@ class _AgentTasksTabState extends State<AgentTasksTab> {
       );
     }
     final groups = groupTasks(agent == null ? tasks : involvingAgent(tasks, agent));
+    final l10n = AppLocalizations.of(context);
     return RefreshIndicator(
       onRefresh: _load,
       child: ListView(
         padding: const EdgeInsets.all(12),
         children: [
-          Text(
-            'Tasks the agents handed each other in the background on this hub, where each one is and what it cost.',
-            style: Theme.of(context).textTheme.bodySmall,
-          ),
+          Text(l10n.tasksHint, style: Theme.of(context).textTheme.bodySmall),
           if (agent != null)
             Row(children: [
-              Expanded(child: Text('Only the tasks of $agent: the ones it received and the ones it delegated.', style: Theme.of(context).textTheme.bodySmall)),
-              TextButton(key: const Key('show-all-tasks'), onPressed: widget.onClearAgent, child: const Text('Show all')),
+              Expanded(child: Text(l10n.tasksOnly(agent), style: Theme.of(context).textTheme.bodySmall)),
+              TextButton(key: const Key('show-all-tasks'), onPressed: widget.onClearAgent, child: Text(l10n.tasksShowAll)),
             ]),
           if (_error != null) Padding(padding: const EdgeInsets.only(top: 8), child: Text(_error!, style: TextStyle(color: Theme.of(context).colorScheme.error))),
           if (groups.isEmpty)
             Padding(
               padding: const EdgeInsets.symmetric(vertical: 16),
-              child: Text(agent != null ? 'No task involves $agent yet.' : 'Nothing yet. When an agent delegates a task with "background", it shows up here.'),
+              child: Text(agent != null ? l10n.tasksNoneFor(agent) : l10n.tasksNone),
             ),
           for (final g in groups) ...[_header(g), for (final row in g.rows) _row(row)],
           _grantsSection(),
@@ -1197,7 +1190,7 @@ class _ActivityTabState extends State<ActivityTab> {
       key: Key('activity-${event.id}'),
       dense: true,
       leading: Text(activityMark(event.kind), style: Theme.of(context).textTheme.titleMedium),
-      title: Text(activityHeadline(event)),
+      title: Text(activityHeadline(event, AppLocalizations.of(context))),
       subtitle: event.text.isEmpty ? Text(_time(event.atMs)) : Text('${_time(event.atMs)} · ${event.text}', maxLines: 3, overflow: TextOverflow.ellipsis),
       onTap: to == null ? null : () => widget.onOpen(to),
     );
@@ -1216,23 +1209,21 @@ class _ActivityTabState extends State<ActivityTab> {
     final agents = activityAgents(events);
     // The filter names an agent that may leave the feed (its events aged out): then it shows everyone again.
     final chosen = agents.contains(_agent) ? _agent : '';
-    final days = activityByDay(chosen.isEmpty ? events : activityInvolving(events, chosen), DateTime.now());
+    final l10n = AppLocalizations.of(context);
+    final days = activityByDay(chosen.isEmpty ? events : activityInvolving(events, chosen), DateTime.now(), l10n);
     return RefreshIndicator(
       onRefresh: _load,
       child: ListView(
         padding: const EdgeInsets.all(12),
         children: [
-          Text(
-            'What happened among the agents on this hub: who delegated, started and finished what, the notes they left each other and the messages an agent wrote first to you.',
-            style: Theme.of(context).textTheme.bodySmall,
-          ),
+          Text(l10n.activityHint, style: Theme.of(context).textTheme.bodySmall),
           const SizedBox(height: 8),
           DropdownButton<String>(
             key: const Key('activity-filter'),
             value: chosen,
             isExpanded: true,
             items: [
-              const DropdownMenuItem(value: '', child: Text('All agents')),
+              DropdownMenuItem(value: '', child: Text(l10n.activityAll)),
               for (final name in agents) DropdownMenuItem(value: name, child: Text(name)),
             ],
             onChanged: (value) => setState(() => _agent = value ?? ''),
@@ -1241,7 +1232,7 @@ class _ActivityTabState extends State<ActivityTab> {
           if (days.isEmpty)
             Padding(
               padding: const EdgeInsets.symmetric(vertical: 16),
-              child: Text(chosen.isNotEmpty ? 'Nothing involves $chosen yet.' : 'Nothing yet. When agents delegate tasks, leave each other notes or write to you, it shows up here.'),
+              child: Text(chosen.isNotEmpty ? l10n.activityNothingFor(chosen) : l10n.activityNothing),
             ),
           for (final day in days) ...[
             Padding(

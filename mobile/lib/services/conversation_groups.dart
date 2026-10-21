@@ -1,9 +1,19 @@
+import '../l10n/generated/app_localizations.dart';
 import '../protocol/messages.dart';
 
 /// P157 — how the drawer lists the conversations: the pinned ones first, the rest by how recently they were used, and the archived
 /// ones apart. Pure, so it can be tested without a screen. The same rule as the desktop's and the web's.
 
-/// One block of the list: its label and its conversations, in the order they came.
+/// The name of a block in the language of the app. The block's `label` is its id (what [bucketLabel] says), not what is shown.
+String bucketTitle(String label, AppLocalizations l10n) => switch (label) {
+      'Today' => l10n.activityToday,
+      'Yesterday' => l10n.activityYesterday,
+      'Previous 7 days' => l10n.bucketLast7,
+      'Previous 30 days' => l10n.bucketLast30,
+      _ => l10n.bucketOlder,
+    };
+
+/// One block of the list: its id (see [bucketTitle]) and its conversations, in the order they came.
 class ConversationBucket {
   const ConversationBucket(this.label, this.items);
 

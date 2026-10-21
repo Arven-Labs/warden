@@ -1,4 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:mobile/l10n/generated/app_localizations_en.dart';
+import 'package:mobile/l10n/generated/app_localizations_pt.dart';
 import 'package:mobile/protocol/messages.dart';
 import 'package:mobile/services/side_work.dart';
 
@@ -52,13 +54,19 @@ void main() {
         SideWorkItem(id: base.id, title: base.title, updatedAt: base.updatedAt, kind: SideWorkKind.noteIn, other: 'chief'),
         SideWorkItem(id: base.id, title: base.title, updatedAt: base.updatedAt, kind: SideWorkKind.runTask),
         SideWorkItem(id: base.id, title: base.title, updatedAt: base.updatedAt, kind: SideWorkKind.runHook),
-      ].map(sideWorkLabel);
+      ].map((item) => sideWorkLabel(item, AppLocalizationsEn()));
       expect(labels, ['to poet', 'from chief', 'scheduled task', 'webhook']);
     });
 
     test('the button shows the count only when there is something', () {
-      expect(sideWorkButtonLabel(0), 'Notes and runs');
-      expect(sideWorkButtonLabel(3), 'Notes and runs (3)');
+      expect(sideWorkButtonLabel(0, AppLocalizationsEn()), 'Notes and runs');
+      expect(sideWorkButtonLabel(3, AppLocalizationsEn()), 'Notes and runs (3)');
+    });
+
+    test('and say the same in Portuguese', () {
+      final pt = AppLocalizationsPt();
+      expect(sideWorkButtonLabel(3, pt), 'Recados e execuções (3)');
+      expect(sideWorkLabel(SideWorkItem(id: 'x', title: 't', updatedAt: 1, kind: SideWorkKind.noteOut, other: 'poet'), pt), 'para poet');
     });
   });
 }

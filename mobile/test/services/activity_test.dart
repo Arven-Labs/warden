@@ -1,8 +1,16 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:mobile/l10n/generated/app_localizations_en.dart';
+import 'package:mobile/l10n/generated/app_localizations_pt.dart';
 import 'package:mobile/protocol/messages.dart';
-import 'package:mobile/services/activity.dart';
+import 'package:mobile/services/activity.dart' as words;
+import 'package:mobile/services/activity.dart' hide activityByDay, activityHeadline;
 
 // P121 — the pure half of the feed of activity. Same cases as the web's, the desktop's and the extension's `activity.test.mjs`.
+// The cases read in English (these two wrap the functions with the English words); the last test says the same in Portuguese.
+
+final _en = AppLocalizationsEn();
+String activityHeadline(ActivityEvent event) => words.activityHeadline(event, _en);
+List<ActivityDay> activityByDay(List<ActivityEvent> events, DateTime now) => words.activityByDay(events, now, _en);
 
 ActivityEvent _event(String kind, String actor, {String? target, String? taskId, String? conversationId, int atMs = 1}) =>
     ActivityEvent(id: '$kind-$actor', atMs: atMs, kind: kind, actor: actor, target: target, text: '', taskId: taskId, conversationId: conversationId);
@@ -114,6 +122,19 @@ void main() {
 
     test('an empty list has no day', () {
       expect(activityByDay(const [], now), isEmpty);
+    });
+  });
+
+  group('in Portuguese', () {
+    final pt = AppLocalizationsPt();
+
+    test('the sentences and the days read in Portuguese', () {
+      expect(words.activityHeadline(_event('delegated', 'manager', target: 'backend'), pt), 'manager delegou uma tarefa a backend');
+      expect(words.activityHeadline(_event('done', ''), pt), 'O assistente concluiu a tarefa');
+      expect(words.activityHeadline(_event('cancelled', 'backend'), pt), 'A tarefa de backend foi cancelada');
+      final now = DateTime(2026, 10, 7, 15);
+      final events = [_event('done', 'a', atMs: DateTime(2026, 10, 7, 14).millisecondsSinceEpoch), _event('done', 'd', atMs: DateTime(2026, 10, 1, 10).millisecondsSinceEpoch)];
+      expect(words.activityByDay(events, now, pt).map((d) => d.label).toList(), ['Hoje', '1 de outubro de 2026']);
     });
   });
 }

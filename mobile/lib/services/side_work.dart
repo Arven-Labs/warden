@@ -1,3 +1,4 @@
+import '../l10n/generated/app_localizations.dart';
 import '../protocol/messages.dart';
 
 // P121 — what an agent did outside its channel: the notes it traded with other agents ("A → B", `message_agent`) and the runs nobody was
@@ -60,12 +61,12 @@ List<SideWorkItem> sideWork(List<ConversationSummary> conversations, String agen
 }
 
 /// What the list says about a conversation: `to ana`, `from ana`, `scheduled task`, `webhook`.
-String sideWorkLabel(SideWorkItem item) => switch (item.kind) {
-      SideWorkKind.noteOut => 'to ${item.other}',
-      SideWorkKind.noteIn => 'from ${item.other}',
-      SideWorkKind.runTask => 'scheduled task',
-      SideWorkKind.runHook => 'webhook',
+String sideWorkLabel(SideWorkItem item, AppLocalizations l10n) => switch (item.kind) {
+      SideWorkKind.noteOut => l10n.sideTo(item.other ?? ''),
+      SideWorkKind.noteIn => l10n.sideFrom(item.other ?? ''),
+      SideWorkKind.runTask => l10n.sideScheduledTask,
+      SideWorkKind.runHook => l10n.sideWebhook,
     };
 
 /// What the channel's button says: `Notes and runs (3)`, or without the number when there are none.
-String sideWorkButtonLabel(int count) => count == 0 ? 'Notes and runs' : 'Notes and runs ($count)';
+String sideWorkButtonLabel(int count, AppLocalizations l10n) => count == 0 ? l10n.sideButton : l10n.sideButtonCount(count);

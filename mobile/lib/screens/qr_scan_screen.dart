@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 
+import '../l10n/generated/app_localizations.dart';
 import '../services/hub_pairing_qr.dart';
 
 /// Fase 9.7 — scans the QR the desktop Workspace screen shows, so `ConnectionScreen` doesn't need
@@ -26,7 +27,7 @@ class _QrScanScreenState extends State<QrScanScreen> {
 
     final payload = parseHubPairingQr(raw);
     if (payload == null) {
-      setState(() => _error = 'QR code não reconhecido — escaneie o QR do Workspace do desktop.');
+      setState(() => _error = AppLocalizations.of(context).qrNotRecognized);
       return;
     }
 
@@ -43,7 +44,7 @@ class _QrScanScreenState extends State<QrScanScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Escanear QR do hub')),
+      appBar: AppBar(title: Text(AppLocalizations.of(context).qrTitle)),
       body: Stack(
         children: [
           MobileScanner(controller: _controller, onDetect: _onDetect),

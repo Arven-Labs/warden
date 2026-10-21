@@ -1,12 +1,11 @@
+import '../l10n/generated/app_localizations.dart';
 import '../protocol/messages.dart';
 
 // P121 — the feed of activity: who did what among the agents, newest first. Pure; the screen only draws what comes out of here.
-// Mirrors `web/src/hub/activity.ts`, in English.
+// Mirrors `web/src/hub/activity.ts`; the words come from the app's catalog (P136).
 
 /// What the screen calls the assistant that answers with no agent picked (an event with no `actor`).
-const noAgentName = 'The assistant';
-
-String _who(String name) => name.trim().isEmpty ? noAgentName : name;
+String _who(String name, AppLocalizations l10n) => name.trim().isEmpty ? l10n.activityNoAgent : name;
 
 /// The runs of scheduled tasks and webhooks: their target is the id of the task or the webhook, not an agent.
 const _runKinds = {'scheduled_ran', 'scheduled_failed', 'webhook_ran', 'webhook_failed'};
@@ -15,25 +14,25 @@ const _runKinds = {'scheduled_ran', 'scheduled_failed', 'webhook_ran', 'webhook_
 String? _targetAgent(ActivityEvent event) => _runKinds.contains(event.kind) ? null : event.target;
 
 /// The sentence of an event, without its text (the text is the objective, the answer or the message).
-String activityHeadline(ActivityEvent event) {
-  final actor = _who(event.actor);
-  final target = event.target == null ? '' : _who(event.target!);
+String activityHeadline(ActivityEvent event, AppLocalizations l10n) {
+  final actor = _who(event.actor, l10n);
+  final target = event.target == null ? '' : _who(event.target!, l10n);
   return switch (event.kind) {
-    'created_agent' => '$actor created the agent $target',
-    'removed_agent' => '$actor removed the agent $target',
-    'updated_agent' => '$actor changed the agent $target',
-    'scheduled_ran' => '$actor ran the scheduled task $target',
-    'scheduled_failed' => 'The scheduled task $target failed',
-    'webhook_ran' => '$actor answered the webhook $target',
-    'webhook_failed' => 'The webhook $target failed',
-    'delegated' => '$actor delegated a task to $target',
-    'started' => '$actor started the task',
-    'done' => '$actor finished the task',
-    'failed' => '$actor could not finish the task',
-    'cancelled' => "$actor's task was cancelled",
-    'note' => '$actor left a note for $target',
-    'reply' => '$actor answered $target',
-    'messaged_user' => '$actor wrote to you',
+    'created_agent' => l10n.activityCreatedAgent(actor, target),
+    'removed_agent' => l10n.activityRemovedAgent(actor, target),
+    'updated_agent' => l10n.activityUpdatedAgent(actor, target),
+    'scheduled_ran' => l10n.activityScheduledRan(actor, target),
+    'scheduled_failed' => l10n.activityScheduledFailed(target),
+    'webhook_ran' => l10n.activityWebhookRan(actor, target),
+    'webhook_failed' => l10n.activityWebhookFailed(target),
+    'delegated' => l10n.activityDelegated(actor, target),
+    'started' => l10n.activityStarted(actor),
+    'done' => l10n.activityDone(actor),
+    'failed' => l10n.activityFailed(actor),
+    'cancelled' => l10n.activityCancelled(actor),
+    'note' => l10n.activityNote(actor, target),
+    'reply' => l10n.activityReply(actor, target),
+    'messaged_user' => l10n.activityMessagedUser(actor),
     _ => '$actor: ${event.kind}',
   };
 }
@@ -107,12 +106,10 @@ class ActivityDay {
   final List<ActivityEvent> events;
 }
 
-const _months = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
-
 int _dayKey(DateTime d) => d.year * 10000 + d.month * 100 + d.day;
 
 /// The events (already newest first) split by day, each day with its label.
-List<ActivityDay> activityByDay(List<ActivityEvent> events, DateTime now) {
+List<ActivityDay> activityByDay(List<ActivityEvent> events, DateTime now, AppLocalizations l10n) {
   final today = _dayKey(now);
   final yesterday = _dayKey(now.subtract(const Duration(days: 1)));
   final days = <ActivityDay>[];
@@ -120,10 +117,10 @@ List<ActivityDay> activityByDay(List<ActivityEvent> events, DateTime now) {
     final at = DateTime.fromMillisecondsSinceEpoch(event.atMs);
     final key = _dayKey(at);
     final label = key == today
-        ? 'Today'
+        ? l10n.activityToday
         : key == yesterday
-            ? 'Yesterday'
-            : '${at.day} ${_months[at.month - 1]} ${at.year}';
+            ? l10n.activityYesterday
+            : l10n.activityDate(at.day, '${at.month}', at.year);
     if (days.isNotEmpty && days.last.label == label) {
       days.last.events.add(event);
     } else {

@@ -6,6 +6,8 @@ import 'dart:ui';
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../l10n/generated/app_localizations.dart';
+
 const supportedLanguageCodes = ['en', 'pt'];
 
 class AppLanguage {
@@ -45,6 +47,13 @@ class AppLanguage {
   static Locale? parse(String? stored) {
     if (stored == null || !supportedLanguageCodes.contains(stored)) return null;
     return Locale(stored);
+  }
+
+  /// The words in the language the app has right now, for the places with no `BuildContext` (a notification, a line the transcript
+  /// writes): the pick if there is one, else the system's.
+  static AppLocalizations current() {
+    final picked = locale.value;
+    return lookupAppLocalizations(picked ?? resolve(PlatformDispatcher.instance.locales, AppLocalizations.supportedLocales));
   }
 
   /// What `MaterialApp` calls when no language was picked: the first system language that is Portuguese or English, else English.
