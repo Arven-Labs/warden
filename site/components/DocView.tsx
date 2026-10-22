@@ -1,7 +1,14 @@
 import Link from "next/link";
+import type { ComponentProps } from "react";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { allDocs } from "../lib/docs.ts";
+
+/** Internal links go through `Link` so they pick up the `basePath`; external ones stay plain. */
+function MarkdownLink({ href, children }: ComponentProps<"a">) {
+  if (href?.startsWith("/")) return <Link href={href}>{children}</Link>;
+  return <a href={href}>{children}</a>;
+}
 
 export function DocView({ slug }: { slug: string }) {
   const docs = allDocs();
@@ -28,7 +35,9 @@ export function DocView({ slug }: { slug: string }) {
       </nav>
       <main className="content">
         <article>
-          <Markdown remarkPlugins={[remarkGfm]}>{doc.body}</Markdown>
+          <Markdown remarkPlugins={[remarkGfm]} components={{ a: MarkdownLink }}>
+            {doc.body}
+          </Markdown>
         </article>
         <footer className="pager">
           {prev ? <Link href={`/docs/${prev.slug}/`}>← {prev.title}</Link> : <span />}
