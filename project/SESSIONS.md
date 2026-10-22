@@ -6,6 +6,16 @@
 
 ---
 
+### 2026-10-22 — Sessão 273, parte 2 (a hospedagem: fase 2 do HOSPEDAGEM.md, o gateway)
+
+- **Pedido**: "vamos com a hospedagem". Li as 13 perguntas abertas da seção I e trouxe as 4 que travam o ledger com uma recomendação cada; o usuário **concordou com as quatro** e deixou claro que **durante um bom tempo não será um produto comercial**, só deixar pronto. Registrado em `HOSPEDAGEM.md` (seção I) e na memória. Planejado em modo de plano (um agente de exploração levantou o `MeterSink`, o `PriceTable`, o `Provider::Cloud`, o `openai_api.rs` e os crates-modelo) e o plano foi aprovado.
+- **Feito**: crate novo `crates/warden-gateway` (lib e binário). `store` (SQLite WAL, `rusqlite` com `bundled`, tudo em micro-USD `i64`, saldo é a soma das entradas, holds com TTL, idempotência por `request_id` e por referência de recarga), `catalog` (TOML com custo e venda por milhão de tokens, margem obrigatória, tudo arredondado para cima, a chave do provedor vem de variável de ambiente), `flow` (reservar o pior caso, chamar, acertar; falha ou corte cobra o que foi contado; sem relatório de uso cobra o hold), `quota` (teto por dia UTC e por 30 dias), `upstream` (trait e `HttpUpstream` com reqwest), `sse` (lê o `usage` do stream sem segurá-lo), `http` (servidor escrito à mão com `httparse`, 402 com "recarregue", 429, 502 sem vazar a mensagem do provedor, cabeçalho `X-Warden-Charged-Micros`), `money` (USD em texto sem `f64`), `fake` (upstream roteirizado) e o CLI (`serve`, `accounts`, `credit add`, `ledger`, `catalog-check`).
+- **Testes**: 67 (54 de unidade, 13 de ponta a ponta por TCP com upstream falso e um stub HTTP para o `HttpUpstream`): saldo nunca negativo sob concorrência, retry não debita duas vezes, stream com e sem usage, stream cortado, provedor fora, tetos. Rodei local só esses (crate novo, leve) e o `cargo check --workspace --all-targets`; o clippy do crate saiu limpo. Rodei também o CLI e o `serve` de verdade (`/health` 200, `/v1/models` sem token 401).
+- **Fica de fora, de propósito**: P168 (rate limit, TLS, `MeterSink` na instância, API de recarga, cofre de segredos, tokenizador, imagem Docker).
+- **Deslize meu, dito**: um `pkill -f` com o padrão na própria linha de comando derrubou o shell (código 144) antes do `cargo check` seguinte; refiz à parte.
+
+---
+
 ### 2026-10-22 — Sessão 273 (o primeiro corte da documentação: P137)
 
 - **Pedido**: "bora continuar?" e depois "pode seguir nessa". Li o registro, propus o P137 com quatro decisões em aberto e a recomendação (quem usa e hospeda, Next.js estático, só a documentação, partir do guia traduzido); o usuário aceitou, planejei em modo de plano (um agente de exploração levantou o guia, os apps, o CI e o `HOSPEDAGEM.md`) e o plano foi aprovado.
