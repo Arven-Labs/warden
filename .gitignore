@@ -12,6 +12,9 @@ yarn-error.log*
 dist/
 dist-firefox/
 build/
+site/.next/
+site/out/
+site/next-env.d.ts
 *.app
 *.dmg
 *.deb

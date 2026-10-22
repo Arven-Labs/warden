@@ -2,7 +2,19 @@
 
 > **Nota**: Este log foi criado junto com o projeto. As sessões serão registradas aqui conforme o trabalho avança.
 >
-> Última atualização: 2026-10-21 (Sessão 272)
+> Última atualização: 2026-10-22 (Sessão 273)
+
+---
+
+### 2026-10-22 — Sessão 273 (o primeiro corte da documentação: P137)
+
+- **Pedido**: "bora continuar?" e depois "pode seguir nessa". Li o registro, propus o P137 com quatro decisões em aberto e a recomendação (quem usa e hospeda, Next.js estático, só a documentação, partir do guia traduzido); o usuário aceitou, planejei em modo de plano (um agente de exploração levantou o guia, os apps, o CI e o `HOSPEDAGEM.md`) e o plano foi aprovado.
+- **Feito**: pasta `site/` com Next 16 (`output: "export"`), React 19 e TypeScript 5.8; 11 páginas em inglês em `site/content/docs/` (visão geral, desktop, hub, dia a dia, API, tarefas, nós, pessoas, backup, problemas, o que não foi conferido), do `GUIA-DE-USO.md` traduzido e do README condensado; `DocView` com barra lateral e tema claro/escuro; `tests/docs.test.mjs`; filtro `site` no `ci.yml`; `.gitignore`; README aponta para a documentação.
+- **Decisão**: o `GUIA-DE-USO.md` fica intocado, porque o `scripts/image-smoke.sh` extrai o primeiro bloco `toml` dele e o `image.yml` o observa. Um teste do `site/` compara as chaves do exemplo em inglês com as do original, contra a deriva.
+- **Local**: `npm test` 4 de 4 e `npm run build` com as 14 páginas estáticas. CI e olhada no navegador ainda não.
+- **Deslize meu, dito**: criei os arquivos de configuração e de estilo do `site/` com `cat <<EOF` pelo Bash, e não pelo Write, então o diff deles não apareceu na sua tela (regra de Edit/Write).
+- **Atenção**: o `paths-ignore` do `ci.yml` ignora `**/*.md`, então um commit que só mexa nas páginas `site/content/docs/*.md` não roda o CI.
+- **Em aberto**: hospedagem, landing, tradução pt-BR, o que do `project/` vira público.
 
 ---
 
