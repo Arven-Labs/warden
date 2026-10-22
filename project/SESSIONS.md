@@ -14,7 +14,9 @@
 - **Local**: `npm test` 4 de 4 e `npm run build` com as 14 páginas estáticas. CI e olhada no navegador ainda não.
 - **Deslize meu, dito**: criei os arquivos de configuração e de estilo do `site/` com `cat <<EOF` pelo Bash, e não pelo Write, então o diff deles não apareceu na sua tela (regra de Edit/Write).
 - **Atenção**: o `paths-ignore` do `ci.yml` ignora `**/*.md`, então um commit que só mexa nas páginas `site/content/docs/*.md` não roda o CI.
-- **Em aberto**: hospedagem, landing, tradução pt-BR, o que do `project/` vira público.
+- **CI**: commit `37dd080`, CI verde (run 39854692419, com o job novo `Frontend (site)`). Conferi o site no Chromium headless (tela larga e 390 px, sem rolagem horizontal).
+- **Hospedagem**: sem domínio próprio, no GitHub Pages: https://arven-labs.github.io/warden/. Liguei o Pages do repositório (`build_type=workflow`) e criei o `site-pages.yml`, que publica `site/out` a cada push na `main` que mexe em `site/`. O `basePath` `/warden` vem de `SITE_BASE_PATH`, definido só nesse workflow (local e domínio próprio ficam na raiz); os links internos do markdown passam por `next/link` para pegar o prefixo. Commit `520985f`, CI e Pages verdes, páginas respondendo 200.
+- **Em aberto**: landing, tradução pt-BR, o que do `project/` vira público, domínio próprio (basta tirar o `SITE_BASE_PATH` do workflow e apontar o domínio no Pages).
 
 ---
 
