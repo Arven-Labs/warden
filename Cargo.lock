@@ -8349,6 +8349,18 @@ dependencies = [
  "toml 0.8.2",
  "tracing",
  "tracing-subscriber",
+ "warden-hosted-protocol",
+]
+
+[[package]]
+name = "warden-hosted-protocol"
+version = "0.1.1"
+dependencies = [
+ "hex",
+ "hmac",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
 ]
 
 [[package]]

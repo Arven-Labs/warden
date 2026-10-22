@@ -15,6 +15,7 @@ use warden_gateway::http::GatewayServer;
 use warden_gateway::money::{format_usd, parse_usd};
 use warden_gateway::store::{EntryKind, Micros, Store};
 use warden_gateway::upstream::HttpUpstream;
+use warden_gateway::webhook::{Dispatcher, HttpSender};
 use warden_gateway::{Catalog, Gateway};
 
 #[derive(Parser)]
@@ -36,6 +37,24 @@ enum Command {
     Serve {
         #[arg(long, env = "WARDEN_GATEWAY_LISTEN", default_value = "127.0.0.1:7430")]
         listen: SocketAddr,
+        /// The secret the site mãe signs its calls with. Without it the account routes (`/v1/accounts/...`) don't exist.
+        /// Prefer the environment variable: a flag shows in the process list.
+        #[arg(long, env = "WARDEN_GATEWAY_ADMIN_SECRET", hide_env_values = true)]
+        admin_secret: Option<String>,
+        /// Where to send the webhooks (`credits.low`, `credits.depleted`, `usage.daily_summary`). Needs `--webhook-secret`.
+        #[arg(long, env = "WARDEN_GATEWAY_WEBHOOK_URL")]
+        webhook_url: Option<String>,
+        /// The secret the gateway signs its webhooks with: not the same as `--admin-secret`.
+        #[arg(long, env = "WARDEN_GATEWAY_WEBHOOK_SECRET", hide_env_values = true)]
+        webhook_secret: Option<String>,
+        /// Send `credits.low` when an account's balance falls below this many USD.
+        #[arg(long, env = "WARDEN_GATEWAY_LOW_BALANCE_USD")]
+        low_balance_usd: Option<String>,
+    },
+    /// The webhook outbox.
+    Webhooks {
+        #[command(subcommand)]
+        command: WebhooksCommand,
     },
     /// Make, list and change accounts.
     Accounts {
@@ -55,6 +74,17 @@ enum Command {
     },
     /// Check the catalog and show what each model costs and sells for.
     CatalogCheck,
+}
+
+#[derive(Subcommand)]
+enum WebhooksCommand {
+    /// How many webhooks are pending, delivered and given up.
+    Status,
+    /// The ones not delivered yet, pending and given up.
+    Pending {
+        #[arg(long, default_value_t = 50)]
+        limit: u32,
+    },
 }
 
 #[derive(Subcommand)]
@@ -125,21 +155,53 @@ async fn main() -> Result<()> {
     tracing_subscriber::fmt().with_env_filter(EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"))).init();
     let cli = Cli::parse();
     match &cli.command {
-        Command::Serve { listen } => {
-            let store = Arc::new(open_store(&cli)?);
+        Command::Serve { listen, admin_secret, webhook_url, webhook_secret, low_balance_usd } => {
+            let mut store = open_store(&cli)?;
+            if let Some(low) = optional_usd(low_balance_usd)? {
+                store = store.with_low_threshold(low);
+            }
+            let store = Arc::new(store);
             let catalog = Arc::new(load_catalog(&cli)?);
             for upstream in &catalog.upstreams {
                 if upstream.api_key.is_none() {
                     tracing::warn!(upstream = %upstream.id, "no API key for this upstream (its `api_key_env` is unset or empty)");
                 }
             }
-            let gateway = Gateway::new(store, catalog.clone());
-            let server = GatewayServer::bind(*listen, gateway, Arc::new(HttpUpstream::new())).await.with_context(|| format!("cannot listen on {listen}"))?;
+            let gateway = Gateway::new(store.clone(), catalog.clone());
+            let mut server = GatewayServer::bind(*listen, gateway, Arc::new(HttpUpstream::new())).await.with_context(|| format!("cannot listen on {listen}"))?;
+            match admin_secret.as_deref().filter(|s| !s.is_empty()) {
+                Some(secret) => server = server.with_admin_secret(secret),
+                None => tracing::warn!("no admin secret: the site's account routes (/v1/accounts/...) are off"),
+            }
+            match (webhook_url.as_deref().filter(|s| !s.is_empty()), webhook_secret.as_deref().filter(|s| !s.is_empty())) {
+                (Some(url), Some(secret)) => {
+                    let dispatcher = Dispatcher::new(store.clone(), Arc::new(HttpSender::new()), url, secret);
+                    tokio::spawn(Arc::new(dispatcher).run());
+                    tracing::info!(%url, "webhooks on");
+                }
+                (None, None) => tracing::warn!("no webhook URL: balance events and daily summaries are queued but not sent"),
+                _ => bail!("--webhook-url and --webhook-secret go together"),
+            }
             tracing::info!(addr = %server.local_addr()?, models = catalog.models.len(), "gateway listening (plain HTTP: put TLS in front of it)");
             server.serve().await;
             Ok(())
         }
         Command::Accounts { command } => accounts(&cli, command),
+        Command::Webhooks { command } => {
+            let store = open_store(&cli)?;
+            match command {
+                WebhooksCommand::Status => {
+                    let s = store.outbox_stats()?;
+                    println!("pending {}, delivered {}, given up {} (after {} failed attempts)", s.pending, s.delivered, s.given_up, warden_gateway::store::MAX_DELIVERY_ATTEMPTS);
+                }
+                WebhooksCommand::Pending { limit } => {
+                    for e in store.undelivered_events(*limit)? {
+                        println!("{}  {:<20} {}  attempts {}", e.id, e.kind, e.account_id, e.attempts);
+                    }
+                }
+            }
+            Ok(())
+        }
         Command::Credit { command: CreditCommand::Add { account, amount, reference, note } } => {
             let store = open_store(&cli)?;
             let micros = parse_usd(amount).map_err(anyhow::Error::msg)?;

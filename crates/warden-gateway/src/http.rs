@@ -13,9 +13,15 @@ use serde_json::{json, Value};
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 
+use warden_hosted_protocol::{
+    verify, BalanceResponse, TopUpRequest, TopUpResponse, UsageResponse, SIGNATURE_HEADER,
+};
+
 use crate::catalog::Tokens;
 use crate::flow::{Gateway, GatewayError, Outcome, Reservation, ReserveRequest};
+use crate::quota::{day_start, DAY_SECS};
 use crate::sse::{usage_of, UsageScanner};
+use crate::store::{EntryKind, StoreError};
 use crate::upstream::{Upstream, UpstreamCall, UpstreamError};
 
 const MAX_HEAD: usize = 16 * 1024;
@@ -76,24 +82,36 @@ fn upstream_error(err: &UpstreamError) -> ApiError {
 
 struct Request {
     method: String,
+    /// The request target as received, query included: it is what the site mãe signed.
     path: String,
     token: Option<String>,
+    signature: Option<String>,
     body: Vec<u8>,
 }
 
 struct State {
     gateway: Gateway,
     upstream: Arc<dyn Upstream>,
+    /// The secret the site mãe's calls are verified with. `None`: the account routes don't exist (404).
+    admin_secret: Option<String>,
 }
 
 pub struct GatewayServer {
     listener: TcpListener,
-    state: Arc<State>,
+    gateway: Gateway,
+    upstream: Arc<dyn Upstream>,
+    admin_secret: Option<String>,
 }
 
 impl GatewayServer {
     pub async fn bind(addr: SocketAddr, gateway: Gateway, upstream: Arc<dyn Upstream>) -> std::io::Result<GatewayServer> {
-        Ok(GatewayServer { listener: TcpListener::bind(addr).await?, state: Arc::new(State { gateway, upstream }) })
+        Ok(GatewayServer { listener: TcpListener::bind(addr).await?, gateway, upstream, admin_secret: None })
+    }
+
+    /// Turns on the signed account routes (`/v1/accounts/{id}/credits`, `/balance`, `/usage`) for the site mãe.
+    pub fn with_admin_secret(mut self, secret: &str) -> GatewayServer {
+        self.admin_secret = Some(secret.to_string());
+        self
     }
 
     pub fn local_addr(&self) -> std::io::Result<SocketAddr> {
@@ -102,9 +120,10 @@ impl GatewayServer {
 
     /// Accepts connections until the task is dropped.
     pub async fn serve(self) {
+        let state = Arc::new(State { gateway: self.gateway, upstream: self.upstream, admin_secret: self.admin_secret });
         loop {
             let Ok((stream, _)) = self.listener.accept().await else { continue };
-            let state = self.state.clone();
+            let state = state.clone();
             tokio::spawn(async move {
                 let mut stream = stream;
                 if let Err(e) = handle(&mut stream, &state).await {
@@ -129,6 +148,9 @@ async fn handle(stream: &mut TcpStream, state: &State) -> std::io::Result<()> {
 
 async fn route<S: AsyncWrite + Unpin>(stream: &mut S, state: &State, request: &Request) -> Result<(), ApiError> {
     let path = request.path.split('?').next().unwrap_or_default();
+    if let Some(rest) = path.strip_prefix("/v1/accounts/") {
+        return account_route(stream, state, request, rest).await;
+    }
     match (request.method.as_str(), path) {
         ("GET", "/health") => write_json(stream, "200 OK", br#"{"status":"ok"}"#, &[]).await.map_err(io_error),
         ("GET", "/v1/models") => {
@@ -148,6 +170,109 @@ async fn route<S: AsyncWrite + Unpin>(stream: &mut S, state: &State, request: &R
             Err(ApiError::new("405 Method Not Allowed", "invalid_request_error", "method_not_allowed", "this method isn't allowed here"))
         }
         _ => Err(ApiError::new("404 Not Found", "invalid_request_error", "not_found", "this gateway serves /v1/models and /v1/chat/completions")),
+    }
+}
+
+impl From<StoreError> for ApiError {
+    fn from(err: StoreError) -> ApiError {
+        match err {
+            StoreError::UnknownAccount => ApiError::new("404 Not Found", "invalid_request_error", "account_not_found", "no such account"),
+            other => {
+                tracing::error!("ledger error: {other}");
+                ApiError::new("500 Internal Server Error", "server_error", "internal_error", "the gateway failed; try again")
+            }
+        }
+    }
+}
+
+/// Runs a ledger call off the async workers.
+async fn on_store<T: Send + 'static>(
+    state: &State,
+    f: impl FnOnce(&crate::store::Store) -> Result<T, StoreError> + Send + 'static,
+) -> Result<T, ApiError> {
+    let store = state.gateway.store().clone();
+    match tokio::task::spawn_blocking(move || f(&store)).await {
+        Ok(result) => result.map_err(ApiError::from),
+        Err(_) => Err(ApiError::new("500 Internal Server Error", "server_error", "internal_error", "the gateway failed; try again")),
+    }
+}
+
+/// The most days a usage query may span.
+const MAX_USAGE_DAYS: i64 = 92;
+
+/// `YYYY-MM-DD` → the unix second at the start of that UTC day.
+fn parse_day(text: &str) -> Option<i64> {
+    let mut parts = text.split('-');
+    let (y, m, d) = (parts.next()?, parts.next()?, parts.next()?);
+    if parts.next().is_some() || y.len() != 4 || m.len() != 2 || d.len() != 2 {
+        return None;
+    }
+    let (y, m, d): (i64, i64, i64) = (y.parse().ok()?, m.parse().ok()?, d.parse().ok()?);
+    if !(1..=12).contains(&m) || !(1..=31).contains(&d) {
+        return None;
+    }
+    // Days since 1970-01-01 for a civil date (Howard Hinnant's algorithm).
+    let y = if m <= 2 { y - 1 } else { y };
+    let era = y.div_euclid(400);
+    let yoe = y.rem_euclid(400);
+    let doy = (153 * (if m > 2 { m - 3 } else { m + 9 }) + 2) / 5 + d - 1;
+    let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+    Some((era * 146_097 + doe - 719_468) * DAY_SECS)
+}
+
+fn query_param<'a>(path: &'a str, name: &str) -> Option<&'a str> {
+    path.split_once('?')?.1.split('&').find_map(|pair| pair.strip_prefix(name)?.strip_prefix('='))
+}
+
+/// `/v1/accounts/{id}/credits`, `/balance` and `/usage`: the site mãe's calls, signed with the admin secret.
+async fn account_route<S: AsyncWrite + Unpin>(stream: &mut S, state: &State, request: &Request, rest: &str) -> Result<(), ApiError> {
+    let not_found = || ApiError::new("404 Not Found", "invalid_request_error", "not_found", "this gateway serves /v1/models and /v1/chat/completions");
+    let Some(secret) = &state.admin_secret else { return Err(not_found()) };
+    verify(secret, request.signature.as_deref(), &request.method, &request.path, &request.body, now()).map_err(|e| {
+        ApiError::new("401 Unauthorized", "invalid_request_error", "invalid_signature", format!("{e} ({SIGNATURE_HEADER})"))
+    })?;
+
+    let Some((account, action)) = rest.split_once('/') else { return Err(not_found()) };
+    let account = account.to_string();
+    let reply = |body: Vec<u8>| async move { write_json(stream, "200 OK", &body, &[]).await.map_err(io_error) };
+    match (request.method.as_str(), action) {
+        ("POST", "credits") => {
+            let top_up: TopUpRequest = serde_json::from_slice(&request.body).map_err(|e| ApiError::bad_request(format!("the body isn't a top-up: {e}")))?;
+            if top_up.amount_micro_usd <= 0 {
+                return Err(ApiError::bad_request("`amount_micro_usd` must be more than zero"));
+            }
+            if top_up.payment_ref.is_empty() || top_up.payment_ref.len() > 128 {
+                return Err(ApiError::bad_request("`payment_ref` must be 1 to 128 characters"));
+            }
+            let (applied, balance) = on_store(state, move |store| {
+                let applied = store.credit(&account, EntryKind::Topup, top_up.amount_micro_usd, Some(&top_up.payment_ref), "site top-up", now())?;
+                Ok((applied, store.balance(&account)?))
+            })
+            .await?;
+            reply(serde_json::to_vec(&TopUpResponse { applied, balance_micro_usd: balance }).expect("plain data")).await
+        }
+        ("GET", "balance") => {
+            let (balance, available) = on_store(state, move |store| Ok((store.balance(&account)?, store.available(&account, now())?))).await?;
+            reply(serde_json::to_vec(&BalanceResponse { balance_micro_usd: balance, available_micro_usd: available }).expect("plain data")).await
+        }
+        ("GET", "usage") => {
+            let (Some(from), Some(to)) = (query_param(&request.path, "from").and_then(parse_day), query_param(&request.path, "to").and_then(parse_day)) else {
+                return Err(ApiError::bad_request("`from` and `to` are required, as YYYY-MM-DD"));
+            };
+            if to < from || (to - from) / DAY_SECS >= MAX_USAGE_DAYS {
+                return Err(ApiError::bad_request(format!("`from` must not be after `to`, and the range at most {MAX_USAGE_DAYS} days")));
+            }
+            let days = on_store(state, move |store| {
+                store.balance(&account)?; // unknown account → 404
+                store.usage_by_day(&account, from, day_start(to) + DAY_SECS)
+            })
+            .await?;
+            reply(serde_json::to_vec(&UsageResponse { days }).expect("plain data")).await
+        }
+        (_, "credits" | "balance" | "usage") => {
+            Err(ApiError::new("405 Method Not Allowed", "invalid_request_error", "method_not_allowed", "this method isn't allowed here"))
+        }
+        _ => Err(not_found()),
     }
 }
 
@@ -274,7 +399,7 @@ fn io_error(err: std::io::Error) -> ApiError {
 async fn read_request<S: AsyncRead + AsyncWrite + Unpin>(stream: &mut S) -> Result<Request, ApiError> {
     let mut buf: Vec<u8> = Vec::new();
     let mut chunk = [0u8; 4096];
-    let (method, path, token, content_length, expect_continue, head_len) = loop {
+    let (method, path, token, signature, content_length, expect_continue, head_len) = loop {
         let n = stream.read(&mut chunk).await.map_err(io_error)?;
         if n == 0 {
             return Err(ApiError::bad_request("the connection closed before the request was complete"));
@@ -290,12 +415,14 @@ async fn read_request<S: AsyncRead + AsyncWrite + Unpin>(stream: &mut S) -> Resu
                 let token = header("authorization")
                     .and_then(|v| v.strip_prefix("Bearer ").or_else(|| v.strip_prefix("bearer ")))
                     .map(|t| t.trim().to_string());
+                let signature = header(SIGNATURE_HEADER).map(str::to_string);
                 let content_length = header("content-length").and_then(|v| v.trim().parse::<usize>().ok()).unwrap_or(0);
                 let expect_continue = header("expect").is_some_and(|v| v.eq_ignore_ascii_case("100-continue"));
                 break (
                     parsed.method.unwrap_or_default().to_string(),
                     parsed.path.unwrap_or_default().to_string(),
                     token,
+                    signature,
                     content_length,
                     expect_continue,
                     head_len,
@@ -321,7 +448,7 @@ async fn read_request<S: AsyncRead + AsyncWrite + Unpin>(stream: &mut S) -> Resu
         body.extend_from_slice(&chunk[..n]);
     }
     body.truncate(content_length);
-    Ok(Request { method, path, token, body })
+    Ok(Request { method, path, token, signature, body })
 }
 
 async fn write_json<S: AsyncWrite + Unpin>(stream: &mut S, status: &str, body: &[u8], headers: &[(&str, String)]) -> std::io::Result<()> {
@@ -333,4 +460,34 @@ async fn write_json<S: AsyncWrite + Unpin>(stream: &mut S, status: &str, body: &
     stream.write_all(head.as_bytes()).await?;
     stream.write_all(body).await?;
     stream.flush().await
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn days_parse_to_the_start_of_the_utc_day() {
+        assert_eq!(parse_day("1970-01-01"), Some(0));
+        assert_eq!(parse_day("2000-02-29"), Some(951_782_400));
+        assert_eq!(parse_day("2026-10-22"), Some(1_792_627_200));
+        assert_eq!(parse_day("2027-01-15"), Some(1_799_971_200));
+    }
+
+    #[test]
+    fn malformed_days_are_refused() {
+        for bad in ["", "2026-10", "2026-10-22-1", "26-10-22", "2026-13-01", "2026-00-10", "2026-10-32", "2026/10/22", "abcd-10-22"] {
+            assert_eq!(parse_day(bad), None, "{bad}");
+        }
+    }
+
+    #[test]
+    fn query_parameters_are_found_by_name() {
+        let path = "/v1/accounts/a/usage?from=2026-10-01&to=2026-10-22";
+        assert_eq!(query_param(path, "from"), Some("2026-10-01"));
+        assert_eq!(query_param(path, "to"), Some("2026-10-22"));
+        assert_eq!(query_param(path, "other"), None);
+        assert_eq!(query_param("/v1/accounts/a/usage", "from"), None);
+        assert_eq!(query_param("/x?tomorrow=1", "to"), None, "a longer name is not a match");
+    }
 }

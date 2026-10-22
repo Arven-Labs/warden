@@ -6,6 +6,17 @@
 
 ---
 
+### 2026-10-22 — Sessão 273, parte 3 (a hospedagem: fase 3 do HOSPEDAGEM.md, o contrato do dinheiro)
+
+- **Pedido**: "vamos para a fase 3". Um agente de exploração leu a seção B e levantou o que existe (o `webhook_signature.rs` do `warden-server` só verifica entrada, não há HMAC de saída, o orquestrador não tem HTTP). Duas decisões do usuário, em pergunta: **HMAC com segredo compartilhado** (em vez de JWT EdDSA ou mTLS) e **só o lado do dinheiro** (o B1, o B2 e a loja ficam para as fases 4 e 5). Plano aprovado em modo de plano.
+- **Feito**: `crates/warden-hosted-protocol` (tipos `TopUpRequest/Response`, `BalanceResponse`, `UsageDay/Response`, `WebhookEvent` e os três payloads, `ErrorBody`, e `sign`/`verify` com `X-Warden-Signature: t=…,v1=…` sobre `t.MÉTODO.caminho.corpo`, tolerância de 300 s, comparação em tempo constante). No gateway: rotas assinadas `POST /v1/accounts/{id}/credits`, `GET .../balance` e `GET .../usage?from&to` (off por padrão, 404 sem segredo), `usage_by_day`, a tabela `webhook_outbox`, os eventos `credits.low` e `credits.depleted` gravados **na mesma transação** da cobrança, `usage.daily_summary` com id determinístico (reenfileirar não duplica; cobre até 7 dias para quem ficou fora do ar), o `Dispatcher` (assina, envia, repete com espera de 30 s a 1 h, desiste após 12), `FakeSender`, e no CLI `serve --admin-secret --webhook-url --webhook-secret --low-balance-usd` e `webhooks status|pending`.
+- **Testes**: 109 (74 de unidade no gateway, 11 no protocolo, 13 do endpoint e 11 novos de ponta a ponta com um **site mãe falso** que confere a assinatura com o crate de protocolo). **Dois defeitos achados pelos testes e corrigidos**: eventos criados no mesmo segundo saíam em ordem aleatória (desempate pelo id sorteado; agora pela ordem de inserção), e uma cobrança que cruza os dois limites enfileirava `depleted` antes de `low` (agora `low` primeiro). Também provei com o binário de verdade: uma assinatura calculada em **Python** (fora do código Rust) foi aceita, e a mesma recarga repetida voltou `applied:false` sem mexer no saldo.
+- **Local**: `cargo test` nos dois crates, clippy limpo (um `type_complexity` resolvido) e `cargo check --workspace --all-targets`.
+- **Deslize meu, dito**: usei `sed` pelo Bash para trocar um comentário no `store.rs` (regra de Edit/Write: o diff não aparece na tela).
+- **Fica de fora**: B1 em HTTP, B2, loja, rotação de segredos, limpeza do outbox (P168).
+
+---
+
 ### 2026-10-22 — Sessão 273, parte 2 (a hospedagem: fase 2 do HOSPEDAGEM.md, o gateway)
 
 - **Pedido**: "vamos com a hospedagem". Li as 13 perguntas abertas da seção I e trouxe as 4 que travam o ledger com uma recomendação cada; o usuário **concordou com as quatro** e deixou claro que **durante um bom tempo não será um produto comercial**, só deixar pronto. Registrado em `HOSPEDAGEM.md` (seção I) e na memória. Planejado em modo de plano (um agente de exploração levantou o `MeterSink`, o `PriceTable`, o `Provider::Cloud`, o `openai_api.rs` e os crates-modelo) e o plano foi aprovado.

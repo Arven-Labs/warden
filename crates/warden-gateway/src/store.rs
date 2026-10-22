@@ -14,6 +14,7 @@ use std::sync::Mutex;
 use rand::RngCore;
 use rusqlite::{params, Connection, OptionalExtension, TransactionBehavior};
 use sha2::{Digest, Sha256};
+use warden_hosted_protocol::{CreditsDepleted, CreditsLow, DailySummary, UsageDay, WebhookKind};
 
 /// Millionths of a US dollar.
 pub type Micros = i64;
@@ -127,8 +128,40 @@ pub struct UsageRecord {
     pub ok: bool,
 }
 
+/// A webhook waiting in the outbox (or already sent: `delivered_at` is not part of what the dispatcher needs).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OutboxEvent {
+    pub id: String,
+    pub account_id: String,
+    /// The wire name of a `WebhookKind` (`credits.low`...).
+    pub kind: String,
+    /// The JSON of the event's `data`.
+    pub payload: String,
+    pub created_at: i64,
+    pub attempts: u32,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct OutboxStats {
+    /// Not delivered yet and still being retried.
+    pub pending: i64,
+    pub delivered: i64,
+    /// Not delivered after `MAX_DELIVERY_ATTEMPTS` tries: kept for the operator, never sent again.
+    pub given_up: i64,
+}
+
+/// A webhook that fails this many times in a row is left alone.
+pub const MAX_DELIVERY_ATTEMPTS: u32 = 12;
+
+/// How long to wait after the `attempts`-th failure: 30 s, 60 s, 2 min... capped at an hour.
+pub fn backoff_secs(attempts: u32) -> i64 {
+    (30i64 << attempts.saturating_sub(1).min(7)).min(3600)
+}
+
 pub struct Store {
     conn: Mutex<Connection>,
+    /// A charge that takes the balance from at-or-above this to below it raises `credits.low`. `None`: no low event.
+    low_threshold: Option<Micros>,
 }
 
 const SCHEMA: &str = "
@@ -170,6 +203,17 @@ CREATE TABLE IF NOT EXISTS usage_events (
     created_at INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS usage_events_account_time ON usage_events(account_id, created_at);
+CREATE TABLE IF NOT EXISTS webhook_outbox (
+    id TEXT PRIMARY KEY,
+    account_id TEXT NOT NULL REFERENCES accounts(id),
+    kind TEXT NOT NULL,
+    payload TEXT NOT NULL,
+    created_at INTEGER NOT NULL,
+    attempts INTEGER NOT NULL DEFAULT 0,
+    next_attempt_at INTEGER NOT NULL,
+    delivered_at INTEGER
+);
+CREATE INDEX IF NOT EXISTS webhook_outbox_due ON webhook_outbox(delivered_at, next_attempt_at);
 ";
 
 fn hash_token(token: &str) -> String {
@@ -211,7 +255,13 @@ impl Store {
         conn.pragma_update(None, "foreign_keys", "ON")?;
         conn.busy_timeout(std::time::Duration::from_secs(5))?;
         conn.execute_batch(SCHEMA)?;
-        Ok(Store { conn: Mutex::new(conn) })
+        Ok(Store { conn: Mutex::new(conn), low_threshold: None })
+    }
+
+    /// Raise `credits.low` when a charge takes an account's balance from at-or-above `threshold` to below it.
+    pub fn with_low_threshold(mut self, threshold: Micros) -> Store {
+        self.low_threshold = Some(threshold);
+        self
     }
 
     fn lock(&self) -> std::sync::MutexGuard<'_, Connection> {
@@ -391,9 +441,124 @@ impl Store {
                  VALUES (?1, 'debit', ?2, ?3, ?4, ?5)",
                 params![record.account_id, -record.charged, record.request_id, record.model, now],
             )?;
+            // The balance events commit with the charge that caused them: neither exists without the other.
+            let after = balance_of(&tx, &record.account_id)?;
+            let before = after + record.charged;
+            // Low first: when one charge crosses both lines, the site hears "low" and then "depleted", in that order.
+            if let Some(threshold) = self.low_threshold {
+                if before >= threshold && after < threshold {
+                    let data = CreditsLow {
+                        account_id: record.account_id.clone(),
+                        balance_micro_usd: after,
+                        threshold_micro_usd: threshold,
+                    };
+                    enqueue(&tx, &new_event_id(), &record.account_id, WebhookKind::CreditsLow, &data, now)?;
+                }
+            }
+            if before > 0 && after <= 0 {
+                let data = CreditsDepleted { account_id: record.account_id.clone(), balance_micro_usd: after };
+                enqueue(&tx, &new_event_id(), &record.account_id, WebhookKind::CreditsDepleted, &data, now)?;
+            }
         }
         tx.commit()?;
         Ok(())
+    }
+
+    /// The account's usage grouped by UTC day and model, for `from` (inclusive) to `to` (exclusive), in unix seconds.
+    pub fn usage_by_day(&self, account_id: &str, from: i64, to: i64) -> Result<Vec<UsageDay>> {
+        let conn = self.lock();
+        usage_by_day(&conn, account_id, from, to)
+    }
+
+    /// Queues a `usage.daily_summary` for each of the last `days_back` full UTC days, for each account that used anything
+    /// that day. The event id is `sum_<account>_<day>`, so calling this again (every minute, after a restart) adds nothing
+    /// that is already queued or sent. Returns how many events were new.
+    pub fn enqueue_daily_summaries(&self, now: i64, days_back: i64) -> Result<usize> {
+        let mut conn = self.lock();
+        let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let today = crate::quota::day_start(now);
+        let mut added = 0;
+        for back in 1..=days_back {
+            let from = today - back * crate::quota::DAY_SECS;
+            let to = from + crate::quota::DAY_SECS;
+            let accounts: Vec<String> = {
+                let mut stmt =
+                    tx.prepare("SELECT DISTINCT account_id FROM usage_events WHERE created_at >= ?1 AND created_at < ?2")?;
+                let rows = stmt.query_map(params![from, to], |r| r.get(0))?;
+                rows.collect::<rusqlite::Result<Vec<_>>>()?
+            };
+            for account_id in accounts {
+                let usage = usage_by_day(&tx, &account_id, from, to)?;
+                let Some(first) = usage.first() else { continue };
+                let day = first.day.clone();
+                let summary = DailySummary {
+                    account_id: account_id.clone(),
+                    day: day.clone(),
+                    total_charged_micro_usd: usage.iter().map(|u| u.charged_micro_usd).sum(),
+                    usage,
+                };
+                let id = format!("sum_{account_id}_{day}");
+                if enqueue(&tx, &id, &account_id, WebhookKind::UsageDailySummary, &summary, now)? {
+                    added += 1;
+                }
+            }
+        }
+        tx.commit()?;
+        Ok(added)
+    }
+
+    /// The webhooks to send now: not delivered, not given up, and past their next attempt time. Oldest first, and events
+    /// made in the same second in the order they were queued (so `credits.low` always precedes `credits.depleted`).
+    pub fn due_events(&self, now: i64, limit: u32) -> Result<Vec<OutboxEvent>> {
+        let conn = self.lock();
+        let mut stmt = conn.prepare(
+            "SELECT id, account_id, kind, payload, created_at, attempts FROM webhook_outbox
+             WHERE delivered_at IS NULL AND attempts < ?1 AND next_attempt_at <= ?2
+             ORDER BY created_at, rowid LIMIT ?3",
+        )?;
+        let rows = stmt.query_map(params![MAX_DELIVERY_ATTEMPTS, now, limit], outbox_from_row)?;
+        Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
+    }
+
+    pub fn mark_delivered(&self, event_id: &str, now: i64) -> Result<()> {
+        let conn = self.lock();
+        conn.execute("UPDATE webhook_outbox SET delivered_at = ?2 WHERE id = ?1", params![event_id, now])?;
+        Ok(())
+    }
+
+    /// A failed delivery: counts the attempt and schedules the next one after `backoff_secs`. Returns the attempts so far.
+    pub fn mark_failed(&self, event_id: &str, now: i64) -> Result<u32> {
+        let conn = self.lock();
+        conn.execute("UPDATE webhook_outbox SET attempts = attempts + 1 WHERE id = ?1", params![event_id])?;
+        let attempts: u32 = conn.query_row("SELECT attempts FROM webhook_outbox WHERE id = ?1", params![event_id], |r| r.get(0))?;
+        conn.execute(
+            "UPDATE webhook_outbox SET next_attempt_at = ?2 WHERE id = ?1",
+            params![event_id, now + backoff_secs(attempts)],
+        )?;
+        Ok(attempts)
+    }
+
+    pub fn outbox_stats(&self) -> Result<OutboxStats> {
+        let conn = self.lock();
+        let count = |condition: &str| -> rusqlite::Result<i64> {
+            conn.query_row(&format!("SELECT COUNT(*) FROM webhook_outbox WHERE {condition}"), [], |r| r.get(0))
+        };
+        Ok(OutboxStats {
+            pending: count(&format!("delivered_at IS NULL AND attempts < {MAX_DELIVERY_ATTEMPTS}"))?,
+            delivered: count("delivered_at IS NOT NULL")?,
+            given_up: count(&format!("delivered_at IS NULL AND attempts >= {MAX_DELIVERY_ATTEMPTS}"))?,
+        })
+    }
+
+    /// Everything not delivered yet, pending and given up, oldest first (for the operator's `webhooks pending`).
+    pub fn undelivered_events(&self, limit: u32) -> Result<Vec<OutboxEvent>> {
+        let conn = self.lock();
+        let mut stmt = conn.prepare(
+            "SELECT id, account_id, kind, payload, created_at, attempts FROM webhook_outbox
+             WHERE delivered_at IS NULL ORDER BY created_at, rowid LIMIT ?1",
+        )?;
+        let rows = stmt.query_map(params![limit], outbox_from_row)?;
+        Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
     }
 
     /// What the account was charged at or after `since` (unix seconds): the number the spend caps compare against.
@@ -439,6 +604,52 @@ impl Store {
         })?;
         Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
     }
+}
+
+fn new_event_id() -> String {
+    format!("evt_{}", random_hex(12))
+}
+
+fn outbox_from_row(r: &rusqlite::Row<'_>) -> rusqlite::Result<OutboxEvent> {
+    Ok(OutboxEvent {
+        id: r.get(0)?,
+        account_id: r.get(1)?,
+        kind: r.get(2)?,
+        payload: r.get(3)?,
+        created_at: r.get(4)?,
+        attempts: r.get(5)?,
+    })
+}
+
+/// Queues a webhook. Returns false if an event with this id is already there (the id is the dedupe key).
+fn enqueue(conn: &Connection, id: &str, account_id: &str, kind: WebhookKind, data: &impl serde::Serialize, now: i64) -> Result<bool> {
+    let payload = serde_json::to_string(data).expect("a webhook payload is plain data");
+    let n = conn.execute(
+        "INSERT OR IGNORE INTO webhook_outbox (id, account_id, kind, payload, created_at, next_attempt_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?5)",
+        params![id, account_id, kind.as_str(), payload, now],
+    )?;
+    Ok(n == 1)
+}
+
+fn usage_by_day(conn: &Connection, account_id: &str, from: i64, to: i64) -> Result<Vec<UsageDay>> {
+    let mut stmt = conn.prepare(
+        "SELECT strftime('%Y-%m-%d', created_at, 'unixepoch') AS day, model, COUNT(*),
+                SUM(prompt_tokens), SUM(completion_tokens), SUM(charged)
+         FROM usage_events WHERE account_id = ?1 AND created_at >= ?2 AND created_at < ?3
+         GROUP BY day, model ORDER BY day, model",
+    )?;
+    let rows = stmt.query_map(params![account_id, from, to], |r| {
+        Ok(UsageDay {
+            day: r.get(0)?,
+            model: r.get(1)?,
+            calls: r.get(2)?,
+            prompt_tokens: r.get(3)?,
+            completion_tokens: r.get(4)?,
+            charged_micro_usd: r.get(5)?,
+        })
+    })?;
+    Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
 }
 
 fn ensure_account(conn: &Connection, id: &str) -> Result<()> {
@@ -667,6 +878,166 @@ mod tests {
         assert_eq!(reloaded.monthly_cap, None);
         assert!(!reloaded.active);
         assert!(matches!(store.set_caps("nope", None, None), Err(StoreError::UnknownAccount)));
+    }
+
+    fn spend(store: &Store, account: &Account, id: &str, charged: Micros, at: i64) {
+        store.place_hold(&account.id, id, charged.max(1), 60, at).unwrap();
+        store.settle(&record(account, id, charged), at).unwrap();
+    }
+
+    fn kinds(store: &Store) -> Vec<String> {
+        store.undelivered_events(100).unwrap().into_iter().map(|e| e.kind).collect()
+    }
+
+    // The start of the UTC day that contains NOW is NOW - 28_800; this is noon the day before.
+    const YESTERDAY_NOON: i64 = NOW - 28_800 - 43_200;
+
+    #[test]
+    fn usage_is_grouped_by_day_and_model() {
+        let (store, account, _) = store_with_balance(10_000_000);
+        let mut other_model = record(&account, "r3", 300);
+        other_model.model = "other".into();
+        spend(&store, &account, "r1", 100, YESTERDAY_NOON);
+        spend(&store, &account, "r2", 200, YESTERDAY_NOON + 60);
+        store.place_hold(&account.id, "r3", 300, 60, NOW).unwrap();
+        store.settle(&other_model, NOW).unwrap();
+
+        let days = store.usage_by_day(&account.id, YESTERDAY_NOON - 43_200, NOW + 1).unwrap();
+        assert_eq!(days.len(), 2);
+        assert_eq!((days[0].model.as_str(), days[0].calls, days[0].charged_micro_usd), ("m", 2, 300));
+        assert_eq!((days[0].prompt_tokens, days[0].completion_tokens), (20, 40));
+        assert_eq!((days[1].model.as_str(), days[1].charged_micro_usd), ("other", 300));
+        assert_ne!(days[0].day, days[1].day);
+        // The range is half-open and per account.
+        assert!(store.usage_by_day(&account.id, NOW + 1, NOW + 2).unwrap().is_empty());
+        assert!(store.usage_by_day("someone-else", 0, NOW + 1).unwrap().is_empty());
+    }
+
+    #[test]
+    fn a_charge_that_empties_the_balance_queues_one_depleted_event() {
+        let (store, account, _) = store_with_balance(1_000);
+        spend(&store, &account, "r1", 400, NOW);
+        assert!(kinds(&store).is_empty(), "still has credit");
+        spend(&store, &account, "r2", 600, NOW);
+        assert_eq!(kinds(&store), vec!["credits.depleted"]);
+        let event = &store.undelivered_events(10).unwrap()[0];
+        assert!(event.id.starts_with("evt_"));
+        let data: serde_json::Value = serde_json::from_str(&event.payload).unwrap();
+        assert_eq!((data["account_id"].as_str(), data["balance_micro_usd"].as_i64()), (Some(account.id.as_str()), Some(0)));
+        // A free call on an empty account doesn't raise it again.
+        store.place_hold(&account.id, "r3", 1, 60, NOW).unwrap_err();
+        assert_eq!(kinds(&store).len(), 1);
+    }
+
+    #[test]
+    fn the_low_event_fires_when_the_balance_crosses_the_threshold_once() {
+        let store = Store::open_in_memory().unwrap().with_low_threshold(500);
+        let (account, _) = store.create_account("acme", NOW).unwrap();
+        store.credit(&account.id, EntryKind::Topup, 1_000, Some("t"), "", NOW).unwrap();
+        spend(&store, &account, "r1", 400, NOW); // 600 left: still above
+        assert!(kinds(&store).is_empty());
+        spend(&store, &account, "r2", 200, NOW); // 400 left: crossed
+        assert_eq!(kinds(&store), vec!["credits.low"]);
+        spend(&store, &account, "r3", 100, NOW); // 300 left: already below, nothing new
+        assert_eq!(kinds(&store), vec!["credits.low"]);
+        spend(&store, &account, "r4", 300, NOW); // 0 left: depleted now
+        assert_eq!(kinds(&store), vec!["credits.low", "credits.depleted"]);
+    }
+
+    #[test]
+    fn one_big_charge_can_raise_both_events() {
+        let store = Store::open_in_memory().unwrap().with_low_threshold(500);
+        let (account, _) = store.create_account("acme", NOW).unwrap();
+        store.credit(&account.id, EntryKind::Topup, 1_000, Some("t"), "", NOW).unwrap();
+        spend(&store, &account, "r1", 1_000, NOW);
+        assert_eq!(kinds(&store), vec!["credits.low", "credits.depleted"], "low first, then depleted");
+    }
+
+    #[test]
+    fn without_a_threshold_there_is_no_low_event() {
+        let (store, account, _) = store_with_balance(1_000);
+        spend(&store, &account, "r1", 900, NOW);
+        assert!(kinds(&store).is_empty());
+    }
+
+    #[test]
+    fn a_refused_settle_leaves_no_event() {
+        let (store, account, _) = store_with_balance(1_000);
+        spend(&store, &account, "r1", 1_000, NOW);
+        assert!(store.settle(&record(&account, "r1", 1_000), NOW).is_err());
+        assert_eq!(kinds(&store), vec!["credits.depleted"], "the retry did not queue a second one");
+    }
+
+    #[test]
+    fn the_daily_summary_covers_yesterday_once() {
+        let (store, account, _) = store_with_balance(10_000_000);
+        spend(&store, &account, "r1", 100, YESTERDAY_NOON);
+        spend(&store, &account, "r2", 250, YESTERDAY_NOON + 5);
+        spend(&store, &account, "today", 999, NOW); // today isn't summarised yet
+        assert_eq!(store.enqueue_daily_summaries(NOW, 1).unwrap(), 1);
+        assert_eq!(store.enqueue_daily_summaries(NOW, 1).unwrap(), 0, "the same day is never queued twice");
+
+        let event = &store.undelivered_events(10).unwrap()[0];
+        assert_eq!(event.kind, "usage.daily_summary");
+        assert!(event.id.starts_with(&format!("sum_{}_", account.id)));
+        let summary: DailySummary = serde_json::from_str(&event.payload).unwrap();
+        assert_eq!(summary.total_charged_micro_usd, 350);
+        assert_eq!(summary.usage.len(), 1);
+        assert_eq!(summary.usage[0].calls, 2);
+    }
+
+    #[test]
+    fn a_gateway_that_was_down_still_summarises_the_days_it_missed() {
+        let (store, account, _) = store_with_balance(10_000_000);
+        spend(&store, &account, "old", 100, YESTERDAY_NOON - 2 * 86_400);
+        spend(&store, &account, "yesterday", 100, YESTERDAY_NOON);
+        assert_eq!(store.enqueue_daily_summaries(NOW, 7).unwrap(), 2);
+        assert_eq!(store.enqueue_daily_summaries(NOW, 7).unwrap(), 0);
+    }
+
+    #[test]
+    fn a_day_with_no_usage_has_no_summary() {
+        let (store, _, _) = store_with_balance(1_000);
+        assert_eq!(store.enqueue_daily_summaries(NOW, 7).unwrap(), 0);
+    }
+
+    #[test]
+    fn the_backoff_doubles_and_is_capped_at_an_hour() {
+        let seen: Vec<i64> = (1..=12).map(backoff_secs).collect();
+        assert_eq!(&seen[..5], &[30, 60, 120, 240, 480]);
+        assert!(seen.iter().all(|&s| s <= 3600));
+        assert_eq!(backoff_secs(12), 3600);
+    }
+
+    #[test]
+    fn a_failed_delivery_waits_for_its_backoff_and_a_delivered_one_leaves_the_queue() {
+        let (store, account, _) = store_with_balance(1_000);
+        spend(&store, &account, "r1", 1_000, NOW);
+        let id = store.due_events(NOW, 10).unwrap()[0].id.clone();
+
+        assert_eq!(store.mark_failed(&id, NOW).unwrap(), 1);
+        assert!(store.due_events(NOW + 29, 10).unwrap().is_empty(), "30 s of backoff after the first failure");
+        let due = store.due_events(NOW + 30, 10).unwrap();
+        assert_eq!((due.len(), due[0].attempts), (1, 1));
+
+        store.mark_delivered(&id, NOW + 30).unwrap();
+        assert!(store.due_events(NOW + 10_000, 10).unwrap().is_empty());
+        assert_eq!(store.outbox_stats().unwrap(), OutboxStats { pending: 0, delivered: 1, given_up: 0 });
+    }
+
+    #[test]
+    fn an_event_is_given_up_after_twelve_failures_but_stays_for_the_operator() {
+        let (store, account, _) = store_with_balance(1_000);
+        spend(&store, &account, "r1", 1_000, NOW);
+        let id = store.due_events(NOW, 10).unwrap()[0].id.clone();
+        let mut at = NOW;
+        for _ in 0..MAX_DELIVERY_ATTEMPTS {
+            store.mark_failed(&id, at).unwrap();
+            at += 10_000;
+        }
+        assert!(store.due_events(at + 1_000_000, 10).unwrap().is_empty());
+        assert_eq!(store.outbox_stats().unwrap(), OutboxStats { pending: 0, delivered: 0, given_up: 1 });
+        assert_eq!(store.undelivered_events(10).unwrap().len(), 1);
     }
 
     #[test]

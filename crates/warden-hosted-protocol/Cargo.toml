@@ -1,0 +1,14 @@
+[package]
+name = "warden-hosted-protocol"
+version.workspace = true
+edition.workspace = true
+
+# The contract between the "site mãe" and the hosted Warden (HOSPEDAGEM.md section B, money side): the messages both ends
+# serialize, and the signature that proves a call or a webhook came from the other end. Types and a MAC only: no runtime,
+# no database, so the gateway, the site and any test double can depend on it.
+[dependencies]
+hex = "0.4"
+hmac = "0.12"
+serde.workspace = true
+serde_json.workspace = true
+sha2 = "0.10"

@@ -19,6 +19,7 @@ pub mod quota;
 pub mod sse;
 pub mod store;
 pub mod upstream;
+pub mod webhook;
 
 pub use catalog::{estimate_tokens, Catalog, ModelEntry, Priced, Tokens, Upstream};
 pub use flow::{Gateway, GatewayError, Outcome, Reservation, ReserveRequest};

@@ -1,11 +1,63 @@
 //! A scripted `Upstream` for tests, here (and not under `#[cfg(test)]`) so the integration tests can use it too.
 
+use std::collections::VecDeque;
 use std::sync::Mutex;
 
 use async_trait::async_trait;
 use serde_json::Value;
 
 use crate::upstream::{ChunkStream, Upstream, UpstreamCall, UpstreamError};
+use crate::webhook::WebhookSender;
+
+/// A webhook the fake site mãe received.
+#[derive(Debug, Clone)]
+pub struct Delivery {
+    pub url: String,
+    pub headers: Vec<(String, String)>,
+    pub body: Vec<u8>,
+}
+
+impl Delivery {
+    pub fn header(&self, name: &str) -> Option<&str> {
+        self.headers.iter().find(|(n, _)| n.eq_ignore_ascii_case(name)).map(|(_, v)| v.as_str())
+    }
+}
+
+/// A `WebhookSender` that records what it was asked to send. `scripted` makes its first answers fail (or whatever the
+/// script says); once the script is used up it answers 200.
+pub struct FakeSender {
+    script: Mutex<VecDeque<Result<u16, String>>>,
+    deliveries: Mutex<Vec<Delivery>>,
+}
+
+impl FakeSender {
+    pub fn new() -> FakeSender {
+        FakeSender::scripted([])
+    }
+
+    pub fn scripted(answers: impl IntoIterator<Item = Result<u16, String>>) -> FakeSender {
+        FakeSender { script: Mutex::new(answers.into_iter().collect()), deliveries: Mutex::new(Vec::new()) }
+    }
+
+    /// Every attempt so far, failed ones included, in order.
+    pub fn deliveries(&self) -> Vec<Delivery> {
+        self.deliveries.lock().unwrap().clone()
+    }
+}
+
+impl Default for FakeSender {
+    fn default() -> Self {
+        FakeSender::new()
+    }
+}
+
+#[async_trait]
+impl WebhookSender for FakeSender {
+    async fn send(&self, url: &str, headers: &[(String, String)], body: &[u8]) -> Result<u16, String> {
+        self.deliveries.lock().unwrap().push(Delivery { url: url.to_string(), headers: headers.to_vec(), body: body.to_vec() });
+        self.script.lock().unwrap().pop_front().unwrap_or(Ok(200))
+    }
+}
 
 /// What the fake does on a call.
 pub enum Script {
