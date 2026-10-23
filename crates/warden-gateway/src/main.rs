@@ -41,7 +41,7 @@ enum Command {
         /// Prefer the environment variable: a flag shows in the process list.
         #[arg(long, env = "WARDEN_GATEWAY_ADMIN_SECRET", hide_env_values = true)]
         admin_secret: Option<String>,
-        /// Where to send the webhooks (`credits.low`, `credits.depleted`, `usage.daily_summary`). Needs `--webhook-secret`.
+        /// Where to send the webhooks (`credits.low`, `credits.depleted`, `usage.daily_summary`, `account.suspended`). Needs `--webhook-secret`.
         #[arg(long, env = "WARDEN_GATEWAY_WEBHOOK_URL")]
         webhook_url: Option<String>,
         /// The secret the gateway signs its webhooks with: not the same as `--admin-secret`.
@@ -50,6 +50,20 @@ enum Command {
         /// Send `credits.low` when an account's balance falls below this many USD.
         #[arg(long, env = "WARDEN_GATEWAY_LOW_BALANCE_USD")]
         low_balance_usd: Option<String>,
+        /// Requests a minute allowed from one client address (`0`: no limit). The site's signed routes and `/health` are exempt.
+        #[arg(long, env = "WARDEN_GATEWAY_IP_RATE_PER_MIN", default_value_t = 600)]
+        ip_rate_per_min: u32,
+        /// Requests a minute allowed with one instance token (`0`: no limit).
+        #[arg(long, env = "WARDEN_GATEWAY_TOKEN_RATE_PER_MIN", default_value_t = 120)]
+        token_rate_per_min: u32,
+        /// Behind a reverse proxy that sets `X-Forwarded-For`, take the client's address from its last entry. Leave it off
+        /// without a proxy: then anyone could write the header and pick their own limit.
+        #[arg(long, env = "WARDEN_GATEWAY_TRUST_FORWARDED_FOR")]
+        trust_forwarded_for: bool,
+        /// Suspend an account that is charged more than this many USD within an hour, and send `account.suspended`.
+        /// Resume it with `accounts resume`. Without it there is no hourly cap.
+        #[arg(long, env = "WARDEN_GATEWAY_HOURLY_SPEND_CAP_USD")]
+        hourly_spend_cap_usd: Option<String>,
     },
     /// The webhook outbox.
     Webhooks {
@@ -155,10 +169,23 @@ async fn main() -> Result<()> {
     tracing_subscriber::fmt().with_env_filter(EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"))).init();
     let cli = Cli::parse();
     match &cli.command {
-        Command::Serve { listen, admin_secret, webhook_url, webhook_secret, low_balance_usd } => {
+        Command::Serve {
+            listen,
+            admin_secret,
+            webhook_url,
+            webhook_secret,
+            low_balance_usd,
+            ip_rate_per_min,
+            token_rate_per_min,
+            trust_forwarded_for,
+            hourly_spend_cap_usd,
+        } => {
             let mut store = open_store(&cli)?;
             if let Some(low) = optional_usd(low_balance_usd)? {
                 store = store.with_low_threshold(low);
+            }
+            if let Some(cap) = optional_usd(hourly_spend_cap_usd)? {
+                store = store.with_hourly_spend_cap(cap);
             }
             let store = Arc::new(store);
             let catalog = Arc::new(load_catalog(&cli)?);
@@ -169,6 +196,10 @@ async fn main() -> Result<()> {
             }
             let gateway = Gateway::new(store.clone(), catalog.clone());
             let mut server = GatewayServer::bind(*listen, gateway, Arc::new(HttpUpstream::new())).await.with_context(|| format!("cannot listen on {listen}"))?;
+            server = server.with_rate_limits(*ip_rate_per_min, *token_rate_per_min).with_trust_forwarded_for(*trust_forwarded_for);
+            if *trust_forwarded_for {
+                tracing::info!("trusting the last X-Forwarded-For entry as the client address: keep the gateway reachable only through the proxy");
+            }
             match admin_secret.as_deref().filter(|s| !s.is_empty()) {
                 Some(secret) => server = server.with_admin_secret(secret),
                 None => tracing::warn!("no admin secret: the site's account routes (/v1/accounts/...) are off"),

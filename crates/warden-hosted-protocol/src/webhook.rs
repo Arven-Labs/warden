@@ -18,6 +18,9 @@ pub enum WebhookKind {
     /// Yesterday's usage, once a day, for each account that used anything.
     #[serde(rename = "usage.daily_summary")]
     UsageDailySummary,
+    /// The gateway suspended the account's token on its own: it spent more in the last hour than the operator's cap.
+    #[serde(rename = "account.suspended")]
+    AccountSuspended,
 }
 
 impl WebhookKind {
@@ -26,11 +29,12 @@ impl WebhookKind {
             WebhookKind::CreditsLow => "credits.low",
             WebhookKind::CreditsDepleted => "credits.depleted",
             WebhookKind::UsageDailySummary => "usage.daily_summary",
+            WebhookKind::AccountSuspended => "account.suspended",
         }
     }
 }
 
-/// The envelope of every webhook. `data` is a `CreditsLow`, a `CreditsDepleted` or a `DailySummary`, by `kind`.
+/// The envelope of every webhook. `data` is a `CreditsLow`, a `CreditsDepleted`, a `DailySummary` or an `AccountSuspended`, by `kind`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct WebhookEvent {
     pub id: String,
@@ -53,6 +57,17 @@ pub struct CreditsDepleted {
     pub balance_micro_usd: i64,
 }
 
+/// Why a token stopped working without anyone asking: sent once, when the account is suspended. The operator resumes it by hand.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AccountSuspended {
+    pub account_id: String,
+    /// What tripped the suspension; `spend_spike` is the only reason today.
+    pub reason: String,
+    /// What the account was charged in the hour before the suspension.
+    pub spent_last_hour_micro_usd: i64,
+    pub cap_micro_usd: i64,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DailySummary {
     pub account_id: String,
@@ -72,6 +87,7 @@ mod tests {
             (WebhookKind::CreditsLow, "credits.low"),
             (WebhookKind::CreditsDepleted, "credits.depleted"),
             (WebhookKind::UsageDailySummary, "usage.daily_summary"),
+            (WebhookKind::AccountSuspended, "account.suspended"),
         ] {
             assert_eq!(serde_json::to_string(&kind).unwrap(), format!("\"{name}\""));
             assert_eq!(kind.as_str(), name);
@@ -91,5 +107,24 @@ mod tests {
         let back: WebhookEvent = serde_json::from_str(&serde_json::to_string(&event).unwrap()).unwrap();
         assert_eq!(back, event);
         assert_eq!(serde_json::from_value::<CreditsLow>(back.data).unwrap(), payload);
+    }
+
+    #[test]
+    fn a_suspension_says_why_and_how_much() {
+        let payload = AccountSuspended {
+            account_id: "acc_1".into(),
+            reason: "spend_spike".into(),
+            spent_last_hour_micro_usd: 12_000_000,
+            cap_micro_usd: 10_000_000,
+        };
+        let event = WebhookEvent {
+            id: "evt_2".into(),
+            kind: WebhookKind::AccountSuspended,
+            created_at: 1_800_000_000,
+            data: serde_json::to_value(&payload).unwrap(),
+        };
+        let back: WebhookEvent = serde_json::from_str(&serde_json::to_string(&event).unwrap()).unwrap();
+        assert_eq!(back, event);
+        assert_eq!(serde_json::from_value::<AccountSuspended>(back.data).unwrap(), payload);
     }
 }

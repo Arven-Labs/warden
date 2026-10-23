@@ -14,7 +14,7 @@ use std::sync::Mutex;
 use rand::RngCore;
 use rusqlite::{params, Connection, OptionalExtension, TransactionBehavior};
 use sha2::{Digest, Sha256};
-use warden_hosted_protocol::{CreditsDepleted, CreditsLow, DailySummary, UsageDay, WebhookKind};
+use warden_hosted_protocol::{AccountSuspended, CreditsDepleted, CreditsLow, DailySummary, UsageDay, WebhookKind};
 
 /// Millionths of a US dollar.
 pub type Micros = i64;
@@ -162,6 +162,8 @@ pub struct Store {
     conn: Mutex<Connection>,
     /// A charge that takes the balance from at-or-above this to below it raises `credits.low`. `None`: no low event.
     low_threshold: Option<Micros>,
+    /// A charge that takes what the account was charged in the last hour above this suspends the account. `None`: no cap.
+    hourly_spend_cap: Option<Micros>,
 }
 
 const SCHEMA: &str = "
@@ -255,7 +257,14 @@ impl Store {
         conn.pragma_update(None, "foreign_keys", "ON")?;
         conn.busy_timeout(std::time::Duration::from_secs(5))?;
         conn.execute_batch(SCHEMA)?;
-        Ok(Store { conn: Mutex::new(conn), low_threshold: None })
+        Ok(Store { conn: Mutex::new(conn), low_threshold: None, hourly_spend_cap: None })
+    }
+
+    /// Suspend an account on its own (and raise `account.suspended`) when a charge takes what it was charged in the last hour
+    /// above `cap`: a leaked token, or a client in a loop, stops costing at about the cap. The operator resumes it by hand.
+    pub fn with_hourly_spend_cap(mut self, cap: Micros) -> Store {
+        self.hourly_spend_cap = Some(cap);
+        self
     }
 
     /// Raise `credits.low` when a charge takes an account's balance from at-or-above `threshold` to below it.
@@ -458,6 +467,24 @@ impl Store {
             if before > 0 && after <= 0 {
                 let data = CreditsDepleted { account_id: record.account_id.clone(), balance_micro_usd: after };
                 enqueue(&tx, &new_event_id(), &record.account_id, WebhookKind::CreditsDepleted, &data, now)?;
+            }
+            // The spike check sees this call's own charge: its usage event is already in the transaction.
+            if let Some(cap) = self.hourly_spend_cap {
+                let spent: Micros = tx.query_row(
+                    "SELECT COALESCE(SUM(charged), 0) FROM usage_events WHERE account_id = ?1 AND created_at >= ?2",
+                    params![record.account_id, now - crate::quota::HOUR_SECS],
+                    |r| r.get(0),
+                )?;
+                // Only the call that flips the account from active to suspended raises the event, so it is sent once.
+                if spent > cap && tx.execute("UPDATE accounts SET active = 0 WHERE id = ?1 AND active = 1", params![record.account_id])? == 1 {
+                    let data = AccountSuspended {
+                        account_id: record.account_id.clone(),
+                        reason: "spend_spike".to_string(),
+                        spent_last_hour_micro_usd: spent,
+                        cap_micro_usd: cap,
+                    };
+                    enqueue(&tx, &new_event_id(), &record.account_id, WebhookKind::AccountSuspended, &data, now)?;
+                }
             }
         }
         tx.commit()?;
@@ -958,6 +985,88 @@ mod tests {
         let (store, account, _) = store_with_balance(1_000);
         spend(&store, &account, "r1", 900, NOW);
         assert!(kinds(&store).is_empty());
+    }
+
+    fn store_with_hourly_cap(cap: Micros) -> (Store, Account) {
+        let store = Store::open_in_memory().unwrap().with_hourly_spend_cap(cap);
+        let (account, _) = store.create_account("acme", NOW).unwrap();
+        store.credit(&account.id, EntryKind::Topup, 100_000, Some("t"), "", NOW).unwrap();
+        (store, account)
+    }
+
+    fn is_active(store: &Store, account: &Account) -> bool {
+        store.account(&account.id).unwrap().unwrap().active
+    }
+
+    #[test]
+    fn a_charge_past_the_hourly_cap_suspends_the_account_and_says_so_once() {
+        let (store, account) = store_with_hourly_cap(1_000);
+        spend(&store, &account, "r1", 400, NOW);
+        spend(&store, &account, "r2", 500, NOW + 10); // 900: under the cap
+        assert!(is_active(&store, &account));
+        assert!(kinds(&store).is_empty());
+
+        spend(&store, &account, "r3", 200, NOW + 20); // 1100: over
+        assert!(!is_active(&store, &account));
+        assert_eq!(kinds(&store), vec!["account.suspended"]);
+        let event = &store.undelivered_events(10).unwrap()[0];
+        let data: serde_json::Value = serde_json::from_str(&event.payload).unwrap();
+        assert_eq!(data["account_id"].as_str(), Some(account.id.as_str()));
+        assert_eq!(data["reason"].as_str(), Some("spend_spike"));
+        assert_eq!((data["spent_last_hour_micro_usd"].as_i64(), data["cap_micro_usd"].as_i64()), (Some(1_100), Some(1_000)));
+
+        // A call that was already in flight settles after the suspension: it is still charged, and nothing is said twice.
+        spend(&store, &account, "r4", 300, NOW + 30);
+        assert_eq!(kinds(&store), vec!["account.suspended"]);
+        assert_eq!(store.balance(&account.id).unwrap(), 100_000 - 400 - 500 - 200 - 300);
+    }
+
+    #[test]
+    fn the_hourly_cap_is_passed_not_reached() {
+        let (store, account) = store_with_hourly_cap(1_000);
+        spend(&store, &account, "r1", 1_000, NOW);
+        assert!(is_active(&store, &account), "spending exactly the cap is allowed");
+        spend(&store, &account, "r2", 1, NOW + 1);
+        assert!(!is_active(&store, &account));
+    }
+
+    #[test]
+    fn spending_from_before_the_last_hour_does_not_count() {
+        let (store, account) = store_with_hourly_cap(1_000);
+        spend(&store, &account, "r1", 900, NOW - 3_700);
+        spend(&store, &account, "r2", 900, NOW); // 900 in the hour, 1800 in all
+        assert!(is_active(&store, &account));
+        assert!(kinds(&store).is_empty());
+    }
+
+    #[test]
+    fn the_hourly_cap_is_per_account() {
+        let (store, busy) = store_with_hourly_cap(1_000);
+        let (calm, _) = store.create_account("calm", NOW).unwrap();
+        store.credit(&calm.id, EntryKind::Topup, 100_000, Some("t2"), "", NOW).unwrap();
+        spend(&store, &busy, "r1", 2_000, NOW);
+        spend(&store, &calm, "r2", 500, NOW);
+        assert!(!is_active(&store, &busy));
+        assert!(is_active(&store, &calm));
+    }
+
+    #[test]
+    fn without_an_hourly_cap_nothing_suspends() {
+        let (store, account, _) = store_with_balance(100_000);
+        spend(&store, &account, "r1", 90_000, NOW);
+        assert!(is_active(&store, &account));
+        assert!(kinds(&store).is_empty());
+    }
+
+    #[test]
+    fn a_resumed_account_can_be_suspended_again_by_the_next_spike() {
+        let (store, account) = store_with_hourly_cap(1_000);
+        spend(&store, &account, "r1", 2_000, NOW);
+        assert!(!is_active(&store, &account));
+        store.set_active(&account.id, true).unwrap();
+        spend(&store, &account, "r2", 1, NOW + 1); // the hour still holds the spike
+        assert!(!is_active(&store, &account));
+        assert_eq!(kinds(&store), vec!["account.suspended", "account.suspended"]);
     }
 
     #[test]

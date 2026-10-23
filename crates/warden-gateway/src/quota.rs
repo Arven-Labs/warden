@@ -2,11 +2,12 @@
 //!
 //! An account may carry a daily cap (the current UTC day) and a monthly one (a rolling 30 days), in micro-USD. A call is
 //! refused when what the account was already charged in the window plus the call's hold would pass the cap. The
-//! answer ceiling (`max_tokens`) lives in the catalog, per model. Not here: rate limiting by token or IP and the
-//! suspension of an abnormal spike (HOSPEDAGEM.md phase 7).
+//! answer ceiling (`max_tokens`) lives in the catalog, per model. Not here: rate limiting by token or IP (`ratelimit`) and the
+//! suspension of an abnormal spike, which is the hourly cap in `Store::settle` (HOSPEDAGEM.md C4).
 
 use crate::store::{Account, Micros};
 
+pub const HOUR_SECS: i64 = 3_600;
 pub const DAY_SECS: i64 = 86_400;
 pub const MONTH_SECS: i64 = 30 * DAY_SECS;
 

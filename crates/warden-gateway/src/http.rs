@@ -5,7 +5,7 @@
 //! `Gateway::reserve`, the upstream provider and `Gateway::settle`; the caller sees the provider's answer with the
 //! catalog's model name, and a streamed answer is forwarded as it comes.
 
-use std::net::SocketAddr;
+use std::net::{IpAddr, SocketAddr};
 use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -20,6 +20,7 @@ use warden_hosted_protocol::{
 use crate::catalog::Tokens;
 use crate::flow::{Gateway, GatewayError, Outcome, Reservation, ReserveRequest};
 use crate::quota::{day_start, DAY_SECS};
+use crate::ratelimit::{client_key, retry_after_secs, token_key, RateLimiter};
 use crate::sse::{usage_of, UsageScanner};
 use crate::store::{EntryKind, StoreError};
 use crate::upstream::{Upstream, UpstreamCall, UpstreamError};
@@ -32,17 +33,34 @@ fn now() -> i64 {
     SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs() as i64).unwrap_or(0)
 }
 
+fn now_ms() -> u64 {
+    SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_millis() as u64).unwrap_or(0)
+}
+
 /// An error answer in the OpenAI shape: `{"error": {"message", "type", "code"}}`.
 struct ApiError {
     status: &'static str,
     kind: &'static str,
     code: &'static str,
     message: String,
+    /// Seconds for the `Retry-After` header, on a rate-limit refusal.
+    retry_after: Option<u64>,
 }
 
 impl ApiError {
     fn new(status: &'static str, kind: &'static str, code: &'static str, message: impl Into<String>) -> ApiError {
-        ApiError { status, kind, code, message: message.into() }
+        ApiError { status, kind, code, message: message.into(), retry_after: None }
+    }
+
+    /// The rate limit said no: `wait` is when to try again. Not the spending cap, which is `quota_exceeded`.
+    fn rate_limited(wait: Duration) -> ApiError {
+        let mut err = ApiError::new("429 Too Many Requests", "rate_limit_error", "rate_limit_exceeded", "too many requests; slow down and try again");
+        err.retry_after = Some(retry_after_secs(wait));
+        err
+    }
+
+    fn headers(&self) -> Vec<(&'static str, String)> {
+        self.retry_after.map(|secs| ("Retry-After", secs.to_string())).into_iter().collect()
     }
 
     fn bad_request(message: impl Into<String>) -> ApiError {
@@ -86,6 +104,8 @@ struct Request {
     path: String,
     token: Option<String>,
     signature: Option<String>,
+    /// The `X-Forwarded-For` header as received, for the client's address behind a reverse proxy.
+    forwarded_for: Option<String>,
     body: Vec<u8>,
 }
 
@@ -94,6 +114,9 @@ struct State {
     upstream: Arc<dyn Upstream>,
     /// The secret the site mãe's calls are verified with. `None`: the account routes don't exist (404).
     admin_secret: Option<String>,
+    ip_limit: RateLimiter,
+    token_limit: RateLimiter,
+    trust_forwarded_for: bool,
 }
 
 pub struct GatewayServer {
@@ -101,11 +124,38 @@ pub struct GatewayServer {
     gateway: Gateway,
     upstream: Arc<dyn Upstream>,
     admin_secret: Option<String>,
+    ip_per_min: u32,
+    token_per_min: u32,
+    trust_forwarded_for: bool,
 }
 
 impl GatewayServer {
+    /// No rate limit until `with_rate_limits` says so: the library default is off, the `serve` command turns it on.
     pub async fn bind(addr: SocketAddr, gateway: Gateway, upstream: Arc<dyn Upstream>) -> std::io::Result<GatewayServer> {
-        Ok(GatewayServer { listener: TcpListener::bind(addr).await?, gateway, upstream, admin_secret: None })
+        Ok(GatewayServer {
+            listener: TcpListener::bind(addr).await?,
+            gateway,
+            upstream,
+            admin_secret: None,
+            ip_per_min: 0,
+            token_per_min: 0,
+            trust_forwarded_for: false,
+        })
+    }
+
+    /// Limits requests a minute per client IP and per instance token (`0` leaves that one off). The site mãe's signed
+    /// routes and `/health` are never limited. Over the limit: `429` with `Retry-After`.
+    pub fn with_rate_limits(mut self, ip_per_min: u32, token_per_min: u32) -> GatewayServer {
+        self.ip_per_min = ip_per_min;
+        self.token_per_min = token_per_min;
+        self
+    }
+
+    /// Takes the client's address from the last `X-Forwarded-For` entry instead of the connection. Turn it on only behind a
+    /// reverse proxy that sets the header: otherwise anyone can write it and pick their own limit bucket.
+    pub fn with_trust_forwarded_for(mut self, trust: bool) -> GatewayServer {
+        self.trust_forwarded_for = trust;
+        self
     }
 
     /// Turns on the signed account routes (`/v1/accounts/{id}/credits`, `/balance`, `/usage`) for the site mãe.
@@ -120,13 +170,20 @@ impl GatewayServer {
 
     /// Accepts connections until the task is dropped.
     pub async fn serve(self) {
-        let state = Arc::new(State { gateway: self.gateway, upstream: self.upstream, admin_secret: self.admin_secret });
+        let state = Arc::new(State {
+            gateway: self.gateway,
+            upstream: self.upstream,
+            admin_secret: self.admin_secret,
+            ip_limit: RateLimiter::new(self.ip_per_min),
+            token_limit: RateLimiter::new(self.token_per_min),
+            trust_forwarded_for: self.trust_forwarded_for,
+        });
         loop {
-            let Ok((stream, _)) = self.listener.accept().await else { continue };
+            let Ok((stream, peer)) = self.listener.accept().await else { continue };
             let state = state.clone();
             tokio::spawn(async move {
                 let mut stream = stream;
-                if let Err(e) = handle(&mut stream, &state).await {
+                if let Err(e) = handle(&mut stream, &state, peer.ip()).await {
                     tracing::debug!("connection ended: {e}");
                 }
             });
@@ -134,16 +191,37 @@ impl GatewayServer {
     }
 }
 
-async fn handle(stream: &mut TcpStream, state: &State) -> std::io::Result<()> {
+async fn handle(stream: &mut TcpStream, state: &State, peer: IpAddr) -> std::io::Result<()> {
     let request = match tokio::time::timeout(HEAD_TIMEOUT, read_request(stream)).await {
         Ok(Ok(request)) => request,
-        Ok(Err(err)) => return write_json(stream, err.status, &err.body(), &[]).await,
+        Ok(Err(err)) => return write_json(stream, err.status, &err.body(), &err.headers()).await,
         Err(_) => return Ok(()),
     };
+    // Known limit: the body is read before this refusal, because the head and the body are read together. The read has a
+    // size cap (`MAX_BODY`) and a timeout, which is what bounds a flood of large requests today.
+    if let Err(err) = limit(state, &request, peer) {
+        return write_json(stream, err.status, &err.body(), &err.headers()).await;
+    }
     match route(stream, state, &request).await {
         Ok(()) => Ok(()),
-        Err(err) => write_json(stream, err.status, &err.body(), &[]).await,
+        Err(err) => write_json(stream, err.status, &err.body(), &err.headers()).await,
     }
+}
+
+/// The rate limits: by client address first (a refusal there costs the token's bucket nothing), then by token. `/health` and
+/// the site mãe's signed account routes are exempt: the site calls from one address, and a monitor must always get an answer.
+fn limit(state: &State, request: &Request, peer: IpAddr) -> Result<(), ApiError> {
+    let path = request.path.split('?').next().unwrap_or_default();
+    if path == "/health" || path.starts_with("/v1/accounts/") {
+        return Ok(());
+    }
+    let now = now_ms();
+    let ip = client_key(peer, request.forwarded_for.as_deref(), state.trust_forwarded_for);
+    state.ip_limit.check(&ip, now).map_err(ApiError::rate_limited)?;
+    if let Some(token) = &request.token {
+        state.token_limit.check(&token_key(token), now).map_err(ApiError::rate_limited)?;
+    }
+    Ok(())
 }
 
 async fn route<S: AsyncWrite + Unpin>(stream: &mut S, state: &State, request: &Request) -> Result<(), ApiError> {
@@ -407,7 +485,7 @@ fn io_error(err: std::io::Error) -> ApiError {
 async fn read_request<S: AsyncRead + AsyncWrite + Unpin>(stream: &mut S) -> Result<Request, ApiError> {
     let mut buf: Vec<u8> = Vec::new();
     let mut chunk = [0u8; 4096];
-    let (method, path, token, signature, content_length, expect_continue, head_len) = loop {
+    let (method, path, token, signature, forwarded_for, content_length, expect_continue, head_len) = loop {
         let n = stream.read(&mut chunk).await.map_err(io_error)?;
         if n == 0 {
             return Err(ApiError::bad_request("the connection closed before the request was complete"));
@@ -424,6 +502,7 @@ async fn read_request<S: AsyncRead + AsyncWrite + Unpin>(stream: &mut S) -> Resu
                     .and_then(|v| v.strip_prefix("Bearer ").or_else(|| v.strip_prefix("bearer ")))
                     .map(|t| t.trim().to_string());
                 let signature = header(SIGNATURE_HEADER).map(str::to_string);
+                let forwarded_for = header("x-forwarded-for").map(str::to_string);
                 let content_length = header("content-length").and_then(|v| v.trim().parse::<usize>().ok()).unwrap_or(0);
                 let expect_continue = header("expect").is_some_and(|v| v.eq_ignore_ascii_case("100-continue"));
                 break (
@@ -431,6 +510,7 @@ async fn read_request<S: AsyncRead + AsyncWrite + Unpin>(stream: &mut S) -> Resu
                     parsed.path.unwrap_or_default().to_string(),
                     token,
                     signature,
+                    forwarded_for,
                     content_length,
                     expect_continue,
                     head_len,
@@ -456,7 +536,7 @@ async fn read_request<S: AsyncRead + AsyncWrite + Unpin>(stream: &mut S) -> Resu
         body.extend_from_slice(&chunk[..n]);
     }
     body.truncate(content_length);
-    Ok(Request { method, path, token, signature, body })
+    Ok(Request { method, path, token, signature, forwarded_for, body })
 }
 
 async fn write_json<S: AsyncWrite + Unpin>(stream: &mut S, status: &str, body: &[u8], headers: &[(&str, String)]) -> std::io::Result<()> {

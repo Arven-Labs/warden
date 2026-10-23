@@ -2,7 +2,17 @@
 
 > **Nota**: Este log foi criado junto com o projeto. As sessões serão registradas aqui conforme o trabalho avança.
 >
-> Última atualização: 2026-10-23 (Sessão 274)
+> Última atualização: 2026-10-23 (Sessão 275)
+
+---
+
+### 2026-10-23 — Sessão 275 (o rate limit e a suspensão por pico de gasto no gateway: P168 a)
+
+- **Pedido**: "pode seguir com o item 1" (o item 1 da minha lista, o rate limit do gateway). Um agente de exploração mapeou o gateway (HTTP escrito à mão sobre TCP, sem axum nem tower); planejei em modo de plano. **Decisões do usuário**: pico anormal = **teto de gasto por hora** (em US$, desligado por padrão) e IP do cliente = **o da conexão, com opção de confiar no `X-Forwarded-For`**.
+- **Feito**: `ratelimit.rs` (token bucket puro com `now` explícito, `Retry-After`, poda do mapa que descarta primeiro quem tem menos dívida, chave IPv6 pelo /64, chave do token pelo hash); `http.rs` (o IP vem do `accept`, o `limit()` roda por IP e depois por token, `/health` e `/v1/accounts/*` isentos, 429 `rate_limit_exceeded` com `Retry-After`, `with_rate_limits` e `with_trust_forwarded_for`); `store.rs` (`with_hourly_spend_cap`: no `settle`, na mesma transação, a conta que passa do teto na última hora é suspensa e enfileira **um** `account.suspended`); `warden-hosted-protocol` (`WebhookKind::AccountSuspended` e o payload `AccountSuspended`); `main.rs` (`--ip-rate-per-min` 600, `--token-rate-per-min` 120, `--trust-forwarded-for`, `--hourly-spend-cap-usd`, todos com variável de ambiente). Sem dependência nova.
+- **Testes** (nada rodou aqui: o Rust vai para o CI): unitários do `ratelimit.rs` (rajada, recarga, mínimo de 5, chaves independentes, desligado, poda sem soltar quem deve, IPv6, `X-Forwarded-For` com e sem confiança), 6 do `store.rs` (suspende uma vez, o teto é passado e não atingido, gasto de antes da hora não conta, por conta, sem teto não suspende, retomada e novo pico) e 1 do protocolo; a suíte nova `tests/limits.rs` (429 por token e por IP, isenções, uma recusa por IP não gasta o balde do token, o `X-Forwarded-For` só separa clientes com a opção ligada, padrão da biblioteca sem limite, o pico suspende, enfileira o aviso e a retomada reabre).
+- **Fica**: o teto de conexões simultâneas e de streams longos; o corpo é lido antes da recusa; o motivo da suspensão só vai no webhook; o site mãe ainda não trata o `account.suspended`.
+- **CI**: a conferir.
 
 ---
 

@@ -8,7 +8,8 @@
 //! ledger; the rest of the gateway sits on top of it.
 //!
 //! Not a commercial product yet (Session 273): accounts are made by hand with the CLI, and there is no payment, no expiry
-//! and no automatic refund. Not here: rate limiting, abnormal-spike suspension (phase 7), the top-up API (phase 3).
+//! and no automatic refund. Rate limits (`ratelimit`: per IP and per token, token bucket) and the hourly spend cap that suspends
+//! a token (`store`) came in Session 275. Not here: TLS, a cap on simultaneous connections and long streams.
 
 pub mod catalog;
 pub mod fake;
@@ -16,6 +17,7 @@ pub mod flow;
 pub mod http;
 pub mod money;
 pub mod quota;
+pub mod ratelimit;
 pub mod sse;
 pub mod store;
 pub mod upstream;
