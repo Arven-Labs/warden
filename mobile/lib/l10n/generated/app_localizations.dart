@@ -1820,6 +1820,24 @@ abstract class AppLocalizations {
   /// **'Couldn\'t load the usage: {error}'**
   String usageLoadFailed(String error);
 
+  /// No description provided for @usageCredit.
+  ///
+  /// In en, this message translates to:
+  /// **'Credits'**
+  String get usageCredit;
+
+  /// No description provided for @usageCreditAvailable.
+  ///
+  /// In en, this message translates to:
+  /// **'{amount} available after the calls in progress'**
+  String usageCreditAvailable(String amount);
+
+  /// No description provided for @usageCreditEmpty.
+  ///
+  /// In en, this message translates to:
+  /// **'Out of credits. Top up your account to keep using paid models.'**
+  String get usageCreditEmpty;
+
   /// No description provided for @usageTokens.
   ///
   /// In en, this message translates to:

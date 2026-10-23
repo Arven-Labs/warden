@@ -12,8 +12,10 @@ UsageSummary _summary({
   List<UsageBucket> byProvider = const [],
   List<UsageBucket> byCombo = const [],
   List<SpendBucket> comboSpend = const [],
+  HostedCredit? credit,
 }) =>
     UsageSummary(
+      credit: credit,
       comboSpend: comboSpend,
       byAgent: byAgent,
       byProvider: byProvider,
@@ -111,6 +113,35 @@ void main() {
     expect(find.descendant(of: find.byKey(const Key('usage-spend-combo-fast')), matching: find.text('US\$ 1.25 (+2 unpriced)')), findsOneWidget);
     expect(find.descendant(of: find.byKey(const Key('usage-spend-combo-slow')), matching: find.text('US\$ 0.5000')), findsOneWidget);
     expect(tester.getTopLeft(find.byKey(const Key('usage-spend-combo-fast'))).dy, lessThan(tester.getTopLeft(find.byKey(const Key('usage-spend-combo-slow'))).dy));
+  });
+
+  testWidgets('shows the hosted credit, with what is available only while calls in progress hold part of it (P168)', (tester) async {
+    await _open(tester, () async => _summary(credit: const HostedCredit(balanceMicroUsd: 5000000, availableMicroUsd: 4000000)));
+    expect(find.descendant(of: find.byKey(const Key('usage-credit')), matching: find.text('US\$ 5.00')), findsOneWidget);
+    expect(find.text('US\$ 4.00 available after the calls in progress'), findsOneWidget);
+    expect(find.byKey(const Key('usage-credit-empty')), findsNothing);
+
+    await _open(tester, () async => _summary(credit: const HostedCredit(balanceMicroUsd: 5000000, availableMicroUsd: 5000000)));
+    expect(find.descendant(of: find.byKey(const Key('usage-credit')), matching: find.text('US\$ 5.00')), findsOneWidget);
+    expect(find.textContaining('available after'), findsNothing, reason: 'nothing is held, so the balance is all there is');
+  });
+
+  testWidgets('warns when no credit is left, even with a balance held by calls in progress (P168)', (tester) async {
+    await _open(tester, () async => _summary(credit: const HostedCredit(balanceMicroUsd: 3000000, availableMicroUsd: 0)));
+    expect(find.byKey(const Key('usage-credit-empty')), findsOneWidget);
+    expect(find.textContaining('Out of credits'), findsOneWidget);
+  });
+
+  testWidgets('shows no credit for a hub that has none, and reads it in Portuguese (P168)', (tester) async {
+    await _open(tester, () async => _summary());
+    expect(find.byKey(const Key('usage-credit')), findsNothing);
+    expect(find.byKey(const Key('usage-credit-empty')), findsNothing);
+
+    await tester.pumpWidget(const SizedBox());
+    await tester.pumpWidget(testApp(locale: const Locale('pt'), home: UsageScreen(load: () async => _summary(credit: const HostedCredit(balanceMicroUsd: 0, availableMicroUsd: 0)))));
+    await tester.pumpAndSettle();
+    expect(find.text('Créditos'), findsOneWidget);
+    expect(find.textContaining('Sem créditos'), findsOneWidget);
   });
 
   testWidgets("shows the hub's refusal instead of an empty screen", (tester) async {

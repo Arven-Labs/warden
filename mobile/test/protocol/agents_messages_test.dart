@@ -316,6 +316,23 @@ void main() {
       expect((ServerMessage.decode('{"type":"usageReport","requestId":15,"report":{}}') as UsageReportMessage).summary!.comboSpend, isEmpty);
     });
 
+    test('a usage report keeps the hosted credit, and reads a hub without one as none (P168)', () {
+      final hosted = (ServerMessage.decode(jsonEncode({
+        'type': 'usageReport',
+        'requestId': 16,
+        'report': {
+          'credit': {'balanceMicroUsd': 5000000, 'availableMicroUsd': 4000000},
+        },
+      })) as UsageReportMessage)
+          .summary!
+          .credit!;
+      expect([hosted.balanceMicroUsd, hosted.availableMicroUsd], [5000000, 4000000]);
+      expect([hosted.balanceUsd, hosted.availableUsd, hosted.hasHolds, hosted.isOut], [5.0, 4.0, true, false]);
+      expect((ServerMessage.decode('{"type":"usageReport","requestId":17,"report":{"credit":{"balanceMicroUsd":3,"availableMicroUsd":0}}}') as UsageReportMessage).summary!.credit!.isOut, isTrue);
+      expect((ServerMessage.decode('{"type":"usageReport","requestId":18,"report":{}}') as UsageReportMessage).summary!.credit, isNull);
+      expect((ServerMessage.decode('{"type":"usageReport","requestId":19,"report":{"credit":"nope"}}') as UsageReportMessage).summary!.credit, isNull);
+    });
+
     test('a task list keeps what the hub sent', () {
       final msg = ServerMessage.decode(jsonEncode({
         'type': 'agentTaskList',

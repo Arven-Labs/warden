@@ -1113,6 +1113,17 @@ class AppLocalizationsEn extends AppLocalizations {
   }
 
   @override
+  String get usageCredit => 'Credits';
+
+  @override
+  String usageCreditAvailable(String amount) {
+    return '$amount available after the calls in progress';
+  }
+
+  @override
+  String get usageCreditEmpty => 'Out of credits. Top up your account to keep using paid models.';
+
+  @override
   String get usageTokens => 'Tokens';
 
   @override

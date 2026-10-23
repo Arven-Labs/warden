@@ -2,7 +2,19 @@
 
 > **Nota**: Este log foi criado junto com o projeto. As sessões serão registradas aqui conforme o trabalho avança.
 >
-> Última atualização: 2026-10-22 (Sessão 273)
+> Última atualização: 2026-10-23 (Sessão 274)
+
+---
+
+### 2026-10-23 — Sessão 274 (o cartão de créditos no desktop e no mobile: P168 c)
+
+- **Pedido**: "por onde continuamos?" e depois "pode seguir" no item 1 que listei (o cartão de créditos que faltava no desktop e no mobile). Um agente de exploração mapeou como a web fez (commit `2239698`); planejei em modo de plano e o plano foi aprovado.
+- **Feito, desktop**: `Credit` e `UsageSummary.credit` em `types.ts`; `usageFromReport` leva o `credit` só quando o hub o manda (o `deepEqual` dos testes antigos segue válido); `lib/credit.ts` (cópia do helper da web); `UsageView.tsx` com o `CreditCard` (aviso "Sem créditos" e o cartão com o disponível na dica quando há retenção), mostrado também na tela de zero mensagens, porque uma conta hospedada nova tem crédito antes de ter mensagem; `StatTile` aceita texto e `title`; chaves `usage.credit*` em en e pt-BR.
+- **Feito, mobile**: `HostedCredit` e `UsageSummary.credit` em `messages.dart`; `usage_screen.dart` com o cartão `usage-credit` (o disponível vira uma linha sob o rótulo, o celular não tem hover) e o aviso `usage-credit-empty`; `usageCredit*` nos dois `.arb`.
+- **Testes**: desktop `credit.test.mjs` (novo) e um caso novo no `hubMap.test.mjs`; `node --test` em credit, hubMap e i18n: 41 passam. Mobile: 3 testes de widget novos em `usage_screen_test.dart` (cartão com e sem retenção, aviso, sem crédito, pt) e 1 de decodificação em `agents_messages_test.dart`. **Os do mobile não rodaram aqui** (ver abaixo); ficam para o CI.
+- **Imprevisto**: a imagem Docker `mobile-flutter` não existe mais nesta máquina e a tag 3.47.4 não existe no registro `cirruslabs`. O usuário escolheu deixar o CI gerar. Como o `lib/l10n/generated/` é commitado, **editei os três arquivos à mão** no padrão do gerador (getters na classe base, en e pt). Se o `flutter analyze` do CI reclamar de diferença, o conserto é rodar `flutter gen-l10n` e commitar o resultado.
+- **Verificação**: `tsc --noEmit` do desktop só reclama de `rehype-highlight` ausente em `Markdown.tsx` (dependência não instalada aqui, fora desta mudança).
+- **Fica**: o link de recarga, o saldo no cabeçalho do chat e o botão `top_up` no erro; a foto do E2E do desktop com crédito (o E2E não tem hub hospedado falso).
 
 ---
 

@@ -1671,6 +1671,34 @@ class UsageBucket {
 
 /// What the usage screen reads from the report (P99): the person's tokens and calls, a series per day with the dollars the ledger
 /// still holds, and the limits that apply to them.
+/// The credit of a hosted account, in micro-USD (the hub keeps the exact integer): the report's `credit`, only from a hub that has a
+/// `cloud` provider and only in the owner's report.
+class HostedCredit {
+  const HostedCredit({required this.balanceMicroUsd, required this.availableMicroUsd});
+
+  final int balanceMicroUsd;
+
+  /// The balance minus what the calls in progress hold.
+  final int availableMicroUsd;
+
+  double get balanceUsd => balanceMicroUsd / 1000000;
+  double get availableUsd => availableMicroUsd / 1000000;
+
+  /// No credit left for a new call.
+  bool get isOut => availableMicroUsd <= 0;
+
+  /// Calls in progress hold part of the balance; only then is the available amount worth showing next to it.
+  bool get hasHolds => availableMicroUsd != balanceMicroUsd;
+
+  static HostedCredit? fromJson(Object? json) {
+    if (json is! Map<String, dynamic>) return null;
+    return HostedCredit(
+      balanceMicroUsd: (json['balanceMicroUsd'] as num?)?.toInt() ?? 0,
+      availableMicroUsd: (json['availableMicroUsd'] as num?)?.toInt() ?? 0,
+    );
+  }
+}
+
 class UsageSummary {
   const UsageSummary({
     required this.totalTokens,
@@ -1684,6 +1712,7 @@ class UsageSummary {
     this.byProvider = const [],
     this.byCombo = const [],
     this.comboSpend = const [],
+    this.credit,
   });
 
   final int totalTokens;
@@ -1707,6 +1736,9 @@ class UsageSummary {
 
   /// Dollars by combo in the ledger's [windowHours] (P126), which is not the span of the token breakdown above; empty from an older hub.
   final List<SpendBucket> comboSpend;
+
+  /// The hosted credit; null without a `cloud` provider and from a member's report.
+  final HostedCredit? credit;
 
   static UsageSummary fromJson(Map<String, dynamic> report) {
     final recent = report['recent'] as Map<String, dynamic>?;
@@ -1750,6 +1782,7 @@ class UsageSummary {
       byProvider: UsageBucket.listFrom(report, 'byProvider'),
       byCombo: UsageBucket.listFrom(report, 'byCombo'),
       comboSpend: recent == null ? const [] : SpendBucket.listFrom(recent, 'byCombo'),
+      credit: HostedCredit.fromJson(report['credit']),
     );
   }
 }

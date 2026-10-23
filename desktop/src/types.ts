@@ -311,6 +311,13 @@ export interface UsageByKey {
   usage: Usage;
 }
 
+/** Mirrors `warden_server_protocol::protocol::CreditDto` — the hosted credit, in micro-USD (the hub keeps the exact integer).
+ * `availableMicroUsd` is the balance minus what the calls in progress hold. */
+export interface Credit {
+  balanceMicroUsd: number;
+  availableMicroUsd: number;
+}
+
 /** Mirrors `warden_bootstrap::usage::UsageSummary` — the "Usage" nav view's data, aggregated
  * on demand from every saved conversation (see `usage_summary` IPC command). Token counts only,
  * no dollar cost: there's no per-model price table in the project yet. */
@@ -322,6 +329,8 @@ export interface UsageSummary {
   byProvider: UsageByKey[];
   /** What went through a combo (P126), grouped by the combo whichever member answered. Absent from a hub that does not tell it. */
   byCombo?: UsageByKey[];
+  /** The credit of the hosted account, only from a hub that has one (the owner's report on a hosted instance). */
+  credit?: Credit;
 }
 
 /** Mirrors `warden_server_protocol::protocol::LimitStatusDto` — the same shape the web UI gets. */

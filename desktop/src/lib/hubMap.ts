@@ -9,6 +9,7 @@ import type {
   Attachment,
   ChatMessage,
   Conversation,
+  Credit,
   LimitStatus,
   ProjectEntry,
   ProviderFallback,
@@ -293,6 +294,8 @@ export interface HubUsageReport {
   byAgent?: UsageByKey[];
   byProvider?: UsageByKey[];
   byCombo?: UsageByKey[];
+  /** The hosted credit; absent without a `cloud` provider and from a member's report. */
+  credit?: Credit;
 }
 
 /** The Usage screen's two kinds of numbers out of one report. A hub from before P126 doesn't split tokens by agent, provider
@@ -306,6 +309,7 @@ export function usageFromReport(report: HubUsageReport): { summary: UsageSummary
       byAgent: report.byAgent ?? [],
       byProvider: report.byProvider ?? [],
       ...(report.byCombo ? { byCombo: report.byCombo } : {}),
+      ...(report.credit ? { credit: report.credit } : {}),
     },
     spend: { limitsEnabled: report.limitsEnabled, limits: report.limits, recent: report.recent ?? null, ledgerError: report.ledgerError ?? null },
   };

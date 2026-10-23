@@ -195,6 +195,14 @@ describe("the hub's usage report", () => {
     assert.equal("byCombo" in old, false, "no combo list for a hub that does not tell it");
   });
 
+  test("the hosted credit reaches the screen, and a hub without one leaves it out", () => {
+    const credit = { balanceMicroUsd: 5_000_000, availableMicroUsd: 4_000_000 };
+    const hosted = usageFromReport({ total, conversationCount: 0, messageCount: 0, limitsEnabled: false, limits: [], credit }).summary;
+    assert.deepEqual(hosted.credit, credit);
+    const selfHosted = usageFromReport({ total, conversationCount: 0, messageCount: 0, limitsEnabled: false, limits: [] }).summary;
+    assert.equal("credit" in selfHosted, false, "no credit card for a hub without a cloud provider");
+  });
+
   test("a hub with the limits off has no recent spending and no ledger error", () => {
     const { spend } = usageFromReport({ total, conversationCount: 0, messageCount: 0, limitsEnabled: false, limits: [] });
     assert.deepEqual(spend, { limitsEnabled: false, limits: [], recent: null, ledgerError: null });

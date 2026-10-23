@@ -1114,6 +1114,17 @@ class AppLocalizationsPt extends AppLocalizations {
   }
 
   @override
+  String get usageCredit => 'Créditos';
+
+  @override
+  String usageCreditAvailable(String amount) {
+    return '$amount disponíveis, descontadas as chamadas em andamento';
+  }
+
+  @override
+  String get usageCreditEmpty => 'Sem créditos. Recarregue a conta para continuar usando os modelos pagos.';
+
+  @override
   String get usageTokens => 'Tokens';
 
   @override

@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { intlTag, t } from "../i18n";
-import type { RecentSpend, SpendBucket, SpendStatus, UsageByKey, UsageSummary } from "../types";
+import type { Credit, RecentSpend, SpendBucket, SpendStatus, UsageByKey, UsageSummary } from "../types";
 import { hubUsage } from "../lib/hub";
+import { creditUsd, hasHolds, isOutOfCredit } from "../lib/credit";
 
 /** `1,284` up to 999, `12.9K`/`1.2M` beyond — the stat-tile contract's "auto-compact" value
  * format, so a heavy user's token count never wraps a tile onto two lines. */
@@ -10,10 +11,11 @@ function formatCompact(n: number): string {
   return new Intl.NumberFormat(intlTag(), { notation: "compact", maximumFractionDigits: 1 }).format(n);
 }
 
-function StatTile({ label, value }: { label: string; value: number }) {
+/** A number is compacted; a string (the credit, in dollars) is shown as given. `title` is the hover hint. */
+function StatTile({ label, value, title }: { label: string; value: number | string; title?: string }) {
   return (
-    <div className="usage-stat-tile">
-      <span className="usage-stat-value">{formatCompact(value)}</span>
+    <div className="usage-stat-tile" title={title}>
+      <span className="usage-stat-value">{typeof value === "number" ? formatCompact(value) : value}</span>
       <span className="usage-stat-label">{label}</span>
     </div>
   );
@@ -63,6 +65,23 @@ const localUsage: UsageSource = {
 
 function usd(value: number): string {
   return `$${value.toFixed(value < 1 ? 4 : 2)}`;
+}
+
+/** The hosted credit: the balance as a tile (with the available amount as its hint while calls hold part of it) and a warning when
+ * nothing is left. Shown on its own, because a new hosted account has credit before it has a single message. */
+function CreditCard({ credit }: { credit: Credit }) {
+  return (
+    <>
+      {isOutOfCredit(credit) && <p className="usage-error">{t("usage.creditEmpty")}</p>}
+      <div className="usage-stat-grid">
+        <StatTile
+          label={t("usage.credit")}
+          value={usd(creditUsd(credit.balanceMicroUsd))}
+          title={hasHolds(credit) ? t("usage.creditAvailable", { amount: usd(creditUsd(credit.availableMicroUsd)) }) : undefined}
+        />
+      </div>
+    </>
+  );
 }
 
 /** One split of the ledger's spending, with the dollars. A call to a model with no price has no dollar figure,
@@ -271,6 +290,7 @@ function UsageView({ remote = false }: { remote?: boolean }) {
       <div className="settings-view">
         <h2 className="settings-title">{t("usage.title")}</h2>
         <p className="settings-hint">{t("usage.none")}</p>
+        {summary.credit && <CreditCard credit={summary.credit} />}
         <SpendingLimits source={source} />
         <RecentSpending source={source} />
       </div>
@@ -282,6 +302,7 @@ function UsageView({ remote = false }: { remote?: boolean }) {
       <h2 className="settings-title">{t("usage.title")}</h2>
       <p className="settings-hint">{remote ? t("usage.hintHub") : t("usage.hintLocal")}</p>
 
+      {summary.credit && <CreditCard credit={summary.credit} />}
       <SpendingLimits source={source} />
       <RecentSpending source={source} />
 

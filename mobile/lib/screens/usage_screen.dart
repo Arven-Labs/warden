@@ -65,7 +65,18 @@ class _UsageScreenState extends State<UsageScreen> {
     final theme = Theme.of(context);
     final l10n = AppLocalizations.of(context);
     final days = summary.days.where((day) => day.calls > 0).toList().reversed.toList();
+    final credit = summary.credit;
     return [
+      if (credit != null) ...[
+        if (credit.isOut) Text(l10n.usageCreditEmpty, key: const Key('usage-credit-empty'), style: TextStyle(color: theme.colorScheme.error)),
+        _Tile(
+          key: const Key('usage-credit'),
+          label: l10n.usageCredit,
+          value: _usd(credit.balanceUsd),
+          note: credit.hasHolds ? l10n.usageCreditAvailable(_usd(credit.availableUsd)) : null,
+        ),
+        const SizedBox(height: 12),
+      ],
       Row(
         children: [
           Expanded(child: _Tile(key: const Key('usage-tokens'), label: l10n.usageTokens, value: _compact(summary.totalTokens))),
@@ -176,10 +187,13 @@ class _Breakdown extends StatelessWidget {
 }
 
 class _Tile extends StatelessWidget {
-  const _Tile({super.key, required this.label, required this.value});
+  const _Tile({super.key, required this.label, required this.value, this.note});
 
   final String label;
   final String value;
+
+  /// A line under the label; a phone has no hover for a hint.
+  final String? note;
 
   @override
   Widget build(BuildContext context) {
@@ -192,6 +206,7 @@ class _Tile extends StatelessWidget {
           children: [
             Text(value, style: theme.textTheme.titleLarge),
             Text(label, style: theme.textTheme.bodySmall),
+            if (note != null) Text(note!, style: theme.textTheme.bodySmall),
           ],
         ),
       ),
