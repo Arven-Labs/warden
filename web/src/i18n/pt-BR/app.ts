@@ -17,7 +17,7 @@ export const appPt: Record<keyof typeof app, string> = {
   "tab.activity": "Atividade",
   "tab.tasks": "Tarefas",
   "tab.webhooks": "Webhooks",
-  "tab.devices": "Aparelhos",
+  "tab.devices": "Dispositivos",
   "tab.people": "Pessoas",
   "tab.sync": "Sync",
   "tab.settings": "Configurações",

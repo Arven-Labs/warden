@@ -42,7 +42,7 @@ export const accountPt: Record<keyof typeof account, string> = {
   "recovery.encrypted": "Os seus dados neste hub agora ficam criptografados.",
   "recovery.keepIt": " Guarde este código: ele é a única forma de recuperar tudo se você esquecer a senha, ou se quem administra o hub redefinir a sua senha.",
   "recovery.codeLabel": "Código de recuperação",
-  "recovery.once": "O código aparece só desta vez, e ninguém no hub consegue vê-lo depois — nem quem o administra. Anote num lugar seguro, fora deste aparelho.",
+  "recovery.once": "O código aparece só desta vez, e ninguém no hub consegue vê-lo depois — nem quem o administra. Anote num lugar seguro, fora deste dispositivo.",
   "recovery.savedIt": "Guardei o código num lugar seguro",
   "recovery.continue": "Continuar",
 

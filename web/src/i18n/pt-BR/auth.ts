@@ -16,10 +16,10 @@ export const authPt: Record<keyof typeof auth, string> = {
   "login.userHint": "Entre no hub em {address} com o usuário que o dono do Warden criou para você. Na primeira vez, você troca a senha provisória pela sua.",
   "login.user": "Usuário",
   "login.password": "Senha",
-  "login.keyHint": "Para o dono do Warden: conecte este navegador ao hub em {address}. A chave de pareamento aparece nas configurações do hub (no desktop, em Workspace) e só vale para o primeiro aparelho; os outros entram com um código de convite, que você cola neste mesmo campo. Ela só é pedida uma vez.",
+  "login.keyHint": "Para o dono do Warden: conecte este navegador ao hub em {address}. A chave de pareamento aparece nas configurações do hub (no desktop, em Workspace) e só vale para o primeiro dispositivo; os outros entram com um código de convite, que você cola neste mesmo campo. Ela só é pedida uma vez.",
   "login.pairingKey": "Chave de pareamento",
   "login.browserName": "Nome deste navegador",
-  "login.browserNameHint": "É como ele aparece na lista de aparelhos do hub.",
+  "login.browserNameHint": "É como ele aparece na lista de dispositivos do hub.",
   "login.submit": "Entrar",
   "login.submitting": "Conectando…",
 

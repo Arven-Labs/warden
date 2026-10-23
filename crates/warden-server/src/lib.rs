@@ -17,7 +17,7 @@
 //! `device_registry` (Phase 9.3): knowing the shared `auth_key` used to be enough to route a
 //! `CallDeviceTool` to (or from) any connected device. Now a device must also be explicitly
 //! `approve`d by the operator (`warden-server devices approve <id>`, `main.rs`, or the web's
-//! Aparelhos tab) before it can take part in routing — `Hello`/`Chat`/`Ping` are unaffected, only
+//! Devices tab) before it can take part in routing — `Hello`/`Chat`/`Ping` are unaffected, only
 //! `CallDeviceTool` checks pairing status. See `device_registry.rs`'s module docs for why the
 //! store is a thin, stateless-between-calls wrapper over a JSON file instead of anything cached.
 

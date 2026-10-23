@@ -1,12 +1,12 @@
 import type { vault } from "../en/vault.ts";
 
 export const vaultPt: Record<keyof typeof vault, string> = {
-  "vault.listError": "Não foi possível listar o vault: {error}",
+  "vault.listError": "Não foi possível listar o cofre: {error}",
   "vault.discard": "Descartar as mudanças não salvas?",
   "vault.nameIt": "Dê um nome à nota.",
   "vault.searchFailed": "A busca falhou: {error}",
-  "vault.files": "Arquivos do vault",
-  "vault.search": "Buscar no vault",
+  "vault.files": "Arquivos do cofre",
+  "vault.search": "Buscar no cofre",
   "vault.newNote": "+ Nova nota",
   "vault.searching": "Buscando…",
   "vault.resultOne": "{count} resultado",

@@ -156,7 +156,7 @@ describe("a member's Usage screen (P99)", () => {
       const body = await page.locator("body").innerText();
       assert.ok(body.includes("ana-day"), "her own limit is there");
       assert.ok(!body.includes("hub-day"), "the limit that adds up everyone's spending is not");
-      assert.ok(!/Por device|Por pessoa|Liberar/.test(body), "nothing about devices or other people, and no way to allow more");
+      assert.ok(!/Por dispositivo|Por pessoa|Liberar/.test(body), "nothing about devices or other people, and no way to allow more");
       assert.match(body, /peça a quem administra/, "and it says who to ask");
 
       const provider = table(page, "Por provedor");
@@ -168,7 +168,7 @@ describe("a member's Usage screen (P99)", () => {
       await owner.page.getByRole("button", { name: "Uso", exact: true }).click();
       await owner.page.getByText(/Gasto recente/).waitFor();
       const all = await owner.page.locator("body").innerText();
-      assert.ok(all.includes("ana-day") && all.includes("hub-day") && all.includes("Por device"), "the owner's screen is whole");
+      assert.ok(all.includes("ana-day") && all.includes("hub-day") && all.includes("Por dispositivo"), "the owner's screen is whole");
     } finally {
       assert.deepEqual(owner.errors, [], "the owner's page raised no error");
       await member?.context.close();

@@ -56,7 +56,7 @@ export const settingsPt: Record<keyof typeof settings, string> = {
   "settings.providers.baseUrl": "URL base",
   "settings.providers.cloudHint": "Em branco usa a nuvem do Fabio. Para um hub seu, o endereço dele terminado em /v1. A chave é a wdn_ desse hub.",
   "settings.providers.nodeId": "Id do nó",
-  "settings.providers.nodeIdHint": "Só responde com o nó online, aprovado e liberado (aba Aparelhos). Num combo, cai no próximo quando ele está fora.",
+  "settings.providers.nodeIdHint": "Só responde com o nó online, aprovado e liberado (aba Dispositivos). Num combo, cai no próximo quando ele está fora.",
   "settings.providers.compatHint": "Ex.: http://localhost:11434/v1",
   "settings.providers.apiKey": "Chave de API",
 
@@ -125,7 +125,7 @@ export const settingsPt: Record<keyof typeof settings, string> = {
   "settings.keys.whisper": "OpenAI para voz (Whisper)",
 
   "settings.git.title": "Sincronização (git)",
-  "settings.git.hint": "Um repositório seu (Gitea, GitHub…) por onde este hub troca o vault e as configurações com os outros aparelhos, a cada 5 minutos. Tudo vai cifrado. Deixe a URL vazia para não usar git. O andamento fica na aba Sync.",
+  "settings.git.hint": "Um repositório seu (Gitea, GitHub…) por onde este hub troca o cofre e as configurações com os outros dispositivos, a cada 5 minutos. Tudo vai cifrado. Deixe a URL vazia para não usar git. O andamento fica na aba Sync.",
   "settings.git.url": "URL do repositório",
   "settings.git.urlHint": "Só https://.",
   "settings.git.urlPlaceholder": "https://git.exemplo.com/voce/vault.git",

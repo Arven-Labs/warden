@@ -6,6 +6,16 @@
 
 ---
 
+### 2026-10-22 — Sessão 273, parte 4 (o P136: conferência das fotos em pt-BR e o glossário)
+
+- **Pedido**: "vamos de 1 primeiro" (o que falta do P136), depois "sim" para corrigir o vocabulário. Concluí que as frases do hub (P167 a) já estavam decididas (ficam em inglês) e que só restava a conferência visual. Baixei as fotos `pt-*` do CI (6 da web, 6 do desktop) e li uma a uma: **sem defeito de layout**, mas com vocabulário inconsistente ("Cofre" na aba e "vault" no texto; "aparelho", "device" e "dispositivo" misturados).
+- **Feito**: glossário **cofre** e **dispositivo** (no `GUIDELINES.md`). Web (`vault.ts`, `sync.ts`, `people.ts`, `settings.ts`, `devices.ts`, `auth.ts`, `account.ts`, `usage.ts`, `app.ts`: a aba virou "Dispositivos"), extensão (a aba e dois textos) e CLI (`pt_br.rs`, 6 linhas) em pt-BR; o comentário do `warden-server/src/lib.rs`. Desktop e mobile já estavam certos. Tudo por Edit.
+- **Achado no caminho**: o levantamento do agente tinha dito que nenhum teste dependia dos termos, mas o `web/e2e/usage.test.mjs` procurava "Por device" (linhas 159 e 171); a 171 quebraria e a 159 passaria sem provar nada. Atualizei os dois.
+- **Local**: `tsc` limpo (web e extensão), testes de unidade (web 108, extensão 124), `cargo check` do CLI e do servidor. Confirmo a tela nova nas fotos do próximo run do Web E2E.
+- **Fica**: a galeria de skills da web com as descrições embutidas em inglês (decisão do usuário), os exemplos de política sem acento no desktop, e a conferência no celular (só o usuário).
+
+---
+
 ### 2026-10-22 — Sessão 273, parte 3 (a hospedagem: fase 3 do HOSPEDAGEM.md, o contrato do dinheiro)
 
 - **Pedido**: "vamos para a fase 3". Um agente de exploração leu a seção B e levantou o que existe (o `webhook_signature.rs` do `warden-server` só verifica entrada, não há HMAC de saída, o orquestrador não tem HTTP). Duas decisões do usuário, em pergunta: **HMAC com segredo compartilhado** (em vez de JWT EdDSA ou mTLS) e **só o lado do dinheiro** (o B1, o B2 e a loja ficam para as fases 4 e 5). Plano aprovado em modo de plano.

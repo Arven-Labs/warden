@@ -21,7 +21,7 @@ export const shellPt: Record<keyof typeof shell, string> = {
   "tab.channels": "Canais",
   "tab.skills": "Skills",
   "tab.agents": "Agentes",
-  "tab.devices": "Aparelhos",
+  "tab.devices": "Dispositivos",
   "tab.tabs": "Abas",
   "tab.unread": "{count} com mensagens novas",
   "app.failedToSend": "falha ao enviar",
