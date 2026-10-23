@@ -2055,6 +2055,34 @@ fn custom_base_url(provider: &ProviderConfig) -> anyhow::Result<Option<String>> 
     Ok(Some(url.to_string()))
 }
 
+/// The provider that talks to a hosted gateway: the active one if it is a `cloud` provider, else the first `cloud` one.
+pub fn cloud_provider(config: &FileConfig) -> Option<&ProviderConfig> {
+    let active = config.active_provider.as_deref().and_then(|id| config.providers.iter().find(|p| p.id == id));
+    active.filter(|p| p.kind == Provider::Cloud).or_else(|| config.providers.iter().find(|p| p.kind == Provider::Cloud))
+}
+
+/// The credit the hosted gateway reports for this instance, or `None` when there is no `cloud` provider or the gateway
+/// can't be asked (the address or key is unusable, it is down, it refuses): the usage screen then just shows no balance.
+pub async fn hosted_credit(config: &FileConfig) -> Option<warden_core::model::cloud_balance::CloudBalance> {
+    let provider = cloud_provider(config)?;
+    let api_key = provider.api_key.as_deref().map(str::trim).filter(|k| !k.is_empty())?;
+    // The same address rules as the provider itself: a plain-http public address would send the key in the clear.
+    let base_url = match custom_base_url(provider) {
+        Ok(url) => url.unwrap_or_else(|| CLOUD_DEFAULT_BASE_URL.to_string()),
+        Err(err) => {
+            tracing::debug!("not asking the gateway for the balance: {err}");
+            return None;
+        }
+    };
+    match warden_core::model::cloud_balance::fetch(&base_url, api_key).await {
+        Ok(balance) => Some(balance),
+        Err(why) => {
+            tracing::debug!(provider = %provider.id, "no hosted balance: {why}");
+            None
+        }
+    }
+}
+
 /// Whether `host` is this machine or a private network (where plain http is acceptable).
 fn plain_http_host(host: &str) -> bool {
     let host = host.to_ascii_lowercase();
@@ -4245,6 +4273,61 @@ oauth = true
         assert!(build_model_provider(&no_model, None).is_err());
         assert!(build_model_provider(&with_url(Provider::Cloud, Some("https://my-hub.example/v1")), None).is_ok());
         assert!(build_model_provider(&with_url(Provider::Cloud, Some("http://example.com/v1")), None).is_err(), "plain http to a public address");
+    }
+
+    #[test]
+    fn the_cloud_provider_is_the_active_one_when_it_is_cloud_else_the_first() {
+        let cfg = |providers: Vec<ProviderConfig>, active: Option<&str>| FileConfig { providers, active_provider: active.map(str::to_string), ..FileConfig::default() };
+        let two_clouds = vec![provider_entry("a", Provider::Cloud), provider_entry("b", Provider::Cloud)];
+        assert_eq!(cloud_provider(&cfg(two_clouds, Some("b"))).map(|p| p.id.as_str()), Some("b"));
+
+        let mixed = vec![provider_entry("local", Provider::OpenaiCompatible), provider_entry("hosted", Provider::Cloud)];
+        assert_eq!(cloud_provider(&cfg(mixed.clone(), Some("local"))).map(|p| p.id.as_str()), Some("hosted"), "active isn't a cloud: the first cloud");
+        assert_eq!(cloud_provider(&cfg(mixed, None)).map(|p| p.id.as_str()), Some("hosted"));
+        assert!(cloud_provider(&cfg(vec![provider_entry("local", Provider::OpenaiCompatible)], Some("local"))).is_none());
+        assert!(cloud_provider(&FileConfig::default()).is_none());
+    }
+
+    /// A one-answer-per-connection HTTP stub on a free local port; returns its `/v1` address.
+    async fn stub_gateway(status: u16, body: &'static str) -> String {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move {
+            loop {
+                let Ok((mut socket, _)) = listener.accept().await else { return };
+                tokio::spawn(async move {
+                    let mut buf = vec![0u8; 4096];
+                    let _ = socket.read(&mut buf).await;
+                    let reply = format!("HTTP/1.1 {status} X\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}", body.len());
+                    let _ = socket.write_all(reply.as_bytes()).await;
+                    let _ = socket.shutdown().await;
+                });
+            }
+        });
+        format!("http://{addr}/v1")
+    }
+
+    #[tokio::test]
+    async fn the_hosted_credit_comes_from_the_cloud_providers_gateway() {
+        let url = stub_gateway(200, r#"{"balance_micro_usd":5000000,"available_micro_usd":4000000}"#).await;
+        let config = FileConfig { providers: vec![with_url(Provider::Cloud, Some(&url))], ..FileConfig::default() };
+        let credit = hosted_credit(&config).await.expect("a balance");
+        assert_eq!((credit.balance_micro_usd, credit.available_micro_usd), (5_000_000, 4_000_000));
+    }
+
+    #[tokio::test]
+    async fn no_balance_is_not_an_error_just_none() {
+        // No cloud provider at all.
+        let local = FileConfig { providers: vec![provider_entry("local", Provider::OpenaiCompatible)], ..FileConfig::default() };
+        assert!(hosted_credit(&local).await.is_none());
+        // A cloud provider without a key, and one the gateway refuses, and an address that would send the key in the clear.
+        let mut no_key = with_url(Provider::Cloud, Some("http://127.0.0.1:1/v1"));
+        no_key.api_key = None;
+        assert!(hosted_credit(&FileConfig { providers: vec![no_key], ..FileConfig::default() }).await.is_none());
+        let refusing = stub_gateway(401, r#"{"error":{"code":"invalid_api_key"}}"#).await;
+        assert!(hosted_credit(&FileConfig { providers: vec![with_url(Provider::Cloud, Some(&refusing))], ..FileConfig::default() }).await.is_none());
+        assert!(hosted_credit(&FileConfig { providers: vec![with_url(Provider::Cloud, Some("http://example.com/v1"))], ..FileConfig::default() }).await.is_none());
     }
 
     #[test]

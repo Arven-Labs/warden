@@ -2,6 +2,12 @@
 //! `MeterSink`. Today the only sink that does anything is `LedgerMeter`, which books the call in the
 //! spend ledger the limits already read; billing, plans and credits are not here. The trait is the seam a
 //! hosted router would plug its own accounting into, without the calling code changing.
+//!
+//! Nothing calls it yet, on purpose (Session 273). The hosted credits are owned and metered by the gateway
+//! (`warden-gateway`), from the usage the provider reports, so an instance-side meter would only produce an
+//! estimate that drifts, and the spend and the limits are already booked by `budget.rs` (`record_in_combo`):
+//! wiring this one as well would count each call twice. The instance only *reads* the balance
+//! (`model::cloud_balance`). It becomes useful if a hosted router ever has to meter calls of its own.
 
 use std::sync::Arc;
 

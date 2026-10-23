@@ -205,6 +205,14 @@ export interface UsageReport {
   byAgent?: UsageByKey[];
   byProvider?: UsageByKey[];
   byCombo?: UsageByKey[];
+  /** The credit the hosted gateway reports for this instance. Absent without a `cloud` provider, when the gateway doesn't answer, and from an older hub. */
+  credit?: Credit;
+}
+
+/** Mirrors `CreditDto`, in micro-USD (millionths of a dollar). `availableMicroUsd` is the balance minus what calls in progress hold. */
+export interface Credit {
+  balanceMicroUsd: number;
+  availableMicroUsd: number;
 }
 
 /** Mirrors `UsageByKeyDto`: one bucket of a token breakdown. A `null` key is "no agent" / "the default provider". */

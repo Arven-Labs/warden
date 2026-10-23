@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import type { ServerConnection } from "../hub/connection";
 import type { LimitStatus, SpendBucket, UsageByKey, UsageReport } from "../hub/messages";
+import { creditUsd, hasHolds, isOutOfCredit } from "../hub/credit";
 import { breakdownRows } from "../hub/usageBreakdown";
 import { intlTag, t } from "../i18n";
 
@@ -281,8 +282,16 @@ export default function UsageView({ conn, readOnly = false }: { conn: ServerConn
         </button>
       </div>
       {error && <p className="error-banner">{error}</p>}
+      {report.credit && isOutOfCredit(report.credit) && <p className="error-banner">{t("usage.credit.empty")}</p>}
 
       <div className="usage-tiles">
+        {report.credit && (
+          <Tile
+            label={t("usage.tile.credit")}
+            value={usd(creditUsd(report.credit.balanceMicroUsd))}
+            title={hasHolds(report.credit) ? t("usage.credit.available", { amount: usd(creditUsd(report.credit.availableMicroUsd)) }) : undefined}
+          />
+        )}
         <Tile label={t("usage.tile.tokens")} value={compact.format(report.total.totalTokens)} title={`${full.format(report.total.totalTokens)} tokens`} />
         <Tile label={t("usage.tile.calls")} value={compact.format(report.messageCount)} />
         <Tile label={t("usage.tile.conversations")} value={compact.format(report.conversationCount)} />

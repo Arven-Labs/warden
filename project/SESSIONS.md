@@ -6,6 +6,17 @@
 
 ---
 
+### 2026-10-22 — Sessão 273, parte 5 (o saldo de créditos na instância: P168 c)
+
+- **Pedido**: "item 3 primeiro" (o `MeterSink` na instância e a tela de saldo). Um agente de exploração levantou o caminho do erro, o `UsageReport` e as telas; planejei em modo de plano e o usuário escolheu **hub e web agora, desktop e mobile depois** (o mobile não tem Flutter local e o desktop local lê o uso por comandos do Tauri).
+- **Decisão**: o `MeterSink` **não foi ligado**. O gateway mede sozinho e o `budget.rs` já grava o gasto da instância; ligar contaria cada chamada duas vezes e só daria uma estimativa. Registrado no doc do `meter.rs`, no `HOSPEDAGEM.md` (seção C) e no P168.
+- **Feito**: `GET /v1/balance` no gateway (token da instância); `ProviderHttpError::is_insufficient_credit` e `out_of_credits_message` no core (um 402 **não** é repetido no próximo provedor do combo, o teste de fallback ganhou o caso); `model::cloud_balance::fetch` (3 s) e `hosted_credit`/`cloud_provider` no bootstrap; `CreditDto` e `UsageReportDto.credit` no protocolo (só no relatório do dono, ausente sem provedor `cloud` ou sem resposta, compatível com hub e cliente antigos); o `RequestUsage` busca o saldo **junto** com a leitura das pastas (`tokio::join!`), então um gateway lento só atrasa o próprio cartão; a mensagem limpa "Out of credits: top up..." no chat, no `chat_error_reply` (Telegram e WhatsApp) e no `turn_error` da API `/v1` (402 em vez de 500); na web, `hub/credit.ts`, o cartão "Créditos" na tela de Uso e o aviso "Sem créditos" (en e pt-BR).
+- **Testes**: gateway 14 de endpoint (a rota nova), core (helper, 402 não repetido, `cloud_balance` com servidor falso), bootstrap (escolha do provedor, saldo, `None` sem erro), 13 de chat (o novo: 402 vira a mensagem limpa), 3 novos de integração do hub (`tests/hosted_credit.rs`: relatório com crédito, sem provedor cloud, gateway que recusa ou está fora), protocolo (ida e volta e hub antigo), `usage.rs` (`with_credit`), `openai_api.rs` (402 só para o nosso erro), web 111 de unidade (`credit.test.mjs`) e `tsc`. Servidor: 207 de unidade. `cargo check --workspace` limpo; clippy sem aviso novo.
+- **Deslizes meus, ditos**: (1) acrescentei o teste novo ao `tests/chat.rs` com `cat >>` pelo Bash, e não pelo Edit (o diff não aparece na tela); (2) escrevi uma asserção vazia (`x || !x`) num teste e um teste de saldo com uma linha sem sentido; os dois foram achados e consertados na hora, antes do commit.
+- **Fica**: desktop e mobile (o cartão), o link de recarga, o saldo no cabeçalho do chat, o botão no erro.
+
+---
+
 ### 2026-10-22 — Sessão 273, parte 4 (o P136: conferência das fotos em pt-BR e o glossário)
 
 - **Pedido**: "vamos de 1 primeiro" (o que falta do P136), depois "sim" para corrigir o vocabulário. Concluí que as frases do hub (P167 a) já estavam decididas (ficam em inglês) e que só restava a conferência visual. Baixei as fotos `pt-*` do CI (6 da web, 6 do desktop) e li uma a uma: **sem defeito de layout**, mas com vocabulário inconsistente ("Cofre" na aba e "vault" no texto; "aparelho", "device" e "dispositivo" misturados).

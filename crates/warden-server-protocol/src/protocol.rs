@@ -485,6 +485,19 @@ pub struct UsageReportDto {
     pub by_provider: Vec<UsageByKeyDto>,
     #[serde(default)]
     pub by_combo: Vec<UsageByKeyDto>,
+    /// The credit the hosted gateway reports for this instance (HOSPEDAGEM.md, `warden-gateway`). Only the owner's report has
+    /// it, and only when a `cloud` provider is set up and the gateway answered: otherwise it is absent and no balance is shown.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub credit: Option<CreditDto>,
+}
+
+/// The hosted credit, in micro-USD (millionths of a dollar).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CreditDto {
+    pub balance_micro_usd: i64,
+    /// The balance minus what calls in flight hold: what a new call may still reserve.
+    pub available_micro_usd: i64,
 }
 
 /// One bucket of a token breakdown (`warden_bootstrap::usage::UsageByKey`), biggest consumer first.
@@ -3930,6 +3943,7 @@ mod tests {
                 by_agent: vec![UsageByKeyDto { key: None, message_count: 1, usage: Usage { prompt_tokens: 7, completion_tokens: 3, total_tokens: 10 } }],
                 by_provider: Vec::new(),
                 by_combo: vec![UsageByKeyDto { key: Some("fast".into()), message_count: 1, usage: Usage { prompt_tokens: 7, completion_tokens: 3, total_tokens: 10 } }],
+                credit: Some(CreditDto { balance_micro_usd: 5_000_000, available_micro_usd: 4_000_000 }),
             },
         };
         let json = serde_json::to_string(&report).unwrap();
@@ -3945,6 +3959,14 @@ mod tests {
         }
         assert!(json.contains(r#""dailyCost":[{"date":"2026-09-25","calls":1,"costUsd":0.5,"unpricedCalls":0}]"#), "{json}");
         assert!(json.contains(r#""byProvider":[{"key":"main""#) && json.contains(r#""byAgent":[{"key":"writer""#), "{json}");
+        // The hosted credit rides along when there is one, and a hub without a gateway (or an older one) sends none.
+        assert!(json.contains(r#""credit":{"balanceMicroUsd":5000000,"availableMicroUsd":4000000}"#), "{json}");
+        let mut no_credit: serde_json::Value = serde_json::from_str(&json).unwrap();
+        no_credit["report"].as_object_mut().unwrap().remove("credit");
+        match serde_json::from_value::<ServerMessage>(no_credit).unwrap() {
+            ServerMessage::UsageReport { report, .. } => assert_eq!(report.credit, None),
+            other => panic!("{other:?}"),
+        }
         // A hub from before these existed sends none of them: they read as empty rather than failing.
         let old = r#"{"windowHours":24,"byModel":[],"byChannel":[]}"#;
         let recent: RecentSpendDto = serde_json::from_str(old).unwrap();

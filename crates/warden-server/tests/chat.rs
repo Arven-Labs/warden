@@ -387,3 +387,46 @@ async fn a_down_provider_hands_the_turn_to_a_reserve_and_the_reply_says_so() {
         other => panic!("expected ChatResponse, got {other:?}"),
     }
 }
+
+/// The hosted gateway's refusal when the account has no credit left.
+struct NoCredit;
+
+#[async_trait::async_trait]
+impl warden_core::model::ModelProvider for NoCredit {
+    async fn chat_stream(&self, _messages: Vec<warden_core::model::Message>, _tools: Vec<warden_core::tool::ToolSpec>) -> anyhow::Result<warden_core::model::ChatStream> {
+        Err(warden_core::model::ProviderHttpError {
+            provider: "OpenAI",
+            status: 402,
+            reason: "402 Payment Required".into(),
+            body: r#"{"error":{"message":"insufficient credit","type":"insufficient_credit","code":"insufficient_credit"}}"#.into(),
+        }
+        .into())
+    }
+}
+
+#[tokio::test]
+async fn a_hosted_gateway_with_no_credit_reaches_the_chat_as_a_plain_top_up_message() {
+    use std::sync::Arc;
+
+    let dir = std::env::temp_dir().join(format!(
+        "warden-server-no-credit-{}",
+        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+    ));
+    let orchestrator = warden_core::orchestrator::Orchestrator::new(Arc::new(NoCredit), Arc::new(warden_core::memory::Vault::new(dir.join("vault"))));
+    let server = warden_server::Server::bind("127.0.0.1:0".parse().unwrap(), "test-key", "Test Hub", Arc::new(orchestrator), dir.join("conversations"), dir.join("devices.json"))
+        .await
+        .unwrap()
+        .with_open_key_pairing();
+    let addr = server.local_addr().unwrap();
+    tokio::spawn(server.serve());
+
+    let mut conn = ServerConnection::connect(&format!("ws://{addr}"), "dev-1", "Test Device", "test-key").await.unwrap();
+    conn.send(&ClientMessage::chat("hello")).await.unwrap();
+    match conn.recv().await.unwrap() {
+        Some(ServerMessage::ChatError { message, .. }) => {
+            assert_eq!(message, warden_core::model::OUT_OF_CREDITS_MESSAGE);
+            assert!(!message.contains("402") && !message.contains("{"), "no raw provider text: {message}");
+        }
+        other => panic!("expected ChatError, got {other:?}"),
+    }
+}

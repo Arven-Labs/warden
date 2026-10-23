@@ -533,6 +533,12 @@ fn turn_error(err: &anyhow::Error, member: bool) -> ApiError {
         api.code = Some("spend_limit".into());
         return api;
     }
+    if let Some(message) = warden_core::model::out_of_credits_message(err) {
+        // The hosted gateway has no credit left: say so with the same status and code the gateway uses.
+        let mut api = ApiError::new("402 Payment Required", "insufficient_credit", message);
+        api.code = Some("insufficient_credit".into());
+        return api;
+    }
     match spend_limit_id(err) {
         Some(limit) => {
             let mut api = ApiError::new("429 Too Many Requests", "insufficient_quota", format!("{err:#}"));
@@ -822,6 +828,26 @@ mod tests {
     use super::*;
 
     use warden_core::model::Role;
+
+    #[test]
+    fn a_hosted_gateway_with_no_credit_is_a_402_and_any_other_failure_stays_a_500() {
+        let no_credit: anyhow::Error = warden_core::model::ProviderHttpError {
+            provider: "OpenAI",
+            status: 402,
+            reason: "402 Payment Required".into(),
+            body: r#"{"error":{"code":"insufficient_credit"}}"#.into(),
+        }
+        .into();
+        let api = turn_error(&no_credit, false);
+        assert_eq!((api.status, api.kind, api.code.as_deref()), ("402 Payment Required", "insufficient_credit", Some("insufficient_credit")));
+        assert_eq!(api.message, warden_core::model::OUT_OF_CREDITS_MESSAGE);
+
+        let other = turn_error(&anyhow::anyhow!("boom"), false);
+        assert_eq!(other.status, "500 Internal Server Error");
+        // A 402 from some other provider is not ours to relabel.
+        let foreign: anyhow::Error = warden_core::model::ProviderHttpError { provider: "OpenAI", status: 402, reason: "x".into(), body: "pay up".into() }.into();
+        assert_eq!(turn_error(&foreign, false).status, "500 Internal Server Error");
+    }
 
     #[test]
     fn a_turn_keeps_the_text_and_the_clients_tool_calls_and_results() {

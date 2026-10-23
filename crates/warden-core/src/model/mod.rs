@@ -10,6 +10,7 @@ use serde_json::Value;
 use crate::tool::ToolSpec;
 
 pub mod anthropic;
+pub mod cloud_balance;
 pub mod fallback;
 pub mod gemini;
 pub mod key_check;
@@ -189,6 +190,25 @@ impl std::fmt::Display for ProviderHttpError {
 
 impl std::error::Error for ProviderHttpError {}
 
+impl ProviderHttpError {
+    /// True for the hosted gateway's "no credit left" answer: a 402 whose JSON error code is `insufficient_credit`.
+    /// A 402 with any other body (or a non-JSON one) is not this, so only the gateway's own refusal gets the "top up" wording.
+    pub fn is_insufficient_credit(&self) -> bool {
+        self.status == 402
+            && serde_json::from_str::<serde_json::Value>(&self.body)
+                .ok()
+                .is_some_and(|v| v["error"]["code"].as_str() == Some("insufficient_credit"))
+    }
+}
+
+/// What the user is told when the hosted gateway has no credit left for a call.
+pub const OUT_OF_CREDITS_MESSAGE: &str = "Out of credits: top up your Warden account to keep using paid models.";
+
+/// `Some(OUT_OF_CREDITS_MESSAGE)` when `err` is the hosted gateway's "no credit left" refusal, wherever it sits in the chain.
+pub fn out_of_credits_message(err: &anyhow::Error) -> Option<&'static str> {
+    err.downcast_ref::<ProviderHttpError>().filter(|e| e.is_insufficient_credit()).map(|_| OUT_OF_CREDITS_MESSAGE)
+}
+
 /// The provider can't be reached right now — a node (P93) that is offline, not approved, switched off
 /// or closed to this agent, or a node model asked for outside a hub. `FallbackProvider` treats it
 /// like a 503: a combo moves on to its next provider.
@@ -366,6 +386,34 @@ pub trait ModelProvider: Send + Sync {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn http_error(status: u16, body: &str) -> ProviderHttpError {
+        ProviderHttpError { provider: "OpenAI", status, reason: format!("{status} x"), body: body.to_string() }
+    }
+
+    const NO_CREDIT: &str = r#"{"error":{"message":"insufficient credit","type":"insufficient_credit","code":"insufficient_credit"}}"#;
+
+    #[test]
+    fn only_the_gateways_own_402_is_an_out_of_credit_error() {
+        assert!(http_error(402, NO_CREDIT).is_insufficient_credit());
+        // Same status, other bodies: not ours.
+        assert!(!http_error(402, r#"{"error":{"code":"billing_hard_limit_reached"}}"#).is_insufficient_credit());
+        assert!(!http_error(402, "Payment Required").is_insufficient_credit());
+        assert!(!http_error(402, "").is_insufficient_credit());
+        // Same body, other status.
+        assert!(!http_error(429, NO_CREDIT).is_insufficient_credit());
+        assert!(!http_error(500, NO_CREDIT).is_insufficient_credit());
+    }
+
+    #[test]
+    fn the_out_of_credit_message_is_found_through_anyhow() {
+        let err: anyhow::Error = http_error(402, NO_CREDIT).into();
+        assert_eq!(out_of_credits_message(&err), Some(OUT_OF_CREDITS_MESSAGE));
+        let wrapped = err.context("the turn failed");
+        assert_eq!(out_of_credits_message(&wrapped), Some(OUT_OF_CREDITS_MESSAGE), "context on top doesn't hide it");
+        assert_eq!(out_of_credits_message(&anyhow::anyhow!("something else")), None);
+        assert_eq!(out_of_credits_message(&http_error(503, "busy").into()), None);
+    }
 
     #[tokio::test]
     async fn response_accumulator_reassembles_interleaved_tool_call_deltas() {

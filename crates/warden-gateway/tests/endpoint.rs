@@ -238,6 +238,25 @@ async fn models_lists_the_catalog_for_a_valid_token_and_health_is_public() {
 }
 
 #[tokio::test]
+async fn the_instance_can_read_its_own_balance_with_its_token() {
+    let rig = rig(10_000, Script::Down).await;
+    let now =std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs() as i64;
+    rig.store.place_hold(&rig.account, "held", 4_000, 600, now).unwrap();
+
+    let (status, _, body) = http(rig.addr, "GET", "/v1/balance", Some(&rig.token), None).await;
+    assert_eq!(status, 200, "{body}");
+    let reply: Value = serde_json::from_str(&body).unwrap();
+    assert_eq!((reply["balance_micro_usd"].as_i64(), reply["available_micro_usd"].as_i64()), (Some(10_000), Some(6_000)));
+
+    let (status, _, body) = http(rig.addr, "GET", "/v1/balance", Some("gwy_wrong"), None).await;
+    assert_eq!((status, code(&body).as_str()), (401, "invalid_api_key"));
+    let (status, _, _) = http(rig.addr, "GET", "/v1/balance", None, None).await;
+    assert_eq!(status, 401);
+    let (status, _, _) = http(rig.addr, "POST", "/v1/balance", Some(&rig.token), Some("{}")).await;
+    assert_eq!(status, 405);
+}
+
+#[tokio::test]
 async fn a_dropped_call_leaves_no_hold_behind_that_blocks_the_next_one() {
     // Enough for exactly one worst-case hold: if a finished call left its hold, the second would be refused.
     let probe = rig(10_000_000, Script::Reply(answer(1, 1))).await;

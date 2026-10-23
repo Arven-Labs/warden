@@ -1,4 +1,4 @@
-//! The endpoint: `POST /v1/chat/completions`, `GET /v1/models` and `GET /health`, with the instance token as the bearer key.
+//! The endpoint: `POST /v1/chat/completions`, `GET /v1/models`, `GET /v1/balance` and `GET /health`, with the instance token as the bearer key.
 //!
 //! Hand-written over a TCP stream (`httparse`), like the Warden API in `warden-server`: one request per connection, the
 //! connection closed after the answer, plain HTTP (TLS is the reverse proxy's job for now). A call goes through
@@ -165,8 +165,16 @@ async fn route<S: AsyncWrite + Unpin>(stream: &mut S, state: &State, request: &R
             let body = json!({ "object": "list", "data": data });
             write_json(stream, "200 OK", body.to_string().as_bytes(), &[]).await.map_err(io_error)
         }
+        ("GET", "/v1/balance") => {
+            // The instance's own balance, for its usage screen: the instance token is all it holds.
+            let account = state.gateway.authenticate(request.token.as_deref().unwrap_or_default()).await?;
+            let id = account.id;
+            let (balance, available) = on_store(state, move |store| Ok((store.balance(&id)?, store.available(&id, now())?))).await?;
+            let body = serde_json::to_vec(&BalanceResponse { balance_micro_usd: balance, available_micro_usd: available }).expect("plain data");
+            write_json(stream, "200 OK", &body, &[]).await.map_err(io_error)
+        }
         ("POST", "/v1/chat/completions") => chat(stream, state, request).await,
-        (_, "/health" | "/v1/models" | "/v1/chat/completions") => {
+        (_, "/health" | "/v1/models" | "/v1/balance" | "/v1/chat/completions") => {
             Err(ApiError::new("405 Method Not Allowed", "invalid_request_error", "method_not_allowed", "this method isn't allowed here"))
         }
         _ => Err(ApiError::new("404 Not Found", "invalid_request_error", "not_found", "this gateway serves /v1/models and /v1/chat/completions")),

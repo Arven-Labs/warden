@@ -296,7 +296,8 @@ mod tests {
 
     #[tokio::test]
     async fn a_request_that_would_fail_anywhere_is_not_retried() {
-        for outcome in [Outcome::Http(400), Outcome::Http(401), Outcome::Other] {
+        // 402 too: the hosted gateway's "no credit" is something the user has to see, not something to hide behind the next link.
+        for outcome in [Outcome::Http(400), Outcome::Http(401), Outcome::Http(402), Outcome::Other] {
             let reserve = scripted("r", Outcome::Reply("reserve"));
             let provider = chain(vec![("main", scripted("m", outcome)), ("spare", reserve.clone())]);
             assert!(run(&provider).await.is_err());

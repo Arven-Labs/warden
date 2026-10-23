@@ -170,16 +170,17 @@ pub fn resolve_limits(from_env: Option<String>, from_file: Option<&[LimitConfig]
 }
 
 /// What to tell someone in a chat app when their message failed: the plain reason for a spending
-/// limit (they can act on it — wait, or ask the owner), the usual apology for anything else. The
-/// details of a failure other than this one stay in the log, not in the chat.
+/// limit or for a hosted gateway with no credit left (they can act on those — wait, ask the owner, top
+/// up), the usual apology for anything else. The details of any other failure stay in the log, not in the chat.
 pub fn chat_error_reply(err: &anyhow::Error) -> String {
-    match err.downcast_ref::<warden_core::budget::SpendLimitReached>() {
-        Some(reached) => {
-            let back = reached.0.frees_up_in_minutes.map(|m| format!(" It should free up in about {m} minutes.")).unwrap_or_default();
-            format!("I've reached my spending limit ('{}') for now, so I can't answer.{back}", reached.0.id)
-        }
-        None => "Sorry, something went wrong handling your message.".to_string(),
+    if let Some(reached) = err.downcast_ref::<warden_core::budget::SpendLimitReached>() {
+        let back = reached.0.frees_up_in_minutes.map(|m| format!(" It should free up in about {m} minutes.")).unwrap_or_default();
+        return format!("I've reached my spending limit ('{}') for now, so I can't answer.{back}", reached.0.id);
     }
+    if let Some(message) = warden_core::model::out_of_credits_message(err) {
+        return message.to_string();
+    }
+    "Sorry, something went wrong handling your message.".to_string()
 }
 
 /// Prices with a usable number; the rest are reported.
@@ -443,6 +444,14 @@ mod tests {
         assert!(reply.contains("'ana'") && reply.contains("12 minutes"), "{reply}");
         assert!(!reply.contains("10"), "no usage numbers in a chat: {reply}");
         assert_eq!(chat_error_reply(&anyhow::anyhow!("boom: secret detail")), "Sorry, something went wrong handling your message.");
+        // The hosted gateway with no credit left is something the person can act on, so it is said plainly.
+        let no_credit = warden_core::model::ProviderHttpError {
+            provider: "OpenAI",
+            status: 402,
+            reason: "402 Payment Required".into(),
+            body: r#"{"error":{"code":"insufficient_credit"}}"#.into(),
+        };
+        assert_eq!(chat_error_reply(&anyhow::Error::new(no_credit)), warden_core::model::OUT_OF_CREDITS_MESSAGE);
     }
 
     #[test]

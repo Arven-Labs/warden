@@ -1747,7 +1747,12 @@ async fn handle_connection<S: Transport>(ws: WebSocketStream<S>, peer: SocketAdd
                             // A member can't allow more, so the pause tells them to ask, with nothing to extend.
                             Err(err) => match is_member.then(|| member_limit_message(&err)).flatten() {
                                 Some(message) => ServerMessage::ChatError { message, conversation_id: Some(conversation_id), spend_limit_id: None },
-                                None => ServerMessage::ChatError { message: format!("{err:#}"), conversation_id: Some(conversation_id), spend_limit_id: spend_limit_id(&err) },
+                                // The hosted gateway has no credit left: a plain "top up" instead of the provider's raw 402 text.
+                                None => ServerMessage::ChatError {
+                                    message: warden_core::model::out_of_credits_message(&err).map_or_else(|| format!("{err:#}"), str::to_string),
+                                    conversation_id: Some(conversation_id),
+                                    spend_limit_id: spend_limit_id(&err),
+                                },
                             },
                         };
                         let answered = matches!(reply, ServerMessage::ChatResponse { .. });
@@ -1914,8 +1919,22 @@ async fn handle_connection<S: Transport>(ws: WebSocketStream<S>, peer: SocketAdd
                     let pairing = PairingStore::new(devices_path.as_ref().clone());
                     let guard = orchestrator.current().spend_guard().cloned();
                     let reply_tx = tx.clone();
-                    tokio::task::spawn_blocking(move || {
-                        let _ = reply_tx.send(handle_usage_request(&root, tasks_dir.as_deref().map(PathBuf::as_path), &pairing, guard.as_deref(), request_id, tz_offset_minutes));
+                    // The hosted credit (a `cloud` provider's gateway) is asked for at the same time as the folders are read, so a slow
+                    // gateway holds up only its own card, never the report: a gateway that doesn't answer in 3 s just means no balance.
+                    let config = settings.as_deref().and_then(|host| load_config_from_path(&host.config_path(), false).ok());
+                    tokio::spawn(async move {
+                        let credit = async {
+                            match &config {
+                                Some(config) => warden_bootstrap::hosted_credit(config).await,
+                                None => None,
+                            }
+                        };
+                        let report = tokio::task::spawn_blocking(move || {
+                            handle_usage_request(&root, tasks_dir.as_deref().map(PathBuf::as_path), &pairing, guard.as_deref(), request_id, tz_offset_minutes)
+                        });
+                        let (credit, report) = tokio::join!(credit, report);
+                        let reply = report.unwrap_or_else(|_| ServerMessage::UsageError { request_id, message: "the usage report failed".into() });
+                        let _ = reply_tx.send(crate::usage::with_credit(reply, credit));
                     });
                 }
                 Ok(ClientMessage::ExtendLimit { request_id, limit_id }) => {

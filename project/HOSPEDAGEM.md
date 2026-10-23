@@ -131,7 +131,7 @@ Vêm da spec do router (`SPEC-warden-router-e-futuro.md`, de 2026-10-14), que fo
 
 **C5. Caminho de uma chamada hospedada:** agente na instância -> `Provider::Cloud` (`base_url` do gateway) -> o gateway escolhe o provedor real (os combos de roteamento ficam nele) -> resposta em stream. As chaves reais ficam num cofre de segredos do servidor do gateway, **não** no `config.secrets.toml` de nenhuma instância. O cliente escolhe o modelo pelo nome do catálogo.
 
-**Ponto de partida no código:** o `MeterSink` (`warden-core/src/meter.rs`) é a emenda certa, mas **hoje nada o chama**. Ligá-lo (modo `Agent` e modo `Raw`) é pré-requisito. O `LedgerMeter` local continua alimentando limites e telas de uso; no hospedado, o saldo exibido vem do gateway.
+**Ponto de partida no código:** o `MeterSink` (`warden-core/src/meter.rs`) é a emenda certa, mas **hoje nada o chama**. ~~Ligá-lo (modo `Agent` e modo `Raw`) é pré-requisito.~~ **Revisto na Sessão 273: não é pré-requisito, e não foi ligado de propósito.** O gateway mede sozinho, pelo `usage` que o provedor devolve, e o gasto e os limites da instância já são gravados pelo `budget.rs` (`record_in_combo`): ligar o `MeterSink` também contaria cada chamada duas vezes, e só daria uma estimativa que se afasta do saldo real. O `LedgerMeter` local continua alimentando limites e telas de uso; no hospedado, o saldo exibido vem do gateway (`GET /v1/balance`, lido pelo hub e levado na tela de Uso). A emenda só passa a valer se um roteador hospedado precisar medir chamadas próprias.
 
 ## D. Provisionamento e operação (uma instância por cliente)
 

@@ -10,7 +10,7 @@ use std::path::Path;
 use warden_bootstrap::usage::{daily_cost, daily_usage, UsageByKey};
 use warden_bootstrap::{aggregate_usage, list_conversations, Conversation};
 use warden_core::spend::SpendGuard;
-use warden_server_protocol::protocol::{DailyCostDto, DailyUsageDto, DeviceUsage, LimitStatusDto, UsageByKeyDto, UsageReportDto};
+use warden_server_protocol::protocol::{CreditDto, DailyCostDto, DailyUsageDto, DeviceUsage, LimitStatusDto, UsageByKeyDto, UsageReportDto};
 use warden_server_protocol::ServerMessage;
 
 use crate::device_registry::PairingStore;
@@ -128,7 +128,20 @@ pub fn build_usage_report(
         by_agent: usage_by_key(summary.by_agent),
         by_provider: usage_by_key(summary.by_provider),
         by_combo: usage_by_key(summary.by_combo),
+        // The hub adds it afterwards (`with_credit`): asking the gateway is a network call, not part of reading the folders.
+        credit: None,
     })
+}
+
+/// A usage reply with the hosted credit put in, when there is one. Anything but a report passes through untouched.
+pub fn with_credit(reply: ServerMessage, credit: Option<warden_core::model::cloud_balance::CloudBalance>) -> ServerMessage {
+    match (reply, credit) {
+        (ServerMessage::UsageReport { request_id, mut report }, Some(c)) => {
+            report.credit = Some(CreditDto { balance_micro_usd: c.balance_micro_usd, available_micro_usd: c.available_micro_usd });
+            ServerMessage::UsageReport { request_id, report }
+        }
+        (reply, _) => reply,
+    }
 }
 
 /// What `RequestUsage` reports to a workspace member (P99): their own conversations, their own calls in the ledger and the
@@ -183,6 +196,8 @@ pub fn build_member_usage_report(
         by_agent: usage_by_key(summary.by_agent),
         by_provider: usage_by_key(summary.by_provider),
         by_combo: usage_by_key(summary.by_combo),
+        // The hosted credit belongs to the instance, not to a member.
+        credit: None,
     })
 }
 
@@ -417,6 +432,30 @@ mod tests {
         let err = anyhow::Error::new(warden_core::budget::SpendLimitReached(Box::new(status))).context("turn failed");
         assert_eq!(spend_limit_id(&err).as_deref(), Some("day"));
         assert_eq!(spend_limit_id(&anyhow::anyhow!("provider error")), None);
+    }
+
+    #[test]
+    fn the_credit_goes_into_a_usage_report_and_only_into_one() {
+        let root = temp_dir("credit-root");
+        let pairing = PairingStore::new(temp_dir("credit-devices").join("devices.json"));
+        let reply = handle_usage_request(&root, None, &pairing, None, 7, 0);
+        let balance = warden_core::model::cloud_balance::CloudBalance { balance_micro_usd: 5_000_000, available_micro_usd: 4_000_000 };
+
+        match with_credit(reply.clone(), Some(balance)) {
+            ServerMessage::UsageReport { request_id, report } => {
+                assert_eq!(request_id, 7);
+                assert_eq!(report.credit, Some(CreditDto { balance_micro_usd: 5_000_000, available_micro_usd: 4_000_000 }));
+            }
+            other => panic!("{other:?}"),
+        }
+        // No gateway answer: the report is as it was, with no credit.
+        match with_credit(reply, None) {
+            ServerMessage::UsageReport { report, .. } => assert_eq!(report.credit, None),
+            other => panic!("{other:?}"),
+        }
+        // A reply that isn't a report is not touched.
+        let error = ServerMessage::UsageError { request_id: 1, message: "x".into() };
+        assert_eq!(with_credit(error.clone(), Some(balance)), error);
     }
 
     #[test]
