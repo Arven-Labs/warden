@@ -11,7 +11,8 @@
 - **Pedido**: "pode seguir com o próximo item" (o item 2 da minha lista). Um agente de exploração achou os três pontos; planejei em modo de plano e o plano foi aprovado.
 - **Feito**: (1) `i18n/catalog.ts` na web e no desktop com as 8 descrições da galeria em pt-BR por nome da skill, e `catalogDescription(name, fallback)` nos dois `SkillsView.tsx`; fica fora do `Key`/`en.ts` porque o inglês é o texto do próprio hub e as chaves tipadas exigem paridade; (2) o seletor de idioma da web ganhou borda, fundo, cor e foco como os selects das configurações; (3) o E2E do desktop espera o título "Limites de gasto" antes da foto `desktop-pt-usage`.
 - **Testes**: `catalog.test.mjs` na web e no desktop (cada skill de `crates/warden-core/catalog/skills/` tem descrição pt-BR e nenhuma sobra; traduz em pt-BR, mantém o texto do hub em inglês e para skill desconhecida); `node --test`: web 113 e desktop 186, todos passam.
-- **Fica**: conferir no CI as fotos novas (`desktop-pt-usage` sem "Carregando…" e o seletor da web); o corpo das skills segue em inglês de propósito.
+- **CI e fotos**: commit `146dd3e`: CI e Web E2E verdes; **Desktop E2E falhou** no meu `waitFor("Limites de gasto")` (30 s). A causa não era só a espera: o mock do E2E não respondia a `usage_summary` e `spend_status`, então a tela ficava em "Carregando o uso…" para sempre (a foto antiga já era isso). Conserto no `cebb5d8`: o mock responde com números de exemplo e o teste espera "Total de tokens" e o título. CI e Desktop E2E verdes (run 40027879796). Fotos conferidas: web `pt-chat` (seletor de idioma com borda e fundo) e `pt-skills` (8 descrições em português); desktop `pt-usage` (cartões e listas carregados, sem corte). Detalhe sem importância visto na foto do desktop: a barra lateral mostra "Cofre" com destaque forte e "Uso" fraco, provavelmente a transição do destaque pega no meio.
+- **Fica**: o corpo das skills segue em inglês de propósito.
 
 ---
 
