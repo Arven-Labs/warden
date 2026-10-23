@@ -9,7 +9,8 @@
 //!
 //! Not a commercial product yet (Session 273): accounts are made by hand with the CLI, and there is no payment, no expiry
 //! and no automatic refund. Rate limits (`ratelimit`: per IP and per token, token bucket) and the hourly spend cap that suspends
-//! a token (`store`) came in Session 275. Not here: TLS, a cap on simultaneous connections and long streams.
+//! a token (`store`) came in Session 275, and TLS on the socket itself (`tls`, PEM files that are reloaded on renewal) in Session
+//! 276. Not here: a cap on simultaneous connections and long streams, ACME, client certificates.
 
 pub mod catalog;
 pub mod fake;
@@ -20,6 +21,7 @@ pub mod quota;
 pub mod ratelimit;
 pub mod sse;
 pub mod store;
+pub mod tls;
 pub mod upstream;
 pub mod webhook;
 

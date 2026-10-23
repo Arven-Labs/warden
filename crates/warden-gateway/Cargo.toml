@@ -23,11 +23,19 @@ rand = "0.8"
 reqwest.workspace = true
 # `bundled` compiles SQLite from source, so nothing has to be installed on the host (Linux, Windows and the image alike).
 rusqlite = { version = "0.40", features = ["bundled"] }
+# TLS for the endpoint itself (P168 b), the same crates and features as `warden-server`. The provider is `ring`, chosen in code: the
+# workspace also compiles `aws-lc-rs` (through reqwest), and rustls refuses to guess between the two.
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
 serde.workspace = true
 serde_json.workspace = true
 sha2 = "0.10"
 tokio.workspace = true
+tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "tls12"] }
 toml.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
 warden-hosted-protocol = { path = "../warden-hosted-protocol" }
+
+[dev-dependencies]
+# A throwaway CA and leaf standing in for a real certificate, in the TLS tests.
+rcgen = { version = "0.14", default-features = false, features = ["crypto", "pem", "ring"] }

@@ -14,6 +14,7 @@ use tracing_subscriber::EnvFilter;
 use warden_gateway::http::GatewayServer;
 use warden_gateway::money::{format_usd, parse_usd};
 use warden_gateway::store::{EntryKind, Micros, Store};
+use warden_gateway::tls::GatewayTls;
 use warden_gateway::upstream::HttpUpstream;
 use warden_gateway::webhook::{Dispatcher, HttpSender};
 use warden_gateway::{Catalog, Gateway};
@@ -64,6 +65,14 @@ enum Command {
         /// Resume it with `accounts resume`. Without it there is no hourly cap.
         #[arg(long, env = "WARDEN_GATEWAY_HOURLY_SPEND_CAP_USD")]
         hourly_spend_cap_usd: Option<String>,
+        /// Serve TLS on the socket itself: the certificate chain, PEM, leaf first. Read again on the next handshake when the
+        /// file changes, so a renewal needs no restart. Without `--tls-cert` and `--tls-key` the endpoint is plain HTTP, for a
+        /// reverse proxy that does the TLS.
+        #[arg(long, env = "WARDEN_GATEWAY_TLS_CERT", requires = "tls_key")]
+        tls_cert: Option<PathBuf>,
+        /// The private key of `--tls-cert`, PEM.
+        #[arg(long, env = "WARDEN_GATEWAY_TLS_KEY", requires = "tls_cert")]
+        tls_key: Option<PathBuf>,
     },
     /// The webhook outbox.
     Webhooks {
@@ -179,6 +188,8 @@ async fn main() -> Result<()> {
             token_rate_per_min,
             trust_forwarded_for,
             hourly_spend_cap_usd,
+            tls_cert,
+            tls_key,
         } => {
             let mut store = open_store(&cli)?;
             if let Some(low) = optional_usd(low_balance_usd)? {
@@ -197,6 +208,16 @@ async fn main() -> Result<()> {
             let gateway = Gateway::new(store.clone(), catalog.clone());
             let mut server = GatewayServer::bind(*listen, gateway, Arc::new(HttpUpstream::new())).await.with_context(|| format!("cannot listen on {listen}"))?;
             server = server.with_rate_limits(*ip_rate_per_min, *token_rate_per_min).with_trust_forwarded_for(*trust_forwarded_for);
+            // The two go together (clap's `requires`), so one is enough to tell. A bad file stops the start: a gateway that
+            // meant to serve TLS must never come up answering in the clear.
+            let secure = match (tls_cert, tls_key) {
+                (Some(cert), Some(key)) => {
+                    let tls = GatewayTls::from_pem_files(cert, key).with_context(|| format!("cannot load the TLS certificate {}", cert.display()))?;
+                    server = server.with_tls(tls);
+                    true
+                }
+                _ => false,
+            };
             if *trust_forwarded_for {
                 tracing::info!("trusting the last X-Forwarded-For entry as the client address: keep the gateway reachable only through the proxy");
             }
@@ -213,7 +234,15 @@ async fn main() -> Result<()> {
                 (None, None) => tracing::warn!("no webhook URL: balance events and daily summaries are queued but not sent"),
                 _ => bail!("--webhook-url and --webhook-secret go together"),
             }
-            tracing::info!(addr = %server.local_addr()?, models = catalog.models.len(), "gateway listening (plain HTTP: put TLS in front of it)");
+            if secure {
+                tracing::info!(addr = %server.local_addr()?, models = catalog.models.len(), "gateway listening (TLS only)");
+            } else {
+                tracing::info!(
+                    addr = %server.local_addr()?,
+                    models = catalog.models.len(),
+                    "gateway listening (plain HTTP: use --tls-cert and --tls-key, or put TLS in front of it)"
+                );
+            }
             server.serve().await;
             Ok(())
         }

@@ -2,7 +2,17 @@
 
 > **Nota**: Este log foi criado junto com o projeto. As sessões serão registradas aqui conforme o trabalho avança.
 >
-> Última atualização: 2026-10-23 (Sessão 275)
+> Última atualização: 2026-10-23 (Sessão 276)
+
+---
+
+### 2026-10-23 — Sessão 276 (o TLS no próprio gateway: P168 b)
+
+- **Pedido**: "pode seguir com o próximo item" (o TLS, o item seguinte da lista). Um agente de exploração mapeou o TLS do `warden-server` e os pontos do gateway presos ao `TcpStream`; planejei em modo de plano. Sem decisão de produto em aberto: segue o desenho do hub.
+- **Feito**: `crates/warden-gateway/src/tls.rs` (adaptado do `warden-server/src/tls.rs`, só a parte de PEM: `GatewayTls::from_pem_files`, o resolvedor que relê cert e chave quando o mtime muda e mantém o antigo se a recarga falhar no meio da troca, chave que não casa com o certificado recusada); `http.rs` (`handle` passou a genérico, `GatewayServer::with_tls`, o handshake na tarefa de cada conexão com 10 s de limite, `close_notify` no fim; o IP do cliente segue o do TCP); `main.rs` (`--tls-cert` e `--tls-key`, um exige o outro; arquivo ruim impede a subida; o log diz "TLS only" ou avisa que é HTTP puro); `Cargo.toml` (`rustls` e `tokio-rustls` com as mesmas features do `warden-server`, `rcgen` só em `dev-dependencies`) e o `Cargo.lock` editado à mão (três entradas na lista do `warden-gateway`; o CI não usa `--locked`).
+- **Testes** (nada rodou aqui: o Rust vai para o CI): 4 unitários em `tls.rs` (par que casa, arquivo que falta, arquivo sem certificado, chave que não é do certificado) e a suíte nova `tests/tls.rs` com uma CA descartável do `rcgen`: HTTPS serve `/health`, `/v1/models` e uma chamada cobrada; uma resposta em stream (SSE) chega inteira e termina com `close_notify` limpo; um cliente que não confia na CA (ou confia em outra) é recusado; HTTP puro na porta TLS não recebe HTTP de volta; trocar os arquivos por outra CA vale no handshake seguinte sem reiniciar; o rate limit continua valendo sobre TLS.
+- **Fica**: o teto de conexões simultâneas e de streams longos; a imagem Docker do gateway (P168 j), onde as flags de TLS vão aparecer.
+- **CI**: a conferir.
 
 ---
 

@@ -1,7 +1,8 @@
 //! The endpoint: `POST /v1/chat/completions`, `GET /v1/models`, `GET /v1/balance` and `GET /health`, with the instance token as the bearer key.
 //!
 //! Hand-written over a TCP stream (`httparse`), like the Warden API in `warden-server`: one request per connection, the
-//! connection closed after the answer, plain HTTP (TLS is the reverse proxy's job for now). A call goes through
+//! connection closed after the answer. Plain HTTP by default, with TLS in front of it by a reverse proxy; or TLS on the
+//! socket itself when `GatewayServer::with_tls` is given the certificate (P168 b). A call goes through
 //! `Gateway::reserve`, the upstream provider and `Gateway::settle`; the caller sees the provider's answer with the
 //! catalog's model name, and a streamed answer is forwarded as it comes.
 
@@ -11,7 +12,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use serde_json::{json, Value};
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
-use tokio::net::{TcpListener, TcpStream};
+use tokio::net::TcpListener;
 
 use warden_hosted_protocol::{
     verify, BalanceResponse, TopUpRequest, TopUpResponse, UsageResponse, SIGNATURE_HEADER,
@@ -23,11 +24,14 @@ use crate::quota::{day_start, DAY_SECS};
 use crate::ratelimit::{client_key, retry_after_secs, token_key, RateLimiter};
 use crate::sse::{usage_of, UsageScanner};
 use crate::store::{EntryKind, StoreError};
+use crate::tls::GatewayTls;
 use crate::upstream::{Upstream, UpstreamCall, UpstreamError};
 
 const MAX_HEAD: usize = 16 * 1024;
 const MAX_BODY: usize = 8 * 1024 * 1024;
 const HEAD_TIMEOUT: Duration = Duration::from_secs(30);
+/// How long a client has to finish the TLS handshake before the connection is dropped.
+const TLS_ACCEPT_TIMEOUT: Duration = Duration::from_secs(10);
 
 fn now() -> i64 {
     SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs() as i64).unwrap_or(0)
@@ -127,6 +131,7 @@ pub struct GatewayServer {
     ip_per_min: u32,
     token_per_min: u32,
     trust_forwarded_for: bool,
+    tls: Option<GatewayTls>,
 }
 
 impl GatewayServer {
@@ -140,7 +145,15 @@ impl GatewayServer {
             ip_per_min: 0,
             token_per_min: 0,
             trust_forwarded_for: false,
+            tls: None,
         })
+    }
+
+    /// Serves TLS on the socket itself: a client that doesn't open with a TLS handshake gets no answer. Without this the
+    /// endpoint is plain HTTP, for a reverse proxy that does the TLS.
+    pub fn with_tls(mut self, tls: GatewayTls) -> GatewayServer {
+        self.tls = Some(tls);
+        self
     }
 
     /// Limits requests a minute per client IP and per instance token (`0` leaves that one off). The site mãe's signed
@@ -178,12 +191,36 @@ impl GatewayServer {
             token_limit: RateLimiter::new(self.token_per_min),
             trust_forwarded_for: self.trust_forwarded_for,
         });
+        let tls = self.tls;
         loop {
             let Ok((stream, peer)) = self.listener.accept().await else { continue };
             let state = state.clone();
+            let tls = tls.clone();
+            // The handshake is in the connection's own task, so a client that is slow at it holds up nobody else's accept.
             tokio::spawn(async move {
-                let mut stream = stream;
-                if let Err(e) = handle(&mut stream, &state, peer.ip()).await {
+                let result = match tls {
+                    Some(tls) => match tokio::time::timeout(TLS_ACCEPT_TIMEOUT, tls.acceptor.accept(stream)).await {
+                        Ok(Ok(mut secure)) => {
+                            let result = handle(&mut secure, &state, peer.ip()).await;
+                            // `close_notify`, so the client can tell the end of the answer from a cut connection.
+                            let _ = secure.shutdown().await;
+                            result
+                        }
+                        Ok(Err(e)) => {
+                            tracing::debug!(%peer, "TLS handshake failed: {e}");
+                            return;
+                        }
+                        Err(_) => {
+                            tracing::debug!(%peer, "TLS handshake timed out");
+                            return;
+                        }
+                    },
+                    None => {
+                        let mut stream = stream;
+                        handle(&mut stream, &state, peer.ip()).await
+                    }
+                };
+                if let Err(e) = result {
                     tracing::debug!("connection ended: {e}");
                 }
             });
@@ -191,7 +228,7 @@ impl GatewayServer {
     }
 }
 
-async fn handle(stream: &mut TcpStream, state: &State, peer: IpAddr) -> std::io::Result<()> {
+async fn handle<S: AsyncRead + AsyncWrite + Unpin>(stream: &mut S, state: &State, peer: IpAddr) -> std::io::Result<()> {
     let request = match tokio::time::timeout(HEAD_TIMEOUT, read_request(stream)).await {
         Ok(Ok(request)) => request,
         Ok(Err(err)) => return write_json(stream, err.status, &err.body(), &err.headers()).await,
