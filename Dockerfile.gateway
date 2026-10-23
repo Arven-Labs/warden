@@ -1,0 +1,41 @@
+# A imagem do gateway de modelos (`warden-gateway`), a fase 2 da hospedagem (P168 j, HOSPEDAGEM.md).
+#
+#   docker build -f Dockerfile.gateway -t warden-gateway .
+#   docker run --read-only --tmpfs /tmp -v gateway-data:/data -p 7430:7430 \
+#     -e WARDEN_GATEWAY_ADMIN_SECRET="$(openssl rand -hex 32)" -e GEMINI_API_KEY=... warden-gateway
+#
+# O catálogo (`catalog.toml`) e o livro-caixa (`ledger.db`) moram em /data; a raiz pode ser só de leitura. Contas e créditos se
+# fazem com a mesma imagem: `docker exec <contêiner> warden-gateway accounts create acme`.
+# Construída no GitHub Actions (`.github/workflows/gateway-image.yml`), não na máquina de desenvolvimento.
+
+# 1. O binário. `cmake` é do `aws-lc-sys` (o reqwest com rustls). O SQLite vem compilado dentro do binário (`rusqlite/bundled`).
+FROM rust:1-trixie AS build
+RUN apt-get update && apt-get install -y --no-install-recommends cmake && rm -rf /var/lib/apt/lists/*
+WORKDIR /src
+COPY . .
+RUN cargo build --release --locked -p warden-gateway
+
+# 2. O que roda. `curl` é do HEALTHCHECK.
+FROM debian:trixie-slim
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ca-certificates curl \
+    && rm -rf /var/lib/apt/lists/* \
+    && useradd --system --uid 10001 --home-dir /tmp --shell /usr/sbin/nologin warden \
+    && mkdir /data && chown warden /data
+COPY --from=build /src/target/release/warden-gateway /usr/local/bin/warden-gateway
+
+USER warden
+ENV HOME=/tmp
+# Dentro do contêiner o gateway tem de escutar em todas as interfaces; o padrão (127.0.0.1) não seria alcançável de fora.
+ENV WARDEN_GATEWAY_DIR=/data \
+    WARDEN_GATEWAY_LISTEN=0.0.0.0:7430
+VOLUME /data
+EXPOSE 7430
+
+# `/health` é público e mínimo. Assume HTTP simples: com `--tls-cert` e `--tls-key` (TLS no próprio gateway) esta sonda troca.
+HEALTHCHECK --interval=30s --timeout=3s --start-period=10s --retries=3 CMD curl -fsS http://127.0.0.1:7430/health || exit 1
+
+# Os segredos (WARDEN_GATEWAY_ADMIN_SECRET, WARDEN_GATEWAY_WEBHOOK_SECRET e as chaves dos provedores, nomeadas por `api_key_env` no
+# catálogo) vêm do ambiente, sem valor padrão.
+ENTRYPOINT ["warden-gateway"]
+CMD ["serve"]

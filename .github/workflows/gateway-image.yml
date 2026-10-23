@@ -1,0 +1,49 @@
+name: Gateway image
+
+# Builds the gateway image (Dockerfile.gateway) and runs the smoke test with the read-only root (P168 j). It publishes nothing:
+# the hosting is not commercial yet. Like the hub's image (`image.yml`), the release build is heavy, so it runs only when the
+# gateway, its protocol crate or the image files change, or by hand ("Run workflow").
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'Dockerfile.gateway'
+      - '.dockerignore'
+      - 'scripts/gateway-smoke.sh'
+      - 'scripts/fake-openai.py'
+      - 'crates/warden-gateway/**'
+      - 'crates/warden-hosted-protocol/**'
+      - 'Cargo.lock'
+      - '.github/workflows/gateway-image.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: gateway-image-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  image:
+    name: Image and smoke test
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: docker/setup-buildx-action@v4
+
+      # Its own cache scope, so it does not overwrite the hub image's.
+      - name: Build
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: Dockerfile.gateway
+          load: true
+          tags: warden-gateway:smoke
+          cache-from: type=gha,scope=gateway
+          cache-to: type=gha,scope=gateway,mode=max
+
+      - name: Smoke test (read-only root)
+        run: bash scripts/gateway-smoke.sh warden-gateway:smoke

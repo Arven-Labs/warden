@@ -179,6 +179,29 @@ fn load_catalog(cli: &Cli) -> Result<Catalog> {
     Catalog::load(&path).map_err(anyhow::Error::msg)
 }
 
+/// Resolves when the process is asked to stop: SIGTERM (what systemd and `docker stop` send) or SIGINT (Ctrl+C).
+async fn stop_signal() {
+    #[cfg(unix)]
+    {
+        use tokio::signal::unix::{signal, SignalKind};
+        match signal(SignalKind::terminate()) {
+            Ok(mut terminate) => {
+                tokio::select! {
+                    _ = terminate.recv() => {}
+                    _ = tokio::signal::ctrl_c() => {}
+                }
+            }
+            Err(_) => {
+                let _ = tokio::signal::ctrl_c().await;
+            }
+        }
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = tokio::signal::ctrl_c().await;
+    }
+}
+
 fn optional_usd(value: &Option<String>) -> Result<Option<Micros>> {
     value.as_deref().map(|v| parse_usd(v).map_err(anyhow::Error::msg)).transpose()
 }
@@ -265,7 +288,13 @@ async fn main() -> Result<()> {
                     "gateway listening (plain HTTP: use --tls-cert and --tls-key, or put TLS in front of it)"
                 );
             }
-            server.serve().await;
+            // A cut mid-call is safe: the ledger is SQLite in WAL, a hold left behind expires, and a webhook still queued is sent
+            // again by the next run (delivery is at least once).
+            tokio::select! {
+                _ = server.serve() => {}
+                _ = stop_signal() => {}
+            }
+            tracing::info!("gateway stopped");
             Ok(())
         }
         Command::Accounts { command } => accounts(&cli, command),
