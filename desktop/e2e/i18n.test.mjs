@@ -75,6 +75,15 @@ const backend = () => ({
     syncignorePatternCount: 0,
   },
   git_sync_configured: false,
+  // The Usage screen: without these it shows its error, not the numbers.
+  usage_summary: {
+    conversationCount: 3,
+    messageCount: 12,
+    total: { promptTokens: 8200, completionTokens: 3100, totalTokens: 11300 },
+    byAgent: [{ key: "writer", messageCount: 7, usage: { promptTokens: 5000, completionTokens: 2000, totalTokens: 7000 } }],
+    byProvider: [{ key: null, messageCount: 12, usage: { promptTokens: 8200, completionTokens: 3100, totalTokens: 11300 } }],
+  },
+  spend_status: { limitsEnabled: false, limits: [], recent: null, ledgerError: null },
 });
 
 describe("the language of the app", () => {
@@ -139,6 +148,7 @@ describe("the Portuguese screens", () => {
       await page.getByRole("heading", { name: "Cofre" }).first().waitFor();
       await snap(page, "desktop-pt-vault");
       await open("Uso");
+      await page.getByText("Total de tokens").waitFor();
       await page.getByRole("heading", { name: "Limites de gasto" }).waitFor();
       await snap(page, "desktop-pt-usage");
       await open("Skills");
