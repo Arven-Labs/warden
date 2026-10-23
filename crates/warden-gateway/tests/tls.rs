@@ -236,8 +236,10 @@ async fn replacing_the_certificate_files_takes_effect_without_a_restart() {
     new_ca.write_to(&rig.dir);
 
     assert_eq!(https(rig.addr, &new_client, "GET", "/health", None, None).await.0, 200, "the renewed certificate is served on the next handshake");
+    // A fresh client for the old CA: `old_client` already spoke to this server and would resume that TLS session, and a resumed
+    // handshake sends no certificate at all, so it would prove nothing about which one is served.
     let tcp = TcpStream::connect(rig.addr).await.unwrap();
-    assert!(old_client.connect(ServerName::try_from("localhost").unwrap(), tcp).await.is_err(), "the old certificate is gone");
+    assert!(rig.ca.client().connect(ServerName::try_from("localhost").unwrap(), tcp).await.is_err(), "the old certificate is gone");
 }
 
 #[tokio::test]
