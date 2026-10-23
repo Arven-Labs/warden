@@ -6,7 +6,7 @@
 
 use std::net::SocketAddr;
 use std::sync::Arc;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use serde_json::{json, Value};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -38,12 +38,20 @@ fn now() -> i64 {
     SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs() as i64
 }
 
+const STALL_CHUNK: &[u8] = b"data: {\"choices\":[]}\n\n";
+
 #[derive(Default)]
 struct Setup {
     ip_per_min: u32,
     token_per_min: u32,
     trust_forwarded_for: bool,
     hourly_cap: Option<i64>,
+    max_connections: usize,
+    max_connections_per_ip: usize,
+    max_inflight_per_token: usize,
+    max_stream: Option<Duration>,
+    /// The upstream starts a stream and then stalls, so a streamed call stays in flight until something cuts it.
+    stalls: bool,
 }
 
 struct Rig {
@@ -64,13 +72,19 @@ async fn rig(setup: Setup) -> Rig {
     store.credit(&account.id, EntryKind::Topup, 100_000_000, Some("t"), "", now()).unwrap();
     let catalog = Arc::new(Catalog::parse(CATALOG, |_| None).unwrap());
     let reply = json!({"usage": {"prompt_tokens": 1000, "completion_tokens": 1000}, "choices": []});
-    let upstream = Arc::new(FakeUpstream::new(Script::Reply(reply)));
-    let server = GatewayServer::bind("127.0.0.1:0".parse().unwrap(), Gateway::new(store.clone(), catalog), upstream)
+    let script = if setup.stalls { Script::Stalls(STALL_CHUNK.to_vec()) } else { Script::Reply(reply) };
+    let upstream = Arc::new(FakeUpstream::new(script));
+    let mut server = GatewayServer::bind("127.0.0.1:0".parse().unwrap(), Gateway::new(store.clone(), catalog), upstream)
         .await
         .unwrap()
         .with_admin_secret(ADMIN)
         .with_rate_limits(setup.ip_per_min, setup.token_per_min)
-        .with_trust_forwarded_for(setup.trust_forwarded_for);
+        .with_trust_forwarded_for(setup.trust_forwarded_for)
+        .with_connection_limits(setup.max_connections, setup.max_connections_per_ip)
+        .with_inflight_limit(setup.max_inflight_per_token);
+    if let Some(max) = setup.max_stream {
+        server = server.with_max_stream(max);
+    }
     let addr = server.local_addr().unwrap();
     tokio::spawn(server.serve());
     Rig { addr, store, account: account.id, token }
@@ -238,7 +252,127 @@ async fn a_spike_over_the_hourly_cap_suspends_the_token_and_queues_the_notice() 
     assert_eq!((data["reason"].as_str(), data["cap_micro_usd"].as_i64()), (Some("spend_spike"), Some(5_000)));
     assert_eq!(data["spent_last_hour_micro_usd"].as_i64(), Some(7_800));
 
+    // The reason is in the ledger too, not just in the webhook.
+    let suspended = rig.store.account(&rig.account).unwrap().unwrap();
+    assert_eq!(suspended.suspended_reason.as_deref(), Some("spend_spike"));
+
     // The operator resumes it, and the token works again.
     rig.store.set_active(&rig.account, true).unwrap();
     assert_eq!(models(&rig, &rig.token, &[]).await.0, 200);
+}
+
+/// Opens a streamed chat on its own connection and waits for the first chunk, so the call is known to be in flight.
+async fn open_stream(rig: &Rig, token: &str) -> TcpStream {
+    let body = r#"{"model":"fast","stream":true,"messages":[{"role":"user","content":"hi"}]}"#;
+    let mut stream = TcpStream::connect(rig.addr).await.unwrap();
+    let request = format!(
+        "POST /v1/chat/completions HTTP/1.1\r\nHost: x\r\nAuthorization: Bearer {token}\r\nContent-Length: {}\r\n\r\n{body}",
+        body.len()
+    );
+    stream.write_all(request.as_bytes()).await.unwrap();
+    let mut seen = Vec::new();
+    let mut buf = [0u8; 512];
+    while !String::from_utf8_lossy(&seen).contains("data:") {
+        let n = tokio::time::timeout(Duration::from_secs(5), stream.read(&mut buf)).await.expect("the stream starts").unwrap();
+        assert!(n > 0, "the connection closed before the first chunk");
+        seen.extend_from_slice(&buf[..n]);
+    }
+    stream
+}
+
+#[tokio::test]
+async fn a_request_over_the_rate_limit_is_refused_before_its_body_is_asked_for() {
+    let rig = rig(Setup { ip_per_min: 6, ..Setup::default() }).await;
+    for _ in 0..5 {
+        assert_eq!(models(&rig, &rig.token, &[]).await.0, 200);
+    }
+    // A large body announced with `Expect: 100-continue`: the answer must be the refusal, with no "100 Continue" first.
+    let mut stream = TcpStream::connect(rig.addr).await.unwrap();
+    let head = format!(
+        "POST /v1/chat/completions HTTP/1.1\r\nHost: x\r\nAuthorization: Bearer {}\r\nContent-Length: 5000000\r\nExpect: 100-continue\r\n\r\n",
+        rig.token
+    );
+    stream.write_all(head.as_bytes()).await.unwrap();
+    let mut response = String::new();
+    tokio::time::timeout(Duration::from_secs(5), stream.read_to_string(&mut response)).await.expect("answered without the body").unwrap();
+    assert!(response.starts_with("HTTP/1.1 429"), "{response}");
+    assert!(!response.contains("100 Continue"), "{response}");
+}
+
+#[tokio::test]
+async fn a_token_cannot_have_more_chats_in_flight_than_its_cap_and_another_token_can() {
+    let rig = rig(Setup { max_inflight_per_token: 2, stalls: true, ..Setup::default() }).await;
+    let (other, other_token) = rig.store.create_account("other", now()).unwrap();
+    rig.store.credit(&other.id, EntryKind::Topup, 100_000_000, Some("t2"), "", now()).unwrap();
+
+    let _first = open_stream(&rig, &rig.token).await;
+    let _second = open_stream(&rig, &rig.token).await;
+    let (status, head, body) = chat(&rig).await;
+    assert_eq!(status, 429, "{body}");
+    assert_eq!(code(&body), "rate_limit_exceeded");
+    assert!(retry_after(&head).is_some(), "{head}");
+
+    let _other = open_stream(&rig, &other_token).await;
+}
+
+#[tokio::test]
+async fn connections_over_the_total_cap_are_closed_and_a_freed_place_is_taken_again() {
+    let rig = rig(Setup { max_connections: 2, ..Setup::default() }).await;
+    let first = TcpStream::connect(rig.addr).await.unwrap();
+    let _second = TcpStream::connect(rig.addr).await.unwrap();
+    // Let the server accept both before the third arrives.
+    tokio::time::sleep(Duration::from_millis(200)).await;
+
+    let mut third = TcpStream::connect(rig.addr).await.unwrap();
+    let mut buf = Vec::new();
+    let read = tokio::time::timeout(Duration::from_secs(5), third.read_to_end(&mut buf)).await.expect("the extra connection is closed");
+    assert!(read.map_or(true, |n| n == 0) && buf.is_empty(), "closed with no answer");
+
+    drop(first);
+    let mut status = 0;
+    for _ in 0..40 {
+        let Ok(mut stream) = TcpStream::connect(rig.addr).await else { continue };
+        let _ = stream.write_all(b"GET /health HTTP/1.1\r\nHost: x\r\n\r\n").await;
+        let mut response = String::new();
+        let _ = stream.read_to_string(&mut response).await;
+        if let Some(code) = response.split_whitespace().nth(1).and_then(|c| c.parse::<u16>().ok()) {
+            status = code;
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    assert_eq!(status, 200, "a place came free when the first connection closed");
+}
+
+#[tokio::test]
+async fn connections_over_the_per_address_cap_are_closed() {
+    let rig = rig(Setup { max_connections_per_ip: 2, ..Setup::default() }).await;
+    let _a = TcpStream::connect(rig.addr).await.unwrap();
+    let _b = TcpStream::connect(rig.addr).await.unwrap();
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    let mut third = TcpStream::connect(rig.addr).await.unwrap();
+    let mut buf = Vec::new();
+    let read = tokio::time::timeout(Duration::from_secs(5), third.read_to_end(&mut buf)).await.expect("the extra connection is closed");
+    assert!(read.map_or(true, |n| n == 0) && buf.is_empty());
+}
+
+#[tokio::test]
+async fn a_stream_past_its_time_limit_is_cut_and_settled() {
+    let rig = rig(Setup { max_stream: Some(Duration::from_millis(500)), stalls: true, ..Setup::default() }).await;
+    let before = rig.store.balance(&rig.account).unwrap();
+    let mut stream = open_stream(&rig, &rig.token).await;
+
+    let mut rest = Vec::new();
+    tokio::time::timeout(Duration::from_secs(5), stream.read_to_end(&mut rest)).await.expect("the gateway cuts the stream").unwrap();
+
+    // The chunk was forwarded but carried no usage: the hold is charged, not left open.
+    let mut after = before;
+    for _ in 0..40 {
+        after = rig.store.balance(&rig.account).unwrap();
+        if after < before {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    assert!(after < before, "the cut stream was settled");
 }

@@ -65,6 +65,8 @@ pub enum Script {
     Reply(Value),
     /// `stream` sends these chunks, then ends; an `Err` item breaks the stream there.
     Chunks(Vec<Result<Vec<u8>, String>>),
+    /// `stream` sends this chunk, then never another and never ends: a provider that stalls mid-answer.
+    Stalls(Vec<u8>),
     /// Both fail with this provider status.
     Status(u16),
     /// Both fail as if the provider were down.
@@ -104,6 +106,18 @@ impl ChunkStream for Chunks {
     }
 }
 
+struct Stalled(Option<Vec<u8>>);
+
+#[async_trait]
+impl ChunkStream for Stalled {
+    async fn next(&mut self) -> Option<Result<Vec<u8>, UpstreamError>> {
+        match self.0.take() {
+            Some(chunk) => Some(Ok(chunk)),
+            None => std::future::pending().await,
+        }
+    }
+}
+
 #[async_trait]
 impl Upstream for FakeUpstream {
     async fn complete(&self, call: &UpstreamCall) -> Result<Value, UpstreamError> {
@@ -124,6 +138,7 @@ impl Upstream for FakeUpstream {
         }
         match &self.script {
             Script::Chunks(chunks) => Ok(Box::new(Chunks(chunks.clone().into_iter()))),
+            Script::Stalls(first) => Ok(Box::new(Stalled(Some(first.clone())))),
             _ => Err(UpstreamError::Unreachable("the fake has no stream scripted".into())),
         }
     }

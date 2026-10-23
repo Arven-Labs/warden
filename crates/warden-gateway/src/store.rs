@@ -63,6 +63,9 @@ pub struct Account {
     pub daily_cap: Option<Micros>,
     pub monthly_cap: Option<Micros>,
     pub created_at: i64,
+    /// Why the account is suspended (`spend_spike` or `manual`) and since when; `None` while it is active.
+    pub suspended_reason: Option<String>,
+    pub suspended_at: Option<i64>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -236,10 +239,27 @@ fn account_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Account> {
         daily_cap: row.get(3)?,
         monthly_cap: row.get(4)?,
         created_at: row.get(5)?,
+        suspended_reason: row.get(6)?,
+        suspended_at: row.get(7)?,
     })
 }
 
-const ACCOUNT_COLUMNS: &str = "id, name, active, daily_cap, monthly_cap, created_at";
+const ACCOUNT_COLUMNS: &str = "id, name, active, daily_cap, monthly_cap, created_at, suspended_reason, suspended_at";
+
+/// Columns added after the first schema. `CREATE TABLE IF NOT EXISTS` leaves an older file as it was, so each is added here
+/// when the file lacks it.
+const ADDED_ACCOUNT_COLUMNS: [(&str, &str); 2] = [("suspended_reason", "TEXT"), ("suspended_at", "INTEGER")];
+
+fn add_missing_columns(conn: &Connection) -> Result<()> {
+    let mut stmt = conn.prepare("SELECT name FROM pragma_table_info('accounts')")?;
+    let have: Vec<String> = stmt.query_map([], |r| r.get(0))?.collect::<rusqlite::Result<_>>()?;
+    for (name, kind) in ADDED_ACCOUNT_COLUMNS {
+        if !have.iter().any(|h| h == name) {
+            conn.execute_batch(&format!("ALTER TABLE accounts ADD COLUMN {name} {kind}"))?;
+        }
+    }
+    Ok(())
+}
 
 impl Store {
     pub fn open(path: &Path) -> Result<Store> {
@@ -257,6 +277,7 @@ impl Store {
         conn.pragma_update(None, "foreign_keys", "ON")?;
         conn.busy_timeout(std::time::Duration::from_secs(5))?;
         conn.execute_batch(SCHEMA)?;
+        add_missing_columns(&conn)?;
         Ok(Store { conn: Mutex::new(conn), low_threshold: None, hourly_spend_cap: None })
     }
 
@@ -294,6 +315,8 @@ impl Store {
             daily_cap: None,
             monthly_cap: None,
             created_at: now,
+            suspended_reason: None,
+            suspended_at: None,
         };
         Ok((account, token))
     }
@@ -331,9 +354,17 @@ impl Store {
         Ok(())
     }
 
+    /// Suspends (recorded as `manual`) or resumes (the reason is cleared) an account by the operator's hand.
     pub fn set_active(&self, id: &str, active: bool) -> Result<()> {
         let conn = self.lock();
-        let n = conn.execute("UPDATE accounts SET active = ?2 WHERE id = ?1", params![id, active as i64])?;
+        let n = if active {
+            conn.execute("UPDATE accounts SET active = 1, suspended_reason = NULL, suspended_at = NULL WHERE id = ?1", params![id])?
+        } else {
+            conn.execute(
+                "UPDATE accounts SET active = 0, suspended_reason = 'manual', suspended_at = CAST(strftime('%s', 'now') AS INTEGER) WHERE id = ?1",
+                params![id],
+            )?
+        };
         if n == 0 {
             return Err(StoreError::UnknownAccount);
         }
@@ -476,7 +507,12 @@ impl Store {
                     |r| r.get(0),
                 )?;
                 // Only the call that flips the account from active to suspended raises the event, so it is sent once.
-                if spent > cap && tx.execute("UPDATE accounts SET active = 0 WHERE id = ?1 AND active = 1", params![record.account_id])? == 1 {
+                if spent > cap
+                    && tx.execute(
+                        "UPDATE accounts SET active = 0, suspended_reason = 'spend_spike', suspended_at = ?2 WHERE id = ?1 AND active = 1",
+                        params![record.account_id, now],
+                    )? == 1
+                {
                     let data = AccountSuspended {
                         account_id: record.account_id.clone(),
                         reason: "spend_spike".to_string(),
@@ -1147,6 +1183,55 @@ mod tests {
         assert!(store.due_events(at + 1_000_000, 10).unwrap().is_empty());
         assert_eq!(store.outbox_stats().unwrap(), OutboxStats { pending: 0, delivered: 0, given_up: 1 });
         assert_eq!(store.undelivered_events(10).unwrap().len(), 1);
+    }
+
+    #[test]
+    fn the_reason_for_a_suspension_is_kept_and_cleared_on_resume() {
+        let (store, account) = store_with_hourly_cap(1_000);
+        let fresh = store.account(&account.id).unwrap().unwrap();
+        assert_eq!((fresh.suspended_reason, fresh.suspended_at), (None, None));
+
+        spend(&store, &account, "r1", 1_100, NOW);
+        let spiked = store.account(&account.id).unwrap().unwrap();
+        assert_eq!((spiked.suspended_reason.as_deref(), spiked.suspended_at), (Some("spend_spike"), Some(NOW)));
+
+        store.set_active(&account.id, true).unwrap();
+        let resumed = store.account(&account.id).unwrap().unwrap();
+        assert_eq!((resumed.suspended_reason, resumed.suspended_at), (None, None));
+
+        store.set_active(&account.id, false).unwrap();
+        let by_hand = store.account(&account.id).unwrap().unwrap();
+        assert_eq!(by_hand.suspended_reason.as_deref(), Some("manual"));
+        assert!(by_hand.suspended_at.is_some());
+    }
+
+    #[test]
+    fn a_ledger_made_before_the_reason_columns_opens_and_gains_them() {
+        let dir = std::env::temp_dir().join(format!("warden-gateway-migrate-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("ledger.db");
+        let _ = std::fs::remove_file(&path);
+        {
+            // The accounts table as it was before the reason columns.
+            let conn = Connection::open(&path).unwrap();
+            conn.execute_batch(
+                "CREATE TABLE accounts (
+                    id TEXT PRIMARY KEY, name TEXT NOT NULL, token_hash TEXT NOT NULL UNIQUE,
+                    active INTEGER NOT NULL DEFAULT 1, daily_cap INTEGER, monthly_cap INTEGER, created_at INTEGER NOT NULL
+                );
+                INSERT INTO accounts (id, name, token_hash, created_at) VALUES ('acc_old', 'old', 'h', 1);",
+            )
+            .unwrap();
+        }
+        let store = Store::open(&path).unwrap();
+        let old = store.account("acc_old").unwrap().unwrap();
+        assert_eq!((old.active, old.suspended_reason), (true, None));
+        store.set_active("acc_old", false).unwrap();
+        assert_eq!(store.account("acc_old").unwrap().unwrap().suspended_reason.as_deref(), Some("manual"));
+        drop(store);
+        // Opening it again must not try to add the columns a second time.
+        Store::open(&path).unwrap();
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

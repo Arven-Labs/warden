@@ -20,6 +20,7 @@ use warden_hosted_protocol::{
 
 use crate::catalog::Tokens;
 use crate::flow::{Gateway, GatewayError, Outcome, Reservation, ReserveRequest};
+use crate::limits::Slots;
 use crate::quota::{day_start, DAY_SECS};
 use crate::ratelimit::{client_key, retry_after_secs, token_key, RateLimiter};
 use crate::sse::{usage_of, UsageScanner};
@@ -30,6 +31,8 @@ use crate::upstream::{Upstream, UpstreamCall, UpstreamError};
 const MAX_HEAD: usize = 16 * 1024;
 const MAX_BODY: usize = 8 * 1024 * 1024;
 const HEAD_TIMEOUT: Duration = Duration::from_secs(30);
+/// How long a client has to send the body once the limits let its request in.
+const BODY_TIMEOUT: Duration = Duration::from_secs(60);
 /// How long a client has to finish the TLS handshake before the connection is dropped.
 const TLS_ACCEPT_TIMEOUT: Duration = Duration::from_secs(10);
 
@@ -108,8 +111,6 @@ struct Request {
     path: String,
     token: Option<String>,
     signature: Option<String>,
-    /// The `X-Forwarded-For` header as received, for the client's address behind a reverse proxy.
-    forwarded_for: Option<String>,
     body: Vec<u8>,
 }
 
@@ -121,6 +122,10 @@ struct State {
     ip_limit: RateLimiter,
     token_limit: RateLimiter,
     trust_forwarded_for: bool,
+    /// Chat calls in flight, per instance token.
+    inflight: Arc<Slots>,
+    /// The longest a streamed answer may run; `None`: no limit.
+    max_stream: Option<Duration>,
 }
 
 pub struct GatewayServer {
@@ -132,6 +137,10 @@ pub struct GatewayServer {
     token_per_min: u32,
     trust_forwarded_for: bool,
     tls: Option<GatewayTls>,
+    max_connections: usize,
+    max_connections_per_ip: usize,
+    max_inflight_per_token: usize,
+    max_stream: Option<Duration>,
 }
 
 impl GatewayServer {
@@ -146,7 +155,32 @@ impl GatewayServer {
             token_per_min: 0,
             trust_forwarded_for: false,
             tls: None,
+            max_connections: 0,
+            max_connections_per_ip: 0,
+            max_inflight_per_token: 0,
+            max_stream: None,
         })
+    }
+
+    /// Caps the connections open at once, in all and per client address (`0` leaves that one off). A connection over a cap is
+    /// closed without an answer. The address is the connection's own, read before any header: behind a reverse proxy it is
+    /// always the proxy's, so with `with_trust_forwarded_for` the per-address cap is not applied (only the total).
+    pub fn with_connection_limits(mut self, total: usize, per_ip: usize) -> GatewayServer {
+        self.max_connections = total;
+        self.max_connections_per_ip = per_ip;
+        self
+    }
+
+    /// Caps the chat calls one instance token may have in flight (`0`: no cap). Over it: `429`.
+    pub fn with_inflight_limit(mut self, per_token: usize) -> GatewayServer {
+        self.max_inflight_per_token = per_token;
+        self
+    }
+
+    /// Cuts a streamed answer that runs longer than `max`, and settles it with the usage seen so far.
+    pub fn with_max_stream(mut self, max: Duration) -> GatewayServer {
+        self.max_stream = Some(max);
+        self
     }
 
     /// Serves TLS on the socket itself: a client that doesn't open with a TLS handshake gets no answer. Without this the
@@ -190,14 +224,23 @@ impl GatewayServer {
             ip_limit: RateLimiter::new(self.ip_per_min),
             token_limit: RateLimiter::new(self.token_per_min),
             trust_forwarded_for: self.trust_forwarded_for,
+            inflight: Slots::new(0, self.max_inflight_per_token),
+            max_stream: self.max_stream,
         });
+        let per_ip = if self.trust_forwarded_for { 0 } else { self.max_connections_per_ip };
+        let connections = Slots::new(self.max_connections, per_ip);
         let tls = self.tls;
         loop {
             let Ok((stream, peer)) = self.listener.accept().await else { continue };
+            let Some(slot) = connections.try_acquire(&client_key(peer.ip(), None, false)) else {
+                tracing::debug!(%peer, "too many open connections; closing this one");
+                continue;
+            };
             let state = state.clone();
             let tls = tls.clone();
             // The handshake is in the connection's own task, so a client that is slow at it holds up nobody else's accept.
             tokio::spawn(async move {
+                let _slot = slot;
                 let result = match tls {
                     Some(tls) => match tokio::time::timeout(TLS_ACCEPT_TIMEOUT, tls.acceptor.accept(stream)).await {
                         Ok(Ok(mut secure)) => {
@@ -229,16 +272,20 @@ impl GatewayServer {
 }
 
 async fn handle<S: AsyncRead + AsyncWrite + Unpin>(stream: &mut S, state: &State, peer: IpAddr) -> std::io::Result<()> {
-    let request = match tokio::time::timeout(HEAD_TIMEOUT, read_request(stream)).await {
+    let head = match tokio::time::timeout(HEAD_TIMEOUT, read_head(stream)).await {
+        Ok(Ok(head)) => head,
+        Ok(Err(err)) => return write_json(stream, err.status, &err.body(), &err.headers()).await,
+        Err(_) => return Ok(()),
+    };
+    // The limits see the head alone: a refused request's body is never read (and with `Expect: 100-continue` never sent).
+    if let Err(err) = limit(state, &head, peer) {
+        return write_json(stream, err.status, &err.body(), &err.headers()).await;
+    }
+    let request = match tokio::time::timeout(BODY_TIMEOUT, read_body(stream, head)).await {
         Ok(Ok(request)) => request,
         Ok(Err(err)) => return write_json(stream, err.status, &err.body(), &err.headers()).await,
         Err(_) => return Ok(()),
     };
-    // Known limit: the body is read before this refusal, because the head and the body are read together. The read has a
-    // size cap (`MAX_BODY`) and a timeout, which is what bounds a flood of large requests today.
-    if let Err(err) = limit(state, &request, peer) {
-        return write_json(stream, err.status, &err.body(), &err.headers()).await;
-    }
     match route(stream, state, &request).await {
         Ok(()) => Ok(()),
         Err(err) => write_json(stream, err.status, &err.body(), &err.headers()).await,
@@ -247,15 +294,15 @@ async fn handle<S: AsyncRead + AsyncWrite + Unpin>(stream: &mut S, state: &State
 
 /// The rate limits: by client address first (a refusal there costs the token's bucket nothing), then by token. `/health` and
 /// the site mãe's signed account routes are exempt: the site calls from one address, and a monitor must always get an answer.
-fn limit(state: &State, request: &Request, peer: IpAddr) -> Result<(), ApiError> {
-    let path = request.path.split('?').next().unwrap_or_default();
+fn limit(state: &State, head: &Head, peer: IpAddr) -> Result<(), ApiError> {
+    let path = head.path.split('?').next().unwrap_or_default();
     if path == "/health" || path.starts_with("/v1/accounts/") {
         return Ok(());
     }
     let now = now_ms();
-    let ip = client_key(peer, request.forwarded_for.as_deref(), state.trust_forwarded_for);
+    let ip = client_key(peer, head.forwarded_for.as_deref(), state.trust_forwarded_for);
     state.ip_limit.check(&ip, now).map_err(ApiError::rate_limited)?;
-    if let Some(token) = &request.token {
+    if let Some(token) = &head.token {
         state.token_limit.check(&token_key(token), now).map_err(ApiError::rate_limited)?;
     }
     Ok(())
@@ -423,6 +470,11 @@ fn upstream_body(request: &Value, res: &Reservation, stream: bool) -> Value {
 }
 
 async fn chat<S: AsyncWrite + Unpin>(stream: &mut S, state: &State, request: &Request) -> Result<(), ApiError> {
+    // Before the reservation, so a refusal costs the account nothing. Held until the answer is done.
+    let _inflight = state
+        .inflight
+        .try_acquire(&token_key(request.token.as_deref().unwrap_or_default()))
+        .ok_or_else(|| ApiError::rate_limited(Duration::from_secs(1)))?;
     let body: Value = serde_json::from_slice(&request.body).map_err(|e| ApiError::bad_request(format!("the body isn't valid JSON: {e}")))?;
     let model = body.get("model").and_then(Value::as_str).ok_or_else(|| ApiError::bad_request("the request has no `model`"))?;
     // The prompt is the messages and the tools: both go upstream and both are billed as input.
@@ -490,8 +542,20 @@ async fn stream_answer<S: AsyncWrite + Unpin>(stream: &mut S, state: &State, res
     let mut broken = stream.write_all(head.as_bytes()).await.is_err();
     let mut scan = UsageScanner::default();
     let mut forwarded = false;
+    let deadline = state.max_stream.map(|max| tokio::time::Instant::now() + max);
     while !broken {
-        match chunks.next().await {
+        let next = match deadline {
+            Some(deadline) => match tokio::time::timeout_at(deadline, chunks.next()).await {
+                Ok(next) => next,
+                Err(_) => {
+                    tracing::warn!("the stream ran past its time limit; cutting it");
+                    broken = true;
+                    break;
+                }
+            },
+            None => chunks.next().await,
+        };
+        match next {
             Some(Ok(chunk)) => {
                 scan.push(&chunk);
                 broken = stream.write_all(&chunk).await.is_err() || stream.flush().await.is_err();
@@ -519,7 +583,21 @@ fn io_error(err: std::io::Error) -> ApiError {
     ApiError::new("500 Internal Server Error", "server_error", "io_error", err.to_string())
 }
 
-async fn read_request<S: AsyncRead + AsyncWrite + Unpin>(stream: &mut S) -> Result<Request, ApiError> {
+/// The request line and headers, read before the body so the limits can refuse a request without taking its body in.
+struct Head {
+    method: String,
+    path: String,
+    token: Option<String>,
+    signature: Option<String>,
+    /// The `X-Forwarded-For` header as received, for the client's address behind a reverse proxy.
+    forwarded_for: Option<String>,
+    content_length: usize,
+    expect_continue: bool,
+    /// The body bytes that arrived in the same reads as the head.
+    leftover: Vec<u8>,
+}
+
+async fn read_head<S: AsyncRead + AsyncWrite + Unpin>(stream: &mut S) -> Result<Head, ApiError> {
     let mut buf: Vec<u8> = Vec::new();
     let mut chunk = [0u8; 4096];
     let (method, path, token, signature, forwarded_for, content_length, expect_continue, head_len) = loop {
@@ -561,10 +639,18 @@ async fn read_request<S: AsyncRead + AsyncWrite + Unpin>(stream: &mut S) -> Resu
     if content_length > MAX_BODY {
         return Err(ApiError::new("413 Payload Too Large", "invalid_request_error", "payload_too_large", "the request body is too large"));
     }
-    let mut body = buf.split_off(head_len);
+    let leftover = buf.split_off(head_len);
+    Ok(Head { method, path, token, signature, forwarded_for, content_length, expect_continue, leftover })
+}
+
+/// Reads the body the head promised. Only called for a request the limits let through: with `Expect: 100-continue` the
+/// client is told to go ahead here, so one that was refused never sends it.
+async fn read_body<S: AsyncRead + AsyncWrite + Unpin>(stream: &mut S, head: Head) -> Result<Request, ApiError> {
+    let Head { method, path, token, signature, content_length, expect_continue, leftover: mut body, .. } = head;
     if expect_continue && body.len() < content_length {
         stream.write_all(b"HTTP/1.1 100 Continue\r\n\r\n").await.map_err(io_error)?;
     }
+    let mut chunk = [0u8; 4096];
     while body.len() < content_length {
         let n = stream.read(&mut chunk).await.map_err(io_error)?;
         if n == 0 {
@@ -573,7 +659,7 @@ async fn read_request<S: AsyncRead + AsyncWrite + Unpin>(stream: &mut S) -> Resu
         body.extend_from_slice(&chunk[..n]);
     }
     body.truncate(content_length);
-    Ok(Request { method, path, token, signature, forwarded_for, body })
+    Ok(Request { method, path, token, signature, body })
 }
 
 async fn write_json<S: AsyncWrite + Unpin>(stream: &mut S, status: &str, body: &[u8], headers: &[(&str, String)]) -> std::io::Result<()> {

@@ -53,7 +53,7 @@ mod tests {
     use super::*;
 
     fn account(daily: Option<Micros>, monthly: Option<Micros>) -> Account {
-        Account { id: "a".into(), name: "a".into(), active: true, daily_cap: daily, monthly_cap: monthly, created_at: 0 }
+        Account { id: "a".into(), name: "a".into(), active: true, daily_cap: daily, monthly_cap: monthly, created_at: 0, suspended_reason: None, suspended_at: None }
     }
 
     #[test]

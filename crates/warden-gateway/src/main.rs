@@ -61,6 +61,20 @@ enum Command {
         /// without a proxy: then anyone could write the header and pick their own limit.
         #[arg(long, env = "WARDEN_GATEWAY_TRUST_FORWARDED_FOR")]
         trust_forwarded_for: bool,
+        /// Connections open at once, in all (`0`: no cap). One over the cap is closed without an answer.
+        #[arg(long, env = "WARDEN_GATEWAY_MAX_CONNECTIONS", default_value_t = 1024)]
+        max_connections: usize,
+        /// Connections open at once from one address (`0`: no cap). Not applied with `--trust-forwarded-for`: behind the proxy
+        /// every connection comes from the proxy's address.
+        #[arg(long, env = "WARDEN_GATEWAY_MAX_CONNECTIONS_PER_IP", default_value_t = 64)]
+        max_connections_per_ip: usize,
+        /// Chat calls in flight with one instance token (`0`: no cap). Over it the answer is a 429.
+        #[arg(long, env = "WARDEN_GATEWAY_MAX_INFLIGHT_PER_TOKEN", default_value_t = 8)]
+        max_inflight_per_token: usize,
+        /// The longest a streamed answer may run, in seconds (`0`: no limit). Past it the stream is cut and settled with the
+        /// usage seen so far.
+        #[arg(long, env = "WARDEN_GATEWAY_MAX_STREAM_SECS", default_value_t = 600)]
+        max_stream_secs: u64,
         /// Suspend an account that is charged more than this many USD within an hour, and send `account.suspended`.
         /// Resume it with `accounts resume`. Without it there is no hourly cap.
         #[arg(long, env = "WARDEN_GATEWAY_HOURLY_SPEND_CAP_USD")]
@@ -187,6 +201,10 @@ async fn main() -> Result<()> {
             ip_rate_per_min,
             token_rate_per_min,
             trust_forwarded_for,
+            max_connections,
+            max_connections_per_ip,
+            max_inflight_per_token,
+            max_stream_secs,
             hourly_spend_cap_usd,
             tls_cert,
             tls_key,
@@ -208,6 +226,10 @@ async fn main() -> Result<()> {
             let gateway = Gateway::new(store.clone(), catalog.clone());
             let mut server = GatewayServer::bind(*listen, gateway, Arc::new(HttpUpstream::new())).await.with_context(|| format!("cannot listen on {listen}"))?;
             server = server.with_rate_limits(*ip_rate_per_min, *token_rate_per_min).with_trust_forwarded_for(*trust_forwarded_for);
+            server = server.with_connection_limits(*max_connections, *max_connections_per_ip).with_inflight_limit(*max_inflight_per_token);
+            if *max_stream_secs > 0 {
+                server = server.with_max_stream(std::time::Duration::from_secs(*max_stream_secs));
+            }
             // The two go together (clap's `requires`), so one is enough to tell. A bad file stops the start: a gateway that
             // meant to serve TLS must never come up answering in the clear.
             let secure = match (tls_cert, tls_key) {
@@ -313,15 +335,24 @@ fn accounts(cli: &Cli, command: &AccountsCommand) -> Result<()> {
         }
         AccountsCommand::List => {
             for a in store.list_accounts()? {
-                let state = if a.active { "active" } else { "suspended" };
-                println!("{}  {:<20} {:<9} balance {}", a.id, a.name, state, format_usd(store.balance(&a.id)?));
+                let state = if a.active { "active".to_string() } else { format!("suspended ({})", a.suspended_reason.as_deref().unwrap_or("unknown")) };
+                println!("{}  {:<20} {:<26} balance {}", a.id, a.name, state, format_usd(store.balance(&a.id)?));
             }
         }
         AccountsCommand::Show { account } => {
             let a = store.account(account)?.with_context(|| format!("no account {account}"))?;
             println!("account   {}", a.id);
             println!("name      {}", a.name);
-            println!("state     {}", if a.active { "active" } else { "suspended" });
+            if a.active {
+                println!("state     active");
+            } else {
+                // An account suspended before the reason was kept has neither.
+                let reason = a.suspended_reason.as_deref().unwrap_or("unknown");
+                match a.suspended_at {
+                    Some(at) => println!("state     suspended ({reason}, since unix {at})"),
+                    None => println!("state     suspended ({reason})"),
+                }
+            }
             println!("balance   {}", format_usd(store.balance(&a.id)?));
             println!("available {}", format_usd(store.available(&a.id, now())?));
             println!("caps      daily {}, monthly {}", show_cap(a.daily_cap), show_cap(a.monthly_cap));

@@ -2,7 +2,21 @@
 
 > **Nota**: Este log foi criado junto com o projeto. As sessões serão registradas aqui conforme o trabalho avança.
 >
-> Última atualização: 2026-10-23 (Sessão 276)
+> Última atualização: 2026-10-23 (Sessão 277)
+
+---
+
+### 2026-10-23 — Sessão 277 (as sobras do rate limit do gateway: P168 a)
+
+- **Pedido**: "vamos de 1 ent" (o item 1 da lista: as sobras do rate limit). Li o código à mão (escopo pequeno, sem agente de exploração) e planejei em modo de plano; sem decisão de produto em aberto.
+- **Feito**:
+  - `http.rs`: `read_request` virou `read_head` + `read_body`; o limite roda só com o head, então uma requisição recusada nunca tem o corpo lido (e com `Expect: 100-continue` o `100` nem sai). O corpo ganhou o seu `BODY_TIMEOUT` (60 s); o `HEAD_TIMEOUT` ficou só no head.
+  - `limits.rs` novo: `Slots` (teto no total e por chave, guarda que devolve a vaga ao cair). Usado para conexões abertas (total e por IP, tomado no `accept`, antes do TLS; acima do teto a conexão é fechada sem resposta; o teto por IP não vale com `--trust-forwarded-for`, porque atrás do proxy todo mundo vem do mesmo endereço) e para chamadas de chat em andamento por token (429 `rate_limit_exceeded`, tomado antes da reserva, então a recusa não custa nada).
+  - `stream_answer`: prazo máximo do stream (`timeout_at`); passado o prazo o stream é cortado e liquidado como um stream quebrado.
+  - `store.rs`: colunas `suspended_reason` e `suspended_at` em `accounts` (pico grava `spend_spike`, `accounts suspend` grava `manual`, `resume` apaga), com a primeira migração do banco (`add_missing_columns`, que só faz `ALTER TABLE` se a coluna falta, via `pragma_table_info`). `accounts show` e `accounts list` mostram o motivo.
+  - Opções novas: `--max-connections` (1024), `--max-connections-per-ip` (64), `--max-inflight-per-token` (8), `--max-stream-secs` (600); `0` desliga cada uma (`WARDEN_GATEWAY_MAX_CONNECTIONS`, `..._MAX_CONNECTIONS_PER_IP`, `..._MAX_INFLIGHT_PER_TOKEN`, `..._MAX_STREAM_SECS`). Por padrão da biblioteca tudo fica desligado, como o rate limit.
+- **Testes** (só `cargo check -p warden-gateway --all-targets` rodou aqui; a suíte vai para o CI): 4 unitários em `limits.rs`, 2 em `store.rs` (motivo gravado e limpo; banco antigo abre e ganha as colunas, e abrir de novo não repete o `ALTER`) e 5 em `tests/limits.rs` (recusa antes do corpo com `Expect`, teto de chamadas por token, teto de conexões total e por IP, stream cortado e liquidado); `Script::Stalls` novo no `fake.rs` (stream que manda um pedaço e para). **Pendente de rodar no CI.**
+- **Fica**: o site mãe ainda não trata o `account.suspended`; o teto por IP de conexões não distingue clientes atrás do proxy; a imagem Docker do gateway (P168 j).
 
 ---
 
