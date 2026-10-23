@@ -4,7 +4,7 @@
 > Toda pendência encontrada em qualquer arquivo do projeto deve ser registrada aqui com um ID único.
 > Ao resolver uma, marcar como `✅ Resolvida` com a sessão em que foi corrigida.
 >
-> Última atualização: 2026-10-21 (Sessão 272: P136b feito, o código em inglês; antes, Sessão 267: P162, P163, P164, P165 e P166 resolvidos, P167 em parte, P156 sem roteiro nos outros provedores por decisão do usuário; abertos: P167 a, d, e e o P160, parado por decisão do usuário; antes, Sessão 232, P142 resolvido)
+> Última atualização: 2026-10-22 (Sessão 273: P137 primeiro corte feito e o site no ar, a hospedagem fases 2 e 3 do lado do dinheiro, o glossário pt-BR, o saldo de créditos na web; P168 aberto; antes, Sessão 272: P136b feito, o código em inglês; antes, Sessão 267: P162, P163, P164, P165 e P166 resolvidos, P167 em parte, P156 sem roteiro nos outros provedores por decisão do usuário; abertos: P167 a, d, e e o P160, parado por decisão do usuário; antes, Sessão 232, P142 resolvido)
 
 ---
 
