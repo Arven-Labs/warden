@@ -6,6 +6,15 @@
 
 ---
 
+### 2026-10-23 — Sessão 274, parte 2 (os achados menores do pt-BR: P136)
+
+- **Pedido**: "pode seguir com o próximo item" (o item 2 da minha lista). Um agente de exploração achou os três pontos; planejei em modo de plano e o plano foi aprovado.
+- **Feito**: (1) `i18n/catalog.ts` na web e no desktop com as 8 descrições da galeria em pt-BR por nome da skill, e `catalogDescription(name, fallback)` nos dois `SkillsView.tsx`; fica fora do `Key`/`en.ts` porque o inglês é o texto do próprio hub e as chaves tipadas exigem paridade; (2) o seletor de idioma da web ganhou borda, fundo, cor e foco como os selects das configurações; (3) o E2E do desktop espera o título "Limites de gasto" antes da foto `desktop-pt-usage`.
+- **Testes**: `catalog.test.mjs` na web e no desktop (cada skill de `crates/warden-core/catalog/skills/` tem descrição pt-BR e nenhuma sobra; traduz em pt-BR, mantém o texto do hub em inglês e para skill desconhecida); `node --test`: web 113 e desktop 186, todos passam.
+- **Fica**: conferir no CI as fotos novas (`desktop-pt-usage` sem "Carregando…" e o seletor da web); o corpo das skills segue em inglês de propósito.
+
+---
+
 ### 2026-10-23 — Sessão 274 (o cartão de créditos no desktop e no mobile: P168 c)
 
 - **Pedido**: "por onde continuamos?" e depois "pode seguir" no item 1 que listei (o cartão de créditos que faltava no desktop e no mobile). Um agente de exploração mapeou como a web fez (commit `2239698`); planejei em modo de plano e o plano foi aprovado.

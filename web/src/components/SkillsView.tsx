@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import type { ServerConnection } from "../hub/connection";
 import type { CatalogSkillDto, PackagePreviewDto, SkillDto, UserInfo } from "../hub/messages";
 import { intlTag, t, type Key } from "../i18n";
+import { catalogDescription } from "../i18n/catalog";
 import { rich } from "../i18n/rich";
 import { diffLines, hasChanges, withContext } from "./skillDiff";
 
@@ -642,7 +643,7 @@ export default function SkillsView({
                     </span>
                   )}
                 </div>
-                <p className="skills-item-description">{entry.description}</p>
+                <p className="skills-item-description">{catalogDescription(entry.name, entry.description)}</p>
                 <details>
                   <summary>{t("skills.viewInstructions")}</summary>
                   <pre className="skills-body">{entry.body}</pre>

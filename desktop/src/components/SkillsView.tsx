@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { open, save } from "@tauri-apps/plugin-dialog";
 import { intlTag, t } from "../i18n";
+import { catalogDescription } from "../i18n/catalog";
 import { rich } from "../i18n/rich";
 import type { AgentEntry, CatalogSkill, ExportedPackage, PackagePreview, ProviderEntry, SkillEntry } from "../types";
 import { diffLines, hasChanges, withContext } from "./skillDiff";
@@ -1066,7 +1067,7 @@ function SkillsView({
                     )}
                   </div>
                 </div>
-                <p className="skill-card-description">{entry.description}</p>
+                <p className="skill-card-description">{catalogDescription(entry.name, entry.description)}</p>
                 <details>
                   <summary className="settings-hint">{t("skills.viewInstructions")}</summary>
                   <pre className="skill-suggestion-body">{entry.body}</pre>

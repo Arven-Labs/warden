@@ -139,6 +139,7 @@ describe("the Portuguese screens", () => {
       await page.getByRole("heading", { name: "Cofre" }).first().waitFor();
       await snap(page, "desktop-pt-vault");
       await open("Uso");
+      await page.getByRole("heading", { name: "Limites de gasto" }).waitFor();
       await snap(page, "desktop-pt-usage");
       await open("Skills");
       await page.getByText("Nenhuma skill ainda.").waitFor();
