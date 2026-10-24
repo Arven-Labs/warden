@@ -3,6 +3,8 @@ import type { ComponentProps } from "react";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { allDocs } from "../lib/docs.ts";
+import { Logo } from "./Logo.tsx";
+import { ThemeToggle } from "./ThemeToggle.tsx";
 
 /** Internal links go through `Link` so they pick up the `basePath`; external ones stay plain. */
 function MarkdownLink({ href, children }: ComponentProps<"a">) {
@@ -20,9 +22,12 @@ export function DocView({ slug }: { slug: string }) {
   return (
     <div className="shell">
       <nav className="sidebar" aria-label="Documentation">
-        <Link href="/" className="brand">
-          Warden
-        </Link>
+        <div className="sidebar-top">
+          <Link href="/" className="brand" aria-label="Warden home">
+            <Logo />
+          </Link>
+          <ThemeToggle />
+        </div>
         <ul>
           {docs.map((d) => (
             <li key={d.slug}>

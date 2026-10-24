@@ -1,5 +1,5 @@
-import { DocView } from "../components/DocView.tsx";
+import { Landing } from "../components/Landing.tsx";
 
 export default function Home() {
-  return <DocView slug="overview" />;
+  return <Landing />;
 }
