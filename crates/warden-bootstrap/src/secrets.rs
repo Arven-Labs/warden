@@ -1,28 +1,44 @@
-//! P131 (S0): provider API keys kept out of `config.toml`.
+//! P131 (S0): the secrets kept out of `config.toml`.
 //!
-//! `config.toml` is the file people copy, sync and paste into issues, so the keys of
-//! `[[providers]]` live in a sibling file (`config.secrets.toml`) that only the owner's account
-//! reads (mode 0600 on unix; elsewhere the permissions are the platform default). On load the keys
-//! are merged back into each `ProviderConfig`; on save they are split out again. A key still sitting
-//! in `config.toml` (an old file, or one edited by hand) wins over the secrets file, so nothing is
+//! `config.toml` is the file people copy, sync and paste into issues, so what is secret in it lives in
+//! a sibling file (`config.secrets.toml`) that only the owner's account reads (mode 0600 on unix;
+//! elsewhere the permissions are the platform default). Three kinds of secret go there:
+//! the keys of `[[providers]]`, the values of every `[[mcp_servers]]` entry's `env` (stdio) and
+//! `headers` (http), and the five keys of `[api_keys]`. The structure stays in `config.toml` (an MCP
+//! server's variable names stay, with an empty value), the value goes to the secrets file.
+//! On load the values are merged back; on save they are split out again. A value still sitting in
+//! `config.toml` (an old file, or one edited by hand) wins over the secrets file, so nothing is
 //! lost, and the first save moves it across.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
 
 use anyhow::Context;
 use serde::{Deserialize, Serialize};
 
-use crate::FileConfig;
+use crate::{FileConfig, McpServerConfig};
 
-#[derive(Debug, Default, Deserialize, Serialize)]
+// `deny_unknown_fields` stays on: an older Warden that meets a section it does not know must refuse the file, not read it without the
+// secrets and write it back without them.
+#[derive(Debug, Default, Deserialize, Serialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 struct SecretsFile {
     #[serde(default)]
     providers: BTreeMap<String, ProviderSecret>,
+    /// By the server's `name`.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    mcp: BTreeMap<String, McpSecret>,
+    #[serde(default, skip_serializing_if = "ApiKeysSecret::is_empty")]
+    api_keys: ApiKeysSecret,
 }
 
-#[derive(Deserialize, Serialize)]
+impl SecretsFile {
+    fn is_empty(&self) -> bool {
+        self.providers.is_empty() && self.mcp.is_empty() && self.api_keys.is_empty()
+    }
+}
+
+#[derive(Deserialize, Serialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 struct ProviderSecret {
     api_key: String,
@@ -32,6 +48,50 @@ struct ProviderSecret {
 impl std::fmt::Debug for ProviderSecret {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str("ProviderSecret { api_key: <hidden> }")
+    }
+}
+
+/// The values of one MCP server's `env` (stdio) or `headers` (http), by the entry's name.
+#[derive(Default, Deserialize, Serialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+struct McpSecret {
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    env: BTreeMap<String, String>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    headers: BTreeMap<String, String>,
+}
+
+impl std::fmt::Debug for McpSecret {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "McpSecret {{ env: {:?}, headers: {:?} }}", self.env.keys().collect::<Vec<_>>(), self.headers.keys().collect::<Vec<_>>())
+    }
+}
+
+/// The five keys of `[api_keys]`.
+#[derive(Default, Deserialize, Serialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+struct ApiKeysSecret {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    gemini: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    openai: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    tavily: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    telegram_bot_token: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    whisper: Option<String>,
+}
+
+impl ApiKeysSecret {
+    fn is_empty(&self) -> bool {
+        self == &Self::default()
+    }
+}
+
+impl std::fmt::Debug for ApiKeysSecret {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("ApiKeysSecret { <hidden> }")
     }
 }
 
@@ -49,22 +109,71 @@ fn read_secrets(path: &Path) -> anyhow::Result<SecretsFile> {
     }
 }
 
-/// Fills the `api_key` of every provider that has none in `config.toml` from the secrets file next to it.
+/// Fills what `config.toml` leaves empty from the secrets file next to it: the `api_key` of every provider that has none, the empty
+/// values of an MCP server's `env` or `headers` (only the names the config already lists: a name taken out of `config.toml` by hand is
+/// not brought back), and the `[api_keys]` that are not set. Whatever `config.toml` still holds wins.
 pub(crate) fn merge_into(config: &mut FileConfig, config_path: &Path) -> anyhow::Result<()> {
-    if config.providers.iter().all(|p| p.api_key.is_some()) {
-        return Ok(());
-    }
     let secrets = read_secrets(&secrets_path(config_path))?;
     for provider in config.providers.iter_mut().filter(|p| p.api_key.is_none()) {
         if let Some(secret) = secrets.providers.get(&provider.id) {
             provider.api_key = Some(secret.api_key.clone());
         }
     }
+    for server in &mut config.mcp_servers {
+        match server {
+            McpServerConfig::Stdio { name, env, .. } => {
+                if let Some(saved) = secrets.mcp.get(name.as_str()) {
+                    fill_empty(env, &saved.env);
+                }
+            }
+            McpServerConfig::Http { name, headers, .. } => {
+                if let Some(saved) = secrets.mcp.get(name.as_str()) {
+                    fill_empty(headers, &saved.headers);
+                }
+            }
+        }
+    }
+    let keys = &mut config.api_keys;
+    fill_none(&mut keys.gemini, &secrets.api_keys.gemini);
+    fill_none(&mut keys.openai, &secrets.api_keys.openai);
+    fill_none(&mut keys.tavily, &secrets.api_keys.tavily);
+    fill_none(&mut keys.telegram_bot_token, &secrets.api_keys.telegram_bot_token);
+    fill_none(&mut keys.whisper, &secrets.api_keys.whisper);
     Ok(())
 }
 
-/// A copy of `config` with every provider key taken out, and the keys that were in it. An empty key is
-/// not a key. Providers that no longer exist drop out of the secrets file as well, because it is
+/// Sets each entry of `target` that is there with an empty value to what `saved` has for it.
+fn fill_empty(target: &mut HashMap<String, String>, saved: &BTreeMap<String, String>) {
+    for (name, value) in saved {
+        if let Some(slot) = target.get_mut(name).filter(|slot| slot.is_empty()) {
+            *slot = value.clone();
+        }
+    }
+}
+
+fn fill_none(target: &mut Option<String>, saved: &Option<String>) {
+    if target.as_deref().is_none_or(str::is_empty) {
+        *target = saved.clone();
+    }
+}
+
+/// Takes the non-empty values out of `values`, leaving their names with an empty value, and returns them.
+fn take_values(values: &mut HashMap<String, String>) -> BTreeMap<String, String> {
+    let mut taken = BTreeMap::new();
+    for (name, value) in values.iter_mut() {
+        if !value.is_empty() {
+            taken.insert(name.clone(), std::mem::take(value));
+        }
+    }
+    taken
+}
+
+fn take_key(key: &mut Option<String>) -> Option<String> {
+    key.take().filter(|k| !k.is_empty())
+}
+
+/// A copy of `config` with every secret taken out, and the secrets that were in it. An empty key or value is
+/// not a secret. Providers and servers that no longer exist drop out of the secrets file as well, because it is
 /// rewritten whole from `config` each time.
 fn split(config: &FileConfig) -> (FileConfig, SecretsFile) {
     let mut stripped = config.clone();
@@ -74,27 +183,58 @@ fn split(config: &FileConfig) -> (FileConfig, SecretsFile) {
             secrets.providers.insert(provider.id.clone(), ProviderSecret { api_key: key });
         }
     }
+    for server in &mut stripped.mcp_servers {
+        match server {
+            McpServerConfig::Stdio { name, env, .. } => {
+                let taken = take_values(env);
+                if !taken.is_empty() {
+                    secrets.mcp.entry(name.clone()).or_default().env = taken;
+                }
+            }
+            McpServerConfig::Http { name, headers, .. } => {
+                let taken = take_values(headers);
+                if !taken.is_empty() {
+                    secrets.mcp.entry(name.clone()).or_default().headers = taken;
+                }
+            }
+        }
+    }
+    let keys = &mut stripped.api_keys;
+    secrets.api_keys = ApiKeysSecret {
+        gemini: take_key(&mut keys.gemini),
+        openai: take_key(&mut keys.openai),
+        tavily: take_key(&mut keys.tavily),
+        telegram_bot_token: take_key(&mut keys.telegram_bot_token),
+        whisper: take_key(&mut keys.whisper),
+    };
     (stripped, secrets)
 }
 
-/// True when the `config.toml` text at hand still holds a provider key in plain text (needs the move).
+fn has_text(value: Option<&toml::Value>) -> bool {
+    value.and_then(|v| v.as_str()).is_some_and(|s| !s.is_empty())
+}
+
+/// True when the `config.toml` text at hand still holds a secret in plain text (needs the move): a provider key, a value of an MCP
+/// server's `env` or `headers`, or one of the `[api_keys]`.
 fn holds_plain_keys(existing: &str) -> bool {
     let Ok(table) = existing.parse::<toml::Table>() else { return false };
-    table
-        .get("providers")
-        .and_then(|v| v.as_array())
-        .is_some_and(|list| list.iter().any(|p| p.get("api_key").and_then(|k| k.as_str()).is_some_and(|k| !k.is_empty())))
+    let providers = table.get("providers").and_then(|v| v.as_array()).is_some_and(|list| list.iter().any(|p| has_text(p.get("api_key"))));
+    let servers = table.get("mcp_servers").and_then(|v| v.as_array()).is_some_and(|list| {
+        list.iter().any(|s| ["env", "headers"].iter().any(|field| s.get(field).and_then(|t| t.as_table()).is_some_and(|t| t.values().any(|v| has_text(Some(v))))))
+    });
+    let keys = table.get("api_keys").and_then(|v| v.as_table()).is_some_and(|t| t.values().any(|v| has_text(Some(v))));
+    providers || servers || keys
 }
 
 /// What `save_config` needs: the config without its provider keys, after the keys were written to the
 /// secrets file. Order matters: the secrets are written (and read back) before `config.toml` loses
 /// them, so a failure in between leaves the keys in both places and never in neither. The first time a
 /// plain key is moved, the old `config.toml` is kept as `config.toml.bak` (mode 0600 too).
-pub(crate) fn store_and_strip(config: &FileConfig, config_path: &Path, existing: Option<&str>) -> anyhow::Result<FileConfig> {
+pub fn store_and_strip(config: &FileConfig, config_path: &Path, existing: Option<&str>) -> anyhow::Result<FileConfig> {
     let (stripped, secrets) = split(config);
     let path = secrets_path(config_path);
     // Nothing to keep and no file yet: don't leave an empty file lying around.
-    if secrets.providers.is_empty() && !path.exists() {
+    if secrets.is_empty() && !path.exists() {
         return Ok(stripped);
     }
     if let Some(old) = existing.filter(|text| holds_plain_keys(text)) {
@@ -106,11 +246,7 @@ pub(crate) fn store_and_strip(config: &FileConfig, config_path: &Path, existing:
     let text = toml::to_string_pretty(&secrets).context("failed to render secrets file")?;
     write_private(&path, text.as_bytes())?;
     let back = read_secrets(&path)?;
-    anyhow::ensure!(
-        back.providers.len() == secrets.providers.len() && back.providers.iter().all(|(id, s)| secrets.providers.get(id).is_some_and(|w| w.api_key == s.api_key)),
-        "the secrets file at {} did not read back as written; config.toml was left as it was",
-        path.display()
-    );
+    anyhow::ensure!(back == secrets, "the secrets file at {} did not read back as written; config.toml was left as it was", path.display());
     Ok(stripped)
 }
 
@@ -278,5 +414,128 @@ mod tests {
         std::fs::write(&path, "[[providers]]\nid = \"main\"\nkind = \"openai\"\nmodel = \"m\"\n").unwrap();
         std::fs::write(secrets_path(&path), "this is not toml [").unwrap();
         assert!(load_config_from_path(&path, true).is_err());
+    }
+
+    fn stdio(name: &str, env: &[(&str, &str)]) -> McpServerConfig {
+        McpServerConfig::Stdio { name: name.into(), command: "npx".into(), args: vec!["-y".into(), "some-mcp".into()], env: env.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect() }
+    }
+
+    fn http(name: &str, headers: &[(&str, &str)]) -> McpServerConfig {
+        McpServerConfig::Http { name: name.into(), url: "https://mcp.example.com".into(), headers: headers.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect(), oauth: false }
+    }
+
+    fn with_servers(servers: Vec<McpServerConfig>) -> FileConfig {
+        FileConfig { mcp_servers: servers, ..FileConfig::default() }
+    }
+
+    #[test]
+    fn the_values_of_an_mcp_server_leave_config_toml_and_come_back_but_their_names_stay() {
+        let path = dir("mcp").join("config.toml");
+        let config = with_servers(vec![stdio("github", &[("GITHUB_TOKEN", "ghp_secret_value"), ("NO_VALUE", "")]), http("notes", &[("Authorization", "Bearer bearer_secret")])]);
+        save_config(&path, &config).unwrap();
+
+        let text = std::fs::read_to_string(&path).unwrap();
+        assert!(!text.contains("ghp_secret_value") && !text.contains("bearer_secret"), "{text}");
+        assert!(text.contains("GITHUB_TOKEN") && text.contains("Authorization") && text.contains("NO_VALUE"), "the names stay: {text}");
+        let secrets = std::fs::read_to_string(secrets_path(&path)).unwrap();
+        assert!(secrets.contains("ghp_secret_value") && secrets.contains("bearer_secret"), "{secrets}");
+        assert!(!secrets.contains("NO_VALUE"), "an empty value is not a secret: {secrets}");
+
+        let back = load_config_from_path(&path, true).unwrap();
+        assert_eq!(back.mcp_servers, config.mcp_servers);
+    }
+
+    #[test]
+    fn the_five_api_keys_leave_config_toml_and_come_back() {
+        let path = dir("apikeys").join("config.toml");
+        let mut config = FileConfig::default();
+        config.api_keys.gemini = Some("key-gemini".into());
+        config.api_keys.openai = Some("key-openai".into());
+        config.api_keys.tavily = Some("key-tavily".into());
+        config.api_keys.telegram_bot_token = Some("key-telegram".into());
+        config.api_keys.whisper = Some("key-whisper".into());
+        save_config(&path, &config).unwrap();
+
+        let text = std::fs::read_to_string(&path).unwrap();
+        for key in ["key-gemini", "key-openai", "key-tavily", "key-telegram", "key-whisper"] {
+            assert!(!text.contains(key), "{key} is in config.toml: {text}");
+        }
+        let back = load_config_from_path(&path, true).unwrap();
+        assert_eq!(back.api_keys, config.api_keys);
+    }
+
+    #[test]
+    fn a_value_still_in_config_toml_wins_and_the_first_save_keeps_one_backup_of_the_old_file() {
+        let path = dir("mcp-legacy").join("config.toml");
+        let old = "[[mcp_servers]]\nname = \"github\"\ncommand = \"npx\"\n[mcp_servers.env]\nGITHUB_TOKEN = \"in-config\"\n\n[api_keys]\ntavily = \"tavily-in-config\"\n";
+        std::fs::write(&path, old).unwrap();
+        std::fs::write(secrets_path(&path), "[mcp.github.env]\nGITHUB_TOKEN = \"in-secrets\"\n").unwrap();
+
+        let loaded = load_config_from_path(&path, true).unwrap();
+        let McpServerConfig::Stdio { env, .. } = &loaded.mcp_servers[0] else { panic!("{:?}", loaded.mcp_servers) };
+        assert_eq!(env["GITHUB_TOKEN"], "in-config");
+        assert_eq!(loaded.api_keys.tavily.as_deref(), Some("tavily-in-config"));
+
+        save_config(&path, &loaded).unwrap();
+        let text = std::fs::read_to_string(&path).unwrap();
+        assert!(!text.contains("in-config") && !text.contains("tavily-in-config"), "{text}");
+        assert_eq!(std::fs::read_to_string(path.with_extension("toml.bak")).unwrap(), old, "the old file with the plain values is kept once");
+        let back = load_config_from_path(&path, true).unwrap();
+        let McpServerConfig::Stdio { env, .. } = &back.mcp_servers[0] else { panic!() };
+        assert_eq!(env["GITHUB_TOKEN"], "in-config");
+    }
+
+    #[test]
+    fn a_name_taken_out_of_config_toml_is_not_brought_back_by_the_secrets_file() {
+        let path = dir("mcp-name").join("config.toml");
+        std::fs::write(&path, "[[mcp_servers]]\nname = \"github\"\ncommand = \"npx\"\n[mcp_servers.env]\nGITHUB_TOKEN = \"\"\n").unwrap();
+        std::fs::write(secrets_path(&path), "[mcp.github.env]\nGITHUB_TOKEN = \"kept\"\nGONE = \"must-not-return\"\n").unwrap();
+        let loaded = load_config_from_path(&path, true).unwrap();
+        let McpServerConfig::Stdio { env, .. } = &loaded.mcp_servers[0] else { panic!() };
+        assert_eq!(env.get("GITHUB_TOKEN").map(String::as_str), Some("kept"));
+        assert!(!env.contains_key("GONE"), "{env:?}");
+    }
+
+    #[test]
+    fn a_removed_or_renamed_mcp_server_leaves_no_value_behind() {
+        let path = dir("mcp-gone").join("config.toml");
+        save_config(&path, &with_servers(vec![stdio("a", &[("T", "value-a")]), stdio("b", &[("T", "value-b")])])).unwrap();
+        save_config(&path, &with_servers(vec![stdio("renamed", &[("T", "value-a")])])).unwrap();
+        let secrets = std::fs::read_to_string(secrets_path(&path)).unwrap();
+        assert!(secrets.contains("renamed") && secrets.contains("value-a") && !secrets.contains("value-b"), "{secrets}");
+        assert!(!secrets.contains("[mcp.a"), "the old name is gone: {secrets}");
+        save_config(&path, &with_servers(vec![stdio("renamed", &[("T", "")])])).unwrap();
+        assert!(!std::fs::read_to_string(secrets_path(&path)).unwrap().contains("value-a"), "a cleared value leaves the file");
+    }
+
+    #[test]
+    fn a_secrets_file_from_before_still_reads_and_one_with_a_section_this_version_does_not_know_is_refused() {
+        let path = dir("compat").join("config.toml");
+        std::fs::write(&path, "[[providers]]\nid = \"main\"\nkind = \"openai\"\nmodel = \"m\"\n").unwrap();
+        std::fs::write(secrets_path(&path), "[providers.main]\napi_key = \"sk-old-format\"\n").unwrap();
+        assert_eq!(load_config_from_path(&path, true).unwrap().providers[0].api_key.as_deref(), Some("sk-old-format"));
+
+        std::fs::write(secrets_path(&path), "[providers.main]\napi_key = \"sk\"\n[from_the_future]\nx = 1\n").unwrap();
+        assert!(load_config_from_path(&path, true).is_err(), "a section this version does not know is refused, never read without its secrets");
+    }
+
+    #[test]
+    fn none_of_the_new_secrets_print() {
+        let (_, secrets) = split(&{
+            let mut config = with_servers(vec![stdio("github", &[("TOKEN", "ghp_secret_value")]), http("notes", &[("Authorization", "Bearer bearer_secret")])]);
+            config.api_keys.tavily = Some("tavily_secret".into());
+            config
+        });
+        let shown = format!("{secrets:?}");
+        assert!(!shown.contains("ghp_secret_value") && !shown.contains("bearer_secret") && !shown.contains("tavily_secret"), "{shown}");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_secrets_file_made_only_of_mcp_values_is_private_too() {
+        use std::os::unix::fs::PermissionsExt;
+        let path = dir("mcp-mode").join("config.toml");
+        save_config(&path, &with_servers(vec![stdio("github", &[("TOKEN", "ghp_secret_value")])])).unwrap();
+        assert_eq!(std::fs::metadata(secrets_path(&path)).unwrap().permissions().mode() & 0o777, 0o600);
     }
 }

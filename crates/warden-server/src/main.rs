@@ -1108,14 +1108,14 @@ fn run_export_command(out: &std::path::Path, with_secrets: bool) -> anyhow::Resu
     let report = warden_bootstrap::instance_export::export_instance(&data_dir, out, &options)?;
     println!("exported {} file(s), {} bytes, from {} to {}", report.files, report.bytes, data_dir.display(), out.display());
     if report.with_secrets {
-        println!("the providers' API keys are in it (config.secrets.toml): keep the export private");
+        println!("the providers' API keys, the MCP servers' tokens and the other keys are in it (config.secrets.toml): keep the export private");
     } else {
-        println!("the providers' API keys are not in it: enter your own at the destination");
+        println!("the providers' API keys, the MCP servers' tokens and the search, voice and bot keys are not in it: enter your own at the destination");
     }
     if !report.needs_keys.is_empty() {
         println!("needs a key of your own at the destination: {}", report.needs_keys.join(", "));
     }
-    println!("the config can hold other tokens (bots, git sync, MCP variables): keep the export private");
+    println!("the config can still hold other tokens (git sync, for one): keep the export private");
     Ok(())
 }
 
@@ -1124,7 +1124,7 @@ fn run_import_command(package: &std::path::Path, force: bool) -> anyhow::Result<
     let report = warden_bootstrap::instance_export::import_instance(package, &data_dir, &warden_bootstrap::instance_export::ImportOptions { force })?;
     println!("imported {} file(s) into {}", report.files, data_dir.display());
     if !report.needs_keys.is_empty() {
-        println!("these providers need a key of your own before they work: {}", report.needs_keys.join(", "));
+        println!("these need a key or token of your own before they work (providers, `mcp:<server>`, `api_keys:<name>`): {}", report.needs_keys.join(", "));
     }
     println!("paired devices, API keys and webhook tokens are not carried over: pair the devices again and create new keys");
     Ok(())

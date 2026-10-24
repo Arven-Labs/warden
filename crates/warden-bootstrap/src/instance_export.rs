@@ -88,6 +88,23 @@ pub fn export_instance(data_dir: &Path, out: &Path, options: &ExportOptions) -> 
     let source_config = load_config_from_path(&config_path, false)?;
     let vault_source = resolve_vault_path(&Overrides::default(), &source_config, data_dir.join(VAULT_DIR));
     let had_key: BTreeSet<String> = source_config.providers.iter().filter(|p| p.api_key.is_some()).map(|p| p.id.clone()).collect();
+    // The MCP servers that carried a token or another secret value (`env` or `headers`): they travel without it unless the secrets do.
+    let had_mcp_secret: BTreeSet<String> = source_config
+        .mcp_servers
+        .iter()
+        .filter(|server| match server {
+            crate::McpServerConfig::Stdio { env, .. } => env.values().any(|v| !v.is_empty()),
+            crate::McpServerConfig::Http { headers, .. } => headers.values().any(|v| !v.is_empty()),
+        })
+        .map(|server| format!("mcp:{}", server.name()))
+        .collect();
+    // The search, voice and bot keys of `[api_keys]` go the same way.
+    let keys = &source_config.api_keys;
+    let had_api_key: BTreeSet<String> = [("gemini", &keys.gemini), ("openai", &keys.openai), ("tavily", &keys.tavily), ("telegram_bot_token", &keys.telegram_bot_token), ("whisper", &keys.whisper)]
+        .into_iter()
+        .filter(|(_, key)| key.as_deref().is_some_and(|k| !k.is_empty()))
+        .map(|(name, _)| format!("api_keys:{name}"))
+        .collect();
 
     // The config goes through the same load/save the app uses, so the keys are split out again and the Cloud one can be cleared.
     std::fs::copy(&config_path, out.join(CONFIG_FILE)).context("failed to copy the config")?;
@@ -109,6 +126,8 @@ pub fn export_instance(data_dir: &Path, out: &Path, options: &ExportOptions) -> 
     save_config(&out.join(CONFIG_FILE), &config)?;
     if !options.with_secrets {
         let _ = std::fs::remove_file(out.join(SECRETS_FILE));
+        needs_keys.extend(had_mcp_secret);
+        needs_keys.extend(had_api_key);
     }
 
     let mut files = Vec::new();
@@ -311,6 +330,43 @@ mod tests {
             assert_eq!(std::fs::read(source.join(kept)).unwrap(), std::fs::read(destination.join(kept)).unwrap(), "{kept} differs");
         }
         assert!(!destination.join("devices.json").exists());
+    }
+
+    /// P131: an MCP server's token and the `[api_keys]` are secrets like a provider's key: out of a package without the flag (and said to
+    /// be needed), and in the keys file, never in `config.toml`, with it.
+    #[test]
+    fn an_mcp_token_and_the_api_keys_stay_out_of_a_package_without_the_flag_and_are_listed_as_needed() {
+        let source = data_dir("mcp-src");
+        write(
+            &source,
+            "config.toml",
+            "[[mcp_servers]]\nname = \"github\"\ncommand = \"npx\"\n[mcp_servers.env]\nGITHUB_TOKEN = \"ghp_export_secret\"\n\n[api_keys]\ntavily = \"tavily_export_secret\"\n",
+        );
+
+        let without = temp_dir("mcp-without").join("export");
+        let report = export_instance(&source, &without, &ExportOptions::default()).unwrap();
+        assert_eq!(report.needs_keys, vec!["api_keys:tavily".to_string(), "mcp:github".to_string()]);
+        assert!(!without.join(SECRETS_FILE).exists());
+        for file in [CONFIG_FILE, MANIFEST_FILE] {
+            let text = std::fs::read_to_string(without.join(file)).unwrap();
+            assert!(!text.contains("ghp_export_secret") && !text.contains("tavily_export_secret"), "{file}: {text}");
+        }
+        assert!(std::fs::read_to_string(without.join(CONFIG_FILE)).unwrap().contains("GITHUB_TOKEN"), "the variable's name still travels");
+
+        let with = temp_dir("mcp-with").join("export");
+        let report = export_instance(&source, &with, &ExportOptions { with_secrets: true }).unwrap();
+        assert!(report.needs_keys.is_empty(), "{:?}", report.needs_keys);
+        let keys = std::fs::read_to_string(with.join(SECRETS_FILE)).unwrap();
+        assert!(keys.contains("ghp_export_secret") && keys.contains("tavily_export_secret"), "{keys}");
+        assert!(!std::fs::read_to_string(with.join(CONFIG_FILE)).unwrap().contains("ghp_export_secret"));
+
+        // Imported with the keys file, the server is whole again.
+        let destination = temp_dir("mcp-dst");
+        import_instance(&with, &destination, &ImportOptions::default()).unwrap();
+        let back = load_config_from_path(&destination.join(CONFIG_FILE), true).unwrap();
+        let crate::McpServerConfig::Stdio { env, .. } = &back.mcp_servers[0] else { panic!("{:?}", back.mcp_servers) };
+        assert_eq!(env["GITHUB_TOKEN"], "ghp_export_secret");
+        assert_eq!(back.api_keys.tavily.as_deref(), Some("tavily_export_secret"));
     }
 
     #[test]

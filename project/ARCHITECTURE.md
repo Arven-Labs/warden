@@ -2146,8 +2146,14 @@ mesma resposta CommonMark via `react-markdown`+`remark-gfm`; faltava o conversor
   lado dele, com modo 0600 (também o `config.toml`), escrita por arquivo temporário e rename. Ao carregar, a chave
   que ainda estiver no `config.toml` vale mais (migração sem perda); ao salvar, as chaves vão para o secrets
   (relido para conferir) antes de saírem do config, e o `config.toml` antigo fica em `config.toml.bak` (0600). O
-  `Debug` do `ProviderConfig` esconde a chave. **Ficam de fora**: as chaves da seção legada `[api_keys]` (Tavily,
-  Telegram, voz…), que seguem em texto puro no `config.toml`, e o Windows, onde o chmod não faz nada.
+  `Debug` do `ProviderConfig` esconde a chave. **Sessão 295 (estendido)**: o mesmo arquivo passa a guardar também os
+  valores de `env` (stdio) e `headers` (http) de cada `[[mcp_servers]]`, por nome do servidor (no `config.toml` ficam os
+  nomes, com o valor vazio), e as cinco chaves de `[api_keys]`; ao carregar só se preenche um nome que o config ainda lista
+  com valor vazio, e o `SecretsFile` mantém `deny_unknown_fields` (um Warden antigo recusa um arquivo com seção que não
+  conhece, em vez de lê-lo sem os segredos e reescrevê-lo sem eles). O caminho de gravação das configurações **do hub**
+  (`warden-server/src/settings.rs::write_config`) tinha o próprio `render_config` e **gravava as chaves de volta no
+  `config.toml`**; passou por `store_and_strip`, e a reversão de uma gravação que o hub não consegue subir devolve os dois
+  arquivos. **Fica de fora**: o Windows, onde o chmod não faz nada.
 
 ## Rede de nós no mesmo workspace (P86, estudo da Sessão 107 — nada implementado)
 

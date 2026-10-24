@@ -18,6 +18,7 @@ use anyhow::Context;
 use async_trait::async_trait;
 use warden_bootstrap::settings::{apply_hub_settings, config_version, hub_settings};
 use warden_bootstrap::users::OrgAccess;
+use warden_bootstrap::secrets::secrets_path;
 use warden_bootstrap::{load_config_from_path, render_config, FileConfig};
 use warden_core::orchestrator::Orchestrator;
 use warden_core::tool::Tool;
@@ -257,16 +258,17 @@ pub async fn handle_save_settings(
         Err(message) => return settings_error(request_id, message),
     };
 
+    let previous_secrets = match read_optional(&secrets_path(&path)) {
+        Ok(bytes) => bytes,
+        Err(err) => return settings_error(request_id, format!("{err:#}")),
+    };
     if let Err(err) = write_config(&path, previous.as_deref(), &config) {
         return settings_error(request_id, format!("{err:#}"));
     }
     let orchestrator = match host.build().await {
         Ok(orchestrator) => orchestrator,
         Err(err) => {
-            let restored = match &previous {
-                Some(bytes) => write_atomic(&path, bytes),
-                None => std::fs::remove_file(&path).context("failed to remove the new config file"),
-            };
+            let restored = put_back(&path, &previous, &previous_secrets);
             let mut message = format!("settings not saved — the hub couldn't start with them: {err:#}");
             if let Err(restore_err) = restored {
                 message.push_str(&format!(" (and putting the previous file back failed: {restore_err:#})"));
@@ -333,14 +335,12 @@ async fn save_org_edit(
     let mut config = load_config_from_path(&path, false).map_err(|err| fail(format!("{err:#}")))?;
     allow(&config)?;
     warden_bootstrap::org_edit::apply_org_edit(&mut config, edit).map_err(fail)?;
+    let previous_secrets = read_optional(&secrets_path(&path)).map_err(|err| fail(format!("{err:#}")))?;
     write_config(&path, previous.as_deref(), &config).map_err(|err| fail(format!("{err:#}")))?;
     match host.build().await {
         Ok(orchestrator) => Ok((config, orchestrator)),
         Err(err) => {
-            let restored = match &previous {
-                Some(bytes) => write_atomic(&path, bytes),
-                None => std::fs::remove_file(&path).context("failed to remove the new config file"),
-            };
+            let restored = put_back(&path, &previous, &previous_secrets);
             let mut message = format!("not changed — the hub couldn't start with it: {err:#}");
             if let Err(restore_err) = restored {
                 message.push_str(&format!(" (and putting the previous file back failed: {restore_err:#})"));
@@ -423,8 +423,29 @@ fn write_config(path: &Path, previous: Option<&[u8]>, config: &FileConfig) -> an
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent).with_context(|| format!("failed to create config directory at {}", parent.display()))?;
     }
-    let contents = render_config(previous.and_then(|bytes| std::str::from_utf8(bytes).ok()), config)?;
+    // P131: the secrets (provider keys, MCP values, `[api_keys]`) go to `config.secrets.toml` first, as in `save_config`; before this the
+    // hub's own save wrote them back into `config.toml` in plain text.
+    let previous = previous.and_then(|bytes| std::str::from_utf8(bytes).ok());
+    let stripped = warden_bootstrap::secrets::store_and_strip(config, path, previous)?;
+    let contents = render_config(previous, &stripped)?;
     write_atomic(path, contents.as_bytes())
+}
+
+/// Undoes `write_config`: the config file and the secrets file next to it go back to what they were (a file there was not goes away).
+/// Both, because the save moved the secrets across: a config put back alone would run on the keys the refused save wrote.
+fn put_back(path: &Path, previous: &Option<Vec<u8>>, previous_secrets: &Option<Vec<u8>>) -> anyhow::Result<()> {
+    match previous {
+        Some(bytes) => write_atomic(path, bytes)?,
+        None => std::fs::remove_file(path).context("failed to remove the new config file")?,
+    }
+    let secrets = secrets_path(path);
+    match previous_secrets {
+        Some(bytes) => warden_bootstrap::secrets::write_private(&secrets, bytes),
+        None => match std::fs::remove_file(&secrets) {
+            Err(err) if err.kind() != std::io::ErrorKind::NotFound => Err(err).context("failed to remove the new secrets file"),
+            _ => Ok(()),
+        },
+    }
 }
 
 fn write_atomic(path: &Path, bytes: &[u8]) -> anyhow::Result<()> {
@@ -530,6 +551,11 @@ id = "main"
 kind = "anthropic"
 api_key = "sk-ant-original-secret-9999"
 "#;
+
+    /// The secrets file next to the test's config (`config.secrets.toml`), empty when there is none.
+    fn secrets_text(host: &TestHost) -> String {
+        std::fs::read_to_string(warden_bootstrap::secrets::secrets_path(&host.config_path())).unwrap_or_default()
+    }
 
     async fn setup(name: &str) -> (TestHost, SharedOrchestrator) {
         let dir = std::env::temp_dir().join(format!("warden-hub-settings-{name}-{}", std::process::id()));
@@ -670,7 +696,8 @@ api_key = "sk-ant-original-secret-9999"
         assert!(has_tool(&shared, "shell"), "the rebuilt orchestrator runs with the shell on");
         let text = std::fs::read_to_string(host.config_path()).unwrap();
         assert!(text.contains("enable_shell = true"), "{text}");
-        assert!(text.contains("# o provedor principal\n[[providers]]") && text.contains("sk-whisper-kept-secret-abcdef"), "the rest of the file is as it was: {text}");
+        assert!(text.contains("# o provedor principal\n[[providers]]"), "the rest of the file is as it was: {text}");
+        assert!(!text.contains("sk-whisper-kept-secret-abcdef") && secrets_text(&host).contains("sk-whisper-kept-secret-abcdef"), "the key moved to the secrets file, it was not lost: {text}");
         std::fs::remove_dir_all(&host.dir).unwrap();
     }
 
@@ -690,7 +717,9 @@ api_key = "sk-ant-original-secret-9999"
         let ServerMessage::SettingsSaved { settings, version, .. } = reply else { panic!("{reply:?}") };
         assert!(settings.telegram_token.set);
         assert!(!serde_json::to_string(&settings).unwrap().contains("ABC-token"), "the token never comes back");
-        assert!(std::fs::read_to_string(host.config_path()).unwrap().contains("123456:ABC-token-long-enough"));
+        let saved = std::fs::read_to_string(host.config_path()).unwrap();
+        assert!(!saved.contains("123456:ABC-token-long-enough"), "the token is not in config.toml: {saved}");
+        assert!(secrets_text(&host).contains("123456:ABC-token-long-enough"), "it is in the secrets file");
 
         let mut tuning = untouched(&settings);
         tuning.advanced = Some(Box::new(AdvancedSettingsDto { delegate_max_depth: Some(3), max_delegated_calls: Some(80), max_parallel_jobs: Some(2), truthid_network: "base-mainnet".into(), truthid_rpc_url: String::new(), truthid_public_url: String::new() }));
@@ -763,7 +792,10 @@ api_key = "sk-ant-original-secret-9999"
         assert_eq!(host.installed.load(Ordering::SeqCst), 1);
 
         let text = std::fs::read_to_string(host.config_path()).unwrap();
-        assert!(text.contains("sk-ant-new") && text.contains("sk-whisper-kept-secret-abcdef"), "{text}");
+        // The keys (the new provider one and the whisper one the save carried over) are in the secrets file, not in `config.toml`.
+        assert!(!text.contains("sk-ant-new") && !text.contains("sk-whisper-kept-secret-abcdef") && !text.contains("sk-ant-original-secret-9999"), "{text}");
+        let secrets = secrets_text(&host);
+        assert!(secrets.contains("sk-ant-new") && secrets.contains("sk-whisper-kept-secret-abcdef"), "{secrets}");
         assert!(text.contains("enable_shell = false"), "what the screen doesn't show is carried over: {text}");
         assert!(
             text.contains("enable_shell = false # desligado de propósito") && text.contains("# o provedor principal\n[[providers]]"),
@@ -822,6 +854,7 @@ api_key = "sk-ant-original-secret-9999"
         let reply = save(&host, &shared, false, KEY, &version, cleared).await;
         assert!(matches!(reply, ServerMessage::SettingsSaved { .. }), "clearing a key sends no secret: {reply:?}");
         assert!(!std::fs::read_to_string(host.config_path()).unwrap().contains("sk-whisper"));
+        assert!(!secrets_text(&host).contains("sk-whisper"), "a cleared key leaves the secrets file too");
         std::fs::remove_dir_all(&host.dir).unwrap();
     }
 
@@ -853,6 +886,32 @@ api_key = "sk-ant-original-secret-9999"
         assert!(Arc::ptr_eq(&before, &shared.current()));
         assert_eq!(host.installed.load(Ordering::SeqCst), 0);
         assert!(!host.dir.join(".config.toml.saving").exists());
+        assert!(!warden_bootstrap::secrets::secrets_path(&host.config_path()).exists(), "no secrets file was there before, none is left");
+        std::fs::remove_dir_all(&host.dir).unwrap();
+    }
+
+    /// P131: a save the hub cannot start with is undone in both files. The keys were already in the secrets file (the normal case after a
+    /// first save), so putting `config.toml` back alone would have left the refused key to run.
+    #[tokio::test]
+    async fn a_rolled_back_save_puts_the_secrets_file_back_too() {
+        let (host, shared) = setup("rollback-secrets").await;
+        let (settings, version, _) = load(&host, &shared, true);
+        let mut first = untouched(&settings);
+        first.providers[0].model = "claude-test".into();
+        let reply = save(&host, &shared, true, KEY, &version, first).await;
+        let ServerMessage::SettingsSaved { settings, version, .. } = reply else { panic!("{reply:?}") };
+        let config_then = std::fs::read_to_string(host.config_path()).unwrap();
+        let secrets_then = secrets_text(&host);
+        assert!(secrets_then.contains("sk-ant-original-secret-9999") && !config_then.contains("sk-ant-original-secret-9999"), "{config_then}\n{secrets_then}");
+
+        let mut refused = untouched(&settings);
+        refused.providers[0].api_key = SecretEdit::Set("sk-ant-rejected".into());
+        refused.providers[0].kind = "openai_compatible".into();
+        let reply = save(&host, &shared, true, KEY, &version, refused).await;
+        let ServerMessage::SettingsError { message, .. } = reply else { panic!("{reply:?}") };
+        assert!(message.starts_with("settings not saved"), "{message}");
+        assert_eq!(std::fs::read_to_string(host.config_path()).unwrap(), config_then, "the config is back");
+        assert_eq!(secrets_text(&host), secrets_then, "and the secrets file is back, without the refused key");
         std::fs::remove_dir_all(&host.dir).unwrap();
     }
 

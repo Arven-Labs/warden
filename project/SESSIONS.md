@@ -2,7 +2,18 @@
 
 > **Nota**: Este log foi criado junto com o projeto. As sessões serão registradas aqui conforme o trabalho avança.
 >
-> Última atualização: 2026-10-24 (Sessão 294)
+> Última atualização: 2026-10-24 (Sessão 295)
+
+---
+
+### 2026-10-24 — Sessão 295 (segredos fora do `config.toml`: o MCP e as chaves de `[api_keys]`, e um furo na gravação do hub: P131)
+
+- **Pedido**: "vamos trabalhar em outras frentes, preguiça de testar". Propus a segurança dos segredos e do MCP; o usuário escolheu só "segredos fora do `config.toml`" (não mexer no que uma tool MCP sem anotação faz no nível 4). Planejado em modo de plano.
+- **Feito**: `secrets.rs` (`SecretsFile` com `mcp` por nome do servidor e `api_keys`; `split`, `merge_into`, `holds_plain_keys`, a conferência de leitura que agora compara o arquivo inteiro). No `config.toml` ficam os **nomes** do `env` e dos `headers` com o valor vazio; ao carregar só se preenche um nome que o config ainda lista (um nome tirado à mão não volta); um valor que ainda está no `config.toml` vale mais e a primeira gravação o move (`config.toml.bak` uma vez). `deny_unknown_fields` ficou, de propósito. `instance_export.rs`: `needs_keys` ganhou `mcp:<servidor>` e `api_keys:<nome>`; as mensagens do `warden-server export` e `import` foram atualizadas. Docs: `GUIA-DE-USO.md`, `site/content/docs/desktop.md`, `ARCHITECTURE.md`.
+- **Achado fora do plano**: `warden-server/src/settings.rs::write_config` (a tela de configurações do hub) usava o próprio `render_config` e **gravava as chaves de volta, em texto puro, no `config.toml`**: o S0 não valia para quem edita pelo hub. Passou por `store_and_strip`. E a reversão de uma gravação que o hub não consegue subir só devolvia o `config.toml`: com os segredos fora, a chave recusada ficaria no arquivo de segredos; novo `put_back` devolve os dois (e remove o arquivo de segredos que não existia). Quatro testes do `warden-server` conferiam o segredo **no texto do `config.toml`** depois de salvar e foram ajustados para conferir que ele está no arquivo de segredos e não no config; novo teste da reversão com os segredos.
+- **Testes**: aqui só `cargo check -p warden-bootstrap --tests` e `-p warden-server --tests` limpos (CI híbrido); escritos e **não rodados**: oito testes no `secrets.rs` (valores do MCP saem e voltam e os nomes ficam; as cinco chaves; o valor do config vale mais e o `.bak`; nome tirado não volta; servidor removido ou renomeado não deixa valor; arquivo antigo lê e seção desconhecida é recusada; `Debug` não imprime; modo 0600), um no `instance_export.rs` (sem a flag o token não vai e o servidor é listado; com a flag volta inteiro na importação) e o do `put_back`. Se algum falhar no CI, o erro é do teste ou do código novo, não de algo já visto funcionar.
+- **Registro**: o ajuste das mensagens do `main.rs` entrou por script Python no Bash (não aparece na tela); o resto, por Edit.
+- **Fica**: CI; a galeria de skills no celular e na extensão, exportar e importar skill, agentes prontos e o `.wpkg` (P140); o comportamento de uma tool MCP sem anotação no nível 4.
 
 ---
 

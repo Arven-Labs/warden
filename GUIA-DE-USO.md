@@ -41,7 +41,9 @@ autor é desconhecido. É esperado; confirme que o arquivo veio do release acima
 4. Abra uma conversa e escreva algo.
 
 As chaves ficam em `config.secrets.toml` (só o seu usuário lê), e não no `config.toml`, que é o arquivo
-que se copia e se cola por aí.
+que se copia e se cola por aí. Isso vale para as chaves dos provedores, os valores de ambiente e os
+cabeçalhos dos servidores MCP (como um token do GitHub) e as chaves de busca, voz e do bot do Telegram; no
+`config.toml` fica só o nome de cada variável, com o valor vazio.
 
 ### Node.js (opcional)
 
@@ -54,7 +56,7 @@ ficam de fora.)
 | O quê | Onde (Linux) |
 |---|---|
 | Configuração | `~/.config/warden/config.toml` |
-| Chaves dos provedores | `~/.config/warden/config.secrets.toml` |
+| Chaves e tokens (provedores, servidores MCP, busca, voz, Telegram) | `~/.config/warden/config.secrets.toml` |
 | Cofre de memória (notas em markdown) | `~/Warden/vault` (muda em Settings) |
 
 No Windows e no macOS a configuração fica na pasta de configuração do sistema, em `warden`. O cofre é uma pasta de

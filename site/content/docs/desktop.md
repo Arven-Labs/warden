@@ -27,7 +27,9 @@ unknown. That's expected; check that the file came from the release above.
 4. Open a conversation and write something.
 
 Keys are stored in `config.secrets.toml` (readable only by your user), not in `config.toml`, which is the
-file people copy and paste around.
+file people copy and paste around. That covers the providers' keys, the environment values and headers of
+MCP servers (a GitHub token, say) and the search, voice and Telegram bot keys; `config.toml` keeps only the
+name of each variable, with an empty value.
 
 ## Node.js (optional)
 
@@ -40,7 +42,7 @@ doesn't ship Node.js, so those two tools are left out there.)
 | What | Where (Linux) |
 |---|---|
 | Configuration | `~/.config/warden/config.toml` |
-| Provider keys | `~/.config/warden/config.secrets.toml` |
+| Keys and tokens (providers, MCP servers, search, voice, Telegram) | `~/.config/warden/config.secrets.toml` |
 | Memory vault (markdown notes) | `~/Warden/vault` (changeable in Settings) |
 
 On Windows and macOS the configuration lives in the system's config folder, under `warden`. The vault is a
