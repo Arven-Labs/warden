@@ -826,7 +826,10 @@ sale_out = 9.0
         let used = Tokens { prompt: 1_000_000, completion: 1_000_000 };
         assert_eq!(m.worst_case_at(1, used), m.price_at(1, Tokens { prompt: 1_000_000, completion: 100 }));
         assert_eq!(m.worst_case_at(0, used), m.price_at(0, used));
-        assert_eq!(m.worst_price(used), m.worst_case_at(0, used), "the main target is the dearest once the fallback is held to 100 tokens");
+        // The fallback's prompt is dearer (3.0 against 1.0), so it is still the worst case; but held to 100 tokens its worst case is
+        // lower than the model's whole ceiling would make it, which is what a smaller hold is for.
+        assert_eq!(m.worst_price(used), m.worst_case_at(1, used));
+        assert!(m.worst_price(used).charged < m.price_at(1, used).charged);
     }
 
     #[test]
