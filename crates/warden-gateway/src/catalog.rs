@@ -27,6 +27,11 @@
 //! cost_in = 0.20
 //! cost_out = 0.80
 //! ```
+//!
+//! With fallbacks, `strategy` on the model says who starts a call: `ordered` (the default, the order written), `cheapest` (least
+//! cost to the gateway), `round_robin`, `weighted` (a random start by each target's `weight`, on the model and on each
+//! `[[models.fallback]]`) or `fastest` (the one answering quickest lately). The rest follow as fallbacks, and a provider over its
+//! `daily_budget_usd` is out of it altogether.
 
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
@@ -77,6 +82,10 @@ struct RawModel {
     sale_in: Option<f64>,
     sale_out: Option<f64>,
     max_tokens: Option<u32>,
+    /// Which target a call tries first: `ordered` (the default), `cheapest`, `round_robin`, `weighted` or `fastest`.
+    strategy: Option<String>,
+    /// The main target's share under `weighted`.
+    weight: Option<u32>,
     /// Places to try, in order, when the main one fails in a way another provider could fix (`[[models.fallback]]`).
     #[serde(default)]
     fallback: Vec<RawFallback>,
@@ -91,6 +100,7 @@ struct RawFallback {
     cost_out: f64,
     sale_in: Option<f64>,
     sale_out: Option<f64>,
+    weight: Option<u32>,
 }
 
 /// A provider endpoint the gateway forwards to (an OpenAI-compatible `base_url`).
@@ -117,6 +127,10 @@ pub struct ModelEntry {
     pub sale_out: Micros,
     /// The most an answer may have; the hold for a call is sized with it.
     pub max_tokens: u32,
+    /// Which target a call tries first; with no fallbacks it makes no difference.
+    pub strategy: Strategy,
+    /// The main target's `weight` (the fallbacks' are in their `Target`s).
+    pub weight: u32,
     /// Where a call goes when the main target (the fields above) fails in a way another provider could fix, in order. Each has
     /// its own cost and sale price; the customer pays the price of the target that answered.
     pub fallbacks: Vec<Target>,
@@ -131,6 +145,49 @@ pub struct Target {
     pub cost_out: Micros,
     pub sale_in: Micros,
     pub sale_out: Micros,
+    /// Its share of the calls under the `weighted` strategy (1 when not written; it means nothing to the other strategies).
+    pub weight: u32,
+}
+
+/// Which target of a model a call tries first; the rest follow as fallbacks. A provider that is out of budget never takes part.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Strategy {
+    /// The main target, then the fallbacks in the order written.
+    #[default]
+    Ordered,
+    /// The target that costs the gateway least for the call, then the next cheapest.
+    Cheapest,
+    /// Takes turns: each call starts one target further along.
+    RoundRobin,
+    /// A random start, by the targets' `weight`s.
+    Weighted,
+    /// The target that has been answering fastest lately; one not yet measured goes first, so all get measured.
+    Fastest,
+}
+
+impl Strategy {
+    pub const NAMES: &'static str = "ordered, cheapest, round_robin, weighted, fastest";
+
+    fn parse(text: &str) -> Option<Strategy> {
+        Some(match text {
+            "ordered" => Strategy::Ordered,
+            "cheapest" => Strategy::Cheapest,
+            "round_robin" => Strategy::RoundRobin,
+            "weighted" => Strategy::Weighted,
+            "fastest" => Strategy::Fastest,
+            _ => return None,
+        })
+    }
+
+    pub fn name(self) -> &'static str {
+        match self {
+            Strategy::Ordered => "ordered",
+            Strategy::Cheapest => "cheapest",
+            Strategy::RoundRobin => "round_robin",
+            Strategy::Weighted => "weighted",
+            Strategy::Fastest => "fastest",
+        }
+    }
 }
 
 impl Target {
@@ -211,7 +268,7 @@ fn priced_target(
     if sale_in < cost_in || sale_out < cost_out {
         return Err(format!("catalog: {label} would sell below its cost"));
     }
-    Ok(Target { upstream, upstream_model, cost_in, cost_out, sale_in, sale_out })
+    Ok(Target { upstream, upstream_model, cost_in, cost_out, sale_in, sale_out, weight: 1 })
 }
 
 impl Catalog {
@@ -279,13 +336,28 @@ impl Catalog {
             if max_tokens == 0 {
                 return Err(format!("catalog: model `{}` has max_tokens = 0", m.name));
             }
+            let strategy = match m.strategy.as_deref() {
+                None => Strategy::Ordered,
+                Some(text) => Strategy::parse(text)
+                    .ok_or_else(|| format!("catalog: model `{}` has the unknown strategy `{text}` (use one of: {})", m.name, Strategy::NAMES))?,
+            };
+            // A weight under any other strategy would look like it counted and not: better an error than a quiet surprise.
+            let weighted = strategy == Strategy::Weighted;
+            if !weighted && (m.weight.is_some() || m.fallback.iter().any(|f| f.weight.is_some())) {
+                return Err(format!("catalog: model `{}` sets a `weight`, which only counts with strategy = \"weighted\"", m.name));
+            }
+            if m.weight == Some(0) || m.fallback.iter().any(|f| f.weight == Some(0)) {
+                return Err(format!("catalog: model `{}` has a `weight` of 0 (leave the target out instead)", m.name));
+            }
+            let weight = m.weight.unwrap_or(1);
             let mut fallbacks: Vec<Target> = Vec::new();
             for f in m.fallback {
                 if !upstreams.iter().any(|u| u.id == f.upstream) {
                     return Err(format!("catalog: model `{}` has a fallback on the unknown upstream `{}`", m.name, f.upstream));
                 }
                 let label = format!("model `{}` fallback `{}/{}`", m.name, f.upstream, f.upstream_model);
-                let target = priced_target(&label, f.upstream, f.upstream_model, (f.cost_in, f.cost_out), (f.sale_in, f.sale_out), margin)?;
+                let mut target = priced_target(&label, f.upstream, f.upstream_model, (f.cost_in, f.cost_out), (f.sale_in, f.sale_out), margin)?;
+                target.weight = f.weight.unwrap_or(1);
                 if target.label() == main.label() || fallbacks.iter().any(|t| t.label() == target.label()) {
                     return Err(format!("catalog: model `{}` lists `{}` twice", m.name, target.label()));
                 }
@@ -300,6 +372,8 @@ impl Catalog {
                 sale_in: main.sale_in,
                 sale_out: main.sale_out,
                 max_tokens,
+                strategy,
+                weight,
                 fallbacks,
             });
         }
@@ -345,6 +419,7 @@ impl ModelEntry {
             cost_out: self.cost_out,
             sale_in: self.sale_in,
             sale_out: self.sale_out,
+            weight: self.weight,
         }
     }
 
@@ -498,6 +573,75 @@ cost_out = 2.0
     fn a_slash_in_a_providers_id_is_refused_because_targets_are_told_apart_by_it() {
         let err = parse(&WITH_BUDGET.replace("id = \"b\"", "id = \"b/c\"")).unwrap_err();
         assert!(err.contains("`b/c`") && err.contains("cannot contain `/`"), "{err}");
+    }
+
+    fn with_two_targets(strategy_line: &str, main_weight: &str, fallback_weight: &str) -> String {
+        format!(
+            r#"
+margin_percent = 30
+[[upstreams]]
+id = "a"
+base_url = "http://a.test/v1"
+[[upstreams]]
+id = "b"
+base_url = "http://b.test/v1"
+
+[[models]]
+name = "m"
+{strategy_line}
+{main_weight}
+upstream = "a"
+upstream_model = "ra"
+cost_in = 1.0
+cost_out = 2.0
+[[models.fallback]]
+upstream = "b"
+upstream_model = "rb"
+cost_in = 1.0
+cost_out = 2.0
+{fallback_weight}
+"#
+        )
+    }
+
+    #[test]
+    fn a_model_without_a_strategy_is_ordered_and_a_named_one_is_read() {
+        assert_eq!(parse(&with_two_targets("", "", "")).unwrap().models[0].strategy, Strategy::Ordered);
+        for (name, want) in [
+            ("ordered", Strategy::Ordered),
+            ("cheapest", Strategy::Cheapest),
+            ("round_robin", Strategy::RoundRobin),
+            ("fastest", Strategy::Fastest),
+        ] {
+            let m = parse(&with_two_targets(&format!("strategy = \"{name}\""), "", "")).unwrap().models.remove(0);
+            assert_eq!((m.strategy, m.strategy.name()), (want, name));
+        }
+    }
+
+    #[test]
+    fn weights_are_read_for_the_weighted_strategy_and_default_to_one() {
+        let m = parse(&with_two_targets("strategy = \"weighted\"", "weight = 4", "")).unwrap().models.remove(0);
+        assert_eq!((m.strategy, m.weight, m.fallbacks[0].weight), (Strategy::Weighted, 4, 1));
+        assert_eq!(m.targets().iter().map(|t| t.weight).collect::<Vec<_>>(), vec![4, 1]);
+        let both = parse(&with_two_targets("strategy = \"weighted\"", "weight = 2", "weight = 5")).unwrap().models.remove(0);
+        assert_eq!(both.targets().iter().map(|t| t.weight).collect::<Vec<_>>(), vec![2, 5]);
+    }
+
+    #[test]
+    fn a_bad_strategy_or_weight_is_an_error_naming_the_model() {
+        let unknown = parse(&with_two_targets("strategy = \"lucky\"", "", "")).unwrap_err();
+        assert!(unknown.contains("model `m`") && unknown.contains("`lucky`") && unknown.contains("round_robin"), "{unknown}");
+
+        let zero = parse(&with_two_targets("strategy = \"weighted\"", "weight = 0", "")).unwrap_err();
+        assert!(zero.contains("model `m`") && zero.contains("weight"), "{zero}");
+        let zero_fallback = parse(&with_two_targets("strategy = \"weighted\"", "", "weight = 0")).unwrap_err();
+        assert!(zero_fallback.contains("weight"), "{zero_fallback}");
+
+        // A weight that no strategy would use is refused rather than quietly ignored.
+        for strategy_line in ["", "strategy = \"cheapest\""] {
+            let stray = parse(&with_two_targets(strategy_line, "weight = 3", "")).unwrap_err();
+            assert!(stray.contains("model `m`") && stray.contains("weighted"), "{stray}");
+        }
     }
 
     #[test]

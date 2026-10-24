@@ -14,6 +14,7 @@
 //! Not here: ACME, client certificates.
 
 pub mod apikey;
+pub mod balance;
 pub mod catalog;
 pub mod estimate;
 pub mod fake;

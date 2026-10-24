@@ -551,9 +551,12 @@ async fn whole_answer<S: AsyncWrite + Unpin>(stream: &mut S, state: &State, res:
     let err = loop {
         let at = res.available[next];
         let call = call_for(state, res, request, &targets[at], false);
+        let started = std::time::Instant::now();
         match state.upstream.complete(&call).await {
             Ok(mut answer) => {
-                if at > 0 {
+                state.gateway.balancer().record(&targets[at].label(), started.elapsed());
+                // `next > 0`: an earlier target in this call's order failed (the order may not be the one written).
+                if next > 0 {
                     tracing::info!(model = %res.model.name, target = %targets[at].label(), "answered by a fallback target");
                 }
                 let outcome = usage_of(&answer).map_or(Outcome::Unmetered, Outcome::Completed);
@@ -583,9 +586,11 @@ async fn stream_answer<S: AsyncWrite + Unpin>(stream: &mut S, state: &State, res
     let (at, mut chunks) = loop {
         let at = res.available[next];
         let call = call_for(state, res, request, &targets[at], true);
+        let started = std::time::Instant::now();
         match state.upstream.stream(&call).await {
             Ok(chunks) => {
-                if at > 0 {
+                state.gateway.balancer().record(&targets[at].label(), started.elapsed());
+                if next > 0 {
                     tracing::info!(model = %res.model.name, target = %targets[at].label(), "answered by a fallback target");
                 }
                 break (at, chunks);

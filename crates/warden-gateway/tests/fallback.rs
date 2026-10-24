@@ -303,3 +303,57 @@ async fn yesterdays_spending_does_not_count_against_todays_budget() {
     assert_eq!(status, 200, "{body}");
     assert_eq!(called(&rig), vec![A]);
 }
+
+/// `CATALOG` with a strategy on `fast`, and the main target made the dear one (so the fallback `b` is the cheaper to the gateway).
+fn with_strategy(strategy: &str) -> String {
+    CATALOG
+        .replace("cost_in = 1.0\ncost_out = 2.0", "cost_in = 9.0\ncost_out = 9.0")
+        .replace("name = \"fast\"", &format!("name = \"fast\"\nstrategy = \"{strategy}\""))
+}
+
+#[tokio::test]
+async fn cheapest_starts_on_the_target_that_costs_the_gateway_least_even_when_it_is_a_fallback() {
+    let rig = rig_with(&with_strategy("cheapest"), reply("real-a", 1, 1), reply("real-b", 100, 50)).await;
+    let (status, head, body) = post_chat(&rig, "").await;
+    assert_eq!(status, 200, "{body}");
+    assert_eq!(called(&rig), vec![B]);
+    assert!(head.to_lowercase().contains("x-warden-target: b"), "{head}");
+    assert_eq!(rig.store.balance(&rig.account).unwrap(), CREDIT - charged_at(&rig, 1, 100, 50), "paid at the price of the one that answered");
+}
+
+#[tokio::test]
+async fn cheapest_falls_back_to_the_next_cheapest_when_the_first_fails() {
+    let rig = rig_with(&with_strategy("cheapest"), reply("real-a", 100, 50), Script::Status(503)).await;
+    let (status, head, body) = post_chat(&rig, "").await;
+    assert_eq!(status, 200, "{body}");
+    assert_eq!(called(&rig), vec![B, A], "b first, and a once b failed");
+    assert!(head.to_lowercase().contains("x-warden-target: a"), "{head}");
+    assert_eq!(rig.store.balance(&rig.account).unwrap(), CREDIT - charged_at(&rig, 0, 100, 50));
+}
+
+#[tokio::test]
+async fn the_cheapest_target_is_not_chosen_once_its_provider_is_over_budget() {
+    let text = with_strategy("cheapest").replace("id = \"b\"", "id = \"b\"\ndaily_budget_usd = 1.0");
+    let rig = rig_with(&text, reply("real-a", 100, 50), reply("real-b", 1, 1)).await;
+    burn(&rig, "b", 1_000_000);
+    let (status, _, body) = post_chat(&rig, "").await;
+    assert_eq!(status, 200, "{body}");
+    assert_eq!(called(&rig), vec![A]);
+}
+
+#[tokio::test]
+async fn round_robin_starts_each_call_on_the_next_target() {
+    let rig = rig_with(&with_strategy("round_robin"), reply("real-a", 10, 10), reply("real-b", 10, 10)).await;
+    for _ in 0..3 {
+        let (status, _, body) = post_chat(&rig, "").await;
+        assert_eq!(status, 200, "{body}");
+    }
+    assert_eq!(called(&rig), vec![A, B, A]);
+}
+
+#[tokio::test]
+async fn ordered_is_the_default_and_keeps_the_main_target_first() {
+    let rig = rig_with(&CATALOG.replace("cost_in = 1.0\ncost_out = 2.0", "cost_in = 9.0\ncost_out = 9.0"), reply("real-a", 10, 10), reply("real-b", 10, 10)).await;
+    post_chat(&rig, "").await;
+    assert_eq!(called(&rig), vec![A], "dearer than the fallback, still first: no strategy, no reordering");
+}

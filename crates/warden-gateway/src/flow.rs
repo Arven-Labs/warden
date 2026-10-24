@@ -14,6 +14,7 @@ use std::sync::Arc;
 
 use rand::RngCore;
 
+use crate::balance::Balancer;
 use crate::catalog::{Catalog, ModelEntry, Priced, Tokens};
 use crate::quota;
 use crate::store::{Account, Micros, Store, StoreError, UsageRecord};
@@ -110,6 +111,7 @@ pub struct Gateway {
     store: Arc<Store>,
     catalog: Arc<Catalog>,
     hold_ttl_secs: i64,
+    balancer: Arc<Balancer>,
 }
 
 fn new_request_id() -> String {
@@ -120,7 +122,12 @@ fn new_request_id() -> String {
 
 impl Gateway {
     pub fn new(store: Arc<Store>, catalog: Arc<Catalog>) -> Gateway {
-        Gateway { store, catalog, hold_ttl_secs: DEFAULT_HOLD_TTL_SECS }
+        Gateway { store, catalog, hold_ttl_secs: DEFAULT_HOLD_TTL_SECS, balancer: Arc::new(Balancer::new()) }
+    }
+
+    /// Who starts a call, and how fast each target has been answering.
+    pub fn balancer(&self) -> &Arc<Balancer> {
+        &self.balancer
     }
 
     pub fn with_hold_ttl(mut self, secs: i64) -> Gateway {
@@ -155,6 +162,7 @@ impl Gateway {
         let store = self.store.clone();
         let catalog = self.catalog.clone();
         let ttl = self.hold_ttl_secs;
+        let balancer = self.balancer.clone();
         run_blocking(move || {
             let account = store.account_by_token(&req.token)?.ok_or(GatewayError::Unauthorized)?;
             if !account.active {
@@ -191,6 +199,8 @@ impl Gateway {
             if hold.charged > 0 {
                 store.place_hold(&account.id, &request_id, hold.charged, ttl, req.now)?;
             }
+            // Last, once the call is sure to go ahead (a refused one must not use up a round-robin turn): who starts.
+            let available = balancer.order(&model, available, Tokens { prompt: prompt_tokens_estimate, completion: max_tokens as u64 });
             Ok(Reservation { request_id, account, model, max_tokens, hold, available, prompt_tokens_estimate })
         })
         .await

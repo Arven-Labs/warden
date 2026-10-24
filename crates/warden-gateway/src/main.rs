@@ -385,9 +385,15 @@ async fn main() -> Result<()> {
                     "{:<20} -> {}/{}   cost {}/{}   sale {}/{}   (USD per million tokens, in/out)   max {} tokens",
                     m.name, m.upstream, m.upstream_model, format_usd(m.cost_in), format_usd(m.cost_out), format_usd(m.sale_in), format_usd(m.sale_out), m.max_tokens
                 );
+                let weighted = m.strategy == warden_gateway::catalog::Strategy::Weighted;
+                if !m.fallbacks.is_empty() {
+                    let main_weight = if weighted { format!("   weight {}", m.weight) } else { String::new() };
+                    println!("{:<20}    strategy {}{main_weight}", "", m.strategy.name());
+                }
                 for (n, f) in m.fallbacks.iter().enumerate() {
+                    let weight = if weighted { format!("   weight {}", f.weight) } else { String::new() };
                     println!(
-                        "{:<20}    fallback {} -> {}/{}   cost {}/{}   sale {}/{}",
+                        "{:<20}    fallback {} -> {}/{}   cost {}/{}   sale {}/{}{weight}",
                         "", n + 1, f.upstream, f.upstream_model, format_usd(f.cost_in), format_usd(f.cost_out), format_usd(f.sale_in), format_usd(f.sale_out)
                     );
                 }
