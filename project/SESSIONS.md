@@ -2,7 +2,17 @@
 
 > **Nota**: Este log foi criado junto com o projeto. As sessões serão registradas aqui conforme o trabalho avança.
 >
-> Última atualização: 2026-10-23 (Sessão 278)
+> Última atualização: 2026-10-23 (Sessão 279)
+
+---
+
+### 2026-10-23 — Sessão 279 (o nome do modelo no stream do gateway: P168 g)
+
+- **Pedido**: "vamos continuar no 168"; entre os itens que sobravam o usuário escolheu o (g). Planejei em modo de plano; sem decisão de produto em aberto.
+- **Problema**: a resposta inteira já trocava o `model` pelo nome do catálogo, mas o stream repassava os bytes do provedor, então cada `data:` mostrava o modelo real (`real-fast`), vazando o provedor e deixando os dois caminhos inconsistentes.
+- **Feito**: `ModelRewriter` em `sse.rs` (acumula até o fim de cada linha, reescreve só `data: {json}` com `model` string no topo, faz o parse apenas se a linha contém `"model"`, preserva `\r\n`, devolve a cauda sem `\n` em `finish`, e passa adiante sem reescrever uma linha que passa de 1 MiB); `stream_answer` lê o uso dos bytes originais (`UsageScanner`) e escreve ao cliente o que o rewriter devolve. `forwarded` agora quer dizer que algo foi escrito ao cliente.
+- **Testes** (aqui só `cargo check -p warden-gateway --all-targets`; a suíte vai para o CI): 6 unitários em `sse.rs` (troca, linhas que passam idênticas, linha partida entre chunks, meia linha não sai, `\r\n` e várias linhas, cauda sem newline); `tests/endpoint.rs`: o teste do stream agora afirma `"model":"fast"` e a ausência de `real-fast`, e um teste novo parte o nome do modelo no meio de dois chunks e confere que a cobrança ainda vem do uso do provedor.
+- **Fica**: `id` e `system_fingerprint` seguem como o provedor manda (resposta inteira e stream).
 
 ---
 

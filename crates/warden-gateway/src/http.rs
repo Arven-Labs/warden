@@ -4,7 +4,7 @@
 //! connection closed after the answer. Plain HTTP by default, with TLS in front of it by a reverse proxy; or TLS on the
 //! socket itself when `GatewayServer::with_tls` is given the certificate (P168 b). A call goes through
 //! `Gateway::reserve`, the upstream provider and `Gateway::settle`; the caller sees the provider's answer with the
-//! catalog's model name, and a streamed answer is forwarded as it comes.
+//! catalog's model name (in a streamed answer too, line by line), and a streamed answer is forwarded as it comes.
 
 use std::net::{IpAddr, SocketAddr};
 use std::sync::Arc;
@@ -23,7 +23,7 @@ use crate::flow::{Gateway, GatewayError, Outcome, Reservation, ReserveRequest};
 use crate::limits::Slots;
 use crate::quota::{day_start, DAY_SECS};
 use crate::ratelimit::{client_key, retry_after_secs, token_key, RateLimiter};
-use crate::sse::{usage_of, UsageScanner};
+use crate::sse::{usage_of, ModelRewriter, UsageScanner};
 use crate::store::{EntryKind, StoreError};
 use crate::tls::GatewayTls;
 use crate::upstream::{Upstream, UpstreamCall, UpstreamError};
@@ -541,6 +541,7 @@ async fn stream_answer<S: AsyncWrite + Unpin>(stream: &mut S, state: &State, res
     let head = "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nCache-Control: no-cache\r\nConnection: close\r\n\r\n";
     let mut broken = stream.write_all(head.as_bytes()).await.is_err();
     let mut scan = UsageScanner::default();
+    let mut rewriter = ModelRewriter::new(&res.model.name);
     let mut forwarded = false;
     let deadline = state.max_stream.map(|max| tokio::time::Instant::now() + max);
     while !broken {
@@ -557,15 +558,27 @@ async fn stream_answer<S: AsyncWrite + Unpin>(stream: &mut S, state: &State, res
         };
         match next {
             Some(Ok(chunk)) => {
+                // The usage is read off the provider's own bytes; what goes to the caller carries the catalog's model name.
                 scan.push(&chunk);
-                broken = stream.write_all(&chunk).await.is_err() || stream.flush().await.is_err();
-                forwarded = true;
+                let out = rewriter.push(&chunk);
+                if !out.is_empty() {
+                    broken = stream.write_all(&out).await.is_err() || stream.flush().await.is_err();
+                    forwarded = true;
+                }
             }
             Some(Err(err)) => {
                 tracing::warn!("the stream broke: {err}");
                 broken = true;
             }
-            None => break,
+            None => {
+                // A last line the provider ended without a newline.
+                let tail = rewriter.finish();
+                if !tail.is_empty() {
+                    broken = stream.write_all(&tail).await.is_err() || stream.flush().await.is_err();
+                    forwarded = true;
+                }
+                break;
+            }
         }
     }
     let outcome = match (broken, scan.usage()) {

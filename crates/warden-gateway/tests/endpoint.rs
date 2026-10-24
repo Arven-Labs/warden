@@ -177,19 +177,33 @@ fn sse(lines: &[&str]) -> Vec<u8> {
 #[tokio::test]
 async fn a_stream_is_forwarded_and_charged_from_its_usage() {
     let chunks = vec![
-        Ok(sse(&[r#"{"choices":[{"delta":{"content":"hi"}}]}"#])),
-        Ok(sse(&[r#"{"choices":[],"usage":{"prompt_tokens":10,"completion_tokens":20}}"#, "[DONE]"])),
+        Ok(sse(&[r#"{"model":"real-fast","choices":[{"delta":{"content":"hi"}}]}"#])),
+        Ok(sse(&[r#"{"model":"real-fast","choices":[],"usage":{"prompt_tokens":10,"completion_tokens":20}}"#, "[DONE]"])),
     ];
     let rig = rig(10_000_000, Script::Chunks(chunks)).await;
     let (status, head, body) = http(rig.addr, "POST", "/v1/chat/completions", Some(&rig.token), Some(&chat(r#","stream":true"#))).await;
     assert_eq!(status, 200);
     assert!(head.to_lowercase().contains("text/event-stream"));
     assert!(body.contains("\"content\":\"hi\"") && body.contains("[DONE]"), "{body}");
+    assert!(body.contains("\"model\":\"fast\"") && !body.contains("real-fast"), "the caller sees the catalog's name in the stream too: {body}");
 
     // The provider was asked for usage, so the charge doesn't depend on an estimate.
     assert_eq!(rig.upstream.calls()[0].body["stream_options"]["include_usage"], true);
     assert_eq!(rig.store.balance(&rig.account).unwrap(), 10_000_000 - priced(&rig, 10, 20));
     assert!(rig.store.holds(&rig.account, 0).unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn a_model_name_split_across_stream_chunks_is_still_replaced() {
+    let whole = format!("data: {}\n\n", r#"{"model":"real-fast","choices":[{"delta":{"content":"hi"}}]}"#);
+    let (first, second) = whole.split_at(whole.find("real-fast").unwrap() + 4);
+    let usage = sse(&[r#"{"choices":[],"usage":{"prompt_tokens":10,"completion_tokens":20}}"#, "[DONE]"]);
+    let chunks = vec![Ok(first.as_bytes().to_vec()), Ok(second.as_bytes().to_vec()), Ok(usage)];
+    let rig = rig(10_000_000, Script::Chunks(chunks)).await;
+    let (status, _, body) = http(rig.addr, "POST", "/v1/chat/completions", Some(&rig.token), Some(&chat(r#","stream":true"#))).await;
+    assert_eq!(status, 200);
+    assert!(body.contains("\"model\":\"fast\"") && !body.contains("real-fast"), "{body}");
+    assert_eq!(rig.store.balance(&rig.account).unwrap(), 10_000_000 - priced(&rig, 10, 20), "the charge still comes from the provider's usage");
 }
 
 #[tokio::test]
