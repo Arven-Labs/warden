@@ -434,8 +434,10 @@ void main() {
 
   test('an error about the hosted credit keeps its top-up mark (P168)', () async {
     final transcript = make();
+    await settle();
+
     transcript.send('q');
-    replies.add(const ChatErrorMessage('Out of credits', topUp: true));
+    replies.add(ChatErrorMessage('Out of credits', conversationId: transcript.activeConversationId, topUp: true));
     await settle();
 
     expect(transcript.entries.last.role, EntryRole.error);

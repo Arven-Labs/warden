@@ -333,7 +333,7 @@ mod tests {
         assert_eq!(answer["type"], "chatResponse");
         assert_eq!((answer["content"].as_str(), answer["conversationId"].as_str(), answer["usage"].is_null()), (Some("ahoy"), Some("c1"), true), "usage is null, not absent");
         assert_eq!(keys(&answer["fallbacks"][0]), ["from", "model", "reason", "to"]);
-        let failed = value(ServerMessage::ChatError { message: "boom".into(), conversation_id: Some("c1".into()), spend_limit_id: Some("day".into()) });
+        let failed = value(ServerMessage::ChatError { message: "boom".into(), conversation_id: Some("c1".into()), spend_limit_id: Some("day".into()), top_up: false });
         assert_eq!((failed["type"].as_str(), failed["message"].as_str(), failed["spendLimitId"].as_str()), (Some("chatError"), Some("boom"), Some("day")));
 
         let agent = serde_json::to_value(AgentSettingsDto {

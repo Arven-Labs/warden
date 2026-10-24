@@ -83,6 +83,8 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
 
   /// P168 — read on opening and each time the turn being waited on ends, since a turn is what spends the credit. Never fails the chat.
   Future<void> _refreshCredit() async {
+    // The owner's only: the credit belongs to the instance, and the hub is not asked for a member's usage here for it.
+    if (widget.connection.user != null) return;
     try {
       final summary = await widget.connection.usageSummary();
       if (mounted) setState(() => _credit = summary.credit);

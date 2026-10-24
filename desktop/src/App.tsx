@@ -180,11 +180,16 @@ function App() {
   const [switching, setSwitching] = useState(false);
   const remote = activeHubId !== null;
   const remoteReady = activeHubId !== null && hubStates[activeHubId]?.state === "connected";
-  // P168: the hosted credit in the chat header — only on a hub that has one; read on connecting and again each time a turn ends.
+  // The hub's nodes (P102), to pick a folder on one: only the owner can list them, a member has none to read.
+  const [knownNodes, setKnownNodes] = useState<NodeInfo[]>([]);
+  const hubState = activeHubId ? hubStates[activeHubId] : undefined;
+  const isHubOwner = hubState?.state === "connected" && hubState.user === null;
+  // P168: the hosted credit in the chat header — the owner's only (it belongs to the instance, and a member's report carries none), on a
+  // hub that has one; read on connecting and again each time a turn ends.
   const [credit, setCredit] = useState<Credit | null>(null);
   useEffect(() => {
-    if (!remoteReady || isSending) {
-      if (!remoteReady) setCredit(null);
+    if (!isHubOwner || isSending) {
+      if (!isHubOwner) setCredit(null);
       return;
     }
     let current = true;
@@ -197,11 +202,7 @@ function App() {
     return () => {
       current = false;
     };
-  }, [remoteReady, activeHubId, isSending]);
-  // The hub's nodes (P102), to pick a folder on one: only the owner can list them, a member has none to read.
-  const [knownNodes, setKnownNodes] = useState<NodeInfo[]>([]);
-  const hubState = activeHubId ? hubStates[activeHubId] : undefined;
-  const isHubOwner = hubState?.state === "connected" && hubState.user === null;
+  }, [isHubOwner, activeHubId, isSending]);
   // P120: what the owner lets a member do with the organization arrives at sign-in only, so a change made afterwards is looked for: a
   // `listAgentOrg` is the probe (the hub reads the access at each request), asked when the window comes back to the front and when the
   // connection is made anew. `undefined` for the owner and on this computer, which see the whole tree.

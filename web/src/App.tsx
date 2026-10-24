@@ -139,7 +139,8 @@ export default function App() {
   const hubConnected = phase.kind === "ready" && phase.connected;
   // Read on connecting and again each time the last running turn ends, since a turn is what spends it. Never fails the chat.
   useEffect(() => {
-    if (!conn || !hubConnected || turnsRunning > 0) return;
+    // Only the owner: the credit belongs to the instance, so a member's report carries none (and the hub is not asked on their behalf, P123).
+    if (!conn || conn.user || !hubConnected || turnsRunning > 0) return;
     let current = true;
     conn.requestUsage().then(
       (report) => current && setCredit(report.credit ?? null),
