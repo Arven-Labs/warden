@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- The near-black of the Warden mark (the bg color of design/tokens.css), behind the shield of the adaptive icon. -->
+    <color name="ic_launcher_background">#07060B</color>
+</resources>

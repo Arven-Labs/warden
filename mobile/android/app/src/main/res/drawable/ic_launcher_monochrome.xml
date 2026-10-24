@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The same mark for the themed icons of Android 13 and later: the launcher tints the strokes, so only the outline and the W are drawn. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <group
+        android:scaleX="1.75"
+        android:scaleY="1.75"
+        android:translateX="26"
+        android:translateY="26.4">
+        <path
+            android:pathData="M16,2.5 L27,6.2 L27,14.8 C27,21.2 22.6,25.9 16,29 C9.4,25.9 5,21.2 5,14.8 L5,6.2 Z"
+            android:strokeColor="#000000"
+            android:strokeWidth="1.8"
+            android:strokeLineJoin="round" />
+        <path
+            android:pathData="M10,11.2 L13.1,20.2 L16,14 L18.9,20.2 L22,11.2"
+            android:strokeColor="#000000"
+            android:strokeWidth="2"
+            android:strokeLineCap="round"
+            android:strokeLineJoin="round" />
+    </group>
+</vector>

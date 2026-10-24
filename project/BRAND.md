@@ -34,4 +34,4 @@ Cabeçalho fixo com vidro, hero com pílula "Open source", botão cheio e botão
 Não importa CSS: `mobile/lib/theme/warden_theme.dart` repete os hex de `design/tokens.css` em `WardenPalette` (escuro e claro) e monta o `ThemeData`; o teste de deriva fica em `mobile/test/theme/warden_theme_test.dart`. Ao mudar um token, mude os dois lugares. As fotos do mobile vêm de um teste de widget descartável (fontes Roboto e MaterialIcons do cache do SDK carregadas à mão), não de um aparelho.
 
 ## Falta
-Domínio próprio, versão em pt-BR do site, a fonte Inter no mobile (pediria `.ttf`), o ícone adaptativo do Android (camadas) e os ícones de 16 e 48 px da extensão para a Web Store.
+Domínio próprio, versão em pt-BR do site e a fonte Inter no mobile (pediria `.ttf`). Feitos na Sessão 293: os ícones de 16, 32 e 48 px da extensão (`extension/public/icon-*.png`, no `icons` e no `action.default_icon` do manifesto) e o ícone adaptativo do Android (`mipmap-anydpi-v26/ic_launcher.xml`, com fundo `#07060B`, o escudo em vetor e uma versão monocromática para os ícones temáticos do Android 13; os PNGs de cada `mipmap-*` continuam para o Android antigo).

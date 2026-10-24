@@ -41,10 +41,11 @@ const BASE = {
   description: "Chat with Warden from the browser.",
   // The desktop app's icon (`public/`, copied as is into the build). Chrome won't show a notification
   // without one (P121), and the toolbar and the extensions page use it too.
-  icons: { "128": "icon-128.png" },
+  // 16, 32, 48 and 128 are the sizes the browsers ask for (the toolbar, the extensions page, the stores).
+  icons: { "16": "icon-16.png", "32": "icon-32.png", "48": "icon-48.png", "128": "icon-128.png" },
   // No `default_popup` on purpose — the icon opens the panel (`background/platform.ts`). Firefox
   // needs the key to show a toolbar button at all; Chrome shows one either way.
-  action: { default_title: "Warden" },
+  action: { default_title: "Warden", default_icon: { "16": "icon-16.png", "32": "icon-32.png" } },
 };
 
 export function manifestFor(target: TargetBrowser) {

@@ -2,7 +2,16 @@
 
 > **Nota**: Este log foi criado junto com o projeto. As sessões serão registradas aqui conforme o trabalho avança.
 >
-> Última atualização: 2026-10-24 (Sessão 292)
+> Última atualização: 2026-10-24 (Sessão 293)
+
+---
+
+### 2026-10-24 — Sessão 293 (os dois restos do P137 que não dependiam de decisão: ícones da extensão e ícone adaptativo do Android)
+
+- **Pedido**: "pode fazer", depois de eu listar o que sobrava em aberto.
+- **Extensão**: `icon-16.png`, `icon-32.png` e `icon-48.png` em `extension/public/` (do mesmo escudo do `icon-128.png`), `icons` do manifesto com os quatro tamanhos e `action.default_icon` com 16 e 32 (o que a barra de ferramentas pede). `tsc`, `npm test` (126 de 126) e os dois builds limpos; conferi que `dist` e `dist-firefox` levam os quatro arquivos e o manifesto os cita.
+- **Android**: ícone adaptativo (API 26+): `mipmap-anydpi-v26/ic_launcher.xml` com fundo `@color/ic_launcher_background` (`#07060B`), primeiro plano `drawable/ic_launcher_foreground.xml` (o escudo e o "W" em vetor, com o degradê roxo na linha, dentro dos 66 dp da zona segura de 108 dp) e `drawable/ic_launcher_monochrome.xml` (só o contorno e o "W", para os ícones temáticos do Android 13). Os PNGs de cada `mipmap-*` ficam para o Android antigo. **Não vi o resultado**: aqui só confirmei que os XMLs são bem formados (achei e corrigi um `--` dentro de um comentário XML, que é inválido); quem compila os recursos é o `aapt` no job `android` do CI, e como o ícone fica mascarado no lançador de um aparelho de verdade ninguém viu.
+- **Fica**: CI depois do push; domínio; pt-BR; a Inter no mobile.
 
 ---
 

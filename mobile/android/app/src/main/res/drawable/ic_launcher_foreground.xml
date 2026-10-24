@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The shield with a W of the Warden mark (site/public/brand/icon.svg, a 32x32 drawing), centred in the 108dp canvas of an adaptive
+     icon and kept inside its 66dp safe zone: the launcher masks the rest. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <group
+        android:scaleX="1.75"
+        android:scaleY="1.75"
+        android:translateX="26"
+        android:translateY="26.4">
+        <path
+            android:fillColor="#0D0A18"
+            android:pathData="M16,2.5 L27,6.2 L27,14.8 C27,21.2 22.6,25.9 16,29 C9.4,25.9 5,21.2 5,14.8 L5,6.2 Z"
+            android:strokeWidth="1.8"
+            android:strokeLineJoin="round">
+            <aapt:attr name="android:strokeColor">
+                <gradient
+                    android:startX="6"
+                    android:startY="2"
+                    android:endX="26"
+                    android:endY="30"
+                    android:type="linear">
+                    <item android:color="#C4B5FD" android:offset="0" />
+                    <item android:color="#7C3AED" android:offset="1" />
+                </gradient>
+            </aapt:attr>
+        </path>
+        <path
+            android:pathData="M10,11.2 L13.1,20.2 L16,14 L18.9,20.2 L22,11.2"
+            android:strokeWidth="2"
+            android:strokeLineCap="round"
+            android:strokeLineJoin="round">
+            <aapt:attr name="android:strokeColor">
+                <gradient
+                    android:startX="6"
+                    android:startY="2"
+                    android:endX="26"
+                    android:endY="30"
+                    android:type="linear">
+                    <item android:color="#C4B5FD" android:offset="0" />
+                    <item android:color="#7C3AED" android:offset="1" />
+                </gradient>
+            </aapt:attr>
+        </path>
+    </group>
+</vector>
