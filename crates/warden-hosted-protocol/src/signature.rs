@@ -77,6 +77,20 @@ pub fn verify(secret: &str, header: Option<&str>, method: &str, path: &str, body
     mac(secret, timestamp, method, path, body).verify_slice(&candidate).map_err(|_| SignatureError::Mismatch)
 }
 
+/// Like `verify`, for a secret that is being rotated: the call is good if **any** of the secrets signed it. The errors that
+/// do not depend on the secret (`Malformed`, `Stale`) are the same whichever is tried, so they are returned at once.
+pub fn verify_any(secrets: &[&str], header: Option<&str>, method: &str, path: &str, body: &[u8], now: i64) -> Result<(), SignatureError> {
+    let mut last = SignatureError::Mismatch;
+    for secret in secrets {
+        match verify(secret, header, method, path, body, now) {
+            Ok(()) => return Ok(()),
+            Err(SignatureError::Mismatch) => last = SignatureError::Mismatch,
+            Err(other) => return Err(other),
+        }
+    }
+    Err(last)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -93,6 +107,23 @@ mod tests {
     fn a_signature_verifies() {
         assert_eq!(verify("secret", Some(&signed()), "POST", PATH, BODY, NOW), Ok(()));
         assert_eq!(verify("secret", Some(&signed()), "post", PATH, BODY, NOW), Ok(()), "the method is case-insensitive");
+    }
+
+    #[test]
+    fn verify_any_accepts_a_call_signed_with_any_of_the_secrets() {
+        let header = signed();
+        assert_eq!(verify_any(&["secret"], Some(&header), "POST", PATH, BODY, NOW), Ok(()));
+        assert_eq!(verify_any(&["new", "secret"], Some(&header), "POST", PATH, BODY, NOW), Ok(()), "the old one still works");
+        assert_eq!(verify_any(&["secret", "new"], Some(&header), "POST", PATH, BODY, NOW), Ok(()), "whatever the order");
+        assert_eq!(verify_any(&["one", "two"], Some(&header), "POST", PATH, BODY, NOW), Err(SignatureError::Mismatch));
+        assert_eq!(verify_any(&[], Some(&header), "POST", PATH, BODY, NOW), Err(SignatureError::Mismatch), "no secret accepts nothing");
+    }
+
+    #[test]
+    fn verify_any_still_refuses_a_stale_or_malformed_header_whatever_the_secrets() {
+        assert_eq!(verify_any(&["new", "secret"], Some(&signed()), "POST", PATH, BODY, NOW + 301), Err(SignatureError::Stale));
+        assert_eq!(verify_any(&["new", "secret"], Some("garbage"), "POST", PATH, BODY, NOW), Err(SignatureError::Malformed));
+        assert_eq!(verify_any(&["secret"], None, "POST", PATH, BODY, NOW), Err(SignatureError::Malformed));
     }
 
     #[test]

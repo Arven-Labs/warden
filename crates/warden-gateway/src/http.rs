@@ -15,7 +15,7 @@ use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use tokio::net::TcpListener;
 
 use warden_hosted_protocol::{
-    verify, BalanceResponse, TopUpRequest, TopUpResponse, UsageResponse, SIGNATURE_HEADER,
+    verify_any, BalanceResponse, TopUpRequest, TopUpResponse, UsageResponse, SIGNATURE_HEADER,
 };
 
 use crate::catalog::{Target, Tokens};
@@ -92,6 +92,9 @@ impl From<GatewayError> for ApiError {
             }
             GatewayError::QuotaExceeded(_) => ApiError::new("429 Too Many Requests", "quota_exceeded", "quota_exceeded", message),
             GatewayError::DuplicateRequest => ApiError::new("409 Conflict", "invalid_request_error", "duplicate_request", message),
+            GatewayError::ProviderBudgetExhausted => {
+                ApiError::new("503 Service Unavailable", "server_error", "provider_budget_exhausted", message)
+            }
             GatewayError::Store(e) => {
                 tracing::error!("ledger error: {e}");
                 ApiError::new("500 Internal Server Error", "server_error", "internal_error", "the gateway failed; try again")
@@ -120,6 +123,8 @@ struct State {
     upstream: Arc<dyn Upstream>,
     /// The secret the site mãe's calls are verified with. `None`: the account routes don't exist (404).
     admin_secret: Option<String>,
+    /// The secret before the last rotation, still accepted so the site can switch over without a gap.
+    previous_admin_secret: Option<String>,
     ip_limit: RateLimiter,
     token_limit: RateLimiter,
     trust_forwarded_for: bool,
@@ -134,6 +139,7 @@ pub struct GatewayServer {
     gateway: Gateway,
     upstream: Arc<dyn Upstream>,
     admin_secret: Option<String>,
+    previous_admin_secret: Option<String>,
     ip_per_min: u32,
     token_per_min: u32,
     trust_forwarded_for: bool,
@@ -152,6 +158,7 @@ impl GatewayServer {
             gateway,
             upstream,
             admin_secret: None,
+            previous_admin_secret: None,
             ip_per_min: 0,
             token_per_min: 0,
             trust_forwarded_for: false,
@@ -212,6 +219,13 @@ impl GatewayServer {
         self
     }
 
+    /// During a rotation of the admin secret: the old one, still accepted next to the one from `with_admin_secret`. Without
+    /// that one it does nothing (the account routes stay off).
+    pub fn with_previous_admin_secret(mut self, secret: &str) -> GatewayServer {
+        self.previous_admin_secret = Some(secret.to_string());
+        self
+    }
+
     pub fn local_addr(&self) -> std::io::Result<SocketAddr> {
         self.listener.local_addr()
     }
@@ -222,6 +236,7 @@ impl GatewayServer {
             gateway: self.gateway,
             upstream: self.upstream,
             admin_secret: self.admin_secret,
+            previous_admin_secret: self.previous_admin_secret,
             ip_limit: RateLimiter::new(self.ip_per_min),
             token_limit: RateLimiter::new(self.token_per_min),
             trust_forwarded_for: self.trust_forwarded_for,
@@ -399,7 +414,8 @@ fn query_param<'a>(path: &'a str, name: &str) -> Option<&'a str> {
 async fn account_route<S: AsyncWrite + Unpin>(stream: &mut S, state: &State, request: &Request, rest: &str) -> Result<(), ApiError> {
     let not_found = || ApiError::new("404 Not Found", "invalid_request_error", "not_found", "this gateway serves /v1/models and /v1/chat/completions");
     let Some(secret) = &state.admin_secret else { return Err(not_found()) };
-    verify(secret, request.signature.as_deref(), &request.method, &request.path, &request.body, now()).map_err(|e| {
+    let secrets: Vec<&str> = std::iter::once(secret.as_str()).chain(state.previous_admin_secret.as_deref()).collect();
+    verify_any(&secrets, request.signature.as_deref(), &request.method, &request.path, &request.body, now()).map_err(|e| {
         ApiError::new("401 Unauthorized", "invalid_request_error", "invalid_signature", format!("{e} ({SIGNATURE_HEADER})"))
     })?;
 
@@ -530,8 +546,10 @@ async fn settle(state: &State, res: &Reservation, target: usize, outcome: Outcom
 /// Tries the model's targets in order until one answers; the customer is charged at the prices of the one that did.
 async fn whole_answer<S: AsyncWrite + Unpin>(stream: &mut S, state: &State, res: &Reservation, request: &Value) -> Result<(), ApiError> {
     let targets = res.model.targets();
-    let mut at = 0;
+    // Only the targets whose provider is within its budget, in order; `next` is the one being tried.
+    let mut next = 0;
     let err = loop {
+        let at = res.available[next];
         let call = call_for(state, res, request, &targets[at], false);
         match state.upstream.complete(&call).await {
             Ok(mut answer) => {
@@ -542,17 +560,18 @@ async fn whole_answer<S: AsyncWrite + Unpin>(stream: &mut S, state: &State, res:
                 let charged = settle(state, res, at, outcome).await;
                 answer["model"] = json!(res.model.name);
                 let header = charged.map(|c| ("X-Warden-Charged-Micros", c.to_string()));
-                let headers: Vec<(&str, String)> = header.into_iter().collect();
+                // Only the provider's id, never its model: the real model name is hidden from the caller on purpose.
+                let headers: Vec<(&str, String)> = header.into_iter().chain([("X-Warden-Target", targets[at].upstream.clone())]).collect();
                 return write_json(stream, "200 OK", answer.to_string().as_bytes(), &headers).await.map_err(io_error);
             }
-            Err(err) if at + 1 < targets.len() && worth_another_target(&err) => {
+            Err(err) if next + 1 < res.available.len() && worth_another_target(&err) => {
                 tracing::warn!(model = %res.model.name, target = %targets[at].label(), "the target failed ({err}); trying the next one");
-                at += 1;
+                next += 1;
             }
             Err(err) => break err,
         }
     };
-    settle(state, res, at, Outcome::Failed(Tokens::default())).await;
+    settle(state, res, res.available[next], Outcome::Failed(Tokens::default())).await;
     Err(upstream_error(&err))
 }
 
@@ -560,19 +579,20 @@ async fn whole_answer<S: AsyncWrite + Unpin>(stream: &mut S, state: &State, res:
 /// going back: a part of the answer may already be on its way to the caller.
 async fn stream_answer<S: AsyncWrite + Unpin>(stream: &mut S, state: &State, res: &Reservation, request: &Value) -> Result<(), ApiError> {
     let targets = res.model.targets();
-    let mut at = 0;
-    let mut chunks = loop {
+    let mut next = 0;
+    let (at, mut chunks) = loop {
+        let at = res.available[next];
         let call = call_for(state, res, request, &targets[at], true);
         match state.upstream.stream(&call).await {
             Ok(chunks) => {
                 if at > 0 {
                     tracing::info!(model = %res.model.name, target = %targets[at].label(), "answered by a fallback target");
                 }
-                break chunks;
+                break (at, chunks);
             }
-            Err(err) if at + 1 < targets.len() && worth_another_target(&err) => {
+            Err(err) if next + 1 < res.available.len() && worth_another_target(&err) => {
                 tracing::warn!(model = %res.model.name, target = %targets[at].label(), "the target failed ({err}); trying the next one");
-                at += 1;
+                next += 1;
             }
             Err(err) => {
                 settle(state, res, at, Outcome::Failed(Tokens::default())).await;
@@ -580,7 +600,10 @@ async fn stream_answer<S: AsyncWrite + Unpin>(stream: &mut S, state: &State, res
             }
         }
     };
-    let head = "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nCache-Control: no-cache\r\nConnection: close\r\n\r\n";
+    let head = format!(
+        "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nCache-Control: no-cache\r\nX-Warden-Target: {}\r\nConnection: close\r\n\r\n",
+        targets[at].upstream
+    );
     let mut broken = stream.write_all(head.as_bytes()).await.is_err();
     let mut scan = UsageScanner::default();
     let mut rewriter = ModelRewriter::new(&res.model.name);

@@ -10,7 +10,7 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 use warden_gateway::fake::{FakeUpstream, Script};
 use warden_gateway::http::GatewayServer;
-use warden_gateway::store::EntryKind;
+use warden_gateway::store::{EntryKind, UsageRecord};
 use warden_gateway::{Catalog, Gateway, Store, Tokens};
 
 const A: &str = "http://a.test/v1";
@@ -56,11 +56,16 @@ struct Rig {
 
 /// A gateway whose upstream `a` follows `a_script` and `b` follows `b_script`.
 async fn rig(a_script: Script, b_script: Script) -> Rig {
+    rig_with(CATALOG, a_script, b_script).await
+}
+
+/// Like `rig`, with a catalog of the test's own (the same upstreams and `fast` model, say, plus a daily budget).
+async fn rig_with(catalog_text: &str, a_script: Script, b_script: Script) -> Rig {
     let store = Arc::new(Store::open_in_memory().unwrap());
     let (account, token) = store.create_account("acme", 0).unwrap();
     store.credit(&account.id, EntryKind::Topup, CREDIT, Some("t"), "", 0).unwrap();
     let catalog = Arc::new(
-        Catalog::parse(CATALOG, |name| match name {
+        Catalog::parse(catalog_text, |name| match name {
             "KEY_A" => Some("key-a".to_string()),
             "KEY_B" => Some("key-b".to_string()),
             _ => None,
@@ -128,14 +133,17 @@ async fn a_failing_main_target_hands_the_call_to_the_fallback_which_is_paid_at_i
     assert!(charged > charged_at(&rig, 0, 100, 50), "the fallback is dearer, so the test tells the two apart");
     assert_eq!(rig.store.balance(&rig.account).unwrap(), CREDIT - charged);
     assert!(head.to_lowercase().contains(&format!("x-warden-charged-micros: {charged}")), "{head}");
+    assert!(head.to_lowercase().contains("x-warden-target: b"), "the caller is told which provider answered: {head}");
+    assert!(!head.contains("real-b"), "but never the provider's own model name: {head}");
     assert!(rig.store.holds(&rig.account, 0).unwrap().is_empty());
 }
 
 #[tokio::test]
 async fn a_main_target_that_answers_is_the_only_one_called_and_the_one_paid() {
     let rig = rig(reply("real-a", 100, 50), reply("real-b", 1, 1)).await;
-    let (status, _, body) = post_chat(&rig, "").await;
+    let (status, head, body) = post_chat(&rig, "").await;
     assert_eq!(status, 200, "{body}");
+    assert!(head.to_lowercase().contains("x-warden-target: a"), "{head}");
     assert_eq!(called(&rig), vec![A]);
     assert_eq!(rig.store.balance(&rig.account).unwrap(), CREDIT - charged_at(&rig, 0, 100, 50));
 }
@@ -181,6 +189,7 @@ async fn a_stream_that_cannot_be_opened_on_the_main_target_is_opened_on_the_fall
     let (status, head, body) = post_chat(&rig, r#","stream":true"#).await;
     assert_eq!(status, 200, "{body}");
     assert!(head.to_lowercase().contains("text/event-stream"), "{head}");
+    assert!(head.to_lowercase().contains("x-warden-target: b"), "the stream head names the provider that opened it: {head}");
     assert!(body.contains("\"content\":\"hi\"") && body.contains("[DONE]"), "{body}");
     assert!(body.contains("\"model\":\"fast\"") && !body.contains("real-b"), "the stream carries the catalog's name too: {body}");
 
@@ -200,4 +209,97 @@ async fn a_stream_that_breaks_after_it_started_is_not_moved_to_the_fallback() {
     assert_eq!(status, 200);
     assert_eq!(called(&rig), vec![A], "part of the answer was already sent, so there is no going back");
     assert!(rig.store.balance(&rig.account).unwrap() < CREDIT, "what was sent is charged, at the main target's price");
+}
+
+/// `CATALOG` with a daily budget (USD) on upstream `a` and, if given, on `b`.
+fn with_budgets(a: f64, b: Option<f64>) -> String {
+    let text = CATALOG.replace("id = \"a\"", &format!("id = \"a\"\ndaily_budget_usd = {a}"));
+    match b {
+        Some(b) => text.replace("id = \"b\"", &format!("id = \"b\"\ndaily_budget_usd = {b}")),
+        None => text,
+    }
+}
+
+/// Books `cost` micro-USD of today's spending on `upstream` (the gateway's own cost, nothing charged to the customer).
+fn burn(rig: &Rig, upstream: &str, cost: i64) {
+    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs() as i64;
+    let record = UsageRecord {
+        request_id: format!("burn-{upstream}"),
+        account_id: rig.account.clone(),
+        model: "fast".into(),
+        target: format!("{upstream}/real-{upstream}"),
+        prompt_tokens: 0,
+        completion_tokens: 0,
+        cost,
+        charged: 0,
+        ok: true,
+    };
+    rig.store.settle(&record, now).unwrap();
+}
+
+#[tokio::test]
+async fn a_provider_that_spent_its_budget_is_skipped_and_the_fallback_answers_and_is_held_alone() {
+    let rig = rig_with(&with_budgets(1.0, None), reply("real-a", 1, 1), reply("real-b", 100, 50)).await;
+    burn(&rig, "a", 1_000_000); // exactly its USD 1.00
+    let (status, head, body) = post_chat(&rig, "").await;
+    assert_eq!(status, 200, "{body}");
+    assert_eq!(called(&rig), vec![B], "the main target is not even tried");
+    assert!(head.to_lowercase().contains("x-warden-target: b"), "{head}");
+    assert_eq!(rig.store.balance(&rig.account).unwrap(), CREDIT - charged_at(&rig, 1, 100, 50));
+    assert!(rig.store.holds(&rig.account, 0).unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn a_provider_still_under_its_budget_answers_as_always() {
+    let rig = rig_with(&with_budgets(1.0, Some(1.0)), reply("real-a", 100, 50), reply("real-b", 1, 1)).await;
+    burn(&rig, "a", 999_999);
+    let (status, head, body) = post_chat(&rig, "").await;
+    assert_eq!(status, 200, "{body}");
+    assert_eq!(called(&rig), vec![A]);
+    assert!(head.to_lowercase().contains("x-warden-target: a"), "{head}");
+}
+
+#[tokio::test]
+async fn a_skipped_provider_is_skipped_for_a_stream_too() {
+    let chunks = vec![Ok(sse(&[r#"{"model":"real-b","choices":[],"usage":{"prompt_tokens":30,"completion_tokens":20}}"#, "[DONE]"]))];
+    let rig = rig_with(&with_budgets(1.0, None), reply("real-a", 1, 1), Script::Chunks(chunks)).await;
+    burn(&rig, "a", 2_000_000);
+    let (status, head, _) = post_chat(&rig, r#","stream":true"#).await;
+    assert_eq!(status, 200);
+    assert_eq!(called(&rig), vec![B]);
+    assert!(head.to_lowercase().contains("x-warden-target: b"), "{head}");
+}
+
+#[tokio::test]
+async fn when_every_provider_is_over_budget_the_answer_is_503_and_nothing_is_held_or_charged() {
+    let rig = rig_with(&with_budgets(1.0, Some(1.0)), reply("real-a", 1, 1), reply("real-b", 1, 1)).await;
+    burn(&rig, "a", 1_000_000);
+    burn(&rig, "b", 1_000_000);
+    let (status, _, body) = post_chat(&rig, "").await;
+    assert_eq!(status, 503, "{body}");
+    assert_eq!(serde_json::from_str::<Value>(&body).unwrap()["error"]["code"], "provider_budget_exhausted", "{body}");
+    assert!(called(&rig).is_empty());
+    nothing_charged(&rig);
+}
+
+#[tokio::test]
+async fn yesterdays_spending_does_not_count_against_todays_budget() {
+    let rig = rig_with(&with_budgets(1.0, None), reply("real-a", 100, 50), reply("real-b", 1, 1)).await;
+    // Booked two days back, well before today's UTC midnight.
+    let two_days_ago = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs() as i64 - 2 * 86_400;
+    let record = UsageRecord {
+        request_id: "old".into(),
+        account_id: rig.account.clone(),
+        model: "fast".into(),
+        target: "a/real-a".into(),
+        prompt_tokens: 0,
+        completion_tokens: 0,
+        cost: 50_000_000,
+        charged: 0,
+        ok: true,
+    };
+    rig.store.settle(&record, two_days_ago).unwrap();
+    let (status, _, body) = post_chat(&rig, "").await;
+    assert_eq!(status, 200, "{body}");
+    assert_eq!(called(&rig), vec![A]);
 }

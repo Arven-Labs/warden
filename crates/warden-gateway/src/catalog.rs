@@ -62,6 +62,8 @@ struct RawUpstream {
     base_url: String,
     api_key_env: Option<String>,
     api_key_file: Option<String>,
+    /// What the gateway may spend on this provider per UTC day, in USD, at its own cost. Left out: no limit.
+    daily_budget_usd: Option<f64>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -98,6 +100,9 @@ pub struct Upstream {
     pub base_url: String,
     /// The key for this provider: `api_key.get()` is the one to send now (a key file may have been rotated since the start).
     pub api_key: ApiKey,
+    /// The most the gateway spends on this provider in a UTC day (micro-USD of cost). Once the day's spend has reached it, the
+    /// provider is skipped and the next target of the model answers. It is a soft limit: calls already under way finish.
+    pub daily_budget: Option<Micros>,
 }
 
 /// Prices are micro-USD per million tokens.
@@ -238,7 +243,19 @@ impl Catalog {
                 }
                 (None, None) => ApiKey::none(),
             };
-            upstreams.push(Upstream { id: u.id, base_url: u.base_url.trim_end_matches('/').to_string(), api_key });
+            // A target is labelled `<upstream>/<model>` and the budget sums by that prefix, so a `/` in an id would blur two.
+            if u.id.contains('/') {
+                return Err(format!("catalog: upstream id `{}` cannot contain `/`", u.id));
+            }
+            let daily_budget = match u.daily_budget_usd {
+                None => None,
+                Some(usd) => match usd_to_micros("daily_budget_usd", usd) {
+                    Ok(0) => return Err(format!("catalog: upstream `{}`: `daily_budget_usd` must be more than zero (leave it out for no limit)", u.id)),
+                    Ok(micros) => Some(micros),
+                    Err(e) => return Err(format!("catalog: upstream `{}`: {e}", u.id)),
+                },
+            };
+            upstreams.push(Upstream { id: u.id, base_url: u.base_url.trim_end_matches('/').to_string(), api_key, daily_budget });
         }
 
         let mut models = Vec::new();
@@ -352,6 +369,14 @@ impl ModelEntry {
             charged: worst.charged.max(p.charged),
         })
     }
+
+    /// `worst_price` over only some of the targets (by their index in `targets()`): the ones a provider's budget left standing.
+    pub fn worst_price_among(&self, among: &[usize], used: Tokens) -> Priced {
+        among.iter().map(|&i| self.price_at(i, used)).fold(Priced { cost: 0, charged: 0 }, |worst, p| Priced {
+            cost: worst.cost.max(p.cost),
+            charged: worst.charged.max(p.charged),
+        })
+    }
 }
 
 #[cfg(test)]
@@ -432,6 +457,56 @@ cost_out = 2.50
         assert_eq!(hold, worst.charged);
         // Anything a call can really use, up to the ceiling, fits inside the hold.
         assert!(m.price(Tokens { prompt: 1_000, completion: 100 }).charged <= hold);
+    }
+
+    const WITH_BUDGET: &str = r#"
+margin_percent = 30
+
+[[upstreams]]
+id = "a"
+base_url = "http://a.test/v1"
+daily_budget_usd = 2.5
+
+[[upstreams]]
+id = "b"
+base_url = "http://b.test/v1"
+
+[[models]]
+name = "fast"
+upstream = "a"
+upstream_model = "real-a"
+cost_in = 1.0
+cost_out = 2.0
+"#;
+
+    #[test]
+    fn a_providers_daily_budget_is_read_in_micro_usd_and_left_out_means_no_limit() {
+        let catalog = parse(WITH_BUDGET).unwrap();
+        assert_eq!(catalog.upstream("a").unwrap().daily_budget, Some(2_500_000));
+        assert_eq!(catalog.upstream("b").unwrap().daily_budget, None);
+    }
+
+    #[test]
+    fn a_budget_of_zero_or_less_is_an_error_naming_the_provider() {
+        for bad in ["0", "0.0", "-1"] {
+            let err = parse(&WITH_BUDGET.replace("2.5", bad)).unwrap_err();
+            assert!(err.contains("upstream `a`") && err.contains("daily_budget_usd"), "{bad}: {err}");
+        }
+    }
+
+    #[test]
+    fn a_slash_in_a_providers_id_is_refused_because_targets_are_told_apart_by_it() {
+        let err = parse(&WITH_BUDGET.replace("id = \"b\"", "id = \"b/c\"")).unwrap_err();
+        assert!(err.contains("`b/c`") && err.contains("cannot contain `/`"), "{err}");
+    }
+
+    #[test]
+    fn the_worst_price_among_some_targets_ignores_the_others() {
+        let m = parse(WITH_FALLBACK).unwrap().models.remove(0);
+        let used = Tokens { prompt: 1_000_000, completion: 1_000_000 };
+        assert_eq!(m.worst_price_among(&[0, 1], used), m.worst_price(used));
+        assert_eq!(m.worst_price_among(&[0], used), m.price_at(0, used), "the dear fallback is out, so the hold is the main target's");
+        assert_eq!(m.worst_price_among(&[1], used), m.price_at(1, used));
     }
 
     #[test]

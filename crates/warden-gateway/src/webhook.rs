@@ -6,6 +6,7 @@
 //! failed attempt and schedules a retry with a growing wait, up to `MAX_DELIVERY_ATTEMPTS`. Delivery is at least once: the
 //! `Idempotency-Key` header carries the event id, which is what the site mãe dedupes on.
 
+use std::sync::atomic::{AtomicI64, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -15,7 +16,14 @@ use warden_hosted_protocol::{sign, WebhookEvent, WebhookKind, IDEMPOTENCY_HEADER
 use crate::store::{OutboxEvent, Store, StoreError};
 
 /// How many days back the daily summaries are (re)queued: it covers a gateway that was down over midnight.
-const SUMMARY_DAYS_BACK: i64 = 7;
+pub const SUMMARY_DAYS_BACK: i64 = 7;
+/// How long delivered rows stay in the outbox. It must outlast `SUMMARY_DAYS_BACK`: a summary's row is what keeps it from
+/// being queued (and sent) a second time.
+pub const DELIVERED_KEEP_DAYS: i64 = 14;
+/// How long the rows given up on stay, for the operator to look at.
+pub const GIVEN_UP_KEEP_DAYS: i64 = 30;
+const DAY_SECS: i64 = 86_400;
+const PRUNE_EVERY_SECS: i64 = 3600;
 const BATCH: u32 = 50;
 const TICK: Duration = Duration::from_secs(30);
 
@@ -69,6 +77,8 @@ pub struct TickReport {
     pub queued: usize,
     pub delivered: usize,
     pub failed: usize,
+    /// Old outbox rows deleted (the pass that prunes is at most one an hour).
+    pub pruned: usize,
 }
 
 pub struct Dispatcher {
@@ -76,6 +86,8 @@ pub struct Dispatcher {
     sender: Arc<dyn WebhookSender>,
     url: String,
     secret: String,
+    /// When the outbox was last pruned (unix seconds); 0 until the first pass.
+    last_prune: AtomicI64,
 }
 
 /// The path and query of a URL (`http://host:1234/hooks/warden?x=1` → `/hooks/warden?x=1`), which is what gets signed.
@@ -94,7 +106,7 @@ async fn blocking<T: Send + 'static>(f: impl FnOnce() -> Result<T, StoreError> +
 
 impl Dispatcher {
     pub fn new(store: Arc<Store>, sender: Arc<dyn WebhookSender>, url: &str, secret: &str) -> Dispatcher {
-        Dispatcher { store, sender, url: url.to_string(), secret: secret.to_string() }
+        Dispatcher { store, sender, url: url.to_string(), secret: secret.to_string(), last_prune: AtomicI64::new(0) }
     }
 
     /// The signed request for one event: the body and the headers.
@@ -116,13 +128,19 @@ impl Dispatcher {
     /// One pass: queue the daily summaries that are missing, then send every event that is due.
     pub async fn tick(&self, at: i64) -> Result<TickReport, StoreError> {
         let store = self.store.clone();
-        let (queued, due) = blocking(move || {
+        let prune = at - self.last_prune.load(Ordering::Relaxed) >= PRUNE_EVERY_SECS;
+        if prune {
+            self.last_prune.store(at, Ordering::Relaxed);
+        }
+        let (queued, pruned, due) = blocking(move || {
+            // Pruning goes before the summaries are queued; the kept window is longer than theirs, so nothing comes back.
+            let pruned = if prune { store.prune_outbox(at, DELIVERED_KEEP_DAYS * DAY_SECS, GIVEN_UP_KEEP_DAYS * DAY_SECS)? } else { 0 };
             let queued = store.enqueue_daily_summaries(at, SUMMARY_DAYS_BACK)?;
-            Ok((queued, store.due_events(at, BATCH)?))
+            Ok((queued, pruned, store.due_events(at, BATCH)?))
         })
         .await?;
 
-        let mut report = TickReport { queued, ..TickReport::default() };
+        let mut report = TickReport { queued, pruned, ..TickReport::default() };
         for event in due {
             let outcome = match self.request_for(&event, at) {
                 Ok((body, headers)) => self.sender.send(&self.url, &headers, &body).await,
@@ -198,13 +216,30 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn the_outbox_is_pruned_at_most_once_an_hour() {
+        let (store, _) = drained_account();
+        let sender = Arc::new(FakeSender::new());
+        let dispatcher = Dispatcher::new(store.clone(), sender, URL, "hook-secret");
+        dispatcher.tick(NOW).await.unwrap(); // delivers the one event, at NOW
+
+        let long_after = NOW + (DELIVERED_KEEP_DAYS + 1) * DAY_SECS;
+        // The first pass after the first tick is within the hour of it: no pruning yet.
+        assert_eq!(dispatcher.tick(NOW + 60).await.unwrap().pruned, 0);
+        assert_eq!(store.outbox_stats().unwrap().delivered, 1);
+        // Past the retention and past the hour, the delivered row goes; and straight after, nothing is left to go.
+        assert_eq!(dispatcher.tick(long_after).await.unwrap().pruned, 1);
+        assert_eq!(store.outbox_stats().unwrap().delivered, 0);
+        assert_eq!(dispatcher.tick(long_after + 60).await.unwrap().pruned, 0);
+    }
+
+    #[tokio::test]
     async fn an_event_is_sent_signed_with_its_id_and_marked_delivered() {
         let (store, account) = drained_account();
         let sender = Arc::new(FakeSender::new());
         let dispatcher = Dispatcher::new(store.clone(), sender.clone(), URL, "hook-secret");
 
         let report = dispatcher.tick(NOW).await.unwrap();
-        assert_eq!(report, TickReport { queued: 0, delivered: 1, failed: 0 });
+        assert_eq!(report, TickReport { queued: 0, delivered: 1, failed: 0, pruned: 0 });
 
         let sent = &sender.deliveries()[0];
         assert_eq!(sent.url, URL);
@@ -265,7 +300,7 @@ mod tests {
         let sender = Arc::new(FakeSender::new());
         let dispatcher = Dispatcher::new(store, sender.clone(), URL, "hook-secret");
 
-        assert_eq!(dispatcher.tick(NOW).await.unwrap(), TickReport { queued: 1, delivered: 1, failed: 0 });
+        assert_eq!(dispatcher.tick(NOW).await.unwrap(), TickReport { queued: 1, delivered: 1, failed: 0, pruned: 0 });
         assert_eq!(dispatcher.tick(NOW + 60).await.unwrap(), TickReport::default());
         let event: WebhookEvent = serde_json::from_slice(&sender.deliveries()[0].body).unwrap();
         assert_eq!(event.kind, WebhookKind::UsageDailySummary);

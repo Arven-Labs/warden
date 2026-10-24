@@ -15,5 +15,5 @@ pub mod webhook;
 
 pub use credits::{BalanceResponse, TopUpRequest, TopUpResponse, UsageDay, UsageResponse};
 pub use error::ErrorBody;
-pub use signature::{sign, verify, SignatureError, IDEMPOTENCY_HEADER, SIGNATURE_HEADER, TOLERANCE_SECS};
+pub use signature::{sign, verify, verify_any, SignatureError, IDEMPOTENCY_HEADER, SIGNATURE_HEADER, TOLERANCE_SECS};
 pub use webhook::{AccountSuspended, CreditsDepleted, CreditsLow, DailySummary, WebhookEvent, WebhookKind};

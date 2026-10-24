@@ -48,6 +48,11 @@ struct Rig {
 
 /// A gateway whose upstream answers with 1000 prompt and 1000 completion tokens (a charge of 3900 micro-USD on `fast`).
 async fn rig(admin_secret: Option<&str>, low_threshold: Option<i64>) -> Rig {
+    rig_rotating(admin_secret, None, low_threshold).await
+}
+
+/// Like `rig`, with the previous admin secret of a rotation still accepted.
+async fn rig_rotating(admin_secret: Option<&str>, previous: Option<&str>, low_threshold: Option<i64>) -> Rig {
     let mut store = Store::open_in_memory().unwrap();
     if let Some(threshold) = low_threshold {
         store = store.with_low_threshold(threshold);
@@ -60,6 +65,9 @@ async fn rig(admin_secret: Option<&str>, low_threshold: Option<i64>) -> Rig {
     let mut server = GatewayServer::bind("127.0.0.1:0".parse().unwrap(), Gateway::new(store.clone(), catalog), upstream).await.unwrap();
     if let Some(secret) = admin_secret {
         server = server.with_admin_secret(secret);
+    }
+    if let Some(previous) = previous {
+        server = server.with_previous_admin_secret(previous);
     }
     let addr = server.local_addr().unwrap();
     tokio::spawn(server.serve());
@@ -153,6 +161,30 @@ async fn a_call_with_a_bad_signature_is_refused_and_changes_nothing() {
     // A model-endpoint token is not the site's credential.
     assert_eq!(raw(rig.addr, "POST", &path, &[("Authorization", format!("Bearer {}", rig.token))], &body).await.0, 401);
 
+    assert_eq!(rig.store.balance(&rig.account).unwrap(), 0);
+}
+
+#[tokio::test]
+async fn during_a_rotation_the_old_admin_secret_and_the_new_one_both_work() {
+    let rig = rig_rotating(Some("new-secret"), Some(ADMIN), None).await;
+    let path = format!("/v1/accounts/{}/credits", rig.account);
+    let call = |ref_: &str| json!({"amount_micro_usd": 1_000_000, "payment_ref": ref_}).to_string();
+
+    assert_eq!(site_call(&rig, "new-secret", now(), "POST", &path, &call("p1")).await.0, 200);
+    assert_eq!(site_call(&rig, ADMIN, now(), "POST", &path, &call("p2")).await.0, 200, "the site may not have switched yet");
+    assert_eq!(rig.store.balance(&rig.account).unwrap(), 2_000_000);
+
+    // Neither the rotation nor anything else makes a third secret good.
+    let (status, reply) = site_call(&rig, "a-third", now(), "POST", &path, &call("p3")).await;
+    assert_eq!((status, code(&reply).as_str()), (401, "invalid_signature"), "{reply}");
+}
+
+#[tokio::test]
+async fn once_the_previous_secret_is_dropped_it_stops_working() {
+    let rig = rig(Some("new-secret"), None).await;
+    let path = format!("/v1/accounts/{}/credits", rig.account);
+    let body = json!({"amount_micro_usd": 1_000_000, "payment_ref": "p"}).to_string();
+    assert_eq!(site_call(&rig, ADMIN, now(), "POST", &path, &body).await.0, 401);
     assert_eq!(rig.store.balance(&rig.account).unwrap(), 0);
 }
 

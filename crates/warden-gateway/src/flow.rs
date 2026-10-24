@@ -32,6 +32,8 @@ pub enum GatewayError {
     /// The call would pass the account's daily or monthly spend cap.
     QuotaExceeded(quota::Cap),
     DuplicateRequest,
+    /// Every provider that could answer this model has spent its daily budget.
+    ProviderBudgetExhausted,
     Store(StoreError),
 }
 
@@ -46,6 +48,7 @@ impl std::fmt::Display for GatewayError {
             }
             GatewayError::QuotaExceeded(cap) => write!(f, "the account's {} spend cap was reached", cap.name()),
             GatewayError::DuplicateRequest => write!(f, "duplicate request id"),
+            GatewayError::ProviderBudgetExhausted => write!(f, "this model is out of capacity for today; try again later or use another model"),
             GatewayError::Store(e) => write!(f, "{e}"),
         }
     }
@@ -86,6 +89,9 @@ pub struct Reservation {
     pub max_tokens: u32,
     /// The worst case, priced: what is held and what it would cost the gateway.
     pub hold: Priced,
+    /// The targets (indices into `model.targets()`, in order) whose provider is within its daily budget. Never empty: with
+    /// none left the call is refused before it gets here. The call tries these, and only these.
+    pub available: Vec<usize>,
     prompt_tokens_estimate: u64,
 }
 
@@ -157,8 +163,24 @@ impl Gateway {
             let model = catalog.model(&req.model).ok_or_else(|| GatewayError::UnknownModel(req.model.clone()))?.clone();
             let max_tokens = model.effective_max_tokens(req.max_tokens);
             let prompt_tokens_estimate = req.prompt_tokens;
-            // Any target might answer, so the hold is the dearest one's; the customer pays the one that did.
-            let hold = model.worst_price(Tokens { prompt: prompt_tokens_estimate, completion: max_tokens as u64 });
+            // A provider that has spent its day's budget is out of the call; the rest take it in their order.
+            let day = quota::day_start(req.now);
+            let mut available = Vec::new();
+            for (i, target) in model.targets().iter().enumerate() {
+                let budget = catalog.upstream(&target.upstream).and_then(|u| u.daily_budget.map(|b| (u.id.clone(), b)));
+                let within = match budget {
+                    Some((id, budget)) => store.spent_on_upstream_since(&id, day)? < budget,
+                    None => true,
+                };
+                if within {
+                    available.push(i);
+                }
+            }
+            if available.is_empty() {
+                return Err(GatewayError::ProviderBudgetExhausted);
+            }
+            // Any of those might answer, so the hold is the dearest one's; the customer pays the one that did.
+            let hold = model.worst_price_among(&available, Tokens { prompt: prompt_tokens_estimate, completion: max_tokens as u64 });
 
             let spent_today = store.spent_since(&account.id, quota::day_start(req.now))?;
             let spent_month = store.spent_since(&account.id, quota::month_start(req.now))?;
@@ -169,7 +191,7 @@ impl Gateway {
             if hold.charged > 0 {
                 store.place_hold(&account.id, &request_id, hold.charged, ttl, req.now)?;
             }
-            Ok(Reservation { request_id, account, model, max_tokens, hold, prompt_tokens_estimate })
+            Ok(Reservation { request_id, account, model, max_tokens, hold, available, prompt_tokens_estimate })
         })
         .await
     }

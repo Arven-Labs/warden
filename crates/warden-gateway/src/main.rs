@@ -42,6 +42,11 @@ enum Command {
         /// Prefer the environment variable: a flag shows in the process list.
         #[arg(long, env = "WARDEN_GATEWAY_ADMIN_SECRET", hide_env_values = true)]
         admin_secret: Option<String>,
+        /// While rotating `--admin-secret`: the old one, still accepted next to the new one. Take it out once the site signs
+        /// with the new secret. Needs `--admin-secret`. (The webhook secret rotates on the site's side: it first accepts both,
+        /// then the gateway switches `--webhook-secret`, then the site drops the old one.)
+        #[arg(long, env = "WARDEN_GATEWAY_ADMIN_SECRET_PREVIOUS", hide_env_values = true)]
+        admin_secret_previous: Option<String>,
         /// Where to send the webhooks (`credits.low`, `credits.depleted`, `usage.daily_summary`, `account.suspended`). Needs `--webhook-secret`.
         #[arg(long, env = "WARDEN_GATEWAY_WEBHOOK_URL")]
         webhook_url: Option<String>,
@@ -121,6 +126,15 @@ enum WebhooksCommand {
     Pending {
         #[arg(long, default_value_t = 50)]
         limit: u32,
+    },
+    /// Delete the old rows now (the running gateway already does it once an hour).
+    Prune {
+        /// Keep delivered rows this many days; it must be longer than the daily summaries' window, or they would be sent twice.
+        #[arg(long, default_value_t = warden_gateway::webhook::DELIVERED_KEEP_DAYS)]
+        delivered_days: i64,
+        /// Keep the rows given up on this many days.
+        #[arg(long, default_value_t = warden_gateway::webhook::GIVEN_UP_KEEP_DAYS)]
+        given_up_days: i64,
     },
 }
 
@@ -218,6 +232,7 @@ async fn main() -> Result<()> {
         Command::Serve {
             listen,
             admin_secret,
+            admin_secret_previous,
             webhook_url,
             webhook_secret,
             low_balance_usd,
@@ -270,8 +285,16 @@ async fn main() -> Result<()> {
             if *trust_forwarded_for {
                 tracing::info!("trusting the last X-Forwarded-For entry as the client address: keep the gateway reachable only through the proxy");
             }
+            let previous = admin_secret_previous.as_deref().filter(|s| !s.is_empty());
             match admin_secret.as_deref().filter(|s| !s.is_empty()) {
-                Some(secret) => server = server.with_admin_secret(secret),
+                Some(secret) => {
+                    server = server.with_admin_secret(secret);
+                    if let Some(previous) = previous {
+                        server = server.with_previous_admin_secret(previous);
+                        tracing::info!("rotating the admin secret: the previous one is still accepted");
+                    }
+                }
+                None if previous.is_some() => bail!("--admin-secret-previous needs --admin-secret: it is the old one of a rotation"),
                 None => tracing::warn!("no admin secret: the site's account routes (/v1/accounts/...) are off"),
             }
             match (webhook_url.as_deref().filter(|s| !s.is_empty()), webhook_secret.as_deref().filter(|s| !s.is_empty())) {
@@ -314,6 +337,16 @@ async fn main() -> Result<()> {
                         println!("{}  {:<20} {}  attempts {}", e.id, e.kind, e.account_id, e.attempts);
                     }
                 }
+                WebhooksCommand::Prune { delivered_days, given_up_days } => {
+                    if *delivered_days <= warden_gateway::webhook::SUMMARY_DAYS_BACK {
+                        bail!("--delivered-days must be more than {} (the daily summaries' window), or they would be sent again", warden_gateway::webhook::SUMMARY_DAYS_BACK);
+                    }
+                    if *given_up_days < 0 {
+                        bail!("--given-up-days cannot be negative");
+                    }
+                    let gone = store.prune_outbox(now(), delivered_days * 86_400, given_up_days * 86_400)?;
+                    println!("deleted {gone} old webhook rows");
+                }
             }
             Ok(())
         }
@@ -344,7 +377,8 @@ async fn main() -> Result<()> {
             println!("{} upstream(s), {} model(s)", catalog.upstreams.len(), catalog.models.len());
             for u in &catalog.upstreams {
                 let state = if u.api_key.get().is_some() { "key found" } else { "NO KEY" };
-                println!("upstream {:<16} {}   key: {} ({state})", u.id, u.base_url, u.api_key.origin());
+                let budget = u.daily_budget.map_or("no daily budget".to_string(), |b| format!("daily budget {} USD", format_usd(b)));
+                println!("upstream {:<16} {}   key: {} ({state})   {budget}", u.id, u.base_url, u.api_key.origin());
             }
             for m in &catalog.models {
                 println!(

@@ -284,6 +284,8 @@ impl Store {
         conn.busy_timeout(std::time::Duration::from_secs(5))?;
         conn.execute_batch(SCHEMA)?;
         add_missing_columns(&conn)?;
+        // After the columns: `target` is one of the added ones, so an older file only has it by now.
+        conn.execute_batch("CREATE INDEX IF NOT EXISTS usage_events_target_time ON usage_events(target, created_at)")?;
         Ok(Store { conn: Mutex::new(conn), low_threshold: None, hourly_spend_cap: None })
     }
 
@@ -620,6 +622,20 @@ impl Store {
         })
     }
 
+    /// Deletes the outbox rows nobody needs any more: delivered ones older than `delivered_keep_secs` (by delivery time) and
+    /// given-up ones older than `given_up_keep_secs` (by creation time). Pending rows are never touched. A daily summary's
+    /// row is also what stops it being queued again, so the caller keeps delivered rows longer than the summaries' window.
+    /// Returns how many rows went.
+    pub fn prune_outbox(&self, now: i64, delivered_keep_secs: i64, given_up_keep_secs: i64) -> Result<usize> {
+        let conn = self.lock();
+        Ok(conn.execute(
+            "DELETE FROM webhook_outbox
+             WHERE (delivered_at IS NOT NULL AND delivered_at < ?1)
+                OR (delivered_at IS NULL AND attempts >= ?3 AND created_at < ?2)",
+            params![now - delivered_keep_secs, now - given_up_keep_secs, MAX_DELIVERY_ATTEMPTS],
+        )?)
+    }
+
     /// Everything not delivered yet, pending and given up, oldest first (for the operator's `webhooks pending`).
     pub fn undelivered_events(&self, limit: u32) -> Result<Vec<OutboxEvent>> {
         let conn = self.lock();
@@ -629,6 +645,19 @@ impl Store {
         )?;
         let rows = stmt.query_map(params![limit], outbox_from_row)?;
         Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
+    }
+
+    /// What the gateway itself paid provider `upstream_id` (the `cost` of every call that went to it, not the customers'
+    /// price) at or after `since`. A call's `target` is `<upstream>/<model>`, so it is the range of targets starting with
+    /// `<upstream>/`: from `<upstream>/` up to `<upstream>0` ('0' is the character after '/'), which needs no escaping.
+    /// Calls from before the `target` column have none and are not counted.
+    pub fn spent_on_upstream_since(&self, upstream_id: &str, since: i64) -> Result<Micros> {
+        let conn = self.lock();
+        Ok(conn.query_row(
+            "SELECT COALESCE(SUM(cost), 0) FROM usage_events WHERE target >= ?1 AND target < ?2 AND created_at >= ?3",
+            params![format!("{upstream_id}/"), format!("{upstream_id}0"), since],
+            |r| r.get(0),
+        )?)
     }
 
     /// What the account was charged at or after `since` (unix seconds): the number the spend caps compare against.
@@ -1193,6 +1222,70 @@ mod tests {
         assert_eq!(store.undelivered_events(10).unwrap().len(), 1);
     }
 
+    /// Four summaries in the outbox, for the pruning tests: ids in the order they were queued.
+    fn four_summaries() -> (Store, Vec<String>) {
+        let (store, account, _) = store_with_balance(10_000_000);
+        for day in 1..=4 {
+            spend(&store, &account, &format!("r{day}"), 100, NOW - day * 86_400);
+        }
+        assert_eq!(store.enqueue_daily_summaries(NOW, 7).unwrap(), 4);
+        let ids = store.undelivered_events(10).unwrap().into_iter().map(|e| e.id).collect();
+        (store, ids)
+    }
+
+    fn age(store: &Store, id: &str, created_at: i64) {
+        store.lock().execute("UPDATE webhook_outbox SET created_at = ?2 WHERE id = ?1", params![id, created_at]).unwrap();
+    }
+
+    const DAY: i64 = 86_400;
+
+    #[test]
+    fn pruning_the_outbox_drops_old_delivered_and_old_given_up_rows_and_nothing_else() {
+        let (store, ids) = four_summaries();
+        // 0: delivered long ago, 1: delivered recently, 2: given up long ago, 3: still pending.
+        store.mark_delivered(&ids[0], NOW - 20 * DAY).unwrap();
+        store.mark_delivered(&ids[1], NOW - DAY).unwrap();
+        for _ in 0..MAX_DELIVERY_ATTEMPTS {
+            store.mark_failed(&ids[2], NOW).unwrap();
+        }
+        age(&store, &ids[2], NOW - 40 * DAY);
+
+        assert_eq!(store.prune_outbox(NOW, 14 * DAY, 30 * DAY).unwrap(), 2);
+        assert_eq!(store.outbox_stats().unwrap(), OutboxStats { pending: 1, delivered: 1, given_up: 0 });
+        assert_eq!(store.prune_outbox(NOW, 14 * DAY, 30 * DAY).unwrap(), 0, "a second pass finds nothing more");
+    }
+
+    #[test]
+    fn a_row_given_up_recently_is_kept_for_the_operator() {
+        let (store, ids) = four_summaries();
+        for _ in 0..MAX_DELIVERY_ATTEMPTS {
+            store.mark_failed(&ids[0], NOW).unwrap();
+        }
+        age(&store, &ids[0], NOW - 5 * DAY);
+        assert_eq!(store.prune_outbox(NOW, 14 * DAY, 30 * DAY).unwrap(), 0);
+        assert_eq!(store.outbox_stats().unwrap().given_up, 1);
+    }
+
+    #[test]
+    fn a_pending_row_is_never_pruned_however_old() {
+        let (store, ids) = four_summaries();
+        age(&store, &ids[0], NOW - 400 * DAY);
+        assert_eq!(store.prune_outbox(NOW, 14 * DAY, 30 * DAY).unwrap(), 0);
+        assert_eq!(store.outbox_stats().unwrap().pending, 4);
+    }
+
+    #[test]
+    fn a_delivered_summary_kept_longer_than_its_window_is_not_queued_again() {
+        let (store, ids) = four_summaries();
+        for id in &ids {
+            store.mark_delivered(id, NOW).unwrap();
+        }
+        // Eight days on, the rows are still there (the default keeps 14), so the days within the 7-day window stay deduped.
+        let later = NOW + 8 * DAY;
+        assert_eq!(store.prune_outbox(later, 14 * DAY, 30 * DAY).unwrap(), 0);
+        assert_eq!(store.enqueue_daily_summaries(later, 7).unwrap(), 0);
+    }
+
     #[test]
     fn the_reason_for_a_suspension_is_kept_and_cleared_on_resume() {
         let (store, account) = store_with_hourly_cap(1_000);
@@ -1240,6 +1333,27 @@ mod tests {
         // Opening it again must not try to add the columns a second time.
         Store::open(&path).unwrap();
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn what_a_provider_cost_counts_only_its_own_targets_and_only_since_the_given_time() {
+        let (store, account, _) = store_with_balance(10_000_000);
+        let settle_to = |id: &str, target: &str, charged: Micros, at: i64| {
+            store.place_hold(&account.id, id, charged, 60, at).unwrap();
+            let mut rec = record(&account, id, charged);
+            rec.target = target.into();
+            store.settle(&rec, at).unwrap();
+        };
+        settle_to("r1", "a/real-a", 1_000, NOW); // cost 500
+        settle_to("r2", "a/deep/real-a2", 400, NOW + 10); // a model name with a slash in it: cost 200
+        settle_to("r3", "ab/real", 9_000, NOW + 20); // another provider whose id starts with `a`
+        settle_to("r4", "b/real-b", 9_000, NOW + 30);
+        settle_to("r5", "a/real-a", 2_000, NOW - 1_000); // cost 1000, but before the window
+
+        assert_eq!(store.spent_on_upstream_since("a", NOW).unwrap(), 700);
+        assert_eq!(store.spent_on_upstream_since("a", NOW - 2_000).unwrap(), 1_700);
+        assert_eq!(store.spent_on_upstream_since("ab", NOW).unwrap(), 4_500);
+        assert_eq!(store.spent_on_upstream_since("nobody", NOW - 10_000).unwrap(), 0);
     }
 
     fn target_of(store: &Store, request_id: &str) -> Option<String> {
