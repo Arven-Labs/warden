@@ -2,7 +2,18 @@
 
 > **Nota**: Este log foi criado junto com o projeto. As sessões serão registradas aqui conforme o trabalho avança.
 >
-> Última atualização: 2026-10-24 (Sessão 289)
+> Última atualização: 2026-10-24 (Sessão 290)
+
+---
+
+### 2026-10-24 — Sessão 290 (o desktop adota a identidade preto e roxo: P137, passo 4b)
+
+- **Pedido**: "sim" ao desktop, depois do CI verde do `web/`. Plano aprovado em modo de plano.
+- **Feito**: `desktop/src/tokens.css` (cópia de `design/tokens.css`) no lugar do bloco de cores do `App.css`; `theme.ts` e `ThemeSwitch` copiados do `web/`, com o botão numa seção "Theme" das Configurações (o desktop não tem cabeçalho; `st.theme.*` e `theme.to*` nos dois idiomas) e o script de tema no `index.html`; `LogoMark` (`Icons.tsx`) com o escudo e o "W" (vale para a barra lateral, o avatar e o estado vazio); favicon novo e saíram `vite.svg`, `tauri.svg` e `react.svg`, que ninguém usava; Inter e JetBrains Mono empacotadas, as dez monoespaçadas em `var(--font-mono)`; os botões cheios (`chat-send-btn`, `settings-save-btn`, balão do usuário, enviar da edição) em `--gradient-button`, com o hover por `filter`. **Achado nos tokens compartilhados**: 19 regras usam `--color-accent-dark` como cor de texto e no escuro ele tinha caído para `#7c3aed` (~3:1); voltou a `#8b5cf6`, e a cópia do `site/` e do `web/` foi atualizada (o `web/` já publicado tinha esse texto mais fraco).
+- **Testes**: `desktop` 189 de 189 (novo `tokens.test.mjs`), `tsc` e build limpos; E2E aqui: os 10 antigos e o `theme.test.mjs` novo (abre escuro com o sistema em claro e sem tema salvo, troca nas Configurações, guarda depois do recarregamento, sem erro de página). O `openApp` do harness grava `warden-theme` a partir do `colorScheme` (e `theme: null` não grava, para ver a primeira visita), então os testes antigos seguem como estão.
+- **Fotos** (antes e depois, claro e escuro, chat, Configurações, skills, sync, publicação): sem quebra de linha nem texto ilegível; a foto do tema claro logo após o clique pegou o botão "New chat" no meio da transição de 0,15 s (preto), o que é só da foto.
+- **Registro**: o `theme.test.mjs`, parte do harness e as cópias de arquivos entraram por script Python e `cp` no Bash; o resto, por Edit.
+- **Fica**: CI e `Desktop E2E` depois do push; os ícones do aplicativo (`src-tauri/icons`, num commit à parte); extensão e mobile; domínio; pt-BR.
 
 ---
 

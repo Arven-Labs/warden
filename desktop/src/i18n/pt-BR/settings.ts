@@ -187,6 +187,8 @@ export const settingsPt: Record<keyof typeof settings, string> = {
   "st.title": "Configurações",
   "st.language.title": "Idioma",
   "st.language.hint": "O idioma do app. Enquanto você não escolher um aqui, ele segue o do sistema.",
+  "st.theme.title": "Tema",
+  "st.theme.hint": "Escuro ou claro. O app é escuro até você escolher o claro aqui; ele não segue o do sistema.",
   "st.providers.title": "Provedores de modelo",
   "st.providers.add": "+ Adicionar provedor",
   "st.providers.none": "Nenhum provedor configurado ainda — adicione um para começar a conversar.",

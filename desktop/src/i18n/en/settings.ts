@@ -186,6 +186,8 @@ export const settings = {
   "st.title": "Settings",
   "st.language.title": "Language",
   "st.language.hint": "The language of the app. Until you pick one here, it follows the system's.",
+  "st.theme.title": "Theme",
+  "st.theme.hint": "Dark or light. The app is dark until you pick light here; it does not follow the system's.",
   "st.providers.title": "Model providers",
   "st.providers.add": "+ Add provider",
   "st.providers.none": "No providers configured yet — add one to start chatting.",

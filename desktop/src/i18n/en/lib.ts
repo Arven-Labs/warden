@@ -1,6 +1,8 @@
 // The words that come out of the helpers in `src/lib/`: states, labels, "x ago", the reasons a thing can't be done now.
 export const lib = {
   "language.label": "Language",
+  "theme.toLight": "Switch to the light theme",
+  "theme.toDark": "Switch to the dark theme",
 
   "activity.noAgent": "The assistant",
   "activity.today": "Today",

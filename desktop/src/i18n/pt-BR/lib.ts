@@ -2,6 +2,8 @@ import type { lib } from "../en/lib.ts";
 
 export const libPt: Record<keyof typeof lib, string> = {
   "language.label": "Idioma",
+  "theme.toLight": "Mudar para o tema claro",
+  "theme.toDark": "Mudar para o tema escuro",
 
   "activity.noAgent": "O assistente",
   "activity.today": "Hoje",

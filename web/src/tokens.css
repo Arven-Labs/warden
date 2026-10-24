@@ -26,7 +26,8 @@
   --color-text: #ede9f7;
   --color-text-muted: #a599c2;
   --color-accent: #a78bfa;
-  --color-accent-dark: #7c3aed;
+  /* also used as text (hover, the active item) on the dark surfaces, so it stays at 5:1 or better there */
+  --color-accent-dark: #8b5cf6;
   --color-accent-soft: rgba(167, 139, 250, 0.14);
   --color-on-accent: #12082b;
   --color-danger: #f87171;

@@ -1,6 +1,6 @@
 # Identidade visual do Warden
 
-> Primeiro corte (Sessão 288, P137): marca, tokens e o `site/`. Sessão 289: o `web/` também (`web/src/tokens.css` é cópia de `design/tokens.css`, com teste). Desktop, extensão e mobile ainda não.
+> Primeiro corte (Sessão 288, P137): marca, tokens e o `site/`. Sessão 289: o `web/` também (`web/src/tokens.css` é cópia de `design/tokens.css`, com teste). Sessão 290: o desktop também (`desktop/src/tokens.css`, botão de tema nas Configurações, `LogoMark` com o escudo novo). Extensão e mobile ainda não. `--color-accent-dark` no escuro é `#8b5cf6` (19 regras o usam como cor de texto; com `#7c3aed` o contraste caía a ~3:1).
 > **Escuro por padrão em toda superfície, sem seguir o sistema**: o claro só com `data-theme="light"` (botão de tema, guardado em `localStorage` como `warden-theme`, a mesma chave do site e do `web/`). `--gradient-button` é o degradê do botão cheio (texto escuro sobre o roxo claro no escuro, branco sobre o roxo escuro no claro).
 
 ## O que transmite
@@ -34,4 +34,4 @@ Cabeçalho fixo com vidro, hero com pílula "Open source", botão cheio e botão
 `mobile/lib/main.dart` usa `ColorScheme.fromSeed` com `0xFF7C3AED` (claro) e `0xFFA78BFA` (escuro). Para a identidade nova: `surface` `0xFF07060B`, `onSurface` `0xFFEDE9F7`, `primary` `0xFFA78BFA`, `outline` `0xFF272043`, tema escuro por padrão.
 
 ## Falta
-Desktop, extensão e mobile adotarem os tokens (um por sessão, com fotos de E2E antes e depois), domínio próprio, versão em pt-BR do site.
+Extensão e mobile adotarem os tokens (um por sessão, com fotos de E2E antes e depois), domínio próprio, versão em pt-BR do site.

@@ -8,6 +8,7 @@ import type { AgentEntry, Combo, GitSyncConfig, McpServer, ModelPolicy, Outreach
 import ApiKeysSection from "./ApiKeysSection";
 import BotsSection from "./BotsSection";
 import LanguageSwitch from "./LanguageSwitch";
+import ThemeSwitch from "./ThemeSwitch";
 import SshAuditLog from "./SshAuditLog";
 import SpendingSection, { validateSpending } from "./SpendingSection";
 import { APPROVAL_CATEGORIES } from "../lib/approvalCategories";
@@ -1625,6 +1626,13 @@ function SettingsView() {
           <LanguageSwitch />
         </div>
         <p className="settings-hint">{t("st.language.hint")}</p>
+      </section>
+      <section className="settings-section">
+        <div className="settings-section-header">
+          <h3 className="settings-section-title">{t("st.theme.title")}</h3>
+          <ThemeSwitch />
+        </div>
+        <p className="settings-hint">{t("st.theme.hint")}</p>
       </section>
       <form className="settings-form" onSubmit={handleSubmit}>
         <section className="settings-section">

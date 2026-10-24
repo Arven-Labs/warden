@@ -14,25 +14,29 @@ function outlineProps() {
   };
 }
 
-/** Warden's brand mark — a shield, filled with the accent gradient. Used at the top of the
+/** Warden's brand mark — a shield with a W, stroked in the purple gradient on near-black (the same
+ * drawing as `design/` and the site: `site/public/brand/icon.svg`). Used at the top of the
  * sidebar, on the assistant's avatar, and in the empty-state hero. `size` controls both
  * dimensions; the gradient id is namespaced per instance so multiple copies on one page don't
  * collide. */
 export function LogoMark({ size = 22, className }: { size?: number; className?: string }) {
   const gradientId = `warden-logo-gradient-${size}`;
   return (
-    <svg width={size} height={size} viewBox="0 0 24 24" className={className} aria-hidden="true">
+    <svg width={size} height={size} viewBox="0 0 32 32" fill="none" className={className} aria-hidden="true">
       <defs>
-        <linearGradient id={gradientId} x1="0" y1="0" x2="1" y2="1">
-          <stop offset="0%" stopColor="var(--color-accent)" />
-          <stop offset="100%" stopColor="var(--color-accent-dark)" />
+        <linearGradient id={gradientId} x1="6" y1="2" x2="26" y2="30" gradientUnits="userSpaceOnUse">
+          <stop offset="0" stopColor="#c4b5fd" />
+          <stop offset="1" stopColor="#7c3aed" />
         </linearGradient>
       </defs>
       <path
-        d="M12 2.5l7.5 3v5.2c0 4.9-3.2 9.2-7.5 10.8-4.3-1.6-7.5-5.9-7.5-10.8V5.5l7.5-3z"
-        fill={`url(#${gradientId})`}
+        d="M16 2.5 27 6.2v8.6c0 6.4-4.4 11.1-11 14.2C9.4 25.9 5 21.2 5 14.8V6.2Z"
+        fill="#0d0a18"
+        stroke={`url(#${gradientId})`}
+        strokeWidth="1.8"
+        strokeLinejoin="round"
       />
-      <path d="M8.7 12.1l2.2 2.2 4.4-4.6" stroke="white" strokeWidth={1.6} strokeLinecap="round" strokeLinejoin="round" fill="none" />
+      <path d="m10 11.2 3.1 9 2.9-6.2 2.9 6.2 3.1-9" stroke={`url(#${gradientId})`} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
     </svg>
   );
 }

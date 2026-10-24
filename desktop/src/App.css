@@ -1,19 +1,9 @@
+/* The colors, radii, shadows and fonts come from `tokens.css` (a copy of `design/tokens.css`, the palette every surface shares, so they
+   read as one product). Dark is the default; the light theme is `data-theme="light"` on <html> (`ThemeSwitch`, in the settings). The
+   text on a surface in the accent colour is `--color-on-accent`: dark on the light lilac of the dark theme (white on it was about 2.7:1),
+   white on the dark violet of the light one. */
 :root {
-  --color-bg: #f8f6fc;
-  --color-surface: #ffffff;
-  --color-surface-alt: #f1eafb;
-  --color-border: #e3d9f7;
-  --color-text: #1b1330;
-  --color-text-muted: #6b6280;
-  --color-accent: #7c3aed;
-  --color-accent-dark: #6d28d9;
-  --color-accent-soft: rgba(124, 58, 237, 0.12);
-  /* The text on a surface in the accent colour: white on the dark violet, dark on the light lilac of the dark theme (white on it was about 2.7:1). */
-  --color-on-accent: #ffffff;
-  --color-danger: #dc2626;
-  color-scheme: light;
-
-  font-family: Inter, Avenir, Helvetica, Arial, sans-serif;
+  font-family: var(--font-sans);
   font-size: 16px;
   line-height: 24px;
   font-weight: 400;
@@ -23,23 +13,6 @@
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   -webkit-text-size-adjust: 100%;
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --color-bg: #14101f;
-    --color-surface: #1c1730;
-    --color-surface-alt: #201a35;
-    --color-border: #302750;
-    --color-text: #ede9f7;
-    --color-text-muted: #a599c2;
-    --color-accent: #a78bfa;
-    --color-accent-dark: #8b5cf6;
-    --color-accent-soft: rgba(167, 139, 250, 0.16);
-    --color-on-accent: #1b1033;
-    --color-danger: #f87171;
-    color-scheme: dark;
-  }
 }
 
 * {
@@ -629,7 +602,7 @@ body {
   padding: 0.45rem 0.6rem;
   border-radius: 8px;
   background: var(--color-surface-alt);
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-family: var(--font-mono);
   font-size: 0.85rem;
   overflow-wrap: anywhere;
 }
@@ -999,7 +972,7 @@ body {
 }
 
 .message-bubble-content code {
-  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  font-family: var(--font-mono);
   font-size: 0.9em;
   padding: 0.15em 0.35em;
   border-radius: 4px;
@@ -1041,7 +1014,7 @@ body {
 }
 
 .message-bubble--user {
-  background-color: var(--color-accent);
+  background: var(--gradient-button);
   color: var(--color-on-accent);
 }
 
@@ -1137,13 +1110,13 @@ body {
   align-items: center;
   justify-content: center;
   color: var(--color-on-accent);
-  background-color: var(--color-accent);
+  background: var(--gradient-button);
   cursor: pointer;
   transition: background-color 0.15s, opacity 0.15s;
 }
 
 .chat-send-btn:hover:not(:disabled) {
-  background-color: var(--color-accent-dark);
+  filter: brightness(1.08);
 }
 
 .chat-attach-btn {
@@ -1519,7 +1492,7 @@ body {
   flex: 1;
   min-height: 12rem;
   resize: none;
-  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-family: var(--font-mono);
   font-size: 0.9em;
   line-height: 1.5;
 }
@@ -1527,7 +1500,7 @@ body {
 .vault-plain {
   margin: 0;
   white-space: pre-wrap;
-  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-family: var(--font-mono);
   font-size: 0.9em;
 }
 
@@ -1638,6 +1611,25 @@ body {
   font-size: 0.9em;
 }
 
+/* The theme button: a round icon button, dressed like the language picker beside which it sits in the settings. */
+.theme-switch {
+  flex: none;
+  width: 2rem;
+  height: 2rem;
+  padding: 0;
+  line-height: 1;
+  color: var(--color-text-muted);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 999px;
+  cursor: pointer;
+}
+
+.theme-switch:hover {
+  color: var(--color-text);
+  border-color: var(--color-accent);
+}
+
 .settings-browse-btn {
   flex-shrink: 0;
   border-radius: 8px;
@@ -1666,13 +1658,13 @@ body {
   font-weight: 600;
   font-family: inherit;
   color: var(--color-on-accent);
-  background-color: var(--color-accent);
+  background: var(--gradient-button);
   cursor: pointer;
   transition: background-color 0.2s;
 }
 
 .settings-save-btn:hover:not(:disabled) {
-  background-color: var(--color-accent-dark);
+  filter: brightness(1.08);
 }
 
 .settings-save-btn:disabled {
@@ -1816,7 +1808,7 @@ body {
 }
 
 .sync-status-value--mono {
-  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-family: var(--font-mono);
   font-weight: 500;
   font-size: 0.85em;
   word-break: break-all;
@@ -1890,7 +1882,7 @@ body {
   padding: 0.6em 0.8em;
   border-radius: 8px;
   background: var(--color-accent-soft);
-  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-family: var(--font-mono);
   font-size: 0.9em;
   white-space: pre-wrap;
   word-break: break-all;
@@ -1915,7 +1907,7 @@ body {
 }
 
 .sync-pairing-code {
-  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-family: var(--font-mono);
   font-size: 1.4em;
   font-weight: 700;
   letter-spacing: 0.08em;
@@ -2043,7 +2035,7 @@ body {
 .ssh-audit-detail {
   min-width: 14rem;
   overflow-wrap: anywhere;
-  font-family: ui-monospace, monospace;
+  font-family: var(--font-mono);
 }
 
 .ssh-audit-refused td {
@@ -2380,7 +2372,7 @@ body {
 
 .skill-card-name {
   font-weight: 600;
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-family: var(--font-mono);
   color: var(--color-text);
 }
 
@@ -2486,7 +2478,7 @@ body {
 .live-tool-title {
   min-width: 0;
   overflow-wrap: anywhere;
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-family: var(--font-mono);
 }
 
 .live-source {
@@ -2855,11 +2847,21 @@ body {
 
 .message-edit-btn--send {
   border-color: var(--color-accent);
-  background: var(--color-accent);
+  background: var(--gradient-button);
   color: var(--color-on-accent);
 }
 
 :root {
+  --hl-keyword: #ff7b72;
+  --hl-string: #a5d6ff;
+  --hl-comment: #8b949e;
+  --hl-number: #79c0ff;
+  --hl-title: #d2a8ff;
+  --hl-type: #ffa657;
+  --hl-attr: #7ee787;
+}
+
+:root[data-theme="light"] {
   --hl-keyword: #cf222e;
   --hl-string: #0a3069;
   --hl-comment: #6e7781;
@@ -2867,18 +2869,6 @@ body {
   --hl-title: #8250df;
   --hl-type: #953800;
   --hl-attr: #116329;
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --hl-keyword: #ff7b72;
-    --hl-string: #a5d6ff;
-    --hl-comment: #8b949e;
-    --hl-number: #79c0ff;
-    --hl-title: #d2a8ff;
-    --hl-type: #ffa657;
-    --hl-attr: #7ee787;
-  }
 }
 
 .hljs-keyword,

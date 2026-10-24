@@ -96,9 +96,18 @@ export function deferred() {
  * it is a `list_...` and `null` otherwise. Returns the page, every call made
  * (`calls`: `{ cmd, args }`) and the errors the page raised that nothing caught (`errors`), which a test asserts empty.
  */
-export async function openApp(browser, app, { handlers = {}, colorScheme = "light", locale = "en-US" } = {}) {
+export async function openApp(browser, app, { handlers = {}, colorScheme = "light", locale = "en-US", theme = colorScheme } = {}) {
   // The language is pinned (P136): without it the page would follow whatever language the machine running the test is in.
   const context = await browser.newContext({ colorScheme, locale, viewport: { width: 1280, height: 800 } });
+  // The app is dark until a theme is saved (it does not follow the system), so `colorScheme` is the theme the spec wants, unless
+  // `theme` says otherwise (`null` saves none, which is how a spec sees the app on a first visit).
+  if (theme) {
+    await context.addInitScript((saved) => {
+      try {
+        if (!localStorage.getItem("warden-theme")) localStorage.setItem("warden-theme", saved);
+      } catch {}
+    }, theme);
+  }
   const page = await context.newPage();
   const calls = [];
   const errors = [];
