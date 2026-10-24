@@ -123,14 +123,17 @@ export interface HubProject {
   code?: boolean;
 }
 
-/** A turn that ended in a `chatError`: the hub's own words, and the spending limit it stopped on, if any. */
+/** A turn that ended in a `chatError`: the hub's own words, the spending limit it stopped on, if any, and whether the
+ * hosted credit ran out (P168), which the chat answers with a button to the balance screen. */
 export class HubTurnError extends Error {
   spendLimitId?: string;
+  topUp: boolean;
 
-  constructor(message: string, spendLimitId?: string) {
+  constructor(message: string, spendLimitId?: string, topUp = false) {
     super(message);
     this.name = "HubTurnError";
     this.spendLimitId = spendLimitId;
+    this.topUp = topUp;
   }
 }
 
@@ -193,7 +196,7 @@ export function decorateLastAnswer(messages: ChatMessage[], extras: TurnExtras):
 export function turnFromReply(reply: unknown): { content: string } & TurnExtras {
   const r = (reply ?? {}) as Record<string, unknown>;
   if (r.type === "chatError") {
-    throw new HubTurnError(String(r.message ?? t("hub.couldNotAnswer")), typeof r.spendLimitId === "string" ? r.spendLimitId : undefined);
+    throw new HubTurnError(String(r.message ?? t("hub.couldNotAnswer")), typeof r.spendLimitId === "string" ? r.spendLimitId : undefined, r.topUp === true);
   }
   if (r.type !== "chatResponse") {
     throw new HubTurnError(t("hub.somethingElse", { type: String(r.type) }));

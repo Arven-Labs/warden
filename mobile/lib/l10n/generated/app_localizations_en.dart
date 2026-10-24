@@ -1052,6 +1052,17 @@ class AppLocalizationsEn extends AppLocalizations {
   String get chatRegenerate => 'Regenerate';
 
   @override
+  String get chatTopUp => 'See balance';
+
+  @override
+  String chatCredit(String amount) {
+    return 'Credit: $amount';
+  }
+
+  @override
+  String get chatCreditEmpty => 'Credit: none left';
+
+  @override
   String get folderBarNone => 'Working folder: none';
 
   @override

@@ -266,7 +266,7 @@ fn gate_with(message: &ClientMessage, text: &str) -> Option<ServerMessage> {
     let text = text.to_string();
     Some(match message {
         ClientMessage::ChangePassword { .. } | ClientMessage::Ping { .. } | ClientMessage::Goodbye { .. } | ClientMessage::Hello { .. } => return None,
-        ClientMessage::Chat { conversation_id, .. } => ServerMessage::ChatError { message: text, conversation_id: conversation_id.clone(), spend_limit_id: None },
+        ClientMessage::Chat { conversation_id, .. } => ServerMessage::ChatError { message: text, conversation_id: conversation_id.clone(), spend_limit_id: None, top_up: false },
         ClientMessage::RequestHistory { request_id, .. } => ServerMessage::HistoryError { request_id: *request_id, message: text },
         ClientMessage::ListConversations { request_id }
         | ClientMessage::RenameConversation { request_id, .. }

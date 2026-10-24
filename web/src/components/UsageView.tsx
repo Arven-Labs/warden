@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import type { ServerConnection } from "../hub/connection";
 import type { LimitStatus, SpendBucket, UsageByKey, UsageReport } from "../hub/messages";
-import { creditUsd, hasHolds, isOutOfCredit } from "../hub/credit";
+import { creditUsd, formatUsd, hasHolds, isOutOfCredit } from "../hub/credit";
 import { breakdownRows } from "../hub/usageBreakdown";
 import { intlTag, t } from "../i18n";
 
@@ -14,8 +14,7 @@ const compact = { format: (n: number) => new Intl.NumberFormat(intlTag(), { nota
 const full = { format: (n: number) => new Intl.NumberFormat(intlTag()).format(n) };
 
 function usd(value: number): string {
-  const prefix = intlTag() === "pt-BR" ? "US$ " : "$";
-  return `${prefix}${value.toLocaleString(intlTag(), { minimumFractionDigits: 2, maximumFractionDigits: value < 1 ? 4 : 2 })}`;
+  return formatUsd(value, intlTag());
 }
 
 function message(err: unknown): string {

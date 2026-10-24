@@ -180,6 +180,12 @@ void main() {
       expect(msg, isA<ChatErrorMessage>());
       expect((msg as ChatErrorMessage).message, 'provider unavailable');
       expect(msg.conversationId, isNull);
+      expect(msg.topUp, isFalse);
+    });
+
+    test('a ChatError with topUp is the hosted credit running out (P168)', () {
+      final msg = ServerMessage.decode('{"type":"chatError","message":"Out of credits","topUp":true}');
+      expect((msg as ChatErrorMessage).topUp, isTrue);
     });
 
     test('ChatResponse and ChatError name their conversation (P78)', () {

@@ -867,6 +867,16 @@ button:focus-visible {
   text-overflow: ellipsis;
 }
 
+.chat-credit {
+  margin-left: auto;
+  white-space: nowrap;
+  font-size: 0.85rem;
+}
+
+.chat-credit--empty {
+  color: var(--color-danger);
+}
+
 .drawer-toggle,
 .drawer-scrim {
   display: none;

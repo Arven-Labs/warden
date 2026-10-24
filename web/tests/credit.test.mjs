@@ -1,6 +1,13 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { creditUsd, hasHolds, isOutOfCredit } from "../src/hub/credit.ts";
+import { creditUsd, formatUsd, hasHolds, isOutOfCredit } from "../src/hub/credit.ts";
+
+test("dollars are written with US$ in Brazilian Portuguese and $ elsewhere, with more decimals under one dollar", () => {
+  assert.equal(formatUsd(25, "en-US"), "$25.00");
+  assert.equal(formatUsd(0.5, "en-US"), "$0.50");
+  assert.equal(formatUsd(0.012345, "en-US"), "$0.0123");
+  assert.equal(formatUsd(25, "pt-BR"), "US$ 25,00");
+});
 
 test("micro-USD turn into dollars for display", () => {
   assert.equal(creditUsd(25_000_000), 25);

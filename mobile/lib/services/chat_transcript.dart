@@ -11,17 +11,20 @@ import 'workdir.dart';
 enum EntryRole { user, assistant, error }
 
 class ChatEntry {
-  const ChatEntry(this.role, this.text, {this.attachments = const [], this.id});
+  const ChatEntry(this.role, this.text, {this.attachments = const [], this.id, this.topUp = false});
 
   final EntryRole role;
   final String text;
   final List<Attachment> attachments;
 
+  /// P168 — on an error entry: the hosted credit ran out, so the bubble offers the balance screen.
+  final bool topUp;
+
   /// P125 — the hub's id for the message, which a thread hangs from. Null until the history is read again after the
   /// message is sent or answered.
   final String? id;
 
-  ChatEntry withId(String id) => ChatEntry(role, text, attachments: attachments, id: id);
+  ChatEntry withId(String id) => ChatEntry(role, text, attachments: attachments, id: id, topUp: topUp);
 }
 
 /// P125 — a message's thread: its conversation and how many messages the person sent in it.
@@ -583,7 +586,7 @@ class ChatTranscript extends ChangeNotifier {
     final (entry, conversationId) = switch (msg) {
       ChatResponseMessage(:final content, :final attachments, :final conversationId) =>
         (ChatEntry(EntryRole.assistant, content, attachments: attachments), conversationId),
-      ChatErrorMessage(:final message, :final conversationId) => (ChatEntry(EntryRole.error, message), conversationId),
+      ChatErrorMessage(:final message, :final conversationId, :final topUp) => (ChatEntry(EntryRole.error, message, topUp: topUp), conversationId),
       _ => (null, null),
     };
     if (entry == null) return;

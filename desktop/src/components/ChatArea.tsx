@@ -2,7 +2,8 @@ import { useEffect, useRef, useState } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
 import { t } from "../i18n";
 import { nextCodeMode } from "../types";
-import type { AgentEntry, Attachment, CodeMode, Combo, Conversation, ProjectEntry, ProviderEntry } from "../types";
+import type { AgentEntry, Attachment, CodeMode, Combo, Conversation, Credit, ProjectEntry, ProviderEntry } from "../types";
+import { creditUsd, formatUsd, isOutOfCredit } from "../lib/credit";
 import type { LiveTurn } from "../lib/liveTurn";
 import { canRedo, lastUserMessage, messagesAfter } from "../lib/regenerate";
 import { threadAnchor, type ThreadInfo } from "../lib/threads";
@@ -28,6 +29,11 @@ interface ChatAreaProps {
   codeMode: CodeMode;
   onCodeMode: (mode: CodeMode) => void;
   sendError: string | null;
+  /** P168 — when the error is the hosted credit running out: opens the balance screen. Absent for any other error. */
+  onTopUp?: () => void;
+  /** P168 — the hosted credit of the hub in use, for the header; absent where there is none. */
+  credit?: Credit;
+  onOpenUsage?: () => void;
   agents: AgentEntry[];
   providers: ProviderEntry[];
   /** Combos (P90) are picked here like providers. */
@@ -129,6 +135,9 @@ function ChatArea({
   codeMode,
   onCodeMode,
   sendError,
+  onTopUp,
+  credit,
+  onOpenUsage,
   agents,
   providers,
   combos,
@@ -342,6 +351,11 @@ function ChatArea({
             ))}
           </select>
         )}
+        {credit && onOpenUsage && (
+          <button type="button" className={`chat-header-credit${isOutOfCredit(credit) ? " chat-header-credit--empty" : ""}`} onClick={onOpenUsage}>
+            {isOutOfCredit(credit) ? t("chat.creditEmpty") : t("chat.credit", { amount: formatUsd(creditUsd(credit.availableMicroUsd)) })}
+          </button>
+        )}
       </div>
       {pendingMove !== null && (
         <div className="chat-move-banner" role="alert">
@@ -405,6 +419,11 @@ function ChatArea({
       {sendError && (
         <div className="chat-error-banner" role="alert">
           {sendError}
+          {onTopUp && (
+            <button type="button" className="chat-error-action" onClick={onTopUp}>
+              {t("chat.topUp")}
+            </button>
+          )}
         </div>
       )}
       <MessageInput

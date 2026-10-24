@@ -62,10 +62,16 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   AppLifecycleState _lifecycleState = AppLifecycleState.resumed;
   bool _autoPulling = false;
 
+  /// P168 — the hosted credit under the title; null on a hub that has none and for a member, whose report carries no credit.
+  HostedCredit? _credit;
+  bool _wasWaiting = false;
+
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    widget.transcript.addListener(_refreshCreditWhenTurnEnds);
+    unawaited(_refreshCredit());
     unawaited(requestNotificationPermission());
     _status = widget.connection.status;
     _chatSubscription = widget.connection.chatStream.listen(_onChatMessage);
@@ -73,6 +79,20 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
       if (mounted) setState(() => _status = s);
     });
     _approvalSubscription = widget.connection.approvalStream.listen(_onApproval);
+  }
+
+  /// P168 — read on opening and each time the turn being waited on ends, since a turn is what spends the credit. Never fails the chat.
+  Future<void> _refreshCredit() async {
+    try {
+      final summary = await widget.connection.usageSummary();
+      if (mounted) setState(() => _credit = summary.credit);
+    } catch (_) {}
+  }
+
+  void _refreshCreditWhenTurnEnds() {
+    final waiting = widget.transcript.waitingForReply;
+    if (_wasWaiting && !waiting) unawaited(_refreshCredit());
+    _wasWaiting = waiting;
   }
 
   /// P87 — a tool in this device's turn needs the person's yes (an agent creating another, an SSH
@@ -132,6 +152,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    widget.transcript.removeListener(_refreshCreditWhenTurnEnds);
     _chatSubscription?.cancel();
     _statusSubscription?.cancel();
     _approvalSubscription?.cancel();
@@ -404,10 +425,25 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(widget.transcript.channelAgent ?? widget.transcript.activeTitle ?? l10n.chatNewConversation, overflow: TextOverflow.ellipsis),
-              Text(
-                [serverName, if (widget.transcript.selectedAgentId != null) l10n.chatAs(widget.transcript.selectedAgentId!)].join(' · '),
-                style: Theme.of(context).textTheme.bodySmall,
-                overflow: TextOverflow.ellipsis,
+              Row(
+                children: [
+                  Flexible(
+                    child: Text(
+                      [serverName, if (widget.transcript.selectedAgentId != null) l10n.chatAs(widget.transcript.selectedAgentId!)].join(' · '),
+                      style: Theme.of(context).textTheme.bodySmall,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                  if (_credit case final credit?)
+                    InkWell(
+                      key: const Key('chat-credit'),
+                      onTap: _openUsage,
+                      child: Text(
+                        ' · ${credit.isOut ? l10n.chatCreditEmpty : l10n.chatCredit(formatUsd(credit.availableUsd))}',
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(color: credit.isOut ? Theme.of(context).colorScheme.error : null),
+                      ),
+                    ),
+                ],
               ),
             ],
           ),
@@ -572,6 +608,8 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                           : _ThreadLink(replies: threads[id]?.replies ?? 0, onTap: () => widget.transcript.openThread(id)),
                       // P157 — edit a message of the person's, or generate the last answer again.
                       actions: [
+                        // P168 — the hosted credit ran out: the balance screen is one tap away.
+                        if (entry.topUp) _BubbleAction(id: 'top-up', label: l10n.chatTopUp, onTap: _openUsage),
                         if (_status is Connected && widget.transcript.canEdit(index)) _BubbleAction(id: 'edit', label: l10n.commonEdit, onTap: () => _edit(index)),
                         if (_status is Connected && widget.transcript.canRegenerate(index))
                           _BubbleAction(id: 'regenerate', label: l10n.chatRegenerate, onTap: widget.transcript.regenerate),

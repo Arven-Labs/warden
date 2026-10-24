@@ -2526,6 +2526,10 @@ pub enum ServerMessage {
         /// the client can offer to `ExtendLimit` it and send again.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         spend_limit_id: Option<String>,
+        /// Set when the turn stopped because the hosted credit ran out (P168): the client can offer a
+        /// button to the balance screen. Absent almost always; clients that don't know it ignore it.
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        top_up: bool,
     },
     /// What a code engine is doing in the middle of a code project's turn (P103 b): sent any number of times between the
     /// `Chat` and its `ChatResponse`, for the client to show. Clients that don't know it ignore it.
@@ -3979,8 +3983,12 @@ mod tests {
         for (msg, expected) in [
             (ServerMessage::UsageError { request_id: 3, message: "boom".into() }, r#"{"type":"usageError","requestId":3,"message":"boom"}"#),
             (
-                ServerMessage::ChatError { message: "limit".into(), conversation_id: Some("c1".into()), spend_limit_id: Some("day".into()) },
+                ServerMessage::ChatError { message: "limit".into(), conversation_id: Some("c1".into()), spend_limit_id: Some("day".into()), top_up: false },
                 r#"{"type":"chatError","message":"limit","conversationId":"c1","spendLimitId":"day"}"#,
+            ),
+            (
+                ServerMessage::ChatError { message: "no credit".into(), conversation_id: None, spend_limit_id: None, top_up: true },
+                r#"{"type":"chatError","message":"no credit","topUp":true}"#,
             ),
         ] {
             let json = serde_json::to_string(&msg).unwrap();

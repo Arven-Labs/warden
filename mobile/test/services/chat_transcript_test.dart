@@ -428,7 +428,19 @@ void main() {
     await settle();
 
     expect(transcript.entries.last.role, EntryRole.error);
+    expect(transcript.entries.last.topUp, isFalse);
     expect(transcript.waitingForReply, isFalse);
+  });
+
+  test('an error about the hosted credit keeps its top-up mark (P168)', () async {
+    final transcript = make();
+    transcript.send('q');
+    replies.add(const ChatErrorMessage('Out of credits', topUp: true));
+    await settle();
+
+    expect(transcript.entries.last.role, EntryRole.error);
+    expect(transcript.entries.last.topUp, isTrue);
+    expect(transcript.entries.last.withId('m1').topUp, isTrue);
   });
 
   test('a reply that arrives with no screen attached is still kept (P41)', () async {

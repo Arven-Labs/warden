@@ -1068,7 +1068,7 @@ sealed class ServerMessage {
           attachments: (json['attachments'] as List<dynamic>?)?.map(Attachment.fromJson).toList() ?? const [],
           conversationId: json['conversationId'] as String?,
         ),
-      'chatError' => ChatErrorMessage(json['message'] as String, conversationId: json['conversationId'] as String?),
+      'chatError' => ChatErrorMessage(json['message'] as String, conversationId: json['conversationId'] as String?, topUp: json['topUp'] as bool? ?? false),
       'toolCallRequest' => ToolCallRequestMessage(
           json['callId'] as int,
           json['tool'] as String,
@@ -1402,12 +1402,15 @@ final class ChatResponseMessage extends ServerMessage {
 }
 
 final class ChatErrorMessage extends ServerMessage {
-  const ChatErrorMessage(this.message, {this.conversationId});
+  const ChatErrorMessage(this.message, {this.conversationId, this.topUp = false});
 
   final String message;
 
   /// Same as [ChatResponseMessage.conversationId].
   final String? conversationId;
+
+  /// P168 — the hosted credit ran out: the chat offers the balance screen under the error.
+  final bool topUp;
 }
 
 /// Asks this client to run one of the tools it advertised in `Hello.tools` (Phase 7.4).

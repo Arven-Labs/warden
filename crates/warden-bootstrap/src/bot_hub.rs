@@ -359,7 +359,7 @@ mod tests {
         assert!(classify(response(None), "telegram-1").is_some(), "an answer that names no conversation is ours");
         assert_eq!(classify(response(Some("other")), "telegram-1"), None, "a late answer to another conversation");
         assert_eq!(classify(ServerMessage::Pong { nonce: 1 }, "telegram-1"), None);
-        let error = ServerMessage::ChatError { message: warden_core::memory::LOCKED_MESSAGE.into(), conversation_id: Some("telegram-1".into()), spend_limit_id: None };
+        let error = ServerMessage::ChatError { message: warden_core::memory::LOCKED_MESSAGE.into(), conversation_id: Some("telegram-1".into()), spend_limit_id: None, top_up: false };
         assert_eq!(classify(error, "telegram-1"), Some(MemberReply::Failed(warden_core::memory::LOCKED_MESSAGE.into())), "the hub's own words reach the chat");
         assert_eq!(classify(ServerMessage::AuthError { reason: "revoked".into() }, "telegram-1"), Some(MemberReply::Failed(NOT_LINKED_REPLY.into())));
     }

@@ -1724,6 +1724,24 @@ abstract class AppLocalizations {
   /// **'Regenerate'**
   String get chatRegenerate;
 
+  /// No description provided for @chatTopUp.
+  ///
+  /// In en, this message translates to:
+  /// **'See balance'**
+  String get chatTopUp;
+
+  /// No description provided for @chatCredit.
+  ///
+  /// In en, this message translates to:
+  /// **'Credit: {amount}'**
+  String chatCredit(String amount);
+
+  /// No description provided for @chatCreditEmpty.
+  ///
+  /// In en, this message translates to:
+  /// **'Credit: none left'**
+  String get chatCreditEmpty;
+
   /// No description provided for @folderBarNone.
   ///
   /// In en, this message translates to:

@@ -1049,8 +1049,8 @@ export type ServerMessage =
   /** `conversationId` (P78) — which conversation this answers; `chat` has no `requestId`. */
   /** `fallbacks` (P79): the turn's provider was down and a reserve answered — empty almost always. */
   | { type: "chatResponse"; content: string; usage: Usage | null; attachments: Attachment[]; conversationId?: string; fallbacks: ProviderFallback[] }
-  /** `spendLimitId` (P4/P78): the turn stopped on that spending limit — offer `extendLimit`. */
-  | { type: "chatError"; message: string; conversationId?: string; spendLimitId?: string }
+  /** `spendLimitId` (P4/P78): the turn stopped on that spending limit — offer `extendLimit`. `topUp` (P168): the hosted credit ran out — offer the balance screen. */
+  | { type: "chatError"; message: string; conversationId?: string; spendLimitId?: string; topUp?: boolean }
   /** P103 b — what the engine does in the middle of a code project's turn, any number of times before `chatResponse`. */
   | { type: "chatEvent"; conversationId: string; event: ChatEventDto }
   | { type: "toolCallRequest"; callId: number; tool: string; arguments: unknown }

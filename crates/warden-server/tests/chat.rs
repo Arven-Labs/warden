@@ -214,10 +214,11 @@ async fn a_device_keeps_several_conversations_apart() {
         .await
         .unwrap();
     match conn.recv().await.unwrap() {
-        Some(ServerMessage::ChatError { message, conversation_id, spend_limit_id }) => {
+        Some(ServerMessage::ChatError { message, conversation_id, spend_limit_id, top_up }) => {
             assert!(message.contains("invalid conversation id"), "message was: {message}");
             assert_eq!(conversation_id.as_deref(), Some("../escape"));
             assert_eq!(spend_limit_id, None);
+            assert!(!top_up, "a plain failure has no top-up button");
         }
         other => panic!("expected ChatError, got {other:?}"),
     }
@@ -423,7 +424,8 @@ async fn a_hosted_gateway_with_no_credit_reaches_the_chat_as_a_plain_top_up_mess
     let mut conn = ServerConnection::connect(&format!("ws://{addr}"), "dev-1", "Test Device", "test-key").await.unwrap();
     conn.send(&ClientMessage::chat("hello")).await.unwrap();
     match conn.recv().await.unwrap() {
-        Some(ServerMessage::ChatError { message, .. }) => {
+        Some(ServerMessage::ChatError { message, top_up, .. }) => {
+            assert!(top_up, "the client is told to offer the balance screen");
             assert_eq!(message, warden_core::model::OUT_OF_CREDITS_MESSAGE);
             assert!(!message.contains("402") && !message.contains("{"), "no raw provider text: {message}");
         }

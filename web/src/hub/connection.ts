@@ -219,6 +219,8 @@ export interface ChatEntry {
   attachments: Attachment[];
   /** On an `error` entry: the spending limit the turn stopped on (P4), which can be extended. */
   spendLimitId?: string;
+  /** On an `error` entry: the hosted credit ran out (P168), so the entry offers the balance screen. */
+  topUp?: boolean;
   /** On an `assistant` entry: a reserve answered in place of the turn's provider (P79). */
   fallbacks?: ProviderFallback[];
 }
@@ -522,7 +524,10 @@ export class ServerConnection {
         break;
       case "chatError":
         for (const listener of this.chatListeners) {
-          listener({ role: "error", content: message.message, attachments: [], spendLimitId: message.spendLimitId }, message.conversationId);
+          listener(
+            { role: "error", content: message.message, attachments: [], spendLimitId: message.spendLimitId, ...(message.topUp && { topUp: true }) },
+            message.conversationId,
+          );
         }
         break;
       case "chatEvent":

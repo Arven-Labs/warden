@@ -1,6 +1,12 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { creditUsd, hasHolds, isOutOfCredit } from "../src/lib/credit.ts";
+import { creditUsd, formatUsd, hasHolds, isOutOfCredit } from "../src/lib/credit.ts";
+
+test("dollars get more decimals under one dollar", () => {
+  assert.equal(formatUsd(25), "$25.00");
+  assert.equal(formatUsd(0.5), "$0.5000");
+  assert.equal(formatUsd(0.012345), "$0.0123");
+});
 
 test("micro-USD turn into dollars for display", () => {
   assert.equal(creditUsd(25_000_000), 25);

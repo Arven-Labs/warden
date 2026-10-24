@@ -1597,7 +1597,7 @@ async fn handle_connection<S: Transport>(ws: WebSocketStream<S>, peer: SocketAdd
                     let conversation_id = match checked {
                         Ok(id) => id,
                         Err(message) => {
-                            let _ = tx.send(ServerMessage::ChatError { message, conversation_id, spend_limit_id: None });
+                            let _ = tx.send(ServerMessage::ChatError { message, conversation_id, spend_limit_id: None, top_up: false });
                             continue;
                         }
                     };
@@ -1609,7 +1609,7 @@ async fn handle_connection<S: Transport>(ws: WebSocketStream<S>, peer: SocketAdd
                         Some(id) => match scope_chat_agent(&base, settings.as_deref(), id, viewer.as_deref(), &conversations_dir, &tx) {
                             Ok((scoped, persona)) => (scoped, Some(persona)),
                             Err(message) => {
-                                let _ = tx.send(ServerMessage::ChatError { message, conversation_id: Some(conversation_id), spend_limit_id: None });
+                                let _ = tx.send(ServerMessage::ChatError { message, conversation_id: Some(conversation_id), spend_limit_id: None, top_up: false });
                                 continue;
                             }
                         },
@@ -1651,19 +1651,19 @@ async fn handle_connection<S: Transport>(ws: WebSocketStream<S>, peer: SocketAdd
                     if code.is_some() && thread_of.is_some() {
                         // The context of a code project's conversation is the engine's session, not its messages: a thread has nothing to take it from.
                         let message = "threads aren't available in a code project's conversations".to_string();
-                        let _ = tx.send(ServerMessage::ChatError { message, conversation_id: Some(conversation_id), spend_limit_id: None });
+                        let _ = tx.send(ServerMessage::ChatError { message, conversation_id: Some(conversation_id), spend_limit_id: None, top_up: false });
                         continue;
                     }
                     if code.is_some() && replace_from.is_some() {
                         // The same reason: the engine's session can't be rewound to an earlier message.
                         let message = "a code project's conversation can't be redone from a message".to_string();
-                        let _ = tx.send(ServerMessage::ChatError { message, conversation_id: Some(conversation_id), spend_limit_id: None });
+                        let _ = tx.send(ServerMessage::ChatError { message, conversation_id: Some(conversation_id), spend_limit_id: None, top_up: false });
                         continue;
                     }
                     if let Some(project) = code {
                         let Some(engine) = code_engine.clone() else {
                             let message = "this hub has no code engine, so this project's conversations can't run here".to_string();
-                            let _ = tx.send(ServerMessage::ChatError { message, conversation_id: Some(conversation_id), spend_limit_id: None });
+                            let _ = tx.send(ServerMessage::ChatError { message, conversation_id: Some(conversation_id), spend_limit_id: None, top_up: false });
                             continue;
                         };
                         let (reply_tx, turns, approver) = (tx.clone(), code_turns.clone(), Arc::new(approver.clone()));
@@ -1688,7 +1688,7 @@ async fn handle_connection<S: Transport>(ws: WebSocketStream<S>, peer: SocketAdd
                             drop(running);
                             let reply = match result {
                                 Ok(outcome) => ServerMessage::ChatResponse { content: outcome.content, usage: None, attachments: Vec::new(), conversation_id: Some(conversation_id), fallbacks: Vec::new() },
-                                Err(err) => ServerMessage::ChatError { message: format!("{err:#}"), conversation_id: Some(conversation_id), spend_limit_id: None },
+                                Err(err) => ServerMessage::ChatError { message: format!("{err:#}"), conversation_id: Some(conversation_id), spend_limit_id: None, top_up: false },
                             };
                             let _ = reply_tx.send(reply);
                         });
@@ -1746,13 +1746,17 @@ async fn handle_connection<S: Transport>(ws: WebSocketStream<S>, peer: SocketAdd
                             }
                             // A member can't allow more, so the pause tells them to ask, with nothing to extend.
                             Err(err) => match is_member.then(|| member_limit_message(&err)).flatten() {
-                                Some(message) => ServerMessage::ChatError { message, conversation_id: Some(conversation_id), spend_limit_id: None },
+                                Some(message) => ServerMessage::ChatError { message, conversation_id: Some(conversation_id), spend_limit_id: None, top_up: false },
                                 // The hosted gateway has no credit left: a plain "top up" instead of the provider's raw 402 text.
-                                None => ServerMessage::ChatError {
-                                    message: warden_core::model::out_of_credits_message(&err).map_or_else(|| format!("{err:#}"), str::to_string),
-                                    conversation_id: Some(conversation_id),
-                                    spend_limit_id: spend_limit_id(&err),
-                                },
+                                None => {
+                                    let out_of_credits = warden_core::model::out_of_credits_message(&err);
+                                    ServerMessage::ChatError {
+                                        message: out_of_credits.map_or_else(|| format!("{err:#}"), str::to_string),
+                                        conversation_id: Some(conversation_id),
+                                        spend_limit_id: spend_limit_id(&err),
+                                        top_up: out_of_credits.is_some(),
+                                    }
+                                }
                             },
                         };
                         let answered = matches!(reply, ServerMessage::ChatResponse { .. });

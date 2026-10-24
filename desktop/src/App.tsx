@@ -40,6 +40,7 @@ import {
   hubRenameConversation,
   hubSetConversationFlags,
   hubSend,
+  hubUsage,
   needsSignIn,
   type HubCredential,
   type RemoteState,
@@ -57,7 +58,7 @@ import ThreadPanel, { LocalThreadPanel } from "./components/ThreadPanel";
 import { parseNodeFolder, type NodeInfo } from "./lib/workdir";
 import { orgAccessOf, type OrgAccess } from "./lib/org";
 import { answeredByOf } from "./lib/answeredBy";
-import type { Attachment, ChatMessage, CodeMode, Conversation, ProjectEntry, ProviderFallback, SavedHub, Settings, Usage, UsageSlice } from "./types";
+import type { Attachment, ChatMessage, CodeMode, Conversation, Credit, ProjectEntry, ProviderFallback, SavedHub, Settings, Usage, UsageSlice } from "./types";
 
 const emptySettings: Settings = {
   providers: [],
@@ -138,6 +139,8 @@ function App() {
   const [activeConversationId, setActiveConversationId] = useState<string | null>(null);
   const [isSending, setIsSending] = useState(false);
   const [sendError, setSendError] = useState<string | null>(null);
+  /** The `sendError` text that came with `topUp` (P168): the banner offers the balance screen only while it is the one showing. */
+  const [topUpError, setTopUpError] = useState<string | null>(null);
   // What a code engine has done so far in the task each conversation is running (P103 b), until the turn ends.
   const [liveTurns, setLiveTurns] = useState<Record<string, LiveTurn>>({});
   // How much each code conversation asks (P103 b), by conversation id — "new" for one that hasn't started. Only here,
@@ -177,6 +180,24 @@ function App() {
   const [switching, setSwitching] = useState(false);
   const remote = activeHubId !== null;
   const remoteReady = activeHubId !== null && hubStates[activeHubId]?.state === "connected";
+  // P168: the hosted credit in the chat header — only on a hub that has one; read on connecting and again each time a turn ends.
+  const [credit, setCredit] = useState<Credit | null>(null);
+  useEffect(() => {
+    if (!remoteReady || isSending) {
+      if (!remoteReady) setCredit(null);
+      return;
+    }
+    let current = true;
+    hubUsage()
+      .summary()
+      .then(
+        (summary) => current && setCredit(summary.credit ?? null),
+        () => undefined,
+      );
+    return () => {
+      current = false;
+    };
+  }, [remoteReady, activeHubId, isSending]);
   // The hub's nodes (P102), to pick a folder on one: only the owner can list them, a member has none to read.
   const [knownNodes, setKnownNodes] = useState<NodeInfo[]>([]);
   const hubState = activeHubId ? hubStates[activeHubId] : undefined;
@@ -831,6 +852,7 @@ function App() {
       setConversations((prev) => prev.map((c) => (c.id === conversationId ? { ...c, messages } : c)));
     } catch (err) {
       setSendError(err instanceof HubTurnError ? err.message : String(err));
+      setTopUpError(err instanceof HubTurnError && err.topUp ? err.message : null);
       // The hub drops nothing when a turn fails, so what it has is what the screen shows again.
       if (replaceFrom) {
         await hubHistory(conversationId).then(
@@ -1154,6 +1176,9 @@ function App() {
           codeMode={codeMode}
           onCodeMode={handleCodeMode}
           sendError={sendError}
+          onTopUp={sendError !== null && sendError === topUpError ? () => setView("usage") : undefined}
+          credit={credit ?? undefined}
+          onOpenUsage={() => setView("usage")}
           agents={settings.agents}
           providers={settings.providers}
           combos={settings.combos}

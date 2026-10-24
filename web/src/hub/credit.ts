@@ -9,6 +9,12 @@ export function creditUsd(micros: number): number {
   return micros / MICROS_PER_USD;
 }
 
+/** Dollars as the usage screen and the chat header write them: "US$ " in Brazilian Portuguese, "$" elsewhere, with more decimals under one dollar. */
+export function formatUsd(value: number, tag: string): string {
+  const prefix = tag === "pt-BR" ? "US$ " : "$";
+  return `${prefix}${value.toLocaleString(tag, { minimumFractionDigits: 2, maximumFractionDigits: value < 1 ? 4 : 2 })}`;
+}
+
 /** No credit left for a new call: what is available (balance minus holds) is zero or less. */
 export function isOutOfCredit(credit: Credit): boolean {
   return credit.availableMicroUsd <= 0;

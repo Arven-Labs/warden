@@ -101,7 +101,9 @@ describe("a turn's reply", () => {
 
   test("an error is thrown with the hub's words and the limit it stopped on", () => {
     assert.throws(() => turnFromReply({ type: "chatError", message: "mock failure" }), (e) => e instanceof HubTurnError && e.message === "mock failure" && e.spendLimitId === undefined);
-    assert.throws(() => turnFromReply({ type: "chatError", message: "limit", spendLimitId: "day" }), (e) => e instanceof HubTurnError && e.spendLimitId === "day");
+    assert.throws(() => turnFromReply({ type: "chatError", message: "limit", spendLimitId: "day" }), (e) => e instanceof HubTurnError && e.spendLimitId === "day" && e.topUp === false);
+    // P168: the hosted credit ran out — the chat offers the balance screen.
+    assert.throws(() => turnFromReply({ type: "chatError", message: "no credit", topUp: true }), (e) => e instanceof HubTurnError && e.topUp === true);
     assert.throws(() => turnFromReply({ type: "conversationList" }), /something else/);
     assert.throws(() => turnFromReply(null), /something else/);
   });

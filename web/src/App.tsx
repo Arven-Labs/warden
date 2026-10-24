@@ -30,7 +30,7 @@ import { loadIdentity, loadLastConversation, newConversationId, saveIdentity, sa
 import { applyEvent, type LiveTurn } from "./hub/liveTurn";
 import { nextCodeMode } from "./hub/messages";
 import { orgAccessOf, userWithOrgAccess } from "./hub/org";
-import type { Attachment, CodeMode, ConversationSummary, NodeInfo, ProjectDto, UserInfo } from "./hub/messages";
+import type { Attachment, CodeMode, ConversationSummary, Credit, NodeInfo, ProjectDto, UserInfo } from "./hub/messages";
 import { entriesBefore, redoBlock } from "./hub/regenerate";
 import { isAgentChannel, threadsOf, visibleConversations, withMessageIds } from "./hub/threads";
 import { baseline, isUnread, markSeen, notificationBody, unreadIds, type SeenMap } from "./hub/unread";
@@ -39,7 +39,8 @@ import AgentWorkList from "./components/AgentWorkList";
 import { agentWork as sideWorkOf, workButtonLabel } from "./hub/agentWork";
 import { folderLabel, folderPlace, nodesWithFolders, parseNodeFolder } from "./hub/workdir";
 import LanguageSwitch from "./components/LanguageSwitch";
-import { t, useLocale } from "./i18n";
+import { creditUsd, formatUsd, isOutOfCredit } from "./hub/credit";
+import { intlTag, t, useLocale } from "./i18n";
 
 /** How much of a conversation to load when it's opened — same cap the extension uses. */
 const HISTORY_LIMIT = 200;
@@ -132,6 +133,22 @@ export default function App() {
   const [view, setView] = useState<View>("chat");
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [conn, setConn] = useState<ServerConnection | null>(null);
+  /** P168 — the hosted credit shown in the chat header; null when the hub has none (self-hosted, or a member's view). */
+  const [credit, setCredit] = useState<Credit | null>(null);
+  const turnsRunning = Object.keys(pendingTurns).length;
+  const hubConnected = phase.kind === "ready" && phase.connected;
+  // Read on connecting and again each time the last running turn ends, since a turn is what spends it. Never fails the chat.
+  useEffect(() => {
+    if (!conn || !hubConnected || turnsRunning > 0) return;
+    let current = true;
+    conn.requestUsage().then(
+      (report) => current && setCredit(report.credit ?? null),
+      () => {},
+    );
+    return () => {
+      current = false;
+    };
+  }, [conn, hubConnected, turnsRunning]);
   /** The hub's configured agents (P46), for the chat's agent selector. */
   const [agentIds, setAgentIds] = useState<string[]>([]);
   /** The agent the open conversation speaks with — "" for none. */
@@ -1072,6 +1089,15 @@ export default function App() {
                       ? work.open === null ? t("chat.agentWorkTitle", { agent: work.agent }) : activeTitle
                       : agentId || t("chat.agentsTitle")}
                 </span>
+                {credit && (
+                  <button
+                    type="button"
+                    className={isOutOfCredit(credit) ? "link-button chat-credit chat-credit--empty" : "link-button chat-credit"}
+                    onClick={() => setView("usage")}
+                  >
+                    {isOutOfCredit(credit) ? t("chat.creditEmpty") : t("chat.credit", { amount: formatUsd(creditUsd(credit.availableMicroUsd), intlTag()) })}
+                  </button>
+                )}
                 {view === "agents" && !work && isAgentChannel(activeId) && agentId !== "" && (
                   <button type="button" className="link-button" onClick={() => setWork({ agent: agentId, open: null })}>
                     {workButtonLabel(sideWorkOf(conversations, agentId).length)}
@@ -1184,6 +1210,7 @@ export default function App() {
                 onRedo={redoBlocked === null ? (message, attachments, replaceFrom) => handleSend(message, attachments, replaceFrom) : undefined}
                 onTranscribe={handleTranscribe}
                 onExtendLimit={handleExtendLimit}
+                onTopUp={() => setView("usage")}
                 onCycleMode={
                   projects.some((p) => p.id === projectId && p.code)
                     ? () => handleCodeMode(nextCodeMode(codeModes[activeId] ?? "manual"))

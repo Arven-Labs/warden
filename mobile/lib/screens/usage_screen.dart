@@ -254,7 +254,10 @@ String _compact(int value) {
   return '$value';
 }
 
-String _usd(double value) => 'US\$ ${value.toStringAsFixed(value < 1 ? 4 : 2)}';
+String _usd(double value) => formatUsd(value);
+
+/// Dollars as the usage screen and the chat header write them: more decimals under one dollar.
+String formatUsd(double value) => 'US\$ ${value.toStringAsFixed(value < 1 ? 4 : 2)}';
 
 String _window(int hours, AppLocalizations l10n) => hours % 24 == 0 ? (hours == 24 ? l10n.usageWindowDay : l10n.usageWindowDays(hours ~/ 24)) : l10n.usageWindowHours(hours);
 

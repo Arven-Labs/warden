@@ -2,9 +2,18 @@
 
 > **Nota**: Este log foi criado junto com o projeto. As sessões serão registradas aqui conforme o trabalho avança.
 >
-> Última atualização: 2026-10-24 (Sessão 283)
+> Última atualização: 2026-10-24 (Sessão 284)
 
 ---
+
+### 2026-10-24 — Sessão 284 (o saldo no cabeçalho do chat e o botão no erro de saldo: P168 c, a sobra)
+
+- **Pedido**: "segue com o saldo no cabeçalho e o botão no erro". Mapeei o cartão da Sessão 274 e o caminho dos erros do chat nas três telas e planejei em modo de plano. **Decisões do usuário**: o botão abre a tela de Uso (não há link de recarga) e a entrega cobre web, desktop e mobile.
+- **Problema**: o saldo só aparecia na tela de Uso, e quando o crédito acabava o chat mostrava só a frase "Out of credits", sem caminho até o saldo.
+- **Feito**: `ChatError.top_up` no protocolo (`#[serde(default, skip_serializing_if = "std::ops::Not::not")]`) marcado pelo hub no erro 402; `formatUsd` extraído para `credit.ts` na web e no desktop e para `usage_screen.dart` no mobile, para o chip e a tela de Uso escreverem igual. Web: estado `credit` no `App`, chip no `chat-header`, `onTopUp` no `ChatView`. Desktop: `credit` e `topUpError` no `App`, chip e botão no `ChatArea`. Mobile: `HostedCredit? _credit` no `chat_screen.dart`, relido ao abrir e quando o turno termina. Chaves `chat.topUp`, `chat.credit` e `chat.creditEmpty` (`chatTopUp`, `chatCredit`, `chatCreditEmpty` no mobile, com o `generated/` editado à mão).
+- **Testes**: aqui só os unitários de JS (web 114, desktop 187, todos verdes) e o `tsc` (só o erro antigo do `rehype-highlight`, que não está instalado nesta máquina); o `cargo` e o Flutter foram para o CI. Novos: ida e volta de `topUp` no protocolo (com e sem o campo), `top_up` nos dois testes de `chat.rs`, `formatUsd` na web e no desktop, `topUp` no `hubMap.test.mjs`, decode e `ChatEntry.topUp` no mobile.
+- **Achado**: a tela do desktop descartava o `spendLimitId` do erro (o `sendError` era só texto), então o desktop nunca teve o "Liberar mais" no chat; não mexi nisso, só carreguei o `topUp`.
+- **Fica**: o link de recarga (sem site mãe); o botão não existe dentro de uma conversa de resposta; sem E2E, porque o harness da web e do desktop não tem hub hospedado falso.
 
 ### 2026-10-24 — Sessão 283 (o fallback entre provedores no catálogo do gateway: P168 i)
 

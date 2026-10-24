@@ -27,6 +27,8 @@ interface Props {
   onTranscribe: (audio: Attachment) => Promise<string>;
   /** Lets a spending limit the turn stopped on go one step further (P4/P78). */
   onExtendLimit: (limitId: string) => Promise<void>;
+  /** P168 — opens the balance screen from an error about the hosted credit running out. Absent where there is no such screen (a thread). */
+  onTopUp?: () => void;
   /** Shift+Tab in the box, as in Claude Code: the next mode of a code conversation. Absent when there is no mode to change. */
   onCycleMode?: () => void;
   /** P125 — opens the thread of a message (by its id). Absent where there are no threads (a thread itself, an older hub, a code conversation). */
@@ -167,7 +169,7 @@ function LiveBubble({ live }: { live: LiveTurn }) {
   );
 }
 
-export default function ChatView({ entries, pending, live, onCancel, disabled, onSend, onRedo, onTranscribe, onExtendLimit, onCycleMode, onOpenThread, threads }: Props) {
+export default function ChatView({ entries, pending, live, onCancel, disabled, onSend, onRedo, onTranscribe, onExtendLimit, onTopUp, onCycleMode, onOpenThread, threads }: Props) {
   // The person's message being edited (P157), by id; only one at a time.
   const [editingId, setEditingId] = useState<string | null>(null);
   const lastUser = lastUserEntry(entries);
@@ -305,6 +307,13 @@ export default function ChatView({ entries, pending, live, onCancel, disabled, o
                   <AttachmentView key={j} attachment={attachment} />
                 ))}
                 {entry.spendLimitId && <ExtendLimitAction limitId={entry.spendLimitId} onExtend={onExtendLimit} />}
+                {entry.topUp && onTopUp && (
+                  <div className="bubble-actions">
+                    <button type="button" className="link-button" onClick={onTopUp}>
+                      {t("chat.topUp")}
+                    </button>
+                  </div>
+                )}
                 {entry.role === "assistant" && entry.content !== "" && (
                   <div className="bubble-actions">
                     <CopyButton text={entry.content} className="link-button copy-message-button" />

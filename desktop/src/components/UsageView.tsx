@@ -3,7 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { intlTag, t } from "../i18n";
 import type { Credit, RecentSpend, SpendBucket, SpendStatus, UsageByKey, UsageSummary } from "../types";
 import { hubUsage } from "../lib/hub";
-import { creditUsd, hasHolds, isOutOfCredit } from "../lib/credit";
+import { creditUsd, formatUsd, hasHolds, isOutOfCredit } from "../lib/credit";
 
 /** `1,284` up to 999, `12.9K`/`1.2M` beyond — the stat-tile contract's "auto-compact" value
  * format, so a heavy user's token count never wraps a tile onto two lines. */
@@ -64,7 +64,7 @@ const localUsage: UsageSource = {
 };
 
 function usd(value: number): string {
-  return `$${value.toFixed(value < 1 ? 4 : 2)}`;
+  return formatUsd(value);
 }
 
 /** The hosted credit: the balance as a tile (with the available amount as its hint while calls hold part of it) and a warning when
