@@ -7,6 +7,9 @@ import { after, before, describe, test } from "node:test";
 import { launchBrowser, lastSave, openSettings, saveWithKey, snap, startHub } from "./harness.mjs";
 
 const SECRET = "s3cret-mcp-value-xyz";
+
+/** The secrets file next to the hub's config (`config.secrets.toml`): where the keys and tokens are kept (P131). */
+const secretsOf = (hub) => fs.readFileSync(hub.config.replace(/config\.toml$/, "config.secrets.toml"), "utf8");
 const TIMEOUT = 120_000;
 
 /** A hub whose config already holds an MCP server with a secret env value, for what needs one to exist. */
@@ -135,7 +138,8 @@ describe("settings on a hub started with --allow-machine-settings", () => {
       const file = fs.readFileSync(hub.config, "utf8");
       assert.match(file, /enable_shell = true/);
       assert.ok(file.includes('id = "box"') && file.includes("box.example.com"), "the SSH host is in the file");
-      assert.ok(file.includes(SECRET), "the hub keeps the MCP secret");
+      // P131: the secret is kept, in the secrets file next to the config (config.secrets.toml), and not in config.toml.
+      assert.ok(!file.includes(SECRET) && secretsOf(hub).includes(SECRET), "the hub keeps the MCP secret in the secrets file, not in config.toml");
       assert.ok(!(await page.content()).includes(SECRET), "the page never has it after saving");
       assert.match(hub.log(), /machine settings changed: shell on, MCP servers \(1 now\), SSH hosts \(1 now\) from=127\.0\.0\.1/);
       assert.ok(!hub.log().includes(SECRET), "the hub's log has no secret");
@@ -157,7 +161,8 @@ describe("settings on a hub started with --allow-machine-settings", () => {
       await confirmMachineAndSave(page);
       const file = fs.readFileSync(hub.config, "utf8");
       assert.ok(file.includes("notes-renamed"), "the rename was saved");
-      assert.ok(file.includes(SECRET), "the renamed server kept its secret value");
+      assert.ok(!file.includes(SECRET), "the secret is not in config.toml");
+      assert.ok(secretsOf(hub).includes(SECRET) && secretsOf(hub).includes("notes-renamed"), "the renamed server kept its secret value, under its new name, in the secrets file");
 
       await page.getByLabel(/Pasta do cofre/).fill("relativa/pasta");
       assert.match(await page.locator(".error-banner").first().innerText(), /caminho absoluto/);
@@ -186,7 +191,7 @@ describe("settings on a hub started without the flag", () => {
 
       assert.equal(lastSave(sent).update.machine, undefined, "no machine slice travelled");
       const file = fs.readFileSync(hub.config, "utf8");
-      assert.ok(file.includes("123456:E2E-telegram-token-abcdefghij"), "the Telegram token reached the file");
+      assert.ok(!file.includes("123456:E2E-telegram-token-abcdefghij") && secretsOf(hub).includes("123456:E2E-telegram-token-abcdefghij"), "the Telegram token reached the secrets file, not config.toml");
       assert.match(file, /max_parallel_jobs = 2/);
       assert.ok(!(await page.content()).includes("E2E-telegram-token"), "the token is not on the page afterwards");
       assert.ok(!/enable_shell = true/.test(file), "the shell stayed off");
