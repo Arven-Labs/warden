@@ -68,7 +68,8 @@ gw() { docker exec "$NAME" warden-gateway "$@"; }
 
 # 1. /health answers without a token.
 start
-curl -fsS "$BASE/health" | grep -q '"status":"ok"' || fail "/health without status ok"
+health="$(curl -fsS "$BASE/health")" || fail "/health failed"
+echo "$health" | grep -q '"status":"ok"' || fail "/health without status ok: $health"
 
 # 2. An account with five dollars of credit, made with the CLI inside the container.
 created="$(gw accounts create smoke)" || fail "accounts create failed (is /data writable for the container's user?)"
@@ -93,7 +94,10 @@ reply="$(curl -fsS --max-time 60 -H "Authorization: Bearer $TOKEN" -H 'Content-T
 echo "$reply" | grep -q 'pong' || fail "the chat did not bring the fake provider's answer: $reply"
 after="$(curl -fsS -H "Authorization: Bearer $TOKEN" "$BASE/v1/balance")"
 echo "$after" | grep -q '"balance_micro_usd":5000000' && fail "the chat was not charged: $after"
-gw ledger "$ACCOUNT" | grep -q 'debit' || fail "the ledger shows no debit after the chat"
+# The output is captured first: `grep -q` leaves at its first hit, and with `pipefail` the SIGPIPE it sends back to `docker exec` made
+# this line fail now and then (the commit that bumped the version failed it with the same code that had passed).
+ledger="$(gw ledger "$ACCOUNT")" || fail "the ledger command failed"
+echo "$ledger" | grep -q 'debit' || fail "the ledger shows no debit after the chat: $ledger"
 echo "chat charged: ok ($after)"
 
 # 5. The site's signed routes refuse a call with no signature.
@@ -113,7 +117,8 @@ echo "restart: ok"
 docker stop -t 15 "$NAME" >/dev/null
 exit_code="$(docker inspect -f '{{.State.ExitCode}}' "$NAME")"
 [ "$exit_code" = "0" ] || fail "exited with $exit_code after SIGTERM, expected 0"
-docker logs "$NAME" 2>&1 | grep -q 'gateway stopped' || fail "the log does not say the gateway stopped"
+logs="$(docker logs "$NAME" 2>&1)"
+echo "$logs" | grep -q 'gateway stopped' || fail "the log does not say the gateway stopped"
 
 # 8. No write complaint in the whole log.
 if docker logs "$NAME" 2>&1 | grep -Ei 'read-only file system|permission denied'; then
