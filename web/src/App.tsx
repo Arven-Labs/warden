@@ -39,6 +39,7 @@ import AgentWorkList from "./components/AgentWorkList";
 import { agentWork as sideWorkOf, workButtonLabel } from "./hub/agentWork";
 import { folderLabel, folderPlace, nodesWithFolders, parseNodeFolder } from "./hub/workdir";
 import LanguageSwitch from "./components/LanguageSwitch";
+import ThemeSwitch from "./components/ThemeSwitch";
 import { creditUsd, formatUsd, isOutOfCredit } from "./hub/credit";
 import { intlTag, t, useLocale } from "./i18n";
 
@@ -1029,6 +1030,7 @@ export default function App() {
             </>
           )}
         </nav>
+        <ThemeSwitch />
         <LanguageSwitch />
         {user && (
           <button type="button" className="link-button" onClick={() => setChangingPassword(true)} title={t("header.changePassword")}>

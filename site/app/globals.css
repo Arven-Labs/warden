@@ -55,8 +55,8 @@ h3 {
 }
 
 .btn-primary {
-  background: var(--gradient-accent);
-  color: #12082b;
+  background: var(--gradient-button);
+  color: var(--color-on-accent);
   box-shadow: 0 6px 24px rgba(124, 58, 237, 0.35);
 }
 

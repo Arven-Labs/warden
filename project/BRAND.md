@@ -1,6 +1,7 @@
 # Identidade visual do Warden
 
-> Primeiro corte (Sessão 288, P137): marca, tokens e o `site/`. Os apps ainda não usam estes tokens.
+> Primeiro corte (Sessão 288, P137): marca, tokens e o `site/`. Sessão 289: o `web/` também (`web/src/tokens.css` é cópia de `design/tokens.css`, com teste). Desktop, extensão e mobile ainda não.
+> **Escuro por padrão em toda superfície, sem seguir o sistema**: o claro só com `data-theme="light"` (botão de tema, guardado em `localStorage` como `warden-theme`, a mesma chave do site e do `web/`). `--gradient-button` é o degradê do botão cheio (texto escuro sobre o roxo claro no escuro, branco sobre o roxo escuro no claro).
 
 ## O que transmite
 Um guardião sóbrio: segurança e controle nas suas mãos. Texto direto e técnico, sem exagero. O produto é **preto**, com **roxo só em detalhes e degradês**; nunca azul nem ciano como cor de marca (o Arven é preto e ciano).
@@ -33,4 +34,4 @@ Cabeçalho fixo com vidro, hero com pílula "Open source", botão cheio e botão
 `mobile/lib/main.dart` usa `ColorScheme.fromSeed` com `0xFF7C3AED` (claro) e `0xFFA78BFA` (escuro). Para a identidade nova: `surface` `0xFF07060B`, `onSurface` `0xFFEDE9F7`, `primary` `0xFFA78BFA`, `outline` `0xFF272043`, tema escuro por padrão.
 
 ## Falta
-`web/`, desktop, extensão e mobile adotarem os tokens (um por sessão, com fotos de E2E antes e depois), domínio próprio, versão em pt-BR do site.
+Desktop, extensão e mobile adotarem os tokens (um por sessão, com fotos de E2E antes e depois), domínio próprio, versão em pt-BR do site.

@@ -9,8 +9,7 @@ export function ThemeToggle() {
   const [theme, setTheme] = useState<Theme>("dark");
 
   useEffect(() => {
-    const saved = document.documentElement.dataset.theme;
-    setTheme(saved ? (saved === "light" ? "light" : "dark") : matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark");
+    setTheme(document.documentElement.dataset.theme === "light" ? "light" : "dark");
   }, []);
 
   function flip() {

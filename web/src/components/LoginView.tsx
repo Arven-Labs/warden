@@ -3,6 +3,7 @@ import qrcode from "qrcode-generator";
 import { t, useLocale } from "../i18n";
 import { rich } from "../i18n/rich";
 import LanguageSwitch from "./LanguageSwitch";
+import ThemeSwitch from "./ThemeSwitch";
 
 /** How this browser pairs: the owner with the hub's pairing key, a member (P84) with their username and password. */
 export type LoginCredentials = { kind: "key"; authKey: string } | { kind: "user"; username: string; password: string } | { kind: "truthid" };
@@ -100,6 +101,7 @@ export default function LoginView({ deviceName, hubAddress, busy, resuming, erro
         <div className="login-brand">
           <img src="/favicon.svg" alt="" width={40} height={40} />
           <h1>Warden</h1>
+          <ThemeSwitch />
           <LanguageSwitch />
         </div>
         {resuming ? (

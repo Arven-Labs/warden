@@ -4,6 +4,8 @@ export const app = {
   "app.connected": "Connected",
   "app.reconnecting": "Reconnecting…",
   "language.label": "Language",
+  "theme.toLight": "Switch to the light theme",
+  "theme.toDark": "Switch to the dark theme",
 
   "tab.chat": "Chat",
   "tab.agents": "Agents",

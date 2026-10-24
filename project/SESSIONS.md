@@ -2,7 +2,18 @@
 
 > **Nota**: Este log foi criado junto com o projeto. As sessões serão registradas aqui conforme o trabalho avança.
 >
-> Última atualização: 2026-10-24 (Sessão 288)
+> Última atualização: 2026-10-24 (Sessão 289)
+
+---
+
+### 2026-10-24 — Sessão 289 (o `web/` adota a identidade preto e roxo: P137, passo 4a)
+
+- **Pedido**: "sim" ao passo seguinte do P137 (o `web/`). Plano aprovado em modo de plano; escuro por padrão e claro opcional.
+- **Feito**: `web/src/tokens.css` (cópia de `design/tokens.css`) no lugar do bloco de cores do `App.css`, que ficou só com o que o `web/` tem a mais (`--color-danger-soft`, `--color-warn*`, realce de código por `data-theme`); `theme.ts` e `ThemeSwitch.tsx` (escuro por padrão, **sem** seguir o sistema, `warden-theme` no `localStorage`, script no `index.html` que aplica antes de pintar), com textos `theme.toLight` e `theme.toDark` nos dois idiomas; escudo no lugar do `favicon.svg`; Inter e JetBrains Mono empacotadas (`@fontsource-variable/*`), os oito `font-family` de monoespaçada passaram a `var(--font-mono)`; botão primário em degradê (`--gradient-button`), aba ativa com barra roxa, névoa e sombra no cartão de entrada. **Mudança nos tokens compartilhados**: saiu o "segue o sistema" de `design/tokens.css` (o site também abre escuro agora) e entrou `--gradient-button`, porque o texto escuro sobre o fim `#7c3aed` do degradê da marca dava ~2,9:1.
+- **Testes**: `web` 116 de 116 (novo `tokens.test.mjs`: a cópia é igual à fonte e o `App.css` não redefine as cores nem segue o sistema), `tsc` e `build` limpos, `site` 8 de 8. E2E rodado aqui (o binário de debug lê o `web/dist` do disco): `theme.test.mjs` novo (abre escuro com o sistema em claro, troca, guarda depois do recarregamento, sem erro de console), `screens` e `i18n` verdes. O `signIn` do harness passou a gravar `warden-theme` a partir do `colorScheme`, então os testes antigos seguem como estão.
+- **Fotos** (antes e depois, claro e escuro, chat, cofre, uso, skills, projetos, entrada): a primeira foto do cabeçalho mostrou o botão de tema espremido (faltava `flex: none`) e depois o cabeçalho em três linhas; corrigi as duas (abas com menos folga lateral, `0.6rem`).
+- **Registro**: as mudanças de i18n, do harness e o `design/tokens.css` entraram por script Python e `cp` no Bash (não aparecem na tela); o resto, por Edit.
+- **Fica**: CI (`CI`, `Web E2E`, `Gateway image`) depois do push; desktop, extensão e mobile; domínio; pt-BR.
 
 ---
 

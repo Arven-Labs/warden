@@ -5,6 +5,8 @@ export const appPt: Record<keyof typeof app, string> = {
   "app.connected": "Conectado",
   "app.reconnecting": "Reconectando…",
   "language.label": "Idioma",
+  "theme.toLight": "Mudar para o tema claro",
+  "theme.toDark": "Mudar para o tema escuro",
 
   "tab.chat": "Chat",
   "tab.agents": "Agentes",

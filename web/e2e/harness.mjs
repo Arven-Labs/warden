@@ -124,6 +124,12 @@ const LOGIN = {
  */
 export async function signIn(browser, hub, { colorScheme = "light", locale = pageOptions.locale } = {}) {
   const context = await browser.newContext({ ...pageOptions, colorScheme, locale });
+  // The page is dark until a theme is saved (it does not follow the system), so `colorScheme` is the theme the spec wants.
+  await context.addInitScript((theme) => {
+    try {
+      if (!localStorage.getItem("warden-theme")) localStorage.setItem("warden-theme", theme);
+    } catch {}
+  }, colorScheme);
   const page = await context.newPage();
   const sent = [];
   page.on("websocket", (ws) => ws.on("framesent", (f) => typeof f.payload === "string" && sent.push(f.payload)));
