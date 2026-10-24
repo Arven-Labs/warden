@@ -2,7 +2,18 @@
 
 > **Nota**: Este log foi criado junto com o projeto. As sessões serão registradas aqui conforme o trabalho avança.
 >
-> Última atualização: 2026-10-24 (Sessão 290)
+> Última atualização: 2026-10-24 (Sessão 291)
+
+---
+
+### 2026-10-24 — Sessão 291 (a extensão adota a identidade preto e roxo: P137, passo 5)
+
+- **Pedido**: "sim" à extensão, depois do CI verde do desktop. Plano aprovado em modo de plano.
+- **Feito**: `extension/src/sidepanel/tokens.css` (cópia de `design/tokens.css`) no lugar do subconjunto de tokens e dos dois `@media (prefers-color-scheme)` do `App.css` (o do código virou `:root:not([data-theme="light"])`); `theme.ts` e `ThemeSwitch` (com `useLocale`, para o rótulo seguir o idioma) ao lado do `LanguageSwitch`; **`public/theme-init.js`** aplica o tema antes de pintar, em arquivo à parte porque a política padrão de uma página de extensão recusa script inline (o build o copia para `dist` e `dist-firefox`); `LogoMark` (o escudo) ao lado do título; `public/icon-128.png` trocado pelo do desktop; Inter e JetBrains Mono empacotadas, as quatro monoespaçadas em `var(--font-mono)`; botões e balão do usuário em `--gradient-button` com `--color-on-accent` (era `color: white`). Resolvido o `--color-surface-alt`, que era usado sem estar definido.
+- **Achados nas fotos**: os botões de texto dentro do balão do usuário (Edit, Reply in thread) ficavam apagados sobre o roxo, agora herdam a cor do balão; e a barra de abas cortava "Devices" e "Tabs" em 360 px (rolagem horizontal de 71 px, **que já existia antes**), agora a barra rola.
+- **Testes**: `extension` 126 de 126 (novo `tokens.test.mjs`), `tsc`, `build` e `build:firefox` limpos. Fotos com um script descartável fora do repositório (um `chrome` falso no Chromium headless, claro e escuro, 360 e 480 px, tela de conexão e chat): sem rolagem horizontal e sem erro de página depois dos ajustes. **Não foi carregada num Chrome ou Firefox de verdade** (o painel lateral, o ícone na barra e a notificação ficam sem prova até você instalar a build).
+- **Registro**: o `tokens.test.mjs`, o `theme-init.js`, o `LogoMark.tsx` e as cópias de arquivos entraram por `cp` e `cat >` no Bash (não aparecem na tela); o resto, por Edit.
+- **Fica**: CI depois do push; o mobile; ícones de 16 e 48 px e a Web Store; domínio; pt-BR.
 
 ---
 

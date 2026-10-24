@@ -5,6 +5,8 @@ import ConversationBar from "./ConversationBar";
 import SkillsView from "./SkillsView";
 import AgentsView from "./AgentsView";
 import LanguageSwitch from "./LanguageSwitch";
+import LogoMark from "./LogoMark";
+import ThemeSwitch from "./ThemeSwitch";
 import DeviceInvites from "./DeviceInvites";
 import TabsView from "./TabsView";
 import ChannelsView from "./ChannelsView";
@@ -145,7 +147,11 @@ export default function App() {
   return (
     <div className="sidepanel-app">
       <header className="sidepanel-title">
-        <h1>Warden</h1>
+        <h1>
+          <LogoMark size={22} />
+          Warden
+        </h1>
+        <ThemeSwitch />
         <LanguageSwitch />
       </header>
       {status.kind === "connected" ? (

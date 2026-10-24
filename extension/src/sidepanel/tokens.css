@@ -1,0 +1,66 @@
+/* Warden design tokens: the single source. Dark by default on every surface; light only when `data-theme="light"` is set. Black with purple in details and gradients only.
+   Names match what web/ and desktop/ already use (--color-*). site/app/tokens.css and web/src/tokens.css are copies;
+   their tokens.test.mjs fail when a copy drifts from this file. */
+:root {
+  --font-sans: "Inter Variable", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "JetBrains Mono Variable", ui-monospace, "SFMono-Regular", Menlo, monospace;
+
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 16px;
+  --radius-pill: 999px;
+
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-6: 1.5rem;
+  --space-8: 2rem;
+  --space-12: 3rem;
+
+  /* dark is the default */
+  --color-bg: #07060b;
+  --color-surface: #100d1a;
+  --color-surface-alt: #171326;
+  --color-border: #272043;
+  --color-text: #ede9f7;
+  --color-text-muted: #a599c2;
+  --color-accent: #a78bfa;
+  /* also used as text (hover, the active item) on the dark surfaces, so it stays at 5:1 or better there */
+  --color-accent-dark: #8b5cf6;
+  --color-accent-soft: rgba(167, 139, 250, 0.14);
+  --color-on-accent: #12082b;
+  --color-danger: #f87171;
+  --color-ok: #4ade80;
+
+  --gradient-accent: linear-gradient(135deg, #c4b5fd 0%, #7c3aed 100%);
+  /* the filled button: dark text sits on it, so it stays on the light end of the purple (4:1 or better) */
+  --gradient-button: linear-gradient(135deg, #c4b5fd 0%, #9f7aea 100%);
+  --gradient-glow: radial-gradient(60rem 28rem at 78% -8%, rgba(124, 58, 237, 0.38), transparent 70%);
+  --shadow-glow: 0 0 0 1px rgba(167, 139, 250, 0.35), 0 0 40px rgba(124, 58, 237, 0.25);
+  --shadow-card: 0 1px 0 rgba(255, 255, 255, 0.04) inset, 0 12px 32px rgba(0, 0, 0, 0.45);
+  --glass: rgba(23, 19, 38, 0.6);
+
+  color-scheme: dark;
+}
+
+:root[data-theme="light"] {
+  --color-bg: #fbf9ff;
+  --color-surface: #ffffff;
+  --color-surface-alt: #f1eafb;
+  --color-border: #e3d9f7;
+  --color-text: #1b1330;
+  --color-text-muted: #6b6280;
+  --color-accent: #7c3aed;
+  --color-accent-dark: #6d28d9;
+  --color-accent-soft: rgba(124, 58, 237, 0.1);
+  --color-on-accent: #ffffff;
+  --color-danger: #dc2626;
+  --color-ok: #16a34a;
+  --gradient-button: linear-gradient(135deg, #8b5cf6 0%, #6d28d9 100%);
+  --gradient-glow: radial-gradient(60rem 28rem at 78% -8%, rgba(124, 58, 237, 0.14), transparent 70%);
+  --shadow-glow: 0 0 0 1px rgba(124, 58, 237, 0.3), 0 0 32px rgba(124, 58, 237, 0.14);
+  --shadow-card: 0 1px 2px rgba(27, 19, 48, 0.06), 0 8px 24px rgba(27, 19, 48, 0.08);
+  --glass: rgba(255, 255, 255, 0.7);
+  color-scheme: light;
+}

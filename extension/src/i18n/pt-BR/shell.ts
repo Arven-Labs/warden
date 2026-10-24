@@ -16,6 +16,8 @@ export const shellPt: Record<keyof typeof shell, string> = {
   "common.name": "Nome",
   "common.removedAgent": "{agent} (removido)",
   "language.label": "Idioma",
+  "theme.toLight": "Mudar para o tema claro",
+  "theme.toDark": "Mudar para o tema escuro",
 
   "tab.chat": "Chat",
   "tab.channels": "Canais",

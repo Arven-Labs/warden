@@ -15,6 +15,8 @@ export const shell = {
   "common.name": "Name",
   "common.removedAgent": "{agent} (removed)",
   "language.label": "Language",
+  "theme.toLight": "Switch to the light theme",
+  "theme.toDark": "Switch to the dark theme",
 
   "tab.chat": "Chat",
   "tab.channels": "Channels",
