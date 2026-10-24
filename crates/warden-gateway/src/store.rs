@@ -123,6 +123,8 @@ pub struct UsageRecord {
     pub request_id: String,
     pub account_id: String,
     pub model: String,
+    /// Where the call went, `upstream/upstream_model` (the one that answered, or the last one tried).
+    pub target: String,
     pub prompt_tokens: i64,
     pub completion_tokens: i64,
     pub cost: Micros,
@@ -246,16 +248,20 @@ fn account_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Account> {
 
 const ACCOUNT_COLUMNS: &str = "id, name, active, daily_cap, monthly_cap, created_at, suspended_reason, suspended_at";
 
-/// Columns added after the first schema. `CREATE TABLE IF NOT EXISTS` leaves an older file as it was, so each is added here
-/// when the file lacks it.
-const ADDED_ACCOUNT_COLUMNS: [(&str, &str); 2] = [("suspended_reason", "TEXT"), ("suspended_at", "INTEGER")];
+/// Columns added after the first schema, as (table, column, type). `CREATE TABLE IF NOT EXISTS` leaves an older file as it
+/// was, so each is added here when the file lacks it.
+const ADDED_COLUMNS: [(&str, &str, &str); 3] = [
+    ("accounts", "suspended_reason", "TEXT"),
+    ("accounts", "suspended_at", "INTEGER"),
+    ("usage_events", "target", "TEXT"),
+];
 
 fn add_missing_columns(conn: &Connection) -> Result<()> {
-    let mut stmt = conn.prepare("SELECT name FROM pragma_table_info('accounts')")?;
-    let have: Vec<String> = stmt.query_map([], |r| r.get(0))?.collect::<rusqlite::Result<_>>()?;
-    for (name, kind) in ADDED_ACCOUNT_COLUMNS {
+    for (table, name, kind) in ADDED_COLUMNS {
+        let mut stmt = conn.prepare("SELECT name FROM pragma_table_info(?1)")?;
+        let have: Vec<String> = stmt.query_map([table], |r| r.get(0))?.collect::<rusqlite::Result<_>>()?;
         if !have.iter().any(|h| h == name) {
-            conn.execute_batch(&format!("ALTER TABLE accounts ADD COLUMN {name} {kind}"))?;
+            conn.execute_batch(&format!("ALTER TABLE {table} ADD COLUMN {name} {kind}"))?;
         }
     }
     Ok(())
@@ -457,8 +463,8 @@ impl Store {
         ensure_account(&tx, &record.account_id)?;
         let inserted = tx.execute(
             "INSERT OR IGNORE INTO usage_events
-                 (request_id, account_id, model, prompt_tokens, completion_tokens, cost, charged, ok, created_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+                 (request_id, account_id, model, prompt_tokens, completion_tokens, cost, charged, ok, created_at, target)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
             params![
                 record.request_id,
                 record.account_id,
@@ -468,7 +474,8 @@ impl Store {
                 record.cost,
                 record.charged,
                 record.ok as i64,
-                now
+                now,
+                record.target
             ],
         )?;
         if inserted == 0 {
@@ -760,6 +767,7 @@ mod tests {
             request_id: request_id.into(),
             account_id: account.id.clone(),
             model: "m".into(),
+            target: "u/real-m".into(),
             prompt_tokens: 10,
             completion_tokens: 20,
             cost: charged / 2,
@@ -1230,6 +1238,57 @@ mod tests {
         assert_eq!(store.account("acc_old").unwrap().unwrap().suspended_reason.as_deref(), Some("manual"));
         drop(store);
         // Opening it again must not try to add the columns a second time.
+        Store::open(&path).unwrap();
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    fn target_of(store: &Store, request_id: &str) -> Option<String> {
+        store.lock().query_row("SELECT target FROM usage_events WHERE request_id = ?1", params![request_id], |r| r.get(0)).unwrap()
+    }
+
+    #[test]
+    fn a_settled_call_records_the_target_that_answered() {
+        let store = Store::open_in_memory().unwrap();
+        let (account, _) = store.create_account("acme", NOW).unwrap();
+        store.credit(&account.id, EntryKind::Topup, 100_000, Some("t"), "", NOW).unwrap();
+        store.place_hold(&account.id, "r1", 1_000, 60, NOW).unwrap();
+        let mut rec = record(&account, "r1", 1_000);
+        rec.target = "b/real-b".into();
+        store.settle(&rec, NOW).unwrap();
+        assert_eq!(target_of(&store, "r1").as_deref(), Some("b/real-b"));
+    }
+
+    #[test]
+    fn a_ledger_made_before_the_target_column_opens_and_gains_it() {
+        let dir = std::env::temp_dir().join(format!("warden-gateway-migrate-target-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("ledger.db");
+        let _ = std::fs::remove_file(&path);
+        {
+            // The ledger as it was before: usage events without the `target` column.
+            let conn = Connection::open(&path).unwrap();
+            conn.execute_batch(
+                "CREATE TABLE accounts (
+                    id TEXT PRIMARY KEY, name TEXT NOT NULL, token_hash TEXT NOT NULL UNIQUE,
+                    active INTEGER NOT NULL DEFAULT 1, daily_cap INTEGER, monthly_cap INTEGER, created_at INTEGER NOT NULL
+                );
+                INSERT INTO accounts (id, name, token_hash, created_at) VALUES ('acc_old', 'old', 'h', 1);
+                CREATE TABLE usage_events (
+                    request_id TEXT PRIMARY KEY, account_id TEXT NOT NULL REFERENCES accounts(id), model TEXT NOT NULL,
+                    prompt_tokens INTEGER NOT NULL, completion_tokens INTEGER NOT NULL, cost INTEGER NOT NULL,
+                    charged INTEGER NOT NULL, ok INTEGER NOT NULL, created_at INTEGER NOT NULL
+                );
+                INSERT INTO usage_events VALUES ('r_old', 'acc_old', 'm', 1, 1, 1, 1, 1, 1);",
+            )
+            .unwrap();
+        }
+        let store = Store::open(&path).unwrap();
+        assert_eq!(target_of(&store, "r_old"), None, "an old row has no target");
+        let (account, _) = store.create_account("new", NOW).unwrap();
+        store.place_hold(&account.id, "r_new", 10, 60, NOW).unwrap();
+        store.settle(&record(&account, "r_new", 10), NOW).unwrap();
+        assert_eq!(target_of(&store, "r_new").as_deref(), Some("u/real-m"));
+        drop(store);
         Store::open(&path).unwrap();
         let _ = std::fs::remove_dir_all(&dir);
     }

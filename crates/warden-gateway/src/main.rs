@@ -351,6 +351,12 @@ async fn main() -> Result<()> {
                     "{:<20} -> {}/{}   cost {}/{}   sale {}/{}   (USD per million tokens, in/out)   max {} tokens",
                     m.name, m.upstream, m.upstream_model, format_usd(m.cost_in), format_usd(m.cost_out), format_usd(m.sale_in), format_usd(m.sale_out), m.max_tokens
                 );
+                for (n, f) in m.fallbacks.iter().enumerate() {
+                    println!(
+                        "{:<20}    fallback {} -> {}/{}   cost {}/{}   sale {}/{}",
+                        "", n + 1, f.upstream, f.upstream_model, format_usd(f.cost_in), format_usd(f.cost_out), format_usd(f.sale_in), format_usd(f.sale_out)
+                    );
+                }
             }
             Ok(())
         }

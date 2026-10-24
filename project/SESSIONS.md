@@ -2,7 +2,19 @@
 
 > **Nota**: Este log foi criado junto com o projeto. As sessões serão registradas aqui conforme o trabalho avança.
 >
-> Última atualização: 2026-10-24 (Sessão 282)
+> Última atualização: 2026-10-24 (Sessão 283)
+
+---
+
+### 2026-10-24 — Sessão 283 (o fallback entre provedores no catálogo do gateway: P168 i)
+
+- **Pedido**: "vamos de i". Li o catálogo, o `flow`, o `http` e o `FallbackProvider` do hub (P79, o mesmo conceito para o usuário) e planejei em modo de plano. **Decisões do usuário**: a sintaxe é `[[models.fallback]]` dentro do modelo, e o cliente paga **o preço do alvo que respondeu**.
+- **Problema**: cada modelo vendido apontava para um só provedor; se ele caía, limitava ou recusava a chave do gateway, o cliente levava 502 mesmo havendo outro provedor que servia o modelo.
+- **Feito**: `catalog.rs` (`Target`, `ModelEntry.fallbacks`, `targets()`, `price_at(i, usado)` e `worst_price(usado)`; validação do fallback com o mesmo rigor do principal: upstream existente, alvo repetido e venda abaixo do custo são erros que citam o alvo; o trecho de preços virou `priced_target`); `flow.rs` (o hold é o do alvo mais caro; `settle_with(res, alvo, desfecho, agora)` cobra o preço de quem respondeu e `settle` é o atalho para o alvo 0, então o resto não mudou; `Unmetered` cobra o pior caso **do alvo que respondeu**, e não mais o hold); `store.rs` (coluna `usage_events.target`, `ADDED_COLUMNS` com a tabela, `UsageRecord.target`); `http.rs` (`whole_answer` e `stream_answer` percorrem os alvos; `call_for` monta a URL, a chave e o nome do modelo de cada um; `worth_another_target` decide; cada falha vira `warn` com o alvo e o motivo, e a resposta de um fallback, `info`); `main.rs` (`catalog-check` lista os fallbacks); `fake.rs` (`Script::ByBaseUrl`: um roteiro por upstream).
+- **Quando passa ao próximo**: falha de conexão ou timeout, 5xx, 408, 429 e 401/402/403/404 (lado do provedor: a chave ou o crédito do gateway lá, ou o modelo que sumiu; o cliente não conserta nada disso). **Não passa** em 400, 413 e 422: o pedido é que está errado e outro provedor só repetiria (o hub é mais estrito, só 429, 5xx e conexão, porque lá quem vê o erro de chave é o dono; no gateway quem vê é o cliente, que não pode agir). No stream só troca **antes de abrir**; depois do primeiro byte ao cliente não dá para voltar, e um stream que quebra no meio segue cobrado como antes. O cliente nunca vê quem respondeu (o `model` é sempre o nome do catálogo).
+- **Testes** (aqui só `cargo check -p warden-gateway --all-targets`; a suíte vai para o CI): 3 em `catalog.rs` (fallback com preços próprios e margem, `price_at` e `worst_price`, os três erros), 3 em `flow.rs` (o hold é o do mais caro, o cliente paga o do alvo que respondeu, `Unmetered` no alvo certo), 2 em `store.rs` (o `target` gravado; banco antigo sem a coluna abre e ganha) e a suíte nova `tests/fallback.rs` (6 testes: 503 no principal e o fallback responde com URL, chave, nome de modelo e preço próprios; principal bom não chama o fallback; todos os códigos que passam e os que não passam, e a conexão caída; todos falham, 502 e nada cobrado; stream aberto no fallback; stream que quebra no meio não troca).
+- **Fica**: trocar de alvo depois de o stream começar; balanceamento; `max_tokens` por alvo; mostrar ao cliente quem respondeu; orçamento por provedor.
+- **Nota de processo**: o usuário já tinha pedido para eu usar Edit e Write (as edições por script Python não aparecem no diff dele); numa passada deste trabalho voltei a editar o `http.rs` por script Python e só percebi depois. Voltei ao Edit.
 
 ---
 

@@ -18,7 +18,7 @@ use warden_hosted_protocol::{
     verify, BalanceResponse, TopUpRequest, TopUpResponse, UsageResponse, SIGNATURE_HEADER,
 };
 
-use crate::catalog::Tokens;
+use crate::catalog::{Target, Tokens};
 use crate::estimate::estimate_prompt_tokens;
 use crate::flow::{Gateway, GatewayError, Outcome, Reservation, ReserveRequest};
 use crate::limits::Slots;
@@ -457,9 +457,9 @@ fn requested_max_tokens(request: &Value) -> Option<u32> {
 
 /// The request as the provider gets it: its own model name, the answer ceiling the hold was sized for, and (for a stream)
 /// the flag that makes it report usage.
-fn upstream_body(request: &Value, res: &Reservation, stream: bool) -> Value {
+fn upstream_body(request: &Value, res: &Reservation, upstream_model: &str, stream: bool) -> Value {
     let mut body = request.clone();
-    body["model"] = json!(res.model.upstream_model);
+    body["model"] = json!(upstream_model);
     body["max_tokens"] = json!(res.max_tokens);
     if let Some(map) = body.as_object_mut() {
         map.remove("max_completion_tokens");
@@ -493,18 +493,31 @@ async fn chat<S: AsyncWrite + Unpin>(stream: &mut S, state: &State, request: &Re
         .await?;
 
     let streaming = body.get("stream").and_then(Value::as_bool).unwrap_or(false);
-    let upstream = state.gateway.catalog().upstream(&res.model.upstream).expect("a catalog's models name existing upstreams");
-    let call = UpstreamCall { base_url: upstream.base_url.clone(), api_key: upstream.api_key.get(), body: upstream_body(&body, &res, streaming) };
-
     if streaming {
-        stream_answer(stream, state, &res, &call).await
+        stream_answer(stream, state, &res, &body).await
     } else {
-        whole_answer(stream, state, &res, &call).await
+        whole_answer(stream, state, &res, &body).await
     }
 }
 
-async fn settle(state: &State, res: &Reservation, outcome: Outcome) -> Option<i64> {
-    match state.gateway.settle(res, outcome, now()).await {
+/// The call to one target of the model: that provider's URL and key, and that provider's name for the model.
+fn call_for(state: &State, res: &Reservation, request: &Value, target: &Target, streaming: bool) -> UpstreamCall {
+    let upstream = state.gateway.catalog().upstream(&target.upstream).expect("a catalog's models name existing upstreams");
+    UpstreamCall { base_url: upstream.base_url.clone(), api_key: upstream.api_key.get(), body: upstream_body(request, res, &target.upstream_model, streaming) }
+}
+
+/// Whether the next target could do better after `err`: the failure is on the provider's side (it can't be reached, it is down
+/// or limiting us, our key or credit with it is refused, or it no longer has the model), not in the request. A 400, 413 or 422
+/// is the request itself, and another provider would only repeat the refusal.
+fn worth_another_target(err: &UpstreamError) -> bool {
+    match err {
+        UpstreamError::Unreachable(_) => true,
+        UpstreamError::Status { status, .. } => matches!(*status, 401 | 402 | 403 | 404 | 408 | 429) || *status >= 500,
+    }
+}
+
+async fn settle(state: &State, res: &Reservation, target: usize, outcome: Outcome) -> Option<i64> {
+    match state.gateway.settle_with(res, target, outcome, now()).await {
         Ok(priced) => Some(priced.charged),
         Err(e) => {
             // The customer already has the answer; a failed settle is for the operator to see, not for the caller.
@@ -514,29 +527,57 @@ async fn settle(state: &State, res: &Reservation, outcome: Outcome) -> Option<i6
     }
 }
 
-async fn whole_answer<S: AsyncWrite + Unpin>(stream: &mut S, state: &State, res: &Reservation, call: &UpstreamCall) -> Result<(), ApiError> {
-    match state.upstream.complete(call).await {
-        Ok(mut answer) => {
-            let outcome = usage_of(&answer).map_or(Outcome::Unmetered, Outcome::Completed);
-            let charged = settle(state, res, outcome).await;
-            answer["model"] = json!(res.model.name);
-            let header = charged.map(|c| ("X-Warden-Charged-Micros", c.to_string()));
-            let headers: Vec<(&str, String)> = header.into_iter().collect();
-            write_json(stream, "200 OK", answer.to_string().as_bytes(), &headers).await.map_err(io_error)
+/// Tries the model's targets in order until one answers; the customer is charged at the prices of the one that did.
+async fn whole_answer<S: AsyncWrite + Unpin>(stream: &mut S, state: &State, res: &Reservation, request: &Value) -> Result<(), ApiError> {
+    let targets = res.model.targets();
+    let mut at = 0;
+    let err = loop {
+        let call = call_for(state, res, request, &targets[at], false);
+        match state.upstream.complete(&call).await {
+            Ok(mut answer) => {
+                if at > 0 {
+                    tracing::info!(model = %res.model.name, target = %targets[at].label(), "answered by a fallback target");
+                }
+                let outcome = usage_of(&answer).map_or(Outcome::Unmetered, Outcome::Completed);
+                let charged = settle(state, res, at, outcome).await;
+                answer["model"] = json!(res.model.name);
+                let header = charged.map(|c| ("X-Warden-Charged-Micros", c.to_string()));
+                let headers: Vec<(&str, String)> = header.into_iter().collect();
+                return write_json(stream, "200 OK", answer.to_string().as_bytes(), &headers).await.map_err(io_error);
+            }
+            Err(err) if at + 1 < targets.len() && worth_another_target(&err) => {
+                tracing::warn!(model = %res.model.name, target = %targets[at].label(), "the target failed ({err}); trying the next one");
+                at += 1;
+            }
+            Err(err) => break err,
         }
-        Err(err) => {
-            settle(state, res, Outcome::Failed(Tokens::default())).await;
-            Err(upstream_error(&err))
-        }
-    }
+    };
+    settle(state, res, at, Outcome::Failed(Tokens::default())).await;
+    Err(upstream_error(&err))
 }
 
-async fn stream_answer<S: AsyncWrite + Unpin>(stream: &mut S, state: &State, res: &Reservation, call: &UpstreamCall) -> Result<(), ApiError> {
-    let mut chunks = match state.upstream.stream(call).await {
-        Ok(chunks) => chunks,
-        Err(err) => {
-            settle(state, res, Outcome::Failed(Tokens::default())).await;
-            return Err(upstream_error(&err));
+/// Opens the stream on the first target that will have the call, like `whole_answer`. Once the stream is open there is no
+/// going back: a part of the answer may already be on its way to the caller.
+async fn stream_answer<S: AsyncWrite + Unpin>(stream: &mut S, state: &State, res: &Reservation, request: &Value) -> Result<(), ApiError> {
+    let targets = res.model.targets();
+    let mut at = 0;
+    let mut chunks = loop {
+        let call = call_for(state, res, request, &targets[at], true);
+        match state.upstream.stream(&call).await {
+            Ok(chunks) => {
+                if at > 0 {
+                    tracing::info!(model = %res.model.name, target = %targets[at].label(), "answered by a fallback target");
+                }
+                break chunks;
+            }
+            Err(err) if at + 1 < targets.len() && worth_another_target(&err) => {
+                tracing::warn!(model = %res.model.name, target = %targets[at].label(), "the target failed ({err}); trying the next one");
+                at += 1;
+            }
+            Err(err) => {
+                settle(state, res, at, Outcome::Failed(Tokens::default())).await;
+                return Err(upstream_error(&err));
+            }
         }
     };
     let head = "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nCache-Control: no-cache\r\nConnection: close\r\n\r\n";
@@ -589,7 +630,7 @@ async fn stream_answer<S: AsyncWrite + Unpin>(stream: &mut S, state: &State, res
         (_, None) if forwarded => Outcome::Unmetered,
         (_, None) => Outcome::Failed(Tokens::default()),
     };
-    settle(state, res, outcome).await;
+    settle(state, res, at, outcome).await;
     Ok(())
 }
 

@@ -71,7 +71,12 @@ pub enum Script {
     Status(u16),
     /// Both fail as if the provider were down.
     Down,
+    /// One script per upstream, found by the `base_url` of the call: a catalog whose first provider fails and whose second
+    /// answers. A `base_url` that isn't listed is down.
+    ByBaseUrl(Vec<(String, Script)>),
 }
+
+static DOWN: Script = Script::Down;
 
 pub struct FakeUpstream {
     script: Script,
@@ -88,8 +93,16 @@ impl FakeUpstream {
         self.calls.lock().unwrap().clone()
     }
 
-    fn fail(&self) -> Option<UpstreamError> {
+    /// The script that applies to this call: the whole one, or the one listed for the call's `base_url`.
+    fn script_for(&self, call: &UpstreamCall) -> &Script {
         match &self.script {
+            Script::ByBaseUrl(list) => list.iter().find(|(url, _)| *url == call.base_url).map_or(&DOWN, |(_, script)| script),
+            script => script,
+        }
+    }
+
+    fn fail(&self, call: &UpstreamCall) -> Option<UpstreamError> {
+        match self.script_for(call) {
             Script::Status(status) => Some(UpstreamError::Status { status: *status, body: "upstream says no".into() }),
             Script::Down => Some(UpstreamError::Unreachable("connection refused".into())),
             _ => None,
@@ -122,10 +135,10 @@ impl ChunkStream for Stalled {
 impl Upstream for FakeUpstream {
     async fn complete(&self, call: &UpstreamCall) -> Result<Value, UpstreamError> {
         self.calls.lock().unwrap().push(call.clone());
-        if let Some(err) = self.fail() {
+        if let Some(err) = self.fail(call) {
             return Err(err);
         }
-        match &self.script {
+        match self.script_for(call) {
             Script::Reply(body) => Ok(body.clone()),
             _ => Err(UpstreamError::Unreachable("the fake has no reply scripted".into())),
         }
@@ -133,10 +146,10 @@ impl Upstream for FakeUpstream {
 
     async fn stream(&self, call: &UpstreamCall) -> Result<Box<dyn ChunkStream>, UpstreamError> {
         self.calls.lock().unwrap().push(call.clone());
-        if let Some(err) = self.fail() {
+        if let Some(err) = self.fail(call) {
             return Err(err);
         }
-        match &self.script {
+        match self.script_for(call) {
             Script::Chunks(chunks) => Ok(Box::new(Chunks(chunks.clone().into_iter()))),
             Script::Stalls(first) => Ok(Box::new(Stalled(Some(first.clone())))),
             _ => Err(UpstreamError::Unreachable("the fake has no stream scripted".into())),

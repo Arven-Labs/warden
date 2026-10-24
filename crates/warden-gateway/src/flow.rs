@@ -157,7 +157,8 @@ impl Gateway {
             let model = catalog.model(&req.model).ok_or_else(|| GatewayError::UnknownModel(req.model.clone()))?.clone();
             let max_tokens = model.effective_max_tokens(req.max_tokens);
             let prompt_tokens_estimate = req.prompt_tokens;
-            let hold = model.price(Tokens { prompt: prompt_tokens_estimate, completion: max_tokens as u64 });
+            // Any target might answer, so the hold is the dearest one's; the customer pays the one that did.
+            let hold = model.worst_price(Tokens { prompt: prompt_tokens_estimate, completion: max_tokens as u64 });
 
             let spent_today = store.spent_since(&account.id, quota::day_start(req.now))?;
             let spent_month = store.spent_since(&account.id, quota::month_start(req.now))?;
@@ -173,20 +174,28 @@ impl Gateway {
         .await
     }
 
-    /// Records the call and debits it; returns what it was charged.
+    /// Records the call and debits it at the main target's prices; returns what it was charged. For a model with fallbacks,
+    /// `settle_with` says which target answered.
     pub async fn settle(&self, res: &Reservation, outcome: Outcome, now: i64) -> Result<Priced, GatewayError> {
+        self.settle_with(res, 0, outcome, now).await
+    }
+
+    /// Records the call and debits it at the prices of target number `target` of `res.model.targets()` (`0` is the main one),
+    /// the one that answered or the last one tried; returns what it was charged.
+    pub async fn settle_with(&self, res: &Reservation, target: usize, outcome: Outcome, now: i64) -> Result<Priced, GatewayError> {
         let (tokens, priced, ok) = match outcome {
-            Outcome::Completed(t) => (t, res.model.price(t), true),
-            Outcome::Failed(t) => (t, res.model.price(t), false),
+            Outcome::Completed(t) => (t, res.model.price_at(target, t), true),
+            Outcome::Failed(t) => (t, res.model.price_at(target, t), false),
             Outcome::Unmetered => {
                 let t = Tokens { prompt: res.prompt_tokens_estimate, completion: res.max_tokens as u64 };
-                (t, res.hold, false)
+                (t, res.model.price_at(target, t), false)
             }
         };
         let record = UsageRecord {
             request_id: res.request_id.clone(),
             account_id: res.account.id.clone(),
             model: res.model.name.clone(),
+            target: res.model.targets()[target].label(),
             prompt_tokens: tokens.prompt as i64,
             completion_tokens: tokens.completion as i64,
             cost: priced.cost,
@@ -285,6 +294,77 @@ cost_out = 0
         let small = gw.reserve(ReserveRequest { max_tokens: Some(10), ..ask(&token, "fast") }).await.unwrap();
         assert_eq!(small.max_tokens, 10);
         assert!(small.hold.charged < res.hold.charged);
+    }
+
+    /// A model with a main target (`a`) and a dearer fallback (`b`).
+    const FALLBACK_CATALOG: &str = r#"
+margin_percent = 30
+default_max_tokens = 1000
+
+[[upstreams]]
+id = "a"
+base_url = "http://a.test/v1"
+
+[[upstreams]]
+id = "b"
+base_url = "http://b.test/v1"
+
+[[models]]
+name = "smart"
+upstream = "a"
+upstream_model = "real-a"
+cost_in = 1.0
+cost_out = 2.0
+
+[[models.fallback]]
+upstream = "b"
+upstream_model = "real-b"
+cost_in = 3.0
+cost_out = 6.0
+"#;
+
+    fn setup_fallback(balance: Micros) -> (Gateway, Account, String) {
+        let store = Arc::new(Store::open_in_memory().unwrap());
+        let (account, token) = store.create_account("acme", NOW).unwrap();
+        store.credit(&account.id, EntryKind::Topup, balance, Some("t"), "", NOW).unwrap();
+        let catalog = Arc::new(Catalog::parse(FALLBACK_CATALOG, |_| None).unwrap());
+        (Gateway::new(store, catalog), account, token)
+    }
+
+    #[tokio::test]
+    async fn the_hold_of_a_model_with_fallbacks_is_the_dearest_targets() {
+        let (gw, _, token) = setup_fallback(10_000_000);
+        let res = gw.reserve(ask(&token, "smart")).await.unwrap();
+        let worst_tokens = Tokens { prompt: 100, completion: 1000 };
+        assert_eq!(res.hold, res.model.price_at(1, worst_tokens), "the fallback costs more, so it sets the hold");
+        assert!(res.hold.charged > res.model.price_at(0, worst_tokens).charged);
+    }
+
+    #[tokio::test]
+    async fn the_customer_pays_the_price_of_the_target_that_answered() {
+        let used = Tokens { prompt: 200, completion: 50 };
+        for (target, label) in [(0usize, "main"), (1, "fallback")] {
+            let (gw, account, token) = setup_fallback(10_000_000);
+            let res = gw.reserve(ask(&token, "smart")).await.unwrap();
+            let priced = gw.settle_with(&res, target, Outcome::Completed(used), NOW).await.unwrap();
+            assert_eq!(priced, res.model.price_at(target, used), "{label}");
+            assert_eq!(gw.store().balance(&account.id).unwrap(), 10_000_000 - priced.charged, "{label}");
+            assert!(gw.store().holds(&account.id, NOW).unwrap().is_empty(), "{label}: the larger hold was released whole");
+        }
+        let (gw, _, token) = setup_fallback(10_000_000);
+        let res = gw.reserve(ask(&token, "smart")).await.unwrap();
+        assert!(res.model.price_at(1, used).charged > res.model.price_at(0, used).charged, "the two targets do price differently");
+        assert_eq!(gw.settle(&res, Outcome::Completed(used), NOW).await.unwrap(), res.model.price_at(0, used), "`settle` is the main target");
+    }
+
+    #[tokio::test]
+    async fn an_unmetered_call_is_charged_the_answering_targets_worst_case_not_the_hold() {
+        let (gw, account, token) = setup_fallback(10_000_000);
+        let res = gw.reserve(ask(&token, "smart")).await.unwrap();
+        let priced = gw.settle_with(&res, 0, Outcome::Unmetered, NOW).await.unwrap();
+        assert_eq!(priced, res.model.price_at(0, Tokens { prompt: 100, completion: 1000 }));
+        assert!(priced.charged < res.hold.charged, "the main target is cheaper than the hold, which was the fallback's");
+        assert_eq!(gw.store().balance(&account.id).unwrap(), 10_000_000 - priced.charged);
     }
 
     #[tokio::test]
