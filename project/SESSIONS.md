@@ -11,7 +11,8 @@
 - **Pedido**: "vamos pro p137". Plano aprovado em modo de plano; decisões do usuário: escopo = identidade + tokens + site, tom "guardião sóbrio", Inter + JetBrains Mono empacotadas, escuro por padrão nos apps (quando chegar a vez deles).
 - **Feito**: marca (escudo com "W", `site/public/brand/`, favicon, `apple-icon.png`, `og.png`), tokens em `design/tokens.css` (cópia em `site/app/tokens.css`), `site/` reescrito em preto e roxo com tema escuro por padrão e botão de tema, landing nova (hero com janela de app, faixa clara de recursos, instalação com abas e copiar, cartões de vidro, rodapé) e a documentação no mesmo estilo, `project/BRAND.md`. Fontes pelos pacotes `@fontsource-variable/*` (o Next empacota e respeita o `basePath`, sem `public/fonts`, desvio do plano).
 - **Testes**: `npm test` 8 de 8 (novos: `tokens.test.mjs` e `landing.test.mjs`, que confere que os comandos de instalação ainda existem no `GUIA-DE-USO.md`), `tsc` e `npm run build` limpos. Fotos no Chromium headless (landing escuro, claro e celular; docs escuro e celular): sem rolagem horizontal e sem erro de console; uma aba quebrava linha no celular e foi corrigida.
-- **Fica**: CI e Pages depois do push; `web/`, desktop, extensão e mobile adotarem os tokens; domínio; pt-BR.
+- **CI**: o commit `fc91aa9` passou no `CI` e no `Docs site (GitHub Pages)`; o site novo está no ar em https://arven-labs.github.io/warden/.
+- **Fica**: `web/`, desktop, extensão e mobile adotarem os tokens; domínio; pt-BR.
 
 ---
 
