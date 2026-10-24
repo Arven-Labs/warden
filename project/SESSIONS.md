@@ -2,7 +2,17 @@
 
 > **Nota**: Este log foi criado junto com o projeto. As sessões serão registradas aqui conforme o trabalho avança.
 >
-> Última atualização: 2026-10-24 (Sessão 293)
+> Última atualização: 2026-10-24 (Sessão 294)
+
+---
+
+### 2026-10-24 — Sessão 294 (o release `v0.1.2`)
+
+- **Pedido**: "solta a tag v0.1.1". A `v0.1.1` **já existia e estava publicada** (Sessão 226, `Latest` desde 2026-10-17, com o `.msi`); eu tinha lido o P152 como se o `.msi` ainda faltasse, o que era erro meu. Não recriei a tag (reescreveria o que os usuários baixaram); o usuário então pediu a `v0.1.2`, com 206 commits desde a anterior (o gateway com balanceamento e a identidade preto e roxo nos quatro apps e no site).
+- **Feito**: versão `0.1.2` em `Cargo.toml` (e o `Cargo.lock`, por `cargo update --workspace --offline`), `desktop/package.json`, `desktop/package-lock.json` e `tauri.conf.json` (commit `985c4ed`); tag anotada `v0.1.2` no `2f62f6d`; o `build.yml` e o `image-publish.yml` passaram; o rascunho veio com `.deb`, `.rpm`, AppImage, `.msi`, `-setup.exe`, `.dmg`, `.app.tar.gz` e o APK arm64; **publicado a pedido do usuário** como `Latest`. Conferido: o `.deb` baixa sem login e o manifesto `ghcr.io/arven-labs/warden-server:0.1.2` responde 200 anônimo (a imagem continua pública).
+- **Achado antes da tag**: o `985c4ed` (só a versão) fez o `Gateway image` falhar em "the ledger shows no debit after the chat", com o código do gateway igual ao do último run verde. Era o `scripts/gateway-smoke.sh`: com `set -o pipefail`, `gw ledger | grep -q debit` perde de vez em quando para o SIGPIPE que o `grep -q` devolve ao `docker exec`. Passei a capturar a saída antes de procurar (`ledger`, `/health` e o log de parada), commit `2f62f6d`, e o workflow passou. Não rodei o script falho de novo para provar a causa: é a explicação mais provável (o balanço já mostrava a cobrança), e o conserto é correto de qualquer jeito.
+- **Não visto**: os instaladores e o APK não foram abertos num aparelho (o Windows nunca foi instalado num Windows, como já registrado no P152).
+- **Fica**: o que já estava: domínio, pt-BR do site, Inter no mobile e as verificações com aparelho e chave reais.
 
 ---
 
