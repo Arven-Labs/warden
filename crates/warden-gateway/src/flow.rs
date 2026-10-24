@@ -14,7 +14,7 @@ use std::sync::Arc;
 
 use rand::RngCore;
 
-use crate::catalog::{estimate_tokens, Catalog, ModelEntry, Priced, Tokens};
+use crate::catalog::{Catalog, ModelEntry, Priced, Tokens};
 use crate::quota;
 use crate::store::{Account, Micros, Store, StoreError, UsageRecord};
 
@@ -69,8 +69,8 @@ impl From<StoreError> for GatewayError {
 pub struct ReserveRequest {
     pub token: String,
     pub model: String,
-    /// The size of the prompt in characters, to estimate its tokens.
-    pub prompt_chars: usize,
+    /// The prompt's tokens as the caller estimated them (`estimate::estimate_prompt_tokens`), to size the hold.
+    pub prompt_tokens: u64,
     /// The caller's own `max_tokens`, if it set one.
     pub max_tokens: Option<u32>,
     pub now: i64,
@@ -156,7 +156,7 @@ impl Gateway {
             }
             let model = catalog.model(&req.model).ok_or_else(|| GatewayError::UnknownModel(req.model.clone()))?.clone();
             let max_tokens = model.effective_max_tokens(req.max_tokens);
-            let prompt_tokens_estimate = estimate_tokens(req.prompt_chars);
+            let prompt_tokens_estimate = req.prompt_tokens;
             let hold = model.price(Tokens { prompt: prompt_tokens_estimate, completion: max_tokens as u64 });
 
             let spent_today = store.spent_since(&account.id, quota::day_start(req.now))?;
@@ -257,7 +257,7 @@ cost_out = 0
     }
 
     fn ask(token: &str, model: &str) -> ReserveRequest {
-        ReserveRequest { token: token.into(), model: model.into(), prompt_chars: 300, max_tokens: None, now: NOW }
+        ReserveRequest { token: token.into(), model: model.into(), prompt_tokens: 100, max_tokens: None, now: NOW }
     }
 
     #[tokio::test]

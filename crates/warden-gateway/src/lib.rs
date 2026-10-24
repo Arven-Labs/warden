@@ -15,6 +15,7 @@
 
 pub mod apikey;
 pub mod catalog;
+pub mod estimate;
 pub mod fake;
 pub mod flow;
 pub mod http;
@@ -28,6 +29,7 @@ pub mod tls;
 pub mod upstream;
 pub mod webhook;
 
-pub use catalog::{estimate_tokens, Catalog, ModelEntry, Priced, Tokens, Upstream};
+pub use catalog::{Catalog, ModelEntry, Priced, Tokens, Upstream};
+pub use estimate::estimate_prompt_tokens;
 pub use flow::{Gateway, GatewayError, Outcome, Reservation, ReserveRequest};
 pub use store::{Account, Entry, EntryKind, Hold, Micros, Store, StoreError, UsageRecord};

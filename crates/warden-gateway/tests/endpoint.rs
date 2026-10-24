@@ -10,7 +10,7 @@ use warden_gateway::fake::{FakeUpstream, Script};
 use warden_gateway::http::GatewayServer;
 use warden_gateway::store::EntryKind;
 use warden_gateway::upstream::{HttpUpstream, Upstream, UpstreamCall, UpstreamError};
-use warden_gateway::{Catalog, Gateway, Store, Tokens};
+use warden_gateway::{estimate_prompt_tokens, Catalog, Gateway, Store, Tokens};
 
 const CATALOG: &str = r#"
 margin_percent = 30
@@ -75,6 +75,11 @@ fn chat(extra: &str) -> String {
     format!(r#"{{"model":"fast","messages":[{{"role":"user","content":"hello there"}}]{extra}}}"#)
 }
 
+/// What the gateway estimates for the body `chat("")` sends.
+fn chat_prompt_tokens() -> u64 {
+    estimate_prompt_tokens(&serde_json::from_str::<Value>(&chat("")).unwrap())
+}
+
 fn answer(prompt: u64, completion: u64) -> Value {
     json!({
         "id": "x", "object": "chat.completion", "model": "real-fast",
@@ -110,6 +115,24 @@ async fn a_call_is_answered_and_charged_what_it_used() {
     assert_eq!(call.body["model"], "real-fast");
     assert_eq!(call.body["max_tokens"], 1000);
     assert!(!call.body.to_string().contains(&rig.token));
+}
+
+#[tokio::test]
+async fn a_large_inline_image_does_not_inflate_the_hold_past_the_balance() {
+    // Counted by its bytes (3 MB of base64 is a million estimated tokens, about 1.3 USD of hold), this would be refused
+    // with 402 on a balance of a tenth of a dollar; counted as an image, the hold is a fraction of a cent.
+    let rig = rig(100_000, Script::Reply(answer(10, 20))).await;
+    let image = format!("data:image/png;base64,{}", "A".repeat(3_000_000));
+    let body = json!({
+        "model": "fast",
+        "messages": [{"role": "user", "content": [
+            {"type": "text", "text": "what is in this picture?"},
+            {"type": "image_url", "image_url": {"url": image}},
+        ]}],
+    })
+    .to_string();
+    let (status, _, reply) = http(rig.addr, "POST", "/v1/chat/completions", Some(&rig.token), Some(&body)).await;
+    assert_eq!(status, 200, "{reply}");
 }
 
 #[tokio::test]
@@ -247,8 +270,7 @@ async fn a_stream_that_ends_without_usage_is_charged_the_hold() {
     let entries = rig.store.entries(&rig.account, 10).unwrap();
     let debit = entries.iter().find(|e| e.kind == EntryKind::Debit).expect("a debit");
     // The hold of a prompt of this size and a 1000-token answer.
-    let chars = r#"[{"role":"user","content":"hello there"}]"#.len();
-    let hold = rig.catalog.model("fast").unwrap().price(Tokens { prompt: (chars as u64).div_ceil(3), completion: 1000 }).charged;
+    let hold = rig.catalog.model("fast").unwrap().price(Tokens { prompt: chat_prompt_tokens(), completion: 1000 }).charged;
     assert_eq!(-debit.amount, hold);
 }
 
@@ -306,10 +328,7 @@ async fn the_instance_can_read_its_own_balance_with_its_token() {
 async fn a_dropped_call_leaves_no_hold_behind_that_blocks_the_next_one() {
     // Enough for exactly one worst-case hold: if a finished call left its hold, the second would be refused.
     let probe = rig(10_000_000, Script::Reply(answer(1, 1))).await;
-    let one_hold = {
-        let chars = r#"[{"role":"user","content":"hello there"}]"#.len();
-        probe.catalog.model("fast").unwrap().price(Tokens { prompt: (chars as u64).div_ceil(3), completion: 1000 }).charged
-    };
+    let one_hold = probe.catalog.model("fast").unwrap().price(Tokens { prompt: chat_prompt_tokens(), completion: 1000 }).charged;
     let rig = rig(one_hold + 10, Script::Reply(answer(1, 1))).await;
     for _ in 0..2 {
         let (status, _, body) = http(rig.addr, "POST", "/v1/chat/completions", Some(&rig.token), Some(&chat(""))).await;

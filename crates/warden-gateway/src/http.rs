@@ -19,6 +19,7 @@ use warden_hosted_protocol::{
 };
 
 use crate::catalog::Tokens;
+use crate::estimate::estimate_prompt_tokens;
 use crate::flow::{Gateway, GatewayError, Outcome, Reservation, ReserveRequest};
 use crate::limits::Slots;
 use crate::quota::{day_start, DAY_SECS};
@@ -478,14 +479,14 @@ async fn chat<S: AsyncWrite + Unpin>(stream: &mut S, state: &State, request: &Re
     let body: Value = serde_json::from_slice(&request.body).map_err(|e| ApiError::bad_request(format!("the body isn't valid JSON: {e}")))?;
     let model = body.get("model").and_then(Value::as_str).ok_or_else(|| ApiError::bad_request("the request has no `model`"))?;
     // The prompt is the messages and the tools: both go upstream and both are billed as input.
-    let prompt_chars = ["messages", "tools"].iter().filter_map(|k| body.get(*k)).map(|v| v.to_string().len()).sum();
+    let prompt_tokens = estimate_prompt_tokens(&body);
 
     let res = state
         .gateway
         .reserve(ReserveRequest {
             token: request.token.clone().unwrap_or_default(),
             model: model.to_string(),
-            prompt_chars,
+            prompt_tokens,
             max_tokens: requested_max_tokens(&body),
             now: now(),
         })

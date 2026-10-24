@@ -220,12 +220,6 @@ impl Catalog {
     }
 }
 
-/// A deliberately high guess at the tokens in `chars` characters of text (about 3 characters a token; English is nearer 4).
-/// Over-reserving is harmless, because the hold is released at settle time; under-reserving is not.
-pub fn estimate_tokens(chars: usize) -> u64 {
-    (chars as u64).div_ceil(3)
-}
-
 impl ModelEntry {
     /// The answer ceiling for a call: what the caller asked for, capped by this model's own limit.
     pub fn effective_max_tokens(&self, requested: Option<u32>) -> u32 {
@@ -333,13 +327,6 @@ cost_out = 2.50
         assert_eq!(m.effective_max_tokens(Some(0)), 4096);
         assert_eq!(m.effective_max_tokens(Some(100)), 100);
         assert_eq!(m.effective_max_tokens(Some(1_000_000)), 4096);
-    }
-
-    #[test]
-    fn the_prompt_estimate_leans_high() {
-        assert_eq!(estimate_tokens(0), 0);
-        assert_eq!(estimate_tokens(1), 1);
-        assert_eq!(estimate_tokens(300), 100);
     }
 
     #[test]
