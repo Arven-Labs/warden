@@ -13,7 +13,8 @@
 - **Testes**: `web` 116 de 116 (novo `tokens.test.mjs`: a cópia é igual à fonte e o `App.css` não redefine as cores nem segue o sistema), `tsc` e `build` limpos, `site` 8 de 8. E2E rodado aqui (o binário de debug lê o `web/dist` do disco): `theme.test.mjs` novo (abre escuro com o sistema em claro, troca, guarda depois do recarregamento, sem erro de console), `screens` e `i18n` verdes. O `signIn` do harness passou a gravar `warden-theme` a partir do `colorScheme`, então os testes antigos seguem como estão.
 - **Fotos** (antes e depois, claro e escuro, chat, cofre, uso, skills, projetos, entrada): a primeira foto do cabeçalho mostrou o botão de tema espremido (faltava `flex: none`) e depois o cabeçalho em três linhas; corrigi as duas (abas com menos folga lateral, `0.6rem`).
 - **Registro**: as mudanças de i18n, do harness e o `design/tokens.css` entraram por script Python e `cp` no Bash (não aparecem na tela); o resto, por Edit.
-- **Fica**: CI (`CI`, `Web E2E`, `Gateway image`) depois do push; desktop, extensão e mobile; domínio; pt-BR.
+- **CI**: o commit `7e42e29` passou no `CI`, no `Web E2E` e no `Docs site (GitHub Pages)`.
+- **Fica**: desktop, extensão e mobile; domínio; pt-BR.
 
 ---
 
