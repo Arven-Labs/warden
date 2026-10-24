@@ -35,7 +35,10 @@ EXPOSE 7430
 # `/health` é público e mínimo. Assume HTTP simples: com `--tls-cert` e `--tls-key` (TLS no próprio gateway) esta sonda troca.
 HEALTHCHECK --interval=30s --timeout=3s --start-period=10s --retries=3 CMD curl -fsS http://127.0.0.1:7430/health || exit 1
 
-# Os segredos (WARDEN_GATEWAY_ADMIN_SECRET, WARDEN_GATEWAY_WEBHOOK_SECRET e as chaves dos provedores, nomeadas por `api_key_env` no
-# catálogo) vêm do ambiente, sem valor padrão.
+# Os segredos (WARDEN_GATEWAY_ADMIN_SECRET e WARDEN_GATEWAY_WEBHOOK_SECRET) vêm do ambiente, sem valor padrão. A chave de cada
+# provedor, no catálogo, vem de `api_key_env` (uma variável) ou, de preferência, de `api_key_file` (um arquivo, caminho absoluto):
+#   docker run ... -v /etc/warden/secrets/gemini:/run/secrets/gemini:ro warden-gateway
+# com `api_key_file = "/run/secrets/gemini"`. O arquivo fica fora do volume /data (e dos backups) e é relido quando muda, então
+# trocar a chave não pede reiniciar o contêiner. No compose ou no swarm, o mesmo caminho vem de `secrets:`.
 ENTRYPOINT ["warden-gateway"]
 CMD ["serve"]

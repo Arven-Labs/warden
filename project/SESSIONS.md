@@ -2,7 +2,17 @@
 
 > **Nota**: Este log foi criado junto com o projeto. As sessões serão registradas aqui conforme o trabalho avança.
 >
-> Última atualização: 2026-10-23 (Sessão 279)
+> Última atualização: 2026-10-23 (Sessão 280)
+
+---
+
+### 2026-10-23 — Sessão 280 (a chave do provedor num arquivo de segredo: P168 e)
+
+- **Pedido**: "vamos com o e" (o cofre de segredos). Li o catálogo, o `tls.rs` (o desenho de recarga) e o que o repositório já tem de segredos, e planejei em modo de plano. **Decisões do usuário**: o mecanismo é **arquivo por referência** (segredo do Docker ou do systemd, sem criptografia nova) e a chave **é relida quando o arquivo muda**, sem reiniciar.
+- **Problema**: a chave vinha só de variável de ambiente, lida uma vez (visível em `/proc/<pid>/environ` e em `docker inspect`, trocá-la exigia reiniciar o contêiner e cortar as chamadas, e o `Debug` de `Upstream` imprimiria o valor).
+- **Feito**: `apikey.rs` novo (`ApiKey` com origem `none`, `env` ou `file`; `get()` lê o arquivo de novo quando o mtime muda, mantém a chave anterior se o arquivo sumir, não puder ser lido ou ficar vazio, e registra o mtime a cada tentativa para um arquivo ruim não ser relido a cada chamada; `Debug` e `origin()` nunca mostram o valor); `catalog.rs` (`api_key_file` ao lado do `api_key_env`: os dois juntos, caminho relativo e arquivo ausente são erros de catálogo com o nome do provedor); `http.rs` lê a chave a cada chamada; `main.rs` (o aviso de "sem chave" diz a origem, e `catalog-check` lista a origem da chave de cada provedor e se foi achada); `Dockerfile.gateway` (comentário de como montar o segredo).
+- **Testes** (aqui só `cargo check -p warden-gateway --all-targets`; a suíte vai para o CI): 7 unitários em `apikey.rs` (lê e apara, ausente derruba, vazio é sem chave, rotação, arquivo esvaziado ou apagado mantém a chave e um novo arquivo volta a valer, ambiente fixo, `Debug` sem o segredo), 1 em `catalog.rs` (arquivo, os dois juntos, relativo, ausente, `Debug`), e 1 em `tests/endpoint.rs` (a primeira chamada leva a chave A ao provedor, o arquivo é reescrito e a segunda leva a B). O mtime é fixado à mão nos testes para não depender da granularidade do relógio.
+- **Fica**: cofre cifrado com chave-mestra, rotação com duas chaves em sobreposição e orçamento por provedor; o smoke da imagem não confere a chave (o provedor falso não pede uma).
 
 ---
 

@@ -242,8 +242,12 @@ async fn main() -> Result<()> {
             let store = Arc::new(store);
             let catalog = Arc::new(load_catalog(&cli)?);
             for upstream in &catalog.upstreams {
-                if upstream.api_key.is_none() {
-                    tracing::warn!(upstream = %upstream.id, "no API key for this upstream (its `api_key_env` is unset or empty)");
+                if upstream.api_key.get().is_none() {
+                    tracing::warn!(
+                        upstream = %upstream.id,
+                        key = %upstream.api_key.origin(),
+                        "no API key for this upstream (set `api_key_env` to a variable that is set, or `api_key_file` to a file that is not empty)"
+                    );
                 }
             }
             let gateway = Gateway::new(store.clone(), catalog.clone());
@@ -338,6 +342,10 @@ async fn main() -> Result<()> {
         Command::CatalogCheck => {
             let catalog = load_catalog(&cli)?;
             println!("{} upstream(s), {} model(s)", catalog.upstreams.len(), catalog.models.len());
+            for u in &catalog.upstreams {
+                let state = if u.api_key.get().is_some() { "key found" } else { "NO KEY" };
+                println!("upstream {:<16} {}   key: {} ({state})", u.id, u.base_url, u.api_key.origin());
+            }
             for m in &catalog.models {
                 println!(
                     "{:<20} -> {}/{}   cost {}/{}   sale {}/{}   (USD per million tokens, in/out)   max {} tokens",

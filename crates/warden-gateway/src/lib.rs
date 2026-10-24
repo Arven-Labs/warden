@@ -13,6 +13,7 @@
 //! 276. Caps on simultaneous connections and chat calls, and on how long a stream may run (`limits`), came in Session 277.
 //! Not here: ACME, client certificates.
 
+pub mod apikey;
 pub mod catalog;
 pub mod fake;
 pub mod flow;

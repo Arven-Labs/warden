@@ -12,6 +12,7 @@
 //! id = "gemini"
 //! base_url = "https://generativelanguage.googleapis.com/v1beta/openai"
 //! api_key_env = "GEMINI_API_KEY"  # the key is read from the environment, never stored in this file
+//! # api_key_file = "/run/secrets/gemini"  # or from a secret file (absolute path), read again when it changes
 //!
 //! [[models]]
 //! name = "warden-fast"            # what the customer asks for
@@ -22,10 +23,11 @@
 //! ```
 
 use std::collections::HashSet;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use serde::Deserialize;
 
+use crate::apikey::ApiKey;
 use crate::store::Micros;
 
 const MICROS_PER_USD: f64 = 1_000_000.0;
@@ -53,6 +55,7 @@ struct RawUpstream {
     id: String,
     base_url: String,
     api_key_env: Option<String>,
+    api_key_file: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -73,7 +76,8 @@ struct RawModel {
 pub struct Upstream {
     pub id: String,
     pub base_url: String,
-    pub api_key: Option<String>,
+    /// The key for this provider: `api_key.get()` is the one to send now (a key file may have been rotated since the start).
+    pub api_key: ApiKey,
 }
 
 /// Prices are micro-USD per million tokens.
@@ -144,7 +148,21 @@ impl Catalog {
             if !seen.insert(u.id.clone()) {
                 return Err(format!("catalog: upstream `{}` is defined twice", u.id));
             }
-            let api_key = u.api_key_env.as_deref().and_then(&env).filter(|k| !k.is_empty());
+            let api_key = match (u.api_key_env.as_deref(), u.api_key_file.as_deref()) {
+                (Some(_), Some(_)) => {
+                    return Err(format!("catalog: upstream `{}` sets both `api_key_env` and `api_key_file`; choose one", u.id));
+                }
+                (Some(name), None) => ApiKey::from_env(name, env(name).filter(|k| !k.is_empty())),
+                (None, Some(file)) => {
+                    let path = PathBuf::from(file);
+                    // A relative path would mean the catalog's directory to one reader and the process's to another.
+                    if !path.is_absolute() {
+                        return Err(format!("catalog: upstream `{}`: `api_key_file` must be an absolute path (got `{file}`)", u.id));
+                    }
+                    ApiKey::from_file(path).map_err(|e| format!("catalog: upstream `{}`: {e}", u.id))?
+                }
+                (None, None) => ApiKey::none(),
+            };
             upstreams.push(Upstream { id: u.id, base_url: u.base_url.trim_end_matches('/').to_string(), api_key });
         }
 
@@ -328,9 +346,34 @@ cost_out = 2.50
     fn the_api_key_comes_from_the_environment_and_the_url_loses_its_trailing_slash() {
         let cat = Catalog::parse(SAMPLE, |n| (n == "GEMINI_KEY").then(|| "secret".to_string())).unwrap();
         let u = cat.upstream("gemini").unwrap();
-        assert_eq!(u.api_key.as_deref(), Some("secret"));
+        assert_eq!(u.api_key.get().as_deref(), Some("secret"));
         assert_eq!(u.base_url, "https://example.test/v1");
-        assert_eq!(parse(SAMPLE).unwrap().upstream("gemini").unwrap().api_key, None);
+        assert_eq!(parse(SAMPLE).unwrap().upstream("gemini").unwrap().api_key.get(), None);
+    }
+
+    #[test]
+    fn the_api_key_can_come_from_a_file_but_not_from_both_a_file_and_the_environment() {
+        let dir = std::env::temp_dir().join(format!("warden-gateway-catalog-key-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("gemini");
+        std::fs::write(&file, "file-secret\n").unwrap();
+
+        let from_file = SAMPLE.replace("api_key_env = \"GEMINI_KEY\"", &format!("api_key_file = {:?}", file.display().to_string()));
+        let cat = parse(&from_file).unwrap();
+        assert_eq!(cat.upstream("gemini").unwrap().api_key.get().as_deref(), Some("file-secret"));
+
+        let both = SAMPLE.replace("api_key_env = \"GEMINI_KEY\"", &format!("api_key_env = \"K\"\napi_key_file = {:?}", file.display().to_string()));
+        assert!(parse(&both).unwrap_err().contains("choose one"));
+
+        let relative = SAMPLE.replace("api_key_env = \"GEMINI_KEY\"", "api_key_file = \"secrets/gemini\"");
+        assert!(parse(&relative).unwrap_err().contains("absolute"));
+
+        let missing = SAMPLE.replace("api_key_env = \"GEMINI_KEY\"", &format!("api_key_file = {:?}", dir.join("nope").display().to_string()));
+        let err = parse(&missing).unwrap_err();
+        assert!(err.contains("gemini") && err.contains("nope"), "{err}");
+
+        assert!(!format!("{:?}", cat.upstream("gemini").unwrap()).contains("file-secret"), "Debug must not print the key");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

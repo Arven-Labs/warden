@@ -113,6 +113,38 @@ async fn a_call_is_answered_and_charged_what_it_used() {
 }
 
 #[tokio::test]
+async fn a_rotated_key_file_is_used_by_the_next_call_without_a_restart() {
+    let dir = std::env::temp_dir().join(format!("warden-gateway-endpoint-key-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let key_file = dir.join("upstream-key");
+    // The modification time is set by hand, so the rotation shows whatever the clock's grain is.
+    let write_key = |text: &str, secs: u64| {
+        std::fs::write(&key_file, text).unwrap();
+        let file = std::fs::OpenOptions::new().write(true).open(&key_file).unwrap();
+        file.set_modified(std::time::UNIX_EPOCH + std::time::Duration::from_secs(secs)).unwrap();
+    };
+    write_key("key-a\n", 1000);
+
+    let catalog_text = CATALOG.replace("api_key_env = \"UPSTREAM_KEY\"", &format!("api_key_file = {:?}", key_file.display().to_string()));
+    let store = Arc::new(Store::open_in_memory().unwrap());
+    let (account, token) = store.create_account("acme", 0).unwrap();
+    store.credit(&account.id, EntryKind::Topup, 10_000_000, Some("t"), "", 0).unwrap();
+    let catalog = Arc::new(Catalog::parse(&catalog_text, |_| None).unwrap());
+    let upstream = Arc::new(FakeUpstream::new(Script::Reply(answer(10, 20))));
+    let server = GatewayServer::bind("127.0.0.1:0".parse().unwrap(), Gateway::new(store, catalog), upstream.clone()).await.unwrap();
+    let addr = server.local_addr().unwrap();
+    tokio::spawn(server.serve());
+
+    assert_eq!(http(addr, "POST", "/v1/chat/completions", Some(&token), Some(&chat(""))).await.0, 200);
+    write_key("key-b\n", 2000);
+    assert_eq!(http(addr, "POST", "/v1/chat/completions", Some(&token), Some(&chat(""))).await.0, 200);
+
+    let keys: Vec<Option<String>> = upstream.calls().into_iter().map(|c| c.api_key).collect();
+    assert_eq!(keys, vec![Some("key-a".to_string()), Some("key-b".to_string())]);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[tokio::test]
 async fn the_callers_max_tokens_shrinks_the_hold_and_goes_upstream() {
     let rig = rig(10_000_000, Script::Reply(answer(1, 1))).await;
     let (status, _, _) = http(rig.addr, "POST", "/v1/chat/completions", Some(&rig.token), Some(&chat(r#","max_completion_tokens":50"#))).await;

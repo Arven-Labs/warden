@@ -493,7 +493,7 @@ async fn chat<S: AsyncWrite + Unpin>(stream: &mut S, state: &State, request: &Re
 
     let streaming = body.get("stream").and_then(Value::as_bool).unwrap_or(false);
     let upstream = state.gateway.catalog().upstream(&res.model.upstream).expect("a catalog's models name existing upstreams");
-    let call = UpstreamCall { base_url: upstream.base_url.clone(), api_key: upstream.api_key.clone(), body: upstream_body(&body, &res, streaming) };
+    let call = UpstreamCall { base_url: upstream.base_url.clone(), api_key: upstream.api_key.get(), body: upstream_body(&body, &res, streaming) };
 
     if streaming {
         stream_answer(stream, state, &res, &call).await
