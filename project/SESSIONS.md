@@ -2,7 +2,18 @@
 
 > **Nota**: Este log foi criado junto com o projeto. As sessões serão registradas aqui conforme o trabalho avança.
 >
-> Última atualização: 2026-10-23 (Sessão 281)
+> Última atualização: 2026-10-24 (Sessão 282)
+
+---
+
+### 2026-10-24 — Sessão 282 (o gateway contra um provedor real: P168 h)
+
+- **Pedido**: "vamos de h". Li o `real-model.yml` e o `real_model.rs` (o desenho já usado para chamar a OpenRouter) e o `HttpUpstream`; confirmei que o segredo `WARDEN_EVAL_KEY` já existe no repositório (`gh secret list`, só o nome); planejei em modo de plano. A chave não passa por mim.
+- **Feito**: `crates/warden-gateway/tests/real_provider.rs` (`#[ignore]`, sobe o gateway com o `HttpUpstream` de verdade e um catálogo apontando para a OpenRouter, chave por `api_key_env`) e `.github/workflows/gateway-real-provider.yml` (só por botão, com o modelo como entrada; resumo da rodada com os testes, o `usage` e a tabela da estimativa). Quatro testes: resposta inteira, stream, estimativa contra o tokenizador real, recusa do provedor.
+- **Rodada** (com a confirmação do usuário, uma chamada paga de poucos tokens por teste): commit `65a3f78`, run 40052270090 com `deepseek/deepseek-v4.1-flash`, **4 de 4 verdes em 2,5 s**. Resposta inteira (38 de prompt e 22 de resposta) e stream (36 e 64, 18 chunks) voltam como `fast`, sem o id real do modelo; o débito do livro-caixa é o preço do `usage` do provedor; o cabeçalho de cobrança bate; sem hold sobrando; `[DONE]` e o `usage` no último chunk (o `include_usage` funciona); sem chave e com modelo inexistente o gateway responde 502 na sua própria voz, sem cobrar.
+- **Estimativa do P168 f contra um tokenizador real** (estimativa contra real): inglês 523/309 (1,69), português 648/515 (1,26), código 893/848 (**1,05**), `tools` 349/50 (6,98; o provedor não contou as ferramentas com `tool_choice: "none"`, então é o caso mais folgado e não diz nada sobre o esquema).
+- **Achado**: no código a estimativa passou só 5% acima do real; como ASCII a 3 por token já é quase exato ali, um prompt mais denso (JSON minificado, muita pontuação) pode passar. Por ora não mexi: uma amostra só. Fica registrado no P168 (h) como ponto a medir se aparecer prejuízo.
+- **Fica**: outros provedores (Anthropic, OpenAI, Gemini) continuam presumidos; a rodada é só por botão (`gh workflow run gateway-real-provider.yml`).
 
 ---
 
