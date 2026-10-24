@@ -1285,6 +1285,7 @@ mod tests {
         let store = Store::open(&path).unwrap();
         assert_eq!(target_of(&store, "r_old"), None, "an old row has no target");
         let (account, _) = store.create_account("new", NOW).unwrap();
+        store.credit(&account.id, EntryKind::Topup, 1_000, Some("t"), "", NOW).unwrap();
         store.place_hold(&account.id, "r_new", 10, 60, NOW).unwrap();
         store.settle(&record(&account, "r_new", 10), NOW).unwrap();
         assert_eq!(target_of(&store, "r_new").as_deref(), Some("u/real-m"));
