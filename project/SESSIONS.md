@@ -13,7 +13,9 @@
 - **Testes**: `desktop` 189 de 189 (novo `tokens.test.mjs`), `tsc` e build limpos; E2E aqui: os 10 antigos e o `theme.test.mjs` novo (abre escuro com o sistema em claro e sem tema salvo, troca nas Configurações, guarda depois do recarregamento, sem erro de página). O `openApp` do harness grava `warden-theme` a partir do `colorScheme` (e `theme: null` não grava, para ver a primeira visita), então os testes antigos seguem como estão.
 - **Fotos** (antes e depois, claro e escuro, chat, Configurações, skills, sync, publicação): sem quebra de linha nem texto ilegível; a foto do tema claro logo após o clique pegou o botão "New chat" no meio da transição de 0,15 s (preto), o que é só da foto.
 - **Registro**: o `theme.test.mjs`, parte do harness e as cópias de arquivos entraram por script Python e `cp` no Bash; o resto, por Edit.
-- **Fica**: CI e `Desktop E2E` depois do push; os ícones do aplicativo (`src-tauri/icons`, num commit à parte); extensão e mobile; domínio; pt-BR.
+- **Ícones do aplicativo**: gerados do escudo com `npx tauri icon` (commit `5a40ed9`, à parte); só os arquivos que o `tauri.conf.json` lista ficaram, sem os de Android, iOS e o `64x64`. Só são exercidos nas builds de release.
+- **CI**: o `5a40ed9` passou no `CI`, no `Desktop E2E`, no `Web E2E` e no `Docs site (GitHub Pages)`.
+- **Fica**: extensão e mobile; domínio; pt-BR.
 
 ---
 
