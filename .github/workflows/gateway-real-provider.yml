@@ -1,0 +1,86 @@
+name: Gateway with a real provider
+
+# `real_provider.rs` (P168 h): the gateway end to end against a real model provider, which the fake upstream of the other tests can't
+# confirm (bearer key, URL, `include_usage`, the `usage` that really comes back, a real stream, a bad key or model), and the
+# prompt estimate of `estimate.rs` against what a real tokenizer counts.
+# It calls a PAID API (a few tokens a call), so it only runs by button, never on a push or a schedule:
+#   gh workflow run gateway-real-provider.yml                   # the default model
+#   gh workflow run gateway-real-provider.yml -f model=<id>     # another OpenRouter model
+# The key is OpenRouter's, in the repository secret `WARDEN_EVAL_KEY`, the same one `real-model.yml` uses (it never goes through Claude):
+#   ! gh secret set WARDEN_EVAL_KEY < ~/Documents/api.txt
+# Each test's result and the estimate table go in the run summary. A model is not deterministic: a red test says what the provider
+# did instead, and the log must be read before blaming the code.
+on:
+  workflow_dispatch:
+    inputs:
+      model:
+        description: 'Model id on OpenRouter'
+        required: true
+        default: 'deepseek/deepseek-v4.1-flash'
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: never
+  CARGO_INCREMENTAL: 0
+
+jobs:
+  real-provider:
+    name: Gateway with the model ${{ inputs.model }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Does the key exist?
+        env:
+          KEY: ${{ secrets.WARDEN_EVAL_KEY }}
+        run: |
+          if [ -z "$KEY" ]; then
+            echo "::error::The secret WARDEN_EVAL_KEY does not exist in this repository. Create it once, with the OpenRouter key file: ! gh secret set WARDEN_EVAL_KEY < ~/Documents/api.txt"
+            exit 1
+          fi
+
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust
+        uses: Swatinem/rust-cache@v2
+
+      # `--test-threads=1`: the tests share the provider's rate limit, and the output stays in order.
+      - name: Gateway against the provider
+        shell: bash
+        env:
+          WARDEN_EVAL_BASE_URL: https://openrouter.ai/api/v1
+          WARDEN_EVAL_MODEL: ${{ inputs.model }}
+          WARDEN_EVAL_KEY: ${{ secrets.WARDEN_EVAL_KEY }}
+        run: |
+          set +e
+          cargo test -p warden-gateway --test real_provider -- --ignored --nocapture --test-threads=1 2>&1 | tee real-provider.log
+          status=${PIPESTATUS[0]}
+          set -e
+          {
+            echo "## Gateway with a real provider: ${WARDEN_EVAL_MODEL}"
+            echo
+            echo '```'
+            grep -E '^test .* \.\.\. ' real-provider.log || echo "no test ran"
+            echo '```'
+            echo
+            echo "Usage the provider reported, and the prompt estimate against what it counted:"
+            echo
+            echo '```'
+            grep -E '^(usage|stream usage|estimate) ' real-provider.log || echo "(none printed)"
+            echo '```'
+            if [ "$status" -ne 0 ]; then
+              echo
+              echo "<details><summary>What happened (end of the log)</summary>"
+              echo
+              echo '```'
+              tail -n 120 real-provider.log
+              echo '```'
+              echo "</details>"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+          exit "$status"
