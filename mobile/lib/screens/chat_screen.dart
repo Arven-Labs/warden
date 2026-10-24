@@ -27,6 +27,7 @@ import 'usage_screen.dart';
 import 'attachment_kind.dart';
 import 'folder_picker.dart';
 import 'language_menu.dart';
+import 'theme_button.dart';
 
 /// Phase 7.3: the real chat UI, built on top of the connection 7.2 proved works. The transcript is
 /// kept in memory by the [ChatTranscript] the caller passes in (P41: it outlives this screen, so
@@ -453,6 +454,8 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
         actions: [
           // P136 — the language of the app, also reachable once connected.
           const LanguageMenu(),
+          // P137 — dark or light.
+          const ThemeButton(),
           // P87 — which configured agent this conversation speaks as.
           ListenableBuilder(
             listenable: widget.transcript,

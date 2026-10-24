@@ -1,6 +1,6 @@
 # Identidade visual do Warden
 
-> Primeiro corte (Sessão 288, P137): marca, tokens e o `site/`. Sessão 289: o `web/` também (`web/src/tokens.css` é cópia de `design/tokens.css`, com teste). Sessão 290: o desktop também (`desktop/src/tokens.css`, botão de tema nas Configurações, `LogoMark` com o escudo novo). Sessão 291: a extensão também (`extension/src/sidepanel/tokens.css`, `theme-init.js` em `public/` porque uma página de extensão não aceita script inline, escudo ao lado do título, `icon-128.png` novo). Só o mobile falta. `--color-accent-dark` no escuro é `#8b5cf6` (19 regras o usam como cor de texto; com `#7c3aed` o contraste caía a ~3:1).
+> Primeiro corte (Sessão 288, P137): marca, tokens e o `site/`. Sessão 289: o `web/` também (`web/src/tokens.css` é cópia de `design/tokens.css`, com teste). Sessão 290: o desktop também (`desktop/src/tokens.css`, botão de tema nas Configurações, `LogoMark` com o escudo novo). Sessão 291: a extensão também (`extension/src/sidepanel/tokens.css`, `theme-init.js` em `public/` porque uma página de extensão não aceita script inline, escudo ao lado do título, `icon-128.png` novo). Sessão 292: o mobile também (`mobile/lib/theme/warden_theme.dart` é o `ColorScheme` explícito com os mesmos hex, e `test/theme/warden_theme_test.dart` lê `design/tokens.css` e falha se algum divergir; `AppTheme` guarda `app.theme`, escuro por padrão; `ThemeButton` nas duas barras; `WardenLogo` desenhado à mão ao lado do título; fonte padrão do Android, a Roboto, sem a Inter). Os quatro apps e o site estão na identidade. `--color-accent-dark` no escuro é `#8b5cf6` (19 regras o usam como cor de texto; com `#7c3aed` o contraste caía a ~3:1).
 > **Escuro por padrão em toda superfície, sem seguir o sistema**: o claro só com `data-theme="light"` (botão de tema, guardado em `localStorage` como `warden-theme`, a mesma chave do site e do `web/`). `--gradient-button` é o degradê do botão cheio (texto escuro sobre o roxo claro no escuro, branco sobre o roxo escuro no claro).
 
 ## O que transmite
@@ -30,8 +30,8 @@ Inter (texto) e JetBrains Mono (código), pelos pacotes `@fontsource-variable/*`
 ## Layout (estilo da referência do Arven)
 Cabeçalho fixo com vidro, hero com pílula "Open source", botão cheio e botão de contorno, janela de app com borda luminosa, faixa clara de recursos, bloco de instalação com abas e botão de copiar, cartões de vidro, rodapé enxuto, rótulos pequenos em maiúsculas acima dos títulos.
 
-## Mobile (anotado, não aplicado)
-`mobile/lib/main.dart` usa `ColorScheme.fromSeed` com `0xFF7C3AED` (claro) e `0xFFA78BFA` (escuro). Para a identidade nova: `surface` `0xFF07060B`, `onSurface` `0xFFEDE9F7`, `primary` `0xFFA78BFA`, `outline` `0xFF272043`, tema escuro por padrão.
+## Mobile
+Não importa CSS: `mobile/lib/theme/warden_theme.dart` repete os hex de `design/tokens.css` em `WardenPalette` (escuro e claro) e monta o `ThemeData`; o teste de deriva fica em `mobile/test/theme/warden_theme_test.dart`. Ao mudar um token, mude os dois lugares. As fotos do mobile vêm de um teste de widget descartável (fontes Roboto e MaterialIcons do cache do SDK carregadas à mão), não de um aparelho.
 
 ## Falta
-O mobile adotar os tokens (com as fotos de antes e depois, com fotos de E2E antes e depois), domínio próprio, versão em pt-BR do site.
+Domínio próprio, versão em pt-BR do site, a fonte Inter no mobile (pediria `.ttf`), o ícone adaptativo do Android (camadas) e os ícones de 16 e 48 px da extensão para a Web Store.

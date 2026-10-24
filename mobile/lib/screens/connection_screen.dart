@@ -14,6 +14,8 @@ import '../services/server_connection.dart';
 import '../src/rust/api/discovery.dart';
 import 'chat_screen.dart';
 import 'language_menu.dart';
+import 'theme_button.dart';
+import '../theme/warden_logo.dart';
 import 'member_account.dart';
 import 'qr_scan_screen.dart';
 import 'skills_screen.dart';
@@ -320,10 +322,13 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
     final l10n = AppLocalizations.of(context);
     return Scaffold(
       appBar: AppBar(
-        title: Text(l10n.connTitle),
+        // P137 — the mark beside the title (the form below has no room to spare on a small phone).
+        title: Row(children: [const WardenLogo(size: 26), const SizedBox(width: 8), Flexible(child: Text(l10n.connTitle, overflow: TextOverflow.ellipsis))]),
         actions: [
           // P136 — the language of the app, reachable before anybody is connected.
           const LanguageMenu(),
+          // P137 — dark or light.
+          const ThemeButton(),
           // Phase 9.1 (redefined) — sweeps the LAN for a warden-server hub and fills in host/port
           // from the pick, instead of typing an IP by hand. Only useful before connecting.
           if (!_isConnected && !_isBusy)
@@ -468,7 +473,7 @@ class _DiscoveredHubsSheet extends StatelessWidget {
             if (snapshot.hasError) {
               return Padding(
                 padding: const EdgeInsets.symmetric(vertical: 16),
-                child: Text(l10n.connDiscoveryFailed('${snapshot.error}'), style: const TextStyle(color: Colors.red)),
+                child: Text(l10n.connDiscoveryFailed('${snapshot.error}'), style: TextStyle(color: Theme.of(context).colorScheme.error)),
               );
             }
             final hubs = snapshot.data!;

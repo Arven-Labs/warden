@@ -4,6 +4,8 @@
   "languageEnglish": "English",
   "languagePortuguese": "Português (Brasil)",
   "languageSystem": "Follow the system",
+  "themeToLight": "Switch to the light theme",
+  "themeToDark": "Switch to the dark theme",
   "commonCancel": "Cancel",
   "commonSave": "Save",
   "commonEdit": "Edit",

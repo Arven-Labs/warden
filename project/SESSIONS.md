@@ -2,7 +2,18 @@
 
 > **Nota**: Este log foi criado junto com o projeto. As sessões serão registradas aqui conforme o trabalho avança.
 >
-> Última atualização: 2026-10-24 (Sessão 291)
+> Última atualização: 2026-10-24 (Sessão 292)
+
+---
+
+### 2026-10-24 — Sessão 292 (o mobile adota a identidade preto e roxo: P137, passo 6)
+
+- **Pedido**: "sim" ao mobile, depois do CI verde da extensão. Plano aprovado em modo de plano.
+- **Feito**: `lib/theme/warden_theme.dart` (`WardenPalette` com os hex de `design/tokens.css`, escuro e claro, e o `ThemeData` com `AppBar`, cartões, diálogos, menus, campos, botão, chave e indicador de progresso); `lib/services/app_theme.dart` (no desenho do `AppLanguage`: `ValueNotifier<ThemeMode>`, chave `app.theme`, escuro por padrão, não segue o sistema, `load()` no `main()`); `lib/screens/theme_button.dart` ao lado do `LanguageMenu` nas barras da conexão e do chat; `lib/theme/warden_logo.dart` (o escudo e o "W" desenhados à mão num `CustomPaint`, sem pacote de SVG) ao lado do título da tela de conexão; textos `themeToLight` e `themeToDark` nos dois `.arb` e os arquivos gerados (`flutter gen-l10n`, que são versionados); os quatro `Colors.red` de erro passaram a `colorScheme.error`. Ficaram como estão o verde, o laranja e o vermelho dos status (conexão, medidores), que são semânticos.
+- **Erro meu, achado pelos testes**: pus o escudo no corpo da tela de conexão, acima do formulário; isso empurrou o botão "Connect" para fora da tela nos testes de widget (800x600), e o comentário do próprio código já dizia que ali não sobra espaço numa tela pequena. Tirei do corpo e pus na barra, ao lado do título (a barra, com seis ícones, já cortava o título antes; em 360 dp ele agora mostra "War…" com o escudo, em 390 dp "Warden — S…").
+- **Testes**: `flutter analyze` limpo e `flutter test` 330 de 330 (novo `test/theme/warden_theme_test.dart`: os hex iguais ao `design/tokens.css` nos dois temas, `AppTheme` abre escuro e guarda a escolha, e o botão troca o tema do app inteiro). **Fotos** (antes e depois, claro e escuro, 390 e 360 dp) de um teste de widget descartável, **não commitado**, que carrega a Roboto e o MaterialIcons do cache do SDK por `FontLoader`; **não é o aplicativo num aparelho nem num emulador**, então o ícone no lançador, a barra de status e o resto ficam sem prova até você instalar o APK do CI.
+- **Registro**: o `warden_theme_test.dart`, parte do `warden_theme.dart` e a troca do título entraram por `cat >` e `python3` no Bash (não aparecem na tela); o resto, por Edit.
+- **Fica**: CI (jobs `mobile` e `android`) depois do push; o ícone do aplicativo (commit à parte); a Inter no mobile; o ícone adaptativo do Android; domínio; pt-BR.
 
 ---
 

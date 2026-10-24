@@ -122,6 +122,18 @@ abstract class AppLocalizations {
   /// **'Follow the system'**
   String get languageSystem;
 
+  /// No description provided for @themeToLight.
+  ///
+  /// In en, this message translates to:
+  /// **'Switch to the light theme'**
+  String get themeToLight;
+
+  /// No description provided for @themeToDark.
+  ///
+  /// In en, this message translates to:
+  /// **'Switch to the dark theme'**
+  String get themeToDark;
+
   /// No description provided for @commonCancel.
   ///
   /// In en, this message translates to:

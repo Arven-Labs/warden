@@ -167,7 +167,7 @@ class _ChangePasswordDialogState extends State<ChangePasswordDialog> {
               ),
             TextField(controller: _next, obscureText: true, decoration: InputDecoration(labelText: l10n.acctNewPassword)),
             TextField(controller: _again, obscureText: true, decoration: InputDecoration(labelText: l10n.acctNewPasswordAgain)),
-            if (_error != null) Padding(padding: const EdgeInsets.only(top: 12), child: Text(_error!, style: const TextStyle(color: Colors.red))),
+            if (_error != null) Padding(padding: const EdgeInsets.only(top: 12), child: Text(_error!, style: TextStyle(color: Theme.of(context).colorScheme.error))),
           ],
         ),
       ),
@@ -240,7 +240,7 @@ class _AcceptPolicyDialogState extends State<AcceptPolicyDialog> {
             const SizedBox(height: 8),
             Text(l10n.acctPolicyKeep),
             TextField(key: const Key('accept-policy-password'), controller: _password, obscureText: true, onChanged: (_) => setState(() {}), decoration: InputDecoration(labelText: l10n.acctPolicyPassword)),
-            if (_error != null) Padding(padding: const EdgeInsets.only(top: 12), child: Text(_error!, style: const TextStyle(color: Colors.red))),
+            if (_error != null) Padding(padding: const EdgeInsets.only(top: 12), child: Text(_error!, style: TextStyle(color: Theme.of(context).colorScheme.error))),
           ],
         ),
       ),
@@ -445,7 +445,7 @@ class _LinkTruthIdDialogState extends State<_LinkTruthIdDialog> {
         child: Column(mainAxisSize: MainAxisSize.min, children: [
           TextField(key: const Key('truthid-invite-code'), controller: _code, autocorrect: false, decoration: InputDecoration(labelText: l10n.acctInviteCode)),
           TextField(key: const Key('truthid-username'), controller: _username, autocorrect: false, decoration: InputDecoration(labelText: l10n.acctUsername, hintText: 'ana.silva')),
-          if (_error != null) Padding(padding: const EdgeInsets.only(top: 12), child: Text(_error!, style: const TextStyle(color: Colors.red))),
+          if (_error != null) Padding(padding: const EdgeInsets.only(top: 12), child: Text(_error!, style: TextStyle(color: Theme.of(context).colorScheme.error))),
         ]),
       ),
       actions: [

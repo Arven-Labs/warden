@@ -4,8 +4,10 @@ import 'package:flutter_localizations/flutter_localizations.dart';
 import 'l10n/generated/app_localizations.dart';
 import 'screens/connection_screen.dart';
 import 'services/app_language.dart';
+import 'services/app_theme.dart';
 import 'services/chat_notifications.dart';
 import 'src/rust/frb_generated.dart';
+import 'theme/warden_theme.dart';
 
 Future<void> main() async {
   // Phase 7.5 — flutter_local_notifications talks over a MethodChannel, which asserts the binary
@@ -19,6 +21,8 @@ Future<void> main() async {
   await RustLib.init();
   // P136 — the language the person picked, read before the first screen is drawn.
   await AppLanguage.load();
+  // P137 — and the theme (dark until the person picks light).
+  await AppTheme.load();
   // Phase 7.5 — registers the Android notification channel before any screen could try to notify.
   await initializeChatNotifications();
   runApp(const WardenApp());
@@ -29,13 +33,16 @@ class WardenApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return ValueListenableBuilder<Locale?>(
-      valueListenable: AppLanguage.locale,
-      builder: (context, picked, _) => _app(picked),
+    return ValueListenableBuilder<ThemeMode>(
+      valueListenable: AppTheme.mode,
+      builder: (context, mode, _) => ValueListenableBuilder<Locale?>(
+        valueListenable: AppLanguage.locale,
+        builder: (context, picked, _) => _app(picked, mode),
+      ),
     );
   }
 
-  Widget _app(Locale? picked) {
+  Widget _app(Locale? picked, ThemeMode mode) {
     return MaterialApp(
       title: 'Warden',
       locale: picked,
@@ -47,15 +54,11 @@ class WardenApp extends StatelessWidget {
       ],
       supportedLocales: AppLocalizations.supportedLocales,
       localeListResolutionCallback: AppLanguage.resolve,
-      // Matches desktop/src/App.css --color-accent (light #7c3aed, dark #a78bfa) instead of the
-      // generic Material seed, so the two apps read as the same brand.
-      theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFF7C3AED)),
-      ),
-      darkTheme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFFA78BFA), brightness: Brightness.dark),
-      ),
-      themeMode: ThemeMode.system,
+      // P137 — black with purple in the details, the palette of `design/tokens.css` (see `theme/warden_theme.dart`); dark until the
+      // person picks light (`AppTheme`), it does not follow the system.
+      theme: WardenTheme.light(),
+      darkTheme: WardenTheme.dark(),
+      themeMode: mode,
       home: const ConnectionScreen(),
     );
   }

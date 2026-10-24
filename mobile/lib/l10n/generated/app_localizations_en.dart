@@ -22,6 +22,12 @@ class AppLocalizationsEn extends AppLocalizations {
   String get languageSystem => 'Follow the system';
 
   @override
+  String get themeToLight => 'Switch to the light theme';
+
+  @override
+  String get themeToDark => 'Switch to the dark theme';
+
+  @override
   String get commonCancel => 'Cancel';
 
   @override
@@ -1132,7 +1138,8 @@ class AppLocalizationsEn extends AppLocalizations {
   }
 
   @override
-  String get usageCreditEmpty => 'Out of credits. Top up your account to keep using paid models.';
+  String get usageCreditEmpty =>
+      'Out of credits. Top up your account to keep using paid models.';
 
   @override
   String get usageTokens => 'Tokens';

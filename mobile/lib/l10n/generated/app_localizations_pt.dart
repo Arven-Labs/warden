@@ -22,6 +22,12 @@ class AppLocalizationsPt extends AppLocalizations {
   String get languageSystem => 'Seguir o sistema';
 
   @override
+  String get themeToLight => 'Mudar para o tema claro';
+
+  @override
+  String get themeToDark => 'Mudar para o tema escuro';
+
+  @override
   String get commonCancel => 'Cancelar';
 
   @override
@@ -1133,7 +1139,8 @@ class AppLocalizationsPt extends AppLocalizations {
   }
 
   @override
-  String get usageCreditEmpty => 'Sem créditos. Recarregue a conta para continuar usando os modelos pagos.';
+  String get usageCreditEmpty =>
+      'Sem créditos. Recarregue a conta para continuar usando os modelos pagos.';
 
   @override
   String get usageTokens => 'Tokens';
