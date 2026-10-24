@@ -357,3 +357,103 @@ async fn ordered_is_the_default_and_keeps_the_main_target_first() {
     post_chat(&rig, "").await;
     assert_eq!(called(&rig), vec![A], "dearer than the fallback, still first: no strategy, no reordering");
 }
+
+/// `CATALOG` with an answer ceiling of 200 tokens on the fallback `b` (the model's own is 1000).
+fn with_short_fallback() -> String {
+    CATALOG.replace("upstream_model = \"real-b\"", "upstream_model = \"real-b\"\nmax_tokens = 200")
+}
+
+#[tokio::test]
+async fn a_fallback_with_its_own_ceiling_is_sent_that_ceiling_and_the_main_target_the_models() {
+    let rig = rig_with(&with_short_fallback(), Script::Status(503), reply("real-b", 10, 10)).await;
+    let (status, _, body) = post_chat(&rig, "").await;
+    assert_eq!(status, 200, "{body}");
+    let calls = rig.upstream.calls();
+    assert_eq!(calls[0].body["max_tokens"], 1000, "the main target gets the model's ceiling");
+    assert_eq!(calls[1].body["max_tokens"], 200, "the fallback its own");
+}
+
+#[tokio::test]
+async fn a_ceiling_only_lowers_what_the_caller_asked_for() {
+    let rig = rig_with(&with_short_fallback(), Script::Status(503), reply("real-b", 10, 10)).await;
+    post_chat(&rig, r#","max_tokens":50"#).await;
+    let calls = rig.upstream.calls();
+    assert_eq!((calls[0].body["max_tokens"].as_u64(), calls[1].body["max_tokens"].as_u64()), (Some(50), Some(50)));
+}
+
+#[tokio::test]
+async fn an_answer_with_no_usage_from_a_short_fallback_is_charged_for_its_own_ceiling_not_the_models() {
+    // `b` answers with no `usage`, so the call is charged for the most it could have used: the prompt and *its* 200 tokens.
+    let no_usage = Script::Reply(json!({"model": "real-b", "choices": []}));
+    let rig = rig_with(&with_short_fallback(), Script::Status(503), no_usage).await;
+    let (status, _, body) = post_chat(&rig, "").await;
+    assert_eq!(status, 200, "{body}");
+    let request = json!({"model": "fast", "messages": [{"role": "user", "content": "hello there"}]});
+    let prompt = warden_gateway::estimate_prompt_tokens(&request);
+    let want = rig.catalog.model("fast").unwrap().price_at(1, Tokens { prompt, completion: 200 }).charged;
+    assert_eq!(rig.store.balance(&rig.account).unwrap(), CREDIT - want);
+}
+
+/// Books `cost` micro-USD on `target` (`<upstream>/<model>`) for catalog model `model`, `secs_ago` seconds back.
+fn burn_ago(rig: &Rig, id: &str, model: &str, target: &str, cost: i64, secs_ago: i64) {
+    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs() as i64;
+    let record = UsageRecord {
+        request_id: id.into(),
+        account_id: rig.account.clone(),
+        model: model.into(),
+        target: target.into(),
+        prompt_tokens: 0,
+        completion_tokens: 0,
+        cost,
+        charged: 0,
+        ok: true,
+    };
+    rig.store.settle(&record, now - secs_ago).unwrap();
+}
+
+#[tokio::test]
+async fn a_provider_over_its_hourly_budget_is_skipped_and_comes_back_once_the_hour_has_passed() {
+    let text = CATALOG.replace("id = \"a\"", "id = \"a\"\nhourly_budget_usd = 1.0");
+    let rig = rig_with(&text, reply("real-a", 100, 50), reply("real-b", 100, 50)).await;
+    burn_ago(&rig, "recent", "fast", "a/real-a", 1_000_000, 600); // ten minutes back: in the hour
+    post_chat(&rig, "").await;
+    assert_eq!(called(&rig), vec![B], "a is out for the hour");
+
+    let rig = rig_with(&text, reply("real-a", 100, 50), reply("real-b", 100, 50)).await;
+    burn_ago(&rig, "old", "fast", "a/real-a", 1_000_000, 4_000); // an hour and six minutes back: out of the window
+    post_chat(&rig, "").await;
+    assert_eq!(called(&rig), vec![A], "a is back");
+}
+
+#[tokio::test]
+async fn a_model_over_its_daily_budget_is_refused_with_503_and_another_model_is_not() {
+    let text = format!(
+        "{}\n[[models]]\nname = \"other\"\nupstream = \"b\"\nupstream_model = \"real-o\"\ncost_in = 1.0\ncost_out = 2.0\n",
+        CATALOG.replace("name = \"fast\"", "name = \"fast\"\ndaily_budget_usd = 1.0")
+    );
+    let rig = rig_with(&text, reply("real-a", 100, 50), reply("real-b", 100, 50)).await;
+    burn_ago(&rig, "spent", "fast", "b/real-b", 1_000_000, 10);
+    let (status, _, body) = post_chat(&rig, "").await;
+    assert_eq!(status, 503, "{body}");
+    assert_eq!(serde_json::from_str::<Value>(&body).unwrap()["error"]["code"], "model_budget_exhausted", "{body}");
+    assert!(called(&rig).is_empty());
+    nothing_charged(&rig);
+
+    // The other model is not touched by it.
+    let mut other = TcpStream::connect(rig.addr).await.unwrap();
+    let ask = r#"{"model":"other","messages":[{"role":"user","content":"hi"}]}"#;
+    let request = format!("POST /v1/chat/completions HTTP/1.1\r\nHost: x\r\nAuthorization: Bearer {}\r\nContent-Length: {}\r\n\r\n{ask}", rig.token, ask.len());
+    other.write_all(request.as_bytes()).await.unwrap();
+    let mut raw = String::new();
+    other.read_to_string(&mut raw).await.unwrap();
+    assert!(raw.starts_with("HTTP/1.1 200"), "{raw}");
+}
+
+#[tokio::test]
+async fn a_models_budget_does_not_count_yesterdays_spending() {
+    let text = CATALOG.replace("name = \"fast\"", "name = \"fast\"\ndaily_budget_usd = 1.0");
+    let rig = rig_with(&text, reply("real-a", 100, 50), reply("real-b", 1, 1)).await;
+    burn_ago(&rig, "yesterday", "fast", "a/real-a", 50_000_000, 2 * 86_400);
+    let (status, _, body) = post_chat(&rig, "").await;
+    assert_eq!(status, 200, "{body}");
+}

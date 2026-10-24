@@ -210,6 +210,12 @@ CREATE TABLE IF NOT EXISTS usage_events (
     created_at INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS usage_events_account_time ON usage_events(account_id, created_at);
+CREATE INDEX IF NOT EXISTS usage_events_model_time ON usage_events(model, created_at);
+CREATE TABLE IF NOT EXISTS target_latency (
+    label TEXT PRIMARY KEY,
+    avg_ms REAL NOT NULL,
+    updated_at INTEGER NOT NULL
+);
 CREATE TABLE IF NOT EXISTS webhook_outbox (
     id TEXT PRIMARY KEY,
     account_id TEXT NOT NULL REFERENCES accounts(id),
@@ -658,6 +664,36 @@ impl Store {
             params![format!("{upstream_id}/"), format!("{upstream_id}0"), since],
             |r| r.get(0),
         )?)
+    }
+
+    /// What the gateway itself paid for calls to catalog model `model` (their `cost`) at or after `since`.
+    pub fn spent_on_model_since(&self, model: &str, since: i64) -> Result<Micros> {
+        let conn = self.lock();
+        Ok(conn.query_row(
+            "SELECT COALESCE(SUM(cost), 0) FROM usage_events WHERE model = ?1 AND created_at >= ?2",
+            params![model, since],
+            |r| r.get(0),
+        )?)
+    }
+
+    /// Keeps the moving average of how long a target takes to answer (`balance::Balancer`), so `fastest` does not start from
+    /// nothing after a restart.
+    pub fn save_latency(&self, label: &str, avg_ms: f64, now: i64) -> Result<()> {
+        let conn = self.lock();
+        conn.execute(
+            "INSERT INTO target_latency (label, avg_ms, updated_at) VALUES (?1, ?2, ?3)
+             ON CONFLICT(label) DO UPDATE SET avg_ms = excluded.avg_ms, updated_at = excluded.updated_at",
+            params![label, avg_ms, now],
+        )?;
+        Ok(())
+    }
+
+    /// The saved averages that were updated at or after `since`: an older one says nothing about the provider today.
+    pub fn load_latencies(&self, since: i64) -> Result<Vec<(String, f64)>> {
+        let conn = self.lock();
+        let mut stmt = conn.prepare("SELECT label, avg_ms FROM target_latency WHERE updated_at >= ?1")?;
+        let rows = stmt.query_map(params![since], |r| Ok((r.get::<_, String>(0)?, r.get::<_, f64>(1)?)))?;
+        Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
     }
 
     /// What the account was charged at or after `since` (unix seconds): the number the spend caps compare against.
@@ -1354,6 +1390,36 @@ mod tests {
         assert_eq!(store.spent_on_upstream_since("a", NOW - 2_000).unwrap(), 1_700);
         assert_eq!(store.spent_on_upstream_since("ab", NOW).unwrap(), 4_500);
         assert_eq!(store.spent_on_upstream_since("nobody", NOW - 10_000).unwrap(), 0);
+    }
+
+    #[test]
+    fn what_a_model_cost_counts_only_that_model_and_only_since_the_given_time() {
+        let (store, account, _) = store_with_balance(10_000_000);
+        let settle_model = |id: &str, model: &str, charged: Micros, at: i64| {
+            store.place_hold(&account.id, id, charged, 60, at).unwrap();
+            let mut rec = record(&account, id, charged);
+            rec.model = model.into();
+            store.settle(&rec, at).unwrap();
+        };
+        settle_model("r1", "fast", 1_000, NOW); // cost 500
+        settle_model("r2", "fast", 600, NOW + 5); // cost 300
+        settle_model("r3", "faster", 9_000, NOW + 6); // a different model whose name starts the same
+        settle_model("r4", "fast", 4_000, NOW - 5_000); // before the window
+        assert_eq!(store.spent_on_model_since("fast", NOW).unwrap(), 800);
+        assert_eq!(store.spent_on_model_since("fast", NOW - 10_000).unwrap(), 2_800);
+        assert_eq!(store.spent_on_model_since("nothing", 0).unwrap(), 0);
+    }
+
+    #[test]
+    fn target_latencies_are_saved_replaced_and_read_back_only_if_recent() {
+        let store = Store::open_in_memory().unwrap();
+        store.save_latency("a/ra", 120.0, NOW).unwrap();
+        store.save_latency("a/ra", 90.0, NOW + 10).unwrap(); // the same target: replaced, not added
+        store.save_latency("b/rb", 300.0, NOW - 5_000).unwrap();
+        let mut now_on = store.load_latencies(NOW).unwrap();
+        now_on.sort_by(|a, b| a.0.cmp(&b.0));
+        assert_eq!(now_on, vec![("a/ra".to_string(), 90.0)]);
+        assert_eq!(store.load_latencies(NOW - 10_000).unwrap().len(), 2);
     }
 
     fn target_of(store: &Store, request_id: &str) -> Option<String> {

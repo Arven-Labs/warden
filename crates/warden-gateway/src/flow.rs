@@ -35,6 +35,8 @@ pub enum GatewayError {
     DuplicateRequest,
     /// Every provider that could answer this model has spent its daily budget.
     ProviderBudgetExhausted,
+    /// The model has spent its daily budget.
+    ModelBudgetExhausted,
     Store(StoreError),
 }
 
@@ -50,6 +52,7 @@ impl std::fmt::Display for GatewayError {
             GatewayError::QuotaExceeded(cap) => write!(f, "the account's {} spend cap was reached", cap.name()),
             GatewayError::DuplicateRequest => write!(f, "duplicate request id"),
             GatewayError::ProviderBudgetExhausted => write!(f, "this model is out of capacity for today; try again later or use another model"),
+            GatewayError::ModelBudgetExhausted => write!(f, "this model is out of capacity for today; try again tomorrow or use another model"),
             GatewayError::Store(e) => write!(f, "{e}"),
         }
     }
@@ -122,7 +125,8 @@ fn new_request_id() -> String {
 
 impl Gateway {
     pub fn new(store: Arc<Store>, catalog: Arc<Catalog>) -> Gateway {
-        Gateway { store, catalog, hold_ttl_secs: DEFAULT_HOLD_TTL_SECS, balancer: Arc::new(Balancer::new()) }
+        let balancer = Arc::new(Balancer::with_store(store.clone()));
+        Gateway { store, catalog, hold_ttl_secs: DEFAULT_HOLD_TTL_SECS, balancer }
     }
 
     /// Who starts a call, and how fast each target has been answering.
@@ -171,13 +175,28 @@ impl Gateway {
             let model = catalog.model(&req.model).ok_or_else(|| GatewayError::UnknownModel(req.model.clone()))?.clone();
             let max_tokens = model.effective_max_tokens(req.max_tokens);
             let prompt_tokens_estimate = req.prompt_tokens;
-            // A provider that has spent its day's budget is out of the call; the rest take it in their order.
             let day = quota::day_start(req.now);
+            // A model that has spent its day's budget takes no more calls, whichever provider would answer.
+            if let Some(budget) = model.daily_budget {
+                if store.spent_on_model_since(&model.name, day)? >= budget {
+                    return Err(GatewayError::ModelBudgetExhausted);
+                }
+            }
+            // A provider that has spent its day's or its last hour's budget is out of the call; the rest take it in their order.
             let mut available = Vec::new();
             for (i, target) in model.targets().iter().enumerate() {
-                let budget = catalog.upstream(&target.upstream).and_then(|u| u.daily_budget.map(|b| (u.id.clone(), b)));
-                let within = match budget {
-                    Some((id, budget)) => store.spent_on_upstream_since(&id, day)? < budget,
+                let within = match catalog.upstream(&target.upstream) {
+                    Some(u) => {
+                        let day_ok = match u.daily_budget {
+                            Some(budget) => store.spent_on_upstream_since(&u.id, day)? < budget,
+                            None => true,
+                        };
+                        let hour_ok = match u.hourly_budget {
+                            Some(budget) => store.spent_on_upstream_since(&u.id, req.now - quota::HOUR_SECS)? < budget,
+                            None => true,
+                        };
+                        day_ok && hour_ok
+                    }
                     None => true,
                 };
                 if within {
@@ -219,7 +238,8 @@ impl Gateway {
             Outcome::Completed(t) => (t, res.model.price_at(target, t), true),
             Outcome::Failed(t) => (t, res.model.price_at(target, t), false),
             Outcome::Unmetered => {
-                let t = Tokens { prompt: res.prompt_tokens_estimate, completion: res.max_tokens as u64 };
+                // As much as that target could have answered: its own ceiling, if it has a lower one.
+                let t = Tokens { prompt: res.prompt_tokens_estimate, completion: res.model.target_cap(target, res.max_tokens) as u64 };
                 (t, res.model.price_at(target, t), false)
             }
         };

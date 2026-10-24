@@ -9,16 +9,26 @@
 //! average of the time each target took to answer for `fastest`.
 
 use std::collections::HashMap;
-use std::sync::Mutex;
-use std::time::Duration;
+use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use rand::Rng;
 
 use crate::catalog::{ModelEntry, Strategy, Tokens};
+use crate::store::Store;
 
 /// How much a new measurement counts against the average so far: recent enough to follow a provider that slowed down, steady
 /// enough that one odd answer does not flip the order.
 const LATENCY_WEIGHT: f64 = 0.3;
+/// What a target that just failed counts as being slower than its average, for `fastest`: far enough back that it is not
+/// tried first, and its average alone could not bring it back (a target nobody tries is never measured again).
+const FAILURE_PENALTY_MS: f64 = 60_000.0;
+/// How long a failure is held against a target; after that it is judged on its average again.
+const FAILURE_WINDOW: Duration = Duration::from_secs(5 * 60);
+/// A target's average is written to the ledger at most this often.
+const SAVE_EVERY: Duration = Duration::from_secs(30);
+/// A saved average older than this is not read back at start: it says nothing about the provider today.
+const SAVED_FOR_SECS: i64 = 24 * 3600;
 
 #[derive(Default)]
 pub struct Balancer {
@@ -26,6 +36,12 @@ pub struct Balancer {
     turns: Mutex<HashMap<String, u64>>,
     /// Moving average of the milliseconds a target took to answer, by `Target::label`.
     latency: Mutex<HashMap<String, f64>>,
+    /// When a target last failed on the provider's side, by label.
+    failures: Mutex<HashMap<String, Instant>>,
+    /// Where the averages are kept between runs; `None` keeps them in memory only.
+    store: Option<Arc<Store>>,
+    /// When each average was last written to `store`.
+    saved: Mutex<HashMap<String, Instant>>,
 }
 
 fn locked<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
@@ -37,9 +53,25 @@ impl Balancer {
         Balancer::default()
     }
 
+    /// A balancer that keeps the averages in `store` and starts from the ones saved there in the last day.
+    pub fn with_store(store: Arc<Store>) -> Balancer {
+        let mut balancer = Balancer::default();
+        match store.load_latencies(unix_now() - SAVED_FOR_SECS) {
+            Ok(saved) => balancer.latency = Mutex::new(saved.into_iter().collect()),
+            Err(e) => tracing::warn!("could not read the saved target latencies: {e}"),
+        }
+        balancer.store = Some(store);
+        balancer
+    }
+
     /// `available` (indices into `model.targets()`, in declared order) in the order this call should try them. `used` is the
     /// call's worst case, which `cheapest` prices.
     pub fn order(&self, model: &ModelEntry, available: Vec<usize>, used: Tokens) -> Vec<usize> {
+        self.order_at(model, available, used, Instant::now())
+    }
+
+    /// `order`, with the clock handed in so a test can say how long ago a target failed.
+    fn order_at(&self, model: &ModelEntry, available: Vec<usize>, used: Tokens, now: Instant) -> Vec<usize> {
         // One target, or the order as written: nothing to decide, and nothing to remember.
         if available.len() < 2 || model.strategy == Strategy::Ordered {
             return available;
@@ -54,16 +86,71 @@ impl Balancer {
             0
         };
         let mut rng = rand::thread_rng();
-        let latency = locked(&self.latency).clone();
+        let mut latency = locked(&self.latency).clone();
+        if model.strategy == Strategy::Fastest {
+            // A target that failed lately is held back by a penalty, and one never measured counts as the penalty alone.
+            for (label, at) in locked(&self.failures).iter() {
+                if now.saturating_duration_since(*at) < FAILURE_WINDOW {
+                    *latency.entry(label.clone()).or_insert(0.0) += FAILURE_PENALTY_MS;
+                }
+            }
+        }
         order(model, available, used, turn, &mut || rng.gen::<f64>(), &|label| latency.get(label).copied())
     }
 
     /// A target answered after `elapsed` (for a stream: until it opened). Feeds `fastest`.
     pub fn record(&self, label: &str, elapsed: Duration) {
         let sample = elapsed.as_secs_f64() * 1000.0;
-        let mut latency = locked(&self.latency);
-        latency.entry(label.to_string()).and_modify(|avg| *avg = *avg * (1.0 - LATENCY_WEIGHT) + sample * LATENCY_WEIGHT).or_insert(sample);
+        let avg = {
+            let mut latency = locked(&self.latency);
+            match latency.get_mut(label) {
+                // A later sample moves the average.
+                Some(avg) => {
+                    *avg = *avg * (1.0 - LATENCY_WEIGHT) + sample * LATENCY_WEIGHT;
+                    *avg
+                }
+                // The first one is the average.
+                None => {
+                    latency.insert(label.to_string(), sample);
+                    sample
+                }
+            }
+        };
+        self.save(label, avg);
     }
+
+    /// A target failed on the provider's side (down, limiting us, our key refused...). For `fastest`, it is held back for a while.
+    pub fn record_failure(&self, label: &str) {
+        self.record_failure_at(label, Instant::now());
+    }
+
+    fn record_failure_at(&self, label: &str, at: Instant) {
+        locked(&self.failures).insert(label.to_string(), at);
+    }
+
+    /// Writes the average to the ledger, off the call's way and at most every `SAVE_EVERY` per target. Failing to is only logged:
+    /// the average is still in memory.
+    fn save(&self, label: &str, avg_ms: f64) {
+        let Some(store) = &self.store else { return };
+        let Ok(runtime) = tokio::runtime::Handle::try_current() else { return };
+        {
+            let mut saved = locked(&self.saved);
+            if saved.get(label).is_some_and(|at| at.elapsed() < SAVE_EVERY) {
+                return;
+            }
+            saved.insert(label.to_string(), Instant::now());
+        }
+        let (store, label) = (store.clone(), label.to_string());
+        runtime.spawn_blocking(move || {
+            if let Err(e) = store.save_latency(&label, avg_ms, unix_now()) {
+                tracing::warn!("could not save the latency of {label}: {e}");
+            }
+        });
+    }
+}
+
+fn unix_now() -> i64 {
+    SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs() as i64).unwrap_or(0)
 }
 
 /// The ordering itself, with the turn counter, the dice and the measured latencies handed in so a test can fix them.
@@ -81,7 +168,7 @@ pub fn order(
     match model.strategy {
         Strategy::Ordered => {}
         // A stable sort: targets that cost the same keep the order they were written in.
-        Strategy::Cheapest => list.sort_by_key(|&i| model.price_at(i, used).cost),
+        Strategy::Cheapest => list.sort_by_key(|&i| model.worst_case_at(i, used).cost),
         Strategy::RoundRobin => {
             let by = (turn % list.len().max(1) as u64) as usize;
             list.rotate_left(by);
@@ -294,6 +381,99 @@ cost_out = 1.0
         balancer.record("a/ra", Duration::from_millis(200));
         let avg = locked(&balancer.latency)["a/ra"];
         assert!((avg - 130.0).abs() < 1e-9, "100 * 0.7 + 200 * 0.3, got {avg}");
+    }
+
+    fn long_ago(secs: u64) -> Instant {
+        Instant::now().checked_sub(Duration::from_secs(secs)).expect("the machine has been up for a few minutes")
+    }
+
+    #[test]
+    fn a_target_that_failed_lately_goes_last_on_fastest_even_if_never_measured() {
+        let balancer = Balancer::new();
+        let m = model("fastest", [1; 3]);
+        balancer.record("a/ra", Duration::from_millis(400));
+        balancer.record("b/rb", Duration::from_millis(100));
+        // c has never answered, so it would go first; failing puts it behind targets that work.
+        assert_eq!(balancer.order(&m, vec![0, 1, 2], USED)[0], 2);
+        balancer.record_failure("c/rc");
+        assert_eq!(balancer.order(&m, vec![0, 1, 2], USED), vec![1, 0, 2]);
+    }
+
+    #[test]
+    fn a_failure_is_held_against_a_target_for_a_while_and_then_forgotten() {
+        let balancer = Balancer::new();
+        let m = model("fastest", [1; 3]);
+        balancer.record("a/ra", Duration::from_millis(100));
+        balancer.record("b/rb", Duration::from_millis(200));
+        balancer.record("c/rc", Duration::from_millis(300));
+        balancer.record_failure_at("a/ra", long_ago(60));
+        assert_eq!(balancer.order(&m, vec![0, 1, 2], USED), vec![1, 2, 0], "a minute on, still behind the others");
+        balancer.record_failure_at("a/ra", long_ago(301));
+        assert_eq!(balancer.order(&m, vec![0, 1, 2], USED), vec![0, 1, 2], "after five minutes the average decides again");
+    }
+
+    #[test]
+    fn a_success_does_not_wipe_a_recent_failure_only_time_does() {
+        let balancer = Balancer::new();
+        let m = model("fastest", [1; 3]);
+        balancer.record("a/ra", Duration::from_millis(100));
+        balancer.record("b/rb", Duration::from_millis(200));
+        balancer.record("c/rc", Duration::from_millis(300));
+        balancer.record_failure("a/ra");
+        balancer.record("a/ra", Duration::from_millis(50));
+        assert_eq!(balancer.order(&m, vec![0, 1, 2], USED)[2], 0);
+    }
+
+    #[test]
+    fn a_failure_changes_nothing_for_the_other_strategies() {
+        let balancer = Balancer::new();
+        balancer.record_failure("a/ra");
+        balancer.record_failure("b/rb");
+        assert_eq!(balancer.order(&model("ordered", [1; 3]), vec![0, 1, 2], USED), vec![0, 1, 2]);
+        assert_eq!(balancer.order(&model("cheapest", [1; 3]), vec![0, 1, 2], USED), vec![1, 0, 2]);
+    }
+
+    #[test]
+    fn a_balancer_with_a_store_starts_from_the_averages_saved_in_the_last_day() {
+        let store = Arc::new(Store::open_in_memory().unwrap());
+        store.save_latency("a/ra", 50.0, unix_now() - 3600).unwrap();
+        store.save_latency("b/rb", 70.0, unix_now() - 3 * 24 * 3600).unwrap(); // too old to say anything about today
+        let balancer = Balancer::with_store(store);
+        let latency = locked(&balancer.latency);
+        assert_eq!(latency.get("a/ra"), Some(&50.0));
+        assert_eq!(latency.get("b/rb"), None);
+    }
+
+    /// Waits (up to two seconds) for the background write to land, then returns what the store holds.
+    async fn saved_after_a_moment(store: &Store, label: &str) -> Option<f64> {
+        for _ in 0..40 {
+            if let Some((_, avg)) = store.load_latencies(0).unwrap().into_iter().find(|(l, _)| l == label) {
+                return Some(avg);
+            }
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+        None
+    }
+
+    #[tokio::test]
+    async fn an_answer_is_written_to_the_store_and_the_next_one_within_half_a_minute_is_not() {
+        let store = Arc::new(Store::open_in_memory().unwrap());
+        let balancer = Balancer::with_store(store.clone());
+        balancer.record("a/ra", Duration::from_millis(100));
+        assert_eq!(saved_after_a_moment(&store, "a/ra").await, Some(100.0));
+        balancer.record("a/ra", Duration::from_millis(200));
+        tokio::time::sleep(Duration::from_millis(200)).await;
+        assert_eq!(store.load_latencies(0).unwrap(), vec![("a/ra".to_string(), 100.0)], "throttled: the 130 ms average stays in memory");
+        assert!((locked(&balancer.latency)["a/ra"] - 130.0).abs() < 1e-9);
+    }
+
+    #[tokio::test]
+    async fn a_second_balancer_on_the_same_store_picks_up_what_the_first_measured() {
+        let store = Arc::new(Store::open_in_memory().unwrap());
+        Balancer::with_store(store.clone()).record("b/rb", Duration::from_millis(40));
+        assert_eq!(saved_after_a_moment(&store, "b/rb").await, Some(40.0));
+        let again = Balancer::with_store(store);
+        assert_eq!(locked(&again.latency).get("b/rb"), Some(&40.0));
     }
 
     #[test]

@@ -31,7 +31,9 @@
 //! With fallbacks, `strategy` on the model says who starts a call: `ordered` (the default, the order written), `cheapest` (least
 //! cost to the gateway), `round_robin`, `weighted` (a random start by each target's `weight`, on the model and on each
 //! `[[models.fallback]]`) or `fastest` (the one answering quickest lately). The rest follow as fallbacks, and a provider over its
-//! `daily_budget_usd` is out of it altogether.
+//! `daily_budget_usd` (or `hourly_budget_usd`, over any rolling hour) is out of it altogether. A `[[models.fallback]]` may set a
+//! `max_tokens` of its own under the model's, and a model a `daily_budget_usd` of its own: once the gateway has spent that on
+//! it today, whichever provider answered, calls to it are refused with a 503.
 
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
@@ -69,12 +71,16 @@ struct RawUpstream {
     api_key_file: Option<String>,
     /// What the gateway may spend on this provider per UTC day, in USD, at its own cost. Left out: no limit.
     daily_budget_usd: Option<f64>,
+    /// The same over any rolling hour.
+    hourly_budget_usd: Option<f64>,
 }
 
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct RawModel {
     name: String,
+    /// What the gateway may spend on this model per UTC day, in USD, at its own cost, whichever target answers. Left out: no limit.
+    daily_budget_usd: Option<f64>,
     upstream: String,
     upstream_model: String,
     cost_in: f64,
@@ -101,6 +107,8 @@ struct RawFallback {
     sale_in: Option<f64>,
     sale_out: Option<f64>,
     weight: Option<u32>,
+    /// A ceiling on the answer for this target, under the model's own.
+    max_tokens: Option<u32>,
 }
 
 /// A provider endpoint the gateway forwards to (an OpenAI-compatible `base_url`).
@@ -113,6 +121,8 @@ pub struct Upstream {
     /// The most the gateway spends on this provider in a UTC day (micro-USD of cost). Once the day's spend has reached it, the
     /// provider is skipped and the next target of the model answers. It is a soft limit: calls already under way finish.
     pub daily_budget: Option<Micros>,
+    /// The same over any rolling hour, so a burst can be held down without waiting for the day's total.
+    pub hourly_budget: Option<Micros>,
 }
 
 /// Prices are micro-USD per million tokens.
@@ -127,6 +137,9 @@ pub struct ModelEntry {
     pub sale_out: Micros,
     /// The most an answer may have; the hold for a call is sized with it.
     pub max_tokens: u32,
+    /// The most the gateway spends on this model, whichever target answers, in a UTC day (micro-USD of cost). Once reached, calls
+    /// to it are refused (503) until the next day. Soft, like a provider's.
+    pub daily_budget: Option<Micros>,
     /// Which target a call tries first; with no fallbacks it makes no difference.
     pub strategy: Strategy,
     /// The main target's `weight` (the fallbacks' are in their `Target`s).
@@ -147,6 +160,9 @@ pub struct Target {
     pub sale_out: Micros,
     /// Its share of the calls under the `weighted` strategy (1 when not written; it means nothing to the other strategies).
     pub weight: u32,
+    /// A ceiling on the answer for this target alone, under the model's (a fallback that is cheap because it is short). The main
+    /// target has none of its own: the model's `max_tokens` is its ceiling.
+    pub max_tokens: Option<u32>,
 }
 
 /// Which target of a model a call tries first; the rest follow as fallbacks. A provider that is out of budget never takes part.
@@ -191,6 +207,11 @@ impl Strategy {
 }
 
 impl Target {
+    /// The answer ceiling for a call to this target: the call's, or the target's own when that is lower.
+    pub fn cap(&self, requested: u32) -> u32 {
+        self.max_tokens.map_or(requested, |own| requested.min(own))
+    }
+
     /// What a call really used, priced both ways.
     pub fn price(&self, used: Tokens) -> Priced {
         Priced {
@@ -233,6 +254,19 @@ fn usd_to_micros(field: &str, usd: f64) -> Result<Micros, String> {
     Ok((usd * MICROS_PER_USD).round() as Micros)
 }
 
+/// A spending ceiling written in USD, in micro-USD; left out means no ceiling, and zero or less is an error (a ceiling of nothing
+/// would be a provider or model nobody can use, which is what leaving it out of the catalog is for).
+fn budget(owner: &str, field: &str, usd: Option<f64>) -> Result<Option<Micros>, String> {
+    match usd {
+        None => Ok(None),
+        Some(usd) => match usd_to_micros(field, usd) {
+            Ok(0) => Err(format!("catalog: {owner}: `{field}` must be more than zero (leave it out for no limit)")),
+            Ok(micros) => Ok(Some(micros)),
+            Err(e) => Err(format!("catalog: {owner}: {e}")),
+        },
+    }
+}
+
 /// `tokens × price_per_million`, rounded up to the next micro-USD, in 128-bit so nothing overflows.
 fn charge(tokens: u64, price_per_million: Micros) -> Micros {
     let total = tokens as i128 * price_per_million as i128;
@@ -268,7 +302,7 @@ fn priced_target(
     if sale_in < cost_in || sale_out < cost_out {
         return Err(format!("catalog: {label} would sell below its cost"));
     }
-    Ok(Target { upstream, upstream_model, cost_in, cost_out, sale_in, sale_out, weight: 1 })
+    Ok(Target { upstream, upstream_model, cost_in, cost_out, sale_in, sale_out, weight: 1, max_tokens: None })
 }
 
 impl Catalog {
@@ -304,15 +338,10 @@ impl Catalog {
             if u.id.contains('/') {
                 return Err(format!("catalog: upstream id `{}` cannot contain `/`", u.id));
             }
-            let daily_budget = match u.daily_budget_usd {
-                None => None,
-                Some(usd) => match usd_to_micros("daily_budget_usd", usd) {
-                    Ok(0) => return Err(format!("catalog: upstream `{}`: `daily_budget_usd` must be more than zero (leave it out for no limit)", u.id)),
-                    Ok(micros) => Some(micros),
-                    Err(e) => return Err(format!("catalog: upstream `{}`: {e}", u.id)),
-                },
-            };
-            upstreams.push(Upstream { id: u.id, base_url: u.base_url.trim_end_matches('/').to_string(), api_key, daily_budget });
+            let owner = format!("upstream `{}`", u.id);
+            let daily_budget = budget(&owner, "daily_budget_usd", u.daily_budget_usd)?;
+            let hourly_budget = budget(&owner, "hourly_budget_usd", u.hourly_budget_usd)?;
+            upstreams.push(Upstream { id: u.id, base_url: u.base_url.trim_end_matches('/').to_string(), api_key, daily_budget, hourly_budget });
         }
 
         let mut models = Vec::new();
@@ -336,6 +365,7 @@ impl Catalog {
             if max_tokens == 0 {
                 return Err(format!("catalog: model `{}` has max_tokens = 0", m.name));
             }
+            let daily_budget = budget(&format!("model `{}`", m.name), "daily_budget_usd", m.daily_budget_usd)?;
             let strategy = match m.strategy.as_deref() {
                 None => Strategy::Ordered,
                 Some(text) => Strategy::parse(text)
@@ -358,6 +388,10 @@ impl Catalog {
                 let label = format!("model `{}` fallback `{}/{}`", m.name, f.upstream, f.upstream_model);
                 let mut target = priced_target(&label, f.upstream, f.upstream_model, (f.cost_in, f.cost_out), (f.sale_in, f.sale_out), margin)?;
                 target.weight = f.weight.unwrap_or(1);
+                if f.max_tokens == Some(0) {
+                    return Err(format!("catalog: {label} has max_tokens = 0"));
+                }
+                target.max_tokens = f.max_tokens;
                 if target.label() == main.label() || fallbacks.iter().any(|t| t.label() == target.label()) {
                     return Err(format!("catalog: model `{}` lists `{}` twice", m.name, target.label()));
                 }
@@ -372,6 +406,7 @@ impl Catalog {
                 sale_in: main.sale_in,
                 sale_out: main.sale_out,
                 max_tokens,
+                daily_budget,
                 strategy,
                 weight,
                 fallbacks,
@@ -420,6 +455,7 @@ impl ModelEntry {
             sale_in: self.sale_in,
             sale_out: self.sale_out,
             weight: self.weight,
+            max_tokens: None,
         }
     }
 
@@ -439,18 +475,28 @@ impl ModelEntry {
     /// The worst a call could cost and charge: each figure is the largest over the targets, because any of them might answer.
     /// This is what is held before the call; the customer then pays the price of the one that did.
     pub fn worst_price(&self, used: Tokens) -> Priced {
-        self.fallbacks.iter().map(|t| t.price(used)).fold(self.price(used), |worst, p| Priced {
+        let all: Vec<usize> = (0..=self.fallbacks.len()).collect();
+        self.worst_price_among(&all, used)
+    }
+
+    /// `worst_price` over only some of the targets (by their index in `targets()`): the ones a provider's budget left standing.
+    pub fn worst_price_among(&self, among: &[usize], used: Tokens) -> Priced {
+        among.iter().map(|&i| self.worst_case_at(i, used)).fold(Priced { cost: 0, charged: 0 }, |worst, p| Priced {
             cost: worst.cost.max(p.cost),
             charged: worst.charged.max(p.charged),
         })
     }
 
-    /// `worst_price` over only some of the targets (by their index in `targets()`): the ones a provider's budget left standing.
-    pub fn worst_price_among(&self, among: &[usize], used: Tokens) -> Priced {
-        among.iter().map(|&i| self.price_at(i, used)).fold(Priced { cost: 0, charged: 0 }, |worst, p| Priced {
-            cost: worst.cost.max(p.cost),
-            charged: worst.charged.max(p.charged),
-        })
+    /// What `used` would cost at target `index` if its answer is held to that target's own ceiling: the price a call that runs
+    /// to the limit has there (`used.completion` is the call's ceiling; a target with a lower one cannot go past it).
+    pub fn worst_case_at(&self, index: usize, used: Tokens) -> Priced {
+        let capped = Tokens { prompt: used.prompt, completion: self.target_cap(index, used.completion as u32).into() };
+        self.price_at(index, capped)
+    }
+
+    /// The answer ceiling for target `index`: the call's, or the target's own when that is lower.
+    pub fn target_cap(&self, index: usize, requested: u32) -> u32 {
+        index.checked_sub(1).and_then(|n| self.fallbacks.get(n)).map_or(requested, |t| t.cap(requested))
     }
 }
 
@@ -566,6 +612,29 @@ cost_out = 2.0
         for bad in ["0", "0.0", "-1"] {
             let err = parse(&WITH_BUDGET.replace("2.5", bad)).unwrap_err();
             assert!(err.contains("upstream `a`") && err.contains("daily_budget_usd"), "{bad}: {err}");
+        }
+    }
+
+    #[test]
+    fn an_hourly_budget_for_a_provider_and_a_daily_one_for_a_model_are_read_in_micro_usd() {
+        let text = WITH_BUDGET
+            .replace("daily_budget_usd = 2.5", "daily_budget_usd = 2.5\nhourly_budget_usd = 0.4")
+            .replace("name = \"fast\"", "name = \"fast\"\ndaily_budget_usd = 7.25");
+        let catalog = parse(&text).unwrap();
+        let a = catalog.upstream("a").unwrap();
+        assert_eq!((a.daily_budget, a.hourly_budget), (Some(2_500_000), Some(400_000)));
+        assert_eq!(catalog.upstream("b").unwrap().hourly_budget, None);
+        assert_eq!(catalog.model("fast").unwrap().daily_budget, Some(7_250_000));
+        assert_eq!(parse(WITH_BUDGET).unwrap().model("fast").unwrap().daily_budget, None);
+    }
+
+    #[test]
+    fn a_zero_or_negative_hourly_or_model_budget_is_an_error_naming_who_has_it() {
+        for bad in ["0", "-3"] {
+            let hourly = parse(&WITH_BUDGET.replace("daily_budget_usd = 2.5", &format!("hourly_budget_usd = {bad}"))).unwrap_err();
+            assert!(hourly.contains("upstream `a`") && hourly.contains("hourly_budget_usd"), "{bad}: {hourly}");
+            let model = parse(&WITH_BUDGET.replace("name = \"fast\"", &format!("name = \"fast\"\ndaily_budget_usd = {bad}"))).unwrap_err();
+            assert!(model.contains("model `fast`") && model.contains("daily_budget_usd"), "{bad}: {model}");
         }
     }
 
@@ -746,6 +815,24 @@ sale_out = 9.0
         // With nothing dearer than the main target, the worst case is the main target.
         let single = parse(SAMPLE).unwrap().model("warden-fast").unwrap().clone();
         assert_eq!(single.worst_price(used), single.price(used));
+    }
+
+    #[test]
+    fn a_fallback_can_have_a_lower_answer_ceiling_of_its_own() {
+        let m = parse(&format!("{WITH_FALLBACK}max_tokens = 100\n")).unwrap().models.remove(0);
+        assert_eq!(m.targets().iter().map(|t| t.max_tokens).collect::<Vec<_>>(), vec![None, Some(100)]);
+        assert_eq!((m.target_cap(0, 4096), m.target_cap(1, 4096), m.target_cap(1, 50)), (4096, 100, 50), "a ceiling only lowers");
+        // The hold sizes each target's answer to its own ceiling: here the fallback is dearer per token but short.
+        let used = Tokens { prompt: 1_000_000, completion: 1_000_000 };
+        assert_eq!(m.worst_case_at(1, used), m.price_at(1, Tokens { prompt: 1_000_000, completion: 100 }));
+        assert_eq!(m.worst_case_at(0, used), m.price_at(0, used));
+        assert_eq!(m.worst_price(used), m.worst_case_at(0, used), "the main target is the dearest once the fallback is held to 100 tokens");
+    }
+
+    #[test]
+    fn a_ceiling_of_zero_on_a_fallback_is_an_error_naming_it() {
+        let err = parse(&format!("{WITH_FALLBACK}max_tokens = 0\n")).unwrap_err();
+        assert!(err.contains("fallback `b/real-b`") && err.contains("max_tokens = 0"), "{err}");
     }
 
     #[test]

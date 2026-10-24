@@ -377,14 +377,20 @@ async fn main() -> Result<()> {
             println!("{} upstream(s), {} model(s)", catalog.upstreams.len(), catalog.models.len());
             for u in &catalog.upstreams {
                 let state = if u.api_key.get().is_some() { "key found" } else { "NO KEY" };
-                let budget = u.daily_budget.map_or("no daily budget".to_string(), |b| format!("daily budget {} USD", format_usd(b)));
-                println!("upstream {:<16} {}   key: {} ({state})   {budget}", u.id, u.base_url, u.api_key.origin());
+                let budget = |label: &str, b: Option<Micros>| b.map_or(format!("no {label} budget"), |b| format!("{label} budget {} USD", format_usd(b)));
+                println!(
+                    "upstream {:<16} {}   key: {} ({state})   {}, {}",
+                    u.id, u.base_url, u.api_key.origin(), budget("daily", u.daily_budget), budget("hourly", u.hourly_budget)
+                );
             }
             for m in &catalog.models {
                 println!(
                     "{:<20} -> {}/{}   cost {}/{}   sale {}/{}   (USD per million tokens, in/out)   max {} tokens",
                     m.name, m.upstream, m.upstream_model, format_usd(m.cost_in), format_usd(m.cost_out), format_usd(m.sale_in), format_usd(m.sale_out), m.max_tokens
                 );
+                if let Some(b) = m.daily_budget {
+                    println!("{:<20}    daily budget {} USD (the gateway's cost, whichever provider answers)", "", format_usd(b));
+                }
                 let weighted = m.strategy == warden_gateway::catalog::Strategy::Weighted;
                 if !m.fallbacks.is_empty() {
                     let main_weight = if weighted { format!("   weight {}", m.weight) } else { String::new() };
@@ -392,6 +398,10 @@ async fn main() -> Result<()> {
                 }
                 for (n, f) in m.fallbacks.iter().enumerate() {
                     let weight = if weighted { format!("   weight {}", f.weight) } else { String::new() };
+                    let weight = match f.max_tokens {
+                        Some(own) => format!("{weight}   max {own} tokens"),
+                        None => weight,
+                    };
                     println!(
                         "{:<20}    fallback {} -> {}/{}   cost {}/{}   sale {}/{}{weight}",
                         "", n + 1, f.upstream, f.upstream_model, format_usd(f.cost_in), format_usd(f.cost_out), format_usd(f.sale_in), format_usd(f.sale_out)

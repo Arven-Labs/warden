@@ -95,6 +95,9 @@ impl From<GatewayError> for ApiError {
             GatewayError::ProviderBudgetExhausted => {
                 ApiError::new("503 Service Unavailable", "server_error", "provider_budget_exhausted", message)
             }
+            GatewayError::ModelBudgetExhausted => {
+                ApiError::new("503 Service Unavailable", "server_error", "model_budget_exhausted", message)
+            }
             GatewayError::Store(e) => {
                 tracing::error!("ledger error: {e}");
                 ApiError::new("500 Internal Server Error", "server_error", "internal_error", "the gateway failed; try again")
@@ -471,12 +474,13 @@ fn requested_max_tokens(request: &Value) -> Option<u32> {
         .map(|n| n.min(u32::MAX as u64) as u32)
 }
 
-/// The request as the provider gets it: its own model name, the answer ceiling the hold was sized for, and (for a stream)
+/// The request as the provider gets it: its own model name, the answer ceiling the hold was sized for (the target's own, if
+/// lower), and (for a stream)
 /// the flag that makes it report usage.
-fn upstream_body(request: &Value, res: &Reservation, upstream_model: &str, stream: bool) -> Value {
+fn upstream_body(request: &Value, max_tokens: u32, upstream_model: &str, stream: bool) -> Value {
     let mut body = request.clone();
     body["model"] = json!(upstream_model);
-    body["max_tokens"] = json!(res.max_tokens);
+    body["max_tokens"] = json!(max_tokens);
     if let Some(map) = body.as_object_mut() {
         map.remove("max_completion_tokens");
     }
@@ -519,7 +523,7 @@ async fn chat<S: AsyncWrite + Unpin>(stream: &mut S, state: &State, request: &Re
 /// The call to one target of the model: that provider's URL and key, and that provider's name for the model.
 fn call_for(state: &State, res: &Reservation, request: &Value, target: &Target, streaming: bool) -> UpstreamCall {
     let upstream = state.gateway.catalog().upstream(&target.upstream).expect("a catalog's models name existing upstreams");
-    UpstreamCall { base_url: upstream.base_url.clone(), api_key: upstream.api_key.get(), body: upstream_body(request, res, &target.upstream_model, streaming) }
+    UpstreamCall { base_url: upstream.base_url.clone(), api_key: upstream.api_key.get(), body: upstream_body(request, target.cap(res.max_tokens), &target.upstream_model, streaming) }
 }
 
 /// Whether the next target could do better after `err`: the failure is on the provider's side (it can't be reached, it is down
@@ -568,10 +572,16 @@ async fn whole_answer<S: AsyncWrite + Unpin>(stream: &mut S, state: &State, res:
                 return write_json(stream, "200 OK", answer.to_string().as_bytes(), &headers).await.map_err(io_error);
             }
             Err(err) if next + 1 < res.available.len() && worth_another_target(&err) => {
+                state.gateway.balancer().record_failure(&targets[at].label());
                 tracing::warn!(model = %res.model.name, target = %targets[at].label(), "the target failed ({err}); trying the next one");
                 next += 1;
             }
-            Err(err) => break err,
+            Err(err) => {
+                if worth_another_target(&err) {
+                    state.gateway.balancer().record_failure(&targets[at].label());
+                }
+                break err;
+            }
         }
     };
     settle(state, res, res.available[next], Outcome::Failed(Tokens::default())).await;
@@ -596,10 +606,14 @@ async fn stream_answer<S: AsyncWrite + Unpin>(stream: &mut S, state: &State, res
                 break (at, chunks);
             }
             Err(err) if next + 1 < res.available.len() && worth_another_target(&err) => {
+                state.gateway.balancer().record_failure(&targets[at].label());
                 tracing::warn!(model = %res.model.name, target = %targets[at].label(), "the target failed ({err}); trying the next one");
                 next += 1;
             }
             Err(err) => {
+                if worth_another_target(&err) {
+                    state.gateway.balancer().record_failure(&targets[at].label());
+                }
                 settle(state, res, at, Outcome::Failed(Tokens::default())).await;
                 return Err(upstream_error(&err));
             }

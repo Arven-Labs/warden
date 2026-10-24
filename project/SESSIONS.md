@@ -2,9 +2,17 @@
 
 > **Nota**: Este log foi criado junto com o projeto. As sessões serão registradas aqui conforme o trabalho avança.
 >
-> Última atualização: 2026-10-24 (Sessão 286)
+> Última atualização: 2026-10-24 (Sessão 287)
 
 ---
+
+### 2026-10-24 — Sessão 287 (as pontas do balanceamento: falha na fastest, latência guardada, max_tokens por alvo e orçamento por hora e por modelo: P168 i)
+
+- **Pedido**: "sim pode seguir". Das sobras que sobraram, o usuário escolheu as quatro e planejamos em modo de plano.
+- **Feito**: (1) `Balancer::record_failure` (chamado quando um alvo falha do lado do provedor, também no último da fila): na `fastest`, 60 s de penalidade por 5 minutos; só o tempo a tira, um sucesso não. (2) `target_latency` no ledger, `Store::save_latency` e `load_latencies`, `Balancer::with_store` (lê o que tem menos de 24 h); a escrita sai por `spawn_blocking`, no máximo uma por alvo a cada 30 s. (3) `max_tokens` no `[[models.fallback]]`, `Target::cap`, `ModelEntry::worst_case_at` e `target_cap` (o hold e o `cheapest` passam a olhar o teto do alvo), `upstream_body` recebe o teto do alvo. (4) `hourly_budget_usd` no provedor (janela móvel de uma hora), `daily_budget_usd` no modelo, `Store::spent_on_model_since`, o erro `ModelBudgetExhausted` (503 `model_budget_exhausted`) e o índice `usage_events_model_time`; o parse dos tetos foi para uma função só (`budget`). `catalog-check` mostra tudo.
+- **Testes**: só `cargo check -p warden-gateway --tests` aqui. Novos: quatro de falha e quatro de persistência em `balance.rs`, dois de `store.rs`, cinco de catálogo, três de teto por alvo e três de orçamento no `fallback.rs`.
+- **Registro**: parte dos testes do `fallback.rs` e do `balance.rs` desta sessão e da anterior entrou por `cat >>` e `python3` no Bash, que não aparecem na tela (o que a memória do projeto pede para evitar); o resto, por Edit.
+- **Fica**: trocar de alvo depois de o stream abrir; o teto do alvo principal separado do do modelo.
 
 ### 2026-10-24 — Sessão 286 (o balanceamento entre alvos do gateway: P168 i, o que ficou de fora)
 
