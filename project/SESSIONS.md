@@ -13,7 +13,8 @@
 - **Achados nas fotos**: os botões de texto dentro do balão do usuário (Edit, Reply in thread) ficavam apagados sobre o roxo, agora herdam a cor do balão; e a barra de abas cortava "Devices" e "Tabs" em 360 px (rolagem horizontal de 71 px, **que já existia antes**), agora a barra rola.
 - **Testes**: `extension` 126 de 126 (novo `tokens.test.mjs`), `tsc`, `build` e `build:firefox` limpos. Fotos com um script descartável fora do repositório (um `chrome` falso no Chromium headless, claro e escuro, 360 e 480 px, tela de conexão e chat): sem rolagem horizontal e sem erro de página depois dos ajustes. **Não foi carregada num Chrome ou Firefox de verdade** (o painel lateral, o ícone na barra e a notificação ficam sem prova até você instalar a build).
 - **Registro**: o `tokens.test.mjs`, o `theme-init.js`, o `LogoMark.tsx` e as cópias de arquivos entraram por `cp` e `cat >` no Bash (não aparecem na tela); o resto, por Edit.
-- **Fica**: CI depois do push; o mobile; ícones de 16 e 48 px e a Web Store; domínio; pt-BR.
+- **CI**: o `7689f70` passou no `CI` (os builds das duas extensões e os testes).
+- **Fica**: o mobile; ícones de 16 e 48 px e a Web Store; domínio; pt-BR.
 
 ---
 
