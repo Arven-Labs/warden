@@ -13,7 +13,8 @@
 - **Feito**: `warden-bootstrap/catalog/agents/{writer,researcher,code-reviewer,secretary}.md` e `agent_catalog.rs` (estado por comparação com o config, sem `installed.json`; `install` troca só persona, papel e tools de um agente que difere e nunca mexe em agente de membro; `install_skills` usa o `catalog::install` das skills sem `overwrite`). `apply_org_edit` ganhou o braço novo. Hub: `handle_list_agent_catalog` (só o dono) e, em `handle_edit_agent_org`, as skills entram no cofre depois do agente salvo. Desktop: `agent_catalog_cmds.rs` (`list_agent_catalog` e as skills depois do `edit_agent_org` local). Web e desktop: tipos, `listAgentCatalog`, seção "Agentes prontos" com os quatro estados, descrições em português por id (`i18n/agentCatalog.ts`).
 - **Testes**: aqui só `cargo check --workspace --tests` (limpo), `npm test` da web (122) e do desktop (196) verdes e `tsc` sem erro novo (continua reclamando de `rehype-highlight`). **Escritos e não rodados** (CI): `agent_catalog.rs` (entradas válidas e cuidadosas, toda skill citada existe na galeria de skills, sem link nem comando, estados, `overwrite`, agente de membro, skills sem substituir a do usuário), o braço novo em `org_edit.rs`, o serde do protocolo e `tests/agent_catalog.rs` no hub (lista, instala com as skills, chave errada, `overwrite`, id desconhecido).
 - **Para o Fabio**: o texto das quatro personas é meu e ele ainda não leu nem ajustou, como as 8 skills.
-- **Fica**: CI; integrações MCP prontas; `.wpkg` assinado; mostrar na tela quais skills foram mantidas; celular e extensão (não editam agentes hoje).
+- **CI**: o commit `1412ac3` passou nos três (`CI`, `Web E2E` e `Desktop E2E`), com os testes de Rust novos rodando.
+- **Fica**: integrações MCP prontas; `.wpkg` assinado; mostrar na tela quais skills foram mantidas; "editei" x "o catálogo evoluiu" nas skills; o Fabio ler as personas; celular e extensão (não editam agentes hoje).
 
 ---
 
