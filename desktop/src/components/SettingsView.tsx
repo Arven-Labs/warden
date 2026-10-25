@@ -3,6 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
 import { t } from "../i18n";
 import { rich } from "../i18n/rich";
+import { MCP_CATALOG, MCP_NEEDS_TEXT, catalogServer, catalogState } from "../lib/mcpCatalog";
 import { isMcpServerHttp } from "../types";
 import type { AgentEntry, Combo, GitSyncConfig, McpServer, ModelPolicy, OutreachEntry, ProviderEntry, ProviderKind, Settings, SshHostEntry, ToolCategoryEntry } from "../types";
 import ApiKeysSection from "./ApiKeysSection";
@@ -154,26 +155,6 @@ const providerKindOptions = (): { value: ProviderKind; label: string }[] => [
   { value: "openai_compatible", label: t("st.kind.openaiCompatible") },
   { value: "node", label: t("st.kind.node") },
   { value: "cloud", label: t("st.kind.cloud") },
-];
-
-/** Known-good starting points for popular integrations — researched 2026-08-29 (Session 35; see
- * ARCHITECTURE.md for why GitHub goes through Docker). Env/header values are left blank on
- * purpose — the user fills in their own secret after picking a preset. */
-const mcpPresets = (): { label: string; server: McpServer }[] => [
-  { label: "Filesystem", server: { name: "filesystem", command: "npx", args: ["-y", "@modelcontextprotocol/server-filesystem", "/path/to/allowed/dir"], env: {} } },
-  { label: "Google Workspace", server: { name: "google_workspace", command: "npx", args: ["-y", "@aaronsb/google-workspace-mcp"], env: { GOOGLE_CLIENT_ID: "", GOOGLE_CLIENT_SECRET: "" } } },
-  { label: "Notion", server: { name: "notion", command: "npx", args: ["-y", "@notionhq/notion-mcp-server"], env: { NOTION_TOKEN: "" } } },
-  {
-    label: t("st.mcp.githubDocker"),
-    server: { name: "github", command: "docker", args: ["run", "-i", "--rm", "-e", "GITHUB_PERSONAL_ACCESS_TOKEN", "ghcr.io/github/github-mcp-server"], env: { GITHUB_PERSONAL_ACCESS_TOKEN: "" } },
-  },
-  {
-    // Verified endpoint (2026-08-31, Session 36 / P25): https://mcp.slack.com/mcp, Streamable
-    // HTTP, real OAuth (discovery + Dynamic Client Registration + browser consent — see
-    // PENDING.md P26). Click "Connect" on this card after saving to authorize it.
-    label: t("st.mcp.slack"),
-    server: { name: "slack", url: "https://mcp.slack.com/mcp", headers: {}, oauth: true },
-  },
 ];
 
 /** Reused outside this file too (e.g. `WorkspaceView.tsx`'s embedded-server auth key) — same
@@ -1495,21 +1476,6 @@ function SettingsView() {
     addMcpServer({ name: "", command: "", args: [], env: {} });
   }
 
-  function addMcpPreset(preset: McpServer) {
-    // Deep-clone so editing one card never mutates the shared MCP_PRESETS constant, and dedupe
-    // the name against whatever's already in the list (same spirit as nextProviderId).
-    const server: McpServer = isMcpServerHttp(preset)
-      ? { ...preset, headers: { ...preset.headers } }
-      : { ...preset, args: [...preset.args], env: { ...preset.env } };
-    let name = server.name;
-    let n = 2;
-    while (form.mcpServers.some((s) => s.name === name)) {
-      name = `${server.name}-${n}`;
-      n += 1;
-    }
-    addMcpServer({ ...server, name });
-  }
-
   function updateMcpServer(index: number, next: McpServer) {
     setForm((f) => ({ ...f, mcpServers: f.mcpServers.map((s, i) => (i === index ? next : s)) }));
   }
@@ -1800,12 +1766,28 @@ function SettingsView() {
             <h3 className="settings-section-title">{t("st.mcpServers.title")}</h3>
           </div>
           <p className="settings-hint">{t("st.mcpServers.hint")}</p>
+          <div className="provider-list">
+            {MCP_CATALOG.map((entry) => {
+              const added = catalogState(entry, form.mcpServers) === "added";
+              return (
+                <div className="provider-card skill-card" key={entry.id}>
+                  <div className="skill-card-header">
+                    <span className="skill-card-name">{t(entry.label)}</span>
+                    {added ? (
+                      <span className="settings-hint">{t("st.mcpCat.added")}</span>
+                    ) : (
+                      <button type="button" className="settings-browse-btn" onClick={() => addMcpServer(catalogServer(entry, form.mcpServers))}>
+                        {t("st.mcpCat.add")}
+                      </button>
+                    )}
+                  </div>
+                  <p className="skill-card-description">{t(entry.description)}</p>
+                  <p className="settings-hint">{t("st.mcpCat.needs", { what: t(MCP_NEEDS_TEXT[entry.needs]) })}</p>
+                </div>
+              );
+            })}
+          </div>
           <div className="mcp-quick-add-row">
-            {mcpPresets().map((preset) => (
-              <button key={preset.label} type="button" className="settings-browse-btn" onClick={() => addMcpPreset(preset.server)}>
-                + {preset.label}
-              </button>
-            ))}
             <button type="button" className="settings-browse-btn" onClick={addBlankMcpServer}>
               {t("st.mcpServers.custom")}
             </button>

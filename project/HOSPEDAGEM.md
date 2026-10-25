@@ -175,7 +175,7 @@ Vêm da spec do router (`SPEC-warden-router-e-futuro.md`, de 2026-10-14), que fo
 
 **Autonomia:** uma tool MCP sem anotações fica sem classificação e, no nível 4, roda sozinha. O manifesto de um pacote da loja **declara a categoria de risco de cada tool**, e o que não for declarado recebe o padrão mais restritivo.
 
-**Estado (Sessão 257):** feita a 1ª fatia só de **skills**, sem pacote nem assinatura: 8 skills embutidas no binário (`warden-core/catalog/skills/`), instaladas com um clique no hub, no desktop e na web, com o estado deduzido do cofre (sem `installed.json`). O pacote `.wpkg`, a assinatura, o índice, os agentes prontos e as integrações MCP seguem desenhados e não feitos.
+**Estado (Sessão 257):** feita a 1ª fatia só de **skills**, sem pacote nem assinatura: 8 skills embutidas no binário (`warden-core/catalog/skills/`), instaladas com um clique no hub, no desktop e na web, com o estado deduzido do cofre (sem `installed.json`). O pacote `.wpkg`, a assinatura e o índice seguem desenhados e não feitos. **Sessão 300 e 301**: os agentes prontos (hub, web e desktop). **Sessão 302**: as integrações MCP prontas, **só no desktop** e com os 5 de sempre (`desktop/src/lib/mcpCatalog.ts`; inclui as locais por npx e Docker, que o desenho acima deixa fora do catálogo compartilhado); hub e web seguem só desenhados, e lá só HTTP entraria.
 
 **Fora de propósito nesta fase:** MCP **stdio** (comando arbitrário no host, sem sandbox; num servidor compartilhado ameaça todos os clientes), terceiros publicando, qualquer pacote com código executável e skills com anexos executáveis (só `.md` e arquivos de dados).
 
