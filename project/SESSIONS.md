@@ -2,7 +2,18 @@
 
 > **Nota**: Este log foi criado junto com o projeto. As sessões serão registradas aqui conforme o trabalho avança.
 >
-> Última atualização: 2026-10-24 (Sessão 295)
+> Última atualização: 2026-10-24 (Sessão 296)
+
+---
+
+### 2026-10-24 — Sessão 296 (a galeria de skills no celular e na extensão: P140)
+
+- **Pedido**: "bora com o item 1" (a galeria de skills no celular e na extensão). Planejado em modo de plano; escolhas do usuário: no celular a instalação vai pela **ponte Rust local** (cofre do celular, não o do hub) e o escopo é **só a galeria** (listar e instalar; exportar/importar, agentes prontos e `.wpkg` ficam fora).
+- **Celular**: `warden-mobile-bridge/src/api/skills.rs` ganhou `CatalogSkillDto`, `bridge_list_skill_catalog` e `bridge_install_catalog_skill` (sobre `warden_core::skill::catalog`), com três testes. O código gerado do `flutter_rust_bridge` (`frb_generated.rs` e `frb_generated.dart`, mais `api/skills.dart`) foi **editado à mão** copiando o padrão das funções vizinhas, com os ids de função novos 15 e 16 e o `CONTENT_HASH` intacto (precisa só combinar entre os dois lados; uma regeneração futura renumera tudo sem problema). `SkillsRepository` ganhou `listCatalog` e `installCatalog`; `SkillsScreen` ganhou a seção "Galeria" (aparece também com o cofre vazio; os quatro estados; substituir pede um segundo toque); descrições em português em `catalog_descriptions.dart`; onze chaves novas em `app_en.arb`, `app_pt.arb` e nos três `generated/app_localizations*.dart`, também à mão.
+- **Extensão**: `CatalogSkillDto` e as mensagens em `protocol/messages.ts`; `listSkillCatalog` e `installCatalogSkill` em `background/connection.ts`, `popup_protocol.ts` e `background/index.ts`; seção "Galeria" em `SkillsView.tsx` (fica de fora se o hub for antigo e responder com erro); a lógica pura (estado → ação e descrições em português) em `sidepanel/lib/skillCatalog.ts`; chaves em `en/skills.ts` e `pt-BR/skills.ts`.
+- **Testes**: aqui rodei só `cargo check -p warden_mobile_bridge --tests` (limpo, inclui o gerado à mão) e, na extensão, `tsc --noEmit` e `npm test` (132 testes verdes, com o novo `tests/skillCatalog.test.mjs`: estado → ação, uma descrição em português por skill do hub, decodificação de `skillCatalog`). **Não rodei** os testes do Flutter nem os da ponte Rust: escritos e a conferir no CI (`skills_screen_test.dart` com o grupo `gallery`, `l10n_test.dart`, e os três testes novos da ponte).
+- **Risco a olhar no CI**: o código gerado à mão do FRB e os `app_localizations*.dart` (sem Flutter aqui para regenerar). Se o CI do mobile falhar, o primeiro suspeito é um deles.
+- **Fica**: CI; agentes prontos e integrações MCP, export/import de uma skill e o `.wpkg` (P140, P160); ver as telas numa janela (P129).
 
 ---
 

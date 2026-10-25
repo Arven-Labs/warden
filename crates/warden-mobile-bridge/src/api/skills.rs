@@ -9,7 +9,7 @@
 use std::sync::Arc;
 
 use warden_core::memory::Vault;
-use warden_core::skill::{Skill, SkillStore};
+use warden_core::skill::{catalog, Skill, SkillStore};
 
 #[derive(Debug, Clone)]
 pub struct SkillDto {
@@ -60,6 +60,35 @@ pub fn bridge_save_skill(vault_root: String, skill: SkillDto, overwrite: bool) -
 
 pub fn bridge_delete_skill(vault_root: String, name: String) -> Result<(), String> {
     store(&vault_root).delete(&name).map_err(|e| format!("{e:#}"))
+}
+
+/// One entry of the gallery of ready-made skills (P140), with where it stands in this vault. `status` is the
+/// word the hub's wire uses: `notInstalled`, `installed` or `modified`.
+#[derive(Debug, Clone)]
+pub struct CatalogSkillDto {
+    pub name: String,
+    pub description: String,
+    pub body: String,
+    pub status: String,
+}
+
+pub fn bridge_list_skill_catalog(vault_root: String) -> Vec<CatalogSkillDto> {
+    let store = store(&vault_root);
+    catalog::entries()
+        .iter()
+        .map(|entry| CatalogSkillDto {
+            name: entry.name.clone(),
+            description: entry.description.clone(),
+            body: entry.body.clone(),
+            status: catalog::status(&store, entry).as_str().to_string(),
+        })
+        .collect()
+}
+
+/// A skill of that name that differs is only replaced with `overwrite`, so a tap on "Install" never throws away
+/// what the person wrote (same contract as the hub's `installCatalogSkill`).
+pub fn bridge_install_catalog_skill(vault_root: String, name: String, overwrite: bool) -> Result<(), String> {
+    catalog::install(&store(&vault_root), &name, overwrite).map_err(|e| format!("{e:#}"))
 }
 
 #[cfg(test)]
@@ -139,6 +168,35 @@ mod tests {
         let edited = SkillDto { description: "New".into(), ..dto("a") };
         bridge_save_skill(vault.clone(), edited, true).unwrap();
         assert_eq!(bridge_list_skills(vault)[0].description, "New");
+    }
+
+    #[test]
+    fn the_gallery_installs_and_its_status_follows_the_vault() {
+        let vault = temp_vault();
+        let gallery = bridge_list_skill_catalog(vault.clone());
+        assert!(!gallery.is_empty());
+        assert!(gallery.iter().all(|e| e.status == "notInstalled"));
+
+        let name = gallery[0].name.clone();
+        bridge_install_catalog_skill(vault.clone(), name.clone(), false).unwrap();
+        let after = bridge_list_skill_catalog(vault.clone());
+        assert_eq!(after[0].status, "installed");
+        assert!(after[1..].iter().all(|e| e.status == "notInstalled"));
+        assert_eq!(bridge_list_skills(vault.clone())[0].name, name);
+
+        // Editing it makes the gallery entry "modified"; installing again needs the explicit overwrite.
+        bridge_save_skill(vault.clone(), SkillDto { body: "My own steps.".into(), ..dto(&name) }, true).unwrap();
+        assert_eq!(bridge_list_skill_catalog(vault.clone())[0].status, "modified");
+        assert!(bridge_install_catalog_skill(vault.clone(), name.clone(), false).is_err());
+        assert_eq!(bridge_list_skills(vault.clone())[0].body, "My own steps.");
+
+        bridge_install_catalog_skill(vault.clone(), name, true).unwrap();
+        assert_eq!(bridge_list_skill_catalog(vault)[0].status, "installed");
+    }
+
+    #[test]
+    fn installing_a_name_the_gallery_does_not_have_is_an_error() {
+        assert!(bridge_install_catalog_skill(temp_vault(), "nope".into(), false).is_err());
     }
 
     #[test]

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../l10n/generated/app_localizations.dart';
 import '../services/skills_repository.dart';
+import 'catalog_descriptions.dart';
 import 'skill_diff.dart';
 
 /// P72 (b) — lists, creates, edits and deletes the skills stored in this device's local vault
@@ -20,6 +21,10 @@ class SkillsScreen extends StatefulWidget {
 
 class _SkillsScreenState extends State<SkillsScreen> {
   List<SkillDto>? _skills;
+  // The gallery of ready-made skills (P140); stays null if it can't be read, and the section is then left out.
+  List<CatalogSkillDto>? _catalog;
+  String? _installing;
+  String? _confirmReplace;
   String? _error;
 
   @override
@@ -31,15 +36,107 @@ class _SkillsScreenState extends State<SkillsScreen> {
   Future<void> _load() async {
     try {
       final skills = await widget.repository.list();
+      final catalog = await _readCatalog();
       if (mounted) {
         setState(() {
           _skills = skills;
+          _catalog = catalog;
           _error = null;
         });
       }
     } catch (e) {
       if (mounted) setState(() => _error = e.toString());
     }
+  }
+
+  Future<List<CatalogSkillDto>?> _readCatalog() async {
+    try {
+      return await widget.repository.listCatalog();
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<void> _install(String name, {required bool overwrite}) async {
+    setState(() {
+      _installing = name;
+      _error = null;
+    });
+    try {
+      await widget.repository.installCatalog(name, overwrite: overwrite);
+      _confirmReplace = null;
+      await _load();
+    } catch (e) {
+      if (mounted) setState(() => _error = AppLocalizations.of(context).skillsInstallFailed(e.toString()));
+    } finally {
+      if (mounted) setState(() => _installing = null);
+    }
+  }
+
+  /// The gallery section: each entry is installed, installable, or differs from a skill of the same name
+  /// that the person already has (replacing it takes a second, explicit tap).
+  Widget _gallery(List<CatalogSkillDto> catalog) {
+    final l10n = AppLocalizations.of(context);
+    final locale = Localizations.localeOf(context);
+    final theme = Theme.of(context);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Padding(padding: const EdgeInsets.only(top: 16, bottom: 4), child: Text(l10n.skillsGallery, style: theme.textTheme.titleSmall)),
+        Padding(padding: const EdgeInsets.only(bottom: 8), child: Text(l10n.skillsGalleryIntro)),
+        for (final entry in catalog)
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.all(12),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Expanded(child: Text(entry.name, style: theme.textTheme.titleMedium)),
+                      if (entry.status == 'installed')
+                        Text(l10n.skillsGalleryInstalled, style: theme.textTheme.bodySmall)
+                      else if (entry.status != 'modified')
+                        FilledButton(
+                          onPressed: _installing == entry.name ? null : () => _install(entry.name, overwrite: false),
+                          child: Text(_installing == entry.name ? l10n.skillsInstalling : l10n.skillsInstall),
+                        ),
+                    ],
+                  ),
+                  Padding(padding: const EdgeInsets.only(top: 4), child: Text(catalogDescription(locale, entry.name, entry.description))),
+                  if (entry.status == 'modified')
+                    Padding(
+                      padding: const EdgeInsets.only(top: 4),
+                      child: _confirmReplace == entry.name
+                          ? Wrap(
+                              spacing: 8,
+                              children: [
+                                FilledButton(
+                                  onPressed: _installing == entry.name ? null : () => _install(entry.name, overwrite: true),
+                                  child: Text(l10n.skillsReplaceMine),
+                                ),
+                                TextButton(onPressed: () => setState(() => _confirmReplace = null), child: Text(l10n.skillsKeepMine)),
+                              ],
+                            )
+                          : Row(
+                              children: [
+                                Expanded(child: Text(l10n.skillsOtherSameName, style: theme.textTheme.bodySmall)),
+                                TextButton(onPressed: () => setState(() => _confirmReplace = entry.name), child: Text(l10n.skillsUseGallery)),
+                              ],
+                            ),
+                    ),
+                  ExpansionTile(
+                    tilePadding: EdgeInsets.zero,
+                    title: Text(l10n.skillsViewInstructions, style: theme.textTheme.bodyMedium),
+                    childrenPadding: const EdgeInsets.only(bottom: 4),
+                    children: [Align(alignment: Alignment.centerLeft, child: Text(entry.body))],
+                  ),
+                ],
+              ),
+            ),
+          ),
+      ],
+    );
   }
 
   Future<void> _openForm({SkillDto? existing}) async {
@@ -172,23 +269,21 @@ class _SkillsScreenState extends State<SkillsScreen> {
           ? Padding(padding: const EdgeInsets.all(16), child: Text(_error!, style: TextStyle(color: Theme.of(context).colorScheme.error)))
           : skills == null
               ? const Center(child: CircularProgressIndicator())
-              : skills.isEmpty
-                  ? Center(
-                      child: Padding(
-                        padding: const EdgeInsets.all(24),
-                        child: Text(
-                          l10n.skillsNone,
-                          textAlign: TextAlign.center,
-                        ),
-                      ),
-                    )
-                  : ListView(
+              : ListView(
                       padding: const EdgeInsets.fromLTRB(16, 8, 16, 88),
                       children: [
                         if (_error != null)
                           Padding(
                             padding: const EdgeInsets.only(bottom: 8),
                             child: Text(_error!, style: TextStyle(color: Theme.of(context).colorScheme.error)),
+                          ),
+                        if (skills.isEmpty)
+                          Padding(
+                            padding: const EdgeInsets.all(24),
+                            child: Text(
+                              l10n.skillsNone,
+                              textAlign: TextAlign.center,
+                            ),
                           ),
                         if (suggested.isNotEmpty) ...[
                           Padding(
@@ -216,6 +311,7 @@ class _SkillsScreenState extends State<SkillsScreen> {
                               ),
                             ),
                           ),
+                        if (_catalog != null && _catalog!.isNotEmpty) _gallery(_catalog!),
                       ],
                     ),
     );

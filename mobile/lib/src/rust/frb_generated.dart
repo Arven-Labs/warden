@@ -89,6 +89,16 @@ abstract class RustLibApi extends BaseApi {
     required String name,
   });
 
+  Future<void> crateApiSkillsBridgeInstallCatalogSkill({
+    required String vaultRoot,
+    required String name,
+    required bool overwrite,
+  });
+
+  Future<List<CatalogSkillDto>> crateApiSkillsBridgeListSkillCatalog({
+    required String vaultRoot,
+  });
+
   Future<List<DiscoveredHubDto>> crateApiDiscoveryBridgeDiscoverHubs({
     required int port,
   });
@@ -272,6 +282,76 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       const TaskConstMeta(
         debugName: "bridge_init_fresh",
         argNames: ["vaultRoot", "configPath", "secretsPath", "manifestPath"],
+      );
+
+  @override
+  Future<void> crateApiSkillsBridgeInstallCatalogSkill({
+    required String vaultRoot,
+    required String name,
+    required bool overwrite,
+  }) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_String(vaultRoot, serializer);
+          sse_encode_String(name, serializer);
+          sse_encode_bool(overwrite, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 15,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_unit,
+          decodeErrorData: sse_decode_String,
+        ),
+        constMeta: kCrateApiSkillsBridgeInstallCatalogSkillConstMeta,
+        argValues: [vaultRoot, name, overwrite],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiSkillsBridgeInstallCatalogSkillConstMeta =>
+      const TaskConstMeta(
+        debugName: "bridge_install_catalog_skill",
+        argNames: ["vaultRoot", "name", "overwrite"],
+      );
+
+  @override
+  Future<List<CatalogSkillDto>> crateApiSkillsBridgeListSkillCatalog({
+    required String vaultRoot,
+  }) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_String(vaultRoot, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 16,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_list_catalog_skill_dto,
+          decodeErrorData: null,
+        ),
+        constMeta: kCrateApiSkillsBridgeListSkillCatalogConstMeta,
+        argValues: [vaultRoot],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiSkillsBridgeListSkillCatalogConstMeta =>
+      const TaskConstMeta(
+        debugName: "bridge_list_skill_catalog",
+        argNames: ["vaultRoot"],
       );
 
   @override
@@ -730,6 +810,26 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  CatalogSkillDto dco_decode_catalog_skill_dto(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 4)
+      throw Exception('unexpected arr length: expect 4 but see ${arr.length}');
+    return CatalogSkillDto(
+      name: dco_decode_String(arr[0]),
+      description: dco_decode_String(arr[1]),
+      body: dco_decode_String(arr[2]),
+      status: dco_decode_String(arr[3]),
+    );
+  }
+
+  @protected
+  List<CatalogSkillDto> dco_decode_list_catalog_skill_dto(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return (raw as List<dynamic>).map(dco_decode_catalog_skill_dto).toList();
+  }
+
+  @protected
   List<SkillDto> dco_decode_list_skill_dto(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return (raw as List<dynamic>).map(dco_decode_skill_dto).toList();
@@ -937,6 +1037,35 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     // Codec=Sse (Serialization based), see doc to use other codecs
     var len_ = sse_decode_i_32(deserializer);
     return deserializer.buffer.getUint8List(len_);
+  }
+
+  @protected
+  CatalogSkillDto sse_decode_catalog_skill_dto(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_name = sse_decode_String(deserializer);
+    var var_description = sse_decode_String(deserializer);
+    var var_body = sse_decode_String(deserializer);
+    var var_status = sse_decode_String(deserializer);
+    return CatalogSkillDto(
+      name: var_name,
+      description: var_description,
+      body: var_body,
+      status: var_status,
+    );
+  }
+
+  @protected
+  List<CatalogSkillDto> sse_decode_list_catalog_skill_dto(
+    SseDeserializer deserializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    var len_ = sse_decode_i_32(deserializer);
+    var ans_ = <CatalogSkillDto>[];
+    for (var idx_ = 0; idx_ < len_; ++idx_) {
+      ans_.add(sse_decode_catalog_skill_dto(deserializer));
+    }
+    return ans_;
   }
 
   @protected

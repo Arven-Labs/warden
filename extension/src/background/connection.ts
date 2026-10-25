@@ -28,6 +28,7 @@ import {
   type HubAgents,
   type OrgEdit,
   type ServerMessage,
+  type CatalogSkillDto,
   type SkillDto,
   type SpendReport,
   type ThreadParent,
@@ -317,6 +318,7 @@ export class ServerConnection {
       case "grantList":
       case "activityList":
       case "skillList":
+      case "skillCatalog":
       case "skillOk":
       case "history":
       case "conversationList":
@@ -531,6 +533,18 @@ export class ServerConnection {
 
   async deleteSkill(name: string): Promise<void> {
     await this.request((requestId) => ({ type: "deleteSkill", requestId, name }));
+  }
+
+  /** P140 — the gallery of ready-made skills the hub ships with, each with its state in the person's vault. A hub from before
+   * the gallery answers with an error, which the caller treats as "no gallery". */
+  async listSkillCatalog(): Promise<CatalogSkillDto[]> {
+    const reply = await this.request((requestId) => ({ type: "listSkillCatalog", requestId }));
+    return reply.type === "skillCatalog" ? reply.entries : [];
+  }
+
+  /** Installs a skill of the gallery; one of that name that differs is only replaced with `overwrite`. */
+  async installCatalogSkill(name: string, overwrite: boolean): Promise<void> {
+    await this.request((requestId) => ({ type: "installCatalogSkill", requestId, name, overwrite }));
   }
 
   /** P40 — one of this device's conversations on the hub, oldest first (the most recent `limit`

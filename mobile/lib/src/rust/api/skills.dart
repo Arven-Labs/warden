@@ -34,6 +34,54 @@ Future<void> bridgeDeleteSkill({
   name: name,
 );
 
+Future<List<CatalogSkillDto>> bridgeListSkillCatalog({
+  required String vaultRoot,
+}) => RustLib.instance.api.crateApiSkillsBridgeListSkillCatalog(
+  vaultRoot: vaultRoot,
+);
+
+/// A skill of that name that differs is only replaced with `overwrite`, so a tap on "Install" never throws away
+/// what the person wrote (same contract as the hub's `installCatalogSkill`).
+Future<void> bridgeInstallCatalogSkill({
+  required String vaultRoot,
+  required String name,
+  required bool overwrite,
+}) => RustLib.instance.api.crateApiSkillsBridgeInstallCatalogSkill(
+  vaultRoot: vaultRoot,
+  name: name,
+  overwrite: overwrite,
+);
+
+/// One entry of the gallery of ready-made skills (P140), with where it stands in this vault. `status` is the
+/// word the hub's wire uses: `notInstalled`, `installed` or `modified`.
+class CatalogSkillDto {
+  final String name;
+  final String description;
+  final String body;
+  final String status;
+
+  const CatalogSkillDto({
+    required this.name,
+    required this.description,
+    required this.body,
+    required this.status,
+  });
+
+  @override
+  int get hashCode =>
+      name.hashCode ^ description.hashCode ^ body.hashCode ^ status.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is CatalogSkillDto &&
+          runtimeType == other.runtimeType &&
+          name == other.name &&
+          description == other.description &&
+          body == other.body &&
+          status == other.status;
+}
+
 class SkillDto {
   final String name;
   final String description;

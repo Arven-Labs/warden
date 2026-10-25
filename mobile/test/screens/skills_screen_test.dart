@@ -8,9 +8,40 @@ import '../helpers/test_app.dart';
 /// In-memory stand-in for the Rust bridge, enforcing the two rules the screen depends on: create
 /// refuses a taken name, and an invalid skill surfaces as an exception carrying a message.
 class _FakeRepository implements SkillsRepository {
-  _FakeRepository(List<SkillDto> initial) : skills = List.of(initial);
+  _FakeRepository(List<SkillDto> initial, {this.gallery = const []}) : skills = List.of(initial);
 
   final List<SkillDto> skills;
+
+  /// The ready-made skills; their status is worked out against [skills] the way the bridge does it
+  /// (not there / same text / there but different).
+  final List<SkillDto> gallery;
+
+  @override
+  Future<List<CatalogSkillDto>> listCatalog() async => [
+        for (final entry in gallery)
+          CatalogSkillDto(
+            name: entry.name,
+            description: entry.description,
+            body: entry.body,
+            status: switch (skills.where((s) => s.name == entry.name).firstOrNull) {
+              null => 'notInstalled',
+              final found when found.description == entry.description && found.body == entry.body && !found.proposed => 'installed',
+              _ => 'modified',
+            },
+          ),
+      ];
+
+  @override
+  Future<void> installCatalog(String name, {required bool overwrite}) async {
+    final entry = gallery.firstWhere((s) => s.name == name);
+    final index = skills.indexWhere((s) => s.name == name);
+    if (index >= 0 && !overwrite) throw 'a skill named $name is already in your skills and differs from this one';
+    if (index >= 0) {
+      skills[index] = entry;
+    } else {
+      skills.add(entry);
+    }
+  }
 
   @override
   Future<List<SkillDto>> list() async => List.of(skills);
@@ -150,6 +181,81 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(repo.skills, isEmpty);
+  });
+
+  group('gallery', () {
+    const emailDraft = SkillDto(name: 'email-draft', description: 'Draft an email', body: 'Be polite.', proposed: false);
+    const explain = SkillDto(name: 'explain-simply', description: 'Explain it', body: 'Use plain words.', proposed: false);
+
+    testWidgets('is left out when the bridge has no gallery', (tester) async {
+      await _pump(tester, _FakeRepository([_review]));
+      expect(find.text('Gallery'), findsNothing);
+    });
+
+    testWidgets('shows on an empty vault too, and installing copies the skill into it', (tester) async {
+      final repo = _FakeRepository([], gallery: [emailDraft, explain]);
+      await _pump(tester, repo);
+      expect(find.textContaining('No skills yet'), findsOneWidget);
+      expect(find.text('Gallery'), findsOneWidget);
+      expect(find.text('email-draft'), findsOneWidget);
+      expect(find.text('Install'), findsNWidgets(2));
+
+      await tester.tap(find.text('Install').first);
+      await tester.pumpAndSettle();
+
+      expect(repo.skills.single.name, 'email-draft');
+      expect(find.text('Installed'), findsOneWidget);
+      expect(find.text('Install'), findsOneWidget);
+      expect(find.textContaining('No skills yet'), findsNothing);
+    });
+
+    testWidgets('an entry that matches the vault says Installed and offers nothing', (tester) async {
+      await _pump(tester, _FakeRepository([emailDraft], gallery: [emailDraft]));
+      expect(find.text('Installed'), findsOneWidget);
+      expect(find.text('Install'), findsNothing);
+    });
+
+    testWidgets('a skill with the same name that differs is only replaced after a second, explicit tap', (tester) async {
+      const mine = SkillDto(name: 'email-draft', description: 'Draft an email', body: 'My own steps.', proposed: false);
+      final repo = _FakeRepository([mine], gallery: [emailDraft]);
+      await _pump(tester, repo);
+      expect(find.text('You have another skill with this name'), findsOneWidget);
+      expect(find.text('Install'), findsNothing);
+
+      await tester.tap(find.text("Use the gallery's"));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Keep mine'));
+      await tester.pumpAndSettle();
+      expect(repo.skills.single.body, 'My own steps.');
+      expect(find.text('You have another skill with this name'), findsOneWidget);
+
+      await tester.tap(find.text("Use the gallery's"));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Replace mine'));
+      await tester.pumpAndSettle();
+      expect(repo.skills.single.body, 'Be polite.');
+      expect(find.text('Installed'), findsOneWidget);
+    });
+
+    testWidgets('describes the entry in Portuguese when the app is, and falls back to the bridge text for a new one', (tester) async {
+      const fresh = SkillDto(name: 'brand-new', description: 'Hub text only', body: 'x', proposed: false);
+      final repo = _FakeRepository([], gallery: [emailDraft, fresh]);
+      await tester.pumpWidget(testApp(home: SkillsScreen(repository: repo), locale: const Locale('pt')));
+      await tester.pumpAndSettle();
+      expect(find.text('Galeria'), findsOneWidget);
+      expect(find.textContaining('Redigir um e-mail claro'), findsOneWidget);
+      expect(find.text('Hub text only'), findsOneWidget);
+      expect(find.text('Instalar'), findsNWidgets(2));
+    });
+
+    testWidgets('a failed install shows the error', (tester) async {
+      final repo = _FakeRepository([], gallery: [emailDraft]);
+      await _pump(tester, repo);
+      repo.gallery.clear();
+      await tester.tap(find.text('Install'));
+      await tester.pumpAndSettle();
+      expect(find.textContaining('Failed to install the skill'), findsOneWidget);
+    });
   });
 
   testWidgets('a suggested change to a skill says which skill it changes', (tester) async {

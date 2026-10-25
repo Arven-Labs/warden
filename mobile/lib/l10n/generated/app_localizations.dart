@@ -2342,6 +2342,72 @@ abstract class AppLocalizations {
   /// **'Saving…'**
   String get skillsSaving;
 
+  /// No description provided for @skillsGallery.
+  ///
+  /// In en, this message translates to:
+  /// **'Gallery'**
+  String get skillsGallery;
+
+  /// No description provided for @skillsGalleryIntro.
+  ///
+  /// In en, this message translates to:
+  /// **'Ready-made skills that come with Warden. Installing copies the skill into your vault, where you can edit it like any other. Nothing is downloaded.'**
+  String get skillsGalleryIntro;
+
+  /// No description provided for @skillsGalleryInstalled.
+  ///
+  /// In en, this message translates to:
+  /// **'Installed'**
+  String get skillsGalleryInstalled;
+
+  /// No description provided for @skillsInstall.
+  ///
+  /// In en, this message translates to:
+  /// **'Install'**
+  String get skillsInstall;
+
+  /// No description provided for @skillsInstalling.
+  ///
+  /// In en, this message translates to:
+  /// **'Installing…'**
+  String get skillsInstalling;
+
+  /// No description provided for @skillsReplaceMine.
+  ///
+  /// In en, this message translates to:
+  /// **'Replace mine'**
+  String get skillsReplaceMine;
+
+  /// No description provided for @skillsKeepMine.
+  ///
+  /// In en, this message translates to:
+  /// **'Keep mine'**
+  String get skillsKeepMine;
+
+  /// No description provided for @skillsOtherSameName.
+  ///
+  /// In en, this message translates to:
+  /// **'You have another skill with this name'**
+  String get skillsOtherSameName;
+
+  /// No description provided for @skillsUseGallery.
+  ///
+  /// In en, this message translates to:
+  /// **'Use the gallery\'s'**
+  String get skillsUseGallery;
+
+  /// No description provided for @skillsViewInstructions.
+  ///
+  /// In en, this message translates to:
+  /// **'View the instructions'**
+  String get skillsViewInstructions;
+
+  /// No description provided for @skillsInstallFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Failed to install the skill: {error}'**
+  String skillsInstallFailed(String error);
+
   /// No description provided for @diffGapOne.
   ///
   /// In en, this message translates to:

@@ -529,6 +529,7 @@ button:focus-visible {
 
 .skills-view,
 .skills-editor,
+.skills-gallery,
 .tabs-view {
   display: flex;
   flex-direction: column;

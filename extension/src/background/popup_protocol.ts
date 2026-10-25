@@ -7,7 +7,7 @@
 
 import type { ChatEntry, ConnectionStatus } from "./connection";
 import type { DiscoveredHub } from "./discovery";
-import type { ActivityEvent, AgentTask, AgentTaskAction, Grant, ApprovalPrompt, ConversationSummary, DeviceInviteInfo, DirListing, HubAgents, OrgEdit, SkillDto, SpendReport, ThreadParent } from "../protocol/messages";
+import type { ActivityEvent, AgentTask, AgentTaskAction, Grant, ApprovalPrompt, ConversationSummary, DeviceInviteInfo, DirListing, HubAgents, OrgEdit, CatalogSkillDto, SkillDto, SpendReport, ThreadParent } from "../protocol/messages";
 import type { GroupTab } from "./tab_group";
 import type { LiveTurn } from "../protocol/liveTurn";
 
@@ -79,6 +79,8 @@ export type PopupRequest =
   | { type: "listSkills" }
   | { type: "saveSkill"; skill: SkillDto; overwrite: boolean }
   | { type: "deleteSkill"; name: string }
+  | { type: "listSkillCatalog" }
+  | { type: "installCatalogSkill"; name: string; overwrite: boolean }
   | { type: "addTabToGroup" }
   | { type: "removeTabFromGroup"; tabId: number }
   | { type: "listGroupTabs" };
@@ -190,6 +192,14 @@ export interface DeviceAdminResponse {
 export interface ListSkillsResponse {
   ok: boolean;
   skills: SkillDto[];
+  error?: string;
+}
+
+/** Reply to `{ type: "listSkillCatalog" }` — `entries` is empty on failure too (a hub from before the gallery answers with an
+ * error, and the panel then leaves the gallery out). */
+export interface ListSkillCatalogResponse {
+  ok: boolean;
+  entries: CatalogSkillDto[];
   error?: string;
 }
 

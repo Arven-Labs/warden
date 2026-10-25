@@ -1448,6 +1448,42 @@ class AppLocalizationsPt extends AppLocalizations {
   String get skillsSaving => 'Salvando…';
 
   @override
+  String get skillsGallery => 'Galeria';
+
+  @override
+  String get skillsGalleryIntro =>
+      'Skills prontas que vêm com o Warden. Instalar copia a skill para o seu cofre, onde você pode editá-la como qualquer outra. Nada é baixado.';
+
+  @override
+  String get skillsGalleryInstalled => 'Instalada';
+
+  @override
+  String get skillsInstall => 'Instalar';
+
+  @override
+  String get skillsInstalling => 'Instalando…';
+
+  @override
+  String get skillsReplaceMine => 'Substituir a minha';
+
+  @override
+  String get skillsKeepMine => 'Manter a minha';
+
+  @override
+  String get skillsOtherSameName => 'Você tem outra skill com este nome';
+
+  @override
+  String get skillsUseGallery => 'Usar a da galeria';
+
+  @override
+  String get skillsViewInstructions => 'Ver as instruções';
+
+  @override
+  String skillsInstallFailed(String error) {
+    return 'Falha ao instalar a skill: $error';
+  }
+
+  @override
   String get diffGapOne => '… 1 linha igual';
 
   @override

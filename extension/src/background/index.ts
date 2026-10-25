@@ -699,11 +699,21 @@ async function handleRequest(request: PopupRequest): Promise<unknown> {
         return { ok: false, skills: [], error: err instanceof Error ? err.message : String(err) };
       }
 
+    case "listSkillCatalog":
+      if (!connection || connection.status.kind !== "connected") return { ok: false, entries: [], error: "not connected" };
+      try {
+        return { ok: true, entries: await connection.listSkillCatalog() };
+      } catch (err) {
+        return { ok: false, entries: [], error: err instanceof Error ? err.message : String(err) };
+      }
+
     case "saveSkill":
     case "deleteSkill":
+    case "installCatalogSkill":
       if (!connection || connection.status.kind !== "connected") return { ok: false, error: "not connected" };
       try {
         if (request.type === "saveSkill") await connection.saveSkill(request.skill, request.overwrite);
+        else if (request.type === "installCatalogSkill") await connection.installCatalogSkill(request.name, request.overwrite);
         else await connection.deleteSkill(request.name);
         return { ok: true };
       } catch (err) {

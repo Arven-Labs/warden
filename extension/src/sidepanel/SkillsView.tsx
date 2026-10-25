@@ -1,7 +1,9 @@
 import { useEffect, useState } from "react";
-import type { SkillDto } from "../protocol/messages";
-import type { ListSkillsResponse, OkResponse } from "../background/popup_protocol";
+import type { CatalogSkillDto, SkillDto } from "../protocol/messages";
+import type { ListSkillCatalogResponse, ListSkillsResponse, OkResponse } from "../background/popup_protocol";
 import { t } from "../i18n/index.ts";
+import { useLocale } from "../i18n/react.tsx";
+import { catalogAction, catalogDescription } from "./lib/skillCatalog";
 import { diffLines, hasChanges, withContext } from "./skillDiff";
 
 /** What the editor form is doing: `new` (name editable, refuses a taken name) or `edit` (name
@@ -21,6 +23,11 @@ export default function SkillsView() {
   const [editor, setEditor] = useState<EditorState | null>(null);
   const [saving, setSaving] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
+  // P140 — the gallery; stays null when the hub has none (a hub from before it answers with an error), and the section is left out.
+  const [catalog, setCatalog] = useState<CatalogSkillDto[] | null>(null);
+  const [installing, setInstalling] = useState<string | null>(null);
+  const [confirmReplace, setConfirmReplace] = useState<string | null>(null);
+  const locale = useLocale();
 
   function refresh() {
     chrome.runtime.sendMessage({ type: "listSkills" }).then((res: ListSkillsResponse) => {
@@ -32,9 +39,26 @@ export default function SkillsView() {
         setError(res.error ?? t("skills.listFailed"));
       }
     });
+    chrome.runtime.sendMessage({ type: "listSkillCatalog" }).then((res: ListSkillCatalogResponse) => {
+      setCatalog(res.ok ? res.entries : null);
+    });
   }
 
   useEffect(refresh, []);
+
+  function handleInstall(name: string, overwrite: boolean) {
+    setInstalling(name);
+    setError(null);
+    chrome.runtime.sendMessage({ type: "installCatalogSkill", name, overwrite }).then((res: OkResponse) => {
+      setInstalling(null);
+      if (res.ok) {
+        setConfirmReplace(null);
+        refresh();
+      } else {
+        setError(res.error ?? t("skills.installFailed"));
+      }
+    });
+  }
 
   function handleSave() {
     if (!editor) return;
@@ -235,6 +259,53 @@ export default function SkillsView() {
             </li>
           ))}
         </ul>
+      )}
+      {catalog !== null && catalog.length > 0 && (
+        <section className="skills-gallery">
+          <strong>{t("skills.gallery")}</strong>
+          <span className="skills-hint">{t("skills.galleryIntro")}</span>
+          <ul className="skills-list">
+            {catalog.map((entry) => {
+              const action = catalogAction(entry.status, confirmReplace === entry.name);
+              return (
+                <li key={entry.name} className="skills-item">
+                  <div className="skills-item-header">
+                    <span className="skills-item-name">{entry.name}</span>
+                    {action === "installed" && <span className="skills-hint">{t("skills.galleryInstalled")}</span>}
+                    {action === "install" && (
+                      <button type="button" disabled={installing === entry.name} onClick={() => handleInstall(entry.name, false)}>
+                        {installing === entry.name ? t("skills.installing") : t("skills.installButton")}
+                      </button>
+                    )}
+                    {action === "conflict" && (
+                      <span className="skills-actions">
+                        <span className="skills-hint">{t("skills.otherSameName")}</span>
+                        <button type="button" className="link-button" onClick={() => setConfirmReplace(entry.name)}>
+                          {t("skills.useGallery")}
+                        </button>
+                      </span>
+                    )}
+                    {action === "confirm" && (
+                      <span className="skills-actions">
+                        <button type="button" className="link-button skills-danger" disabled={installing === entry.name} onClick={() => handleInstall(entry.name, true)}>
+                          {t("skills.replaceMineButton")}
+                        </button>
+                        <button type="button" className="link-button" onClick={() => setConfirmReplace(null)}>
+                          {t("skills.keepMine")}
+                        </button>
+                      </span>
+                    )}
+                  </div>
+                  <p className="skills-item-description">{catalogDescription(locale, entry.name, entry.description)}</p>
+                  <details>
+                    <summary className="skills-hint">{t("skills.viewInstructions")}</summary>
+                    <pre className="skills-diff">{entry.body}</pre>
+                  </details>
+                </li>
+              );
+            })}
+          </ul>
+        </section>
       )}
     </div>
   );

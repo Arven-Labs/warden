@@ -41,6 +41,15 @@ export interface SkillDto {
   revises?: string;
 }
 
+/** Mirrors `warden_server_protocol::protocol::CatalogSkillDto` (P140): one ready-made skill of the hub's gallery and where it
+ * stands in the person's vault — not there, there and identical, or there but different. */
+export interface CatalogSkillDto {
+  name: string;
+  description: string;
+  body: string;
+  status: "notInstalled" | "installed" | "modified";
+}
+
 /** Mirrors `warden_server_protocol::protocol::ConversationSummary` (P78). */
 export interface ConversationSummary {
   id: string;
@@ -276,6 +285,9 @@ export type ClientMessage =
   | { type: "listSkills"; requestId: number }
   | { type: "saveSkill"; requestId: number; skill: SkillDto; overwrite: boolean }
   | { type: "deleteSkill"; requestId: number; name: string }
+  /** P140 — the gallery of ready-made skills; a skill that differs from the one in the vault is only replaced with `overwrite`. */
+  | { type: "listSkillCatalog"; requestId: number }
+  | { type: "installCatalogSkill"; requestId: number; name: string; overwrite: boolean }
   /** P40 — this device's persisted conversation, answered by `history`/`historyError` with the same
    * `requestId`. `limit` keeps only the most recent messages. */
   | { type: "requestHistory"; requestId: number; limit?: number; conversationId?: string }
@@ -342,6 +354,7 @@ export type ServerMessage =
   | { type: "chatEvent"; conversationId: string; event: ChatEventDto }
   | { type: "toolCallRequest"; callId: number; tool: string; arguments: unknown }
   | { type: "skillList"; requestId: number; skills: SkillDto[] }
+  | { type: "skillCatalog"; requestId: number; entries: CatalogSkillDto[] }
   | { type: "skillOk"; requestId: number }
   | { type: "skillError"; requestId: number; message: string }
   | { type: "history"; requestId: number; messages: HistoryMessage[] }
@@ -458,6 +471,7 @@ export function decode(text: string): ServerMessage {
     case "approvalRequest":
     case "approvalCancelled":
     case "conversationsChanged":
+    case "skillCatalog":
     case "skillOk":
     case "skillError":
     case "historyError":
