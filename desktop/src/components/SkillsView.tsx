@@ -8,6 +8,7 @@ import type { AgentEntry, CatalogSkill, ExportedPackage, PackagePreview, Provide
 import { diffLines, hasChanges, withContext } from "./skillDiff";
 import CopyButton from "./CopyButton";
 import TrustedPublishers from "./TrustedPublishers";
+import TrustThisKey from "./TrustThisKey";
 import { hubSkills } from "../lib/hub";
 import { signatureView } from "../lib/skillSignature";
 
@@ -260,6 +261,8 @@ function SkillsView({
   // Sharing a skill as a file and importing one (P160).
   const [exporting, setExporting] = useState<ExportState | null>(null);
   const [importing, setImporting] = useState<ImportState | null>(null);
+  // Goes up when a key is trusted from the preview, so the "Who signs" list below reads itself again.
+  const [trustedVersion, setTrustedVersion] = useState(0);
   const [publishing, setPublishing] = useState<PublishState | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
 
@@ -354,6 +357,19 @@ function SkillsView({
     } catch (err) {
       // Stay on the paste step with the text, so it can be fixed or replaced.
       setImporting({ content, preview: null, allowFlagged: false, replace: false, address: "" });
+      setError(String(err));
+    }
+  }
+
+  /** The signing key was just added to the trusted list: reads the same text again so the line under the preview says so, keeping the
+   * boxes the person already ticked, and has the "Who signs" list read itself again. */
+  async function handleTrusted() {
+    if (!importing) return;
+    setTrustedVersion((n) => n + 1);
+    try {
+      const preview = await api.previewPackage(importing.content);
+      setImporting((current) => (current ? { ...current, preview } : current));
+    } catch (err) {
       setError(String(err));
     }
   }
@@ -803,9 +819,10 @@ function SkillsView({
                 }
                 if (sig.kind === "unknown") {
                   return (
-                    <p className="settings-error-banner">
-                      {t("skills.signedUnknown", { key: sig.key ?? "" })} {sig.fullKey && <CopyButton text={sig.fullKey} label={t("skills.copyKey")} />}
-                    </p>
+                    <>
+                      <p className="settings-error-banner">{t("skills.signedUnknown", { key: sig.key ?? "" })}</p>
+                      {sig.fullKey && <TrustThisKey fullKey={sig.fullKey} remote={remote} onTrusted={() => void handleTrusted()} />}
+                    </>
                   );
                 }
                 return <p className="settings-hint">{t("skills.signedNone")}</p>;
@@ -1105,7 +1122,7 @@ function SkillsView({
           </div>
         </section>
       )}
-      <TrustedPublishers remote={remote} />
+      <TrustedPublishers remote={remote} key={trustedVersion} />
     </div>
   );
 }

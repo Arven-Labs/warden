@@ -2,7 +2,18 @@
 
 > **Nota**: Este log foi criado junto com o projeto. As sessões serão registradas aqui conforme o trabalho avança.
 >
-> Última atualização: 2026-10-25 (Sessão 310)
+> Última atualização: 2026-10-25 (Sessão 311)
+
+---
+
+### 2026-10-25 — Sessão 311 (o botão "Confiar nesta chave" na prévia: P160)
+
+- **Pedido**: "ta bom, pode seguir" à proposta de começar pelo botão "confiar nesta chave" direto da prévia, que a 310 deixou como "Fora" (hoje era copiar a chave e colar na seção "Quem assina"). Planejado em modo de plano.
+- **Desenho**: nada muda no protocolo, no hub nem no Rust; reaproveita `list`/`save` das chaves confiáveis. Ao clicar, a linha "Assinado por uma chave que você não listou" ganha um nome opcional e **Confiar**. Confirmar lê a lista **como está agora** (para não pisar numa edição feita em outra tela), junta a chave e grava a lista inteira (no hub, com a chave de pareamento). Depois refaz a prévia **mantendo o que a pessoa já marcou** ("substituir", "instalar mesmo assim") e a seção "Quem assina" se relê. Se a chave já estiver listada (`duplicate`), não grava nada e só refaz a prévia.
+- **Feito**: `trustKey` (lógica pura, em `lib/trustedPublishers.ts` do desktop e `hub/trustedPublishers.ts` da web); `TrustThisKey.tsx` nos dois (no desktop usa `usePairingKey`; na web o formulário da chave de pareamento fica no lugar, como em `TrustedPublishers.tsx`); `handleTrusted` e o contador `trustedVersion` em `SkillsView.tsx` dos dois; três textos novos nos dois idiomas. Na web só o dono vê o botão, o membro segue com "Copiar a chave". O parágrafo do aviso saiu de dentro do `<p>` (um formulário não cabe ali).
+- **Testes**: aqui `npm test` do desktop (217) e da web (144) verdes; `tsc` só acusa `Markdown.tsx` (o `rehype-highlight` não está instalado neste checkout, não é desta mudança). Escritos: `trustKey` (adiciona e arruma o nome, `duplicate`, `badKey`, `nameLong`, `tooMany`, não toca na lista recebida) e as chaves novas de i18n nos dois idiomas. O componente em si (a tela) fica para o Desktop E2E e o Web E2E, que não tenho como rodar aqui.
+- **Fora**: assinar pela tela de exportar, índice de curadores e revogação, celular e extensão.
+- **Fica**: o resto da lista da 309/310 (a chave de publicação do Fabio, `warden-server package keygen`); testar Linear, GitHub e Notion hospedados nos serviços reais; Sentry; OAuth no hub; `account.suspended` no site mãe.
 
 ---
 

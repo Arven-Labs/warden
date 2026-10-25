@@ -38,6 +38,13 @@ export function addPublisher(list: readonly Publisher[], key: string, name: stri
   return [...list, { key: normalizeKey(key) as string, name: name.trim() }];
 }
 
+/** Trusting one key from the import preview: the list to save with it added, or why it cannot be (`duplicate` means it is already
+ * listed, so there is nothing to save). */
+export function trustKey(list: readonly Publisher[], key: string, name: string): { list: Publisher[] } | { problem: DraftProblem } {
+  const problem = checkDraft(list, key, name);
+  return problem === null ? { list: addPublisher(list, key, name) } : { problem };
+}
+
 /** `list` without `key`. */
 export function removePublisher(list: readonly Publisher[], key: string): Publisher[] {
   return list.filter((p) => p.key !== key);

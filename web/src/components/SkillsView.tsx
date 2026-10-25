@@ -6,6 +6,7 @@ import { catalogDescription } from "../i18n/catalog";
 import { rich } from "../i18n/rich";
 import { signatureView } from "../hub/skillSignature";
 import TrustedPublishers from "./TrustedPublishers";
+import TrustThisKey from "./TrustThisKey";
 import { diffLines, hasChanges, withContext } from "./skillDiff";
 
 // Adapted from the extension's `sidepanel/SkillsView.tsx` (P78), talking to the hub directly
@@ -85,6 +86,8 @@ export default function SkillsView({
   // Compartilhar uma skill como arquivo e importar uma (P160).
   const [exporting, setExporting] = useState<ExportState | null>(null);
   const [importing, setImporting] = useState<ImportState | null>(null);
+  // Goes up when a key is trusted from the preview, so the "Who signs" list below reads itself again.
+  const [trustedVersion, setTrustedVersion] = useState(0);
   const [notice, setNotice] = useState<string | null>(null);
 
   const refresh = useCallback(() => {
@@ -141,6 +144,17 @@ export default function SkillsView({
   function handleChooseImportFile(file: File | undefined) {
     if (!file) return;
     file.text().then(handleCheckImport, (err) => setError(t("skills.readFailed", { error: message(err) })));
+  }
+
+  /** The signing key was just added to the trusted list: reads the same text again so the line under the preview says so, keeping the
+   * boxes the person already ticked, and has the "Who signs" list read itself again. */
+  function handleTrusted() {
+    if (!conn || !importing) return;
+    setTrustedVersion((n) => n + 1);
+    conn.previewSkillPackage(importing.content).then(
+      (preview) => setImporting((current) => (current ? { ...current, preview } : current)),
+      (err) => setError(message(err)),
+    );
   }
 
   function handleInstallImport() {
@@ -414,14 +428,15 @@ export default function SkillsView({
                 }
                 if (sig.kind === "unknown") {
                   return (
-                    <p className="error-banner">
-                      {t("skills.signedUnknown", { key: sig.key ?? "" })}{" "}
-                      {sig.fullKey && (
+                    <>
+                      <p className="error-banner">{t("skills.signedUnknown", { key: sig.key ?? "" })}</p>
+                      {sig.fullKey && conn && !user && <TrustThisKey conn={conn} fullKey={sig.fullKey} onTrusted={handleTrusted} />}
+                      {sig.fullKey && (user || !conn) && (
                         <button type="button" className="link-button" onClick={() => void navigator.clipboard?.writeText(sig.fullKey ?? "")}>
                           {t("skills.copyKey")}
                         </button>
                       )}
-                    </p>
+                    </>
                   );
                 }
                 return <p className="skills-hint">{t("skills.signedNone")}</p>;
@@ -687,7 +702,7 @@ export default function SkillsView({
         </section>
       )}
       {/* The keys the hub trusts are the owner's to change: a member does not see them. */}
-      {!user && <TrustedPublishers conn={conn} />}
+      {!user && <TrustedPublishers conn={conn} key={trustedVersion} />}
     </div>
   );
 }
