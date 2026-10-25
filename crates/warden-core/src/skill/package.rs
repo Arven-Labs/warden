@@ -5,8 +5,9 @@
 //!
 //! The `hash` is the SHA-256 of everything but itself and the signature (kind, id, version, author, license and the content).
 //! It tells the package was not altered or damaged on the way; it does **not** tell who wrote it. Authorship is what
-//! `signature` is reserved for: it is read and kept, never trusted, until a signing step exists. Text only: a skill's attached
-//! files can be scripts, so they never travel in a package.
+//! `signature` is for (`signing`): an Ed25519 signature over the hash, checked when the package is read, so one that is
+//! there and wrong is refused, and one that is right names a key the person may or may not trust. Text only: a skill's
+//! attached files can be scripts, so they never travel in a package.
 
 use std::fmt::Write as _;
 
@@ -71,7 +72,7 @@ pub struct Package {
     pub content: Content,
     /// `sha256:<hex>` of the fields above, see the module docs.
     pub hash: String,
-    /// Reserved for a signature of the hash; ignored, and never treated as proof, for now.
+    /// `ed25519:<public key>:<signature>` over the hash, see `signing`; absent on a package nobody signed.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub signature: Option<String>,
 }
@@ -163,6 +164,8 @@ impl Package {
         if package.hash != expected {
             bail!("the package was changed or damaged: its hash does not match its content");
         }
+        // A signature that is there has to be good: it is the one claim about who wrote this, and a wrong one is worse than none.
+        package.verified()?;
         Ok(package)
     }
 

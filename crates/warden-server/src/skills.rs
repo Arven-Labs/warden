@@ -4,13 +4,19 @@
 //! without a socket; the same create/edit rules as the desktop's `save_skill` and the mobile
 //! bridge (create refuses a taken name, edit overwrites).
 
-use warden_bootstrap::skill_package;
+use warden_bootstrap::skill_package::{self, TrustedPublisher};
 use warden_core::skill::{catalog, Skill, SkillStore};
 use warden_server_protocol::protocol::{CatalogSkillDto, PackagePreviewDto, SkillDto};
 use warden_server_protocol::{ClientMessage, ServerMessage};
 
-/// Answers a skills request, or `None` for any other message.
+/// Answers a skills request, or `None` for any other message. A package preview is measured against no trusted keys.
 pub fn handle_skill_request(store: &SkillStore, message: ClientMessage) -> Option<ServerMessage> {
+    handle_skill_request_with(store, &[], message)
+}
+
+/// Like `handle_skill_request`, with the keys the hub's owner trusts (`[[trusted_publishers]]`), for a package preview to say who
+/// signed.
+pub fn handle_skill_request_with(store: &SkillStore, trusted: &[TrustedPublisher], message: ClientMessage) -> Option<ServerMessage> {
     Some(match message {
         ClientMessage::ListSkills { request_id } => {
             ServerMessage::SkillList { request_id, skills: store.list().into_iter().map(SkillDto::from).collect() }
@@ -45,7 +51,7 @@ pub fn handle_skill_request(store: &SkillStore, message: ClientMessage) -> Optio
                 Err(message) => ServerMessage::SkillError { request_id, message },
             }
         }
-        ClientMessage::PreviewSkillPackage { request_id, content } => match skill_package::preview_skill_package(store, &content) {
+        ClientMessage::PreviewSkillPackage { request_id, content } => match skill_package::preview_skill_package(store, &content, trusted) {
             Ok(p) => ServerMessage::SkillPackagePreview {
                 request_id,
                 preview: PackagePreviewDto {
@@ -59,6 +65,9 @@ pub fn handle_skill_request(store: &SkillStore, message: ClientMessage) -> Optio
                     hash: p.hash,
                     status: p.status.to_string(),
                     finding: p.finding,
+                    signature: p.signature.state.to_string(),
+                    signer: p.signature.signer,
+                    signer_name: p.signature.signer_name,
                 },
             },
             Err(message) => ServerMessage::SkillError { request_id, message },
@@ -225,6 +234,31 @@ mod tests {
         let install = ClientMessage::InstallSkillPackage { request_id: 13, content, overwrite: false, allow_flagged: false };
         assert_eq!(handle_skill_request(&yours, install), Some(ServerMessage::SkillOk { request_id: 13 }));
         assert_eq!(yours.get("greet").unwrap().body, "Say hello warmly.");
+    }
+
+    #[test]
+    fn a_package_preview_says_who_signed_it_against_the_keys_the_hub_trusts() {
+        let (mine, yours) = (temp_store(), temp_store());
+        handle_skill_request(&mine, save_req(SkillDto { body: "Say hello warmly.".into(), ..dto("greet") }, false));
+        let unsigned = exported(&mine, "greet");
+        let (private, public) = warden_core::skill::signing::generate_keypair().unwrap();
+        let mut package = warden_core::skill::package::Package::parse(&unsigned).unwrap();
+        package.sign(&private).unwrap();
+        let signed = package.to_json().unwrap();
+
+        let preview = |trusted: &[TrustedPublisher], content: &str| match handle_skill_request_with(&yours, trusted, ClientMessage::PreviewSkillPackage { request_id: 15, content: content.into() }) {
+            Some(ServerMessage::SkillPackagePreview { request_id: 15, preview }) => (preview.signature, preview.signer, preview.signer_name),
+            other => panic!("unexpected {other:?}"),
+        };
+        assert_eq!(preview(&[], &unsigned), ("unsigned".into(), None, None));
+        assert_eq!(preview(&[], &signed), ("unknown".into(), Some(public.clone()), None));
+        let listed = [TrustedPublisher { key: public.clone(), name: "Fabio".into() }];
+        assert_eq!(preview(&listed, &signed), ("trusted".into(), Some(public), Some("Fabio".into())));
+        // The plain entry point, with no keys, never calls anyone trusted.
+        match handle_skill_request(&yours, ClientMessage::PreviewSkillPackage { request_id: 15, content: signed }) {
+            Some(ServerMessage::SkillPackagePreview { preview, .. }) => assert_eq!(preview.signature, "unknown"),
+            other => panic!("unexpected {other:?}"),
+        }
     }
 
     #[test]

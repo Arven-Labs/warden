@@ -2,7 +2,23 @@
 
 > **Nota**: Este log foi criado junto com o projeto. As sessões serão registradas aqui conforme o trabalho avança.
 >
-> Última atualização: 2026-10-25 (Sessão 308)
+> Última atualização: 2026-10-25 (Sessão 309)
+
+---
+
+### 2026-10-25 — Sessão 309 (a assinatura Ed25519 dos pacotes de skill: P160/P140, o "`.wpkg` assinado")
+
+- **Pedido**: "vamos no .wpkg". Planejado em modo de plano, com três escolhas do usuário: **assinar o envelope JSON que já existe** (o `.wpkg` em tar/zip do desenho antigo não foi feito; o P160 já tinha o envelope `warden-package` com o campo `signature` reservado), **confiar numa lista de chaves da própria pessoa** (nenhuma embutida, o app segue zerado) e ir até a **prévia da importação** no hub, desktop e web.
+- **Feito**:
+  - `warden-core/src/skill/signing.rs` (novo, `ring`): `generate_keypair`, `Package::sign` e `Package::verified`; a assinatura é `ed25519:<chave>:<assinatura>` sobre os bytes do `hash`. `Package::parse` passa a **recusar** assinatura que não confere ou de esquema desconhecido (como o hash que não bate); sem assinatura lê como sempre.
+  - `warden-bootstrap`: `FileConfig.trusted_publishers` (`[[trusted_publishers]]`, `key` e `name`; entrada ruim é descartada com aviso) e `skill_package.rs` (`usable_publishers`, `signature_standing`; a prévia ganhou `signature` = `trusted`, `unknown` ou `unsigned`, mais `signer` e `signer_name`). O desktop monta o `FileConfig` campo a campo, então o campo novo entrou lá (`trusted_publishers: existing.trusted_publishers`).
+  - Protocolo: `PackagePreviewDto` ganhou `signature` (padrão `unsigned`, então um hub antigo não quebra), `signer` e `signerName`. Hub: `handle_skill_request_with` recebe a lista (lida do config só para a prévia); desktop lê a do config local.
+  - `warden-server package keygen|sign|verify` (`package_cmd.rs`): a chave privada é um arquivo 0600 que **nunca é sobrescrito**; `sign` recusa pacote alterado; `verify` lê a lista do config.
+  - Desktop e web: `lib/skillSignature.ts` e `hub/skillSignature.ts` (só a palavra exata `trusted` conta como confiável; hub antigo ou estado desconhecido não afirma nada), a linha na prévia da importação ("Assinado por X, uma chave em que você confia", "Assinado por uma chave que você não listou" em aviso, "Sem assinatura") e os textos nos dois idiomas.
+- **Testes**: aqui `cargo check --workspace --tests` limpo, `npm test` do desktop (211) e da web (138) verdes e `tsc` sem erro. **Escritos e não rodados** (CI): 8 em `signing.rs` (ida e volta; conteúdo ou autor mudado depois cai no hash; assinatura copiada de outro pacote, com outra chave ou com um byte trocado é recusada; formato malformado e esquema de fora; quem refaz o hash e assina com a própria chave sai com a chave dele; chaves), 4 em `skill_package.rs` (os três estados contra a lista, pacote assinado instala e o de assinatura ruim é recusado na prévia e na instalação, lista com entrada ruim, leitura do TOML), 1 no hub (`skills.rs`), o serde do protocolo (com e sem os campos) e 3 em `package_cmd.rs` (chave 0600 que não se sobrescreve, ida e volta de `sign` e `verify`, pacote ruim não é assinado).
+- **Risco a olhar no CI**: o `ring` entra no `warden-core`, que o celular compila (inclusive para `armv7`); se o job do Android/mobile quebrar, o plano B é o `ed25519-dalek`.
+- **Para o Fabio**: a chave de publicação é dele. Quem gera é `warden-server package keygen <arquivo>`; eu não a vi nem a gerei, e a privada não pode ser refeita.
+- **Fica**: tela para editar as chaves confiáveis (hoje é o `config.toml` à mão); assinar pela tela de exportar; índice assinado dos curadores e revogação; celular e extensão; agentes e integrações como `kind` do envelope.
 
 ---
 

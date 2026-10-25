@@ -4,6 +4,7 @@ import type { CatalogSkillDto, PackagePreviewDto, SkillDto, UserInfo } from "../
 import { intlTag, t, type Key } from "../i18n";
 import { catalogDescription } from "../i18n/catalog";
 import { rich } from "../i18n/rich";
+import { signatureView } from "../hub/skillSignature";
 import { diffLines, hasChanges, withContext } from "./skillDiff";
 
 // Adapted from the extension's `sidepanel/SkillsView.tsx` (P78), talking to the hub directly
@@ -405,6 +406,14 @@ export default function SkillsView({
                 <code>{importing.preview.hash.slice(0, 19)}…</code>
               </p>
               <p className="skills-hint">{t("skills.hashNote")}</p>
+              {(() => {
+                const sig = signatureView(importing.preview);
+                if (sig.kind === "trusted") {
+                  return <p className="skills-hint">{sig.name ? t("skills.signedTrusted", { name: sig.name }) : t("skills.signedTrustedNoName", { key: sig.key ?? "" })}</p>;
+                }
+                if (sig.kind === "unknown") return <p className="error-banner">{t("skills.signedUnknown", { key: sig.key ?? "" })}</p>;
+                return <p className="skills-hint">{t("skills.signedNone")}</p>;
+              })()}
               {importing.preview.finding && <p className="error-banner">{t("skills.finding", { finding: importing.preview.finding })}</p>}
               <pre className="skills-body">{importing.preview.body}</pre>
               {importing.preview.status === "installed" && <p className="skills-hint">{t("skills.alreadyHave")}</p>}

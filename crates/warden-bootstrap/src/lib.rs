@@ -639,6 +639,11 @@ pub struct FileConfig {
     /// balance chip and from the "out of credit" error. Without it, they open the usage screen instead. See `topup_url`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub topup_url: Option<String>,
+    /// Whose skill packages the person trusts (P160, TOML `[[trusted_publishers]]`, each a `key` of 64 hex characters and a `name`):
+    /// a package signed by one of these keys is shown as signed by them. Empty by default: Warden ships none. See
+    /// `skill_package::usable_publishers`.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub trusted_publishers: Vec<skill_package::TrustedPublisher>,
     /// The assistant learning from conversations (P104, TOML `[learning]`): off unless turned on. See `learning`.
     #[serde(default, skip_serializing_if = "learning::LearningSettings::is_default")]
     pub learning: learning::LearningSettings,
@@ -3062,6 +3067,7 @@ oauth = true
             truthid_rpc_url: None,
             truthid_public_url: None,
             topup_url: None,
+            trusted_publishers: Vec::new(),
             learning: Default::default(),
             telegram: bot_access::TelegramSettings { allowed_users: vec![42], pairing: true, members: [("42".to_string(), "ana".to_string())].into() },
             whatsapp: bot_access::WhatsAppSettings { allowed_chats: vec!["5511999999999".to_string()], pairing: false, members: Default::default() },

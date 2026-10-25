@@ -115,6 +115,13 @@ export interface PackagePreviewDto {
   hash: string;
   status: "notInstalled" | "installed" | "modified";
   finding?: string;
+  /** Who signed it, against the keys the hub's owner trusts: `trusted`, `unknown` (a key that is not listed) or `unsigned`. A hub
+   * that predates signing sends nothing, which reads as `unsigned`. A package with a wrong signature gets no preview at all. */
+  signature?: "trusted" | "unknown" | "unsigned";
+  /** The signing key (64 hex characters), when there is a signature. */
+  signer?: string;
+  /** The name the hub's owner gave that key, when it is listed. */
+  signerName?: string;
 }
 
 /** Mirrors `warden_server_protocol::protocol::ConversationSummary` (P78). */

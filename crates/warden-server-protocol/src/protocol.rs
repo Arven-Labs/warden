@@ -89,6 +89,21 @@ pub struct PackagePreviewDto {
     pub status: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub finding: Option<String>,
+    /// Who signed the package, measured against the keys the hub's owner trusts: `trusted`, `unknown` (signed by a key that is not
+    /// listed) or `unsigned`. A package whose signature is wrong never gets a preview, it is refused. A hub that predates signing
+    /// sends nothing, which reads as `unsigned`.
+    #[serde(default = "unsigned_signature")]
+    pub signature: String,
+    /// The signing key (64 hex characters), when there is a signature.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub signer: Option<String>,
+    /// The name the hub's owner gave that key, when it is listed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub signer_name: Option<String>,
+}
+
+fn unsigned_signature() -> String {
+    "unsigned".to_string()
 }
 
 /// A project (P103) on the wire — what a client's Projects screen lists and edits over `ListProjects`/`SaveProject`.
@@ -3419,14 +3434,31 @@ mod tests {
                 hash: "sha256:00".into(),
                 status: "notInstalled".into(),
                 finding: Some("a link".into()),
+                signature: "unsigned".into(),
+                signer: None,
+                signer_name: None,
             },
         };
         let json = serde_json::to_string(&shown).unwrap();
         assert_eq!(
             json,
-            r#"{"type":"skillPackagePreview","requestId":2,"preview":{"id":"x","version":"1.0.0","author":"Ana","license":"MIT","name":"x","description":"d","body":"b","hash":"sha256:00","status":"notInstalled","finding":"a link"}}"#
+            r#"{"type":"skillPackagePreview","requestId":2,"preview":{"id":"x","version":"1.0.0","author":"Ana","license":"MIT","name":"x","description":"d","body":"b","hash":"sha256:00","status":"notInstalled","finding":"a link","signature":"unsigned"}}"#
         );
         assert_eq!(serde_json::from_str::<ServerMessage>(&json).unwrap(), shown);
+
+        // A hub that predates signing sends no `signature`: it reads as unsigned. One that signs says who.
+        let old = r#"{"type":"skillPackagePreview","requestId":2,"preview":{"id":"x","version":"1.0.0","license":"MIT","name":"x","description":"d","body":"b","hash":"sha256:00","status":"notInstalled"}}"#;
+        match serde_json::from_str::<ServerMessage>(old).unwrap() {
+            ServerMessage::SkillPackagePreview { preview, .. } => assert_eq!((preview.signature.as_str(), preview.signer, preview.signer_name), ("unsigned", None, None)),
+            other => panic!("unexpected {other:?}"),
+        }
+        let signed = r#"{"type":"skillPackagePreview","requestId":2,"preview":{"id":"x","version":"1.0.0","license":"MIT","name":"x","description":"d","body":"b","hash":"sha256:00","status":"notInstalled","signature":"trusted","signer":"ab","signerName":"Fabio"}}"#;
+        match serde_json::from_str::<ServerMessage>(signed).unwrap() {
+            ServerMessage::SkillPackagePreview { preview, .. } => {
+                assert_eq!((preview.signature.as_str(), preview.signer.as_deref(), preview.signer_name.as_deref()), ("trusted", Some("ab"), Some("Fabio")));
+            }
+            other => panic!("unexpected {other:?}"),
+        }
     }
 
     #[test]

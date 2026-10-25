@@ -19,6 +19,9 @@ http.workspace = true
 reqwest.workspace = true
 # The password of each `opencode serve` the code engine starts (`code_engine/process.rs`); same version as warden-bootstrap.
 rand = "0.8"
+# Ed25519 for signed skill packages (`skill/signing.rs`, P160). Already in the build through rustls; picked by name here so the
+# signing does not depend on which TLS crate happens to bring it.
+ring = "0.17"
 rmcp ={ version = "3", features = ["client", "transport-child-process", "transport-streamable-http-client-reqwest", "reqwest", "auth"] }
 # Needed only to construct a `reqwest::Client` value to hand to rmcp's OAuth `AuthClient`
 # (tool/mcp_oauth.rs) — rmcp's `auth`/`reqwest` features don't re-export their internal

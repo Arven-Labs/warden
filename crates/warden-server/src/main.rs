@@ -61,6 +61,12 @@ enum Command {
     /// Prints a fresh random pairing key (64 hex chars) for `serve --auth-key` /
     /// WARDEN_SERVER_AUTH_KEY.
     GenKey,
+    /// Signed skill packages (P160): make a signing key, sign a package file with it, and see who a package says signed it. Others
+    /// trust what you sign by listing your public key under `[[trusted_publishers]]` in their config.
+    Package {
+        #[command(subcommand)]
+        action: PackageAction,
+    },
     /// Vault sync (P61) — what `serve` does every 5 minutes on its own, and how a hub with no
     /// screen gets its vault key. Safe while `serve` runs: a round started here waits for the
     /// hub's to finish (one sync at a time per vault, across processes).
@@ -479,6 +485,29 @@ enum DevicesAction {
     Invites,
     /// Cancel an unused invite by its name.
     Uninvite { name: String },
+}
+
+#[derive(Subcommand, Debug)]
+enum PackageAction {
+    /// Makes a signing key: writes the private half to FILE (readable only by you; never overwritten, back it up) and prints the
+    /// public half to give to the people who should trust you.
+    Keygen { file: PathBuf },
+    /// Signs the package PACKAGE with the key in --key. Replaces the file unless --out names another one.
+    Sign {
+        package: PathBuf,
+        #[arg(long)]
+        key: PathBuf,
+        #[arg(short, long)]
+        out: Option<PathBuf>,
+    },
+    /// Says whether PACKAGE is signed and by whom, against the `[[trusted_publishers]]` of the config. A signature that does not
+    /// check out is an error.
+    Verify {
+        package: PathBuf,
+        /// The config file to read `[[trusted_publishers]]` from (this machine's by default).
+        #[arg(long)]
+        config: Option<PathBuf>,
+    },
 }
 
 #[derive(Subcommand, Debug)]
@@ -1333,6 +1362,30 @@ fn run_webhooks_command(args: WebhooksArgs) -> anyhow::Result<()> {
     Ok(())
 }
 
+fn run_package_command(action: PackageAction) -> anyhow::Result<()> {
+    use warden_server::package_cmd;
+    match action {
+        PackageAction::Keygen { file } => {
+            let public = package_cmd::keygen(&file)?;
+            println!("wrote the private key to {} — keep it secret and back it up; it cannot be made again", file.display());
+            println!("public key (give this to the people who should trust you): {public}");
+        }
+        PackageAction::Sign { package, key, out } => {
+            let public = package_cmd::sign(&package, &key, out.as_deref())?;
+            println!("signed {} with the key {public}", out.as_deref().unwrap_or(&package).display());
+        }
+        PackageAction::Verify { package, config } => {
+            let trusted = config
+                .or_else(warden_bootstrap::default_config_path)
+                .and_then(|path| load_config_from_path(&path, false).ok())
+                .map(|config| config.trusted_publishers)
+                .unwrap_or_default();
+            println!("{}", package_cmd::verify(&package, &trusted)?);
+        }
+    }
+    Ok(())
+}
+
 fn run_api_keys_command(action: ApiKeysAction) -> anyhow::Result<()> {
     let store = warden_server::api_keys::ApiKeyStore::new(api_keys_path()?);
     match action {
@@ -1599,6 +1652,7 @@ async fn main() -> anyhow::Result<()> {
         Command::Serve(args) => run_serve(args).await,
         Command::Devices { action } => run_devices_command(action),
         Command::ApiKeys { action } => run_api_keys_command(action),
+        Command::Package { action } => run_package_command(action),
         Command::Sync(args) => run_sync_command(args).await,
         Command::Tasks(args) => run_tasks_command(args).await,
         Command::Webhooks(args) => run_webhooks_command(args),

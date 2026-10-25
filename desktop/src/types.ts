@@ -672,6 +672,13 @@ export interface PackagePreview {
   hash: string;
   status: "notInstalled" | "installed" | "modified";
   finding?: string;
+  /** Who signed it, against `[[trusted_publishers]]` in this computer's config: `trusted`, `unknown` (a key that is not listed) or
+   * `unsigned`. Absent from an older build, which reads as `unsigned`. A package with a wrong signature gets no preview at all. */
+  signature?: "trusted" | "unknown" | "unsigned";
+  /** The signing key (64 hex characters), when there is a signature. */
+  signer?: string;
+  /** The name given to that key in the config, when it is listed. */
+  signerName?: string;
 }
 
 /** One skill (P16) — mirrors `SkillPayload` in `src-tauri/src/skills_cmds.rs`. */

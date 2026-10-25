@@ -8,6 +8,7 @@ import type { AgentEntry, CatalogSkill, ExportedPackage, PackagePreview, Provide
 import { diffLines, hasChanges, withContext } from "./skillDiff";
 import CopyButton from "./CopyButton";
 import { hubSkills } from "../lib/hub";
+import { signatureView } from "../lib/skillSignature";
 
 /** What the editor form is doing: `new` (name editable, refuses a taken name) or `edit` (name
  * locked, overwrites). `fromAi` only drives the "review before saving" hint. */
@@ -794,6 +795,14 @@ function SkillsView({
                 })}
               </p>
               <p className="settings-hint">{t("skills.hashNote")}</p>
+              {(() => {
+                const sig = signatureView(importing.preview);
+                if (sig.kind === "trusted") {
+                  return <p className="settings-hint">{sig.name ? t("skills.signedTrusted", { name: sig.name }) : t("skills.signedTrustedNoName", { key: sig.key ?? "" })}</p>;
+                }
+                if (sig.kind === "unknown") return <p className="settings-error-banner">{t("skills.signedUnknown", { key: sig.key ?? "" })}</p>;
+                return <p className="settings-hint">{t("skills.signedNone")}</p>;
+              })()}
               {importing.preview.finding && <p className="settings-error-banner">{t("skills.importFinding", { finding: importing.preview.finding })}</p>}
               <pre className="skill-suggestion-body">{importing.preview.body}</pre>
               {importing.preview.status === "installed" && <p className="settings-hint">{t("skills.alreadyHave")}</p>}

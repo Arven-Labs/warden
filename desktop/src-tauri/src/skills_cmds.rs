@@ -150,6 +150,12 @@ pub struct PackagePreviewPayload {
     status: &'static str,
     #[serde(skip_serializing_if = "Option::is_none")]
     finding: Option<String>,
+    /// `trusted`, `unknown` or `unsigned`, against the keys in `[[trusted_publishers]]` of this computer's config.
+    signature: &'static str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    signer: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    signer_name: Option<String>,
 }
 
 #[tauri::command]
@@ -160,8 +166,13 @@ pub fn export_skill_package(state: State<'_, AppState>, name: String, version: S
 
 #[tauri::command]
 pub fn preview_skill_package(state: State<'_, AppState>, content: String) -> Result<PackagePreviewPayload, String> {
-    let p = skill_package::preview_skill_package(&store(&state)?, &content)?;
+    // The keys this computer's owner trusts; a config that cannot be read just means none are, never a failed preview.
+    let trusted = default_config_path().and_then(|path| load_config_from_path(&path, false).ok()).map(|config| config.trusted_publishers).unwrap_or_default();
+    let p = skill_package::preview_skill_package(&store(&state)?, &content, &trusted)?;
     Ok(PackagePreviewPayload {
+        signature: p.signature.state,
+        signer: p.signature.signer,
+        signer_name: p.signature.signer_name,
         id: p.id,
         version: p.version,
         author: p.author,

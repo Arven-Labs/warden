@@ -36,6 +36,7 @@ pub mod code_turns;
 pub mod conversations;
 pub mod device_registry;
 pub mod openai_api;
+pub mod package_cmd;
 pub mod pairing_key;
 pub mod people;
 pub mod provider_admin;

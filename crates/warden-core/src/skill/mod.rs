@@ -37,6 +37,7 @@ use crate::memory::{Vault, SKILLS_DIR};
 
 pub mod catalog;
 pub mod package;
+pub mod signing;
 
 pub const MAX_NAME_LEN: usize = 64;
 pub const MAX_DESCRIPTION_LEN: usize = 300;

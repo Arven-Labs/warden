@@ -8319,6 +8319,7 @@ dependencies = [
  "rand 0.8.8",
  "reqwest 0.12.28",
  "reqwest 0.13.5",
+ "ring",
  "rmcp",
  "rust_xlsxwriter",
  "serde",

@@ -43,7 +43,7 @@ use crate::user_admin::{
 };
 use crate::devices::{handle_cancel_device_invite, handle_create_device_invite, handle_list_device_invites, handle_list_devices, handle_rotate_pairing_key, handle_set_device_status};
 use crate::projects::handle_project_request;
-use crate::skills::handle_skill_request;
+use crate::skills::handle_skill_request_with;
 use crate::usage::{handle_extend_limit, handle_member_usage_request, handle_usage_request, member_limit_message, spend_limit_id};
 use crate::vault::handle_vault_request;
 use crate::remote_tool::{RemoteTool, RemoteToolChannel, DEFAULT_TIMEOUT as REMOTE_TOOL_TIMEOUT};
@@ -1852,7 +1852,16 @@ async fn handle_connection<S: Transport>(ws: WebSocketStream<S>, peer: SocketAdd
                     // Short local file I/O, answered inline (no spawn) — P72.
                     let vault = person_vault(member.as_ref(), settings.as_deref(), &orchestrator.current(), &space_vaults);
                     let store = SkillStore::new(vault);
-                    if let Some(reply) = handle_skill_request(&store, message) {
+                    // The keys the hub's owner trusts only matter to a package preview (P160), so the config is read just for that.
+                    let trusted = match &message {
+                        ClientMessage::PreviewSkillPackage { .. } => settings
+                            .as_deref()
+                            .and_then(|host| load_config_from_path(&host.config_path(), false).ok())
+                            .map(|config| config.trusted_publishers)
+                            .unwrap_or_default(),
+                        _ => Vec::new(),
+                    };
+                    if let Some(reply) = handle_skill_request_with(&store, &trusted, message) {
                         let _ = tx.send(reply);
                     }
                 }
