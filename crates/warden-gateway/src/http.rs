@@ -279,11 +279,15 @@ impl GatewayServer {
             let Ok((stream, peer)) = self.listener.accept().await else { continue };
             let Some(slot) = connections.try_acquire(&client_key(peer.ip(), None, false)) else {
                 tracing::debug!(%peer, "too many open connections; refusing this one");
-                // Plain HTTP gets one non-blocking write of a fixed answer, with nothing read and no task: the refusal must stay
-                // cheaper than the accept. Best effort: a client that already sent its request can see a reset instead. Under
-                // TLS the client expects a handshake, so it is closed without an answer.
+                // Plain HTTP gets one write of a fixed answer, with nothing read and no task: the refusal must stay cheaper than
+                // the accept. Best effort: a client that already sent its request can see a reset instead. Under TLS the client
+                // expects a handshake, so it is closed without an answer. Written on the plain socket: tokio's `try_write` only
+                // goes through once the reactor has reported the socket writable, which a stream just accepted has not yet, so
+                // it would answer `WouldBlock`; the socket stays non-blocking, and an empty send buffer takes these bytes.
                 if tls.is_none() {
-                    let _ = stream.try_write(CONNECTIONS_FULL);
+                    if let Ok(mut plain) = stream.into_std() {
+                        let _ = std::io::Write::write(&mut plain, CONNECTIONS_FULL);
+                    }
                 }
                 continue;
             };
