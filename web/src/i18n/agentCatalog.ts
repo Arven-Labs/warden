@@ -24,7 +24,7 @@ const ptBR: Record<string, Text> = {
   },
   writer: {
     role: "Redator",
-    description: "Redige e melhora e-mails, mensagens e textos curtos no seu tom. Pergunta antes de mudar qualquer coisa.",
+    description: "Redige e melhora e-mails, mensagens e textos curtos no seu tom. Pergunta quando o objetivo ou o leitor não está claro.",
   },
 };
 

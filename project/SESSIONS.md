@@ -2,7 +2,18 @@
 
 > **Nota**: Este log foi criado junto com o projeto. As sessões serão registradas aqui conforme o trabalho avança.
 >
-> Última atualização: 2026-10-25 (Sessão 305)
+> Última atualização: 2026-10-25 (Sessão 306)
+
+---
+
+### 2026-10-25 — Sessão 306 (revisão dos textos das galerias: P140)
+
+- **Pedido**: "vamos no 2", o item "o Fabio ler os textos" que a 305 deixou. Mostrei as 4 personas, as 8 skills e os textos das galerias de MCP, com cinco dúvidas minhas, e o usuário mandou corrigir.
+- **Corrigido**: (1) a descrição do Writer prometia "pergunta antes de mudar qualquer coisa", mas a persona só pergunta quando falta objetivo ou leitor; agora diz isso (`writer.md` e `agentCatalog.ts` do desktop e da web). (3) Linear: saiu a frase "crie a chave apenas com a permissão Read", que não vi nas docs (desktop e web, nos dois idiomas). (4) Notion hospedado: "O Notion acima é o local" dependia da ordem dos cartões; virou "o Notion local, mais antigo, continua disponível". (5) `commit-message.md`: sem estilo de commits à vista, escreve no idioma da pessoa (antes, inglês), já que os commits do repo são em português.
+- **Conferido, sem mudança**: (2) "lê, nunca edita" vale de fato: o agente do catálogo nasce só com `SAFE_AGENT_TOOLS` (`read_file`, `use_skill`, `read_skill_file`, `usage_stats`, `budget`, `generate_document`), sem escrita nem comando; só o `generate_document` cria um documento novo.
+- **Efeito**: o texto novo do `commit-message` faz quem o instalou intacto ver "há versão nova" (a 305).
+- **Testes**: `npm test` do desktop (207) e da web (134) verdes. Rust não rodado (o `include_str!` só lê os `.md`); CI a conferir.
+- **Fica**: o resto da lista da 305 (testar Linear, GitHub e Notion hospedados nos serviços reais; rótulo "versão nova" no celular; Sentry; OAuth no hub; `.wpkg` assinado). Os textos das 4 personas e das 8 skills seguem sendo meus, agora revisados em uma passada.
 
 ---
 

@@ -10,6 +10,6 @@ Write the commit message in this shape:
 
 Rules:
 - Describe the change that is in the diff, not what was planned.
-- Match the language and the style of earlier commit messages if the person shows some; otherwise write in English.
+- Match the language and the style of earlier commit messages if the person shows some; otherwise write in the language the person is using with you.
 - One logical change per message. If the diff mixes unrelated changes, say so and suggest splitting it.
 - Do not invent ticket numbers or authors. Leave them out when unknown.

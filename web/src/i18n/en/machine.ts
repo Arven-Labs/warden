@@ -56,7 +56,7 @@ export const machine = {
   "machine.cat.needs.docker": "Docker running on the hub's computer, and your own token (it can't be saved while empty)",
   "machine.cat.needs.header": "your own key or token, pasted as the Authorization header after adding, in the form Bearer <key> (it can't be saved while empty)",
   "machine.cat.linear.label": "Linear (hosted)",
-  "machine.cat.linear.description": "Search and update issues, projects and comments in your Linear workspace. For read-only use, make the key with only the Read permission.",
+  "machine.cat.linear.description": "Search and update issues, projects and comments in your Linear workspace.",
   "machine.cat.githubRemote.label": "GitHub (hosted)",
   "machine.cat.githubRemote.description": "Repositories, issues and pull requests through GitHub's own server, with a personal access token. Some enterprise accounts switch tokens off.",
   "machine.cat.filesystem.label": "Filesystem",

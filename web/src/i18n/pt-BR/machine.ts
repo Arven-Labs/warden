@@ -57,7 +57,7 @@ export const machinePt: Record<keyof typeof machine, string> = {
   "machine.cat.needs.docker": "o Docker rodando no computador do hub e o seu próprio token (não dá para salvar vazio)",
   "machine.cat.needs.header": "sua própria chave ou token, colado como cabeçalho Authorization depois de adicionar, no formato Bearer <chave> (não dá para salvar vazio)",
   "machine.cat.linear.label": "Linear (hospedado)",
-  "machine.cat.linear.description": "Busca e atualiza issues, projetos e comentários do seu espaço no Linear. Para só leitura, crie a chave apenas com a permissão Read.",
+  "machine.cat.linear.description": "Busca e atualiza issues, projetos e comentários do seu espaço no Linear.",
   "machine.cat.githubRemote.label": "GitHub (hospedado)",
   "machine.cat.githubRemote.description": "Repositórios, issues e pull requests pelo servidor do próprio GitHub, com um token de acesso pessoal. Algumas contas corporativas desligam os tokens.",
   "machine.cat.filesystem.label": "Arquivos (Filesystem)",
