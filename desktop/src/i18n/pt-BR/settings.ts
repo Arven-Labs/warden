@@ -231,6 +231,8 @@ export const settingsPt: Record<keyof typeof settings, string> = {
   "st.mcpCat.githubRemote.description": "Repositórios, issues e pull requests pelo servidor do próprio GitHub, com um token de acesso pessoal. Algumas contas corporativas desligam os tokens.",
   "st.mcpCat.notionRemote.label": "Notion (hospedado — OAuth)",
   "st.mcpCat.notionRemote.description": "O servidor do próprio Notion: busca e edita suas páginas e bases depois de entrar. O Notion local, mais antigo, continua disponível.",
+  "st.mcpCat.sentry.label": "Sentry (hospedado — OAuth)",
+  "st.mcpCat.sentry.description": "O servidor do próprio Sentry: consulta erros, issues e releases da sua organização depois de entrar. Alcança o sentry.io, não um Sentry hospedado por você.",
   "st.mcpCat.needs.oauth": "entrar no navegador (o botão Conectar, depois de salvar)",
   "st.mcpCat.needs.docker": "o Docker rodando neste computador e o seu próprio token",
   "st.mcpCat.filesystem.label": "Arquivos (Filesystem)",

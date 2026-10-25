@@ -27,7 +27,7 @@ describe("the entries", () => {
   });
 
   test("nothing that signs in with OAuth is here: the page never sends it, so such a server would be saved broken", () => {
-    assert.ok(!MCP_CATALOG.some((e) => ["slack", "notion_remote"].includes(e.id)));
+    assert.ok(!MCP_CATALOG.some((e) => ["slack", "notion_remote", "sentry"].includes(e.id)));
     assert.ok(MCP_CATALOG.filter((e) => e.kind === "stdio").every((e) => ["npx", "docker"].includes(e.command)));
     // Every hosted one gets in through a key in the Authorization header, so it has a header to fill in.
     for (const e of MCP_CATALOG.filter((x) => x.kind === "http")) {
@@ -36,10 +36,10 @@ describe("the entries", () => {
     }
   });
 
-  test("the hosted ones checked in Session 304 are at the addresses the vendors' docs give, and Sentry waits", () => {
+  test("the hosted ones checked in Session 304 are at the addresses the vendors' docs give, and Sentry (OAuth only) is the desktop's", () => {
     assert.equal(entry("linear").url, "https://mcp.linear.app/mcp");
     assert.equal(entry("github_remote").url, "https://api.githubcopilot.com/mcp/");
-    assert.ok(!MCP_CATALOG.some((e) => e.id === "sentry"), "Sentry's own pages disagree on how it signs in");
+    assert.ok(!MCP_CATALOG.some((e) => e.id === "sentry"), "Sentry signs in with OAuth, which the page never sends");
   });
 
   test("the secrets ship as names only, and a variable name is never repeated", () => {

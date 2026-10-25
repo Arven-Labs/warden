@@ -109,6 +109,18 @@ export const MCP_CATALOG: McpCatalogEntry[] = [
     token: "https://mcp.notion.com/mcp",
     server: { name: "notion_remote", url: "https://mcp.notion.com/mcp", headers: {}, oauth: true },
   },
+  {
+    // https://mcp.sentry.dev (docs.sentry.io/ai/mcp redirects there), checked on 2026-10-25 (Session 313) and not against the live service: the
+    // endpoint is /mcp over the HTTP transport (the page's own client example is `--transport http`) and "all connections use OAuth", the same
+    // flow as Slack's and Notion's. The README also mentions `Authorization: Sentry-Bearer <token>` for a client that already holds a token; that
+    // is in no docs page, so it is not offered. A self-hosted Sentry needs the stdio server instead, which the README calls a work in progress.
+    id: "sentry",
+    label: "st.mcpCat.sentry.label",
+    description: "st.mcpCat.sentry.description",
+    needs: "oauth",
+    token: "https://mcp.sentry.dev/mcp",
+    server: { name: "sentry", url: "https://mcp.sentry.dev/mcp", headers: {}, oauth: true },
+  },
 ];
 
 /** Whether the draft already has a server of this entry, whatever the person named it: a hosted one by its address, a local one by its

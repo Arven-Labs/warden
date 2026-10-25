@@ -230,6 +230,8 @@ export const settings = {
   "st.mcpCat.githubRemote.description": "Repositories, issues and pull requests through GitHub's own server, with a personal access token. Some enterprise accounts switch tokens off.",
   "st.mcpCat.notionRemote.label": "Notion (hosted — OAuth)",
   "st.mcpCat.notionRemote.description": "Notion's own server: search and edit your pages and databases after signing in. The older local Notion entry is still available too.",
+  "st.mcpCat.sentry.label": "Sentry (hosted — OAuth)",
+  "st.mcpCat.sentry.description": "Sentry's own server: look into errors, issues and releases of your organization after signing in. It reaches sentry.io, not a self-hosted Sentry.",
   "st.mcpCat.needs.oauth": "signing in in the browser (the Connect button, after you save)",
   "st.mcpCat.needs.docker": "Docker running on this computer, and your own token",
   "st.mcpCat.filesystem.label": "Filesystem",

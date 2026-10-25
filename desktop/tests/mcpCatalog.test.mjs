@@ -46,7 +46,15 @@ describe("the entries", () => {
     assert.equal(urls.linear, "https://mcp.linear.app/mcp");
     assert.equal(urls.github_remote, "https://api.githubcopilot.com/mcp/");
     assert.equal(urls.notion_remote, "https://mcp.notion.com/mcp");
-    assert.ok(!MCP_CATALOG.some((e) => e.id === "sentry"), "Sentry's own pages disagree on how it signs in, so it waits");
+    assert.equal(urls.sentry, "https://mcp.sentry.dev/mcp");
+  });
+
+  test("Sentry signs in with OAuth only: no key field, since the token header is in no docs page", () => {
+    const sentry = entry("sentry");
+    assert.equal(sentry.needs, "oauth");
+    assert.equal(sentry.server.oauth, true);
+    assert.deepEqual(sentry.server.headers, {});
+    assert.equal(MCP_CATALOG.filter((e) => e.server.url?.includes("sentry")).length, 1, "one Sentry entry");
   });
 
   test("each one says what it asks for, in both languages", () => {
