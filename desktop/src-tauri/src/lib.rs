@@ -885,6 +885,8 @@ async fn save_settings(state: State<'_, AppState>, payload: SettingsFormPayload)
         truthid_network: existing.truthid_network,
         truthid_rpc_url: existing.truthid_rpc_url,
         truthid_public_url: existing.truthid_public_url,
+        // The address to buy more hosted credit (P168) is set in the config file only, so saving the settings keeps it.
+        topup_url: existing.topup_url,
         // `[learning]` is set in the config file (P104).
         learning: existing.learning,
         // Who may talk to the Telegram and WhatsApp bots (P117): set in the config file, carried forward so a Settings save doesn't wipe the lists.
