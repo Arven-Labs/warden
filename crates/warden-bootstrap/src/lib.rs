@@ -634,6 +634,10 @@ pub struct FileConfig {
     /// URL with a valid certificate. Without it, signing in with a TruthID is off.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub truthid_public_url: Option<String>,
+    /// Where a person buys more hosted credit (P168, TOML `topup_url`, e.g. `https://example.com/credits`): the apps open it from the
+    /// balance chip and from the "out of credit" error. Without it, they open the usage screen instead. See `topup_url`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub topup_url: Option<String>,
     /// The assistant learning from conversations (P104, TOML `[learning]`): off unless turned on. See `learning`.
     #[serde(default, skip_serializing_if = "learning::LearningSettings::is_default")]
     pub learning: learning::LearningSettings,
@@ -2083,6 +2087,22 @@ pub async fn hosted_credit(config: &FileConfig) -> Option<warden_core::model::cl
     }
 }
 
+/// The address the apps open to buy more credit (`topup_url` in `config.toml`), or `None` when it is blank or not usable. The apps
+/// hand it to the system browser, so it has to be a plain `https://` address with a host and no login in it: anything else is
+/// ignored (and logged), never sent to a client and never a reason for the hub not to start.
+pub fn topup_url(config: &FileConfig) -> Option<String> {
+    let raw = config.topup_url.as_deref().map(str::trim).filter(|u| !u.is_empty())?;
+    match url::Url::parse(raw) {
+        Ok(parsed) if parsed.scheme() == "https" && parsed.host_str().is_some() && parsed.username().is_empty() && parsed.password().is_none() => {
+            Some(parsed.to_string())
+        }
+        _ => {
+            tracing::warn!("ignoring topup_url: it has to be an https:// address with no user name or password");
+            None
+        }
+    }
+}
+
 /// Whether `host` is this machine or a private network (where plain http is acceptable).
 fn plain_http_host(host: &str) -> bool {
     let host = host.to_ascii_lowercase();
@@ -3040,6 +3060,7 @@ oauth = true
             truthid_network: Default::default(),
             truthid_rpc_url: None,
             truthid_public_url: None,
+            topup_url: None,
             learning: Default::default(),
             telegram: bot_access::TelegramSettings { allowed_users: vec![42], pairing: true, members: [("42".to_string(), "ana".to_string())].into() },
             whatsapp: bot_access::WhatsAppSettings { allowed_chats: vec!["5511999999999".to_string()], pairing: false, members: Default::default() },

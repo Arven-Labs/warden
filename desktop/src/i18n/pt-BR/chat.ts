@@ -47,6 +47,7 @@ export const chatPt: Record<keyof typeof chat, string> = {
   "chat.inProgress": "Em andamento",
   "chat.channelOf": "O agente dono deste canal",
   "chat.topUp": "Ver saldo",
+  "chat.topUpLink": "Recarregar créditos",
   "chat.credit": "Crédito: {amount}",
   "chat.creditEmpty": "Crédito: acabou",
   "chat.agent": "Agente",

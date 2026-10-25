@@ -31,8 +31,11 @@ interface ChatAreaProps {
   sendError: string | null;
   /** P168 — when the error is the hosted credit running out: opens the balance screen. Absent for any other error. */
   onTopUp?: () => void;
+  /** The hub has an address to buy more credit, so `onTopUp` opens it instead of the usage screen (P168): the button says so. */
+  topUpLink?: boolean;
   /** P168 — the hosted credit of the hub in use, for the header; absent where there is none. */
   credit?: Credit;
+  /** The header chip's click: where to look at, or buy more of, the credit — the hub's top-up address when it has one, else the usage screen. */
   onOpenUsage?: () => void;
   agents: AgentEntry[];
   providers: ProviderEntry[];
@@ -136,6 +139,7 @@ function ChatArea({
   onCodeMode,
   sendError,
   onTopUp,
+  topUpLink,
   credit,
   onOpenUsage,
   agents,
@@ -421,7 +425,7 @@ function ChatArea({
           {sendError}
           {onTopUp && (
             <button type="button" className="chat-error-action" onClick={onTopUp}>
-              {t("chat.topUp")}
+              {topUpLink ? t("chat.topUpLink") : t("chat.topUp")}
             </button>
           )}
         </div>

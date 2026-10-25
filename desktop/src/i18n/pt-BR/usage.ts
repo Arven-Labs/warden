@@ -9,6 +9,7 @@ export const usagePt: Record<keyof typeof usage, string> = {
   "usage.credit": "Créditos",
   "usage.creditAvailable": "{amount} disponíveis, descontadas as chamadas em andamento",
   "usage.creditEmpty": "Sem créditos. Recarregue a conta para continuar usando os modelos pagos.",
+  "usage.creditTopUp": "Recarregar créditos",
   "usage.totalTokens": "Total de tokens",
   "usage.promptTokens": "Tokens de entrada",
   "usage.completionTokens": "Tokens de saída",

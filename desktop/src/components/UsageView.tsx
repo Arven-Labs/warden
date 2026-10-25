@@ -3,7 +3,8 @@ import { invoke } from "@tauri-apps/api/core";
 import { intlTag, t } from "../i18n";
 import type { Credit, RecentSpend, SpendBucket, SpendStatus, UsageByKey, UsageSummary } from "../types";
 import { hubUsage } from "../lib/hub";
-import { creditUsd, formatUsd, hasHolds, isOutOfCredit } from "../lib/credit";
+import { openUrl } from "@tauri-apps/plugin-opener";
+import { creditUsd, formatUsd, hasHolds, isOutOfCredit, topUpUrl } from "../lib/credit";
 
 /** `1,284` up to 999, `12.9K`/`1.2M` beyond — the stat-tile contract's "auto-compact" value
  * format, so a heavy user's token count never wraps a tile onto two lines. */
@@ -69,10 +70,16 @@ function usd(value: number): string {
 
 /** The hosted credit: the balance as a tile (with the available amount as its hint while calls hold part of it) and a warning when
  * nothing is left. Shown on its own, because a new hosted account has credit before it has a single message. */
-function CreditCard({ credit }: { credit: Credit }) {
+function CreditCard({ credit, topupUrl }: { credit: Credit; topupUrl?: string }) {
+  const topUp = topUpUrl(topupUrl);
   return (
     <>
       {isOutOfCredit(credit) && <p className="usage-error">{t("usage.creditEmpty")}</p>}
+      {topUp && (
+        <button type="button" className="chat-error-action" onClick={() => void openUrl(topUp)}>
+          {t("usage.creditTopUp")}
+        </button>
+      )}
       <div className="usage-stat-grid">
         <StatTile
           label={t("usage.credit")}
@@ -290,7 +297,7 @@ function UsageView({ remote = false }: { remote?: boolean }) {
       <div className="settings-view">
         <h2 className="settings-title">{t("usage.title")}</h2>
         <p className="settings-hint">{t("usage.none")}</p>
-        {summary.credit && <CreditCard credit={summary.credit} />}
+        {summary.credit && <CreditCard credit={summary.credit} topupUrl={summary.topupUrl} />}
         <SpendingLimits source={source} />
         <RecentSpending source={source} />
       </div>
@@ -302,7 +309,7 @@ function UsageView({ remote = false }: { remote?: boolean }) {
       <h2 className="settings-title">{t("usage.title")}</h2>
       <p className="settings-hint">{remote ? t("usage.hintHub") : t("usage.hintLocal")}</p>
 
-      {summary.credit && <CreditCard credit={summary.credit} />}
+      {summary.credit && <CreditCard credit={summary.credit} topupUrl={summary.topupUrl} />}
       <SpendingLimits source={source} />
       <RecentSpending source={source} />
 

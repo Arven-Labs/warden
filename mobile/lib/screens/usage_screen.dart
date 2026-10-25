@@ -2,15 +2,19 @@ import 'package:flutter/material.dart';
 
 import '../l10n/generated/app_localizations.dart';
 import '../protocol/messages.dart';
+import '../services/top_up.dart';
 
 /// P99 — the person's own usage: tokens and calls, the dollars the hub's ledger still holds, a line per day and the limits that apply
 /// to them. Read only. A member's report holds only their own conversations, calls and limits (the hub makes it so), and they cannot
 /// allow more: that is the owner's.
 class UsageScreen extends StatefulWidget {
-  const UsageScreen({super.key, required this.load});
+  const UsageScreen({super.key, required this.load, this.launchUrl = launchExternal});
 
   /// Asks the hub for the report.
   final Future<UsageSummary> Function() load;
+
+  /// Opens the hub's address to buy more credit (P168); a test passes a fake.
+  final UrlLauncher launchUrl;
 
   @override
   State<UsageScreen> createState() => _UsageScreenState();
@@ -75,6 +79,17 @@ class _UsageScreenState extends State<UsageScreen> {
           value: _usd(credit.balanceUsd),
           note: credit.hasHolds ? l10n.usageCreditAvailable(_usd(credit.availableUsd)) : null,
         ),
+        if (topUpUri(summary.topupUrl) case final topUp?) ...[
+          const SizedBox(height: 8),
+          Align(
+            alignment: Alignment.centerLeft,
+            child: OutlinedButton(
+              key: const Key('usage-credit-topup'),
+              onPressed: () => widget.launchUrl(topUp),
+              child: Text(l10n.usageCreditTopUp),
+            ),
+          ),
+        ],
         const SizedBox(height: 12),
       ],
       Row(

@@ -331,6 +331,8 @@ export interface UsageSummary {
   byCombo?: UsageByKey[];
   /** The credit of the hosted account, only from a hub that has one (the owner's report on a hosted instance). */
   credit?: Credit;
+  /** Where to buy more of it (the hub's `topup_url`, P168), sent only with `credit`. Check it with `topUpUrl` before opening. */
+  topupUrl?: string;
 }
 
 /** Mirrors `warden_server_protocol::protocol::LimitStatusDto` — the same shape the web UI gets. */

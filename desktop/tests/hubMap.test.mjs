@@ -205,6 +205,17 @@ describe("the hub's usage report", () => {
     assert.equal("credit" in selfHosted, false, "no credit card for a hub without a cloud provider");
   });
 
+  test("the address to buy more credit rides along with the credit, and only with it", () => {
+    const credit = { balanceMicroUsd: 5_000_000, availableMicroUsd: 4_000_000 };
+    const base = { total, conversationCount: 0, messageCount: 0, limitsEnabled: false, limits: [] };
+    const withLink = usageFromReport({ ...base, credit, topupUrl: "https://example.com/credits" }).summary;
+    assert.equal(withLink.topupUrl, "https://example.com/credits");
+    // No link configured (or an older hub): the key is left out, so the apps open the usage screen.
+    assert.equal("topupUrl" in usageFromReport({ ...base, credit }).summary, false);
+    // An address without a credit has nothing to top up.
+    assert.equal("topupUrl" in usageFromReport({ ...base, topupUrl: "https://example.com/credits" }).summary, false);
+  });
+
   test("a hub with the limits off has no recent spending and no ledger error", () => {
     const { spend } = usageFromReport({ total, conversationCount: 0, messageCount: 0, limitsEnabled: false, limits: [] });
     assert.deepEqual(spend, { limitsEnabled: false, limits: [], recent: null, ledgerError: null });

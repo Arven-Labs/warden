@@ -1742,6 +1742,12 @@ abstract class AppLocalizations {
   /// **'See balance'**
   String get chatTopUp;
 
+  /// No description provided for @chatTopUpLink.
+  ///
+  /// In en, this message translates to:
+  /// **'Top up credit'**
+  String get chatTopUpLink;
+
   /// No description provided for @chatCredit.
   ///
   /// In en, this message translates to:
@@ -1867,6 +1873,12 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Out of credits. Top up your account to keep using paid models.'**
   String get usageCreditEmpty;
+
+  /// No description provided for @usageCreditTopUp.
+  ///
+  /// In en, this message translates to:
+  /// **'Top up credit'**
+  String get usageCreditTopUp;
 
   /// No description provided for @usageTokens.
   ///

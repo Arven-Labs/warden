@@ -29,6 +29,8 @@ interface Props {
   onExtendLimit: (limitId: string) => Promise<void>;
   /** P168 — opens the balance screen from an error about the hosted credit running out. Absent where there is no such screen (a thread). */
   onTopUp?: () => void;
+  /** The hub has an address to buy more credit, so `onTopUp` opens it instead of the usage screen (P168): the button says so. */
+  topUpLink?: boolean;
   /** Shift+Tab in the box, as in Claude Code: the next mode of a code conversation. Absent when there is no mode to change. */
   onCycleMode?: () => void;
   /** P125 — opens the thread of a message (by its id). Absent where there are no threads (a thread itself, an older hub, a code conversation). */
@@ -169,7 +171,7 @@ function LiveBubble({ live }: { live: LiveTurn }) {
   );
 }
 
-export default function ChatView({ entries, pending, live, onCancel, disabled, onSend, onRedo, onTranscribe, onExtendLimit, onTopUp, onCycleMode, onOpenThread, threads }: Props) {
+export default function ChatView({ entries, pending, live, onCancel, disabled, onSend, onRedo, onTranscribe, onExtendLimit, onTopUp, topUpLink, onCycleMode, onOpenThread, threads }: Props) {
   // The person's message being edited (P157), by id; only one at a time.
   const [editingId, setEditingId] = useState<string | null>(null);
   const lastUser = lastUserEntry(entries);
@@ -310,7 +312,7 @@ export default function ChatView({ entries, pending, live, onCancel, disabled, o
                 {entry.topUp && onTopUp && (
                   <div className="bubble-actions">
                     <button type="button" className="link-button" onClick={onTopUp}>
-                      {t("chat.topUp")}
+                      {topUpLink ? t("chat.topUpLink") : t("chat.topUp")}
                     </button>
                   </div>
                 )}

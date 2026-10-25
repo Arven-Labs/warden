@@ -1927,6 +1927,7 @@ async fn handle_connection<S: Transport>(ws: WebSocketStream<S>, peer: SocketAdd
                     // gateway holds up only its own card, never the report: a gateway that doesn't answer in 3 s just means no balance.
                     let config = settings.as_deref().and_then(|host| load_config_from_path(&host.config_path(), false).ok());
                     tokio::spawn(async move {
+                        let topup_url = config.as_ref().and_then(warden_bootstrap::topup_url);
                         let credit = async {
                             match &config {
                                 Some(config) => warden_bootstrap::hosted_credit(config).await,
@@ -1938,7 +1939,7 @@ async fn handle_connection<S: Transport>(ws: WebSocketStream<S>, peer: SocketAdd
                         });
                         let (credit, report) = tokio::join!(credit, report);
                         let reply = report.unwrap_or_else(|_| ServerMessage::UsageError { request_id, message: "the usage report failed".into() });
-                        let _ = reply_tx.send(crate::usage::with_credit(reply, credit));
+                        let _ = reply_tx.send(crate::usage::with_credit(reply, credit, topup_url));
                     });
                 }
                 Ok(ClientMessage::ExtendLimit { request_id, limit_id }) => {

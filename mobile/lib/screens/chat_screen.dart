@@ -21,6 +21,7 @@ import '../services/workdir.dart';
 import '../services/sync_auto_pull.dart';
 import '../services/vault_paths.dart';
 import '../src/rust/api/sync.dart' as sync_bridge;
+import '../services/top_up.dart';
 import 'agents_screen.dart';
 import 'device_invites_screen.dart';
 import 'usage_screen.dart';
@@ -35,10 +36,13 @@ import 'theme_button.dart';
 /// with the conversation `warden-server` persisted for this device, so reopening the app (or
 /// reconnecting) picks up where it left off.
 class ChatScreen extends StatefulWidget {
-  const ChatScreen({super.key, required this.connection, required this.transcript});
+  const ChatScreen({super.key, required this.connection, required this.transcript, this.launchUrl = launchExternal});
 
   final ServerConnection connection;
   final ChatTranscript transcript;
+
+  /// Opens the hub's address to buy more credit (P168); a test passes a fake.
+  final UrlLauncher launchUrl;
 
   @override
   State<ChatScreen> createState() => _ChatScreenState();
@@ -65,6 +69,10 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
 
   /// P168 — the hosted credit under the title; null on a hub that has none and for a member, whose report carries no credit.
   HostedCredit? _credit;
+
+  /// P168 — where the hub says to buy more of it (its `topup_url`), when it has one and it is a usable address; else the chip and the
+  /// error action open the usage screen.
+  Uri? _topUp;
   bool _wasWaiting = false;
 
   @override
@@ -88,8 +96,23 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     if (widget.connection.user != null) return;
     try {
       final summary = await widget.connection.usageSummary();
-      if (mounted) setState(() => _credit = summary.credit);
+      if (mounted) {
+        setState(() {
+          _credit = summary.credit;
+          _topUp = summary.credit == null ? null : topUpUri(summary.topupUrl);
+        });
+      }
     } catch (_) {}
+  }
+
+  /// The balance chip and the "out of credit" action: the hub's address to buy more, else the usage screen.
+  void _openTopUp() {
+    final topUp = _topUp;
+    if (topUp == null) {
+      _openUsage();
+    } else {
+      unawaited(widget.launchUrl(topUp));
+    }
   }
 
   void _refreshCreditWhenTurnEnds() {
@@ -440,7 +463,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                   if (_credit case final credit?)
                     InkWell(
                       key: const Key('chat-credit'),
-                      onTap: _openUsage,
+                      onTap: _openTopUp,
                       child: Text(
                         ' · ${credit.isOut ? l10n.chatCreditEmpty : l10n.chatCredit(formatUsd(credit.availableUsd))}',
                         style: Theme.of(context).textTheme.bodySmall?.copyWith(color: credit.isOut ? Theme.of(context).colorScheme.error : null),
@@ -613,8 +636,8 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                           : _ThreadLink(replies: threads[id]?.replies ?? 0, onTap: () => widget.transcript.openThread(id)),
                       // P157 — edit a message of the person's, or generate the last answer again.
                       actions: [
-                        // P168 — the hosted credit ran out: the balance screen is one tap away.
-                        if (entry.topUp) _BubbleAction(id: 'top-up', label: l10n.chatTopUp, onTap: _openUsage),
+                        // P168 — the hosted credit ran out: the hub's top-up address, or the balance screen, is one tap away.
+                        if (entry.topUp) _BubbleAction(id: 'top-up', label: _topUp == null ? l10n.chatTopUp : l10n.chatTopUpLink, onTap: _openTopUp),
                         if (_status is Connected && widget.transcript.canEdit(index)) _BubbleAction(id: 'edit', label: l10n.commonEdit, onTap: () => _edit(index)),
                         if (_status is Connected && widget.transcript.canRegenerate(index))
                           _BubbleAction(id: 'regenerate', label: l10n.chatRegenerate, onTap: widget.transcript.regenerate),

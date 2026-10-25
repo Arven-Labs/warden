@@ -40,7 +40,7 @@ import { agentWork as sideWorkOf, workButtonLabel } from "./hub/agentWork";
 import { folderLabel, folderPlace, nodesWithFolders, parseNodeFolder } from "./hub/workdir";
 import LanguageSwitch from "./components/LanguageSwitch";
 import ThemeSwitch from "./components/ThemeSwitch";
-import { creditUsd, formatUsd, isOutOfCredit } from "./hub/credit";
+import { creditUsd, formatUsd, isOutOfCredit, topUpUrl } from "./hub/credit";
 import { intlTag, t, useLocale } from "./i18n";
 
 /** How much of a conversation to load when it's opened — same cap the extension uses. */
@@ -136,6 +136,8 @@ export default function App() {
   const [conn, setConn] = useState<ServerConnection | null>(null);
   /** P168 — the hosted credit shown in the chat header; null when the hub has none (self-hosted, or a member's view). */
   const [credit, setCredit] = useState<Credit | null>(null);
+  /** Where to buy more of it (the hub's `topup_url`), when the hub has one; the chip and the "out of credit" button open it, else the usage screen. */
+  const [topUp, setTopUp] = useState<string | null>(null);
   const turnsRunning = Object.keys(pendingTurns).length;
   const hubConnected = phase.kind === "ready" && phase.connected;
   // Read on connecting and again each time the last running turn ends, since a turn is what spends it. Never fails the chat.
@@ -144,13 +146,22 @@ export default function App() {
     if (!conn || conn.user || !hubConnected || turnsRunning > 0) return;
     let current = true;
     conn.requestUsage().then(
-      (report) => current && setCredit(report.credit ?? null),
+      (report) => {
+        if (!current) return;
+        setCredit(report.credit ?? null);
+        setTopUp(report.credit ? topUpUrl(report.topupUrl) : null);
+      },
       () => {},
     );
     return () => {
       current = false;
     };
   }, [conn, hubConnected, turnsRunning]);
+  /** The balance chip and the "out of credit" button: the hub's address to buy more credit in a new tab, else the usage screen. */
+  function openTopUp() {
+    if (topUp) window.open(topUp, "_blank", "noopener,noreferrer");
+    else setView("usage");
+  }
   /** The hub's configured agents (P46), for the chat's agent selector. */
   const [agentIds, setAgentIds] = useState<string[]>([]);
   /** The agent the open conversation speaks with — "" for none. */
@@ -1096,7 +1107,7 @@ export default function App() {
                   <button
                     type="button"
                     className={isOutOfCredit(credit) ? "link-button chat-credit chat-credit--empty" : "link-button chat-credit"}
-                    onClick={() => setView("usage")}
+                    onClick={openTopUp}
                   >
                     {isOutOfCredit(credit) ? t("chat.creditEmpty") : t("chat.credit", { amount: formatUsd(creditUsd(credit.availableMicroUsd), intlTag()) })}
                   </button>
@@ -1213,7 +1224,8 @@ export default function App() {
                 onRedo={redoBlocked === null ? (message, attachments, replaceFrom) => handleSend(message, attachments, replaceFrom) : undefined}
                 onTranscribe={handleTranscribe}
                 onExtendLimit={handleExtendLimit}
-                onTopUp={() => setView("usage")}
+                onTopUp={openTopUp}
+                topUpLink={topUp !== null}
                 onCycleMode={
                   projects.some((p) => p.id === projectId && p.code)
                     ? () => handleCodeMode(nextCodeMode(codeModes[activeId] ?? "manual"))

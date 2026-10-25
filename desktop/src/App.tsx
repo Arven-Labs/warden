@@ -47,6 +47,8 @@ import {
   type RemoteStatePayload,
 } from "./lib/hub";
 import { isPermissionGranted, requestPermission, sendNotification } from "@tauri-apps/plugin-notification";
+import { openUrl } from "@tauri-apps/plugin-opener";
+import { topUpUrl } from "./lib/credit";
 import { decorateLastAnswer, mergeConversations, type HubConversationSummary, type TruthIdChallengePayload } from "./lib/hubMap";
 import { historyBefore, withoutFrom } from "./lib/regenerate";
 import { isAgentChannel, threadHistory, threadsOf, visibleConversations } from "./lib/threads";
@@ -187,22 +189,35 @@ function App() {
   // P168: the hosted credit in the chat header — the owner's only (it belongs to the instance, and a member's report carries none), on a
   // hub that has one; read on connecting and again each time a turn ends.
   const [credit, setCredit] = useState<Credit | null>(null);
+  // Where to buy more of it (the hub's `topup_url`), when it has one: the chip and the "out of credit" button open it, else the usage screen.
+  const [topUp, setTopUp] = useState<string | null>(null);
   useEffect(() => {
     if (!isHubOwner || isSending) {
-      if (!isHubOwner) setCredit(null);
+      if (!isHubOwner) {
+        setCredit(null);
+        setTopUp(null);
+      }
       return;
     }
     let current = true;
     hubUsage()
       .summary()
       .then(
-        (summary) => current && setCredit(summary.credit ?? null),
+        (summary) => {
+          if (!current) return;
+          setCredit(summary.credit ?? null);
+          setTopUp(summary.credit ? topUpUrl(summary.topupUrl) : null);
+        },
         () => undefined,
       );
     return () => {
       current = false;
     };
   }, [isHubOwner, activeHubId, isSending]);
+  function openTopUp() {
+    if (topUp) void openUrl(topUp);
+    else setView("usage");
+  }
   // P120: what the owner lets a member do with the organization arrives at sign-in only, so a change made afterwards is looked for: a
   // `listAgentOrg` is the probe (the hub reads the access at each request), asked when the window comes back to the front and when the
   // connection is made anew. `undefined` for the owner and on this computer, which see the whole tree.
@@ -1177,9 +1192,10 @@ function App() {
           codeMode={codeMode}
           onCodeMode={handleCodeMode}
           sendError={sendError}
-          onTopUp={sendError !== null && sendError === topUpError ? () => setView("usage") : undefined}
+          onTopUp={sendError !== null && sendError === topUpError ? openTopUp : undefined}
+          topUpLink={topUp !== null}
           credit={credit ?? undefined}
-          onOpenUsage={() => setView("usage")}
+          onOpenUsage={openTopUp}
           agents={settings.agents}
           providers={settings.providers}
           combos={settings.combos}

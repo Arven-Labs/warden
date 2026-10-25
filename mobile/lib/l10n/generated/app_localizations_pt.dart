@@ -1062,6 +1062,9 @@ class AppLocalizationsPt extends AppLocalizations {
   String get chatTopUp => 'Ver saldo';
 
   @override
+  String get chatTopUpLink => 'Recarregar créditos';
+
+  @override
   String chatCredit(String amount) {
     return 'Crédito: $amount';
   }
@@ -1141,6 +1144,9 @@ class AppLocalizationsPt extends AppLocalizations {
   @override
   String get usageCreditEmpty =>
       'Sem créditos. Recarregue a conta para continuar usando os modelos pagos.';
+
+  @override
+  String get usageCreditTopUp => 'Recarregar créditos';
 
   @override
   String get usageTokens => 'Tokens';

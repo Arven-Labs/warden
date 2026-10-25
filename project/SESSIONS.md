@@ -2,7 +2,18 @@
 
 > **Nota**: Este log foi criado junto com o projeto. As sessões serão registradas aqui conforme o trabalho avança.
 >
-> Última atualização: 2026-10-24 (Sessão 296)
+> Última atualização: 2026-10-25 (Sessão 297)
+
+---
+
+### 2026-10-25 — Sessão 297 (o link de recarga do saldo: P168 c)
+
+- **Pedido**: "sim" ao "seguir com o próximo item"; escolhido o link de recarga. Planejado em modo de plano; como o site mãe não existe, o usuário escolheu um **campo opcional no config** (`topup_url`), com o comportamento antigo (abrir a tela de Uso) quando ele não está definido.
+- **Hub**: `FileConfig.topup_url` e `warden_bootstrap::topup_url` (valida: https, com host, sem usuário nem senha; senão `None` com aviso). `UsageReportDto.topup_url` fica ao lado do `credit` (e não dentro do `CreditDto`, que é `Copy`). `usage::with_credit` ganhou o terceiro argumento e só põe o endereço quando há crédito; o relatório de membro vai sem. Testes: o JSON do protocolo (presente, ausente, hub antigo), `with_credit` (com, sem endereço, sem crédito, resposta que não é relatório) e um de ponta a ponta no `hosted_credit.rs` (endereço bom; não configurado; `http://`, `javascript:`, com login, texto solto e em branco).
+- **Clientes**: web, desktop e mobile leem `topupUrl`, revalidam (`topUpUrl` em `web/src/hub/credit.ts` e `desktop/src/lib/credit.ts`, `topUpUri` em `mobile/lib/services/top_up.dart`) e abrem: web `window.open(..., "noopener,noreferrer")`, desktop `openUrl` do plugin opener, mobile `url_launcher` por um `UrlLauncher` injetável. O chip do cabeçalho e o botão do erro 402 passam por uma função só (`openTopUp`/`_openTopUp`) que cai na tela de Uso sem endereço; o botão do erro diz "Recarregar créditos" em vez de "Ver saldo" quando há link; o cartão de créditos da tela de Uso ganhou o botão. Chaves novas nas três línguas de texto (web e desktop `chat.topUpLink` e `usage.credit.topUp`/`usage.creditTopUp`; mobile `chatTopUpLink` e `usageCreditTopUp`, também nos `generated/` à mão).
+- **Testes**: aqui `cargo check -p warden-server --tests` limpo, `npm test` da web (117) e do desktop (191) verdes (o `tsc` reclama de `rehype-highlight` ausente no `node_modules`, já era assim). **Não rodei** os testes do Flutter nem os de Rust: a conferir no CI (`usage_screen_test.dart`, `top_up_test.dart`, `hosted_credit.rs`, o do protocolo). O `ChatScreen` não tem teste de widget no repositório, então o chip e a ação do erro no mobile só têm a conferência do `flutter analyze`.
+- **Risco a olhar no CI**: o `url_launcher` é dependência nova e o `pubspec.lock` não foi regenerado (sem Flutter aqui); o `flutter pub get` do CI o atualiza.
+- **Fica**: um site mãe de verdade para ter uma URL; campo na tela de configurações do hub se for útil; teto de conexões simultâneas do gateway (P168); a tool MCP sem anotação no nível 4 (P131).
 
 ---
 

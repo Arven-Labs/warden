@@ -489,6 +489,10 @@ pub struct UsageReportDto {
     /// it, and only when a `cloud` provider is set up and the gateway answered: otherwise it is absent and no balance is shown.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub credit: Option<CreditDto>,
+    /// Where to buy more credit (`topup_url` in the hub's `config.toml`, P168): an `https://` address the app opens in the browser.
+    /// It rides along only with `credit`, and is absent when the hub has none (or is older): the app then opens the usage screen.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub topup_url: Option<String>,
 }
 
 /// The hosted credit, in micro-USD (millionths of a dollar).
@@ -3948,6 +3952,7 @@ mod tests {
                 by_provider: Vec::new(),
                 by_combo: vec![UsageByKeyDto { key: Some("fast".into()), message_count: 1, usage: Usage { prompt_tokens: 7, completion_tokens: 3, total_tokens: 10 } }],
                 credit: Some(CreditDto { balance_micro_usd: 5_000_000, available_micro_usd: 4_000_000 }),
+                topup_url: Some("https://example.com/credits".into()),
             },
         };
         let json = serde_json::to_string(&report).unwrap();
@@ -3969,6 +3974,14 @@ mod tests {
         no_credit["report"].as_object_mut().unwrap().remove("credit");
         match serde_json::from_value::<ServerMessage>(no_credit).unwrap() {
             ServerMessage::UsageReport { report, .. } => assert_eq!(report.credit, None),
+            other => panic!("{other:?}"),
+        }
+        // The address to buy more credit rides along, and a hub that has none (or is older) sends no field at all.
+        assert!(json.contains(r#""topupUrl":"https://example.com/credits""#), "{json}");
+        let mut no_topup: serde_json::Value = serde_json::from_str(&json).unwrap();
+        no_topup["report"].as_object_mut().unwrap().remove("topupUrl");
+        match serde_json::from_value::<ServerMessage>(no_topup).unwrap() {
+            ServerMessage::UsageReport { report, .. } => assert_eq!(report.topup_url, None),
             other => panic!("{other:?}"),
         }
         // A hub from before these existed sends none of them: they read as empty rather than failing.

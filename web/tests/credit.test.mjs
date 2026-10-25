@@ -1,6 +1,15 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { creditUsd, formatUsd, hasHolds, isOutOfCredit } from "../src/hub/credit.ts";
+import { creditUsd, formatUsd, hasHolds, isOutOfCredit, topUpUrl } from "../src/hub/credit.ts";
+
+test("only a plain https address with no login in it is opened to top up", () => {
+  assert.equal(topUpUrl("https://example.com/credits"), "https://example.com/credits");
+  assert.equal(topUpUrl("https://example.com"), "https://example.com/");
+  // A hub that sends nothing, or something that can run code or leak a login, reads as "no link": the usage screen opens instead.
+  for (const bad of [undefined, null, "", "http://example.com/credits", "javascript:alert(1)", "data:text/html,x", "https://user:pass@example.com/", "not a url"]) {
+    assert.equal(topUpUrl(bad), null, String(bad));
+  }
+});
 
 test("dollars are written with US$ in Brazilian Portuguese and $ elsewhere, with more decimals under one dollar", () => {
   assert.equal(formatUsd(25, "en-US"), "$25.00");

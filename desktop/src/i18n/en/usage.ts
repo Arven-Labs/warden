@@ -8,6 +8,7 @@ export const usage = {
   "usage.credit": "Credits",
   "usage.creditAvailable": "{amount} available after the calls in progress",
   "usage.creditEmpty": "Out of credits. Top up your account to keep using paid models.",
+  "usage.creditTopUp": "Top up credit",
   "usage.totalTokens": "Total tokens",
   "usage.promptTokens": "Prompt tokens",
   "usage.completionTokens": "Completion tokens",

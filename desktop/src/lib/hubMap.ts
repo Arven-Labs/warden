@@ -299,6 +299,8 @@ export interface HubUsageReport {
   byCombo?: UsageByKey[];
   /** The hosted credit; absent without a `cloud` provider and from a member's report. */
   credit?: Credit;
+  /** Where to buy more of it; absent without `credit` and from an older hub. */
+  topupUrl?: string;
 }
 
 /** The Usage screen's two kinds of numbers out of one report. A hub from before P126 doesn't split tokens by agent, provider
@@ -313,6 +315,7 @@ export function usageFromReport(report: HubUsageReport): { summary: UsageSummary
       byProvider: report.byProvider ?? [],
       ...(report.byCombo ? { byCombo: report.byCombo } : {}),
       ...(report.credit ? { credit: report.credit } : {}),
+      ...(report.credit && report.topupUrl ? { topupUrl: report.topupUrl } : {}),
     },
     spend: { limitsEnabled: report.limitsEnabled, limits: report.limits, recent: report.recent ?? null, ledgerError: report.ledgerError ?? null },
   };

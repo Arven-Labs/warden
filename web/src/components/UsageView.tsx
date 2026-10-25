@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import type { ServerConnection } from "../hub/connection";
 import type { LimitStatus, SpendBucket, UsageByKey, UsageReport } from "../hub/messages";
-import { creditUsd, formatUsd, hasHolds, isOutOfCredit } from "../hub/credit";
+import { creditUsd, formatUsd, hasHolds, isOutOfCredit, topUpUrl } from "../hub/credit";
 import { breakdownRows } from "../hub/usageBreakdown";
 import { intlTag, t } from "../i18n";
 
@@ -282,6 +282,13 @@ export default function UsageView({ conn, readOnly = false }: { conn: ServerConn
       </div>
       {error && <p className="error-banner">{error}</p>}
       {report.credit && isOutOfCredit(report.credit) && <p className="error-banner">{t("usage.credit.empty")}</p>}
+      {report.credit && topUpUrl(report.topupUrl) && (
+        <p>
+          <a className="link-button" href={topUpUrl(report.topupUrl) ?? undefined} target="_blank" rel="noopener noreferrer">
+            {t("usage.credit.topUp")}
+          </a>
+        </p>
+      )}
 
       <div className="usage-tiles">
         {report.credit && (

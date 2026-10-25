@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mobile/protocol/messages.dart';
 import 'package:mobile/screens/usage_screen.dart';
+import 'package:mobile/services/top_up.dart';
 
 import '../helpers/test_app.dart';
 
@@ -13,9 +14,11 @@ UsageSummary _summary({
   List<UsageBucket> byCombo = const [],
   List<SpendBucket> comboSpend = const [],
   HostedCredit? credit,
+  String? topupUrl,
 }) =>
     UsageSummary(
       credit: credit,
+      topupUrl: topupUrl,
       comboSpend: comboSpend,
       byAgent: byAgent,
       byProvider: byProvider,
@@ -33,10 +36,10 @@ UsageSummary _summary({
       costInWindowUsd: 0.25,
     );
 
-Future<void> _open(WidgetTester tester, Future<UsageSummary> Function() load) async {
+Future<void> _open(WidgetTester tester, Future<UsageSummary> Function() load, {UrlLauncher? launchUrl}) async {
   // A fresh screen each time: the same widget type in the same place would keep the state (and the report) of the one before.
   await tester.pumpWidget(const SizedBox());
-  await tester.pumpWidget(testApp(home: UsageScreen(load: load)));
+  await tester.pumpWidget(testApp(home: launchUrl == null ? UsageScreen(load: load) : UsageScreen(load: load, launchUrl: launchUrl)));
   await tester.pumpAndSettle();
 }
 
@@ -124,6 +127,31 @@ void main() {
     await _open(tester, () async => _summary(credit: const HostedCredit(balanceMicroUsd: 5000000, availableMicroUsd: 5000000)));
     expect(find.descendant(of: find.byKey(const Key('usage-credit')), matching: find.text('US\$ 5.00')), findsOneWidget);
     expect(find.textContaining('available after'), findsNothing, reason: 'nothing is held, so the balance is all there is');
+  });
+
+  testWidgets('offers the hub\'s top-up address next to the credit and opens it outside the app (P168)', (tester) async {
+    final opened = <Uri>[];
+    const credit = HostedCredit(balanceMicroUsd: 5000000, availableMicroUsd: 5000000);
+    await _open(
+      tester,
+      () async => _summary(credit: credit, topupUrl: 'https://example.com/credits'),
+      launchUrl: (uri) async {
+        opened.add(uri);
+        return true;
+      },
+    );
+    await tester.tap(find.byKey(const Key('usage-credit-topup')));
+    expect(find.text('Top up credit'), findsOneWidget);
+    expect(opened, [Uri.parse('https://example.com/credits')]);
+
+    // No address configured, or one that is not a plain https address: no button, and nothing to open.
+    for (final topupUrl in [null, 'http://example.com/credits', 'javascript:alert(1)', 'https://user:pass@example.com/']) {
+      await _open(tester, () async => _summary(credit: credit, topupUrl: topupUrl));
+      expect(find.byKey(const Key('usage-credit-topup')), findsNothing, reason: '$topupUrl');
+    }
+    // An address with no credit has nothing to top up.
+    await _open(tester, () async => _summary(topupUrl: 'https://example.com/credits'));
+    expect(find.byKey(const Key('usage-credit-topup')), findsNothing);
   });
 
   testWidgets('warns when no credit is left, even with a balance held by calls in progress (P168)', (tester) async {

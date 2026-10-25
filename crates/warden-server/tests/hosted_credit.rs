@@ -67,10 +67,15 @@ fn cloud(base_url: String) -> ProviderConfig {
 
 /// A hub whose config holds `providers`; returns the address to connect to.
 async fn hub(providers: Vec<ProviderConfig>) -> String {
+    hub_with_topup(providers, None).await
+}
+
+/// Like `hub`, with `topup_url` as it is written in the config.
+async fn hub_with_topup(providers: Vec<ProviderConfig>, topup_url: Option<&str>) -> String {
     let dir = std::env::temp_dir().join(format!("warden-hosted-credit-{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
     std::fs::create_dir_all(&dir).unwrap();
     let config_path = dir.join("config.toml");
-    save_config(&config_path, &FileConfig { providers, ..FileConfig::default() }).unwrap();
+    save_config(&config_path, &FileConfig { providers, topup_url: topup_url.map(str::to_string), ..FileConfig::default() }).unwrap();
     let orchestrator = Orchestrator::new(Arc::new(Unused), Arc::new(Vault::new(dir.join("vault"))));
     let server = Server::bind("127.0.0.1:0".parse().unwrap(), KEY, "Hub", Arc::new(orchestrator), dir.join("conversations"), dir.join("devices.json"))
         .await
@@ -95,6 +100,29 @@ async fn the_report_carries_the_credit_the_gateway_reports() {
     let gateway = stub_gateway(200, r#"{"balance_micro_usd":25000000,"available_micro_usd":24000000}"#).await;
     let report = usage(&hub(vec![cloud(gateway)]).await).await;
     assert_eq!(report.credit, Some(CreditDto { balance_micro_usd: 25_000_000, available_micro_usd: 24_000_000 }));
+}
+
+#[tokio::test]
+async fn the_report_carries_the_address_to_buy_more_credit_only_when_it_is_a_usable_one() {
+    let body = r#"{"balance_micro_usd":25000000,"available_micro_usd":24000000}"#;
+
+    let gateway = stub_gateway(200, body).await;
+    let report = usage(&hub_with_topup(vec![cloud(gateway)], Some("https://example.com/credits")).await).await;
+    assert_eq!(report.topup_url.as_deref(), Some("https://example.com/credits"));
+
+    // Not set: the report has the credit and no address, and the apps open the usage screen instead.
+    let gateway = stub_gateway(200, body).await;
+    let report = usage(&hub(vec![cloud(gateway)]).await).await;
+    assert!(report.credit.is_some());
+    assert_eq!(report.topup_url, None);
+
+    // Not an https address (or one with a login in it): ignored, never sent to a client.
+    for unusable in ["http://example.com/credits", "javascript:alert(1)", "https://user:pass@example.com/credits", "not a url", "  "] {
+        let gateway = stub_gateway(200, body).await;
+        let report = usage(&hub_with_topup(vec![cloud(gateway)], Some(unusable)).await).await;
+        assert!(report.credit.is_some(), "{unusable}");
+        assert_eq!(report.topup_url, None, "{unusable}");
+    }
 }
 
 #[tokio::test]

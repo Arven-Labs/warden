@@ -130,14 +130,21 @@ pub fn build_usage_report(
         by_combo: usage_by_key(summary.by_combo),
         // The hub adds it afterwards (`with_credit`): asking the gateway is a network call, not part of reading the folders.
         credit: None,
+        topup_url: None,
     })
 }
 
-/// A usage reply with the hosted credit put in, when there is one. Anything but a report passes through untouched.
-pub fn with_credit(reply: ServerMessage, credit: Option<warden_core::model::cloud_balance::CloudBalance>) -> ServerMessage {
+/// A usage reply with the hosted credit put in, when there is one, and the address to buy more of it (`topup_url`) alongside:
+/// without a credit there is nothing to top up, so the address stays out too. Anything but a report passes through untouched.
+pub fn with_credit(
+    reply: ServerMessage,
+    credit: Option<warden_core::model::cloud_balance::CloudBalance>,
+    topup_url: Option<String>,
+) -> ServerMessage {
     match (reply, credit) {
         (ServerMessage::UsageReport { request_id, mut report }, Some(c)) => {
             report.credit = Some(CreditDto { balance_micro_usd: c.balance_micro_usd, available_micro_usd: c.available_micro_usd });
+            report.topup_url = topup_url;
             ServerMessage::UsageReport { request_id, report }
         }
         (reply, _) => reply,
@@ -198,6 +205,7 @@ pub fn build_member_usage_report(
         by_combo: usage_by_key(summary.by_combo),
         // The hosted credit belongs to the instance, not to a member.
         credit: None,
+        topup_url: None,
     })
 }
 
@@ -441,21 +449,27 @@ mod tests {
         let reply = handle_usage_request(&root, None, &pairing, None, 7, 0);
         let balance = warden_core::model::cloud_balance::CloudBalance { balance_micro_usd: 5_000_000, available_micro_usd: 4_000_000 };
 
-        match with_credit(reply.clone(), Some(balance)) {
+        match with_credit(reply.clone(), Some(balance), Some("https://example.com/credits".into())) {
             ServerMessage::UsageReport { request_id, report } => {
                 assert_eq!(request_id, 7);
                 assert_eq!(report.credit, Some(CreditDto { balance_micro_usd: 5_000_000, available_micro_usd: 4_000_000 }));
+                assert_eq!(report.topup_url.as_deref(), Some("https://example.com/credits"));
             }
             other => panic!("{other:?}"),
         }
-        // No gateway answer: the report is as it was, with no credit.
-        match with_credit(reply, None) {
-            ServerMessage::UsageReport { report, .. } => assert_eq!(report.credit, None),
+        // No top-up address configured: the credit is there and the address is not.
+        match with_credit(reply.clone(), Some(balance), None) {
+            ServerMessage::UsageReport { report, .. } => assert!(report.credit.is_some() && report.topup_url.is_none()),
+            other => panic!("{other:?}"),
+        }
+        // No gateway answer: the report is as it was, with no credit, and an address with nothing to top up stays out too.
+        match with_credit(reply, None, Some("https://example.com/credits".into())) {
+            ServerMessage::UsageReport { report, .. } => assert!(report.credit.is_none() && report.topup_url.is_none()),
             other => panic!("{other:?}"),
         }
         // A reply that isn't a report is not touched.
         let error = ServerMessage::UsageError { request_id: 1, message: "x".into() };
-        assert_eq!(with_credit(error.clone(), Some(balance)), error);
+        assert_eq!(with_credit(error.clone(), Some(balance), None), error);
     }
 
     #[test]

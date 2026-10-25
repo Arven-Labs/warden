@@ -1716,6 +1716,7 @@ class UsageSummary {
     this.byCombo = const [],
     this.comboSpend = const [],
     this.credit,
+    this.topupUrl,
   });
 
   final int totalTokens;
@@ -1742,6 +1743,9 @@ class UsageSummary {
 
   /// The hosted credit; null without a `cloud` provider and from a member's report.
   final HostedCredit? credit;
+
+  /// Where to buy more of it (the hub's `topup_url`, P168), sent only with [credit]. Check it with `topUpUri` before opening.
+  final String? topupUrl;
 
   static UsageSummary fromJson(Map<String, dynamic> report) {
     final recent = report['recent'] as Map<String, dynamic>?;
@@ -1786,6 +1790,7 @@ class UsageSummary {
       byCombo: UsageBucket.listFrom(report, 'byCombo'),
       comboSpend: recent == null ? const [] : SpendBucket.listFrom(recent, 'byCombo'),
       credit: HostedCredit.fromJson(report['credit']),
+      topupUrl: report['credit'] is Map<String, dynamic> ? report['topupUrl'] as String? : null,
     );
   }
 }

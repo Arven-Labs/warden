@@ -37,6 +37,7 @@ export const usagePt: Record<keyof typeof usage, string> = {
   "usage.tile.credit": "Créditos",
   "usage.credit.available": "{amount} disponíveis, descontadas as chamadas em andamento",
   "usage.credit.empty": "Sem créditos. Recarregue a conta para continuar usando os modelos pagos.",
+  "usage.credit.topUp": "Recarregar créditos",
   "usage.tile.tokens": "Tokens",
   "usage.tile.calls": "Chamadas ao modelo",
   "usage.tile.conversations": "Conversas",

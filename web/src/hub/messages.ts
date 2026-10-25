@@ -207,6 +207,8 @@ export interface UsageReport {
   byCombo?: UsageByKey[];
   /** The credit the hosted gateway reports for this instance. Absent without a `cloud` provider, when the gateway doesn't answer, and from an older hub. */
   credit?: Credit;
+  /** Where to buy more credit (the hub's `topup_url`, P168): an `https://` address, sent only with `credit`. Check it with `topUpUrl` before opening. */
+  topupUrl?: string;
 }
 
 /** Mirrors `CreditDto`, in micro-USD (millionths of a dollar). `availableMicroUsd` is the balance minus what calls in progress hold. */

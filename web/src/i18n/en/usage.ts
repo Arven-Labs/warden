@@ -36,6 +36,7 @@ export const usage = {
   "usage.tile.credit": "Credits",
   "usage.credit.available": "{amount} available after the calls in progress",
   "usage.credit.empty": "Out of credits. Top up your account to keep using paid models.",
+  "usage.credit.topUp": "Top up credit",
   "usage.tile.tokens": "Tokens",
   "usage.tile.calls": "Model calls",
   "usage.tile.conversations": "Conversations",

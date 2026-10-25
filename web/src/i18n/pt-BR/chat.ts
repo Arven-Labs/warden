@@ -5,6 +5,7 @@ export const chatPt: Record<keyof typeof chat, string> = {
   "chat.releasing": "Liberando…",
   "chat.releaseMore": "Liberar mais ({limit})",
   "chat.topUp": "Ver saldo",
+  "chat.topUpLink": "Recarregar créditos",
   "chat.credit": "Crédito: {amount}",
   "chat.creditEmpty": "Crédito: acabou",
   "chat.confirmEditDeletes": "Enviar isso apaga {what} depois dela, e as threads delas. Continuar?",

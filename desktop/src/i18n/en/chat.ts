@@ -46,6 +46,7 @@ export const chat = {
   "chat.inProgress": "In progress",
   "chat.channelOf": "The agent whose channel this is",
   "chat.topUp": "See balance",
+  "chat.topUpLink": "Top up credit",
   "chat.credit": "Credit: {amount}",
   "chat.creditEmpty": "Credit: none left",
   "chat.agent": "Agent",

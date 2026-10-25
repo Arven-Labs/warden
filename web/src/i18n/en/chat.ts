@@ -4,6 +4,7 @@ export const chat = {
   "chat.releasing": "Releasing…",
   "chat.releaseMore": "Allow more ({limit})",
   "chat.topUp": "See balance",
+  "chat.topUpLink": "Top up credit",
   "chat.credit": "Credit: {amount}",
   "chat.creditEmpty": "Credit: none left",
   "chat.confirmEditDeletes": "Sending this deletes {what} after it, and their threads. Continue?",

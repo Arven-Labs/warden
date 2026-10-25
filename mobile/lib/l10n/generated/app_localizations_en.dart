@@ -1061,6 +1061,9 @@ class AppLocalizationsEn extends AppLocalizations {
   String get chatTopUp => 'See balance';
 
   @override
+  String get chatTopUpLink => 'Top up credit';
+
+  @override
   String chatCredit(String amount) {
     return 'Credit: $amount';
   }
@@ -1140,6 +1143,9 @@ class AppLocalizationsEn extends AppLocalizations {
   @override
   String get usageCreditEmpty =>
       'Out of credits. Top up your account to keep using paid models.';
+
+  @override
+  String get usageCreditTopUp => 'Top up credit';
 
   @override
   String get usageTokens => 'Tokens';
