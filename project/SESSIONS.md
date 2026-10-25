@@ -2,7 +2,17 @@
 
 > **Nota**: Este log foi criado junto com o projeto. As sessões serão registradas aqui conforme o trabalho avança.
 >
-> Última atualização: 2026-10-25 (Sessão 298)
+> Última atualização: 2026-10-25 (Sessão 299)
+
+---
+
+### 2026-10-25 — Sessão 299 (a tool MCP sem anotação passa a valer como o padrão do protocolo, só para quem exige aprovação: P131/P122)
+
+- **Pedido**: "explica o impasse do MCP" e depois "o meio-termo". Planejado em modo de plano. O padrão do protocolo conferi no `rmcp-3.3.0/src/model/tool.rs` (`destructive_hint` com "Default: true").
+- **Feito**: `RiskHints::default()` (tudo `None`) agora quer dizer "terceiro que se calou", e `risk_hints() == None` segue sendo tool do Warden. `McpTool::risk_hints` devolve `Some(default)` quando o servidor não manda `annotations`; `NodeMcpTool` (`node_tools.rs`) faz o mesmo para a tool de MCP de um nó sem entrada em `mcp_hints`. `category_from_hints` (`risk.rs`) lê o que falta como o protocolo: só-leitura → nada; senão, destrutiva a menos que diga `false` → `delete_data`; senão, aberta ao mundo a menos que diga `false` → `external_message`. Como a categoria só pesa em agente que exige aquela categoria, o agente sem `approval_required` não muda.
+- **Testes** (escritos, só `cargo check -p warden-bootstrap -p warden-core -p warden-server --tests` rodou aqui): a tabela de dicas do `risk.rs` reescrita (servidor mudo → `delete_data`, `readOnly` decide, destrutivo falso cai em `external_message`), `build_classifier` com uma tool de terceiro sem dicas, e no teste do orquestrador o caso "categoria classificada, mas nenhuma exigida: roda".
+- **Efeito visível**: num agente com `delete_data` ou `external_message` exigidos (os agentes criados por outro agente nascem com todas), tool MCP sem dicas passa a pedir "sim", e em canal sem aprovador é recusada. Tool de leitura de servidor simples e mudo pergunta uma vez por tool (o "sempre permitir" existe para essas duas categorias). `[[tool_categories]]` só atribui categoria, não "nenhuma".
+- **Fica**: CI; um jeito de marcar uma tool como "nenhuma categoria" pelo mapa, se o barulho incomodar.
 
 ---
 

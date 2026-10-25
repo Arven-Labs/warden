@@ -196,7 +196,9 @@ impl NodeToolFactory {
                 let mut offered = spec.clone();
                 offered.name = name;
                 offered.description = format!("On node '{}': {}", node.name, spec.description);
-                let hints = node.offer.mcp_hints.get(&spec.name).copied();
+                // A node's MCP tool is a third party's: one with no hints (or a node from before the field) said nothing, which is not
+                // the same as a tool of Warden's own.
+                let hints = Some(node.offer.mcp_hints.get(&spec.name).copied().unwrap_or_default());
                 tools.push(Arc::new(NodeMcpTool { ctx: self.ctx.clone(), node_id: id.clone(), remote_name: spec.name.clone(), spec: offered, hints }));
             }
         }

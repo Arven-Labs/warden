@@ -74,7 +74,8 @@ pub trait Tool: Send + Sync {
         None
     }
 
-    /// What the tool's provider says about its risk (P122), when it says anything. See `RiskHints`.
+    /// What the tool's provider says about its risk (P122): `None` for a tool of Warden's own, `Some` for one from a third
+    /// party (an MCP server), even when it said nothing. See `RiskHints`.
     fn risk_hints(&self) -> Option<RiskHints> {
         None
     }
@@ -177,7 +178,10 @@ impl ApprovalRequest {
 }
 
 /// What a tool's own provider says about how risky it is (an MCP server's `annotations`). Advice from the server, not a
-/// guarantee: a tool that says nothing is `None`, never "safe".
+/// guarantee, and never "safe" just because it is missing. `Tool::risk_hints` is `None` for a tool of Warden's own, which
+/// has no provider to ask, and `Some` for one from a third party; `RiskHints::default()` (every field `None`) is a third
+/// party that said nothing, which the classifier reads with the MCP protocol's defaults (destructive and open to the
+/// world unless the tool says otherwise).
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RiskHints {

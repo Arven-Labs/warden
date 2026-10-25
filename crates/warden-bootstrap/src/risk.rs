@@ -59,16 +59,18 @@ pub fn builtin_category(name: &str, arguments: &Value) -> Option<Category> {
     }
 }
 
-/// What a server's own hints say, when neither the user's map nor the table did. Only an explicit hint counts, and a
-/// tool that says it only reads is never classified.
+/// What a third party's hints say, when neither the user's map nor the table did. A tool that says it only reads is never
+/// classified; one that says nothing is read with the MCP protocol's defaults, which assume the worst: destructive, and open
+/// to the world, unless the tool says it is not. That only weighs on an agent that already asked for the category
+/// (`approval_required`), so a hint a server leaves out is never a reason to ask on its own.
 pub fn category_from_hints(hints: &RiskHints) -> Option<Category> {
     if hints.read_only == Some(true) {
         return None;
     }
-    if hints.destructive == Some(true) {
+    if hints.destructive != Some(false) {
         return Some(Category::DeleteData);
     }
-    (hints.open_world == Some(true)).then_some(Category::ExternalMessage)
+    (hints.open_world != Some(false)).then_some(Category::ExternalMessage)
 }
 
 /// The classifier for an agent's turn: `tools` are the ones the orchestrator has (their `risk_hints` are read once,
@@ -165,14 +167,20 @@ mod tests {
     }
 
     #[test]
-    fn a_server_hint_counts_only_when_it_is_explicit_and_the_tool_does_not_say_it_only_reads() {
+    fn a_server_hint_is_read_with_the_protocols_defaults_unless_the_tool_says_it_only_reads() {
         let hints = |read_only, destructive, open_world| RiskHints { read_only, destructive, open_world };
         assert_eq!(category_from_hints(&hints(Some(false), Some(true), None)), Some(Category::DeleteData));
         assert_eq!(category_from_hints(&hints(None, Some(true), Some(true))), Some(Category::DeleteData));
         assert_eq!(category_from_hints(&hints(Some(false), Some(false), Some(true))), Some(Category::ExternalMessage));
         assert_eq!(category_from_hints(&hints(Some(true), Some(true), Some(true))), None);
-        assert_eq!(category_from_hints(&hints(None, None, None)), None);
         assert_eq!(category_from_hints(&hints(Some(false), Some(false), Some(false))), None);
+        // What the server leaves out is the protocol's default: destructive, then open to the world.
+        assert_eq!(category_from_hints(&RiskHints::default()), Some(Category::DeleteData), "a server that said nothing");
+        assert_eq!(category_from_hints(&hints(Some(false), None, None)), Some(Category::DeleteData));
+        assert_eq!(category_from_hints(&hints(None, Some(false), None)), Some(Category::ExternalMessage));
+        assert_eq!(category_from_hints(&hints(Some(false), Some(false), None)), Some(Category::ExternalMessage));
+        // Saying it only reads settles it, whatever else is left out.
+        assert_eq!(category_from_hints(&hints(Some(true), None, None)), None);
     }
 
     #[test]
@@ -182,6 +190,8 @@ mod tests {
             Arc::new(Hinted("wipe", Some(RiskHints { read_only: Some(false), destructive: Some(true), open_world: None }))),
             Arc::new(Hinted("shell", Some(RiskHints { read_only: Some(true), destructive: None, open_world: None }))),
             Arc::new(Hinted("quiet", None)),
+            // A third party (an MCP server) that sent no hints at all: read with the protocol's defaults, not as a tool of Warden's own.
+            Arc::new(Hinted("silent__tool", Some(RiskHints::default()))),
         ];
         let map = [
             ToolCategoryConfig { tool: "wipe".into(), category: Category::SpendMoney },
@@ -195,7 +205,8 @@ mod tests {
         assert_eq!(of("shell"), Some(Category::CriticalInfra), "the table wins over a hint that says read-only");
         assert_eq!(of("pay"), Some(Category::SpendMoney), "a tool only the map knows");
         assert_eq!(of("git_push"), Some(Category::PublishCode));
-        assert_eq!(of("quiet"), None);
+        assert_eq!(of("quiet"), None, "a tool of Warden's own, with nothing to ask");
+        assert_eq!(of("silent__tool"), Some(Category::DeleteData), "a third party that said nothing");
         assert_eq!(of("ghost"), None);
     }
 

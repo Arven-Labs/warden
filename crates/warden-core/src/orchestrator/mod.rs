@@ -2166,6 +2166,10 @@ mod tests {
         assert!(ruled.run_tool(&call_of("shell")).await.is_ok());
         assert_eq!(records.0.lock().unwrap()[0].category, Some(Category::CriticalInfra));
 
+        // A classified call only weighs on an agent that asked for its category: with none required (and nobody to ask), it runs.
+        let nothing_required = orchestrator.with_approval_rules(&[], Some(Arc::new(|c: &ToolCall| (c.name == "shell").then_some(Category::DeleteData))));
+        assert!(nothing_required.run_tool(&call_of("shell")).await.is_ok());
+
         // More rules join the old ones, and a copy asking for none keeps them.
         let more = ruled.with_approval_rules(&[Category::DeleteData], None);
         assert!(more.run_tool(&call_of("shell")).await.is_ok());

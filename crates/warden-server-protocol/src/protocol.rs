@@ -575,6 +575,7 @@ pub struct NodeOfferDto {
     pub files: bool,
     /// Tools of the MCP servers this node lends (slice 2), each with its own schema, as the node names
     /// them. The hub offers each as a tool of its own, `<node>__<tool>`.
+    /// (A tool with no entry in `mcp_hints` is read by the hub as one that said nothing, and classified with the MCP protocol's defaults.)
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub mcp_tools: Vec<ToolSpec>,
     /// What each of those MCP servers says about its tool (`annotations`), by the tool's name on the node. A tool that

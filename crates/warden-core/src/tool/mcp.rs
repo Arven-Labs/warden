@@ -152,7 +152,9 @@ impl Tool for McpTool {
     }
 
     fn risk_hints(&self) -> Option<super::RiskHints> {
-        let annotations = self.spec.annotations.as_ref()?;
+        // A server that sends no `annotations` still answered: it said nothing (`RiskHints::default()`), which is not the same as a
+        // tool of Warden's own.
+        let Some(annotations) = self.spec.annotations.as_ref() else { return Some(super::RiskHints::default()) };
         Some(super::RiskHints { read_only: annotations.read_only_hint, destructive: annotations.destructive_hint, open_world: annotations.open_world_hint })
     }
 
