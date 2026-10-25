@@ -1,12 +1,14 @@
 // P140 — the gallery of ready-made MCP integrations in Settings. The list is a draft in the form until "Save", so the gallery works on
-// that draft: it says which entries the draft already has and puts a new server in it, and nothing else. The five entries are the ones
-// the quick-add buttons always offered (Session 35 and 36); no address that was not checked is added here.
+// that draft: it says which entries the draft already has and puts a new server in it, and nothing else. The first five are the ones
+// the quick-add buttons always offered (Session 35 and 36); the hosted ones after them were added only after their address, transport and
+// sign-in were read in the vendor's own docs. No address that was not checked is added here.
 
 import type { Key } from "../i18n/index.ts";
 import { isMcpServerHttp, type McpServer } from "../types.ts";
 
-/** What the person still has to do after adding it: pick a folder, paste a secret, sign in in the browser, or have Docker running. */
-export type McpNeeds = "folder" | "secret" | "oauth" | "docker";
+/** What the person still has to do after adding it: pick a folder, paste a secret, paste a key as the `Authorization` header, sign in in the
+ * browser, or have Docker running. */
+export type McpNeeds = "folder" | "secret" | "header" | "oauth" | "docker";
 
 export interface McpCatalogEntry {
   id: string;
@@ -23,6 +25,7 @@ export interface McpCatalogEntry {
 export const MCP_NEEDS_TEXT: Record<McpNeeds, Key> = {
   folder: "st.mcpCat.needs.folder",
   secret: "st.mcpCat.needs.secret",
+  header: "st.mcpCat.needs.header",
   oauth: "st.mcpCat.needs.oauth",
   docker: "st.mcpCat.needs.docker",
 };
@@ -75,6 +78,36 @@ export const MCP_CATALOG: McpCatalogEntry[] = [
     needs: "oauth",
     token: "https://mcp.slack.com/mcp",
     server: { name: "slack", url: "https://mcp.slack.com/mcp", headers: {}, oauth: true },
+  },
+  // The three below were checked against each vendor's own docs on 2026-10-25 (Session 304) and not against the live services.
+  {
+    // https://linear.app/docs/mcp: Streamable HTTP at /mcp; an API key goes in `Authorization: Bearer <key>` instead of the OAuth flow.
+    id: "linear",
+    label: "st.mcpCat.linear.label",
+    description: "st.mcpCat.linear.description",
+    needs: "header",
+    token: "https://mcp.linear.app/mcp",
+    server: { name: "linear", url: "https://mcp.linear.app/mcp", headers: { Authorization: "" }, oauth: false },
+  },
+  {
+    // https://docs.github.com/en/copilot/how-tos/provide-context/use-mcp-in-your-ide/set-up-the-github-mcp-server: a personal access token
+    // goes in `Authorization: Bearer <token>`. The local Docker entry above stays: it is the same tools without a hosted dependency.
+    id: "github_remote",
+    label: "st.mcpCat.githubRemote.label",
+    description: "st.mcpCat.githubRemote.description",
+    needs: "header",
+    token: "https://api.githubcopilot.com/mcp/",
+    server: { name: "github_remote", url: "https://api.githubcopilot.com/mcp/", headers: { Authorization: "" }, oauth: false },
+  },
+  {
+    // https://developers.notion.com/guides/mcp/get-started-with-mcp: Streamable HTTP with OAuth (discovery and dynamic registration), the
+    // same flow as Slack's. The hosted server documents no token header; the npx entry above is the older, unmaintained one.
+    id: "notion_remote",
+    label: "st.mcpCat.notionRemote.label",
+    description: "st.mcpCat.notionRemote.description",
+    needs: "oauth",
+    token: "https://mcp.notion.com/mcp",
+    server: { name: "notion_remote", url: "https://mcp.notion.com/mcp", headers: {}, oauth: true },
   },
 ];
 

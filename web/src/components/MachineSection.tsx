@@ -160,8 +160,12 @@ export default function MachineSection({ draft, settings, agentIds, secretsWrita
   const patchMcp = (key: number, change: Partial<McpDraft>) => onChange((m) => ({ ...m, mcp: m.mcp.map((s) => (s.key === key ? { ...s, ...change } : s)) }));
   const addCatalog = (entry: McpCatalogEntry) =>
     onChange((m) => {
-      const { name, command, args, envNames } = catalogServer(entry, m.mcp);
-      return { ...m, mcp: [...m.mcp, { ...newMcp(), name, command, args, env: envNames.map((key) => ({ ...newEntry(), name: key })) }] };
+      const server = catalogServer(entry, m.mcp);
+      const added: McpDraft =
+        server.kind === "stdio"
+          ? { ...newMcp(), name: server.name, command: server.command, args: server.args, env: server.envNames.map((key) => ({ ...newEntry(), name: key })) }
+          : { ...newMcp(), name: server.name, kind: "http", url: server.url, headers: server.headerNames.map((key) => ({ ...newEntry(), name: key })) };
+      return { ...m, mcp: [...m.mcp, added] };
     });
   const patchSsh = (key: number, change: Partial<SshDraft>) => onChange((m) => ({ ...m, ssh: m.ssh.map((h) => (h.key === key ? { ...h, ...change } : h)) }));
 

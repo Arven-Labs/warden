@@ -2,7 +2,23 @@
 
 > **Nota**: Este log foi criado junto com o projeto. As sessões serão registradas aqui conforme o trabalho avança.
 >
-> Última atualização: 2026-10-25 (Sessão 303)
+> Última atualização: 2026-10-25 (Sessão 304)
+
+---
+
+### 2026-10-25 — Sessão 304 (as primeiras integrações MCP por HTTP: Linear, GitHub hospedado e Notion hospedado; P140, 5ª fatia)
+
+- **Pedido**: "sim", o próximo da ordem: as integrações HTTP, cada uma depois de conferir a doc do fornecedor. Planejado em modo de plano.
+- **Pesquisa** (docs dos próprios fornecedores, 2026-10-25; busca e leitura das páginas):
+  - **Linear** (`linear.app/docs/mcp`): `https://mcp.linear.app/mcp`, Streamable HTTP (o `/sse` é legado); OAuth 2.1 com registro dinâmico **ou** chave em `Authorization: Bearer`. Entra no desktop e na web.
+  - **GitHub hospedado** (`docs.github.com`, "set up the GitHub MCP server"): `https://api.githubcopilot.com/mcp/`, `type: http`; OAuth **ou** PAT em `Authorization: Bearer`. Em Enterprise Managed Users o PAT vem desligado. Entra no desktop e na web, ao lado do GitHub via Docker.
+  - **Notion hospedado** (`developers.notion.com`): `https://mcp.notion.com/mcp`, Streamable HTTP, OAuth com registro dinâmico; nenhum header documentado. Só desktop (`oauth: true`). O servidor de npx que já estava é o que a Notion chama de não mantido; ficou ao lado.
+  - **Sentry**: **fora**. A página `mcp.sentry.dev` diz "All connections use OAuth"; o README (`getsentry/sentry-mcp`) cita `Authorization: Sentry-Bearer`, e nenhuma das duas diz se o transporte é Streamable HTTP ou SSE. As duas fontes oficiais divergem, então espera.
+- **Feito**: desktop (`lib/mcpCatalog.ts`: `needs` ganhou `header`, três entradas HTTP; textos `st.mcpCat.*`); web (`components/mcpCatalog.ts` virou união `stdio | http`, `catalogState` reconhece HTTP pela URL, `catalogServer` devolve o `kind`; `MachineSection.tsx` monta o rascunho `http` com o header `Authorization` em branco, que a validação existente já impede de salvar; textos `machine.cat.*`, e a dica da galeria deixou de dizer que tudo roda no computador do hub). Sem Rust, sem protocolo: `McpServerConfig::Http` e os segredos de header já existiam.
+- **Testes**: `npm test` do desktop com 207 verdes e da web com 134; `tsc` só com o erro velho do `rehype-highlight`. Os testes travam as URLs nas que as docs dão, que nada de OAuth entra na web, que todo hospedado é https e que o Sentry não está lá.
+- **Limite**: **nenhuma das três foi testada contra o serviço real** (não há conta aqui); só o Slack foi exercitado ao vivo (Sessão 36). O teste é adicionar Linear ou GitHub, colar `Bearer <chave>` e ver as tools aparecerem.
+- **Para o Fabio**: os textos novos são meus e ele ainda não leu.
+- **Fica**: CI; testar os três nos serviços reais; Sentry e outros (depois de ler a doc); Slack e Notion hospedado no hub (OAuth no hub); `.wpkg` assinado; "editei" x "o catálogo evoluiu" nas skills.
 
 ---
 

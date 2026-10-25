@@ -24,16 +24,29 @@ describe("the entries", () => {
     }
   });
 
-  test("a hosted entry is https and signs in, and no secret ships in any of them", () => {
+  test("a hosted entry is https and takes exactly one way in: the browser sign-in, or a key in the Authorization header left blank", () => {
     for (const e of MCP_CATALOG) {
       if ("url" in e.server) {
         assert.ok(e.server.url.startsWith("https://"), e.id);
-        assert.equal(e.server.oauth, true, e.id);
-        assert.deepEqual(e.server.headers, {}, e.id);
+        if (e.server.oauth) {
+          assert.deepEqual(e.server.headers, {}, e.id);
+          assert.equal(e.needs, "oauth", e.id);
+        } else {
+          assert.deepEqual(e.server.headers, { Authorization: "" }, `${e.id} ships no key`);
+          assert.equal(e.needs, "header", e.id);
+        }
       } else {
         assert.ok(Object.values(e.server.env).every((v) => v === ""), `${e.id} leaves its secrets blank`);
       }
     }
+  });
+
+  test("the hosted ones checked in Session 304 are there, at the addresses the vendors' docs give", () => {
+    const urls = Object.fromEntries(MCP_CATALOG.filter((e) => "url" in e.server).map((e) => [e.id, e.server.url]));
+    assert.equal(urls.linear, "https://mcp.linear.app/mcp");
+    assert.equal(urls.github_remote, "https://api.githubcopilot.com/mcp/");
+    assert.equal(urls.notion_remote, "https://mcp.notion.com/mcp");
+    assert.ok(!MCP_CATALOG.some((e) => e.id === "sentry"), "Sentry's own pages disagree on how it signs in, so it waits");
   });
 
   test("each one says what it asks for, in both languages", () => {
@@ -87,6 +100,13 @@ describe("what adding puts in the draft", () => {
     const hosted = catalogServer(slack, []);
     hosted.headers.Authorization = "Bearer x";
     assert.deepEqual(slack.server.headers, {});
+
+    // A hosted one that takes a key: filling in the copy's header leaves the catalog's blank.
+    const linear = entry("linear");
+    const keyed = catalogServer(linear, []);
+    keyed.headers.Authorization = "Bearer secret";
+    assert.deepEqual(linear.server.headers, { Authorization: "" });
+    assert.equal(catalogState(linear, [keyed]), "added");
   });
 
   test("the name never collides with one already in the list", () => {
