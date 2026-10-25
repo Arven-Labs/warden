@@ -96,6 +96,11 @@ class _SkillsScreenState extends State<SkillsScreen> {
                       Expanded(child: Text(entry.name, style: theme.textTheme.titleMedium)),
                       if (entry.status == 'installed')
                         Text(l10n.skillsGalleryInstalled, style: theme.textTheme.bodySmall)
+                      else if (entry.status == 'outdated')
+                        FilledButton(
+                          onPressed: _installing == entry.name ? null : () => _install(entry.name, overwrite: false),
+                          child: Text(_installing == entry.name ? l10n.skillsUpdating : l10n.skillsUpdate),
+                        )
                       else if (entry.status != 'modified')
                         FilledButton(
                           onPressed: _installing == entry.name ? null : () => _install(entry.name, overwrite: false),
@@ -104,6 +109,8 @@ class _SkillsScreenState extends State<SkillsScreen> {
                     ],
                   ),
                   Padding(padding: const EdgeInsets.only(top: 4), child: Text(catalogDescription(locale, entry.name, entry.description))),
+                  if (entry.status == 'outdated')
+                    Padding(padding: const EdgeInsets.only(top: 4), child: Text(l10n.skillsUpdateAvailable, style: theme.textTheme.bodySmall)),
                   if (entry.status == 'modified')
                     Padding(
                       padding: const EdgeInsets.only(top: 4),

@@ -1470,6 +1470,15 @@ class AppLocalizationsPt extends AppLocalizations {
   String get skillsInstalling => 'Instalando…';
 
   @override
+  String get skillsUpdate => 'Atualizar';
+
+  @override
+  String get skillsUpdating => 'Atualizando…';
+
+  @override
+  String get skillsUpdateAvailable => 'Há uma versão nova; a sua não foi alterada';
+
+  @override
   String get skillsReplaceMine => 'Substituir a minha';
 
   @override

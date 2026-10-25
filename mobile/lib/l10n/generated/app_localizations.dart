@@ -2384,6 +2384,24 @@ abstract class AppLocalizations {
   /// **'Installing…'**
   String get skillsInstalling;
 
+  /// No description provided for @skillsUpdate.
+  ///
+  /// In en, this message translates to:
+  /// **'Update'**
+  String get skillsUpdate;
+
+  /// No description provided for @skillsUpdating.
+  ///
+  /// In en, this message translates to:
+  /// **'Updating…'**
+  String get skillsUpdating;
+
+  /// No description provided for @skillsUpdateAvailable.
+  ///
+  /// In en, this message translates to:
+  /// **'A newer version is available; yours is untouched'**
+  String get skillsUpdateAvailable;
+
   /// No description provided for @skillsReplaceMine.
   ///
   /// In en, this message translates to:

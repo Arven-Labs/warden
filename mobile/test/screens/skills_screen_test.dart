@@ -8,9 +8,15 @@ import '../helpers/test_app.dart';
 /// In-memory stand-in for the Rust bridge, enforcing the two rules the screen depends on: create
 /// refuses a taken name, and an invalid skill surfaces as an exception carrying a message.
 class _FakeRepository implements SkillsRepository {
-  _FakeRepository(List<SkillDto> initial, {this.gallery = const []}) : skills = List.of(initial);
+  _FakeRepository(List<SkillDto> initial, {this.gallery = const [], Set<String> outdated = const {}})
+      : skills = List.of(initial),
+        outdated = Set.of(outdated);
 
   final List<SkillDto> skills;
+
+  /// Names of untouched gallery skills whose gallery text has moved on: the bridge says `outdated` for
+  /// them, and installing clears it.
+  final Set<String> outdated;
 
   /// The ready-made skills; their status is worked out against [skills] the way the bridge does it
   /// (not there / same text / there but different).
@@ -25,6 +31,7 @@ class _FakeRepository implements SkillsRepository {
             body: entry.body,
             status: switch (skills.where((s) => s.name == entry.name).firstOrNull) {
               null => 'notInstalled',
+              _ when outdated.contains(entry.name) => 'outdated',
               final found when found.description == entry.description && found.body == entry.body && !found.proposed => 'installed',
               _ => 'modified',
             },
@@ -35,7 +42,8 @@ class _FakeRepository implements SkillsRepository {
   Future<void> installCatalog(String name, {required bool overwrite}) async {
     final entry = gallery.firstWhere((s) => s.name == name);
     final index = skills.indexWhere((s) => s.name == name);
-    if (index >= 0 && !overwrite) throw 'a skill named $name is already in your skills and differs from this one';
+    if (index >= 0 && !overwrite && !outdated.contains(name)) throw 'a skill named $name is already in your skills and differs from this one';
+    outdated.remove(name);
     if (index >= 0) {
       skills[index] = entry;
     } else {
@@ -213,6 +221,23 @@ void main() {
       await _pump(tester, _FakeRepository([emailDraft], gallery: [emailDraft]));
       expect(find.text('Installed'), findsOneWidget);
       expect(find.text('Install'), findsNothing);
+    });
+
+    testWidgets('an untouched skill with newer gallery text offers Update, which replaces it without asking twice', (tester) async {
+      const old = SkillDto(name: 'email-draft', description: 'Draft an email', body: 'Old steps.', proposed: false);
+      final repo = _FakeRepository([old], gallery: [emailDraft], outdated: {'email-draft'});
+      await _pump(tester, repo);
+      expect(find.text('A newer version is available; yours is untouched'), findsOneWidget);
+      expect(find.text('Update'), findsOneWidget);
+      expect(find.text('Install'), findsNothing);
+      expect(find.text('You have another skill with this name'), findsNothing);
+
+      await tester.tap(find.text('Update'));
+      await tester.pumpAndSettle();
+
+      expect(repo.skills.single.body, 'Be polite.');
+      expect(find.text('A newer version is available; yours is untouched'), findsNothing);
+      expect(find.text('Installed'), findsOneWidget);
     });
 
     testWidgets('a skill with the same name that differs is only replaced after a second, explicit tap', (tester) async {

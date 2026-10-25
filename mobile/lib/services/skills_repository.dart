@@ -18,7 +18,7 @@ abstract class SkillsRepository {
   Future<void> delete(String name);
 
   /// The gallery of ready-made skills (P140), each with its `status` in this vault: `notInstalled`,
-  /// `installed` or `modified`.
+  /// `installed`, `outdated` (untouched, but the gallery has newer text) or `modified`.
   Future<List<CatalogSkillDto>> listCatalog();
 
   /// Copies the gallery skill `name` into the vault. One that differs from what's there is only

@@ -1468,6 +1468,15 @@ class AppLocalizationsEn extends AppLocalizations {
   String get skillsInstalling => 'Installing…';
 
   @override
+  String get skillsUpdate => 'Update';
+
+  @override
+  String get skillsUpdating => 'Updating…';
+
+  @override
+  String get skillsUpdateAvailable => 'A newer version is available; yours is untouched';
+
+  @override
   String get skillsReplaceMine => 'Replace mine';
 
   @override
