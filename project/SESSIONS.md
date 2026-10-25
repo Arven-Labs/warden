@@ -2,7 +2,17 @@
 
 > **Nota**: Este log foi criado junto com o projeto. As sessões serão registradas aqui conforme o trabalho avança.
 >
-> Última atualização: 2026-10-25 (Sessão 307)
+> Última atualização: 2026-10-25 (Sessão 308)
+
+---
+
+### 2026-10-25 — Sessão 308 (as três lacunas dos tetos do gateway: P168 a)
+
+- **Pedido**: "pode seguir" para o gateway. Planejado em modo de plano; o `account.suspended` do site mãe ficou de fora (o site mãe não existe neste repositório) e o usuário escolheu fechar as **três** lacunas de uma vez.
+- **Feito** (`crates/warden-gateway`): (1) com `--trust-forwarded-for` o teto por IP deixa de ser desligado: `client_slot` (`http.rs`) toma a vaga com a chave do `X-Forwarded-For`, depois do cabeçalho e antes do corpo, e a segura até o fim da requisição; acima do teto, 429 `rate_limit_exceeded` com `Retry-After`; `/health` e `/v1/accounts/` seguem isentos. Como cada conexão atende uma requisição, é o mesmo que contar as conexões do cliente. (2) `--max-inflight-total` (`WARDEN_GATEWAY_MAX_INFLIGHT_TOTAL`, 256, `0` desliga; biblioteca: desligado) e `with_inflight_total`; a vaga é tomada em `chat` depois da do token, então um token no próprio teto continua ouvindo 429, e o servidor cheio responde `503 server_overloaded` com `Retry-After: 1` (`ApiError::overloaded`). (3) A conexão recusada pelo teto de conexões, em HTTP puro, recebe um `503` fixo (`CONNECTIONS_FULL`) por um `try_write` único, sem ler nada nem criar tarefa; sob TLS continua fechada sem resposta.
+- **Limite do 503**: é melhor esforço. Se o cliente já mandou a requisição, o `close` com dados não lidos pode virar RST e ele perder o 503. Não leio nem drenei a conexão de propósito, para a recusa não custar mais que o `accept`.
+- **Testes**: aqui só `cargo check -p warden-gateway --all-targets` (limpo); a suíte vai para o CI. Em `tests/limits.rs`: os dois testes de teto de conexões passaram a esperar o 503 com `Retry-After` (`assert_busy_answer`), e dois novos: o teto por cliente atrás do proxy (dois streams do mesmo `X-Forwarded-For`, o terceiro leva 429, outro cliente e o `/health` passam) e o teto total (503 para um token sem nada em andamento, 429 para o que já está no seu teto).
+- **Fica**: o `account.suspended` no site mãe (quando existir); o resto da lista da 305 (testar Linear, GitHub e Notion hospedados nos serviços reais; Sentry; OAuth no hub; `.wpkg` assinado).
 
 ---
 

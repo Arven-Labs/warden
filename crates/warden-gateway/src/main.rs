@@ -69,13 +69,17 @@ enum Command {
         /// Connections open at once, in all (`0`: no cap). One over the cap is closed without an answer.
         #[arg(long, env = "WARDEN_GATEWAY_MAX_CONNECTIONS", default_value_t = 1024)]
         max_connections: usize,
-        /// Connections open at once from one address (`0`: no cap). Not applied with `--trust-forwarded-for`: behind the proxy
-        /// every connection comes from the proxy's address.
+        /// Connections open at once from one address (`0`: no cap). With `--trust-forwarded-for` the address is the
+        /// `X-Forwarded-For` client's, known only once the request head is read, so the cap counts requests being served and
+        /// a client over it gets a 429; otherwise the connection is refused at accept.
         #[arg(long, env = "WARDEN_GATEWAY_MAX_CONNECTIONS_PER_IP", default_value_t = 64)]
         max_connections_per_ip: usize,
         /// Chat calls in flight with one instance token (`0`: no cap). Over it the answer is a 429.
         #[arg(long, env = "WARDEN_GATEWAY_MAX_INFLIGHT_PER_TOKEN", default_value_t = 8)]
         max_inflight_per_token: usize,
+        /// Chat calls in flight in all, whatever the token (`0`: no cap). Over it the answer is a 503.
+        #[arg(long, env = "WARDEN_GATEWAY_MAX_INFLIGHT_TOTAL", default_value_t = 256)]
+        max_inflight_total: usize,
         /// The longest a streamed answer may run, in seconds (`0`: no limit). Past it the stream is cut and settled with the
         /// usage seen so far.
         #[arg(long, env = "WARDEN_GATEWAY_MAX_STREAM_SECS", default_value_t = 600)]
@@ -242,6 +246,7 @@ async fn main() -> Result<()> {
             max_connections,
             max_connections_per_ip,
             max_inflight_per_token,
+            max_inflight_total,
             max_stream_secs,
             hourly_spend_cap_usd,
             tls_cert,
@@ -268,7 +273,7 @@ async fn main() -> Result<()> {
             let gateway = Gateway::new(store.clone(), catalog.clone());
             let mut server = GatewayServer::bind(*listen, gateway, Arc::new(HttpUpstream::new())).await.with_context(|| format!("cannot listen on {listen}"))?;
             server = server.with_rate_limits(*ip_rate_per_min, *token_rate_per_min).with_trust_forwarded_for(*trust_forwarded_for);
-            server = server.with_connection_limits(*max_connections, *max_connections_per_ip).with_inflight_limit(*max_inflight_per_token);
+            server = server.with_connection_limits(*max_connections, *max_connections_per_ip).with_inflight_limit(*max_inflight_per_token).with_inflight_total(*max_inflight_total);
             if *max_stream_secs > 0 {
                 server = server.with_max_stream(std::time::Duration::from_secs(*max_stream_secs));
             }

@@ -49,6 +49,7 @@ struct Setup {
     max_connections: usize,
     max_connections_per_ip: usize,
     max_inflight_per_token: usize,
+    max_inflight_total: usize,
     max_stream: Option<Duration>,
     /// The upstream starts a stream and then stalls, so a streamed call stays in flight until something cuts it.
     stalls: bool,
@@ -81,7 +82,8 @@ async fn rig(setup: Setup) -> Rig {
         .with_rate_limits(setup.ip_per_min, setup.token_per_min)
         .with_trust_forwarded_for(setup.trust_forwarded_for)
         .with_connection_limits(setup.max_connections, setup.max_connections_per_ip)
-        .with_inflight_limit(setup.max_inflight_per_token);
+        .with_inflight_limit(setup.max_inflight_per_token)
+        .with_inflight_total(setup.max_inflight_total);
     if let Some(max) = setup.max_stream {
         server = server.with_max_stream(max);
     }
@@ -263,10 +265,16 @@ async fn a_spike_over_the_hourly_cap_suspends_the_token_and_queues_the_notice() 
 
 /// Opens a streamed chat on its own connection and waits for the first chunk, so the call is known to be in flight.
 async fn open_stream(rig: &Rig, token: &str) -> TcpStream {
+    open_stream_from(rig, token, None).await
+}
+
+/// Like [`open_stream`], as the client `forwarded_for` names when a proxy in front says so.
+async fn open_stream_from(rig: &Rig, token: &str, forwarded_for: Option<&str>) -> TcpStream {
     let body = r#"{"model":"fast","stream":true,"messages":[{"role":"user","content":"hi"}]}"#;
     let mut stream = TcpStream::connect(rig.addr).await.unwrap();
+    let forwarded = forwarded_for.map(|ip| format!("X-Forwarded-For: {ip}\r\n")).unwrap_or_default();
     let request = format!(
-        "POST /v1/chat/completions HTTP/1.1\r\nHost: x\r\nAuthorization: Bearer {token}\r\nContent-Length: {}\r\n\r\n{body}",
+        "POST /v1/chat/completions HTTP/1.1\r\nHost: x\r\nAuthorization: Bearer {token}\r\n{forwarded}Content-Length: {}\r\n\r\n{body}",
         body.len()
     );
     stream.write_all(request.as_bytes()).await.unwrap();
@@ -324,9 +332,7 @@ async fn connections_over_the_total_cap_are_closed_and_a_freed_place_is_taken_ag
     tokio::time::sleep(Duration::from_millis(200)).await;
 
     let mut third = TcpStream::connect(rig.addr).await.unwrap();
-    let mut buf = Vec::new();
-    let read = tokio::time::timeout(Duration::from_secs(5), third.read_to_end(&mut buf)).await.expect("the extra connection is closed");
-    assert!(read.map_or(true, |n| n == 0) && buf.is_empty(), "closed with no answer");
+    assert_busy_answer(&mut third).await;
 
     drop(first);
     let mut status = 0;
@@ -351,9 +357,59 @@ async fn connections_over_the_per_address_cap_are_closed() {
     let _b = TcpStream::connect(rig.addr).await.unwrap();
     tokio::time::sleep(Duration::from_millis(200)).await;
     let mut third = TcpStream::connect(rig.addr).await.unwrap();
+    assert_busy_answer(&mut third).await;
+}
+
+/// A connection over the cap on a plain-HTTP socket is told `503` with `Retry-After` and closed, without having sent anything.
+async fn assert_busy_answer(stream: &mut TcpStream) {
     let mut buf = Vec::new();
-    let read = tokio::time::timeout(Duration::from_secs(5), third.read_to_end(&mut buf)).await.expect("the extra connection is closed");
-    assert!(read.map_or(true, |n| n == 0) && buf.is_empty());
+    tokio::time::timeout(Duration::from_secs(5), stream.read_to_end(&mut buf)).await.expect("the extra connection is closed").ok();
+    let answer = String::from_utf8_lossy(&buf);
+    assert!(answer.starts_with("HTTP/1.1 503 "), "{answer}");
+    assert_eq!(retry_after(&answer), Some(1), "{answer}");
+}
+
+#[tokio::test]
+async fn behind_a_proxy_the_per_address_cap_counts_the_forwarded_client_and_not_the_proxy() {
+    let rig = rig(Setup { trust_forwarded_for: true, max_connections_per_ip: 2, stalls: true, ..Setup::default() }).await;
+    let _first = open_stream_from(&rig, &rig.token, Some("203.0.113.1")).await;
+    let _second = open_stream_from(&rig, &rig.token, Some("203.0.113.1")).await;
+
+    // The third from that client is over its share (a 429, answered from the head), and another client behind the same proxy
+    // address is not held back by it. `/health` is exempt.
+    let body = r#"{"model":"fast","messages":[{"role":"user","content":"hi"}]}"#;
+    let from = |ip: &str| [bearer(&rig.token), ("X-Forwarded-For", ip.to_string())];
+    let (status, head, answer) = send(rig.addr, "POST", "/v1/chat/completions", &from("203.0.113.1"), body).await;
+    assert_eq!(status, 429, "{answer}");
+    assert_eq!(code(&answer), "rate_limit_exceeded");
+    assert!(retry_after(&head).is_some(), "{head}");
+    let _other = open_stream_from(&rig, &rig.token, Some("203.0.113.2")).await;
+    assert_eq!(send(rig.addr, "GET", "/health", &[("X-Forwarded-For", "203.0.113.1".to_string())], "").await.0, 200);
+}
+
+#[tokio::test]
+async fn the_total_in_flight_cap_answers_503_whatever_the_token_and_the_token_cap_still_comes_first() {
+    let rig = rig(Setup { max_inflight_total: 2, max_inflight_per_token: 1, stalls: true, ..Setup::default() }).await;
+    let (second, second_token) = rig.store.create_account("second", now()).unwrap();
+    let (third, third_token) = rig.store.create_account("third", now()).unwrap();
+    for id in [&second.id, &third.id] {
+        rig.store.credit(id, EntryKind::Topup, 100_000_000, Some(&format!("t-{id}")), "", now()).unwrap();
+    }
+
+    let _a = open_stream(&rig, &rig.token).await;
+    let _b = open_stream(&rig, &second_token).await;
+
+    // Full: a token that holds nothing is told the gateway is busy.
+    let body = r#"{"model":"fast","messages":[{"role":"user","content":"hi"}]}"#;
+    let (status, head, answer) = send(rig.addr, "POST", "/v1/chat/completions", &[bearer(&third_token)], body).await;
+    assert_eq!(status, 503, "{answer}");
+    assert_eq!(code(&answer), "server_overloaded");
+    assert_eq!(retry_after(&head), Some(1), "{head}");
+
+    // A token already at its own cap hears about that, not about the gateway.
+    let (status, _, answer) = chat(&rig).await;
+    assert_eq!(status, 429, "{answer}");
+    assert_eq!(code(&answer), "rate_limit_exceeded");
 }
 
 #[tokio::test]

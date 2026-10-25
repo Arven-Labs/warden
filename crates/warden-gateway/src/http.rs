@@ -21,7 +21,7 @@ use warden_hosted_protocol::{
 use crate::catalog::{Target, Tokens};
 use crate::estimate::estimate_prompt_tokens;
 use crate::flow::{Gateway, GatewayError, Outcome, Reservation, ReserveRequest};
-use crate::limits::Slots;
+use crate::limits::{Slot, Slots};
 use crate::quota::{day_start, DAY_SECS};
 use crate::ratelimit::{client_key, retry_after_secs, token_key, RateLimiter};
 use crate::sse::{usage_of, ModelRewriter, UsageScanner};
@@ -34,6 +34,8 @@ const MAX_BODY: usize = 8 * 1024 * 1024;
 const HEAD_TIMEOUT: Duration = Duration::from_secs(30);
 /// How long a client has to send the body once the limits let its request in.
 const BODY_TIMEOUT: Duration = Duration::from_secs(60);
+/// What a connection over the cap is told on a plain-HTTP socket: written once, never read from.
+const CONNECTIONS_FULL: &[u8] = b"HTTP/1.1 503 Service Unavailable\r\nRetry-After: 1\r\nConnection: close\r\nContent-Length: 0\r\n\r\n";
 /// How long a client has to finish the TLS handshake before the connection is dropped.
 const TLS_ACCEPT_TIMEOUT: Duration = Duration::from_secs(10);
 
@@ -64,6 +66,13 @@ impl ApiError {
     fn rate_limited(wait: Duration) -> ApiError {
         let mut err = ApiError::new("429 Too Many Requests", "rate_limit_error", "rate_limit_exceeded", "too many requests; slow down and try again");
         err.retry_after = Some(retry_after_secs(wait));
+        err
+    }
+
+    /// The gateway as a whole is full: not this client's doing, so a `503` and not a `429`.
+    fn overloaded() -> ApiError {
+        let mut err = ApiError::new("503 Service Unavailable", "server_error", "server_overloaded", "the gateway is busy; try again in a moment");
+        err.retry_after = Some(1);
         err
     }
 
@@ -133,6 +142,11 @@ struct State {
     trust_forwarded_for: bool,
     /// Chat calls in flight, per instance token.
     inflight: Arc<Slots>,
+    /// Chat calls in flight, in all.
+    inflight_total: Arc<Slots>,
+    /// Requests being served, per client address (the `X-Forwarded-For` one). Only taken with `trust_forwarded_for`: without a
+    /// proxy the per-address cap is on the connection, in `serve`.
+    clients: Arc<Slots>,
     /// The longest a streamed answer may run; `None`: no limit.
     max_stream: Option<Duration>,
 }
@@ -150,6 +164,7 @@ pub struct GatewayServer {
     max_connections: usize,
     max_connections_per_ip: usize,
     max_inflight_per_token: usize,
+    max_inflight_total: usize,
     max_stream: Option<Duration>,
 }
 
@@ -169,13 +184,16 @@ impl GatewayServer {
             max_connections: 0,
             max_connections_per_ip: 0,
             max_inflight_per_token: 0,
+            max_inflight_total: 0,
             max_stream: None,
         })
     }
 
     /// Caps the connections open at once, in all and per client address (`0` leaves that one off). A connection over a cap is
-    /// closed without an answer. The address is the connection's own, read before any header: behind a reverse proxy it is
-    /// always the proxy's, so with `with_trust_forwarded_for` the per-address cap is not applied (only the total).
+    /// answered with a `503` when the socket is plain HTTP (one best-effort write, nothing read) and closed without an answer
+    /// under TLS. The address is the connection's own, read before any header: behind a reverse proxy it is always the proxy's,
+    /// so with `with_trust_forwarded_for` the per-address cap moves to the request, once the `X-Forwarded-For` client is known
+    /// (each connection serves one request, so it is the same count): over it the answer is a `429`.
     pub fn with_connection_limits(mut self, total: usize, per_ip: usize) -> GatewayServer {
         self.max_connections = total;
         self.max_connections_per_ip = per_ip;
@@ -185,6 +203,12 @@ impl GatewayServer {
     /// Caps the chat calls one instance token may have in flight (`0`: no cap). Over it: `429`.
     pub fn with_inflight_limit(mut self, per_token: usize) -> GatewayServer {
         self.max_inflight_per_token = per_token;
+        self
+    }
+
+    /// Caps the chat calls in flight in all, whatever the token (`0`: no cap). Over it: `503`, because the gateway is full.
+    pub fn with_inflight_total(mut self, total: usize) -> GatewayServer {
+        self.max_inflight_total = total;
         self
     }
 
@@ -244,6 +268,8 @@ impl GatewayServer {
             token_limit: RateLimiter::new(self.token_per_min),
             trust_forwarded_for: self.trust_forwarded_for,
             inflight: Slots::new(0, self.max_inflight_per_token),
+            inflight_total: Slots::new(self.max_inflight_total, 0),
+            clients: Slots::new(0, if self.trust_forwarded_for { self.max_connections_per_ip } else { 0 }),
             max_stream: self.max_stream,
         });
         let per_ip = if self.trust_forwarded_for { 0 } else { self.max_connections_per_ip };
@@ -252,7 +278,13 @@ impl GatewayServer {
         loop {
             let Ok((stream, peer)) = self.listener.accept().await else { continue };
             let Some(slot) = connections.try_acquire(&client_key(peer.ip(), None, false)) else {
-                tracing::debug!(%peer, "too many open connections; closing this one");
+                tracing::debug!(%peer, "too many open connections; refusing this one");
+                // Plain HTTP gets one non-blocking write of a fixed answer, with nothing read and no task: the refusal must stay
+                // cheaper than the accept. Best effort: a client that already sent its request can see a reset instead. Under
+                // TLS the client expects a handshake, so it is closed without an answer.
+                if tls.is_none() {
+                    let _ = stream.try_write(CONNECTIONS_FULL);
+                }
                 continue;
             };
             let state = state.clone();
@@ -300,6 +332,11 @@ async fn handle<S: AsyncRead + AsyncWrite + Unpin>(stream: &mut S, state: &State
     if let Err(err) = limit(state, &head, peer) {
         return write_json(stream, err.status, &err.body(), &err.headers()).await;
     }
+    // Held until the answer is done.
+    let _client = match client_slot(state, &head, peer) {
+        Ok(slot) => slot,
+        Err(err) => return write_json(stream, err.status, &err.body(), &err.headers()).await,
+    };
     let request = match tokio::time::timeout(BODY_TIMEOUT, read_body(stream, head)).await {
         Ok(Ok(request)) => request,
         Ok(Err(err)) => return write_json(stream, err.status, &err.body(), &err.headers()).await,
@@ -325,6 +362,22 @@ fn limit(state: &State, head: &Head, peer: IpAddr) -> Result<(), ApiError> {
         state.token_limit.check(&token_key(token), now).map_err(ApiError::rate_limited)?;
     }
     Ok(())
+}
+
+/// Behind a proxy (`trust_forwarded_for`) the per-address cap on open connections cannot be taken at `accept`, where every
+/// client is the proxy; it is taken here, once the `X-Forwarded-For` client is known. The same routes are exempt as from the
+/// rate limit. `None`: nothing to hold (no proxy, or no cap).
+fn client_slot(state: &State, head: &Head, peer: IpAddr) -> Result<Option<Slot>, ApiError> {
+    let path = head.path.split('?').next().unwrap_or_default();
+    if !state.trust_forwarded_for || path == "/health" || path.starts_with("/v1/accounts/") {
+        return Ok(None);
+    }
+    let key = client_key(peer, head.forwarded_for.as_deref(), true);
+    match state.clients.try_acquire(&key) {
+        Some(slot) => Ok(Some(slot)),
+        // With the cap off `try_acquire` always gives a slot, so a refusal here is a real one.
+        None => Err(ApiError::rate_limited(Duration::from_secs(1))),
+    }
 }
 
 async fn route<S: AsyncWrite + Unpin>(stream: &mut S, state: &State, request: &Request) -> Result<(), ApiError> {
@@ -496,6 +549,8 @@ async fn chat<S: AsyncWrite + Unpin>(stream: &mut S, state: &State, request: &Re
         .inflight
         .try_acquire(&token_key(request.token.as_deref().unwrap_or_default()))
         .ok_or_else(|| ApiError::rate_limited(Duration::from_secs(1)))?;
+    // After the token's own cap, so a token over its share still gets the `429` that is about it.
+    let _inflight_total = state.inflight_total.try_acquire("").ok_or_else(ApiError::overloaded)?;
     let body: Value = serde_json::from_slice(&request.body).map_err(|e| ApiError::bad_request(format!("the body isn't valid JSON: {e}")))?;
     let model = body.get("model").and_then(Value::as_str).ok_or_else(|| ApiError::bad_request("the request has no `model`"))?;
     // The prompt is the messages and the tools: both go upstream and both are billed as input.
