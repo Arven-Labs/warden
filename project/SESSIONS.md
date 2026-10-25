@@ -2,7 +2,19 @@
 
 > **Nota**: Este log foi criado junto com o projeto. As sessões serão registradas aqui conforme o trabalho avança.
 >
-> Última atualização: 2026-10-25 (Sessão 302)
+> Última atualização: 2026-10-25 (Sessão 303)
+
+---
+
+### 2026-10-25 — Sessão 303 (a galeria de integrações MCP na web, para o hub: P140, 4ª fatia)
+
+- **Pedido**: "sim, em ordem", o primeiro item da lista que deixei na 302: integrações MCP no hub e na web. Planejado em modo de plano.
+- **O que a exploração mudou**: o item prometia valor para o hub, e não tinha quase nenhum. O **Slack não dá**: o OAuth só roda no desktop (`mcp_oauth_connect`) e a edição da web nem envia `oauth` (`mcp_server_from_edit` só herda de um servidor já salvo). Os outros 4 são stdio, que o desenho da seção E deixa fora da loja compartilhada. Perguntei, e o usuário escolheu **a galeria na web só com os 4 stdio**, como conveniência sobre o "+ MCP" que o dono já tem ali (com o aviso de perigo e o bloqueio).
+- **Feito**: `web/src/components/mcpCatalog.ts` (puro, para o `node --test` carregar: `MCP_CATALOG` com Filesystem, Google Workspace, Notion e GitHub via Docker; `catalogState`, que lê o pacote ou a imagem como uma linha inteira dos `args`, mesmo renomeado; `catalogServer`, o nome sem colisão). `MachineSection.tsx`: cartões antes do "+ MCP" (descrição, "Pede: …", "Já está na lista" ou Adicionar), que montam o `McpDraft` com `newMcp()` e `newEntry()`. Textos `machine.cat.*` nos dois idiomas, com "no computador do hub".
+- **Sem regra nova**: a validação que existia (`machineError`, "entryNoValue") já recusa um segredo novo em branco, então um cartão adicionado sem o token não se salva. Tudo fica dentro do `<fieldset disabled>`, então sem `--allow-machine-settings` a galeria aparece travada como o resto. Nenhum Rust nem protocolo mudou.
+- **Testes**: `npm test` da web com 132 verdes (eram 122; 10 novos em `tests/mcpCatalog.test.mjs`: sem Slack nem OAuth, só `npx` e `docker`, segredos só como nome, textos nos dois idiomas, estado por token e renomeado, token lido como linha inteira, cópia sem aliasing, nome sem colisão nem com espaços) e `tsc` só com o erro velho do `rehype-highlight`. Sem teste de tela, como nas outras.
+- **Para o Fabio**: os textos da web são meus e ele ainda não leu.
+- **Fica**: CI; integrações HTTP (verificar o endpoint de cada fornecedor); Slack no hub (OAuth no hub); `.wpkg` assinado; "editei" x "o catálogo evoluiu" nas skills; o Fabio ler os textos.
 
 ---
 

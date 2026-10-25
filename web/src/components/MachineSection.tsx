@@ -2,6 +2,7 @@ import type { ServerConnection } from "../hub/connection";
 import type { MachineSettings } from "../hub/messages";
 import { t } from "../i18n";
 import SshAuditLog from "./SshAuditLog";
+import { MCP_CATALOG, MCP_NEEDS_TEXT, catalogServer, catalogState, type McpCatalogEntry } from "./mcpCatalog";
 import { newEntry, newMcp, newSsh, type McpDraft, type McpEntryDraft, type MachineDraft, type SshDraft } from "./machineDraft";
 import { Field, SecretField, Section } from "./settingsParts";
 
@@ -157,6 +158,11 @@ export default function MachineSection({ draft, settings, agentIds, secretsWrita
   const writable = settings.writable;
   const set = (change: Partial<MachineDraft>) => onChange((m) => ({ ...m, ...change }));
   const patchMcp = (key: number, change: Partial<McpDraft>) => onChange((m) => ({ ...m, mcp: m.mcp.map((s) => (s.key === key ? { ...s, ...change } : s)) }));
+  const addCatalog = (entry: McpCatalogEntry) =>
+    onChange((m) => {
+      const { name, command, args, envNames } = catalogServer(entry, m.mcp);
+      return { ...m, mcp: [...m.mcp, { ...newMcp(), name, command, args, env: envNames.map((key) => ({ ...newEntry(), name: key })) }] };
+    });
   const patchSsh = (key: number, change: Partial<SshDraft>) => onChange((m) => ({ ...m, ssh: m.ssh.map((h) => (h.key === key ? { ...h, ...change } : h)) }));
 
   return (
@@ -192,6 +198,28 @@ export default function MachineSection({ draft, settings, agentIds, secretsWrita
         <button type="button" className="link-button settings-add" onClick={() => onChange((m) => ({ ...m, mcp: [...m.mcp, newMcp()] }))}>
           {t("machine.addMcp")}
         </button>
+        <p className="skills-hint">{t("machine.catHint")}</p>
+        <ul className="skills-list">
+          {MCP_CATALOG.map((entry) => {
+            const added = catalogState(entry, draft.mcp) === "added";
+            return (
+              <li key={entry.id} className="skills-item">
+                <div className="skills-item-header">
+                  <span className="skills-item-name">{t(entry.label)}</span>
+                  {added ? (
+                    <span className="skills-hint">{t("machine.cat.added")}</span>
+                  ) : (
+                    <button type="button" className="primary-button" onClick={() => addCatalog(entry)}>
+                      {t("machine.cat.add")}
+                    </button>
+                  )}
+                </div>
+                <p className="skills-item-description">{t(entry.description)}</p>
+                <p className="skills-hint">{t("machine.cat.needs", { what: t(MCP_NEEDS_TEXT[entry.needs]) })}</p>
+              </li>
+            );
+          })}
+        </ul>
 
         <h3 className="settings-subheading">{t("machine.sshServers")}</h3>
         <p className="skills-hint">{t("machine.sshNote")}</p>
