@@ -14,7 +14,8 @@
 - **Sem regra nova**: a validação que existia (`machineError`, "entryNoValue") já recusa um segredo novo em branco, então um cartão adicionado sem o token não se salva. Tudo fica dentro do `<fieldset disabled>`, então sem `--allow-machine-settings` a galeria aparece travada como o resto. Nenhum Rust nem protocolo mudou.
 - **Testes**: `npm test` da web com 132 verdes (eram 122; 10 novos em `tests/mcpCatalog.test.mjs`: sem Slack nem OAuth, só `npx` e `docker`, segredos só como nome, textos nos dois idiomas, estado por token e renomeado, token lido como linha inteira, cópia sem aliasing, nome sem colisão nem com espaços) e `tsc` só com o erro velho do `rehype-highlight`. Sem teste de tela, como nas outras.
 - **Para o Fabio**: os textos da web são meus e ele ainda não leu.
-- **Fica**: CI; integrações HTTP (verificar o endpoint de cada fornecedor); Slack no hub (OAuth no hub); `.wpkg` assinado; "editei" x "o catálogo evoluiu" nas skills; o Fabio ler os textos.
+- **CI**: o commit `24b3c9c` passou no `CI` e no `Web E2E`; o `Desktop E2E` não rodou (a mudança é só da web).
+- **Fica**: integrações HTTP (verificar o endpoint de cada fornecedor); Slack no hub (OAuth no hub); `.wpkg` assinado; "editei" x "o catálogo evoluiu" nas skills; o Fabio ler os textos.
 
 ---
 
