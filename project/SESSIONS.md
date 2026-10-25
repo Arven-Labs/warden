@@ -2,7 +2,17 @@
 
 > **Nota**: Este log foi criado junto com o projeto. As sessões serão registradas aqui conforme o trabalho avança.
 >
-> Última atualização: 2026-10-25 (Sessão 297)
+> Última atualização: 2026-10-25 (Sessão 298)
+
+---
+
+### 2026-10-25 — Sessão 298 (o "teto de conexões" do gateway já estava feito: só a documentação)
+
+- **Pedido**: "vamos pelo teto". Entrei em modo de plano e a exploração do `warden-gateway` mostrou que o teto **já existe** desde a Sessão 277 (commit `2eb54ed`, CI verde): conferi o commit e as opções `--max-connections*` no `main.rs`.
+- **Erro meu**: na Sessão 297 eu ofereci o teto como próximo item com base numa linha velha do `INDEX.md` ("faltam o teto de conexões simultâneas e a imagem Docker"), sem ler o "Fica" da 277 e da 278. A imagem Docker também já estava feita (278).
+- **Feito** (só texto, sem código, por escolha do usuário): `INDEX.md` linha 7 e `HOSPEDAGEM.md` linha 127 agora dizem o que a 277 entregou (e que o corpo passou a ser lido depois do limite); a linha 127 ainda dizia que o corpo era lido antes da recusa.
+- **Lacunas reais, para quem quiser**: o que a 277 registra (o teto por IP não distingue clientes atrás do proxy; o site mãe ainda não trata `account.suspended`) e o que li no código e não está registrado (o teto de chamadas em andamento é só por token, sem total; no teto de conexões a recusa é um fechamento sem resposta, não um 503).
+- **Fica**: a tool MCP sem anotação no nível 4 (P131, precisa de decisão do usuário); o resto do P168 é o que está acima.
 
 ---
 
@@ -13,7 +23,7 @@
 - **Clientes**: web, desktop e mobile leem `topupUrl`, revalidam (`topUpUrl` em `web/src/hub/credit.ts` e `desktop/src/lib/credit.ts`, `topUpUri` em `mobile/lib/services/top_up.dart`) e abrem: web `window.open(..., "noopener,noreferrer")`, desktop `openUrl` do plugin opener, mobile `url_launcher` por um `UrlLauncher` injetável. O chip do cabeçalho e o botão do erro 402 passam por uma função só (`openTopUp`/`_openTopUp`) que cai na tela de Uso sem endereço; o botão do erro diz "Recarregar créditos" em vez de "Ver saldo" quando há link; o cartão de créditos da tela de Uso ganhou o botão. Chaves novas nas três línguas de texto (web e desktop `chat.topUpLink` e `usage.credit.topUp`/`usage.creditTopUp`; mobile `chatTopUpLink` e `usageCreditTopUp`, também nos `generated/` à mão).
 - **Testes**: aqui `cargo check -p warden-server --tests` limpo, `npm test` da web (117) e do desktop (191) verdes (o `tsc` reclama de `rehype-highlight` ausente no `node_modules`, já era assim). **Não rodei** os testes do Flutter nem os de Rust: a conferir no CI (`usage_screen_test.dart`, `top_up_test.dart`, `hosted_credit.rs`, o do protocolo). O `ChatScreen` não tem teste de widget no repositório, então o chip e a ação do erro no mobile só têm a conferência do `flutter analyze`.
 - **Risco a olhar no CI**: o `url_launcher` é dependência nova e o `pubspec.lock` não foi regenerado (sem Flutter aqui); o `flutter pub get` do CI o atualiza.
-- **Fica**: um site mãe de verdade para ter uma URL; campo na tela de configurações do hub se for útil; teto de conexões simultâneas do gateway (P168); a tool MCP sem anotação no nível 4 (P131).
+- **Fica**: um site mãe de verdade para ter uma URL; campo na tela de configurações do hub se for útil; a tool MCP sem anotação no nível 4 (P131).
 
 ---
 
