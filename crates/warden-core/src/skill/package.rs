@@ -343,11 +343,17 @@ mod tests {
     }
 
     #[test]
-    fn a_signature_is_kept_but_changes_nothing() {
+    fn the_signature_is_not_what_the_hash_covers_and_one_that_is_not_a_real_signature_is_refused() {
         let mut signed = package();
         signed.signature = Some("0xabc".into());
+        // Signatures are checked since `signing` (P160): a value that is not one is no longer carried along unread.
+        let err = Package::parse(&serde_json::to_string(&signed).unwrap()).unwrap_err();
+        assert!(err.to_string().contains("can't check"), "{err}");
+
+        let (private, public) = crate::skill::signing::generate_keypair().unwrap();
+        signed.sign(&private).unwrap();
         let back = Package::parse(&serde_json::to_string(&signed).unwrap()).unwrap();
-        assert_eq!(back.signature.as_deref(), Some("0xabc"));
+        assert!(back.signature.as_deref().is_some_and(|s| s.contains(&public)));
         assert_eq!(back.hash, package().hash, "the signature is not part of what the hash covers");
     }
 
