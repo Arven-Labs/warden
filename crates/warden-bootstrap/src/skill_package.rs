@@ -5,7 +5,7 @@
 
 use serde::{Deserialize, Serialize};
 use warden_core::skill::package::{Package, MAX_PACKAGE_BYTES};
-use warden_core::skill::signing::{normalize_public_key, Verification};
+use warden_core::skill::signing::{decode_private_key, encode_private_key, generate_keypair, normalize_public_key, public_key_of, Verification};
 use warden_core::skill::SkillStore;
 use warden_sync::arweave::parse_address;
 use warden_sync::ArweaveClient;
@@ -134,6 +134,51 @@ pub fn export_skill_package(store: &SkillStore, name: &str, version: &str, autho
     let content = package.to_json().map_err(|e| format!("{e:#}"))?;
     let attachments_skipped = store.list_files(name).is_ok_and(|files| !files.is_empty());
     Ok((content, attachments_skipped))
+}
+
+/// Makes a new signing key and writes its private half to `path`, which must not exist. Returns the public key (64 hex characters):
+/// what others put in their trusted publishers to trust what is signed with it. The file is readable only by its owner (mode 0600 on
+/// Unix) and is never overwritten: losing a key makes everything signed with it unprovable, and a second key over it would do exactly that.
+pub fn create_signing_key(path: &std::path::Path) -> Result<String, String> {
+    use std::io::Write as _;
+    let (private, public) = generate_keypair().map_err(|e| format!("{e:#}"))?;
+    let mut options = std::fs::OpenOptions::new();
+    options.write(true).create_new(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600);
+    }
+    let mut file = options.open(path).map_err(|e| format!("cannot create {} (a key file is never overwritten): {e}", path.display()))?;
+    writeln!(file, "{}", encode_private_key(&private)).map_err(|e| format!("cannot write {}: {e}", path.display()))?;
+    Ok(public)
+}
+
+/// The public key of the signing key file at `path`.
+pub fn signing_key_public(path: &std::path::Path) -> Result<String, String> {
+    let private = read_signing_key(path)?;
+    public_key_of(&private).map_err(|e| format!("{e:#}"))
+}
+
+fn read_signing_key(path: &std::path::Path) -> Result<Vec<u8>, String> {
+    // A key file is a line of hex; anything bigger is not one, and is not read.
+    let size = std::fs::metadata(path).map_err(|e| format!("cannot read {}: {e}", path.display()))?.len();
+    if size > 4096 {
+        return Err(format!("{} is not a Warden signing key file", path.display()));
+    }
+    let text = std::fs::read_to_string(path).map_err(|e| format!("cannot read {}: {e}", path.display()))?;
+    decode_private_key(&text).map_err(|e| format!("{e:#}"))
+}
+
+/// Signs the package in `content` with the key file at `path` and returns the signed text and the signer's public key. A package
+/// that is not good as it stands (changed, damaged, or with a signature that does not check out) is refused rather than signed.
+pub fn sign_package_text(content: &str, key_path: &std::path::Path) -> Result<(String, String), String> {
+    let mut package = Package::parse(content).map_err(|e| format!("{e:#}"))?;
+    let private = read_signing_key(key_path)?;
+    package.sign(&private).map_err(|e| format!("{e:#}"))?;
+    let signed = package.to_json().map_err(|e| format!("{e:#}"))?;
+    let signer = public_key_of(&private).map_err(|e| format!("{e:#}"))?;
+    Ok((signed, signer))
 }
 
 /// Reads and checks `content` and says where it stands in the vault and who signed it (against `trusted`), without installing
@@ -348,6 +393,52 @@ mod tests {
 
         let other = [TrustedPublisher { key: "ab".repeat(32), name: "Someone else".into() }];
         assert_eq!(preview_skill_package(&yours, &content, &other).unwrap().signature.state, "unknown");
+    }
+
+    fn key_dir() -> std::path::PathBuf {
+        let dir = std::env::temp_dir().join(format!("warden-signing-key-test-{}-{}", std::process::id(), std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    #[test]
+    fn a_package_signed_from_the_screen_reads_back_as_that_key_and_a_bad_one_is_not_signed() {
+        let (mine, yours) = (temp_store(), temp_store());
+        mine.save(&skill("greet", "Say hello warmly.")).unwrap();
+        let unsigned = exported(&mine, "greet");
+        let key_path = key_dir().join("signing.key");
+        let public = create_signing_key(&key_path).unwrap();
+        assert_eq!(signing_key_public(&key_path).unwrap(), public);
+
+        let (signed, signer) = sign_package_text(&unsigned, &key_path).unwrap();
+        assert_eq!(signer, public);
+        let unknown = preview_skill_package(&yours, &signed, &[]).unwrap().signature;
+        assert_eq!((unknown.state, unknown.signer.as_deref()), ("unknown", Some(public.as_str())));
+        let list = [TrustedPublisher { key: public.clone(), name: "Fabio".into() }];
+        assert_eq!(preview_skill_package(&yours, &signed, &list).unwrap().signature.state, "trusted");
+
+        // Signing again replaces the signature; a package changed after export, or a file that is not a key, is not signed.
+        assert_eq!(sign_package_text(&signed, &key_path).unwrap().1, public);
+        assert!(sign_package_text(&unsigned.replace("warmly", "coldly"), &key_path).unwrap_err().contains("changed or damaged"));
+        let not_a_key = key_path.with_file_name("not-a-key");
+        std::fs::write(&not_a_key, "hello").unwrap();
+        assert!(sign_package_text(&unsigned, &not_a_key).unwrap_err().contains("not a Warden signing key"));
+        assert!(sign_package_text(&unsigned, &key_path.with_file_name("missing")).is_err());
+    }
+
+    #[test]
+    fn a_signing_key_is_made_once_and_kept_for_its_owner_only() {
+        let path = key_dir().join("signing.key");
+        let public = create_signing_key(&path).unwrap();
+        assert_eq!(public.len(), 64);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            assert_eq!(std::fs::metadata(&path).unwrap().permissions().mode() & 0o777, 0o600, "only its owner can read it");
+        }
+        let before = std::fs::read_to_string(&path).unwrap();
+        assert!(create_signing_key(&path).unwrap_err().contains("never overwritten"));
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), before, "the first key is still there");
     }
 
     #[test]

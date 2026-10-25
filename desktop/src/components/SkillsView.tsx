@@ -9,6 +9,8 @@ import { diffLines, hasChanges, withContext } from "./skillDiff";
 import CopyButton from "./CopyButton";
 import TrustedPublishers from "./TrustedPublishers";
 import TrustThisKey from "./TrustThisKey";
+import SigningChoice, { type SigningState } from "./SigningChoice";
+import { rememberedKeyPath } from "../lib/signingKey";
 import { hubSkills } from "../lib/hub";
 import { signatureView } from "../lib/skillSignature";
 
@@ -198,11 +200,28 @@ const licenses = () => [
 ];
 
 /** The skill being shared: the file's details, asked for before it is written. */
-interface ExportState {
+interface ExportState extends SigningState {
   name: string;
   version: string;
   author: string;
   license: string;
+}
+
+/** Signing starts on when a key file was chosen on an earlier share, so the same key is used again without asking. */
+function startSigning(): SigningState {
+  const keyPath = rememberedKeyPath();
+  return { sign: keyPath !== null, keyPath };
+}
+
+/** `content` signed with the key file at `keyPath` when the person asked for it, else as it is. The key is read on this computer only. */
+async function signedIfAsked(content: string, { sign, keyPath }: SigningState): Promise<string> {
+  if (!sign) return content;
+  if (!keyPath) throw t("skills.signNeedsKey");
+  try {
+    return (await invoke<{ content: string }>("sign_skill_package", { content, keyPath })).content;
+  } catch (err) {
+    throw t("skills.signFailed", { error: String(err) });
+  }
 }
 
 /** A skill being published to Arweave through the TruthID app (P160): what the person is asked, and how far it got. */
@@ -287,12 +306,13 @@ function SkillsView({
     try {
       const author = exporting.author.trim();
       const packed = await api.exportPackage(exporting.name, exporting.version.trim(), author === "" ? null : author, exporting.license);
+      const content = await signedIfAsked(packed.content, exporting);
       const path = await save({
         defaultPath: `${exporting.name}.warden-skill.json`,
         filters: [{ name: t("skills.fileFilter"), extensions: ["json"] }],
       });
       if (!path) return;
-      await invoke("write_skill_package_file", { path, content: packed.content });
+      await invoke("write_skill_package_file", { path, content });
       setNotice(t("skills.saved", { path }) + (packed.attachmentsSkipped ? t("skills.attachmentsSkipped") : ""));
       setExporting(null);
     } catch (err) {
@@ -307,14 +327,15 @@ function SkillsView({
     try {
       const author = publishing.author.trim();
       const packed = await api.exportPackage(publishing.name, publishing.version.trim(), author === "" ? null : author, publishing.license);
+      const content = await signedIfAsked(packed.content, publishing);
       // The same scan a reader runs before installing: better to hear it here than for them to be warned about the skill.
-      const preview = await api.previewPackage(packed.content);
+      const preview = await api.previewPackage(content);
       const finding = preview.finding ?? null;
       if (finding && !publishing.flaggedOk) {
         setPublishing({ ...publishing, finding });
         return;
       }
-      const begin = await invoke<{ qrSvg: string; hash: string }>("skill_publish_begin", { content: packed.content });
+      const begin = await invoke<{ qrSvg: string; hash: string }>("skill_publish_begin", { content });
       setPublishing({ ...publishing, finding, phase: "waiting", qrSvg: begin.qrSvg });
       const result = await invoke<{ txId: string }>("skill_publish_await");
       setPublishing((current) => (current ? { ...current, phase: "done", qrSvg: null, txId: result.txId } : current));
@@ -667,6 +688,7 @@ function SkillsView({
               ))}
             </select>
           </label>
+          <SigningChoice value={exporting} onChange={(next) => setExporting({ ...exporting, ...next })} />
           <div className="skill-editor-actions">
             <button type="button" className="settings-save-btn" onClick={handleExport}>
               {t("skills.saveAsFile")}
@@ -714,6 +736,7 @@ function SkillsView({
                   ))}
                 </select>
               </label>
+              <SigningChoice value={publishing} onChange={(next) => setPublishing({ ...publishing, ...next })} />
               {publishing.finding && <p className="settings-error-banner">{t("skills.finding", { finding: publishing.finding })}</p>}
               {publishing.finding && (
                 <label className="skill-agent-option">
@@ -1004,7 +1027,7 @@ function SkillsView({
                           onClick={() => {
                             setError(null);
                             setNotice(null);
-                            setExporting({ name: skill.name, version: "1.0.0", author: "", license: licenses()[0].id });
+                            setExporting({ name: skill.name, version: "1.0.0", author: "", license: licenses()[0].id, ...startSigning() });
                           }}
                         >
                           {t("skills.shareButton")}
@@ -1020,6 +1043,7 @@ function SkillsView({
                               version: "1.0.0",
                               author: "",
                               license: licenses()[0].id,
+                              ...startSigning(),
                               understood: false,
                               finding: null,
                               flaggedOk: false,

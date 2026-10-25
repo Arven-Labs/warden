@@ -2,7 +2,19 @@
 
 > **Nota**: Este log foi criado junto com o projeto. As sessões serão registradas aqui conforme o trabalho avança.
 >
-> Última atualização: 2026-10-25 (Sessão 311)
+> Última atualização: 2026-10-25 (Sessão 312)
+
+---
+
+### 2026-10-25 — Sessão 312 (assinar pela tela de exportar e de publicar: P160)
+
+- **Pedido**: "sim", ao item seguinte da lista, assinar pela interface de exportar (até aqui só o `warden-server package sign`). Planejado em modo de plano, com duas escolhas do usuário: **desktop e web**, e o desktop **lembra só o caminho** do arquivo de chave.
+- **Princípio**: a chave privada nunca vai ao hub nem à rede. O hub (ou o vault local) exporta o pacote sem assinatura, como sempre, e a assinatura é feita no aparelho de quem está na tela.
+- **Desktop**: `warden-bootstrap/skill_package.rs` ganhou `sign_package_text` (recusa pacote alterado, lê o arquivo da chave, assina), `create_signing_key` (a lógica do `keygen`: 0600, nunca sobrescreve) e `signing_key_public`; `package_cmd::keygen` passou a chamar a mesma função. Comandos Tauri `sign_skill_package`, `create_signing_key` e `signing_key_public`. Na tela, `SigningChoice.tsx` ("Assinar com a minha chave", escolher o arquivo, criar uma chave nova com a chave pública para copiar, "Assinando como …") nos formulários de **exportar** e de **publicar** (Arweave); funciona para o vault local e para o hub remoto (o texto exportado passa pelo comando local). O caminho fica no `localStorage` (`lib/signingKey.ts`, só o caminho; a assinatura já vem ligada quando há um caminho lembrado; um arquivo que sumiu ou quebrou é esquecido).
+- **Web**: `hub/signing.ts` assina no navegador com WebCrypto. O arquivo de chave é o PKCS#8 v2 do `ring` em hex; a web tira a semente e monta o v1 que o WebCrypto lê, assina os bytes do `hash` e confere com a chave pública do próprio arquivo. Antes de baixar, o hub lê o arquivo assinado de volta (`previewSkillPackage`) e a web só baixa se o `signer` voltar igual: a prova, a cada uso, de que o hub o aceita. A chave fica na memória só até o fim da exportação. A web **não cria** chave (o `ring` só lê o formato v2, e a criação fica no desktop e no `warden-server package keygen`).
+- **Testes**: aqui `npm test` do desktop (221) e da web (149) verdes, `tsc` só com o `Markdown.tsx` (o `rehype-highlight` não está instalado neste checkout) e `cargo check --workspace --tests` limpo. Rodados: `web/tests/signing.test.mjs` (a chave lida, a assinatura confere com `crypto.verify` sobre o hash e tem a forma `ed25519:<64 hex>:<128 hex>`, o resto do pacote fica como veio, chave ruim ou pacote ruim recusados, chave com a metade pública trocada não assina) e `desktop/tests/signingKey.test.mjs` (o caminho lembrado, armazenamento bloqueado), mais o i18n nos dois. **Escritos e não rodados** (CI): 2 em `skill_package.rs` (assinar pela tela e ler de volta como `unknown` e `trusted`, recusar pacote alterado e arquivo que não é chave; a chave criada uma vez, 0600, nunca sobrescrita) e 1 em `signing.rs`, o **vetor de compatibilidade**: um pacote assinado pelo Node com a semente `01 02 … 20`, byte a byte, que o `Package::parse` e o `verified` precisam aceitar, e a mesma assinatura sai de `Package::sign` com essa chave (Ed25519 é determinístico). Esse teste prova de uma vez que o navegador assina o que o servidor aceita e que o hash do JS é o do Rust.
+- **Fora**: criar chave pela web, celular e extensão, índice de curadores e revogação.
+- **Fica**: a chave de publicação do Fabio (agora dá para criá-la na tela do desktop); testar Linear, GitHub e Notion hospedados nos serviços reais; Sentry; OAuth no hub; `account.suspended` no site mãe.
 
 ---
 

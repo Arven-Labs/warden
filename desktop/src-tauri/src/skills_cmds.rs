@@ -181,6 +181,34 @@ pub fn export_skill_package(state: State<'_, AppState>, name: String, version: S
     Ok(ExportedPackage { content, attachments_skipped })
 }
 
+/// A package after the owner's key signed it (P160): the text to write or publish, and the key that signed it.
+#[derive(Serialize, Debug, Clone, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct SignedPackage {
+    pub content: String,
+    pub signer: String,
+}
+
+/// Signs the exported text with the key file picked on this computer. The key never leaves it: for a hub's skill, the hub exported the
+/// text and the signature is made here.
+#[tauri::command]
+pub fn sign_skill_package(content: String, key_path: String) -> Result<SignedPackage, String> {
+    let (content, signer) = skill_package::sign_package_text(&content, std::path::Path::new(&key_path))?;
+    Ok(SignedPackage { content, signer })
+}
+
+/// Makes a new signing key at the path picked in the Save dialog (a key file is never overwritten) and returns its public key.
+#[tauri::command]
+pub fn create_signing_key(path: String) -> Result<String, String> {
+    skill_package::create_signing_key(std::path::Path::new(&path))
+}
+
+/// The public key of the signing key file at `path`, so the screen can say whose signature it will make.
+#[tauri::command]
+pub fn signing_key_public(path: String) -> Result<String, String> {
+    skill_package::signing_key_public(std::path::Path::new(&path))
+}
+
 #[tauri::command]
 pub fn preview_skill_package(state: State<'_, AppState>, content: String) -> Result<PackagePreviewPayload, String> {
     // The keys this computer's owner trusts; a config that cannot be read just means none are, never a failed preview.

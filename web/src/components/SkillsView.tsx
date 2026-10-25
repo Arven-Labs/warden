@@ -5,6 +5,7 @@ import { intlTag, t, type Key } from "../i18n";
 import { catalogDescription } from "../i18n/catalog";
 import { rich } from "../i18n/rich";
 import { signatureView } from "../hub/skillSignature";
+import { SigningError, publicKeyOf, signPackageText } from "../hub/signing";
 import TrustedPublishers from "./TrustedPublishers";
 import TrustThisKey from "./TrustThisKey";
 import { diffLines, hasChanges, withContext } from "./skillDiff";
@@ -36,6 +37,11 @@ interface ExportState {
   version: string;
   author: string;
   license: string;
+  /** Sign the file with the person's key (P160). `keyText` is the key file's text, held in memory only until the export ends, and
+   * `signer` its public key, shown so the person sees whose signature it will be. */
+  sign: boolean;
+  keyText: string | null;
+  signer: string | null;
 }
 
 /** A package being imported: the text and, once read and checked, what it says. */
@@ -105,15 +111,54 @@ export default function SkillsView({
     conn.listSkillCatalog().then(setCatalog, () => setCatalog(null));
   }, [conn]);
 
+  /** Reads the key file picked for signing into memory (it is dropped when the export ends) and shows whose key it is. */
+  function handleChooseKeyFile(file: File | undefined) {
+    if (!file) return;
+    file.text().then(
+      (text) => {
+        try {
+          const signer = publicKeyOf(text);
+          setError(null);
+          setExporting((current) => (current ? { ...current, keyText: text, signer } : current));
+        } catch (err) {
+          setExporting((current) => (current ? { ...current, keyText: null, signer: null } : current));
+          setError(t("skills.signFailed", { error: message(err) }));
+        }
+      },
+      (err) => setError(t("skills.readFailed", { error: message(err) })),
+    );
+  }
+
   function handleExport() {
     if (!conn || !exporting) return;
     setError(null);
     setNotice(null);
     const author = exporting.author.trim();
-    conn.exportSkill(exporting.name, exporting.version.trim(), author === "" ? null : author, exporting.license).then(
-      (packed) => {
-        downloadText(`${exporting.name}.warden-skill.json`, packed.content);
-        setNotice(`${t("skills.fileDone")}${packed.attachmentsSkipped ? t("skills.attachmentsSkipped") : ""}`);
+    const { name, sign, keyText } = exporting;
+    if (sign && keyText === null) {
+      setError(t("skills.signNeedsKey"));
+      return;
+    }
+    conn.exportSkill(name, exporting.version.trim(), author === "" ? null : author, exporting.license).then(
+      async (packed) => {
+        let content = packed.content;
+        let signedBy: string | null = null;
+        if (sign && keyText !== null) {
+          // Signed here, so the key never reaches the hub; the hub then reads the signed file back, which is the proof that it accepts it.
+          try {
+            const signed = await signPackageText(content, keyText);
+            const back = await conn.previewSkillPackage(signed.content);
+            if (back.signer !== signed.signer) throw new Error("it read the signature as another key's");
+            content = signed.content;
+            signedBy = signed.signer;
+          } catch (err) {
+            setError(err instanceof SigningError ? t("skills.signFailed", { error: err.message }) : t("skills.signNotAccepted", { error: message(err) }));
+            return;
+          }
+        }
+        downloadText(`${name}.warden-skill.json`, content);
+        const signedNote = signedBy ? ` ${t("skills.signedDone", { key: signedBy.slice(0, 16) })}` : "";
+        setNotice(`${t("skills.fileDone")}${packed.attachmentsSkipped ? t("skills.attachmentsSkipped") : ""}${signedNote}`);
         setExporting(null);
       },
       (err) => setError(t("skills.exportFailed", { error: message(err) })),
@@ -372,6 +417,20 @@ export default function SkillsView({
               ))}
             </select>
           </label>
+          <label className="checkbox-row">
+            <input type="checkbox" checked={exporting.sign} onChange={(e) => setExporting({ ...exporting, sign: e.target.checked, keyText: null, signer: null })} />
+            {t("skills.signWith")}
+          </label>
+          {exporting.sign && (
+            <>
+              <span className="skills-hint">{t("skills.signHint")}</span>
+              <label>
+                {t("skills.signKeyFile")}
+                <input type="file" onChange={(e) => handleChooseKeyFile(e.target.files?.[0])} />
+              </label>
+              {exporting.signer && <span className="skills-hint">{t("skills.signAs", { key: exporting.signer.slice(0, 16) })}</span>}
+            </>
+          )}
           <div className="skills-actions">
             <button type="submit" className="primary-button" disabled={!conn}>
               {t("skills.download")}
@@ -617,7 +676,7 @@ export default function SkillsView({
                       onClick={() => {
                         setError(null);
                         setNotice(null);
-                        setExporting({ name: skill.name, version: "1.0.0", author: "", license: LICENSES[0].id });
+                        setExporting({ name: skill.name, version: "1.0.0", author: "", license: LICENSES[0].id, sign: false, keyText: null, signer: null });
                       }}
                     >
                       {t("spaces.share")}

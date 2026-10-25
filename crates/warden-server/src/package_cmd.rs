@@ -3,28 +3,17 @@
 //! in a file only its owner can read (mode 0600 on Unix), is never printed, and is never overwritten: losing it would make
 //! everything signed with it unprovable, and a second `keygen` over it would do exactly that.
 
-use std::io::Write as _;
 use std::path::Path;
 
 use anyhow::{bail, Context};
-use warden_bootstrap::skill_package::{signature_standing, TrustedPublisher};
+use warden_bootstrap::skill_package::{self, signature_standing, TrustedPublisher};
 use warden_core::skill::package::{Package, MAX_PACKAGE_BYTES};
-use warden_core::skill::signing::{decode_private_key, encode_private_key, generate_keypair, public_key_of};
+use warden_core::skill::signing::{decode_private_key, public_key_of};
 
 /// Makes a new signing key and writes its private half to `path`, which must not exist. Returns the public key (64 hex
 /// characters): what others put in their `[[trusted_publishers]]` to trust what is signed with it.
 pub fn keygen(path: &Path) -> anyhow::Result<String> {
-    let (private, public) = generate_keypair()?;
-    let mut options = std::fs::OpenOptions::new();
-    options.write(true).create_new(true);
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::OpenOptionsExt;
-        options.mode(0o600);
-    }
-    let mut file = options.open(path).with_context(|| format!("cannot create {} (a key file is never overwritten)", path.display()))?;
-    writeln!(file, "{}", encode_private_key(&private)).with_context(|| format!("cannot write {}", path.display()))?;
-    Ok(public)
+    skill_package::create_signing_key(path).map_err(anyhow::Error::msg)
 }
 
 /// Reads the package at `package`, signs it with the key in `key` and writes it to `out` (the package's own file when `None`).

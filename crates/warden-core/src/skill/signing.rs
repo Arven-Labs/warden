@@ -134,6 +134,32 @@ mod tests {
         Package::export_skill(&skill(), "1.0.0", Some("Ana"), "CC0-1.0").unwrap()
     }
 
+    /// A package signed by the browser's WebCrypto (`web/src/hub/signing.ts`), from the seed 01 02 ... 20: the file, byte for byte, as
+    /// Node made it. Ed25519 signs the same bytes to the same signature everywhere (RFC 8032), so this is what proves that what the
+    /// web screen signs is something this crate accepts; the hash in it also proves the two sides hash a package the same way.
+    const SIGNED_BY_THE_BROWSER: &str = r#"{"format":"warden-package","formatVersion":1,"kind":"skill","id":"greet","version":"1.0.0","author":"Ana","license":"MIT","content":{"name":"greet","description":"Greets.","body":"Say hello."},"hash":"sha256:68970909724cdc0071e617025d5ac571fd2170b017769faf6a0034df25db1ec6","signature":"ed25519:79b5562e8fe654f94078b112e8a98ba7901f853ae695bed7e0e3910bad049664:2fd80f9726e0f212f412dd0316e9504aa9fd04560c51e9617cc88de3da5b2dc15b50ecb5cca1ef90cd4ff193bcb2a9b78d876e3511490ca058786be48f02750a"}"#;
+
+    #[test]
+    fn a_signature_made_by_the_browser_is_accepted_and_names_the_key() {
+        let package = Package::parse(SIGNED_BY_THE_BROWSER).unwrap();
+        assert_eq!(package.verified().unwrap(), Verification::Valid { key: "79b5562e8fe654f94078b112e8a98ba7901f853ae695bed7e0e3910bad049664".into() });
+        // The seed in the browser's test is 1..=32; the key it gives is the one `ring` gets from the same seed.
+        let mut pkcs8 = hex_to_bytes("3053020101300506032b657004220420");
+        pkcs8.extend(1..=32u8);
+        pkcs8.extend(hex_to_bytes("a123032100"));
+        pkcs8.extend(hex_to_bytes("79b5562e8fe654f94078b112e8a98ba7901f853ae695bed7e0e3910bad049664"));
+        assert_eq!(public_key_of(&pkcs8).unwrap(), "79b5562e8fe654f94078b112e8a98ba7901f853ae695bed7e0e3910bad049664");
+        // And signing here, with that key, makes the very same signature: the scheme is deterministic.
+        let mut again = package.clone();
+        again.signature = None;
+        again.sign(&pkcs8).unwrap();
+        assert_eq!(again.signature, package.signature);
+    }
+
+    fn hex_to_bytes(hex: &str) -> Vec<u8> {
+        (0..hex.len()).step_by(2).map(|i| u8::from_str_radix(&hex[i..i + 2], 16).unwrap()).collect()
+    }
+
     /// The package's JSON with `edit` applied to it, read back through `parse`.
     fn edited(package: &Package, edit: impl FnOnce(&mut serde_json::Value)) -> anyhow::Result<Package> {
         let mut value: serde_json::Value = serde_json::from_str(&package.to_json().unwrap()).unwrap();
