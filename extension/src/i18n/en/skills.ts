@@ -31,6 +31,8 @@ export const skills = {
   "skills.galleryInstalled": "Installed",
   "skills.installButton": "Install",
   "skills.installing": "Installing…",
+  "skills.updateAvailable": "A newer version is available; yours is untouched",
+  "skills.updateButton": "Update",
   "skills.replaceMineButton": "Replace mine",
   "skills.keepMine": "Keep mine",
   "skills.otherSameName": "You have another skill with this name",

@@ -124,4 +124,6 @@ export const skillsPt: Record<keyof typeof skills, string> = {
   "skills.different": "Você tem uma skill diferente com este nome",
   "skills.useGallery": "Usar a versão da galeria",
   "skills.installing": "Instalando…",
+  "skills.updateAvailable": "Há uma versão nova; a sua não foi alterada",
+  "skills.updateButton": "Atualizar",
 };

@@ -2,7 +2,19 @@
 
 > **Nota**: Este log foi criado junto com o projeto. As sessões serão registradas aqui conforme o trabalho avança.
 >
-> Última atualização: 2026-10-25 (Sessão 304)
+> Última atualização: 2026-10-25 (Sessão 305)
+
+---
+
+### 2026-10-25 — Sessão 305 (a skill da galeria distingue "editei" de "o catálogo evoluiu": P140, 6ª fatia)
+
+- **Pedido**: "sim", o item pequeno que sobrou: o estado `modified` misturava a skill que a pessoa editou com a skill intacta cujo texto o Warden novo trouxe diferente. Planejado em modo de plano; o usuário escolheu o rótulo em **desktop, web e extensão** (o celular fica de fora).
+- **Desenho**: um registro local `skills/.catalog.json` com o hash do texto instalado do catálogo embutido. `outdated` = a skill do cofre tem exatamente esse hash e o catálogo de hoje tem outro texto, então atualizar não perde nada e dispensa a confirmação. É um dotfile: `SkillStore::list` só lê `.md` e o sync pula dotfiles, então não vira skill nem viaja entre aparelhos; sem registro (outro aparelho, skill instalada antes) tudo segue como era (`modified`). O registro fica fora do arquivo da skill, então editar pela tela não o perde.
+- **Decisão de confiança**: `status` e `install_skill` também servem aos pacotes de fora (P160), e um pacote de outro autor com o nome de uma skill intacta do catálogo não pode ganhar o direito de substituí-la sem pedir. Por isso `outdated` só vale pelo caminho do catálogo (`install_entry`): `skill_status` do pacote devolve `modified` no lugar e `install_skill` continua exigindo `overwrite`.
+- **Feito**: `catalog.rs` (`Outdated`, `text_hash` pelo mesmo critério do `same_text`, `read_record`/`write_record`, `install_entry`); `package.rs`; `agent_catalog.rs` (o `match` exaustivo: a skill `outdated` não é instalada de novo nem entra em "mantidas"); comentário do `CatalogSkillDto`; tipos TS nas três telas; ramo `outdated` ("Há uma versão nova; a sua não foi alterada" + Atualizar) no `SkillsView` do desktop, da web e da extensão (ação `update` na função pura); textos nos dois idiomas.
+- **Testes**: aqui `cargo check --workspace --tests` limpo, `npm test` do desktop (207), da web (134) e da extensão (133, com a ação `update` nova), e `tsc` só com o erro velho do `rehype-highlight`. **Escritos e não rodados** (CI): em `catalog.rs` (cópia intacta vira `outdated` e atualiza sem `overwrite` mantendo os agentes, editada fica `modified`, sem registro ou com registro ilegível fica `modified`, sugestão do assistente fica `modified`, o registro não é skill e o hash segue o `same_text`) e em `package.rs` (pacote de fora não substitui a skill intacta do catálogo sem `overwrite`). Não escrevi teste do `install_skills` com uma skill `outdated`: o registro só se escreve pelo `catalog`, e o catálogo embutido não muda dentro de um teste.
+- **Celular**: não ganhou o rótulo; a skill `outdated` aparece com o botão "Instalar", que já atualiza (o celular só trata `installed` e `modified`).
+- **Fica**: CI; o rótulo no celular (l10n gerado à mão, só o CI valida); testar Linear, GitHub hospedado e Notion hospedado nos serviços reais; Sentry e outros; Slack e Notion hospedado no hub (OAuth no hub); `.wpkg` assinado; o Fabio ler os textos.
 
 ---
 

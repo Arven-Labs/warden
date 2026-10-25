@@ -42,12 +42,13 @@ export interface SkillDto {
 }
 
 /** Mirrors `warden_server_protocol::protocol::CatalogSkillDto` (P140): one ready-made skill of the hub's gallery and where it
- * stands in the person's vault — not there, there and identical, or there but different. */
+ * stands in the person's vault — not there, there and identical, there but different, or there as an untouched older copy of the gallery's
+ * text (`outdated`: installing updates it without asking). */
 export interface CatalogSkillDto {
   name: string;
   description: string;
   body: string;
-  status: "notInstalled" | "installed" | "modified";
+  status: "notInstalled" | "installed" | "modified" | "outdated";
 }
 
 /** Mirrors `warden_server_protocol::protocol::ConversationSummary` (P78). */

@@ -630,6 +630,18 @@ export default function SkillsView({
                         {t("skills.useGallery")}
                       </button>
                     </span>
+                  ) : entry.status === "outdated" ? (
+                    <span className="skills-actions">
+                      <span className="skills-hint">{t("skills.updateAvailable")}</span>
+                      <button
+                        type="button"
+                        className="primary-button"
+                        disabled={!conn || installing === entry.name}
+                        onClick={() => handleInstall(entry.name, false)}
+                      >
+                        {installing === entry.name ? t("skills.installing") : t("skills.updateButton")}
+                      </button>
+                    </span>
                   ) : (
                     <span className="skills-actions">
                       <button

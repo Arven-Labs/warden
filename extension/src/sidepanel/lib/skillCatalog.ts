@@ -4,11 +4,13 @@ import type { CatalogSkillDto } from "../../protocol/messages";
 
 /** What a gallery row shows, from the entry's state in the vault and whether the person already asked to replace theirs:
  * `installed` (nothing to do), `install` (one tap), `conflict` (a skill of that name that differs: say so and offer to use the
- * gallery's) or `confirm` (asked once — replacing takes a second, explicit tap). */
-export type CatalogAction = "installed" | "install" | "conflict" | "confirm";
+ * gallery's), `confirm` (asked once — replacing takes a second, explicit tap) or `update` (the vault has an older copy of the gallery's
+ * text that nobody touched: one tap updates it, with nothing to confirm because nothing of theirs is in it). */
+export type CatalogAction = "installed" | "install" | "update" | "conflict" | "confirm";
 
 export function catalogAction(status: CatalogSkillDto["status"], confirming: boolean): CatalogAction {
   if (status === "installed") return "installed";
+  if (status === "outdated") return "update";
   if (status === "modified") return confirming ? "confirm" : "conflict";
   return "install";
 }

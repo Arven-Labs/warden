@@ -80,12 +80,13 @@ export interface SkillDto {
 }
 
 /** Mirrors `warden_server_protocol::protocol::CatalogSkillDto` (P140): a skill of the gallery that ships with the hub, and
- * where it stands in this vault. `modified`: a skill of that name is there but differs, so installing replaces it. */
+ * where it stands in this vault. `modified`: a skill of that name is there but differs, so installing replaces it. `outdated`: the
+ * vault has the text the gallery installed earlier, untouched, and the gallery has a newer one, so installing updates it without asking. */
 export interface CatalogSkillDto {
   name: string;
   description: string;
   body: string;
-  status: "notInstalled" | "installed" | "modified";
+  status: "notInstalled" | "installed" | "modified" | "outdated";
 }
 
 /** Mirrors `warden_server_protocol::protocol::CatalogAgentDto` (P140): an agent of the gallery that ships with the hub, and where it

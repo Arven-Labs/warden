@@ -277,6 +277,14 @@ export default function SkillsView() {
                         {installing === entry.name ? t("skills.installing") : t("skills.installButton")}
                       </button>
                     )}
+                    {action === "update" && (
+                      <span className="skills-actions">
+                        <span className="skills-hint">{t("skills.updateAvailable")}</span>
+                        <button type="button" disabled={installing === entry.name} onClick={() => handleInstall(entry.name, false)}>
+                          {installing === entry.name ? t("skills.installing") : t("skills.updateButton")}
+                        </button>
+                      </span>
+                    )}
                     {action === "conflict" && (
                       <span className="skills-actions">
                         <span className="skills-hint">{t("skills.otherSameName")}</span>

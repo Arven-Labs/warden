@@ -77,4 +77,6 @@ export const skills = {
   "skills.otherSameName": "You have another skill with this name",
   "skills.useGallery": "Use the gallery's",
   "skills.installing": "Installing…",
+  "skills.updateAvailable": "A newer version is available; yours is untouched",
+  "skills.updateButton": "Update",
 } as const;

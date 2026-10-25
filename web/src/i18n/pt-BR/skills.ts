@@ -78,4 +78,6 @@ export const skillsPt: Record<keyof typeof skills, string> = {
   "skills.otherSameName": "Você tem outra skill com este nome",
   "skills.useGallery": "Usar a da galeria",
   "skills.installing": "Instalando…",
+  "skills.updateAvailable": "Há uma versão nova; a sua não foi alterada",
+  "skills.updateButton": "Atualizar",
 };

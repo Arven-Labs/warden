@@ -20,6 +20,11 @@ describe("what a gallery row offers", () => {
     assert.equal(catalogAction("modified", true), "confirm");
   });
 
+  test("an untouched older copy of the gallery's text offers a one-tap update, with nothing to confirm", () => {
+    assert.equal(catalogAction("outdated", false), "update");
+    assert.equal(catalogAction("outdated", true), "update");
+  });
+
   test("asking to replace does not matter for an entry that is not in conflict", () => {
     assert.equal(catalogAction("installed", true), "installed");
     assert.equal(catalogAction("notInstalled", true), "install");

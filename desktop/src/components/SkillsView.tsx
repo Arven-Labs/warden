@@ -1055,6 +1055,18 @@ function SkillsView({
                           {t("skills.useGallery")}
                         </button>
                       </>
+                    ) : entry.status === "outdated" ? (
+                      <>
+                        <span className="settings-hint">{t("skills.updateAvailable")}</span>
+                        <button
+                          type="button"
+                          className="settings-save-btn"
+                          onClick={() => handleInstall(entry.name, false)}
+                          disabled={installing === entry.name}
+                        >
+                          {installing === entry.name ? t("skills.installing") : t("skills.updateButton")}
+                        </button>
+                      </>
                     ) : (
                       <button
                         type="button"

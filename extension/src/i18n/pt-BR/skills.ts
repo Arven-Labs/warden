@@ -32,6 +32,8 @@ export const skillsPt: Record<keyof typeof skills, string> = {
   "skills.galleryInstalled": "Instalada",
   "skills.installButton": "Instalar",
   "skills.installing": "Instalando…",
+  "skills.updateAvailable": "Há uma versão nova; a sua não foi alterada",
+  "skills.updateButton": "Atualizar",
   "skills.replaceMineButton": "Substituir a minha",
   "skills.keepMine": "Manter a minha",
   "skills.otherSameName": "Você tem outra skill com este nome",

@@ -42,7 +42,9 @@ impl From<Skill> for SkillDto {
 }
 
 /// One skill of the built-in gallery (P140) on the wire, with where it stands in this vault: `notInstalled`, `installed` (the
-/// vault has the same text) or `modified` (the vault has a skill of that name that differs, so installing replaces it).
+/// vault has the same text), `modified` (the vault has a skill of that name that differs, so installing replaces it) or `outdated` (the
+/// vault has the text the gallery installed earlier, untouched, and the gallery has a newer one: installing updates it without asking).
+/// A client that doesn't know `outdated` shows its install button, which works.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CatalogSkillDto {

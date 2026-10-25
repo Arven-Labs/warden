@@ -193,7 +193,9 @@ pub fn install_skills(store: &SkillStore, agent: &CatalogAgent) -> SkillsInstall
     for name in &agent.skills {
         let Some(entry) = skill_catalog::entries().iter().find(|e| &e.name == name) else { continue };
         match skill_catalog::status(store, entry) {
-            skill_catalog::CatalogStatus::Installed => {}
+            // An older copy of the gallery's text that nobody touched: installing the agent leaves it, and only the skills gallery's
+            // own "Update" changes it. It is not "kept" either, since there is nothing of the person's in it.
+            skill_catalog::CatalogStatus::Installed | skill_catalog::CatalogStatus::Outdated => {}
             skill_catalog::CatalogStatus::Modified => done.kept.push(name.clone()),
             skill_catalog::CatalogStatus::NotInstalled => {
                 if skill_catalog::install(store, name, false).is_ok() {

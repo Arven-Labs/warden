@@ -3,14 +3,25 @@
 //! nothing is signed, because the text is part of the program they already trust; a catalog that comes from outside
 //! (the signed `.wpkg` packages of `HOSPEDAGEM.md` section E) is a later step.
 //!
-//! There is no record of what was installed. An entry's state comes from comparing it with the vault: not there, there
-//! and identical, or there but different (the person edited it, or this version of the program carries a newer text).
+//! An entry's state comes from comparing it with the vault: not there, there and identical, or there but different. "Different"
+//! is two things: the person edited it, or this version of the program carries a newer text and the skill is untouched. To tell
+//! them apart, installing from the gallery writes down a hash of the text it installed in `skills/.catalog.json`; a skill that
+//! still has exactly that text and differs from today's entry is `Outdated`, and updating it loses nothing. The record is a
+//! dotfile, so it is not a skill and the sync skips it: on another device, or for a skill installed before it existed, there is no
+//! record and a different skill stays `Modified`.
 
+use std::collections::BTreeMap;
+use std::fmt::Write as _;
 use std::sync::OnceLock;
 
 use anyhow::{anyhow, bail};
+use sha2::{Digest, Sha256};
 
 use super::{Skill, SkillStore};
+use crate::memory::SKILLS_DIR;
+
+/// What the gallery installed, by skill name: the hash of the text, see `text_hash`.
+const RECORD_FILE: &str = ".catalog.json";
 
 /// The files of `catalog/skills/`, named after the skill they hold.
 const FILES: &[(&str, &str)] = &[
@@ -33,6 +44,9 @@ pub enum CatalogStatus {
     Installed,
     /// The vault has a skill of that name that differs: installing again replaces it.
     Modified,
+    /// The vault has the text the gallery installed earlier, untouched, and this version of the program has a newer one:
+    /// installing again updates it without asking, because nothing of the person's is in it.
+    Outdated,
 }
 
 impl CatalogStatus {
@@ -42,6 +56,7 @@ impl CatalogStatus {
             CatalogStatus::NotInstalled => "notInstalled",
             CatalogStatus::Installed => "installed",
             CatalogStatus::Modified => "modified",
+            CatalogStatus::Outdated => "outdated",
         }
     }
 }
@@ -57,21 +72,66 @@ pub fn entries() -> &'static [Skill] {
 pub fn status(store: &SkillStore, entry: &Skill) -> CatalogStatus {
     match store.get(&entry.name) {
         Err(_) => CatalogStatus::NotInstalled,
-        Ok(found) if !found.proposed && same_text(&found, entry) => CatalogStatus::Installed,
+        Ok(found) if found.proposed => CatalogStatus::Modified,
+        Ok(found) if same_text(&found, entry) => CatalogStatus::Installed,
+        Ok(found) if read_record(store).get(&entry.name).is_some_and(|installed| *installed == text_hash(&found)) => CatalogStatus::Outdated,
         Ok(_) => CatalogStatus::Modified,
     }
 }
 
 fn same_text(a: &Skill, b: &Skill) -> bool {
-    let words = |s: &str| s.split_whitespace().collect::<Vec<_>>().join(" ");
     words(&a.description) == words(&b.description) && a.body.trim() == b.body.trim()
 }
 
+fn words(text: &str) -> String {
+    text.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+/// `sha256:<hex>` of what `same_text` compares: the description with its whitespace collapsed (so it has no newline), a newline,
+/// and the trimmed body. Two skills are `same_text` exactly when their hashes are equal.
+fn text_hash(skill: &Skill) -> String {
+    let digest = Sha256::digest(format!("{}\n{}", words(&skill.description), skill.body.trim()).as_bytes());
+    let mut hex = String::with_capacity(7 + digest.len() * 2);
+    hex.push_str("sha256:");
+    for byte in digest {
+        write!(hex, "{byte:02x}").expect("writing to a String cannot fail");
+    }
+    hex
+}
+
+fn record_path() -> String {
+    format!("{SKILLS_DIR}/{RECORD_FILE}")
+}
+
+/// What the gallery installed here. A missing or unreadable record is an empty one: nothing is `Outdated` without it.
+fn read_record(store: &SkillStore) -> BTreeMap<String, String> {
+    store.vault.read(&record_path()).ok().and_then(|raw| serde_json::from_str(&raw).ok()).unwrap_or_default()
+}
+
+/// Writes down that `entry` is what the vault holds now. Best effort: the skill is already installed, and without the record the
+/// worst that happens is that a later update is offered as "different" instead of "newer".
+fn write_record(store: &SkillStore, entry: &Skill) {
+    let mut record = read_record(store);
+    record.insert(entry.name.clone(), text_hash(entry));
+    if let Ok(json) = serde_json::to_string_pretty(&record) {
+        let _ = store.vault.write(&record_path(), &json);
+    }
+}
+
 /// Installs the entry called `name`. A skill of that name that differs is only replaced with `overwrite`, so a click on
-/// "Install" never throws away what a person wrote; the one that is already identical is left alone.
+/// "Install" never throws away what a person wrote; the one that is already identical is left alone, and an older copy of this
+/// same entry that nobody touched is updated.
 pub fn install(store: &SkillStore, name: &str, overwrite: bool) -> anyhow::Result<()> {
     let entry = entries().iter().find(|e| e.name == name).ok_or_else(|| anyhow!("the gallery has no skill named '{name}'"))?;
-    install_skill(store, entry, overwrite)
+    install_entry(store, entry, overwrite)
+}
+
+fn install_entry(store: &SkillStore, entry: &Skill, overwrite: bool) -> anyhow::Result<()> {
+    // Only here, for the gallery's own entries: a package from outside goes through `install_skill` and always needs `overwrite`.
+    let overwrite = overwrite || status(store, entry) == CatalogStatus::Outdated;
+    install_skill(store, entry, overwrite)?;
+    write_record(store, entry);
+    Ok(())
 }
 
 /// Puts `skill` in the vault the way the gallery does: one that is already identical is left alone, one that differs is only
@@ -79,10 +139,10 @@ pub fn install(store: &SkillStore, name: &str, overwrite: bool) -> anyhow::Resul
 pub(super) fn install_skill(store: &SkillStore, skill: &Skill, overwrite: bool) -> anyhow::Result<()> {
     match status(store, skill) {
         CatalogStatus::Installed => Ok(()),
-        CatalogStatus::Modified if !overwrite => {
+        CatalogStatus::Modified | CatalogStatus::Outdated if !overwrite => {
             bail!("a skill named '{}' is already in your skills and differs from this one; installing replaces it", skill.name)
         }
-        CatalogStatus::NotInstalled | CatalogStatus::Modified => {
+        CatalogStatus::NotInstalled | CatalogStatus::Modified | CatalogStatus::Outdated => {
             let agents = store.get(&skill.name).map(|s| s.agents).unwrap_or_default();
             store.save(&Skill { agents, proposed: false, source: None, proposed_at: None, revises: None, ..skill.clone() })
         }
@@ -160,6 +220,88 @@ mod tests {
         assert_eq!(after.body, entry.body);
         assert_eq!(after.agents, vec!["writer".to_string()]);
         assert_eq!(status(&store, entry), CatalogStatus::Installed);
+    }
+
+    /// The same entry with a newer text, as a later version of the program would carry it.
+    fn newer(entry: &Skill) -> Skill {
+        Skill { body: format!("{}\nA step added in a later version.", entry.body), ..entry.clone() }
+    }
+
+    #[test]
+    fn an_untouched_older_copy_is_outdated_and_updates_without_asking() {
+        let store = temp_store();
+        let entry = &entries()[0];
+        install(&store, &entry.name, false).unwrap();
+        let later = newer(entry);
+
+        assert_eq!(status(&store, entry), CatalogStatus::Installed);
+        assert_eq!(status(&store, &later), CatalogStatus::Outdated);
+
+        // No `overwrite`: nothing of the person's is in it. The agents it was restricted to are kept.
+        store.save(&Skill { agents: vec!["writer".into()], ..store.get(&entry.name).unwrap() }).unwrap();
+        install_entry(&store, &later, false).unwrap();
+        let after = store.get(&entry.name).unwrap();
+        assert_eq!(after.body, later.body);
+        assert_eq!(after.agents, vec!["writer".to_string()]);
+        assert_eq!(status(&store, &later), CatalogStatus::Installed);
+        // The record follows: an even newer text is outdated again, and the old one is no longer what is installed.
+        assert_eq!(status(&store, &newer(&later)), CatalogStatus::Outdated);
+    }
+
+    #[test]
+    fn an_edited_copy_is_modified_even_when_the_gallery_has_a_newer_text() {
+        let store = temp_store();
+        let entry = &entries()[0];
+        install(&store, &entry.name, false).unwrap();
+        store.save(&Skill { body: format!("{}\nMy own rule.", entry.body), ..store.get(&entry.name).unwrap() }).unwrap();
+        let later = newer(entry);
+
+        assert_eq!(status(&store, &later), CatalogStatus::Modified);
+        assert!(install_entry(&store, &later, false).unwrap_err().to_string().contains("differs"));
+        assert!(store.get(&entry.name).unwrap().body.contains("My own rule."));
+        install_entry(&store, &later, true).unwrap();
+        assert_eq!(status(&store, &later), CatalogStatus::Installed);
+    }
+
+    #[test]
+    fn without_a_record_a_different_skill_stays_modified() {
+        let store = temp_store();
+        let entry = &entries()[0];
+        // Put the older text in the vault the way a skill installed before the record existed is: no record of it.
+        store.save(entry).unwrap();
+        assert!(read_record(&store).is_empty());
+        assert_eq!(status(&store, &newer(entry)), CatalogStatus::Modified);
+
+        // A record that is unreadable counts as no record.
+        install(&store, &entry.name, false).unwrap();
+        store.vault.write(&record_path(), "not json").unwrap();
+        assert_eq!(status(&store, &newer(entry)), CatalogStatus::Modified);
+    }
+
+    #[test]
+    fn a_suggestion_under_the_same_name_is_not_an_untouched_copy() {
+        let store = temp_store();
+        let entry = &entries()[0];
+        install(&store, &entry.name, false).unwrap();
+        // The assistant proposes the very text that was installed: still a suggestion, so still replaced only on request.
+        store.save(&Skill { proposed: true, source: Some("c1".into()), proposed_at: Some(1), ..store.get(&entry.name).unwrap() }).unwrap();
+        assert_eq!(status(&store, &newer(entry)), CatalogStatus::Modified);
+    }
+
+    #[test]
+    fn the_record_is_not_a_skill_and_the_hash_follows_the_comparison() {
+        let store = temp_store();
+        let entry = &entries()[0];
+        install(&store, &entry.name, false).unwrap();
+        assert!(store.vault.is_file(&record_path()));
+        assert_eq!(store.list().iter().map(|s| s.name.as_str()).collect::<Vec<_>>(), [entry.name.as_str()]);
+
+        // `same_text` ignores the whitespace of the description and around the body; so does the hash.
+        let spaced = Skill { description: format!("  {}  ", entry.description.replace(' ', "  ")), body: format!("\n{}\n\n", entry.body), ..entry.clone() };
+        assert!(same_text(entry, &spaced));
+        assert_eq!(text_hash(entry), text_hash(&spaced));
+        assert_ne!(text_hash(entry), text_hash(&newer(entry)));
+        assert!(text_hash(entry).starts_with("sha256:") && text_hash(entry).len() == 7 + 64);
     }
 
     #[test]

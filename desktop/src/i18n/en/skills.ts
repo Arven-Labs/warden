@@ -123,4 +123,6 @@ export const skills = {
   "skills.different": "You have a different skill with this name",
   "skills.useGallery": "Use the gallery version",
   "skills.installing": "Installing…",
+  "skills.updateAvailable": "A newer version is available; yours is untouched",
+  "skills.updateButton": "Update",
 } as const;

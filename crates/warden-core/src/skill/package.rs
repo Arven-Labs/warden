@@ -216,7 +216,12 @@ impl Package {
     /// Where the skill in this package stands in the vault `store` reads.
     pub fn skill_status(&self, store: &SkillStore) -> anyhow::Result<CatalogStatus> {
         let skill = self.as_skill().ok_or_else(|| anyhow!("this package does not hold a skill"))?;
-        Ok(catalog::status(store, &self.to_skill(skill)))
+        // "Outdated" is the gallery's own: it says an untouched copy of the gallery's entry may be updated without asking. A package comes
+        // from outside, so replacing a skill of that name always takes a say-so, whatever the vault remembers.
+        Ok(match catalog::status(store, &self.to_skill(skill)) {
+            CatalogStatus::Outdated => CatalogStatus::Modified,
+            other => other,
+        })
     }
 
     /// Installs the skill in this package. One of that name that differs is only replaced with `overwrite`.
@@ -363,5 +368,20 @@ mod tests {
         let after = store.get("email-draft").unwrap();
         assert_eq!(after.body, "Write it short.");
         assert_eq!(after.agents, vec!["writer".to_string()], "the agents a person restricted it to are kept");
+    }
+
+    #[test]
+    fn a_package_never_replaces_an_untouched_gallery_skill_without_overwrite() {
+        let store = temp_store();
+        // The gallery has an `email-draft` too. Installed from it and left alone, it is what the vault remembers installing, which
+        // is what lets the gallery update it without asking; a package of that name from someone else gets no such right.
+        catalog::install(&store, "email-draft", false).unwrap();
+        let theirs = package();
+        assert_eq!(theirs.skill_status(&store).unwrap(), CatalogStatus::Modified);
+        assert!(theirs.install_skill(&store, false).unwrap_err().to_string().contains("differs"));
+        assert_ne!(store.get("email-draft").unwrap().body, "Write it short.");
+
+        theirs.install_skill(&store, true).unwrap();
+        assert_eq!(store.get("email-draft").unwrap().body, "Write it short.");
     }
 }

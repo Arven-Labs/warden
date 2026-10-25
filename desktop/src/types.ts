@@ -630,12 +630,13 @@ export interface SyncPullResult {
 /** What `get_settings` returns, and also what the settings form holds — the shapes are
  * identical so the fetched snapshot can be used directly as initial form state. */
 /** One skill of the built-in gallery (P140) and where it stands in this vault — mirrors `CatalogSkillPayload` in
- * `src-tauri/src/skills_cmds.rs`. `modified`: a skill of that name is there but differs, so installing replaces it. */
+ * `src-tauri/src/skills_cmds.rs`. `modified`: a skill of that name is there but differs, so installing replaces it. `outdated`: the vault
+ * has the text the gallery installed earlier, untouched, and the gallery has a newer one, so installing updates it without asking. */
 export interface CatalogSkill {
   name: string;
   description: string;
   body: string;
-  status: "notInstalled" | "installed" | "modified";
+  status: "notInstalled" | "installed" | "modified" | "outdated";
 }
 
 /** One agent of the built-in gallery (P140) and where it stands among the agents — mirrors `CatalogAgentPayload` in
