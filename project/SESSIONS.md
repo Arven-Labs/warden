@@ -13,6 +13,7 @@
 - **Decisão**: uma entrada só, `sentry`, hospedada com OAuth (`needs: "oauth"`, o mesmo fluxo do Slack e do Notion hospedado), **só no desktop** (a web não manda `oauth`). **Não** ofereci a variante `Sentry-Bearer`: está no README e não numa página de docs, e o formato com que um cliente genérico a manda não está confirmado. O Sentry hospedado por você (self-hosted) precisa do servidor stdio, que o README chama de em andamento, então a descrição diz que a entrada alcança o sentry.io.
 - **Feito**: a entrada em `desktop/src/lib/mcpCatalog.ts` e os textos nos dois idiomas. Testes: a URL travada na que a página dá, a entrada é OAuth sem campo de chave, uma só entrada do Sentry; na web o teste passou a dizer que o Sentry é do desktop, e a lista dos que a web não oferece ganhou o `sentry`.
 - **Testes**: aqui `npm test` do desktop (222) e da web (149) verdes; `tsc` só com o `Markdown.tsx` (o `rehype-highlight` não está instalado neste checkout). Rust não mudou.
+- **CI**: o commit `274032a` passou nos três (`CI`, `Desktop E2E` e `Web E2E`). Os testes novos são de JS e rodaram aqui; os E2E não abrem a galeria do Sentry.
 - **Não testado no serviço real**: como o Linear, o GitHub e o Notion hospedados, o endereço, o transporte e o login foram lidos nas docs, e o botão **Connect** não foi tentado contra o Sentry.
 - **Fica**: testar Linear, GitHub, Notion e Sentry hospedados nos serviços reais; outros fornecedores; OAuth no hub; `account.suspended` no site mãe.
 
