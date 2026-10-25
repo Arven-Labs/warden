@@ -18,7 +18,8 @@
 - **Testes**: `npm test` do desktop com 207 verdes e da web com 134; `tsc` só com o erro velho do `rehype-highlight`. Os testes travam as URLs nas que as docs dão, que nada de OAuth entra na web, que todo hospedado é https e que o Sentry não está lá.
 - **Limite**: **nenhuma das três foi testada contra o serviço real** (não há conta aqui); só o Slack foi exercitado ao vivo (Sessão 36). O teste é adicionar Linear ou GitHub, colar `Bearer <chave>` e ver as tools aparecerem.
 - **Para o Fabio**: os textos novos são meus e ele ainda não leu.
-- **Fica**: CI; testar os três nos serviços reais; Sentry e outros (depois de ler a doc); Slack e Notion hospedado no hub (OAuth no hub); `.wpkg` assinado; "editei" x "o catálogo evoluiu" nas skills.
+- **CI**: o commit `7648d52` passou nos três (`CI`, `Web E2E` e `Desktop E2E`).
+- **Fica**: testar os três nos serviços reais; Sentry e outros (depois de ler a doc); Slack e Notion hospedado no hub (OAuth no hub); `.wpkg` assinado; "editei" x "o catálogo evoluiu" nas skills.
 
 ---
 
