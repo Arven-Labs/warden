@@ -158,6 +158,23 @@ pub struct PackagePreviewPayload {
     signer_name: Option<String>,
 }
 
+/// The keys whose skill packages this computer's owner trusts (`[[trusted_publishers]]` in its own config, P160): the usable ones, the
+/// same a preview measures against.
+#[tauri::command]
+pub fn list_trusted_publishers() -> Result<Vec<skill_package::TrustedPublisher>, String> {
+    let path = default_config_path().ok_or_else(|| "could not determine the OS config directory".to_string())?;
+    let config = load_config_from_path(&path, false).map_err(|e| format!("{e:#}"))?;
+    Ok(skill_package::usable_publishers(&config.trusted_publishers))
+}
+
+/// Replaces that whole list once it checks out (a bad key refuses the lot) and returns what was saved. Trusting a key only changes the
+/// label a package preview shows, so it needs no more than the computer's own config, which this app already owns.
+#[tauri::command]
+pub fn save_trusted_publishers(publishers: Vec<skill_package::TrustedPublisher>) -> Result<Vec<skill_package::TrustedPublisher>, String> {
+    let path = default_config_path().ok_or_else(|| "could not determine the OS config directory".to_string())?;
+    skill_package::set_trusted_publishers(&path, &publishers)
+}
+
 #[tauri::command]
 pub fn export_skill_package(state: State<'_, AppState>, name: String, version: String, author: Option<String>, license: String) -> Result<ExportedPackage, String> {
     let (content, attachments_skipped) = skill_package::export_skill_package(&store(&state)?, &name, &version, author.as_deref(), &license)?;

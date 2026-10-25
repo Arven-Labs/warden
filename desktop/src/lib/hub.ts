@@ -4,6 +4,7 @@
 
 import { invoke } from "@tauri-apps/api/core";
 import { t } from "../i18n";
+import type { Publisher } from "./trustedPublishers";
 import type {
   Attachment,
   AgentEntry,
@@ -291,6 +292,17 @@ export async function hubControlAgentTask(askKey: KeyAsker, taskId: string, acti
 export async function hubEditAgentOrg(askKey: KeyAsker, edit: OrgEdit): Promise<void> {
   const message = { type: "editAgentOrg", edit, pairingKey: await askKey(t("askKey.editOrg")) };
   await ask(message, "settingsSaved");
+}
+
+/** P160 — the keys whose skill packages the hub's owner trusts. A hub from before the list rejects, which the screen shows as an error. */
+export async function hubListTrustedPublishers(): Promise<Publisher[]> {
+  return (await ask<{ type: string; publishers: Publisher[] }>({ type: "listTrustedPublishers" }, "trustedPublishers")).publishers;
+}
+
+/** P160 — replaces that whole list; the hub checks it and asks for the pairing key, like any change. Answers with what it saved. */
+export async function hubSaveTrustedPublishers(askKey: KeyAsker, publishers: Publisher[]): Promise<Publisher[]> {
+  const message = { type: "saveTrustedPublishers", publishers, pairingKey: await askKey(t("askKey.trustedPublishers")) };
+  return (await ask<{ type: string; publishers: Publisher[] }>(message, "trustedPublishers")).publishers;
 }
 
 /** P140 — the gallery of ready-made agents the hub in use ships with, each with its state among the owner's agents (installing one is a

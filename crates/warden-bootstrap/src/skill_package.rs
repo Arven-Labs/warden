@@ -42,6 +42,46 @@ pub fn usable_publishers(list: &[TrustedPublisher]) -> Vec<TrustedPublisher> {
     usable
 }
 
+/// The most keys the list can hold: a person's own circle, not a directory.
+pub const MAX_PUBLISHERS: usize = 50;
+
+/// `list` as a person saves it from a screen: the strict side of `usable_publishers`. Where reading the file drops a bad entry and
+/// goes on, a save that has one says which, so nothing the person typed vanishes. Keys come back in lowercase, names on one line.
+pub fn validate_publishers(list: &[TrustedPublisher]) -> Result<Vec<TrustedPublisher>, String> {
+    if list.len() > MAX_PUBLISHERS {
+        return Err(format!("at most {MAX_PUBLISHERS} keys can be trusted"));
+    }
+    let mut valid: Vec<TrustedPublisher> = Vec::new();
+    for entry in list {
+        let Some(key) = normalize_public_key(&entry.key) else {
+            return Err(format!("'{}' is not a key: a public key is 64 hex characters (0-9, a-f)", entry.key.trim().chars().take(24).collect::<String>()));
+        };
+        if valid.iter().any(|p| p.key == key) {
+            return Err(format!("the key {}… is in the list twice", &key[..16]));
+        }
+        if entry.name.contains(['\n', '\r']) {
+            return Err("a name must be on one line".to_string());
+        }
+        let name = entry.name.trim().to_string();
+        if name.chars().count() > MAX_PUBLISHER_NAME_CHARS {
+            return Err(format!("a name can be at most {MAX_PUBLISHER_NAME_CHARS} characters"));
+        }
+        valid.push(TrustedPublisher { key, name });
+    }
+    Ok(valid)
+}
+
+/// Replaces `[[trusted_publishers]]` in the config at `path` with `list` (checked by `validate_publishers`), leaving the rest of the
+/// file as it was read, and returns what was saved. For a computer that edits its own config; the hub does the same under its
+/// settings lock.
+pub fn set_trusted_publishers(path: &std::path::Path, list: &[TrustedPublisher]) -> Result<Vec<TrustedPublisher>, String> {
+    let valid = validate_publishers(list)?;
+    let mut config = crate::load_config_from_path(path, false).map_err(|e| format!("{e:#}"))?;
+    config.trusted_publishers = valid.clone();
+    crate::save_config(path, &config).map_err(|e| format!("{e:#}"))?;
+    Ok(valid)
+}
+
 /// How a package stands on who wrote it, for a preview.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SignatureStanding {
@@ -349,6 +389,49 @@ mod tests {
         assert_eq!(usable[0].name, "Ana");
         assert_eq!(usable[1].name, "");
         assert_eq!(usable[2].name.chars().count(), MAX_PUBLISHER_NAME_CHARS);
+    }
+
+    fn publisher(key: &str, name: &str) -> TrustedPublisher {
+        TrustedPublisher { key: key.into(), name: name.into() }
+    }
+
+    #[test]
+    fn saving_the_trusted_list_says_what_is_wrong_instead_of_dropping_it() {
+        let ok = validate_publishers(&[publisher(&format!(" {} ", "AB".repeat(32)), "  Ana  "), publisher(&"cd".repeat(32), "")]).unwrap();
+        assert_eq!(ok, vec![publisher(&"ab".repeat(32), "Ana"), publisher(&"cd".repeat(32), "")]);
+        assert_eq!(validate_publishers(&[]).unwrap(), Vec::new());
+
+        let err = validate_publishers(&[publisher("abcd", "Short")]).unwrap_err();
+        assert!(err.contains("'abcd'") && err.contains("64 hex"), "{err}");
+        let err = validate_publishers(&[publisher(&"ab".repeat(32), "A"), publisher(&"AB".repeat(32), "B")]).unwrap_err();
+        assert!(err.contains("twice"), "{err}");
+        let err = validate_publishers(&[publisher(&"ab".repeat(32), "two\nlines")]).unwrap_err();
+        assert!(err.contains("one line"), "{err}");
+        let err = validate_publishers(&[publisher(&"ab".repeat(32), &"x".repeat(MAX_PUBLISHER_NAME_CHARS + 1))]).unwrap_err();
+        assert!(err.contains("at most"), "{err}");
+        let many: Vec<_> = (0..=MAX_PUBLISHERS).map(|n| publisher(&format!("{n:064x}"), "")).collect();
+        assert!(validate_publishers(&many).unwrap_err().contains("at most"));
+        assert_eq!(validate_publishers(&many[..MAX_PUBLISHERS]).unwrap().len(), MAX_PUBLISHERS);
+    }
+
+    #[test]
+    fn the_trusted_list_is_replaced_in_the_config_and_the_rest_of_it_stays() {
+        let dir = std::env::temp_dir().join(format!("warden-trusted-list-{}-{}", std::process::id(), std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("config.toml");
+        crate::save_config(&path, &crate::FileConfig { topup_url: Some("https://example.com/credits".into()), ..Default::default() }).unwrap();
+
+        let saved = set_trusted_publishers(&path, &[publisher(&"AB".repeat(32), "Fabio")]).unwrap();
+        assert_eq!(saved, vec![publisher(&"ab".repeat(32), "Fabio")]);
+        let read = crate::load_config_from_path(&path, false).unwrap();
+        assert_eq!(read.trusted_publishers, saved);
+        assert_eq!(read.topup_url.as_deref(), Some("https://example.com/credits"), "the rest of the config is as it was");
+
+        // A bad list changes nothing; an empty one clears it.
+        assert!(set_trusted_publishers(&path, &[publisher("nope", "x")]).is_err());
+        assert_eq!(crate::load_config_from_path(&path, false).unwrap().trusted_publishers, saved);
+        assert_eq!(set_trusted_publishers(&path, &[]).unwrap(), Vec::new());
+        assert!(crate::load_config_from_path(&path, false).unwrap().trusted_publishers.is_empty());
     }
 
     #[test]

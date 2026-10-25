@@ -16,6 +16,7 @@ import {
   type Attachment,
   type BotPairingsView,
   type CatalogAgentDto,
+  type TrustedPublisherDto,
   type CatalogSkillDto,
   type PackagePreviewDto,
   type ChatEventDto,
@@ -898,6 +899,21 @@ export class ServerConnection {
   async listAgentCatalog(): Promise<CatalogAgentDto[]> {
     const reply = await this.request((requestId) => ({ type: "listAgentCatalog", requestId }));
     return reply.type === "agentCatalog" ? reply.entries : [];
+  }
+
+  /** P160 — the keys whose skill packages the hub's owner trusts. The owner's only: a member (or a hub from before the list) rejects. */
+  async listTrustedPublishers(): Promise<TrustedPublisherDto[]> {
+    const reply = await this.request((requestId) => ({ type: "listTrustedPublishers", requestId }));
+    if (reply.type !== "trustedPublishers") throw new Error("unexpected reply from the hub");
+    return reply.publishers;
+  }
+
+  /** P160 — replaces that whole list with the pairing key. Returns what the hub saved (keys in lowercase, names trimmed). Rejects with
+   * `SettingsError` (wrong key, a key that is not 64 hex characters, one listed twice...). */
+  async saveTrustedPublishers(pairingKey: string, publishers: TrustedPublisherDto[]): Promise<TrustedPublisherDto[]> {
+    const reply = await this.request((requestId) => ({ type: "saveTrustedPublishers", requestId, pairingKey, publishers }), SAVE_SETTINGS_TIMEOUT_MS);
+    if (reply.type !== "trustedPublishers") throw new Error("unexpected reply from the hub");
+    return reply.publishers;
   }
 
   /** The organization tree (P120) as the hub shows it to a member: only the id, the role and the superior, and the access they have (`view` or

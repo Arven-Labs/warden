@@ -123,6 +123,7 @@ export const libPt: Record<keyof typeof lib, string> = {
   "askKey.pauseAgentTask": "Pausar uma tarefa muda o que o hub está fazendo.",
   "askKey.resumeAgentTask": "Retomar uma tarefa muda o que o hub está fazendo.",
   "askKey.editOrg": "Mudar a organização muda o que os agentes do hub podem alcançar.",
+  "askKey.trustedPublishers": "Mudar em quem você confia muda a configuração do hub.",
   "askKey.saveWebhook": "Salvar este webhook muda o hub.",
   "askKey.resumeWebhook": "Retomar {id} muda o hub.",
   "askKey.pauseWebhook": "Pausar {id} muda o hub.",

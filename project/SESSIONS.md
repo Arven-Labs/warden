@@ -2,7 +2,22 @@
 
 > **Nota**: Este log foi criado junto com o projeto. As sessões serão registradas aqui conforme o trabalho avança.
 >
-> Última atualização: 2026-10-25 (Sessão 309)
+> Última atualização: 2026-10-25 (Sessão 310)
+
+---
+
+### 2026-10-25 — Sessão 310 (a tela das chaves confiáveis: P160)
+
+- **Pedido**: "segue com a tela agora", o que a 309 deixou (a lista `[[trusted_publishers]]` só se editava à mão no `config.toml`). Planejado em modo de plano.
+- **Desenho**: confiar numa chave só muda o rótulo da prévia, nunca dá poder a uma skill, então a edição **não** é configuração de máquina e não pede `--allow-machine-settings`. A seção "Quem assina" fica no fim da tela de Skills, no desktop e na web; o rascunho se edita na tela e **Salvar** grava a lista inteira numa chamada (a chave de pareamento do hub é pedida uma vez). Só o dono a vê.
+- **Feito**:
+  - `warden-bootstrap/skill_package.rs`: `validate_publishers` (a versão estrita de `usable_publishers`: chave que não é 64 hex, repetida, nome em duas linhas ou com mais de 80 caracteres, mais de 50 entradas viram erro com mensagem, e nada se salva) e `set_trusted_publishers` (o desktop local).
+  - Protocolo: `TrustedPublisherDto`, `ListTrustedPublishers`, `SaveTrustedPublishers` (com `pairingKey`) e a resposta `TrustedPublishers`. Hub (`settings.rs`, `server.rs`): `handle_list_trusted_publishers` e `handle_save_trusted_publishers` (só o dono; lock das configurações, `keys_match` com a espera de chave errada, `write_config` que preserva comentários e separa os segredos); não recria o orquestrador, porque a lista é lida do arquivo a cada prévia.
+  - Desktop: comandos `list_trusted_publishers` e `save_trusted_publishers`, `hubListTrustedPublishers` e `hubSaveTrustedPublishers(askKey, ...)`, e `TrustedPublishers.tsx` (local ou hub pelo `remote`). Web: `listTrustedPublishers` e `saveTrustedPublishers` na conexão e `TrustedPublishers.tsx` (formulário da chave de pareamento no próprio lugar; `!user`, então o membro nem vê).
+  - Lógica pura nos dois (`lib/trustedPublishers.ts`, `hub/trustedPublishers.ts`): `checkDraft` (as mesmas regras do servidor), `addPublisher`, `removePublisher`, `samePublishers`, `shortKey`. A linha "Assinado por uma chave que você não listou" da prévia ganhou o botão **Copiar a chave** (a chave inteira, em `signatureView.fullKey`), o caminho para levá-la até o formulário.
+- **Testes**: aqui `cargo check --workspace --tests` limpo, `npm test` do desktop (216) e da web (143) verdes e `tsc` sem erro. **Escritos e não rodados** (CI): 2 em `skill_package.rs` (validação estrita e `set_trusted_publishers`, que mantém o resto do config), o serde das mensagens e `tests/trusted_publishers.rs` no hub (salvar e reler com o resto do config intacto, chave de pareamento errada e chaves ruins não mudam nada, membro recusado, e a prévia de um pacote assinado vira `unknown` → `trusted` → `unknown` conforme a lista).
+- **Fora**: o botão "confiar nesta chave" direto da prévia (por ora é copiar e colar), assinar pela tela de exportar, índice de curadores e revogação, celular e extensão.
+- **Fica**: o resto da lista da 309 (a chave de publicação do Fabio, `warden-server package keygen`); testar Linear, GitHub e Notion hospedados nos serviços reais; Sentry; OAuth no hub; `account.suspended` no site mãe.
 
 ---
 

@@ -7,13 +7,13 @@ import { skillsPt } from "../src/i18n/pt-BR/skills.ts";
 const KEY = "ab".repeat(32);
 
 test("a key the hub trusts is shown by its name, and only the exact word trusted counts", () => {
-  assert.deepEqual(signatureView({ signature: "trusted", signer: KEY, signerName: "Fabio" }), { kind: "trusted", name: "Fabio", key: KEY.slice(0, 16) });
+  assert.deepEqual(signatureView({ signature: "trusted", signer: KEY, signerName: "Fabio" }), { kind: "trusted", name: "Fabio", key: KEY.slice(0, 16), fullKey: KEY });
   // A listed key with no name falls back to its first characters.
-  assert.deepEqual(signatureView({ signature: "trusted", signer: KEY, signerName: "" }), { kind: "trusted", name: undefined, key: KEY.slice(0, 16) });
+  assert.deepEqual(signatureView({ signature: "trusted", signer: KEY, signerName: "" }), { kind: "trusted", name: undefined, key: KEY.slice(0, 16), fullKey: KEY });
 });
 
-test("a signature by a key that is not listed is unknown and carries the key", () => {
-  assert.deepEqual(signatureView({ signature: "unknown", signer: KEY }), { kind: "unknown", key: KEY.slice(0, 16) });
+test("a signature by a key that is not listed is unknown and carries the key, whole for copying", () => {
+  assert.deepEqual(signatureView({ signature: "unknown", signer: KEY }), { kind: "unknown", key: KEY.slice(0, 16), fullKey: KEY });
 });
 
 test("no signature, an older hub, a state from the future or an unknown signer with no key make no claim", () => {

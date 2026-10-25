@@ -5,6 +5,7 @@ import { intlTag, t, type Key } from "../i18n";
 import { catalogDescription } from "../i18n/catalog";
 import { rich } from "../i18n/rich";
 import { signatureView } from "../hub/skillSignature";
+import TrustedPublishers from "./TrustedPublishers";
 import { diffLines, hasChanges, withContext } from "./skillDiff";
 
 // Adapted from the extension's `sidepanel/SkillsView.tsx` (P78), talking to the hub directly
@@ -411,7 +412,18 @@ export default function SkillsView({
                 if (sig.kind === "trusted") {
                   return <p className="skills-hint">{sig.name ? t("skills.signedTrusted", { name: sig.name }) : t("skills.signedTrustedNoName", { key: sig.key ?? "" })}</p>;
                 }
-                if (sig.kind === "unknown") return <p className="error-banner">{t("skills.signedUnknown", { key: sig.key ?? "" })}</p>;
+                if (sig.kind === "unknown") {
+                  return (
+                    <p className="error-banner">
+                      {t("skills.signedUnknown", { key: sig.key ?? "" })}{" "}
+                      {sig.fullKey && (
+                        <button type="button" className="link-button" onClick={() => void navigator.clipboard?.writeText(sig.fullKey ?? "")}>
+                          {t("skills.copyKey")}
+                        </button>
+                      )}
+                    </p>
+                  );
+                }
                 return <p className="skills-hint">{t("skills.signedNone")}</p>;
               })()}
               {importing.preview.finding && <p className="error-banner">{t("skills.finding", { finding: importing.preview.finding })}</p>}
@@ -674,6 +686,8 @@ export default function SkillsView({
           </ul>
         </section>
       )}
+      {/* The keys the hub trusts are the owner's to change: a member does not see them. */}
+      {!user && <TrustedPublishers conn={conn} />}
     </div>
   );
 }

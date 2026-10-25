@@ -71,6 +71,16 @@ pub struct CatalogAgentDto {
     pub status: String,
 }
 
+/// A key whose skill packages the owner trusts (P160, `[[trusted_publishers]]`): the public key (64 hex characters) and the name
+/// shown for it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TrustedPublisherDto {
+    pub key: String,
+    #[serde(default)]
+    pub name: String,
+}
+
 /// What a skill package says it holds (P160), read and checked but not installed: the answer to `PreviewSkillPackage`.
 /// `status` is as in `CatalogSkillDto`. `finding` is why the text looks unsafe (a link, a command, a key, text aimed at the
 /// assistant's own rules, invisible characters), when it does: installing such a package needs `allowFlagged`.
@@ -2215,6 +2225,18 @@ pub enum ClientMessage {
     /// The gallery of ready-made agents that ship with the hub (P140), each with its state among this hub's agents. The owner's only
     /// (the state looks at their agents). Answered by `AgentCatalog`, or `SettingsError`.
     ListAgentCatalog { request_id: u64 },
+    /// The keys whose skill packages this hub's owner trusts (P160, `[[trusted_publishers]]`). The owner's only. Answered by
+    /// `TrustedPublishers`, or `SettingsError`.
+    ListTrustedPublishers { request_id: u64 },
+    /// Replaces that whole list. The owner asks with the pairing key like a settings save; the keys are checked (64 hex characters,
+    /// none twice) and a bad one refuses the lot. Trusting a key only changes the label a package preview shows. Answered by
+    /// `TrustedPublishers` with what was saved, or `SettingsError` (a wrong key sets `authRejected`).
+    SaveTrustedPublishers {
+        request_id: u64,
+        #[serde(default)]
+        pairing_key: String,
+        publishers: Vec<TrustedPublisherDto>,
+    },
     /// What a member does with the organization of the agents: `none`, `view` or `edit` (P120). Answered by `UserList`.
     SetUserOrgAccess {
         request_id: u64,
@@ -2793,6 +2815,11 @@ pub enum ServerMessage {
     AgentCatalog {
         request_id: u64,
         entries: Vec<CatalogAgentDto>,
+    },
+    /// Reply to `ClientMessage::ListTrustedPublishers` and `SaveTrustedPublishers` (P160): the list as the hub keeps it.
+    TrustedPublishers {
+        request_id: u64,
+        publishers: Vec<TrustedPublisherDto>,
     },
     /// The organization of the owner's agents (P120), for a member: after `ListAgentOrg`, and after one of their `EditAgentOrg`.
     /// `access` is what they may do with it, `view` or `edit`. Only each agent's id, position and superior, nothing of what it says or can do.
@@ -3735,6 +3762,28 @@ mod tests {
         assert_eq!(serde_json::from_str::<ClientMessage>(&json).unwrap(), ask);
         let top = r#"{"type":"editAgentOrg","requestId":7,"pairingKey":"k","edit":{"kind":"remove","id":"dev"}}"#;
         assert!(matches!(serde_json::from_str::<ClientMessage>(top).unwrap(), ClientMessage::EditAgentOrg { edit: AgentOrgEdit::Remove { .. }, .. }));
+    }
+
+    #[test]
+    fn the_trusted_keys_ride_the_wire() {
+        let list = ClientMessage::ListTrustedPublishers { request_id: 1 };
+        assert_eq!(serde_json::to_string(&list).unwrap(), r#"{"type":"listTrustedPublishers","requestId":1}"#);
+
+        let save = ClientMessage::SaveTrustedPublishers { request_id: 2, pairing_key: "k".into(), publishers: vec![TrustedPublisherDto { key: "ab".repeat(32), name: "Fabio".into() }] };
+        let json = serde_json::to_string(&save).unwrap();
+        assert_eq!(json, format!(r#"{{"type":"saveTrustedPublishers","requestId":2,"pairingKey":"k","publishers":[{{"key":"{}","name":"Fabio"}}]}}"#, "ab".repeat(32)));
+        assert_eq!(serde_json::from_str::<ClientMessage>(&json).unwrap(), save);
+        // A name may be left out.
+        let bare = format!(r#"{{"type":"saveTrustedPublishers","requestId":3,"publishers":[{{"key":"{}"}}]}}"#, "cd".repeat(32));
+        match serde_json::from_str::<ClientMessage>(&bare).unwrap() {
+            ClientMessage::SaveTrustedPublishers { pairing_key, publishers, .. } => assert_eq!((pairing_key.as_str(), publishers[0].name.as_str()), ("", "")),
+            other => panic!("unexpected {other:?}"),
+        }
+
+        let reply = ServerMessage::TrustedPublishers { request_id: 2, publishers: vec![] };
+        let json = serde_json::to_string(&reply).unwrap();
+        assert_eq!(json, r#"{"type":"trustedPublishers","requestId":2,"publishers":[]}"#);
+        assert_eq!(serde_json::from_str::<ServerMessage>(&json).unwrap(), reply);
     }
 
     #[test]

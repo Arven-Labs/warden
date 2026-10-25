@@ -22,7 +22,7 @@ use warden_bootstrap::secrets::secrets_path;
 use warden_bootstrap::{load_config_from_path, render_config, FileConfig};
 use warden_core::orchestrator::Orchestrator;
 use warden_core::tool::Tool;
-use warden_server_protocol::protocol::{AgentOrgEdit, CatalogAgentDto, HubSettingsDto, HubSettingsUpdate, OrgAgentDto};
+use warden_server_protocol::protocol::{AgentOrgEdit, CatalogAgentDto, HubSettingsDto, HubSettingsUpdate, OrgAgentDto, TrustedPublisherDto};
 use warden_server_protocol::ServerMessage;
 
 /// How long a wrong pairing key waits before its answer, so guessing one over the socket is slow.
@@ -392,6 +392,63 @@ pub async fn handle_list_agent_org(access: &SettingsAccess<'_>, request_id: u64,
 
 /// Answers `ListAgentCatalog` (P140): the gallery of ready-made agents, each with its state among the owner's agents. The owner's only,
 /// because the state looks at their agents (a member's reach for it is refused, like every other hub-wide view).
+/// The trusted keys as they go on the wire: only the usable ones, the same that a package preview measures against.
+fn publisher_dtos(config: &FileConfig) -> Vec<TrustedPublisherDto> {
+    warden_bootstrap::skill_package::usable_publishers(&config.trusted_publishers).into_iter().map(|p| TrustedPublisherDto { key: p.key, name: p.name }).collect()
+}
+
+/// Answers `ListTrustedPublishers` (P160): the keys whose skill packages the owner trusts. The owner's only.
+pub async fn handle_list_trusted_publishers(access: &SettingsAccess<'_>, request_id: u64, member: Option<&str>) -> ServerMessage {
+    if member.is_some() {
+        return *org_refusal(request_id, "only the workspace's owner sees that");
+    }
+    let Some(host) = access.host else {
+        return settings_error(request_id, NO_SETTINGS);
+    };
+    let _reading = access.lock.lock().await;
+    match load_config_from_path(&host.config_path(), false) {
+        Ok(config) => ServerMessage::TrustedPublishers { request_id, publishers: publisher_dtos(&config) },
+        Err(err) => settings_error(request_id, format!("{err:#}")),
+    }
+}
+
+/// Answers `SaveTrustedPublishers` (P160): replaces `[[trusted_publishers]]` with `publishers` once they check out, under the settings
+/// lock and the pairing key like any change of the owner's. Trusting a key only changes the label a package preview shows, so unlike
+/// the machine's settings this does not need `--allow-machine-settings`, and nothing is started again: the list is read from the file
+/// at each preview.
+pub async fn handle_save_trusted_publishers(access: &SettingsAccess<'_>, request_id: u64, member: Option<&str>, pairing_key: &str, publishers: &[TrustedPublisherDto]) -> ServerMessage {
+    if member.is_some() {
+        return *org_refusal(request_id, "only the workspace's owner changes that");
+    }
+    let Some(host) = access.host else {
+        return settings_error(request_id, NO_SETTINGS);
+    };
+    let _saving = access.lock.lock().await;
+    if !keys_match(pairing_key, access.auth_key) {
+        tokio::time::sleep(WRONG_KEY_DELAY).await;
+        return ServerMessage::SettingsError { request_id, message: "wrong pairing key".to_string(), conflict: false, auth_rejected: true };
+    }
+    let list: Vec<_> = publishers.iter().map(|p| warden_bootstrap::skill_package::TrustedPublisher { key: p.key.clone(), name: p.name.clone() }).collect();
+    let valid = match warden_bootstrap::skill_package::validate_publishers(&list) {
+        Ok(valid) => valid,
+        Err(message) => return settings_error(request_id, format!("{message} — nothing was saved")),
+    };
+    let path = host.config_path();
+    let previous = match read_optional(&path) {
+        Ok(previous) => previous,
+        Err(err) => return settings_error(request_id, format!("{err:#}")),
+    };
+    let mut config = match load_config_from_path(&path, false) {
+        Ok(config) => config,
+        Err(err) => return settings_error(request_id, format!("{err:#}")),
+    };
+    config.trusted_publishers = valid;
+    if let Err(err) = write_config(&path, previous.as_deref(), &config) {
+        return settings_error(request_id, format!("{err:#}"));
+    }
+    ServerMessage::TrustedPublishers { request_id, publishers: publisher_dtos(&config) }
+}
+
 pub async fn handle_list_agent_catalog(access: &SettingsAccess<'_>, request_id: u64, member: Option<&str>) -> ServerMessage {
     if member.is_some() {
         return *org_refusal(request_id, "only the workspace's owner sees that");

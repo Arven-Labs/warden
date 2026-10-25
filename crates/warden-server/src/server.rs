@@ -2006,6 +2006,23 @@ async fn handle_connection<S: Transport>(ws: WebSocketStream<S>, peer: SocketAdd
                         let _ = reply_tx.send(handle_list_agent_org(&access, request_id, member_id.as_deref()).await);
                     });
                 }
+                Ok(ClientMessage::ListTrustedPublishers { request_id }) => {
+                    let (settings, shared, lock, auth_key, reply_tx) = (settings.clone(), shared_orchestrator.clone(), settings_lock.clone(), auth_key.clone(), tx.clone());
+                    let member_id = member.as_ref().map(|m| m.id.clone());
+                    tokio::spawn(async move {
+                        let access = SettingsAccess { host: settings.as_deref(), shared: &shared, lock: &lock, auth_key: &auth_key, secure, allow_machine: allow_machine_settings, peer: Some(peer.ip()) };
+                        let _ = reply_tx.send(crate::settings::handle_list_trusted_publishers(&access, request_id, member_id.as_deref()).await);
+                    });
+                }
+                Ok(ClientMessage::SaveTrustedPublishers { request_id, pairing_key, publishers }) => {
+                    // Off the reader loop: a wrong key waits a second under the settings lock.
+                    let (settings, shared, lock, auth_key, reply_tx) = (settings.clone(), shared_orchestrator.clone(), settings_lock.clone(), auth_key.clone(), tx.clone());
+                    let member_id = member.as_ref().map(|m| m.id.clone());
+                    tokio::spawn(async move {
+                        let access = SettingsAccess { host: settings.as_deref(), shared: &shared, lock: &lock, auth_key: &auth_key, secure, allow_machine: allow_machine_settings, peer: Some(peer.ip()) };
+                        let _ = reply_tx.send(crate::settings::handle_save_trusted_publishers(&access, request_id, member_id.as_deref(), &pairing_key, &publishers).await);
+                    });
+                }
                 Ok(ClientMessage::ListAgentCatalog { request_id }) => {
                     let (settings, shared, lock, auth_key, reply_tx) = (settings.clone(), shared_orchestrator.clone(), settings_lock.clone(), auth_key.clone(), tx.clone());
                     let member_id = member.as_ref().map(|m| m.id.clone());

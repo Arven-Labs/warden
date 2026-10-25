@@ -7,6 +7,7 @@ import { rich } from "../i18n/rich";
 import type { AgentEntry, CatalogSkill, ExportedPackage, PackagePreview, ProviderEntry, SkillEntry } from "../types";
 import { diffLines, hasChanges, withContext } from "./skillDiff";
 import CopyButton from "./CopyButton";
+import TrustedPublishers from "./TrustedPublishers";
 import { hubSkills } from "../lib/hub";
 import { signatureView } from "../lib/skillSignature";
 
@@ -800,7 +801,13 @@ function SkillsView({
                 if (sig.kind === "trusted") {
                   return <p className="settings-hint">{sig.name ? t("skills.signedTrusted", { name: sig.name }) : t("skills.signedTrustedNoName", { key: sig.key ?? "" })}</p>;
                 }
-                if (sig.kind === "unknown") return <p className="settings-error-banner">{t("skills.signedUnknown", { key: sig.key ?? "" })}</p>;
+                if (sig.kind === "unknown") {
+                  return (
+                    <p className="settings-error-banner">
+                      {t("skills.signedUnknown", { key: sig.key ?? "" })} {sig.fullKey && <CopyButton text={sig.fullKey} label={t("skills.copyKey")} />}
+                    </p>
+                  );
+                }
                 return <p className="settings-hint">{t("skills.signedNone")}</p>;
               })()}
               {importing.preview.finding && <p className="settings-error-banner">{t("skills.importFinding", { finding: importing.preview.finding })}</p>}
@@ -1098,6 +1105,7 @@ function SkillsView({
           </div>
         </section>
       )}
+      <TrustedPublishers remote={remote} />
     </div>
   );
 }
