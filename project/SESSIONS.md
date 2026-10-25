@@ -14,7 +14,8 @@
 - **Feito**: `desktop/src/lib/mcpCatalog.ts` (`MCP_CATALOG` com os 5 valores dos antigos `mcpPresets`, movidos sem mudar; `catalogState`, que diz se o rascunho já tem a entrada pela URL ou pelo pacote/imagem nos `args`, mesmo renomeada; `catalogServer`, a cópia profunda com o nome sem colisão que era o `addMcpPreset`). `SettingsView.tsx`: os botões "+ preset" viraram cartões (descrição, "Pede: …", "Já está na lista" ou Adicionar). Adicionar continua só pondo o servidor no rascunho até "Salvar". Sem backend. Textos em inglês e pt-BR (`st.mcpCat.*`, e o `st.mcpServers.hint` ajustado).
 - **Testes**: `npm test` do desktop com 206 verdes (eram 196; 10 novos em `tests/mcpCatalog.test.mjs`: ids e nomes únicos, token coerente com o servidor, segredos em branco, textos nos dois idiomas, estado por URL, por pacote e renomeado, cópia sem aliasing, nome sem colisão) e `tsc` só com o erro velho do `rehype-highlight`. Nenhum E2E nem outra tela dependia dos botões antigos (conferi por grep). Sem teste de tela, como nas outras.
 - **Para o Fabio**: as descrições e os "Pede: …" dos 5 são meu texto e ele ainda não leu.
-- **Fica**: CI; integrações no hub e na web (só HTTP); as de endpoint a verificar na doc do fornecedor; `.wpkg` assinado; "editei" x "o catálogo evoluiu" nas skills; o Fabio ler os textos.
+- **CI**: o commit `05e15a3` passou no `CI` e no `Desktop E2E`; o `Web E2E` não rodou (a mudança é só do desktop).
+- **Fica**: integrações no hub e na web (só HTTP); as de endpoint a verificar na doc do fornecedor; `.wpkg` assinado; "editei" x "o catálogo evoluiu" nas skills; o Fabio ler os textos.
 
 ---
 
