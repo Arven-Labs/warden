@@ -11,6 +11,7 @@
 - **Pedido**: "vamos no 1", o rótulo no celular que a 305 deixou. Planejado em modo de plano.
 - **Feito**: `skills_screen.dart` ganhou o ramo `outdated` na galeria, igual ao do desktop, da web e da extensão: a linha "Há uma versão nova; a sua não foi alterada" e o botão **Atualizar** (`skillsUpdate`, `skillsUpdating`, `skillsUpdateAvailable`), que chama o mesmo `installCatalog` sem `overwrite` e sem segundo toque, porque nada do usuário se perde. Sem Rust nem protocolo: o bridge já devolvia `outdated`. Chaves nos dois `.arb` e, à mão, nos três `generated/app_localizations*.dart`.
 - **Testes**: aqui havia Flutter (o plano supunha que não): `flutter analyze` limpo e `skills_screen_test.dart` + `l10n_test.dart` verdes (24), com o teste novo (a skill `outdated` mostra o aviso e "Update", não "Install", e atualiza num toque).
+- **CI**: o commit `3a3d8da` passou no `CI` (o Flutter e o Rust inclusos); `Web E2E` e `Desktop E2E` não rodaram, a mudança é só do celular.
 - **Lock**: o `flutter pub get` regenerou o `mobile/pubspec.lock` com o `url_launcher` e os pacotes dele (o risco que a 297 deixou); foi para um commit à parte.
 - **Fica**: testar Linear, GitHub hospedado e Notion hospedado nos serviços reais; Sentry e outros; Slack e Notion hospedado no hub (OAuth no hub); `.wpkg` assinado; no gateway, `account.suspended` no site mãe e o teto por IP atrás de proxy.
 
