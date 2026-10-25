@@ -404,6 +404,7 @@ pub async fn handle_list_agent_catalog(access: &SettingsAccess<'_>, request_id: 
         Ok(config) => config,
         Err(err) => return settings_error(request_id, format!("{err:#}")),
     };
+    let skill_store = warden_core::skill::SkillStore::new(access.shared.current().vault().clone());
     let entries = warden_bootstrap::agent_catalog::entries()
         .iter()
         .map(|entry| CatalogAgentDto {
@@ -411,6 +412,7 @@ pub async fn handle_list_agent_catalog(access: &SettingsAccess<'_>, request_id: 
             role: entry.role.clone(),
             description: entry.description.clone(),
             skills: entry.skills.clone(),
+            skills_kept: warden_bootstrap::agent_catalog::skills_kept(&skill_store, entry),
             status: warden_bootstrap::agent_catalog::status(&config, entry).as_str().to_string(),
         })
         .collect();

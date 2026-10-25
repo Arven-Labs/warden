@@ -439,6 +439,7 @@ function OrganizationView({
                   </div>
                   <p className="skill-card-description">{text.description}</p>
                   <p className="settings-hint">{t("org.gallerySkills", { skills: entry.skills.join(", ") })}</p>
+                  {entry.skillsKept && entry.skillsKept.length > 0 && <p className="settings-hint">{t("org.galleryKeptSkills", { skills: entry.skillsKept.join(", ") })}</p>}
                 </div>
               );
             })}

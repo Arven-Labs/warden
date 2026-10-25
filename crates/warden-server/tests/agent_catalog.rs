@@ -124,6 +124,11 @@ async fn a_skill_the_person_has_is_kept_a_changed_agent_needs_overwrite_and_a_wr
     let mine = &entry.skills[0];
     skills.save(&Skill::parse(mine, "---\ndescription: Mine\n---\nMy own steps.")).unwrap();
 
+    // The gallery says, before anything is installed, which skill of the agent will stay as the person made it.
+    let listed = list(&mut conn).await;
+    assert_eq!(listed.iter().find(|e| e.id == entry.id).unwrap().skills_kept, [mine.clone()]);
+    assert!(listed.iter().filter(|e| !e.skills.contains(mine)).all(|e| e.skills_kept.is_empty()));
+
     // A wrong key: refused, nothing written, no skill installed.
     match install(&mut conn, "not-the-key", &entry.id, false).await {
         ServerMessage::SettingsError { auth_rejected, .. } => assert!(auth_rejected),
@@ -136,6 +141,7 @@ async fn a_skill_the_person_has_is_kept_a_changed_agent_needs_overwrite_and_a_wr
     assert!(matches!(install(&mut conn, KEY, &entry.id, false).await, ServerMessage::SettingsSaved { .. }));
     assert_eq!(skills.get(mine).unwrap().body, "My own steps.");
     assert!(skills.exists(&entry.skills[1]));
+    assert_eq!(list(&mut conn).await.iter().find(|e| e.id == entry.id).unwrap().skills_kept, [mine.clone()], "and it still says so after");
 
     // Edit the agent's text by hand: the gallery says "modified", and installing again needs `overwrite`.
     let mut config = load_config_from_path(&path, false).unwrap();

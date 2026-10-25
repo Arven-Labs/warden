@@ -488,6 +488,7 @@ export default function OrganizationView({
                   </div>
                   <p className="skills-item-description">{text.description}</p>
                   <p className="skills-hint">{t("org.gallerySkills", { skills: entry.skills.join(", ") })}</p>
+                  {entry.skillsKept && entry.skillsKept.length > 0 && <p className="skills-hint">{t("org.galleryKeptSkills", { skills: entry.skillsKept.join(", ") })}</p>}
                 </li>
               );
             })}

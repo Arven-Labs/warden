@@ -63,6 +63,9 @@ pub struct CatalogAgentDto {
     pub role: String,
     pub description: String,
     pub skills: Vec<String>,
+    /// Those of `skills` the person already has in a version that differs from the gallery's: installing leaves them as they are.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub skills_kept: Vec<String>,
     pub status: String,
 }
 
@@ -3715,18 +3718,30 @@ mod tests {
 
         let reply = ServerMessage::AgentCatalog {
             request_id: 4,
-            entries: vec![CatalogAgentDto {
-                id: "writer".into(),
-                role: "Writer".into(),
-                description: "Drafts emails.".into(),
-                skills: vec!["email-draft".into()],
-                status: "notInstalled".into(),
-            }],
+            entries: vec![
+                CatalogAgentDto {
+                    id: "writer".into(),
+                    role: "Writer".into(),
+                    description: "Drafts emails.".into(),
+                    skills: vec!["email-draft".into()],
+                    skills_kept: vec![],
+                    status: "notInstalled".into(),
+                },
+                CatalogAgentDto {
+                    id: "secretary".into(),
+                    role: "Secretary".into(),
+                    description: "Keeps the agenda.".into(),
+                    skills: vec!["email-draft".into()],
+                    skills_kept: vec!["email-draft".into()],
+                    status: "installed".into(),
+                },
+            ],
         };
         let json = serde_json::to_string(&reply).unwrap();
+        // `skillsKept` is left out when empty, and a hub from before it simply doesn't send it.
         assert_eq!(
             json,
-            r#"{"type":"agentCatalog","requestId":4,"entries":[{"id":"writer","role":"Writer","description":"Drafts emails.","skills":["email-draft"],"status":"notInstalled"}]}"#
+            r#"{"type":"agentCatalog","requestId":4,"entries":[{"id":"writer","role":"Writer","description":"Drafts emails.","skills":["email-draft"],"status":"notInstalled"},{"id":"secretary","role":"Secretary","description":"Keeps the agenda.","skills":["email-draft"],"skillsKept":["email-draft"],"status":"installed"}]}"#
         );
         assert_eq!(serde_json::from_str::<ServerMessage>(&json).unwrap(), reply);
     }

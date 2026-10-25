@@ -640,12 +640,14 @@ export interface CatalogSkill {
 
 /** One agent of the built-in gallery (P140) and where it stands among the agents — mirrors `CatalogAgentPayload` in
  * `src-tauri/src/agent_catalog_cmds.rs` and `CatalogAgentDto` on the hub. `modified`: an agent of that id is there but differs (or is a
- * member's), so installing replaces its text. `skills` are the ones of the skills gallery it works with. */
+ * member's), so installing replaces its text. `skills` are the ones of the skills gallery it works with; `skillsKept` are those of them
+ * the person already has in a different version, which installing leaves as they are (a hub from before it doesn't send it). */
 export interface CatalogAgent {
   id: string;
   role: string;
   description: string;
   skills: string[];
+  skillsKept?: string[];
   status: "notInstalled" | "installed" | "modified";
 }
 

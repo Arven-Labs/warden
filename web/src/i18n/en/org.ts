@@ -55,6 +55,7 @@ export const org = {
   "org.galleryReplace": "Replace its text",
   "org.galleryKeep": "Keep mine",
   "org.gallerySkills": "Works with the skills: {skills}",
+  "org.galleryKeptSkills": "You already have your own version of {skills}; it stays as it is.",
   "org.moreSettings": "More settings per agent",
 
   "recoveryPolicy.private": "Private",

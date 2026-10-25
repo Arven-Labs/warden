@@ -56,6 +56,7 @@ export const orgPt: Record<keyof typeof org, string> = {
   "org.galleryReplace": "Trocar o texto dele",
   "org.galleryKeep": "Manter o meu",
   "org.gallerySkills": "Trabalha com as skills: {skills}",
+  "org.galleryKeptSkills": "Você já tem uma versão própria de {skills}; ela fica como está.",
   "org.moreSettings": "Mais configurações por agente",
 
   "recoveryPolicy.private": "Privado",

@@ -18,13 +18,17 @@ pub struct CatalogAgentPayload {
     role: String,
     description: String,
     skills: Vec<String>,
+    /// Those of `skills` the person already has in a version that differs from the gallery's: installing leaves them as they are.
+    skills_kept: Vec<String>,
     status: &'static str,
 }
 
 #[tauri::command]
-pub fn list_agent_catalog() -> Result<Vec<CatalogAgentPayload>, String> {
+pub fn list_agent_catalog(state: State<'_, AppState>) -> Result<Vec<CatalogAgentPayload>, String> {
     let path = default_config_path().ok_or_else(|| "could not determine the OS config directory".to_string())?;
     let config = load_config_from_path(&path, false).map_err(|e| format!("{e:#}"))?;
+    // Without a reachable vault there is nothing to say about the skills: the line is just left out.
+    let store = state.orchestrator.lock().unwrap().clone().ok().map(|orchestrator| SkillStore::new(orchestrator.vault().clone()));
     Ok(agent_catalog::entries()
         .iter()
         .map(|entry| CatalogAgentPayload {
@@ -32,6 +36,7 @@ pub fn list_agent_catalog() -> Result<Vec<CatalogAgentPayload>, String> {
             role: entry.role.clone(),
             description: entry.description.clone(),
             skills: entry.skills.clone(),
+            skills_kept: store.as_ref().map(|store| agent_catalog::skills_kept(store, entry)).unwrap_or_default(),
             status: agent_catalog::status(&config, entry).as_str(),
         })
         .collect())
@@ -42,6 +47,6 @@ pub fn list_agent_catalog() -> Result<Vec<CatalogAgentPayload>, String> {
 pub fn install_skills_of(state: &State<'_, AppState>, id: &str) {
     let Some(entry) = agent_catalog::entries().iter().find(|e| e.id == id) else { return };
     let Ok(orchestrator) = state.orchestrator.lock().unwrap().clone() else { return };
-    // What was put in and what was kept is not shown here: the Skills screen lists them.
+    // What was kept is not reported here: the gallery's list already says it (`skills_kept`), before and after.
     let _ = agent_catalog::install_skills(&SkillStore::new(orchestrator.vault().clone()), entry);
 }

@@ -2,7 +2,17 @@
 
 > **Nota**: Este log foi criado junto com o projeto. As sessões serão registradas aqui conforme o trabalho avança.
 >
-> Última atualização: 2026-10-25 (Sessão 300)
+> Última atualização: 2026-10-25 (Sessão 301)
+
+---
+
+### 2026-10-25 — Sessão 301 (a galeria de agentes mostra quais skills ficam como estão: P140)
+
+- **Pedido**: "bora continuar?" e, das opções que li no "Fica" da 300, "pode ser" para a recomendada: mostrar na tela quais skills foram mantidas. Planejado em modo de plano.
+- **Desvio do que a 300 deixou escrito**: o "Fica" falava em mostrar o que a instalação manteve. Em vez de mudar a resposta da instalação (`SettingsSaved`), a **listagem** passou a dizer, por agente, quais skills dele já existem em versão diferente (`skills_kept`). Assim a informação aparece antes de instalar e continua depois, sem mensagem nova, e as duas telas já recarregam a lista após instalar.
+- **Feito**: `agent_catalog::skills_kept` (skills do agente com estado `Modified`, a mesma regra do `install_skills`); `CatalogAgentDto.skills_kept` (`serde(default, skip_serializing_if = "Vec::is_empty")`, então um hub antigo não quebra a tela); `handle_list_agent_catalog` lê o cofre de `access.shared.current()`; desktop: `list_agent_catalog` ganhou o `State` para chegar ao cofre local (sem cofre, o campo vai vazio); web e desktop: `skillsKept?` no tipo e uma linha depois de "Trabalha com as skills" (`org.galleryKeptSkills`, em inglês e pt-BR).
+- **Testes**: aqui só `cargo check --workspace --tests` (limpo, desktop incluído), `npm test` da web (122) e do desktop (196) verdes e `tsc` só com o erro velho do `rehype-highlight`. **Escritos e não rodados** (CI): `agent_catalog.rs` (vazio com o cofre vazio, preenchido com a skill editada, e depois da instalação), o serde do protocolo (omitido quando vazio, lido quando ausente) e `tests/agent_catalog.rs` no hub (a lista diz antes e depois da instalação). **Sem teste de tela**: não existe teste de componente da `OrganizationView`, e a linha nova é condicional e trivial.
+- **Fica**: CI; "editei" x "o catálogo evoluiu" nas skills; integrações MCP prontas; `.wpkg` assinado; o Fabio ler as personas e as 8 skills; celular e extensão (não editam agentes hoje).
 
 ---
 

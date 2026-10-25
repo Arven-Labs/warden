@@ -90,12 +90,14 @@ export interface CatalogSkillDto {
 
 /** Mirrors `warden_server_protocol::protocol::CatalogAgentDto` (P140): an agent of the gallery that ships with the hub, and where it
  * stands among the owner's agents. `modified`: an agent of that id is there but differs (or is a member's), so installing replaces its
- * text. `skills` are the ones of the skills gallery it works with, which installing puts in the vault too. */
+ * text. `skills` are the ones of the skills gallery it works with, which installing puts in the vault too; `skillsKept` are those of
+ * them the person already has in a different version, which installing leaves as they are (a hub from before it doesn't send it). */
 export interface CatalogAgentDto {
   id: string;
   role: string;
   description: string;
   skills: string[];
+  skillsKept?: string[];
   status: "notInstalled" | "installed" | "modified";
 }
 

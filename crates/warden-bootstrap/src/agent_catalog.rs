@@ -170,6 +170,22 @@ pub struct SkillsInstalled {
     pub kept: Vec<String>,
 }
 
+/// The skills `agent` works with that the person already has in a version that differs from the gallery's: installing the agent
+/// leaves them as they are. The gallery shows this before the person installs, and after.
+pub fn skills_kept(store: &SkillStore, agent: &CatalogAgent) -> Vec<String> {
+    agent
+        .skills
+        .iter()
+        .filter(|name| {
+            skill_catalog::entries()
+                .iter()
+                .find(|e| &e.name == *name)
+                .is_some_and(|entry| skill_catalog::status(store, entry) == skill_catalog::CatalogStatus::Modified)
+        })
+        .cloned()
+        .collect()
+}
+
 /// Puts the skills `agent` works with in the vault, the way the skills gallery does and without replacing any: one already there
 /// and identical is fine, one that differs stays as the person made it and is listed in `kept`.
 pub fn install_skills(store: &SkillStore, agent: &CatalogAgent) -> SkillsInstalled {
@@ -324,9 +340,11 @@ mod tests {
         let store = temp_store();
         let agent = entries().iter().find(|e| e.skills.len() > 1).expect("an agent that works with several skills");
         let (first, rest) = agent.skills.split_first().unwrap();
+        assert!(skills_kept(&store, agent).is_empty(), "an empty vault keeps nothing");
 
         // The person already has a different skill under the first name.
         store.save(&warden_core::skill::Skill::parse(first, "---\ndescription: Mine\n---\nMy own steps.")).unwrap();
+        assert_eq!(skills_kept(&store, agent), [first.clone()], "the gallery says so before the install");
 
         let done = install_skills(&store, agent);
         assert_eq!(done.kept, [first.clone()]);
@@ -340,5 +358,6 @@ mod tests {
         let again = install_skills(&store, agent);
         assert!(again.installed.is_empty());
         assert_eq!(again.kept, [first.clone()]);
+        assert_eq!(skills_kept(&store, agent), [first.clone()], "and after it");
     }
 }
