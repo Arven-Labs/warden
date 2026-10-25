@@ -52,6 +52,20 @@ pub struct CatalogSkillDto {
     pub status: String,
 }
 
+/// One agent of the built-in gallery (P140) on the wire, with where it stands in this hub's agents: `notInstalled`, `installed` (an
+/// agent of that id has the same persona, role and tools) or `modified` (there is one that differs, or a member's, so installing
+/// replaces its text, or is refused for a member's). The persona is not here: it is the model's prompt, and installing writes it.
+/// `skills` are the ones of the skills gallery it works with, which installing puts in the vault too.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CatalogAgentDto {
+    pub id: String,
+    pub role: String,
+    pub description: String,
+    pub skills: Vec<String>,
+    pub status: String,
+}
+
 /// What a skill package says it holds (P160), read and checked but not installed: the answer to `PreviewSkillPackage`.
 /// `status` is as in `CatalogSkillDto`. `finding` is why the text looks unsafe (a link, a command, a key, text aimed at the
 /// assistant's own rules, invisible characters), when it does: installing such a package needs `allowFlagged`.
@@ -1658,6 +1672,14 @@ pub enum AgentOrgEdit {
         #[serde(default)]
         policies: Vec<ModelPolicyDto>,
     },
+    /// Adds the agent `id` of the gallery of ready-made agents (P140), careful by default like `AddReport`, and puts the skills it
+    /// works with in the vault. An agent of that id that differs is only replaced with `overwrite: true`, and then only its persona,
+    /// role and tools. Only the owner makes this edit. Answered like the others (`SettingsSaved`).
+    InstallCatalogAgent {
+        id: String,
+        #[serde(default)]
+        overwrite: bool,
+    },
 }
 
 /// Messages sent from a client (mobile, desktop-as-client, browser extension) to the server.
@@ -2170,6 +2192,9 @@ pub enum ClientMessage {
     /// The organization of the agents as the tree shows it (P120), for a member the owner gave `view` or `edit`. Answered by
     /// `AgentOrgList`, or `SettingsError` when their access is `none`.
     ListAgentOrg { request_id: u64 },
+    /// The gallery of ready-made agents that ship with the hub (P140), each with its state among this hub's agents. The owner's only
+    /// (the state looks at their agents). Answered by `AgentCatalog`, or `SettingsError`.
+    ListAgentCatalog { request_id: u64 },
     /// What a member does with the organization of the agents: `none`, `view` or `edit` (P120). Answered by `UserList`.
     SetUserOrgAccess {
         request_id: u64,
@@ -2743,6 +2768,11 @@ pub enum ServerMessage {
         request_id: u64,
         settings: HubSettingsDto,
         version: String,
+    },
+    /// Reply to `ClientMessage::ListAgentCatalog` (P140).
+    AgentCatalog {
+        request_id: u64,
+        entries: Vec<CatalogAgentDto>,
     },
     /// The organization of the owner's agents (P120), for a member: after `ListAgentOrg`, and after one of their `EditAgentOrg`.
     /// `access` is what they may do with it, `view` or `edit`. Only each agent's id, position and superior, nothing of what it says or can do.
@@ -3668,6 +3698,37 @@ mod tests {
         assert_eq!(serde_json::from_str::<ClientMessage>(&json).unwrap(), ask);
         let top = r#"{"type":"editAgentOrg","requestId":7,"pairingKey":"k","edit":{"kind":"remove","id":"dev"}}"#;
         assert!(matches!(serde_json::from_str::<ClientMessage>(top).unwrap(), ClientMessage::EditAgentOrg { edit: AgentOrgEdit::Remove { .. }, .. }));
+    }
+
+    #[test]
+    fn the_gallery_of_ready_made_agents_rides_the_wire() {
+        let list = ClientMessage::ListAgentCatalog { request_id: 4 };
+        assert_eq!(serde_json::to_string(&list).unwrap(), r#"{"type":"listAgentCatalog","requestId":4}"#);
+
+        // The install is an edit of the organization, with the owner's key, answered like the others; `overwrite` may be left out.
+        let install = ClientMessage::EditAgentOrg { request_id: 5, pairing_key: "k".into(), edit: AgentOrgEdit::InstallCatalogAgent { id: "writer".into(), overwrite: true } };
+        let json = serde_json::to_string(&install).unwrap();
+        assert_eq!(json, r#"{"type":"editAgentOrg","requestId":5,"pairingKey":"k","edit":{"kind":"installCatalogAgent","id":"writer","overwrite":true}}"#);
+        assert_eq!(serde_json::from_str::<ClientMessage>(&json).unwrap(), install);
+        let bare = r#"{"kind":"installCatalogAgent","id":"writer"}"#;
+        assert_eq!(serde_json::from_str::<AgentOrgEdit>(bare).unwrap(), AgentOrgEdit::InstallCatalogAgent { id: "writer".into(), overwrite: false });
+
+        let reply = ServerMessage::AgentCatalog {
+            request_id: 4,
+            entries: vec![CatalogAgentDto {
+                id: "writer".into(),
+                role: "Writer".into(),
+                description: "Drafts emails.".into(),
+                skills: vec!["email-draft".into()],
+                status: "notInstalled".into(),
+            }],
+        };
+        let json = serde_json::to_string(&reply).unwrap();
+        assert_eq!(
+            json,
+            r#"{"type":"agentCatalog","requestId":4,"entries":[{"id":"writer","role":"Writer","description":"Drafts emails.","skills":["email-draft"],"status":"notInstalled"}]}"#
+        );
+        assert_eq!(serde_json::from_str::<ServerMessage>(&json).unwrap(), reply);
     }
 
     #[test]

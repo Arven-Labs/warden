@@ -2,7 +2,18 @@
 
 > **Nota**: Este log foi criado junto com o projeto. As sessões serão registradas aqui conforme o trabalho avança.
 >
-> Última atualização: 2026-10-25 (Sessão 299)
+> Última atualização: 2026-10-25 (Sessão 300)
+
+---
+
+### 2026-10-25 — Sessão 300 (a galeria de agentes prontos: P140, 2ª fatia)
+
+- **Pedido**: "p140". O P140 tinha várias fatias abertas e escolhi com o usuário os **agentes prontos**; planejado em modo de plano. Escolhas: instala as skills junto (sem sobrescrever) e hub, web e desktop. Ao abrir o P140 vi três linhas velhas e as corrigi: "falta confirmar no CI" (já estava verde), "export/import de uma skill" (feito no P160) e a que dizia que uma tool MCP sem anotações roda sozinha (mudou na 299).
+- **Desvios do plano**: (1) a tela foi para a **árvore da organização** (`OrganizationView`, web e desktop), não para as configurações: ali já existe o pedido da chave de pareamento, o recarregamento dos agentes e nenhum rascunho para sujar. (2) Em vez de uma mensagem nova de instalação, a instalação é uma **edição nova do `EditAgentOrg`** (`AgentOrgEdit::InstallCatalogAgent`), então sai pelo mesmo caminho (lock, chave, gravação, reconstrução do orquestrador) e responde com `SettingsSaved`; só a listagem é mensagem nova (`ListAgentCatalog`/`AgentCatalog`). Por isso a resposta **não** diz quais skills foram mantidas (o plano dizia que diria): isso só vai para o log do hub. O membro é recusado pela própria lista de edições que ele pode fazer.
+- **Feito**: `warden-bootstrap/catalog/agents/{writer,researcher,code-reviewer,secretary}.md` e `agent_catalog.rs` (estado por comparação com o config, sem `installed.json`; `install` troca só persona, papel e tools de um agente que difere e nunca mexe em agente de membro; `install_skills` usa o `catalog::install` das skills sem `overwrite`). `apply_org_edit` ganhou o braço novo. Hub: `handle_list_agent_catalog` (só o dono) e, em `handle_edit_agent_org`, as skills entram no cofre depois do agente salvo. Desktop: `agent_catalog_cmds.rs` (`list_agent_catalog` e as skills depois do `edit_agent_org` local). Web e desktop: tipos, `listAgentCatalog`, seção "Agentes prontos" com os quatro estados, descrições em português por id (`i18n/agentCatalog.ts`).
+- **Testes**: aqui só `cargo check --workspace --tests` (limpo), `npm test` da web (122) e do desktop (196) verdes e `tsc` sem erro novo (continua reclamando de `rehype-highlight`). **Escritos e não rodados** (CI): `agent_catalog.rs` (entradas válidas e cuidadosas, toda skill citada existe na galeria de skills, sem link nem comando, estados, `overwrite`, agente de membro, skills sem substituir a do usuário), o braço novo em `org_edit.rs`, o serde do protocolo e `tests/agent_catalog.rs` no hub (lista, instala com as skills, chave errada, `overwrite`, id desconhecido).
+- **Para o Fabio**: o texto das quatro personas é meu e ele ainda não leu nem ajustou, como as 8 skills.
+- **Fica**: CI; integrações MCP prontas; `.wpkg` assinado; mostrar na tela quais skills foram mantidas; celular e extensão (não editam agentes hoje).
 
 ---
 

@@ -18,6 +18,7 @@ mod remote_ipc_test;
 mod recording;
 mod server_cmds;
 mod share_cmds;
+mod agent_catalog_cmds;
 mod skills_cmds;
 mod spend_cmds;
 mod ssh_cmds;
@@ -926,6 +927,10 @@ async fn edit_agent_org(state: State<'_, AppState>, edit: warden_server_protocol
     warden_bootstrap::org_edit::apply_org_edit(&mut config, &edit)?;
     save_config(&path, &config).map_err(|e| format!("{e:#}"))?;
     reload_orchestrator(&state).await;
+    // P140: a ready-made agent works with skills of the skills gallery, so they go in the vault with it.
+    if let warden_server_protocol::protocol::AgentOrgEdit::InstallCatalogAgent { id, .. } = &edit {
+        agent_catalog_cmds::install_skills_of(&state, id);
+    }
     Ok(())
 }
 
@@ -1297,6 +1302,7 @@ pub fn run() {
             skills_cmds::list_skills,
             skills_cmds::save_skill,
             skills_cmds::delete_skill,
+            agent_catalog_cmds::list_agent_catalog,
             skills_cmds::list_skill_catalog,
             skills_cmds::install_catalog_skill,
             skills_cmds::export_skill_package,

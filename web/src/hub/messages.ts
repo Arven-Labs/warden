@@ -88,6 +88,17 @@ export interface CatalogSkillDto {
   status: "notInstalled" | "installed" | "modified";
 }
 
+/** Mirrors `warden_server_protocol::protocol::CatalogAgentDto` (P140): an agent of the gallery that ships with the hub, and where it
+ * stands among the owner's agents. `modified`: an agent of that id is there but differs (or is a member's), so installing replaces its
+ * text. `skills` are the ones of the skills gallery it works with, which installing puts in the vault too. */
+export interface CatalogAgentDto {
+  id: string;
+  role: string;
+  description: string;
+  skills: string[];
+  status: "notInstalled" | "installed" | "modified";
+}
+
 /** Mirrors `warden_server_protocol::protocol::PackagePreviewDto` (P160): what a skill package says it holds, checked but not
  * installed. `finding` is why its text looks unsafe, when it does; installing such a package needs `allowFlagged`. */
 export interface PackagePreviewDto {
@@ -967,6 +978,8 @@ export type ClientMessage =
   | { type: "editAgentOrg"; requestId: number; pairingKey?: string; edit: OrgEdit }
   /** P120 — the organization tree, for the owner or a member with `view` or `edit` access; answered by `agentOrgList`. */
   | { type: "listAgentOrg"; requestId: number }
+  /** P140 — the gallery of ready-made agents, answered by `agentCatalog`. The owner's only. */
+  | { type: "listAgentCatalog"; requestId: number }
   /** P120 — what a member can do with the organization: "none", "view" or "edit". Owner; asks for the key; answered by `userList`. */
   | { type: "setUserOrgAccess"; requestId: number; pairingKey: string; id: string; access: string }
   | { type: "saveTask"; requestId: number; pairingKey: string; originalId?: string; task: Task }
@@ -1060,6 +1073,7 @@ export type ServerMessage =
   | { type: "skillOk"; requestId: number }
   | { type: "skillError"; requestId: number; message: string }
   | { type: "skillCatalog"; requestId: number; entries: CatalogSkillDto[] }
+  | { type: "agentCatalog"; requestId: number; entries: CatalogAgentDto[] }
   | { type: "skillPackageFile"; requestId: number; content: string; attachmentsSkipped?: boolean }
   | { type: "skillPackagePreview"; requestId: number; preview: PackagePreviewDto }
   | { type: "projectList"; requestId: number; projects: ProjectDto[] }
@@ -1188,6 +1202,7 @@ export function decode(text: string): ServerMessage {
     case "skillOk":
     case "skillError":
     case "skillCatalog":
+    case "agentCatalog":
     case "skillPackageFile":
     case "skillPackagePreview":
     case "projectList":

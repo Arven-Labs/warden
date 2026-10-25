@@ -297,6 +297,7 @@ fn gate_with(message: &ClientMessage, text: &str) -> Option<ServerMessage> {
         | ClientMessage::SaveOwnAgent { request_id, .. }
         | ClientMessage::DeleteOwnAgent { request_id, .. }
         | ClientMessage::ListAgentOrg { request_id }
+        | ClientMessage::ListAgentCatalog { request_id }
         | ClientMessage::EditAgentOrg { request_id, .. } => {
             ServerMessage::SettingsError { request_id: *request_id, message: text, conflict: false, auth_rejected: true }
         }

@@ -56,9 +56,27 @@ export type OrgEdit =
   | { kind: "setPosition"; id: string; role?: string; reportsTo?: string }
   | { kind: "addReport"; id: string; persona: string; role?: string; reportsTo?: string }
   | { kind: "remove"; id: string }
+  /** P140 — adds an agent of the gallery (careful by default) and the skills it works with; one of that id that differs is only replaced with `overwrite`. The owner's only. */
+  | { kind: "installCatalogAgent"; id: string; overwrite: boolean }
   /** P123 — what the light clients (phone and extension) send; the web edits the limit and the policies through the Settings form. */
   | { kind: "setDelegationModels"; id: string; models: string[] }
   | { kind: "setModelPolicies"; policies: Array<{ id: string; model: string; description: string }> };
+
+/** Installing the agent `id` of the gallery. */
+export function installAgentEdit(id: string, overwrite: boolean): OrgEdit {
+  return { kind: "installCatalogAgent", id, overwrite };
+}
+
+/** What a gallery row offers, from the entry's state and whether the person already asked to replace theirs: `installed` (nothing to do),
+ * `install` (one tap), `conflict` (an agent of that id that differs: say so and offer to use the gallery's) or `confirm` (asked once, so
+ * replacing takes a second, explicit tap). */
+export type CatalogAgentAction = "installed" | "install" | "conflict" | "confirm";
+
+export function catalogAgentAction(status: "notInstalled" | "installed" | "modified", confirming: boolean): CatalogAgentAction {
+  if (status === "installed") return "installed";
+  if (status === "modified") return confirming ? "confirm" : "conflict";
+  return "install";
+}
 
 /** A blank field is no value: the change leaves it out instead of sending an empty string. */
 export function positionEdit(id: string, role: string, reportsTo: string): OrgEdit {

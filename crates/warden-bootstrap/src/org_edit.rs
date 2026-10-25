@@ -116,6 +116,11 @@ pub fn apply_org_edit(config: &mut FileConfig, edit: &AgentOrgEdit) -> Result<()
             config.agents = scratch.agents;
             return Ok(());
         }
+        AgentOrgEdit::InstallCatalogAgent { id, overwrite } => {
+            // A gallery agent has no superior, so the tree stays as it was; a refusal comes before anything is written to `config`.
+            crate::agent_catalog::install(config, id, *overwrite)?;
+            return Ok(());
+        }
     }
     org::check_hierarchy(&agents)?;
     config.agents = agents;
@@ -193,6 +198,31 @@ mod tests {
             assert!(apply_org_edit(&mut config, &edit).is_err(), "{edit:?}");
             assert_eq!(config.agents, before, "{edit:?}");
         }
+    }
+
+    #[test]
+    fn a_gallery_agent_is_added_without_touching_the_tree_and_a_refused_install_changes_nothing() {
+        let mut config = config();
+        let before = config.agents.clone();
+        let install = |id: &str, overwrite: bool| AgentOrgEdit::InstallCatalogAgent { id: id.into(), overwrite };
+
+        let id = crate::agent_catalog::entries()[0].id.clone();
+        apply_org_edit(&mut config, &install(&id, false)).unwrap();
+        assert_eq!(config.agents.len(), before.len() + 1);
+        assert_eq!(&config.agents[..before.len()], &before[..], "the agents that were there are untouched");
+        let new = config.agents.last().unwrap();
+        assert_eq!((new.id.as_str(), new.reports_to.as_deref(), new.autonomy, new.owner.as_deref()), (id.as_str(), None, 3, None));
+
+        // An unknown id changes nothing; a different agent under the same id needs `overwrite`.
+        let added = config.agents.clone();
+        assert!(apply_org_edit(&mut config, &install("nope", false)).is_err());
+        config.agents.last_mut().unwrap().persona = "Mine.".into();
+        let edited = config.agents.clone();
+        assert!(apply_org_edit(&mut config, &install(&id, false)).is_err());
+        assert_eq!(config.agents, edited);
+        apply_org_edit(&mut config, &install(&id, true)).unwrap();
+        assert_ne!(config.agents.last().unwrap().persona, "Mine.");
+        assert_eq!(config.agents.len(), added.len());
     }
 
     #[test]

@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useState } from "react";
 import { SettingsError, type ServerConnection } from "../hub/connection";
-import type { AgentSettings, AgentTask, ConversationSummary, UsageReport } from "../hub/messages";
+import type { AgentSettings, AgentTask, CatalogAgentDto, ConversationSummary, UsageReport } from "../hub/messages";
 import { activityLine, activityOf, lastConversationOf, spendOf } from "../hub/agentTasks";
 import { approvalCategoryLabel } from "../hub/approvalCategories";
-import { addReportEdit, buildOrg, moveEdit, positionEdit, superiorChoices, type OrgAccess, type OrgAgent, type OrgEdit, type OrgNode } from "../hub/org";
+import { addReportEdit, buildOrg, catalogAgentAction, installAgentEdit, moveEdit, positionEdit, superiorChoices, type OrgAccess, type OrgAgent, type OrgEdit, type OrgNode } from "../hub/org";
 import { t, type Key } from "../i18n";
+import { catalogAgentText } from "../i18n/agentCatalog";
 import { rich } from "../i18n/rich";
 
 const AUTONOMY_LABELS: Record<number, Key> = { 1: "org.autonomy.1", 2: "org.autonomy.2", 3: "org.autonomy.3", 4: "org.autonomy.4", 5: "org.autonomy.5" };
@@ -256,6 +257,9 @@ export default function OrganizationView({
   // Owner only: each agent's spend and the conversations it has had (P123). A member neither asks for nor sees them.
   const [usage, setUsage] = useState<UsageReport | null>(null);
   const [conversations, setConversations] = useState<ConversationSummary[]>([]);
+  // P140 — the gallery of ready-made agents; stays null when the hub has none (a hub from before it answers with an error), and the section is left out.
+  const [catalog, setCatalog] = useState<CatalogAgentDto[] | null>(null);
+  const [confirmReplace, setConfirmReplace] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     if (!conn) return;
@@ -286,6 +290,11 @@ export default function OrganizationView({
       setConversations(await conn.listConversations());
     } catch {
       /* ignored */
+    }
+    try {
+      setCatalog(await conn.listAgentCatalog());
+    } catch {
+      setCatalog(null);
     }
   }, [conn, member]);
 
@@ -322,6 +331,15 @@ export default function OrganizationView({
       setAgents(await conn.editAgentOrg(pairingKey, asking));
       setPanel(null);
       setError(null);
+      if (asking.kind === "installCatalogAgent") {
+        setConfirmReplace(null);
+        // The gallery's states changed with the agents.
+        try {
+          setCatalog(await conn.listAgentCatalog());
+        } catch {
+          /* ignored */
+        }
+      }
       cancelKey();
     } catch (err) {
       if (err instanceof SettingsError && err.authRejected) {
@@ -430,6 +448,52 @@ export default function OrganizationView({
       {tree.length > 0 && nobodyReports && !ui.editable && <p className="skills-hint">{t("org.nobodyReports")}</p>}
       {tree.length > 0 && nobodyReports && ui.editable && <p className="skills-hint">{t("org.nobodyReportsEdit")}</p>}
       {panel?.kind === "add" && panel.under === null && <NewAgentForm key="add-top" under={null} ui={ui} />}
+      {!member && catalog !== null && catalog.length > 0 && (
+        <section className="org-gallery">
+          <h3>{t("org.gallery")}</h3>
+          <p className="skills-hint">{t("org.galleryIntro")}</p>
+          <ul className="skills-list">
+            {catalog.map((entry) => {
+              const action = catalogAgentAction(entry.status, confirmReplace === entry.id);
+              const text = catalogAgentText(entry.id, { role: entry.role, description: entry.description });
+              return (
+                <li key={entry.id} className="skills-item">
+                  <div className="skills-item-header">
+                    <span className="skills-item-name">{entry.id}</span>
+                    <span className="skills-hint">{text.role}</span>
+                    {action === "installed" && <span className="skills-hint">{t("org.galleryInstalled")}</span>}
+                    {action === "install" && (
+                      <button type="button" className="primary-button" disabled={ui.busy} onClick={() => ui.apply(installAgentEdit(entry.id, false))}>
+                        {t("org.galleryInstall")}
+                      </button>
+                    )}
+                    {action === "conflict" && (
+                      <span className="skills-actions">
+                        <span className="skills-hint">{t("org.galleryOtherSameId")}</span>
+                        <button type="button" className="link-button" disabled={ui.busy} onClick={() => setConfirmReplace(entry.id)}>
+                          {t("org.galleryUseTheirs")}
+                        </button>
+                      </span>
+                    )}
+                    {action === "confirm" && (
+                      <span className="skills-actions">
+                        <button type="button" className="link-button skills-danger" disabled={ui.busy} onClick={() => ui.apply(installAgentEdit(entry.id, true))}>
+                          {t("org.galleryReplace")}
+                        </button>
+                        <button type="button" className="link-button" onClick={() => setConfirmReplace(null)}>
+                          {t("org.galleryKeep")}
+                        </button>
+                      </span>
+                    )}
+                  </div>
+                  <p className="skills-item-description">{text.description}</p>
+                  <p className="skills-hint">{t("org.gallerySkills", { skills: entry.skills.join(", ") })}</p>
+                </li>
+              );
+            })}
+          </ul>
+        </section>
+      )}
       {editable && (
         <div className="skills-actions">
           <button type="button" className="link-button" disabled={ui.busy} onClick={() => ui.open({ kind: "add", under: null })}>

@@ -1997,6 +1997,14 @@ async fn handle_connection<S: Transport>(ws: WebSocketStream<S>, peer: SocketAdd
                         let _ = reply_tx.send(handle_list_agent_org(&access, request_id, member_id.as_deref()).await);
                     });
                 }
+                Ok(ClientMessage::ListAgentCatalog { request_id }) => {
+                    let (settings, shared, lock, auth_key, reply_tx) = (settings.clone(), shared_orchestrator.clone(), settings_lock.clone(), auth_key.clone(), tx.clone());
+                    let member_id = member.as_ref().map(|m| m.id.clone());
+                    tokio::spawn(async move {
+                        let access = SettingsAccess { host: settings.as_deref(), shared: &shared, lock: &lock, auth_key: &auth_key, secure, allow_machine: allow_machine_settings, peer: Some(peer.ip()) };
+                        let _ = reply_tx.send(crate::settings::handle_list_agent_catalog(&access, request_id, member_id.as_deref()).await);
+                    });
+                }
                 Ok(ClientMessage::ListDevices { request_id }) => {
                     let store = PairingStore::new(devices_path.as_ref().clone());
                     let _ = tx.send(handle_list_devices(&store, &device_id, request_id));

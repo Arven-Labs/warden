@@ -35,6 +35,7 @@ use warden_core::tool::{Tool, ToolProvider};
 
 pub mod logging;
 pub mod instance_export;
+pub mod agent_catalog;
 pub mod agent_changes;
 pub mod agent_scope;
 pub mod agent_tasks;

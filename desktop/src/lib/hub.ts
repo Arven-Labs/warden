@@ -10,6 +10,7 @@ import type {
   ActivityEvent,
   AgentTask,
   AgentTaskAction,
+  CatalogAgent,
   CatalogSkill,
   ChatMessage,
   ExportedPackage,
@@ -290,6 +291,12 @@ export async function hubControlAgentTask(askKey: KeyAsker, taskId: string, acti
 export async function hubEditAgentOrg(askKey: KeyAsker, edit: OrgEdit): Promise<void> {
   const message = { type: "editAgentOrg", edit, pairingKey: await askKey(t("askKey.editOrg")) };
   await ask(message, "settingsSaved");
+}
+
+/** P140 — the gallery of ready-made agents the hub in use ships with, each with its state among the owner's agents (installing one is a
+ * `hubEditAgentOrg` with `installAgentEdit`). A hub from before the gallery rejects, which the screen treats as "no gallery". */
+export async function hubListAgentCatalog(): Promise<CatalogAgent[]> {
+  return (await ask<{ type: string; entries: CatalogAgent[] }>({ type: "listAgentCatalog" }, "agentCatalog")).entries;
 }
 
 /** The tree of the organization as the hub shows it to a member (P120): only the id, the role and the superior of each agent, and the

@@ -22,7 +22,7 @@ use warden_bootstrap::secrets::secrets_path;
 use warden_bootstrap::{load_config_from_path, render_config, FileConfig};
 use warden_core::orchestrator::Orchestrator;
 use warden_core::tool::Tool;
-use warden_server_protocol::protocol::{AgentOrgEdit, HubSettingsDto, HubSettingsUpdate, OrgAgentDto};
+use warden_server_protocol::protocol::{AgentOrgEdit, CatalogAgentDto, HubSettingsDto, HubSettingsUpdate, OrgAgentDto};
 use warden_server_protocol::ServerMessage;
 
 /// How long a wrong pairing key waits before its answer, so guessing one over the socket is slow.
@@ -310,6 +310,14 @@ pub async fn handle_edit_agent_org(access: &SettingsAccess<'_>, request_id: u64,
         Ok(done) => done,
         Err(reply) => return *reply,
     };
+    // P140: a ready-made agent works with skills of the skills gallery, so they go in the vault with it, without replacing any the
+    // person has. The agent is already saved: a skill that can't be written leaves it in place (the person can add the skill by hand).
+    if let AgentOrgEdit::InstallCatalogAgent { id, .. } = edit {
+        if let Some(entry) = warden_bootstrap::agent_catalog::entries().iter().find(|e| &e.id == id) {
+            let done = warden_bootstrap::agent_catalog::install_skills(&warden_core::skill::SkillStore::new(orchestrator.vault().clone()), entry);
+            tracing::info!(agent = %id, installed = ?done.installed, kept = ?done.kept, "installed a gallery agent");
+        }
+    }
     let path = host.config_path();
     let settings = view(host, &config, &orchestrator, access);
     host.installed(&orchestrator);
@@ -382,7 +390,34 @@ pub async fn handle_list_agent_org(access: &SettingsAccess<'_>, request_id: u64,
     ServerMessage::AgentOrgList { request_id, agents: org_agents(&config), access: level.as_str().to_string() }
 }
 
-const NO_ORG_ACCESS: &str = "the workspace's owner hasn't given you access to the organization of the agents";
+/// Answers `ListAgentCatalog` (P140): the gallery of ready-made agents, each with its state among the owner's agents. The owner's only,
+/// because the state looks at their agents (a member's reach for it is refused, like every other hub-wide view).
+pub async fn handle_list_agent_catalog(access: &SettingsAccess<'_>, request_id: u64, member: Option<&str>) -> ServerMessage {
+    if member.is_some() {
+        return *org_refusal(request_id, "only the workspace's owner sees that");
+    }
+    let Some(host) = access.host else {
+        return settings_error(request_id, NO_SETTINGS);
+    };
+    let _reading = access.lock.lock().await;
+    let config = match load_config_from_path(&host.config_path(), false) {
+        Ok(config) => config,
+        Err(err) => return settings_error(request_id, format!("{err:#}")),
+    };
+    let entries = warden_bootstrap::agent_catalog::entries()
+        .iter()
+        .map(|entry| CatalogAgentDto {
+            id: entry.id.clone(),
+            role: entry.role.clone(),
+            description: entry.description.clone(),
+            skills: entry.skills.clone(),
+            status: warden_bootstrap::agent_catalog::status(&config, entry).as_str().to_string(),
+        })
+        .collect();
+    ServerMessage::AgentCatalog { request_id, entries }
+}
+
+const NO_ORG_ACCESS: &str ="the workspace's owner hasn't given you access to the organization of the agents";
 
 /// Answers a member's `EditAgentOrg` (P120): their session is the authorization, as long as the owner gave them `edit`. Only the three
 /// edits of the tree are theirs; the delegation models and model policies are the owner's. Same rules and same restart as the owner's

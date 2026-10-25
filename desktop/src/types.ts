@@ -638,6 +638,17 @@ export interface CatalogSkill {
   status: "notInstalled" | "installed" | "modified";
 }
 
+/** One agent of the built-in gallery (P140) and where it stands among the agents — mirrors `CatalogAgentPayload` in
+ * `src-tauri/src/agent_catalog_cmds.rs` and `CatalogAgentDto` on the hub. `modified`: an agent of that id is there but differs (or is a
+ * member's), so installing replaces its text. `skills` are the ones of the skills gallery it works with. */
+export interface CatalogAgent {
+  id: string;
+  role: string;
+  description: string;
+  skills: string[];
+  status: "notInstalled" | "installed" | "modified";
+}
+
 /** A skill packed into the text of a `*.warden-skill.json` file (P160) — mirrors `ExportedPackage` in `src-tauri/src/skills_cmds.rs`.
  * `attachmentsSkipped`: the skill has attached files, and they are not in the package. */
 export interface ExportedPackage {

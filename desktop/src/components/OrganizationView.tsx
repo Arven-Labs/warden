@@ -2,11 +2,12 @@ import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { t, type Key } from "../i18n";
 import { rich } from "../i18n/rich";
-import type { AgentEntry, AgentTask, SpendStatus } from "../types";
+import { catalogAgentText } from "../i18n/agentCatalog";
+import type { AgentEntry, AgentTask, CatalogAgent, SpendStatus } from "../types";
 import { activityLine, activityOf, lastConversationOf, spendOf } from "../lib/agentTasks";
 import { approvalCategoryLabel } from "../lib/approvalCategories";
-import { hubAgentTasks, hubEditAgentOrg, hubEditAgentOrgAsMember, hubListAgentOrg, hubListConversations, hubUsage } from "../lib/hub";
-import { addReportEdit, buildOrg, moveEdit, positionEdit, superiorChoices, type OrgAccess, type OrgAgent, type OrgEdit, type OrgNode } from "../lib/org";
+import { hubAgentTasks, hubEditAgentOrg, hubEditAgentOrgAsMember, hubListAgentCatalog, hubListAgentOrg, hubListConversations, hubUsage } from "../lib/hub";
+import { addReportEdit, buildOrg, catalogAgentAction, installAgentEdit, moveEdit, positionEdit, superiorChoices, type OrgAccess, type OrgAgent, type OrgEdit, type OrgNode } from "../lib/org";
 import { KeyCancelled, usePairingKey } from "./PairingKeyDialog";
 
 const autonomyLabel = (level: number): string => (level >= 1 && level <= 5 ? t(`org.autonomy${level}` as Key) : "");
@@ -264,7 +265,28 @@ function OrganizationView({
   // The owner's only (P123): what each agent spent and the conversations it has had. A member asks for neither and sees neither.
   const [spend, setSpend] = useState<SpendStatus | null>(null);
   const [conversations, setConversations] = useState<{ agentId?: string; updatedAt: number; parent?: unknown }[]>([]);
+  // P140 — the gallery of ready-made agents; `null` while loading or when it could not be read (a hub older than the gallery).
+  const [catalog, setCatalog] = useState<CatalogAgent[] | null>(null);
+  const [confirmReplace, setConfirmReplace] = useState<string | null>(null);
   const { askKey, dialog } = usePairingKey();
+
+  // The owner's only: each entry's state looks at their agents, so it is read again whenever they change.
+  useEffect(() => {
+    if (member) return;
+    let alive = true;
+    (remote ? hubListAgentCatalog() : invoke<CatalogAgent[]>("list_agent_catalog")).then(
+      (loaded) => {
+        if (!alive) return;
+        // Anything that is not a list (a mocked command in a test, say) reads as "no gallery".
+        setCatalog(Array.isArray(loaded) ? loaded : null);
+        setConfirmReplace(null);
+      },
+      () => alive && setCatalog(null),
+    );
+    return () => {
+      alive = false;
+    };
+  }, [remote, member, ownerAgents]);
 
   // A member's tree is the owner's, read from the hub as the access they were given allows.
   useEffect(() => {
@@ -373,6 +395,56 @@ function OrganizationView({
       )}
       {editable && tree.length > 0 && nobodyReports && <p className="settings-hint">{t("org.nobodyReports")}</p>}
       {panel?.kind === "add" && panel.under === null && <AddForm key="add-top" under={null} editing={editing} />}
+      {!member && catalog !== null && catalog.length > 0 && (
+        <section className="settings-section">
+          <div className="settings-section-header">
+            <h3 className="settings-section-title">{t("org.gallery")}</h3>
+          </div>
+          <p className="settings-hint">{t("org.galleryHint")}</p>
+          <div className="provider-list">
+            {catalog.map((entry) => {
+              const action = catalogAgentAction(entry.status, confirmReplace === entry.id);
+              const text = catalogAgentText(entry.id, { role: entry.role, description: entry.description });
+              return (
+                <div className="provider-card skill-card" key={entry.id}>
+                  <div className="skill-card-header">
+                    <span className="skill-card-name">{entry.id}</span>
+                    <span className="settings-hint">{text.role}</span>
+                    <div className="skill-card-actions">
+                      {action === "installed" && <span className="settings-hint">{t("org.galleryInstalled")}</span>}
+                      {action === "install" && (
+                        <button type="button" className="settings-save-btn" disabled={busy} onClick={() => void editing.apply(installAgentEdit(entry.id, false))}>
+                          {t("org.galleryInstall")}
+                        </button>
+                      )}
+                      {action === "conflict" && (
+                        <>
+                          <span className="settings-hint">{t("org.galleryOtherSameId")}</span>
+                          <button type="button" className="settings-browse-btn" disabled={busy} onClick={() => setConfirmReplace(entry.id)}>
+                            {t("org.galleryUseTheirs")}
+                          </button>
+                        </>
+                      )}
+                      {action === "confirm" && (
+                        <>
+                          <button type="button" className="provider-delete-btn" disabled={busy} onClick={() => void editing.apply(installAgentEdit(entry.id, true))}>
+                            {t("org.galleryReplace")}
+                          </button>
+                          <button type="button" className="settings-browse-btn" onClick={() => setConfirmReplace(null)}>
+                            {t("org.galleryKeep")}
+                          </button>
+                        </>
+                      )}
+                    </div>
+                  </div>
+                  <p className="skill-card-description">{text.description}</p>
+                  <p className="settings-hint">{t("org.gallerySkills", { skills: entry.skills.join(", ") })}</p>
+                </div>
+              );
+            })}
+          </div>
+        </section>
+      )}
       {editable && (
         <div className="org-form-actions">
           <button type="button" className="settings-browse-btn" disabled={busy} onClick={() => editing.open({ kind: "add", under: null })}>

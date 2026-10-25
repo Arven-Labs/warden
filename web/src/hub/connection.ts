@@ -15,6 +15,7 @@ import {
   type ApiKey,
   type Attachment,
   type BotPairingsView,
+  type CatalogAgentDto,
   type CatalogSkillDto,
   type PackagePreviewDto,
   type ChatEventDto,
@@ -553,6 +554,7 @@ export class ServerConnection {
         break;
       case "skillList":
       case "skillCatalog":
+      case "agentCatalog":
       case "skillPackageFile":
       case "skillPackagePreview":
       case "skillOk":
@@ -889,6 +891,13 @@ export class ServerConnection {
     const reply = await this.request((requestId) => ({ type: "editAgentOrg", requestId, pairingKey, edit }), SAVE_SETTINGS_TIMEOUT_MS);
     if (reply.type !== "settingsSaved") throw new Error("unexpected reply from the hub");
     return reply.settings.agents;
+  }
+
+  /** P140 — the gallery of ready-made agents the hub ships with, each with its state among the owner's agents. Installing one is an
+   * `editAgentOrg` with `installAgentEdit`. A hub from before the gallery answers with an error, which the caller treats as "no gallery". */
+  async listAgentCatalog(): Promise<CatalogAgentDto[]> {
+    const reply = await this.request((requestId) => ({ type: "listAgentCatalog", requestId }));
+    return reply.type === "agentCatalog" ? reply.entries : [];
   }
 
   /** The organization tree (P120) as the hub shows it to a member: only the id, the role and the superior, and the access they have (`view` or
