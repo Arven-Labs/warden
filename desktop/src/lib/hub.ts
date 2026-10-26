@@ -305,6 +305,35 @@ export async function hubSaveTrustedPublishers(askKey: KeyAsker, publishers: Pub
   return (await ask<{ type: string; publishers: Publisher[] }>(message, "trustedPublishers")).publishers;
 }
 
+/** P131 — the hub's saved MCP servers that sign in with OAuth, by name (the owner's settings; a member or a hub without them rejects). */
+export async function hubOauthServers(): Promise<string[]> {
+  const reply = await ask<{ type: string; settings: { machine?: { mcpServers?: { name: string; oauth?: boolean }[] } } }>({ type: "requestSettings" }, "settings");
+  return (reply.settings.machine?.mcpServers ?? []).filter((s) => s.oauth === true).map((s) => s.name);
+}
+
+/** P131 — which of the hub's OAuth servers have a login saved on its machine. The owner's only. */
+export async function hubListMcpLogins(): Promise<string[]> {
+  return (await ask<{ type: string; names: string[] }>({ type: "listMcpLogins" }, "mcpLogins")).names;
+}
+
+/** P131 — starts the sign-in of the hub's saved OAuth server `name`, asking for the pairing key. `redirectPort` is the port of this
+ * computer's own listener, so the browser comes back to it. Gives the page to open, the flow to finish and the return address's start. */
+export async function hubBeginMcpOauth(askKey: KeyAsker, name: string, redirectPort: number): Promise<{ flowId: string; authUrl: string; redirectPrefix: string }> {
+  const message = { type: "beginMcpOauth", name, redirectPort, pairingKey: await askKey(t("askKey.mcpLogin")) };
+  return await ask<{ type: string; flowId: string; authUrl: string; redirectPrefix: string }>(message, "mcpOauthStarted");
+}
+
+/** P131 — finishes a sign-in with the address the browser arrived at. Resolves once the login is saved on the hub. */
+export async function hubCompleteMcpOauth(flowId: string, callbackUrl: string): Promise<void> {
+  await ask<{ type: string }>({ type: "completeMcpOauth", flowId, callbackUrl }, "mcpOauthDone");
+}
+
+/** P131 — forgets the saved login of `name`, asking for the pairing key. Answers with the servers that still have one. */
+export async function hubForgetMcpOauth(askKey: KeyAsker, name: string): Promise<string[]> {
+  const message = { type: "forgetMcpOauth", name, pairingKey: await askKey(t("askKey.mcpLogin")) };
+  return (await ask<{ type: string; names: string[] }>(message, "mcpLogins")).names;
+}
+
 /** P140 — the gallery of ready-made agents the hub in use ships with, each with its state among the owner's agents (installing one is a
  * `hubEditAgentOrg` with `installAgentEdit`). A hub from before the gallery rejects, which the screen treats as "no gallery". */
 export async function hubListAgentCatalog(): Promise<CatalogAgent[]> {

@@ -2,7 +2,22 @@
 
 > **Nota**: Este log foi criado junto com o projeto. As sessões serão registradas aqui conforme o trabalho avança.
 >
-> Última atualização: 2026-10-25 (Sessão 314)
+> Última atualização: 2026-10-26 (Sessão 315)
+
+---
+
+### 2026-10-26 — Sessão 315 (o desktop faz o login OAuth do hub remoto sem colar nada: P131/P140)
+
+- **Pedido**: "sim", ao desktop com hub remoto, o que a 314 deixou. Planejado em modo de plano. **Achado antes de planejar**: o desktop não tem nenhuma tela com os servidores MCP do hub (o `SettingsView` edita só o config local; a configuração da máquina do hub só se edita na web), então o item não era "ligar um botão". Duas escolhas do usuário: **uma seção nova em Configurações, só de login** (a lista de servidores segue na web) e **o cliente escolhe a porta do retorno**.
+- **Feito**:
+  - `warden-core/tool/mcp_oauth.rs`: `CallbackListener` (`bind`, `port`, `redirect_uri`, `wait`) é o ouvinte do retorno, agora público; `authorize_interactively` passou a usá-lo.
+  - Protocolo e hub: `BeginMcpOauth` ganhou `redirect_port` (opcional); `mcp_login.rs` registra `http://127.0.0.1:<porta>/callback` com a porta pedida (só a partir de 1024, só `127.0.0.1`; porta menor é recusada) e responde com esse `redirectPrefix`; sem o campo, a porta fixa de antes.
+  - Desktop (Rust): `mcp_login_cmds.rs` com `mcp_login_listen`, `mcp_login_wait` (5 min) e `mcp_login_cancel`, um ouvinte por vez e um token de cancelamento (o Cancelar solta uma espera em andamento), registrado como estado próprio (`.manage`) e não como campo do `AppState`.
+  - Desktop (tela): `HubMcpLogins.tsx`, uma seção em Configurações mostrada quando há um hub conectado e o usuário é o dono (`SettingsView` ganhou a propriedade `hubSections`, preenchida pelo `App.tsx`), com a lista dos servidores `oauth` salvos do hub (`requestSettings`), Conectado ou Sem login, Entrar (abre o ouvinte, pergunta a chave de pareamento, abre o navegador, espera o retorno, entrega ao hub) e Sair. `lib/hubMcpLogin.ts` (`callbackAddress`, que recusa `error=` e query sem `code`/`state`) e as funções `hub*` em `lib/hub.ts`. Textos nos dois idiomas.
+- **Testes**: aqui `cargo check --workspace --tests` limpo, `npm test` do desktop (225) verde, `tsc` só com o `Markdown.tsx` (o `rehype-highlight` não está instalado neste checkout). **Escritos e não rodados** (CI): 2 no núcleo (o ouvinte devolve a query com que o navegador chega e responde a página de "pode fechar"; o prazo e a requisição sem query terminam com erro), 2 no hub (a porta pedida vira o `redirectPrefix` e o login conclui pelo ouvinte de verdade, com o servidor OAuth falso; portas 0, 1, 80 e 1023 recusadas e `None` mantém a fixa) e o serde do `redirectPort` com e sem o campo. Em JS: `callbackAddress` e o i18n.
+- **Não coberto**: a seção em si (nenhum E2E a abre), o `hubOauthServers` (depende de `invoke`, que o Node não tem), e o login contra um serviço de verdade.
+- **Fora**: editar a lista de servidores MCP do hub pelo desktop (continua na web), um campo de colar no desktop, celular e extensão, login por pessoa, renovar um login expirado sem refresh.
+- **Fica**: testar Linear, GitHub, Notion, Sentry e Slack nos serviços reais; outros fornecedores; `account.suspended` no site mãe.
 
 ---
 

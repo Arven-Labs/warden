@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
 import { t } from "../i18n";
@@ -1267,7 +1267,7 @@ function McpServerCard({
   );
 }
 
-function SettingsView() {
+function SettingsView({ hubSections = null }: { hubSections?: ReactNode } = {}) {
   const [form, setForm] = useState<Settings>(emptySettings);
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
@@ -1881,6 +1881,9 @@ function SettingsView() {
 
       {/* P12 — saved on its own, outside the form above. */}
       <ApiKeysSection />
+
+      {/* What belongs to the hub in use, not to this computer's config (P131): the caller passes it when a hub is connected. */}
+      {hubSections}
     </div>
   );
 }

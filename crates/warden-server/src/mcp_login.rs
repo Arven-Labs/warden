@@ -158,17 +158,32 @@ pub async fn handle_list(access: &SettingsAccess<'_>, logins: &McpLogins, reques
     }
 }
 
-/// Answers `BeginMcpOauth`: discovery and registration, and the address the person opens.
-pub async fn handle_begin(access: &SettingsAccess<'_>, logins: &McpLogins, request_id: u64, member: Option<&str>, pairing_key: &str, name: &str) -> ServerMessage {
+/// Where the browser is sent back to: the hub's fixed address, or, for a client that listens for the browser itself, the port it named on
+/// `127.0.0.1`. Only loopback and only an unprivileged port, so a client cannot aim the return at anything else.
+fn redirect_for(port: Option<u16>) -> Result<String, String> {
+    match port {
+        None => Ok(REDIRECT_URI.to_string()),
+        Some(port) if port >= 1024 => Ok(format!("http://127.0.0.1:{port}/callback")),
+        Some(port) => Err(format!("the return port has to be 1024 or more (got {port})")),
+    }
+}
+
+/// Answers `BeginMcpOauth`: discovery and registration, and the address the person opens. `redirect_port` is the port a client that listens
+/// for the browser itself (the desktop) asks the return to come to; without it the person copies the address back.
+pub async fn handle_begin(access: &SettingsAccess<'_>, logins: &McpLogins, request_id: u64, member: Option<&str>, pairing_key: &str, name: &str, redirect_port: Option<u16>) -> ServerMessage {
     let config = match authorize(access, request_id, member, Some(pairing_key)).await {
         Ok(config) => config,
         Err(reply) => return reply,
+    };
+    let redirect_uri = match redirect_for(redirect_port) {
+        Ok(uri) => uri,
+        Err(message) => return settings_error(request_id, message),
     };
     let url = match oauth_server_url(&config, name) {
         Ok(url) => url,
         Err(message) => return settings_error(request_id, message),
     };
-    let pending = match PendingAuthorization::begin(name, &url, &logins.store_of(name), REDIRECT_URI).await {
+    let pending = match PendingAuthorization::begin(name, &url, &logins.store_of(name), &redirect_uri).await {
         Ok(pending) => pending,
         Err(err) => return settings_error(request_id, format!("{err:#}")),
     };
@@ -176,7 +191,7 @@ pub async fn handle_begin(access: &SettingsAccess<'_>, logins: &McpLogins, reque
     match logins.open(name, pending) {
         Some(flow_id) => {
             tracing::info!(server = name, "MCP sign-in started");
-            ServerMessage::McpOauthStarted { request_id, flow_id, auth_url, redirect_prefix: REDIRECT_URI.to_string() }
+            ServerMessage::McpOauthStarted { request_id, flow_id, auth_url, redirect_prefix: redirect_uri }
         }
         None => settings_error(request_id, "too many MCP sign-ins are open at once; finish or wait for one to run out"),
     }
@@ -356,7 +371,7 @@ mod tests {
         }
 
         async fn begin(&self, name: &str) -> ServerMessage {
-            handle_begin(&self.access(true, true), &self.logins, 1, None, KEY, name).await
+            handle_begin(&self.access(true, true), &self.logins, 1, None, KEY, name, None).await
         }
     }
 
@@ -409,7 +424,7 @@ mod tests {
         let fx = Fixture::new("refused", 0).await;
         let begin = |allow, secure, key: &'static str, member: Option<&'static str>, name: &'static str| {
             let (fx, access) = (&fx, fx.access(allow, secure));
-            async move { handle_begin(&access, &fx.logins, 1, member, key, name).await }
+            async move { handle_begin(&access, &fx.logins, 1, member, key, name, None).await }
         };
         let (message, rejected) = error_of(begin(true, true, "wrong-key", None, "slack").await);
         assert!(message.contains("wrong pairing key") && rejected);
@@ -424,6 +439,46 @@ mod tests {
         let access = fx.access(true, true);
         assert!(error_of(handle_list(&access, &fx.logins, 1, Some("ana")).await).0.contains("owner"));
         assert!(error_of(handle_forget(&access, &fx.logins, 1, None, "wrong-key", "slack").await).1);
+        let _ = std::fs::remove_dir_all(&fx.host.dir);
+    }
+
+    /// A client that listens for the browser itself (the desktop) names the port, and the return comes to it: no copying.
+    #[tokio::test]
+    async fn a_client_that_listens_for_the_browser_names_the_port_and_gets_that_return() {
+        let fx = Fixture::new("port", 0).await;
+        let access = fx.access(true, true);
+        let listener = warden_core::tool::mcp_oauth::CallbackListener::bind().await.unwrap();
+        let (port, wanted) = (listener.port(), listener.redirect_uri());
+
+        let (flow_id, auth_url) = match handle_begin(&access, &fx.logins, 1, None, KEY, "slack", Some(port)).await {
+            ServerMessage::McpOauthStarted { flow_id, auth_url, redirect_prefix, .. } => {
+                assert_eq!(redirect_prefix, wanted, "the hub registered the return at the port it was given");
+                (flow_id, auth_url)
+            }
+            other => panic!("{other:?}"),
+        };
+        assert!(auth_url.contains(&format!("127.0.0.1%3A{port}")) || auth_url.contains(&format!("127.0.0.1:{port}")), "{auth_url}");
+
+        // The browser approves and is sent to the desktop's own listener, which hands the query to the hub.
+        let browser = tokio::spawn(async move { reqwest::get(&auth_url).await.unwrap().text().await.unwrap() });
+        let query = listener.wait(Duration::from_secs(5)).await.expect("the browser came back to the listener");
+        browser.await.unwrap();
+        assert!(matches!(handle_complete(&access, &fx.logins, 2, None, &flow_id, &format!("{wanted}?{query}")).await, ServerMessage::McpOauthDone { .. }));
+        assert!(fx.logins.store_of("slack").is_file());
+        let _ = std::fs::remove_dir_all(&fx.host.dir);
+    }
+
+    #[tokio::test]
+    async fn a_return_port_that_is_privileged_is_refused_and_none_keeps_the_fixed_address() {
+        let fx = Fixture::new("badport", 0).await;
+        let access = fx.access(true, true);
+        for port in [0u16, 1, 80, 1023] {
+            let reply = handle_begin(&access, &fx.logins, 1, None, KEY, "slack", Some(port)).await;
+            assert!(error_of(reply).0.contains("1024"), "port {port}");
+        }
+        assert_eq!(fx.logins.open_count(), 0);
+        assert_eq!(redirect_for(None).unwrap(), REDIRECT_URI);
+        assert_eq!(redirect_for(Some(1024)).unwrap(), "http://127.0.0.1:1024/callback");
         let _ = std::fs::remove_dir_all(&fx.host.dir);
     }
 

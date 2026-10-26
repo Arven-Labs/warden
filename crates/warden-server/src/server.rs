@@ -2035,13 +2035,13 @@ async fn handle_connection<S: Transport>(ws: WebSocketStream<S>, peer: SocketAdd
                         let _ = reply_tx.send(crate::mcp_login::handle_list(&access, &logins, request_id, member_id.as_deref()).await);
                     });
                 }
-                Ok(ClientMessage::BeginMcpOauth { request_id, pairing_key, name }) => {
+                Ok(ClientMessage::BeginMcpOauth { request_id, pairing_key, name, redirect_port }) => {
                     // Off the reader loop: a wrong key waits a second under the settings lock, and discovery goes over the network.
                     let (settings, shared, lock, auth_key, logins, reply_tx) = (settings.clone(), shared_orchestrator.clone(), settings_lock.clone(), auth_key.clone(), mcp_logins.clone(), tx.clone());
                     let member_id = member.as_ref().map(|m| m.id.clone());
                     tokio::spawn(async move {
                         let access = SettingsAccess { host: settings.as_deref(), shared: &shared, lock: &lock, auth_key: &auth_key, secure, allow_machine: allow_machine_settings, peer: Some(peer.ip()) };
-                        let _ = reply_tx.send(crate::mcp_login::handle_begin(&access, &logins, request_id, member_id.as_deref(), &pairing_key, &name).await);
+                        let _ = reply_tx.send(crate::mcp_login::handle_begin(&access, &logins, request_id, member_id.as_deref(), &pairing_key, &name, redirect_port).await);
                     });
                 }
                 Ok(ClientMessage::CompleteMcpOauth { request_id, flow_id, callback_url }) => {

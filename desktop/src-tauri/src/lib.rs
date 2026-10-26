@@ -7,6 +7,7 @@ mod conversation_watch;
 mod git_sync_cmds;
 mod hub_cmds;
 mod lend_cmds;
+mod mcp_login_cmds;
 mod node_cmds;
 mod people_cmds;
 mod projects_cmds;
@@ -1250,6 +1251,7 @@ pub fn run() {
             Ok(())
         })
         .manage(app_state)
+        .manage(mcp_login_cmds::McpLoginListener::default())
         .invoke_handler(tauri::generate_handler![
             send_message,
             list_tool_names,
@@ -1311,6 +1313,9 @@ pub fn run() {
             skills_cmds::preview_skill_package,
             skills_cmds::list_trusted_publishers,
             skills_cmds::save_trusted_publishers,
+            mcp_login_cmds::mcp_login_listen,
+            mcp_login_cmds::mcp_login_wait,
+            mcp_login_cmds::mcp_login_cancel,
             skills_cmds::sign_skill_package,
             skills_cmds::create_signing_key,
             skills_cmds::signing_key_public,

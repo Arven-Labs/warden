@@ -30,7 +30,7 @@ use rmcp::{schemars, tool, tool_handler, tool_router, ServerHandler};
 use serde::Deserialize;
 use serde_json::json;
 use tokio_util::sync::CancellationToken;
-use warden_core::tool::mcp_oauth::{already_authorized, authorize_interactively, connect_http_oauth, PendingAuthorization};
+use warden_core::tool::mcp_oauth::{already_authorized, authorize_interactively, connect_http_oauth, CallbackListener, PendingAuthorization};
 use warden_core::tool::ToolProvider;
 
 const CLIENT_ID: &str = "test-oauth-client";
@@ -370,6 +370,32 @@ async fn an_address_that_is_not_this_flows_own_return_saves_nothing() {
     let _ = tokio::fs::remove_file(&store).await;
     ct.cancel();
     let _ = handle.await;
+}
+
+/// P131: the desktop opens this listener for the hub's sign-in, tells the hub its port, and hands what arrives back to the hub.
+#[tokio::test]
+async fn the_callback_listener_hands_back_the_query_the_browser_arrives_with() {
+    let listener = CallbackListener::bind().await.expect("bind");
+    assert_eq!(listener.redirect_uri(), format!("http://127.0.0.1:{}/callback", listener.port()));
+    assert!(listener.port() >= 1024, "a free port, not a privileged one");
+    let address = format!("{}?code=abc&state=xyz", listener.redirect_uri());
+    let browser = tokio::spawn(async move { reqwest::get(&address).await.expect("the browser reaches the listener").text().await.unwrap() });
+    let query = listener.wait(std::time::Duration::from_secs(5)).await.expect("the query arrives");
+    assert_eq!(query, "code=abc&state=xyz");
+    assert!(browser.await.unwrap().contains("authorization complete"), "the person is told they can close the tab");
+}
+
+#[tokio::test]
+async fn the_callback_listener_gives_up_on_time_and_on_a_request_with_nothing_to_hand_back() {
+    let quiet = CallbackListener::bind().await.unwrap();
+    assert!(quiet.wait(std::time::Duration::from_millis(50)).await.unwrap_err().to_string().contains("timed out"));
+
+    let bare = CallbackListener::bind().await.unwrap();
+    let address = bare.redirect_uri();
+    tokio::spawn(async move {
+        let _ = reqwest::get(&address).await;
+    });
+    assert!(bare.wait(std::time::Duration::from_secs(5)).await.unwrap_err().to_string().contains("no query string"));
 }
 
 #[tokio::test]

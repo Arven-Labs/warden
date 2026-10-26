@@ -8,6 +8,7 @@ import HubConnectDialog from "./components/HubConnectDialog";
 import HubSwitcher from "./components/HubSwitcher";
 import Sidebar from "./components/Sidebar";
 import SettingsView from "./components/SettingsView";
+import HubMcpLogins from "./components/HubMcpLogins";
 import UsageView from "./components/UsageView";
 import OrganizationView from "./components/OrganizationView";
 import ActivityView from "./components/ActivityView";
@@ -1101,7 +1102,7 @@ function App() {
         }
       />
       {view === "settings" ? (
-        <SettingsView />
+        <SettingsView hubSections={remoteReady && !isHubMember ? <HubMcpLogins key={activeHubId} /> : null} />
       ) : view === "usage" ? (
         <UsageView key={activeHubId ?? "local"} remote={remote} />
       ) : view === "sync" ? (

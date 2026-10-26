@@ -2253,6 +2253,10 @@ pub enum ClientMessage {
         #[serde(default)]
         pairing_key: String,
         name: String,
+        /// A client that listens for the browser itself (the desktop) says on which port of `127.0.0.1`, and the hub registers that
+        /// return address instead of its fixed one; the port has to be 1024 or more. Without it the person copies the address back.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        redirect_port: Option<u16>,
     },
     /// Finishes a sign-in `BeginMcpOauth` started: `callback_url` is the address the person's browser ended at (it will not open, since
     /// nothing listens there; the person copies it). Needs no key again: the flow is the one that `BeginMcpOauth` opened for this
@@ -3826,10 +3830,15 @@ mod tests {
     fn the_mcp_sign_in_rides_the_wire() {
         assert_eq!(serde_json::to_string(&ClientMessage::ListMcpLogins { request_id: 1 }).unwrap(), r#"{"type":"listMcpLogins","requestId":1}"#);
 
-        let begin = ClientMessage::BeginMcpOauth { request_id: 2, pairing_key: "k".into(), name: "slack".into() };
+        let begin = ClientMessage::BeginMcpOauth { request_id: 2, pairing_key: "k".into(), name: "slack".into(), redirect_port: None };
         let json = serde_json::to_string(&begin).unwrap();
         assert_eq!(json, r#"{"type":"beginMcpOauth","requestId":2,"pairingKey":"k","name":"slack"}"#);
         assert_eq!(serde_json::from_str::<ClientMessage>(&json).unwrap(), begin);
+        // A client that listens for the browser itself names the port; without it the hub's own return address is used.
+        let listening = ClientMessage::BeginMcpOauth { request_id: 2, pairing_key: "k".into(), name: "slack".into(), redirect_port: Some(51234) };
+        let json = serde_json::to_string(&listening).unwrap();
+        assert_eq!(json, r#"{"type":"beginMcpOauth","requestId":2,"pairingKey":"k","name":"slack","redirectPort":51234}"#);
+        assert_eq!(serde_json::from_str::<ClientMessage>(&json).unwrap(), listening);
         // The key may be left out (it then fails the check instead of the parse).
         assert!(matches!(serde_json::from_str::<ClientMessage>(r#"{"type":"beginMcpOauth","requestId":3,"name":"slack"}"#).unwrap(), ClientMessage::BeginMcpOauth { pairing_key, .. } if pairing_key.is_empty()));
 

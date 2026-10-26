@@ -75,23 +75,53 @@ where
         return Ok(());
     }
 
-    let listener = TcpListener::bind("127.0.0.1:0")
-        .await
-        .map_err(|err| anyhow::anyhow!("failed to bind a local OAuth callback listener for MCP server '{server_name}': {err}"))?;
-    let port = listener
-        .local_addr()
-        .map_err(|err| anyhow::anyhow!("failed to read the local OAuth callback listener's port: {err}"))?
-        .port();
-    let redirect_uri = format!("http://127.0.0.1:{port}/callback");
+    let listener = CallbackListener::bind().await.map_err(|err| anyhow::anyhow!("MCP server '{server_name}': {err}"))?;
+    let redirect_uri = listener.redirect_uri();
 
     let mut pending = PendingAuthorization::begin(server_name, url, credential_store_path, &redirect_uri).await?;
 
     open_browser(pending.auth_url());
 
-    let callback_query = accept_oauth_callback(listener, AUTHORIZATION_TIMEOUT)
+    let callback_query = listener
+        .wait(AUTHORIZATION_TIMEOUT)
         .await
         .map_err(|err| anyhow::anyhow!("didn't receive an OAuth callback for MCP server '{server_name}': {err}"))?;
     pending.complete(&format!("{redirect_uri}?{callback_query}")).await
+}
+
+/// The one-shot listener on this machine that a browser is sent back to after the person approves (`127.0.0.1`, a free port). The desktop
+/// uses it for the hub's sign-in too (P131): it opens the listener, tells the hub its port, and hands the address that arrives back to the hub.
+pub struct CallbackListener {
+    listener: TcpListener,
+    port: u16,
+}
+
+impl CallbackListener {
+    /// Listens on a free port of `127.0.0.1`.
+    pub async fn bind() -> anyhow::Result<Self> {
+        let listener = TcpListener::bind("127.0.0.1:0")
+            .await
+            .map_err(|err| anyhow::anyhow!("failed to bind a local OAuth callback listener: {err}"))?;
+        let port = listener
+            .local_addr()
+            .map_err(|err| anyhow::anyhow!("failed to read the local OAuth callback listener's port: {err}"))?
+            .port();
+        Ok(Self { listener, port })
+    }
+
+    pub fn port(&self) -> u16 {
+        self.port
+    }
+
+    /// The address the browser is sent back to, which this listener answers.
+    pub fn redirect_uri(&self) -> String {
+        format!("http://127.0.0.1:{}/callback", self.port)
+    }
+
+    /// Waits for one request and returns its query string (`code=…&state=…`), answering the browser with a page that says it can close.
+    pub async fn wait(self, timeout: Duration) -> anyhow::Result<String> {
+        accept_oauth_callback(self.listener, timeout).await
+    }
 }
 
 /// An authorization that has begun and waits for the browser to come back, for a caller whose browser is not on this machine (the hub,
