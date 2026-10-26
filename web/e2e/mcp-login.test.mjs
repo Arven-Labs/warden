@@ -34,7 +34,8 @@ oauth = true
   try {
     const opened = await openSettings(browser, hub);
     context = opened.context;
-    const card = opened.page.locator("li.settings-card").first();
+    // The providers and agents are `settings-card`s too: the MCP server's is the one with an address.
+    const card = opened.page.locator("li.settings-card").filter({ hasText: "Endereço" });
     await body({ hub, oauth, card, ...opened });
     assert.deepEqual(opened.errors, [], "the page raised no error");
   } finally {
@@ -138,7 +139,7 @@ describe("the Sentry entry of the gallery", () => {
       await entry.getByRole("button", { name: "Adicionar" }).click();
       await entry.getByText("Já está na lista").waitFor();
 
-      const card = page.locator("li.settings-card").first();
+      const card = page.locator("li.settings-card").filter({ hasText: "Endereço" });
       const address = card.locator("input").nth(1);
       assert.equal(await address.inputValue(), "https://mcp.sentry.dev/mcp", "the gallery's address is the one Sentry publishes");
       await card.getByText(/Salve-o primeiro/).waitFor();

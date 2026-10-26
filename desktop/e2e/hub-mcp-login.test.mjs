@@ -75,7 +75,9 @@ async function openHubSettings({ state = OWNER, signedIn = new Set(), query = "c
   return { ...opened, signedIn };
 }
 
-const card = (page) => page.locator(".skill-card", { hasText: "sentry" });
+// The MCP gallery above has a `.skill-card` that mentions Sentry too, so the card is found by its name, not by a word in its text.
+const card = (page) => page.locator(".skill-card").filter({ has: page.locator(".skill-card-name", { hasText: /^sentry$/ }) });
+const section = (page) => page.locator("section.settings-section").filter({ has: page.getByRole("heading", { name: "Hub sign-ins" }) });
 const remoteMessages = (calls, type) => calls.filter((c) => c.cmd === "remote_request" && c.args.message.type === type).map((c) => c.args.message);
 
 describe("the desktop signs the hub in to an OAuth MCP server", () => {
@@ -146,7 +148,7 @@ describe("the desktop signs the hub in to an OAuth MCP server", () => {
       await dialog.getByRole("button", { name: "Cancel" }).click();
       await card(page).getByRole("button", { name: "Sign in", exact: true }).waitFor();
       assert.equal(remoteMessages(calls, "beginMcpOauth").length, 0);
-      assert.equal(await page.locator(".settings-error-banner").count(), 0, "cancelling is not an error");
+      assert.equal(await section(page).locator(".settings-error-banner").count(), 0, "cancelling is not an error");
       assert.deepEqual(errors, []);
     } finally {
       await context.close();
