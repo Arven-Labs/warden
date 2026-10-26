@@ -105,7 +105,10 @@ impl Default for McpLogins {
 
 /// The URL of the saved OAuth MCP server `name`, or why there is none.
 fn oauth_server_url(config: &warden_bootstrap::FileConfig, name: &str) -> Result<String, String> {
-    match config.mcp_servers.iter().find(|s| matches!(s, McpServerConfig::Http { name: n, .. } if n == name)) {
+    let saved = config.mcp_servers.iter().find(|s| match s {
+        McpServerConfig::Http { name: n, .. } | McpServerConfig::Stdio { name: n, .. } => n == name,
+    });
+    match saved {
         Some(McpServerConfig::Http { url, oauth: true, .. }) => Ok(url.clone()),
         Some(_) => Err(format!("MCP server '{name}' does not sign in with OAuth")),
         None => Err(format!("there is no saved MCP server called '{name}' (save it first)")),
