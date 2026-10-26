@@ -26,20 +26,31 @@ describe("the entries", () => {
     }
   });
 
-  test("nothing that signs in with OAuth is here: the page never sends it, so such a server would be saved broken", () => {
-    assert.ok(!MCP_CATALOG.some((e) => ["slack", "notion_remote", "sentry"].includes(e.id)));
+  test("a hosted one takes a key in the Authorization header or signs in with OAuth, never both", () => {
     assert.ok(MCP_CATALOG.filter((e) => e.kind === "stdio").every((e) => ["npx", "docker"].includes(e.command)));
-    // Every hosted one gets in through a key in the Authorization header, so it has a header to fill in.
     for (const e of MCP_CATALOG.filter((x) => x.kind === "http")) {
-      assert.deepEqual(e.headerNames, ["Authorization"], e.id);
-      assert.equal(e.needs, "header", e.id);
+      if (e.oauth) {
+        assert.deepEqual(e.headerNames, [], `${e.id} signs in with OAuth, so it has no header to fill in`);
+        assert.equal(e.needs, "oauth", e.id);
+      } else {
+        assert.deepEqual(e.headerNames, ["Authorization"], e.id);
+        assert.equal(e.needs, "header", e.id);
+      }
     }
+    assert.deepEqual(MCP_CATALOG.filter((e) => e.oauth).map((e) => e.id), ["slack", "notion_remote", "sentry"]);
   });
 
-  test("the hosted ones checked in Session 304 are at the addresses the vendors' docs give, and Sentry (OAuth only) is the desktop's", () => {
+  test("the hosted ones are at the addresses the vendors' docs give", () => {
     assert.equal(entry("linear").url, "https://mcp.linear.app/mcp");
     assert.equal(entry("github_remote").url, "https://api.githubcopilot.com/mcp/");
-    assert.ok(!MCP_CATALOG.some((e) => e.id === "sentry"), "Sentry signs in with OAuth, which the page never sends");
+    assert.equal(entry("slack").url, "https://mcp.slack.com/mcp");
+    assert.equal(entry("notion_remote").url, "https://mcp.notion.com/mcp");
+    assert.equal(entry("sentry").url, "https://mcp.sentry.dev/mcp");
+  });
+
+  test("an OAuth entry becomes a new server that signs in with OAuth, and the others do not", () => {
+    assert.equal(catalogServer(entry("sentry"), []).oauth, true);
+    assert.equal(catalogServer(entry("linear"), []).oauth, false);
   });
 
   test("the secrets ship as names only, and a variable name is never repeated", () => {

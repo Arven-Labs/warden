@@ -2,7 +2,22 @@
 
 > **Nota**: Este log foi criado junto com o projeto. As sessões serão registradas aqui conforme o trabalho avança.
 >
-> Última atualização: 2026-10-25 (Sessão 313)
+> Última atualização: 2026-10-25 (Sessão 314)
+
+---
+
+### 2026-10-25 — Sessão 314 (o login OAuth dos servidores MCP pelo hub: P131/P140)
+
+- **Pedido**: "sim", ao OAuth no hub. Planejado em modo de plano (o plano está em `ARCHITECTURE.md`, seção "O login OAuth dos servidores MCP pelo hub"), com duas escolhas do usuário: o retorno do login é **loopback e o cliente repassa o endereço** (funciona em qualquer hub, sem URL pública) e **só o dono, com a chave de pareamento**.
+- **Feito**:
+  - `warden-core/tool/mcp_oauth.rs`: `PendingAuthorization` (`begin`, `auth_url`, `redirect_uri`, `complete`) é a metade que não precisa de navegador na mesma máquina; `authorize_interactively` passou a usá-la, e `already_authorized` ficou pública. `complete` recusa um endereço que não começa pelo retorno emitido antes de chegar à troca do código.
+  - Protocolo: `ListMcpLogins`, `BeginMcpOauth`, `CompleteMcpOauth`, `ForgetMcpOauth` e as respostas `McpLogins`, `McpOauthStarted`, `McpOauthDone`; `McpServerEditDto.oauth` (padrão falso) para a web criar o servidor já com OAuth. `apply_machine` lê o `oauth` só de um servidor novo (um salvo mantém a escolha salva).
+  - Hub: módulo novo `mcp_login.rs` (os quatro handlers, o mapa de fluxos em memória: até 4, 5 minutos, um por servidor, `flowId` de 128 bits), ligado em `server.rs`; reaproveita `machine_gate`, `keys_match` e a espera de chave errada; o endereço do servidor vem do config do hub, nunca da mensagem; depois do login (e do "Desconectar") reconstrói o orquestrador. `oauth_credential_store_path_in` deixa os testes usarem uma pasta própria.
+  - Web: `hub/mcpLogin.ts` (`checkPastedAddress`), `McpLogin.tsx` no cartão do servidor `oauth` (Entrar com a chave de pareamento, link da página de login, campo do endereço colado, Sair), os quatro métodos de `ServerConnection`, e a galeria da web com Slack, Notion hospedado e Sentry (`oauth: true`, sem cabeçalho). Textos nos dois idiomas.
+- **Testes**: aqui `cargo check --workspace --tests` limpo, `npm test` da web (153) verde, `tsc` só com o `Markdown.tsx` (o `rehype-highlight` não está instalado neste checkout). **Escritos e não rodados** (CI): 2 em `tests/mcp_oauth.rs` do núcleo (o login iniciado e concluído em separado, com o servidor OAuth falso que já existe; endereço de outro lugar, de outro `state` ou de um `redirect_uri` diferente não salva nada, e o endereço certo ainda conclui depois), 4 em `mcp_login.rs` (o fluxo inteiro até o arquivo no disco, listado e esquecido; as recusas por chave errada, `--allow-machine-settings`, conexão não cifrada, membro, servidor que não é `oauth`, que não está salvo ou que é local; o endereço errado que não gasta o fluxo; o prazo, o limite de 4 e um fluxo por servidor), 1 em `machine_settings.rs` (servidor novo com OAuth, sem cabeçalhos, e o salvo que mantém a escolha) e o serde das mensagens no protocolo. Em JS: o `checkPastedAddress` e o i18n nos dois idiomas, mais o catálogo da web.
+- **Não coberto**: o login contra o Slack, o Notion ou o Sentry de verdade (só o servidor OAuth falso); a tela em si (nenhum E2E a abre); `toMachineEdit` mandando `oauth` só para servidor novo (o `machineDraft.ts` importa um `.tsx` e não carrega no Node).
+- **Fora**: o desktop falando com um hub remoto (o ouvinte local que repassa o retorno sozinho, sem colar nada; o protocolo já a comporta), celular e extensão, login por pessoa, renovar um login expirado sem refresh.
+- **Fica**: esse desktop com hub remoto; testar Linear, GitHub, Notion, Sentry e Slack nos serviços reais; outros fornecedores; `account.suspended` no site mãe.
 
 ---
 

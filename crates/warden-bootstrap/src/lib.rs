@@ -971,11 +971,16 @@ pub fn forget_agent_in_nodes(nodes: &mut [NodeAccessConfig], agent_id: &str) {
 /// names that only differ by punctuation collide here, same "the user's problem to fix" stance
 /// already taken for other name-keyed config (see `ProviderConfig`'s doc comment).
 pub fn oauth_credential_store_path(server_name: &str) -> PathBuf {
+    oauth_credential_store_path_in(&oauth_credentials_dir(), server_name)
+}
+
+/// `oauth_credential_store_path`, in a folder of the caller's choosing (the hub's sign-in keeps one so its tests need not touch the real one).
+pub fn oauth_credential_store_path_in(dir: &Path, server_name: &str) -> PathBuf {
     let sanitized: String = server_name
         .chars()
         .map(|c| if c.is_ascii_alphanumeric() || c == '_' || c == '-' { c } else { '_' })
         .collect();
-    oauth_credentials_dir().join(format!("{sanitized}.json"))
+    dir.join(format!("{sanitized}.json"))
 }
 
 /// The folder every `oauth_credential_store_path` file lives in, and what the sync carries between devices (P54).

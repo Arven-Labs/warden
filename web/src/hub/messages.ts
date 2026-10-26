@@ -532,6 +532,8 @@ export interface McpServerEdit {
   env: SecretEntryEdit[];
   url: string;
   headers: SecretEntryEdit[];
+  /** A new `http` server that signs in with OAuth (P131); for a saved one the hub keeps the saved choice. */
+  oauth?: boolean;
 }
 
 /** Mirrors `MachineEditDto`. */
@@ -1002,6 +1004,13 @@ export type ClientMessage =
    * with the pairing key) are both answered by `trustedPublishers`. */
   | { type: "listTrustedPublishers"; requestId: number }
   | { type: "saveTrustedPublishers"; requestId: number; pairingKey: string; publishers: TrustedPublisherDto[] }
+  /** P131 — signing the hub in to an OAuth MCP server from here. The owner's only. `listMcpLogins` is answered by `mcpLogins`;
+   * `beginMcpOauth` (with the pairing key) by `mcpOauthStarted`, whose address the person opens; `completeMcpOauth` with the address the
+   * browser ended at by `mcpOauthDone`; `forgetMcpOauth` by `mcpLogins`. */
+  | { type: "listMcpLogins"; requestId: number }
+  | { type: "beginMcpOauth"; requestId: number; pairingKey: string; name: string }
+  | { type: "completeMcpOauth"; requestId: number; flowId: string; callbackUrl: string }
+  | { type: "forgetMcpOauth"; requestId: number; pairingKey: string; name: string }
   /** P120 — what a member can do with the organization: "none", "view" or "edit". Owner; asks for the key; answered by `userList`. */
   | { type: "setUserOrgAccess"; requestId: number; pairingKey: string; id: string; access: string }
   | { type: "saveTask"; requestId: number; pairingKey: string; originalId?: string; task: Task }
@@ -1097,6 +1106,9 @@ export type ServerMessage =
   | { type: "skillCatalog"; requestId: number; entries: CatalogSkillDto[] }
   | { type: "agentCatalog"; requestId: number; entries: CatalogAgentDto[] }
   | { type: "trustedPublishers"; requestId: number; publishers: TrustedPublisherDto[] }
+  | { type: "mcpLogins"; requestId: number; names: string[] }
+  | { type: "mcpOauthStarted"; requestId: number; flowId: string; authUrl: string; redirectPrefix: string }
+  | { type: "mcpOauthDone"; requestId: number; name: string }
   | { type: "skillPackageFile"; requestId: number; content: string; attachmentsSkipped?: boolean }
   | { type: "skillPackagePreview"; requestId: number; preview: PackagePreviewDto }
   | { type: "projectList"; requestId: number; projects: ProjectDto[] }
@@ -1227,6 +1239,9 @@ export function decode(text: string): ServerMessage {
     case "skillCatalog":
     case "agentCatalog":
     case "trustedPublishers":
+    case "mcpLogins":
+    case "mcpOauthStarted":
+    case "mcpOauthDone":
     case "skillPackageFile":
     case "skillPackagePreview":
     case "projectList":

@@ -8405,6 +8405,7 @@ version = "0.1.2"
 dependencies = [
  "anyhow",
  "async-trait",
+ "axum",
  "base64 0.22.1",
  "clap",
  "dirs 5.0.1",
@@ -8413,6 +8414,7 @@ dependencies = [
  "httparse",
  "k256",
  "rcgen",
+ "reqwest 0.12.28",
  "rust-embed",
  "rustls",
  "serde",

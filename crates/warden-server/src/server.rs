@@ -440,6 +440,7 @@ impl Server {
             transcriber: self.transcriber,
             settings: self.settings,
             settings_lock: Arc::new(tokio::sync::Mutex::new(())),
+            mcp_logins: Arc::new(crate::mcp_login::McpLogins::new()),
             sync: self.sync,
             api_keys: self.api_keys,
             webhooks,
@@ -538,6 +539,8 @@ struct ConnectionContext {
     settings: Option<Arc<dyn SettingsHost>>,
     /// One settings save at a time on this hub.
     settings_lock: Arc<tokio::sync::Mutex<()>>,
+    /// The OAuth MCP sign-ins in progress (P131).
+    mcp_logins: Arc<crate::mcp_login::McpLogins>,
     sync: Option<Arc<SyncRunner>>,
     api_keys: Option<Arc<PathBuf>>,
     /// Incoming webhooks (P105); `None`: this hub offers none, and `/hooks/` answers 404.
@@ -1000,6 +1003,7 @@ async fn handle_connection<S: Transport>(ws: WebSocketStream<S>, peer: SocketAdd
         transcriber,
         settings,
         settings_lock,
+        mcp_logins,
         sync,
         api_keys,
         webhooks,
@@ -2021,6 +2025,39 @@ async fn handle_connection<S: Transport>(ws: WebSocketStream<S>, peer: SocketAdd
                     tokio::spawn(async move {
                         let access = SettingsAccess { host: settings.as_deref(), shared: &shared, lock: &lock, auth_key: &auth_key, secure, allow_machine: allow_machine_settings, peer: Some(peer.ip()) };
                         let _ = reply_tx.send(crate::settings::handle_save_trusted_publishers(&access, request_id, member_id.as_deref(), &pairing_key, &publishers).await);
+                    });
+                }
+                Ok(ClientMessage::ListMcpLogins { request_id }) => {
+                    let (settings, shared, lock, auth_key, logins, reply_tx) = (settings.clone(), shared_orchestrator.clone(), settings_lock.clone(), auth_key.clone(), mcp_logins.clone(), tx.clone());
+                    let member_id = member.as_ref().map(|m| m.id.clone());
+                    tokio::spawn(async move {
+                        let access = SettingsAccess { host: settings.as_deref(), shared: &shared, lock: &lock, auth_key: &auth_key, secure, allow_machine: allow_machine_settings, peer: Some(peer.ip()) };
+                        let _ = reply_tx.send(crate::mcp_login::handle_list(&access, &logins, request_id, member_id.as_deref()).await);
+                    });
+                }
+                Ok(ClientMessage::BeginMcpOauth { request_id, pairing_key, name }) => {
+                    // Off the reader loop: a wrong key waits a second under the settings lock, and discovery goes over the network.
+                    let (settings, shared, lock, auth_key, logins, reply_tx) = (settings.clone(), shared_orchestrator.clone(), settings_lock.clone(), auth_key.clone(), mcp_logins.clone(), tx.clone());
+                    let member_id = member.as_ref().map(|m| m.id.clone());
+                    tokio::spawn(async move {
+                        let access = SettingsAccess { host: settings.as_deref(), shared: &shared, lock: &lock, auth_key: &auth_key, secure, allow_machine: allow_machine_settings, peer: Some(peer.ip()) };
+                        let _ = reply_tx.send(crate::mcp_login::handle_begin(&access, &logins, request_id, member_id.as_deref(), &pairing_key, &name).await);
+                    });
+                }
+                Ok(ClientMessage::CompleteMcpOauth { request_id, flow_id, callback_url }) => {
+                    let (settings, shared, lock, auth_key, logins, reply_tx) = (settings.clone(), shared_orchestrator.clone(), settings_lock.clone(), auth_key.clone(), mcp_logins.clone(), tx.clone());
+                    let member_id = member.as_ref().map(|m| m.id.clone());
+                    tokio::spawn(async move {
+                        let access = SettingsAccess { host: settings.as_deref(), shared: &shared, lock: &lock, auth_key: &auth_key, secure, allow_machine: allow_machine_settings, peer: Some(peer.ip()) };
+                        let _ = reply_tx.send(crate::mcp_login::handle_complete(&access, &logins, request_id, member_id.as_deref(), &flow_id, &callback_url).await);
+                    });
+                }
+                Ok(ClientMessage::ForgetMcpOauth { request_id, pairing_key, name }) => {
+                    let (settings, shared, lock, auth_key, logins, reply_tx) = (settings.clone(), shared_orchestrator.clone(), settings_lock.clone(), auth_key.clone(), mcp_logins.clone(), tx.clone());
+                    let member_id = member.as_ref().map(|m| m.id.clone());
+                    tokio::spawn(async move {
+                        let access = SettingsAccess { host: settings.as_deref(), shared: &shared, lock: &lock, auth_key: &auth_key, secure, allow_machine: allow_machine_settings, peer: Some(peer.ip()) };
+                        let _ = reply_tx.send(crate::mcp_login::handle_forget(&access, &logins, request_id, member_id.as_deref(), &pairing_key, &name).await);
                     });
                 }
                 Ok(ClientMessage::ListAgentCatalog { request_id }) => {

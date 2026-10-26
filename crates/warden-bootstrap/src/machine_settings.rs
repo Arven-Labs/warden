@@ -277,7 +277,8 @@ fn mcp_server_from_edit(edit: McpServerEditDto, saved: &[McpServerConfig]) -> Re
             }
             let (saved_headers, oauth) = match before {
                 Some(McpServerConfig::Http { headers, oauth, .. }) => (Some(headers), *oauth),
-                _ => (None, false),
+                // A server that is new here: it signs in with OAuth only if the screen says so (P131).
+                _ => (None, edit.oauth),
             };
             let headers = secret_entries(&format!("MCP server '{name}': header"), edit.headers, saved_headers)?;
             if oauth && !headers.is_empty() {
@@ -420,6 +421,7 @@ mod tests {
                     env: s.env_keys.into_iter().map(|key| SecretEntryEdit { key, value: SecretEdit::Keep }).collect(),
                     url: s.url,
                     headers: s.header_keys.into_iter().map(|key| SecretEntryEdit { key, value: SecretEdit::Keep }).collect(),
+                    oauth: s.oauth,
                 })
                 .collect(),
             ssh_hosts: view.ssh_hosts,
@@ -479,6 +481,42 @@ mod tests {
             }
             other => panic!("{other:?}"),
         }
+    }
+
+    /// P131: a new `http` server can be saved as one that signs in with OAuth, and then it takes no headers; for a saved server the
+    /// saved choice wins, whatever the edit says.
+    #[test]
+    fn a_new_http_server_can_ask_for_oauth_and_a_saved_one_keeps_its_choice() {
+        let mut config = configured();
+        let mut edit = edit_of(&config);
+        let new_server = |oauth: bool, headers: Vec<SecretEntryEdit>| McpServerEditDto {
+            original_name: None,
+            name: "sentry".into(),
+            kind: "http".into(),
+            command: String::new(),
+            args: Vec::new(),
+            env: Vec::new(),
+            url: "https://mcp.sentry.dev/mcp".into(),
+            headers,
+            oauth,
+        };
+        edit.mcp_servers.push(new_server(true, Vec::new()));
+        apply_machine(&mut config, edit, &[agent("writer")]).unwrap();
+        assert!(matches!(config.mcp_servers.last(), Some(McpServerConfig::Http { name, oauth: true, headers, .. }) if name == "sentry" && headers.is_empty()));
+
+        let mut config = configured();
+        let mut edit = edit_of(&config);
+        edit.mcp_servers.push(new_server(true, vec![entry("Authorization", SecretEdit::Set("Bearer x".into()))]));
+        assert!(apply_machine(&mut config, edit, &[agent("writer")]).unwrap_err().contains("takes no headers"));
+
+        // `drive` is saved with OAuth and `search` without: asking for the opposite changes neither.
+        let mut config = configured();
+        let mut edit = edit_of(&config);
+        edit.mcp_servers[1].oauth = true;
+        edit.mcp_servers[2].oauth = false;
+        apply_machine(&mut config, edit, &[agent("writer")]).unwrap();
+        assert!(matches!(&config.mcp_servers[1], McpServerConfig::Http { oauth: false, .. }));
+        assert!(matches!(&config.mcp_servers[2], McpServerConfig::Http { oauth: true, .. }));
     }
 
     #[test]

@@ -19,7 +19,7 @@ export type McpDraft = Keyed<{
   url: string;
   env: McpEntryDraft[];
   headers: McpEntryDraft[];
-  /** Signs in with OAuth: only the desktop can run that, so the page leaves it as it is. */
+  /** Signs in with OAuth (P131): set by the hub for a saved server, and by the gallery for a new one. The sign-in itself is `McpLogin`. */
   oauth: boolean;
 }>;
 
@@ -100,6 +100,8 @@ export function toMachineEdit(d: MachineDraft): MachineEdit {
     env: s.kind === "stdio" ? s.env.map((e) => ({ key: e.name.trim(), value: e.secret.edit })) : [],
     url: s.kind === "http" ? s.url.trim() : "",
     headers: s.kind === "http" ? s.headers.map((e) => ({ key: e.name.trim(), value: e.secret.edit })) : [],
+    // Only a server that is new here is told to sign in with OAuth; a saved one keeps what the hub has (P131).
+    ...(s.kind === "http" && s.oauth && s.originalName === undefined && { oauth: true }),
   }));
   return {
     enableShell: d.enableShell,

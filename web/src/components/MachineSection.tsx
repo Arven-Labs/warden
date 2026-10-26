@@ -1,6 +1,7 @@
 import type { ServerConnection } from "../hub/connection";
 import type { MachineSettings } from "../hub/messages";
 import { t } from "../i18n";
+import McpLogin from "./McpLogin";
 import SshAuditLog from "./SshAuditLog";
 import { MCP_CATALOG, MCP_NEEDS_TEXT, catalogServer, catalogState, type McpCatalogEntry } from "./mcpCatalog";
 import { newEntry, newMcp, newSsh, type McpDraft, type McpEntryDraft, type MachineDraft, type SshDraft } from "./machineDraft";
@@ -58,7 +59,19 @@ function EntryList({
   );
 }
 
-function McpCard({ server, secretsWritable, onChange, onRemove }: { server: McpDraft; secretsWritable: boolean; onChange: (change: Partial<McpDraft>) => void; onRemove: () => void }) {
+function McpCard({
+  server,
+  secretsWritable,
+  conn,
+  onChange,
+  onRemove,
+}: {
+  server: McpDraft;
+  secretsWritable: boolean;
+  conn: ServerConnection | null;
+  onChange: (change: Partial<McpDraft>) => void;
+  onRemove: () => void;
+}) {
   return (
     <li className="skills-item settings-card">
       <div className="settings-grid">
@@ -87,7 +100,7 @@ function McpCard({ server, secretsWritable, onChange, onRemove }: { server: McpD
               <input value={server.url} placeholder={t("machine.urlPlaceholder")} onChange={(e) => onChange({ url: e.target.value })} />
             </Field>
             {server.oauth ? (
-              <p className="field-hint settings-field--wide">{t("machine.oauth")}</p>
+              <McpLogin conn={conn} savedName={server.originalName} />
             ) : (
               <EntryList title={t("machine.headers")} entries={server.headers} secretsWritable={secretsWritable} onChange={(headers) => onChange({ headers })} />
             )}
@@ -164,7 +177,7 @@ export default function MachineSection({ draft, settings, agentIds, secretsWrita
       const added: McpDraft =
         server.kind === "stdio"
           ? { ...newMcp(), name: server.name, command: server.command, args: server.args, env: server.envNames.map((key) => ({ ...newEntry(), name: key })) }
-          : { ...newMcp(), name: server.name, kind: "http", url: server.url, headers: server.headerNames.map((key) => ({ ...newEntry(), name: key })) };
+          : { ...newMcp(), name: server.name, kind: "http", url: server.url, headers: server.headerNames.map((key) => ({ ...newEntry(), name: key })), oauth: server.oauth };
       return { ...m, mcp: [...m.mcp, added] };
     });
   const patchSsh = (key: number, change: Partial<SshDraft>) => onChange((m) => ({ ...m, ssh: m.ssh.map((h) => (h.key === key ? { ...h, ...change } : h)) }));
@@ -196,7 +209,7 @@ export default function MachineSection({ draft, settings, agentIds, secretsWrita
         {draft.mcp.length === 0 && <p className="skills-hint">{t("machine.noMcp")}</p>}
         <ul className="skills-list">
           {draft.mcp.map((s) => (
-            <McpCard key={s.key} server={s} secretsWritable={secretsWritable} onChange={(change) => patchMcp(s.key, change)} onRemove={() => onChange((m) => ({ ...m, mcp: m.mcp.filter((x) => x.key !== s.key) }))} />
+            <McpCard key={s.key} server={s} secretsWritable={secretsWritable} conn={conn} onChange={(change) => patchMcp(s.key, change)} onRemove={() => onChange((m) => ({ ...m, mcp: m.mcp.filter((x) => x.key !== s.key) }))} />
           ))}
         </ul>
         <button type="button" className="link-button settings-add" onClick={() => onChange((m) => ({ ...m, mcp: [...m.mcp, newMcp()] }))}>

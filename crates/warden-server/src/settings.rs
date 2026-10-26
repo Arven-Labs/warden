@@ -160,7 +160,7 @@ fn view(host: &dyn SettingsHost, config: &FileConfig, orchestrator: &Orchestrato
     settings
 }
 
-fn settings_error(request_id: u64, message: impl Into<String>) -> ServerMessage {
+pub(crate) fn settings_error(request_id: u64, message: impl Into<String>) -> ServerMessage {
     ServerMessage::SettingsError { request_id, message: message.into(), conflict: false, auth_rejected: false }
 }
 
@@ -358,7 +358,7 @@ async fn save_org_edit(
     }
 }
 
-fn org_refusal(request_id: u64, message: &str) -> Box<ServerMessage> {
+pub(crate) fn org_refusal(request_id: u64, message: &str) -> Box<ServerMessage> {
     Box::new(ServerMessage::SettingsError { request_id, message: message.to_string(), conflict: false, auth_rejected: true })
 }
 
@@ -845,6 +845,7 @@ api_key = "sk-ant-original-secret-9999"
             env: Vec::new(),
             url: "https://mcp.example.com".into(),
             headers: vec![SecretEntryEdit { key: "Authorization".into(), value: SecretEdit::Set("Bearer abc".into()) }],
+            oauth: false,
         }];
         update.machine = Some(Box::new(machine));
         let reply = save_machine(&host, &shared, true, false, KEY, &version, update).await;

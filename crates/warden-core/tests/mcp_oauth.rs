@@ -30,7 +30,7 @@ use rmcp::{schemars, tool, tool_handler, tool_router, ServerHandler};
 use serde::Deserialize;
 use serde_json::json;
 use tokio_util::sync::CancellationToken;
-use warden_core::tool::mcp_oauth::{authorize_interactively, connect_http_oauth};
+use warden_core::tool::mcp_oauth::{already_authorized, authorize_interactively, connect_http_oauth, PendingAuthorization};
 use warden_core::tool::ToolProvider;
 
 const CLIENT_ID: &str = "test-oauth-client";
@@ -298,6 +298,76 @@ async fn a_login_overwritten_on_disk_is_used_by_a_client_already_connected() {
     assert!(result.to_string().contains("after"), "unexpected result: {result}");
 
     let _ = tokio::fs::remove_file(&credential_store_path).await;
+    ct.cancel();
+    let _ = handle.await;
+}
+
+/// Where a browser that nothing listens for would end up: the test server approves and answers with a redirect, which is read
+/// instead of followed. `redirect_uri` is registered but nobody is there, as for a hub whose person is on another machine.
+async fn address_the_browser_ends_at(auth_url: &str) -> String {
+    let client = reqwest::Client::builder().redirect(reqwest::redirect::Policy::none()).build().unwrap();
+    let response = client.get(auth_url).send().await.expect("the authorization server answers");
+    response.headers().get(header::LOCATION).expect("it redirects back").to_str().unwrap().to_string()
+}
+
+fn temp_store(label: &str) -> std::path::PathBuf {
+    std::env::temp_dir().join(format!("warden-mcp-oauth-test-{label}-{}.json", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()))
+}
+
+/// P131: the two halves apart, with the person's browser on another machine. Begin gives the address to open, the browser ends at an
+/// address nobody listens at, and handing that address back finishes the login, which the headless connection then uses.
+#[tokio::test]
+async fn a_login_begun_and_finished_apart_is_persisted_and_used() {
+    let (url, ct, handle) = spawn_server().await;
+    let store = temp_store("apart");
+    let redirect = "http://127.0.0.1:1/callback";
+
+    let mut pending = PendingAuthorization::begin("oauth-echo-server", &url, &store, redirect).await.expect("begin");
+    assert_eq!(pending.redirect_uri(), redirect);
+    assert!(!store.exists(), "nothing is saved before the browser comes back");
+
+    let returned = address_the_browser_ends_at(pending.auth_url()).await;
+    assert!(returned.starts_with(&format!("{redirect}?code=")), "{returned}");
+    pending.complete(&returned).await.expect("complete");
+    assert!(store.is_file());
+
+    let provider = connect_http_oauth("oauth-echo-server", &url, &store).await.expect("headless connect with the login just made");
+    assert_eq!(provider.tools().await.unwrap()[0].spec().name, "echo");
+    assert!(already_authorized(&url, &store).await.unwrap());
+
+    let _ = tokio::fs::remove_file(&store).await;
+    ct.cancel();
+    let _ = handle.await;
+}
+
+/// What comes back has to be this flow's own: another address, or the right one with a `state` that was not issued, saves nothing.
+#[tokio::test]
+async fn an_address_that_is_not_this_flows_own_return_saves_nothing() {
+    let (url, ct, handle) = spawn_server().await;
+    let store = temp_store("refused");
+    let redirect = "http://127.0.0.1:1/callback";
+    let mut pending = PendingAuthorization::begin("oauth-echo-server", &url, &store, redirect).await.expect("begin");
+    let returned = address_the_browser_ends_at(pending.auth_url()).await;
+    let query = returned.split_once('?').unwrap().1;
+
+    for bad in [
+        String::new(),
+        "not an address".to_string(),
+        format!("http://127.0.0.1:2/callback?{query}"),
+        format!("https://evil.example/callback?{query}"),
+        format!("{redirect}/../x?{query}"),
+        redirect.to_string(),
+        format!("{redirect}?code=test-authorization-code&state=somebody-elses"),
+    ] {
+        assert!(pending.complete(&bad).await.is_err(), "{bad:?} should be refused");
+        assert!(!store.exists(), "{bad:?} saved something");
+    }
+
+    // The refused tries did not use the flow up: the real address still finishes it.
+    pending.complete(&returned).await.expect("the real return still works");
+    assert!(store.is_file());
+
+    let _ = tokio::fs::remove_file(&store).await;
     ct.cancel();
     let _ = handle.await;
 }

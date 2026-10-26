@@ -916,6 +916,38 @@ export class ServerConnection {
     return reply.publishers;
   }
 
+  /** P131 — which of the hub's OAuth MCP servers have a login saved on its machine. The owner's only: a member (or a hub from before the
+   * sign-in) rejects. */
+  async listMcpLogins(): Promise<string[]> {
+    const reply = await this.request((requestId) => ({ type: "listMcpLogins", requestId }));
+    if (reply.type !== "mcpLogins") throw new Error("unexpected reply from the hub");
+    return reply.names;
+  }
+
+  /** P131 — starts signing the hub in to the saved OAuth MCP server `name`, with the pairing key. Gives the address to open in the browser,
+   * the flow `completeMcpOauth` finishes, and what the address the browser ends at starts with. Rejects with `SettingsError` (wrong key,
+   * a hub that does not allow machine changes, a server that is not saved or does not use OAuth...). */
+  async beginMcpOauth(pairingKey: string, name: string): Promise<{ flowId: string; authUrl: string; redirectPrefix: string }> {
+    const reply = await this.request((requestId) => ({ type: "beginMcpOauth", requestId, pairingKey, name }), SAVE_SETTINGS_TIMEOUT_MS);
+    if (reply.type !== "mcpOauthStarted") throw new Error("unexpected reply from the hub");
+    return { flowId: reply.flowId, authUrl: reply.authUrl, redirectPrefix: reply.redirectPrefix };
+  }
+
+  /** P131 — finishes a sign-in with the address the browser ended at. Resolves with the server's name once the login is saved. A wrong
+   * address rejects and leaves the flow open for the right one. */
+  async completeMcpOauth(flowId: string, callbackUrl: string): Promise<string> {
+    const reply = await this.request((requestId) => ({ type: "completeMcpOauth", requestId, flowId, callbackUrl }), SAVE_SETTINGS_TIMEOUT_MS);
+    if (reply.type !== "mcpOauthDone") throw new Error("unexpected reply from the hub");
+    return reply.name;
+  }
+
+  /** P131 — forgets the saved login of `name`, with the pairing key. Resolves with the servers that still have one. */
+  async forgetMcpOauth(pairingKey: string, name: string): Promise<string[]> {
+    const reply = await this.request((requestId) => ({ type: "forgetMcpOauth", requestId, pairingKey, name }), SAVE_SETTINGS_TIMEOUT_MS);
+    if (reply.type !== "mcpLogins") throw new Error("unexpected reply from the hub");
+    return reply.names;
+  }
+
   /** The organization tree (P120) as the hub shows it to a member: only the id, the role and the superior, and the access they have (`view` or
    * `edit`). Rejects with `SettingsError` when the owner gave no access. */
   async listAgentOrg(): Promise<{ agents: OrgAgent[]; access: string }> {

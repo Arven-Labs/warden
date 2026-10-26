@@ -1,14 +1,14 @@
 // P140 — the gallery of ready-made MCP integrations in the hub's machine settings. It works on the draft of the MCP list (nothing reaches the
 // hub until "Save", which asks first and lists what changes): it says which entries the draft already has and gives the fields of a new one.
-// Two kinds are here: the local ones (npx and Docker) and the hosted ones that take a key in the `Authorization` header. A hosted one that
-// signs in with OAuth (Slack, Notion's) needs the desktop, and the page never sends `oauth`, so it is not offered. Kept free of the draft
-// types so the tests can load it; the section builds the draft from what `catalogServer` returns.
+// Three kinds are here: the local ones (npx and Docker), the hosted ones that take a key in the `Authorization` header, and the hosted ones
+// that sign in with OAuth (Slack, Notion's, Sentry's), which the hub signs in after the server is saved (P131, `McpLogin`). Kept free of the
+// draft types so the tests can load it; the section builds the draft from what `catalogServer` returns.
 
 import type { Key } from "../i18n";
 
 /** What the person still has to do after adding it: pick a folder on the hub's computer, paste a secret, paste a key as the `Authorization`
- * header, or have Docker running there. */
-export type McpNeeds = "folder" | "secret" | "header" | "docker";
+ * header, sign the hub in (after saving), or have Docker running there. */
+export type McpNeeds = "folder" | "secret" | "header" | "oauth" | "docker";
 
 interface Common {
   id: string;
@@ -31,8 +31,10 @@ export interface McpStdioEntry extends Common {
 export interface McpHttpEntry extends Common {
   kind: "http";
   url: string;
-  /** The names of the headers the person fills in (the key goes in `Authorization`), empty on purpose. */
+  /** The names of the headers the person fills in (the key goes in `Authorization`), empty on purpose. None for one that signs in with OAuth. */
   headerNames: string[];
+  /** Signs in with OAuth instead of a header: the draft carries it, and the hub signs in once the server is saved. */
+  oauth?: boolean;
 }
 
 export type McpCatalogEntry = McpStdioEntry | McpHttpEntry;
@@ -41,6 +43,7 @@ export const MCP_NEEDS_TEXT: Record<McpNeeds, Key> = {
   folder: "machine.cat.needs.folder",
   secret: "machine.cat.needs.secret",
   header: "machine.cat.needs.header",
+  oauth: "machine.cat.needs.oauth",
   docker: "machine.cat.needs.docker",
 };
 
@@ -113,6 +116,41 @@ export const MCP_CATALOG: McpCatalogEntry[] = [
     url: "https://api.githubcopilot.com/mcp/",
     headerNames: ["Authorization"],
   },
+  // The four below sign in with OAuth: Dynamic Client Registration and a browser consent, which the hub runs in two calls (P131). Slack's
+  // address was verified on 2026-08-31 (Session 36); Notion's and Sentry's were read in the vendors' docs (Sessions 304 and 313), not tried.
+  {
+    kind: "http",
+    id: "slack",
+    label: "machine.cat.slack.label",
+    description: "machine.cat.slack.description",
+    needs: "oauth",
+    token: "https://mcp.slack.com/mcp",
+    url: "https://mcp.slack.com/mcp",
+    headerNames: [],
+    oauth: true,
+  },
+  {
+    kind: "http",
+    id: "notion_remote",
+    label: "machine.cat.notionRemote.label",
+    description: "machine.cat.notionRemote.description",
+    needs: "oauth",
+    token: "https://mcp.notion.com/mcp",
+    url: "https://mcp.notion.com/mcp",
+    headerNames: [],
+    oauth: true,
+  },
+  {
+    kind: "http",
+    id: "sentry",
+    label: "machine.cat.sentry.label",
+    description: "machine.cat.sentry.description",
+    needs: "oauth",
+    token: "https://mcp.sentry.dev/mcp",
+    url: "https://mcp.sentry.dev/mcp",
+    headerNames: [],
+    oauth: true,
+  },
 ];
 
 /** The part of a draft that tells which entry it is: how it is told apart depends on its kind. */
@@ -131,7 +169,9 @@ export function catalogState(entry: McpCatalogEntry, existing: DraftLike[]): "ad
   return has ? "added" : "available";
 }
 
-export type CatalogServer = { name: string; kind: "stdio"; command: string; args: string; envNames: string[] } | { name: string; kind: "http"; url: string; headerNames: string[] };
+export type CatalogServer =
+  | { name: string; kind: "stdio"; command: string; args: string; envNames: string[] }
+  | { name: string; kind: "http"; url: string; headerNames: string[]; oauth: boolean };
 
 /** The fields of the entry as a new server, named so that it collides with nothing already in the list (`notion`, `notion-2`, `notion-3`). */
 export function catalogServer(entry: McpCatalogEntry, existing: { name: string }[]): CatalogServer {
@@ -144,5 +184,5 @@ export function catalogServer(entry: McpCatalogEntry, existing: { name: string }
   }
   return entry.kind === "stdio"
     ? { name, kind: "stdio", command: entry.command, args: entry.args, envNames: [...entry.envNames] }
-    : { name, kind: "http", url: entry.url, headerNames: [...entry.headerNames] };
+    : { name, kind: "http", url: entry.url, headerNames: [...entry.headerNames], oauth: entry.oauth === true };
 }

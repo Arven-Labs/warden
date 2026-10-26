@@ -84,36 +84,73 @@ where
         .port();
     let redirect_uri = format!("http://127.0.0.1:{port}/callback");
 
-    let mut manager = AuthorizationManager::new(url)
-        .await
-        .map_err(|err| anyhow::anyhow!("failed to start OAuth discovery for MCP server '{server_name}' at {url}: {err}"))?;
-    manager.set_credential_store(FileCredentialStore::new(credential_store_path.to_path_buf()));
+    let mut pending = PendingAuthorization::begin(server_name, url, credential_store_path, &redirect_uri).await?;
 
-    let mut state = OAuthState::Unauthorized(manager);
-    let request = AuthorizationRequest::new(redirect_uri.clone()).with_client_name("Warden");
-    state
-        .start_authorization(request)
-        .await
-        .map_err(|err| anyhow::anyhow!("failed to start OAuth authorization for MCP server '{server_name}': {err}"))?;
-
-    let auth_url = state
-        .get_authorization_url()
-        .await
-        .map_err(|err| anyhow::anyhow!("failed to build the OAuth authorization URL for MCP server '{server_name}': {err}"))?;
-
-    open_browser(&auth_url);
+    open_browser(pending.auth_url());
 
     let callback_query = accept_oauth_callback(listener, AUTHORIZATION_TIMEOUT)
         .await
         .map_err(|err| anyhow::anyhow!("didn't receive an OAuth callback for MCP server '{server_name}': {err}"))?;
-    let callback_url = format!("{redirect_uri}?{callback_query}");
+    pending.complete(&format!("{redirect_uri}?{callback_query}")).await
+}
 
-    state
-        .handle_callback_url(&callback_url)
-        .await
-        .map_err(|err| anyhow::anyhow!("OAuth callback for MCP server '{server_name}' failed: {err}"))?;
+/// An authorization that has begun and waits for the browser to come back, for a caller whose browser is not on this machine (the hub,
+/// P131). It holds what must never leave this process: the PKCE verifier and the client that Dynamic Client Registration made.
+pub struct PendingAuthorization {
+    server_name: String,
+    state: OAuthState,
+    redirect_uri: String,
+    auth_url: String,
+}
 
-    Ok(())
+impl PendingAuthorization {
+    /// Discovery and Dynamic Client Registration against `url`, with `redirect_uri` as the place the browser will be sent back to.
+    /// Nothing needs to listen there: the person copies the address the browser ends up at. The login goes to `credential_store_path`.
+    pub async fn begin(server_name: &str, url: &str, credential_store_path: &Path, redirect_uri: &str) -> anyhow::Result<Self> {
+        let mut manager = AuthorizationManager::new(url)
+            .await
+            .map_err(|err| anyhow::anyhow!("failed to start OAuth discovery for MCP server '{server_name}' at {url}: {err}"))?;
+        manager.set_credential_store(FileCredentialStore::new(credential_store_path.to_path_buf()));
+
+        let mut state = OAuthState::Unauthorized(manager);
+        let request = AuthorizationRequest::new(redirect_uri.to_string()).with_client_name("Warden");
+        state
+            .start_authorization(request)
+            .await
+            .map_err(|err| anyhow::anyhow!("failed to start OAuth authorization for MCP server '{server_name}': {err}"))?;
+
+        let auth_url = state
+            .get_authorization_url()
+            .await
+            .map_err(|err| anyhow::anyhow!("failed to build the OAuth authorization URL for MCP server '{server_name}': {err}"))?;
+        Ok(Self { server_name: server_name.to_string(), state, redirect_uri: redirect_uri.to_string(), auth_url })
+    }
+
+    /// The address the person opens to sign in.
+    pub fn auth_url(&self) -> &str {
+        &self.auth_url
+    }
+
+    /// The address the browser is sent back to, which `complete` requires the callback to start with.
+    pub fn redirect_uri(&self) -> &str {
+        &self.redirect_uri
+    }
+
+    /// Finishes with `callback_url`, the address the browser ended at. It has to be at this flow's `redirect_uri` (anything else is
+    /// refused before it reaches the token exchange) and the `state` in it is checked against the flow's own. On success the token is
+    /// already persisted to the credential store the flow began with.
+    pub async fn complete(&mut self, callback_url: &str) -> anyhow::Result<()> {
+        let callback_url = callback_url.trim();
+        let at_redirect = callback_url.strip_prefix(self.redirect_uri.as_str()).is_some_and(|rest| rest.starts_with('?'));
+        if !at_redirect {
+            anyhow::bail!("that is not the address the browser was sent back to (it starts with {}?)", self.redirect_uri);
+        }
+        self.state
+            .handle_callback_url(callback_url)
+            .await
+            .map_err(|err| anyhow::anyhow!("OAuth callback for MCP server '{}' failed: {err}", self.server_name))?;
+        Ok(())
+    }
 }
 
 /// Deletes any stored credentials for a server, so its next connection attempt starts a fresh
@@ -126,7 +163,8 @@ pub async fn forget_credentials(credential_store_path: &Path) -> anyhow::Result<
         .map_err(|err| anyhow::anyhow!("failed to clear stored OAuth credentials at {}: {err}", credential_store_path.display()))
 }
 
-async fn already_authorized(url: &str, credential_store_path: &Path) -> anyhow::Result<bool> {
+/// Whether `credential_store_path` already holds a usable login for the server at `url`.
+pub async fn already_authorized(url: &str, credential_store_path: &Path) -> anyhow::Result<bool> {
     let mut manager = AuthorizationManager::new(url)
         .await
         .map_err(|err| anyhow::anyhow!("failed to start OAuth discovery at {url}: {err}"))?;

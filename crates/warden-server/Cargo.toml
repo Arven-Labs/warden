@@ -43,3 +43,6 @@ warden-server-protocol = { path = "../warden-server-protocol" }
 k256 = { version = "0.13", features = ["ecdsa"] }
 # Throwaway CA + leaf certs for the TLS tests (tests/tls.rs) — `ring` backend, same as rustls here.
 rcgen = { version = "0.14", default-features = false, features = ["crypto", "pem", "ring"] }
+# The stand-in authorization server of the MCP sign-in tests (`mcp_login.rs`), the same shape as warden-core's tests/mcp_oauth.rs.
+axum = "0.8"
+reqwest.workspace = true

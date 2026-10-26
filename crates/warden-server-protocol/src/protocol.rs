@@ -1499,6 +1499,10 @@ pub struct McpServerEditDto {
     pub url: String,
     #[serde(default)]
     pub headers: Vec<SecretEntryEdit>,
+    /// A new `http` server that signs in through OAuth (P131), which the hub does with `BeginMcpOauth`. For a saved server it is not
+    /// read: `Keep` carries the saved choice over, as it did before this field.
+    #[serde(default)]
+    pub oauth: bool,
 }
 
 /// One SSH server the AI may run commands on (P47), shown and saved as is: only the path to a key
@@ -2237,6 +2241,31 @@ pub enum ClientMessage {
         pairing_key: String,
         publishers: Vec<TrustedPublisherDto>,
     },
+    /// Which of the hub's OAuth MCP servers (`oauth = true`) have a login saved on its machine (P131). The owner's only. Answered by
+    /// `McpLogins`, or `SettingsError`.
+    ListMcpLogins { request_id: u64 },
+    /// Starts the sign-in of the hub's saved OAuth MCP server `name`, for a person whose browser is not on the hub's machine. Like any
+    /// change to what reaches the machine it needs `--allow-machine-settings`, an encrypted or local connection, and the pairing key;
+    /// the address comes from the hub's own config, never from here. Answered by `McpOauthStarted`, or `SettingsError` (a wrong key
+    /// sets `authRejected`).
+    BeginMcpOauth {
+        request_id: u64,
+        #[serde(default)]
+        pairing_key: String,
+        name: String,
+    },
+    /// Finishes a sign-in `BeginMcpOauth` started: `callback_url` is the address the person's browser ended at (it will not open, since
+    /// nothing listens there; the person copies it). Needs no key again: the flow is the one that `BeginMcpOauth` opened for this
+    /// connection's owner. Answered by `McpOauthDone`, or `SettingsError`.
+    CompleteMcpOauth { request_id: u64, flow_id: String, callback_url: String },
+    /// Forgets the saved login of an OAuth MCP server, so its next sign-in starts over. Same conditions as `BeginMcpOauth`. Answered by
+    /// `McpLogins` with what is left, or `SettingsError`.
+    ForgetMcpOauth {
+        request_id: u64,
+        #[serde(default)]
+        pairing_key: String,
+        name: String,
+    },
     /// What a member does with the organization of the agents: `none`, `view` or `edit` (P120). Answered by `UserList`.
     SetUserOrgAccess {
         request_id: u64,
@@ -2821,6 +2850,13 @@ pub enum ServerMessage {
         request_id: u64,
         publishers: Vec<TrustedPublisherDto>,
     },
+    /// Reply to `ClientMessage::ListMcpLogins` and `ForgetMcpOauth` (P131): the names of the OAuth MCP servers that have a login saved.
+    McpLogins { request_id: u64, names: Vec<String> },
+    /// Reply to `ClientMessage::BeginMcpOauth`: the address to open in the browser, and the flow `CompleteMcpOauth` finishes. The flow
+    /// lasts a few minutes and is the only one for that server; `redirect_prefix` is what the address the browser ends at starts with.
+    McpOauthStarted { request_id: u64, flow_id: String, auth_url: String, redirect_prefix: String },
+    /// Reply to `ClientMessage::CompleteMcpOauth`: the login is saved and the hub is connecting the server.
+    McpOauthDone { request_id: u64, name: String },
     /// The organization of the owner's agents (P120), for a member: after `ListAgentOrg`, and after one of their `EditAgentOrg`.
     /// `access` is what they may do with it, `view` or `edit`. Only each agent's id, position and superior, nothing of what it says or can do.
     AgentOrgList {
@@ -3787,6 +3823,43 @@ mod tests {
     }
 
     #[test]
+    fn the_mcp_sign_in_rides_the_wire() {
+        assert_eq!(serde_json::to_string(&ClientMessage::ListMcpLogins { request_id: 1 }).unwrap(), r#"{"type":"listMcpLogins","requestId":1}"#);
+
+        let begin = ClientMessage::BeginMcpOauth { request_id: 2, pairing_key: "k".into(), name: "slack".into() };
+        let json = serde_json::to_string(&begin).unwrap();
+        assert_eq!(json, r#"{"type":"beginMcpOauth","requestId":2,"pairingKey":"k","name":"slack"}"#);
+        assert_eq!(serde_json::from_str::<ClientMessage>(&json).unwrap(), begin);
+        // The key may be left out (it then fails the check instead of the parse).
+        assert!(matches!(serde_json::from_str::<ClientMessage>(r#"{"type":"beginMcpOauth","requestId":3,"name":"slack"}"#).unwrap(), ClientMessage::BeginMcpOauth { pairing_key, .. } if pairing_key.is_empty()));
+
+        let complete = ClientMessage::CompleteMcpOauth { request_id: 4, flow_id: "f".into(), callback_url: "http://127.0.0.1:1/callback?code=c&state=s".into() };
+        let json = serde_json::to_string(&complete).unwrap();
+        assert_eq!(json, r#"{"type":"completeMcpOauth","requestId":4,"flowId":"f","callbackUrl":"http://127.0.0.1:1/callback?code=c&state=s"}"#);
+        assert_eq!(serde_json::from_str::<ClientMessage>(&json).unwrap(), complete);
+
+        let forget = ClientMessage::ForgetMcpOauth { request_id: 5, pairing_key: "k".into(), name: "slack".into() };
+        assert_eq!(serde_json::to_string(&forget).unwrap(), r#"{"type":"forgetMcpOauth","requestId":5,"pairingKey":"k","name":"slack"}"#);
+
+        for (reply, expected) in [
+            (ServerMessage::McpLogins { request_id: 1, names: vec!["slack".into()] }, r#"{"type":"mcpLogins","requestId":1,"names":["slack"]}"#),
+            (
+                ServerMessage::McpOauthStarted { request_id: 2, flow_id: "f".into(), auth_url: "https://a/authorize".into(), redirect_prefix: "http://127.0.0.1:1/callback".into() },
+                r#"{"type":"mcpOauthStarted","requestId":2,"flowId":"f","authUrl":"https://a/authorize","redirectPrefix":"http://127.0.0.1:1/callback"}"#,
+            ),
+            (ServerMessage::McpOauthDone { request_id: 4, name: "slack".into() }, r#"{"type":"mcpOauthDone","requestId":4,"name":"slack"}"#),
+        ] {
+            let json = serde_json::to_string(&reply).unwrap();
+            assert_eq!(json, expected);
+            assert_eq!(serde_json::from_str::<ServerMessage>(&json).unwrap(), reply);
+        }
+
+        // A server being saved says whether it signs in with OAuth; an older page leaves it out, and that reads as no.
+        let old: McpServerEditDto = serde_json::from_str(r#"{"name":"n","kind":"http","url":"https://x"}"#).unwrap();
+        assert!(!old.oauth);
+    }
+
+    #[test]
     fn the_gallery_of_ready_made_agents_rides_the_wire() {
         let list = ClientMessage::ListAgentCatalog { request_id: 4 };
         assert_eq!(serde_json::to_string(&list).unwrap(), r#"{"type":"listAgentCatalog","requestId":4}"#);
@@ -4378,6 +4451,7 @@ mod tests {
                 env: vec![SecretEntryEdit { key: "TOKEN".into(), value: env }],
                 url: String::new(),
                 headers: Vec::new(),
+                oauth: false,
             }],
             ssh_hosts: Vec::new(),
             embedded_server: None,
