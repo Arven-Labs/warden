@@ -2,7 +2,20 @@
 
 > **Nota**: Este log foi criado junto com o projeto. As sessões serão registradas aqui conforme o trabalho avança.
 >
-> Última atualização: 2026-10-26 (Sessão 315)
+> Última atualização: 2026-10-26 (Sessão 316)
+
+---
+
+### 2026-10-26 — Sessão 316 (E2E do login OAuth dos servidores MCP: P131/P140)
+
+- **Pedido**: "vamos de 2", o item que a 315 deixou em "não coberto": nenhum E2E abria a seção do desktop, a tela da web nem a galeria do Sentry. Planejado em modo de plano.
+- **Feito** (só testes, nenhum código de produto mudou):
+  - `desktop/e2e/hub-mcp-login.test.mjs`: com o harness do `invoke` simulado, escolhe um hub salvo no seletor, manda o evento `remote-hub-state` pelo `runCallback` e abre Configurações. 6 casos: lista só os servidores `oauth` (sem login), entrar (chave de pareamento, `redirectPort` ao hub, `callbackUrl` montado a partir da query do ouvinte, `open_url` e `mcp_login_cancel`), retorno com `error=` não chega ao hub, fechar o diálogo não inicia nada, sair manda `forgetMcpOauth`, e um membro não vê a seção.
+  - `web/e2e/fake-oauth.mjs`: servidor OAuth falso em Node (descoberta, registro, `/authorize` que aprova sozinho, `/token`, `/mcp` com bearer que responde o aperto de mão) e `addressTheBrowserEndsAt`, que faz o papel do navegador.
+  - `web/e2e/mcp-login.test.mjs`: hub real com `--allow-machine-settings` e o servidor salvo com `oauth = true`. 4 casos: chave errada recusada; entrar de ponta a ponta e sair (o hub troca o código de verdade); endereço de outro lugar, sem código e com `error=` não chegam ao hub e o certo ainda conclui; e o Sentry da galeria (endereço publicado, "salve primeiro", salvo com `oauth` e sem cabeçalho, com o endereço apontado ao servidor falso para o hub não sair para a internet).
+- **Testes**: aqui só `node --check` nos três arquivos. **Escritos e não rodados** (Desktop E2E e Web E2E no CI).
+- **Incertezas para o CI**: se o `host.build()` do hub aceita o servidor falso depois do login (o `/mcp` falso foi escrito para isso); os seletores do desktop (`#hub-switcher-select`, o diálogo `role=dialog`) e da web (`li.settings-card`) foram lidos do código, não testados.
+- **Fica**: testar Linear, GitHub, Notion, Sentry e Slack nos serviços reais; outros fornecedores; `account.suspended` no site mãe.
 
 ---
 
