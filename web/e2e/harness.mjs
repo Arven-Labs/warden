@@ -44,10 +44,10 @@ persona = "You operate."
  * point there, so the hub's devices, conversations and vault never touch the user's. `extraConfig` is TOML
  * appended to the minimal config (a provider with a fake key and two agents). `files` maps a path to its text,
  * written under the hub's folder: beside `config.toml` (where it keeps `bot_pairing.json` and `bot_hub.json`), or in a
- * subfolder such as `warden/spend_ledger.jsonl` (made as needed), where the spend ledger lives.
+ * subfolder such as `warden/spend_ledger.jsonl` (made as needed), where the spend ledger lives. `extraArgs` are more flags for `serve`.
  * Returns `{ url, config, log(), stop() }`; `stop()` ends the process and deletes the folder.
  */
-export async function startHub({ allowMachineSettings = false, extraConfig = "", files = {} } = {}) {
+export async function startHub({ allowMachineSettings = false, extraConfig = "", files = {}, extraArgs = [] } = {}) {
   const bin = serverBinary();
   const home = fs.mkdtempSync(path.join(os.tmpdir(), "warden-e2e-"));
   const config = path.join(home, "config.toml");
@@ -59,6 +59,7 @@ export async function startHub({ allowMachineSettings = false, extraConfig = "",
   }
   const args = ["serve", "--listen", "127.0.0.1:0", "--auth-key", PAIRING_KEY, "--config", config, "--vault-path", path.join(home, "vault")];
   if (allowMachineSettings) args.push("--allow-machine-settings");
+  args.push(...extraArgs);
   const child = spawn(bin, args, {
     env: { PATH: process.env.PATH, HOME: home, XDG_CONFIG_HOME: home, XDG_DATA_HOME: home, GEMINI_API_KEY: "fake" },
     stdio: ["ignore", "pipe", "pipe"],

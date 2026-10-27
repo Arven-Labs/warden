@@ -22,7 +22,7 @@ use warden_bootstrap::secrets::secrets_path;
 use warden_bootstrap::{load_config_from_path, render_config, FileConfig};
 use warden_core::orchestrator::Orchestrator;
 use warden_core::tool::Tool;
-use warden_server_protocol::protocol::{AgentOrgEdit, CatalogAgentDto, HubSettingsDto, HubSettingsUpdate, OrgAgentDto, TrustedPublisherDto};
+use warden_server_protocol::protocol::{AgentOrgEdit, CatalogAgentDto, CuratorDto, HubSettingsDto, HubSettingsUpdate, OrgAgentDto, TrustedPublisherDto};
 use warden_server_protocol::ServerMessage;
 
 /// How long a wrong pairing key waits before its answer, so guessing one over the socket is slow.
@@ -447,6 +447,42 @@ pub async fn handle_save_trusted_publishers(access: &SettingsAccess<'_>, request
         return settings_error(request_id, format!("{err:#}"));
     }
     ServerMessage::TrustedPublishers { request_id, publishers: publisher_dtos(&config) }
+}
+
+/// Answers `SaveCurators` (P160): replaces `[[curators]]` with `curators` once they check out, under the settings lock and the pairing
+/// key like any change of the owner's. Like the trusted keys it only says where to look and whom to believe, so it does not need
+/// `--allow-machine-settings`, and nothing is started again: the list is read from the file at each fetch.
+pub async fn handle_save_curators(access: &SettingsAccess<'_>, request_id: u64, member: Option<&str>, pairing_key: &str, curators: &[CuratorDto]) -> ServerMessage {
+    if member.is_some() {
+        return *org_refusal(request_id, "only the workspace's owner changes that");
+    }
+    let Some(host) = access.host else {
+        return settings_error(request_id, NO_SETTINGS);
+    };
+    let _saving = access.lock.lock().await;
+    if !keys_match(pairing_key, access.auth_key) {
+        tokio::time::sleep(WRONG_KEY_DELAY).await;
+        return ServerMessage::SettingsError { request_id, message: "wrong pairing key".to_string(), conflict: false, auth_rejected: true };
+    }
+    let list: Vec<_> = curators.iter().map(|c| warden_bootstrap::curator::Curator { name: c.name.clone(), key: c.key.clone(), url: c.url.clone() }).collect();
+    let valid = match warden_bootstrap::curator::validate_curators(&list) {
+        Ok(valid) => valid,
+        Err(message) => return settings_error(request_id, format!("{message} — nothing was saved")),
+    };
+    let path = host.config_path();
+    let previous = match read_optional(&path) {
+        Ok(previous) => previous,
+        Err(err) => return settings_error(request_id, format!("{err:#}")),
+    };
+    let mut config = match load_config_from_path(&path, false) {
+        Ok(config) => config,
+        Err(err) => return settings_error(request_id, format!("{err:#}")),
+    };
+    config.curators = valid;
+    if let Err(err) = write_config(&path, previous.as_deref(), &config) {
+        return settings_error(request_id, format!("{err:#}"));
+    }
+    ServerMessage::Curators { request_id, curators: crate::curators::curator_dtos(&config) }
 }
 
 pub async fn handle_list_agent_catalog(access: &SettingsAccess<'_>, request_id: u64, member: Option<&str>) -> ServerMessage {

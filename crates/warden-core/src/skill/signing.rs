@@ -63,40 +63,50 @@ pub fn normalize_public_key(key: &str) -> Option<String> {
     is_public_key(key.trim()).then(|| key.trim().to_ascii_lowercase())
 }
 
+/// `ed25519:<public key>:<signature>` over `hash`, made with the private key `pkcs8`. What a package and an index both sign.
+pub(super) fn sign_hash(hash: &str, pkcs8: &[u8]) -> anyhow::Result<String> {
+    let pair = Ed25519KeyPair::from_pkcs8(pkcs8).map_err(|_| anyhow!("this is not an Ed25519 private key"))?;
+    let signature = pair.sign(hash.as_bytes());
+    Ok(format!("{SCHEME}:{}:{}", to_hex(pair.public_key().as_ref()), to_hex(signature.as_ref())))
+}
+
+/// Checks a `signature` field against `hash`. `what` ("package", "index") only words the errors. An empty field is `Unsigned`.
+pub(super) fn verify_field(what: &str, field: Option<&str>, hash: &str) -> anyhow::Result<Verification> {
+    let Some(field) = field.map(str::trim).filter(|s| !s.is_empty()) else {
+        return Ok(Verification::Unsigned);
+    };
+    let mut parts = field.splitn(3, ':');
+    let (scheme, key, signature) = (parts.next().unwrap_or_default(), parts.next(), parts.next());
+    if scheme != SCHEME {
+        bail!("the {what} is signed with '{scheme}', which this version of Warden can't check; update Warden or ask for an unsigned copy");
+    }
+    let (Some(key), Some(signature)) = (key, signature) else {
+        bail!("the {what}'s signature is malformed");
+    };
+    let public = from_hex(key).filter(|bytes| bytes.len() == PUBLIC_KEY_LEN).ok_or_else(|| anyhow!("the {what}'s signature is malformed (its key)"))?;
+    let signature = from_hex(signature).filter(|bytes| bytes.len() == SIGNATURE_LEN).ok_or_else(|| anyhow!("the {what}'s signature is malformed (its signature)"))?;
+    UnparsedPublicKey::new(&ED25519, &public)
+        .verify(hash.as_bytes(), &signature)
+        .map_err(|_| anyhow!("the {what}'s signature does not match its content: it was changed after it was signed, or the signature is not the signer's"))?;
+    Ok(Verification::Valid { key: to_hex(&public) })
+}
+
 impl Package {
     /// Signs the package with the private key `pkcs8`, replacing any signature it had. The package must be one that reads
     /// back clean (it is what `parse` and `export_skill` give), so the hash being signed is the content's.
     pub fn sign(&mut self, pkcs8: &[u8]) -> anyhow::Result<()> {
-        let pair = Ed25519KeyPair::from_pkcs8(pkcs8).map_err(|_| anyhow!("this is not an Ed25519 private key"))?;
-        let signature = pair.sign(self.hash.as_bytes());
-        self.signature = Some(format!("{SCHEME}:{}:{}", to_hex(pair.public_key().as_ref()), to_hex(signature.as_ref())));
+        self.signature = Some(sign_hash(&self.hash, pkcs8)?);
         Ok(())
     }
 
     /// Checks the signature, if there is one. An error means the package says it is signed and the signature is not good:
     /// it does not match the hash, is malformed, or is of a kind this version cannot check.
     pub fn verified(&self) -> anyhow::Result<Verification> {
-        let Some(field) = self.signature.as_deref().map(str::trim).filter(|s| !s.is_empty()) else {
-            return Ok(Verification::Unsigned);
-        };
-        let mut parts = field.splitn(3, ':');
-        let (scheme, key, signature) = (parts.next().unwrap_or_default(), parts.next(), parts.next());
-        if scheme != SCHEME {
-            bail!("the package is signed with '{scheme}', which this version of Warden can't check; update Warden or ask for an unsigned copy");
-        }
-        let (Some(key), Some(signature)) = (key, signature) else {
-            bail!("the package's signature is malformed");
-        };
-        let public = from_hex(key).filter(|bytes| bytes.len() == PUBLIC_KEY_LEN).ok_or_else(|| anyhow!("the package's signature is malformed (its key)"))?;
-        let signature = from_hex(signature).filter(|bytes| bytes.len() == SIGNATURE_LEN).ok_or_else(|| anyhow!("the package's signature is malformed (its signature)"))?;
-        UnparsedPublicKey::new(&ED25519, &public)
-            .verify(self.hash.as_bytes(), &signature)
-            .map_err(|_| anyhow!("the package's signature does not match its content: it was changed after it was signed, or the signature is not the signer's"))?;
-        Ok(Verification::Valid { key: to_hex(&public) })
+        verify_field("package", self.signature.as_deref(), &self.hash)
     }
 }
 
-fn to_hex(bytes: &[u8]) -> String {
+pub(super) fn to_hex(bytes: &[u8]) -> String {
     use std::fmt::Write as _;
     let mut hex = String::with_capacity(bytes.len() * 2);
     for byte in bytes {

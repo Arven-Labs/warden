@@ -891,6 +891,8 @@ async fn save_settings(state: State<'_, AppState>, payload: SettingsFormPayload)
         topup_url: existing.topup_url,
         // Whose skill packages are trusted (P160) is set in the config file only, so saving the settings keeps it.
         trusted_publishers: existing.trusted_publishers,
+        // The curators the person takes packages from (P160) are set in the config file only, so saving the settings keeps them.
+        curators: existing.curators,
         // `[learning]` is set in the config file (P104).
         learning: existing.learning,
         // Who may talk to the Telegram and WhatsApp bots (P117): set in the config file, carried forward so a Settings save doesn't wipe the lists.

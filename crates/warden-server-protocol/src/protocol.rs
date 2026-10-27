@@ -81,6 +81,35 @@ pub struct TrustedPublisherDto {
     pub name: String,
 }
 
+/// A curator the owner takes skill packages from (P160, `[[curators]]`): the name shown for them, the public key (64 hex characters)
+/// that signs their index, and where the index is (`https://…` or `ar://<id>`).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CuratorDto {
+    pub name: String,
+    pub key: String,
+    pub url: String,
+}
+
+/// One package in a curator's index (P160), as the hub read it: where it is, its hash, and whether the curator took it back.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CuratorEntryDto {
+    pub id: String,
+    pub version: String,
+    pub hash: String,
+    pub source: String,
+    pub description: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub author: Option<String>,
+    pub license: String,
+    /// The curator no longer vouches for it: it cannot be fetched through them.
+    #[serde(default)]
+    pub revoked: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub revoked_reason: Option<String>,
+}
+
 /// What a skill package says it holds (P160), read and checked but not installed: the answer to `PreviewSkillPackage`.
 /// `status` is as in `CatalogSkillDto`. `finding` is why the text looks unsafe (a link, a command, a key, text aimed at the
 /// assistant's own rules, invisible characters), when it does: installing such a package needs `allowFlagged`.
@@ -1917,6 +1946,23 @@ pub enum ClientMessage {
         request_id: u64,
         address: String,
     },
+    /// The curators this hub's owner takes packages from (P160, `[[curators]]`). Anyone signed in may ask: it only names where to look.
+    /// Answered by `Curators`.
+    ListCurators { request_id: u64 },
+    /// Replaces that whole list. The owner asks with the pairing key like a settings save; a bad entry refuses the lot. Answered by
+    /// `Curators` with what was saved, or `SettingsError` (a wrong key sets `authRejected`).
+    SaveCurators {
+        request_id: u64,
+        #[serde(default)]
+        pairing_key: String,
+        curators: Vec<CuratorDto>,
+    },
+    /// Reads the index of the curator called `curator` from where it is published, checked against the curator's key. Answered by
+    /// `CuratorIndex`, or `SkillError` (no such curator, nothing there, not signed by their key, older than one already seen).
+    FetchCuratorIndex { request_id: u64, curator: String },
+    /// Downloads the package of `curator`'s index whose hash is `hash`, for the caller to preview and install like any package. Refused
+    /// when the curator took it back or the bytes are not the listed ones. Answered by `SkillPackageFile`, or `SkillError`.
+    FetchCuratorPackage { request_id: u64, curator: String, hash: String },
     /// Reads and checks a skill package without installing it. Answered by `SkillPackagePreview`, or `SkillError` when it is
     /// not a valid package.
     PreviewSkillPackage {
@@ -2853,6 +2899,19 @@ pub enum ServerMessage {
     TrustedPublishers {
         request_id: u64,
         publishers: Vec<TrustedPublisherDto>,
+    },
+    /// Reply to `ClientMessage::ListCurators` and `SaveCurators` (P160): the list as the hub keeps it.
+    Curators {
+        request_id: u64,
+        curators: Vec<CuratorDto>,
+    },
+    /// Reply to `ClientMessage::FetchCuratorIndex` (P160): the index's name, its `sequence`, and each package it lists.
+    CuratorIndex {
+        request_id: u64,
+        curator: String,
+        name: String,
+        sequence: u64,
+        entries: Vec<CuratorEntryDto>,
     },
     /// Reply to `ClientMessage::ListMcpLogins` and `ForgetMcpOauth` (P131): the names of the OAuth MCP servers that have a login saved.
     McpLogins { request_id: u64, names: Vec<String> },
@@ -3824,6 +3883,43 @@ mod tests {
         let json = serde_json::to_string(&reply).unwrap();
         assert_eq!(json, r#"{"type":"trustedPublishers","requestId":2,"publishers":[]}"#);
         assert_eq!(serde_json::from_str::<ServerMessage>(&json).unwrap(), reply);
+    }
+
+    #[test]
+    fn the_curators_ride_the_wire() {
+        let list = ClientMessage::ListCurators { request_id: 1 };
+        assert_eq!(serde_json::to_string(&list).unwrap(), r#"{"type":"listCurators","requestId":1}"#);
+
+        let curator = CuratorDto { name: "Ana".into(), key: "ab".repeat(32), url: "https://example.org/index.json".into() };
+        let save = ClientMessage::SaveCurators { request_id: 2, pairing_key: "k".into(), curators: vec![curator.clone()] };
+        let json = serde_json::to_string(&save).unwrap();
+        assert_eq!(json, format!(r#"{{"type":"saveCurators","requestId":2,"pairingKey":"k","curators":[{{"name":"Ana","key":"{}","url":"https://example.org/index.json"}}]}}"#, "ab".repeat(32)));
+        assert_eq!(serde_json::from_str::<ClientMessage>(&json).unwrap(), save);
+        let bare = r#"{"type":"saveCurators","requestId":3,"curators":[]}"#;
+        match serde_json::from_str::<ClientMessage>(bare).unwrap() {
+            ClientMessage::SaveCurators { pairing_key, .. } => assert_eq!(pairing_key, ""),
+            other => panic!("unexpected {other:?}"),
+        }
+
+        let index = ClientMessage::FetchCuratorIndex { request_id: 4, curator: "Ana".into() };
+        assert_eq!(serde_json::to_string(&index).unwrap(), r#"{"type":"fetchCuratorIndex","requestId":4,"curator":"Ana"}"#);
+        let package = ClientMessage::FetchCuratorPackage { request_id: 5, curator: "Ana".into(), hash: "sha256:00".into() };
+        let json = serde_json::to_string(&package).unwrap();
+        assert_eq!(json, r#"{"type":"fetchCuratorPackage","requestId":5,"curator":"Ana","hash":"sha256:00"}"#);
+        assert_eq!(serde_json::from_str::<ClientMessage>(&json).unwrap(), package);
+
+        let reply = ServerMessage::Curators { request_id: 2, curators: vec![curator] };
+        let json = serde_json::to_string(&reply).unwrap();
+        assert_eq!(serde_json::from_str::<ServerMessage>(&json).unwrap(), reply);
+
+        let entry = CuratorEntryDto { id: "greet".into(), version: "1.0.0".into(), hash: "sha256:00".into(), source: "https://example.org/a.json".into(), description: "Greets.".into(), author: None, license: "MIT".into(), revoked: true, revoked_reason: Some("leaked".into()) };
+        let reply = ServerMessage::CuratorIndex { request_id: 4, curator: "Ana".into(), name: "Ana's picks".into(), sequence: 7, entries: vec![entry] };
+        let json = serde_json::to_string(&reply).unwrap();
+        assert_eq!(json, r#"{"type":"curatorIndex","requestId":4,"curator":"Ana","name":"Ana's picks","sequence":7,"entries":[{"id":"greet","version":"1.0.0","hash":"sha256:00","source":"https://example.org/a.json","description":"Greets.","license":"MIT","revoked":true,"revokedReason":"leaked"}]}"#);
+        assert_eq!(serde_json::from_str::<ServerMessage>(&json).unwrap(), reply);
+        // `revoked` may be left out: an entry nobody took back.
+        let plain = r#"{"id":"a","version":"1.0.0","hash":"sha256:00","source":"https://e.org/a","description":"","license":"MIT"}"#;
+        assert!(!serde_json::from_str::<CuratorEntryDto>(plain).unwrap().revoked);
     }
 
     #[test]

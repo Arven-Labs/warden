@@ -16,6 +16,8 @@ import {
   type Attachment,
   type BotPairingsView,
   type CatalogAgentDto,
+  type CuratorDto,
+  type CuratorEntryDto,
   type TrustedPublisherDto,
   type CatalogSkillDto,
   type PackagePreviewDto,
@@ -557,6 +559,8 @@ export class ServerConnection {
       case "skillCatalog":
       case "agentCatalog":
       case "trustedPublishers":
+      case "curators":
+      case "curatorIndex":
       case "mcpLogins":
       case "mcpOauthStarted":
       case "mcpOauthDone":
@@ -910,6 +914,37 @@ export class ServerConnection {
     const reply = await this.request((requestId) => ({ type: "listTrustedPublishers", requestId }));
     if (reply.type !== "trustedPublishers") throw new Error("unexpected reply from the hub");
     return reply.publishers;
+  }
+
+  /** P160 — the curators the hub's owner takes skill packages from. Any signed-in person may read it. */
+  async listCurators(): Promise<CuratorDto[]> {
+    const reply = await this.request((requestId) => ({ type: "listCurators", requestId }));
+    if (reply.type !== "curators") throw new Error("unexpected reply from the hub");
+    return reply.curators;
+  }
+
+  /** P160 — the owner replaces that whole list with the pairing key. Returns what the hub saved. Rejects with `SettingsError` (wrong key, a
+   * bad key or address, a name or key listed twice...). */
+  async saveCurators(pairingKey: string, curators: CuratorDto[]): Promise<CuratorDto[]> {
+    const reply = await this.request((requestId) => ({ type: "saveCurators", requestId, pairingKey, curators }), SAVE_SETTINGS_TIMEOUT_MS);
+    if (reply.type !== "curators") throw new Error("unexpected reply from the hub");
+    return reply.curators;
+  }
+
+  /** P160 — what the curator called `curator` published: the hub reads the index from where it is and checks it against the curator's key.
+   * Rejects when there is no such curator, nothing is there, it is not signed by their key or it is older than one the hub already saw. */
+  async fetchCuratorIndex(curator: string): Promise<{ name: string; sequence: number; entries: CuratorEntryDto[] }> {
+    const reply = await this.request((requestId) => ({ type: "fetchCuratorIndex", requestId, curator }), SAVE_SETTINGS_TIMEOUT_MS);
+    if (reply.type !== "curatorIndex") throw new Error("unexpected reply from the hub");
+    return { name: reply.name, sequence: reply.sequence, entries: reply.entries };
+  }
+
+  /** P160 — the text of the package of `curator`'s index with this `hash`, to preview and install like a file. Rejects when the curator took it
+   * back or what is at its address is not the package listed. */
+  async fetchCuratorPackage(curator: string, hash: string): Promise<string> {
+    const reply = await this.request((requestId) => ({ type: "fetchCuratorPackage", requestId, curator, hash }), SAVE_SETTINGS_TIMEOUT_MS);
+    if (reply.type !== "skillPackageFile") throw new Error("unexpected reply from the hub");
+    return reply.content;
   }
 
   /** P160 — replaces that whole list with the pairing key. Returns what the hub saved (keys in lowercase, names trimmed). Rejects with

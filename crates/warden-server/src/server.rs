@@ -140,6 +140,8 @@ pub struct Server {
     /// Whether a settings save may change what reaches this machine (P119): the shell, MCP servers,
     /// SSH hosts, folders and the embedded hub. Off unless the hub was started to allow it.
     allow_machine_settings: bool,
+    /// How the hub fetches what a curator publishes (P160): by default only public addresses. See `with_private_curators`.
+    curator_fetcher: warden_bootstrap::curator::HttpsFetcher,
     /// How long a vault's search model may sit unused before it is let go (P146 c). `None`: never.
     embedding_idle: Option<std::time::Duration>,
     /// The engine that drives a code project's conversations (P103 b). `None`: this hub has none, and those
@@ -194,6 +196,7 @@ impl Server {
             node_audit: warden_bootstrap::default_node_audit_log_path(),
             users_dir: None,
             allow_machine_settings: false,
+            curator_fetcher: warden_bootstrap::curator::HttpsFetcher::default(),
             embedding_idle: None,
             code_engine: None,
             code_turns: CodeTurns::default(),
@@ -221,6 +224,14 @@ impl Server {
     /// run over the network because the code learned how.
     pub fn with_machine_settings(mut self, allow: bool) -> Self {
         self.allow_machine_settings = allow;
+        self
+    }
+
+    /// Lets the hub fetch a curator's index and packages (P160) from a private address: another computer on the owner's network, or
+    /// this one, and over plain `http://`. Off by default, because a curator's address is typed by whoever holds the pairing key and
+    /// must not be a way to make the hub ask for things only it can reach.
+    pub fn with_private_curators(mut self, allow: bool) -> Self {
+        self.curator_fetcher = warden_bootstrap::curator::HttpsFetcher::new(allow);
         self
     }
 
@@ -457,6 +468,7 @@ impl Server {
             member_vaults,
             truthid_logins: Arc::new(TruthIdLogins::default()),
             allow_machine_settings: self.allow_machine_settings,
+            curator_fetcher: self.curator_fetcher,
             code_engine: self.code_engine,
             code_turns: self.code_turns,
             activity: self.activity,
@@ -569,6 +581,8 @@ struct ConnectionContext {
     truthid_logins: Arc<TruthIdLogins>,
     /// See `Server::with_machine_settings`.
     allow_machine_settings: bool,
+    /// See `Server::with_private_curators`.
+    curator_fetcher: warden_bootstrap::curator::HttpsFetcher,
     code_engine: Option<Arc<dyn CodeEngine>>,
     /// The code tasks running, shared by every connection so a stop can come from another device.
     code_turns: CodeTurns,
@@ -1020,6 +1034,7 @@ async fn handle_connection<S: Transport>(ws: WebSocketStream<S>, peer: SocketAdd
         member_vaults,
         truthid_logins,
         allow_machine_settings,
+        curator_fetcher,
         code_engine,
         code_turns,
         activity,
@@ -1841,6 +1856,31 @@ async fn handle_connection<S: Transport>(ws: WebSocketStream<S>, peer: SocketAdd
                             Err(message) => ServerMessage::SkillError { request_id, message },
                         };
                         let _ = reply_tx.send(reply);
+                    });
+                }
+                Ok(ClientMessage::ListCurators { request_id }) => {
+                    let _ = tx.send(crate::curators::handle_list(settings.as_deref(), request_id));
+                }
+                Ok(ClientMessage::FetchCuratorIndex { request_id, curator }) => {
+                    // A small download of the curator's index: spawned, so the connection is not held up by the network.
+                    let (settings, reply_tx) = (settings.clone(), tx.clone());
+                    tokio::spawn(async move {
+                        let _ = reply_tx.send(crate::curators::handle_fetch_index(settings.as_deref(), &curator_fetcher, request_id, &curator).await);
+                    });
+                }
+                Ok(ClientMessage::FetchCuratorPackage { request_id, curator, hash }) => {
+                    let (settings, reply_tx) = (settings.clone(), tx.clone());
+                    tokio::spawn(async move {
+                        let _ = reply_tx.send(crate::curators::handle_fetch_package(settings.as_deref(), &curator_fetcher, request_id, &curator, &hash).await);
+                    });
+                }
+                Ok(ClientMessage::SaveCurators { request_id, pairing_key, curators }) => {
+                    // Off the reader loop: a wrong key waits a second under the settings lock.
+                    let (settings, shared, lock, auth_key, reply_tx) = (settings.clone(), shared_orchestrator.clone(), settings_lock.clone(), auth_key.clone(), tx.clone());
+                    let member_id = member.as_ref().map(|m| m.id.clone());
+                    tokio::spawn(async move {
+                        let access = SettingsAccess { host: settings.as_deref(), shared: &shared, lock: &lock, auth_key: &auth_key, secure, allow_machine: allow_machine_settings, peer: Some(peer.ip()) };
+                        let _ = reply_tx.send(crate::settings::handle_save_curators(&access, request_id, member_id.as_deref(), &pairing_key, &curators).await);
                     });
                 }
                 Ok(

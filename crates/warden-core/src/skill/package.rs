@@ -99,7 +99,7 @@ fn hash_content(kind: &str, id: &str, version: &str, author: &Option<String>, li
     hex
 }
 
-fn one_line(label: &str, value: &str, max: usize) -> anyhow::Result<()> {
+pub(super) fn one_line(label: &str, value: &str, max: usize) -> anyhow::Result<()> {
     if value.chars().count() > max {
         bail!("{label} must be at most {max} characters");
     }

@@ -283,6 +283,9 @@ fn gate_with(message: &ClientMessage, text: &str) -> Option<ServerMessage> {
         | ClientMessage::ExportSkill { request_id, .. }
         | ClientMessage::PreviewSkillPackage { request_id, .. }
         | ClientMessage::FetchSkillPackage { request_id, .. }
+        | ClientMessage::ListCurators { request_id }
+        | ClientMessage::FetchCuratorIndex { request_id, .. }
+        | ClientMessage::FetchCuratorPackage { request_id, .. }
         | ClientMessage::InstallSkillPackage { request_id, .. } => ServerMessage::SkillError { request_id: *request_id, message: text },
         ClientMessage::ListProjects { request_id } | ClientMessage::SaveProject { request_id, .. } | ClientMessage::DeleteProject { request_id, .. } => {
             ServerMessage::ProjectError { request_id: *request_id, message: text }

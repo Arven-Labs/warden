@@ -3,10 +3,11 @@
 //! in a file only its owner can read (mode 0600 on Unix), is never printed, and is never overwritten: losing it would make
 //! everything signed with it unprovable, and a second `keygen` over it would do exactly that.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use anyhow::{bail, Context};
 use warden_bootstrap::skill_package::{self, signature_standing, TrustedPublisher};
+use warden_core::skill::index::{Index, IndexEntry, Revoked, MAX_INDEX_BYTES};
 use warden_core::skill::package::{Package, MAX_PACKAGE_BYTES};
 use warden_core::skill::signing::{decode_private_key, public_key_of};
 
@@ -40,6 +41,52 @@ pub fn verify(package: &Path, trusted: &[TrustedPublisher]) -> anyhow::Result<St
         ("unknown", Some(key), _) => format!("{what}: signed by {key}, a key that is not in your trusted_publishers"),
         _ => format!("{what}: not signed"),
     })
+}
+
+/// Makes the signed index of a curator (P160) from `packages` (package files, each read and checked as it stands) and writes it to
+/// `out`. Each entry's `source` is `base_url`, a slash and the file's name: the place the files will be published. `revoke` is hashes
+/// to take back, each `HASH` or `HASH=reason`. `sequence` is the index's number, the clock in seconds when `None`, so a later build
+/// is always newer. Returns a line saying what was written.
+pub fn index_build(name: &str, key: &Path, base_url: &str, revoke: &[String], packages: &[PathBuf], out: &Path, sequence: Option<u64>) -> anyhow::Result<String> {
+    let private = decode_private_key(&std::fs::read_to_string(key).with_context(|| format!("cannot read {}", key.display()))?)?;
+    let base = base_url.trim().trim_end_matches('/');
+    let mut entries = Vec::new();
+    for path in packages {
+        let package = Package::parse(&read_package(path)?).with_context(|| format!("{} is not a usable package", path.display()))?;
+        let file = path.file_name().and_then(|n| n.to_str()).unwrap_or_default();
+        if file.is_empty() || !file.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_')) {
+            bail!("the file name '{file}' cannot go in an address: use letters, digits, dots, dashes and underscores");
+        }
+        entries.push(IndexEntry::from_package(&package, &format!("{base}/{file}"))?);
+    }
+    let revoked: Vec<Revoked> = revoke
+        .iter()
+        .map(|item| match item.split_once('=') {
+            Some((hash, reason)) => Revoked { hash: hash.trim().to_string(), reason: Some(reason.trim().to_string()).filter(|r| !r.is_empty()) },
+            None => Revoked { hash: item.trim().to_string(), reason: None },
+        })
+        .collect();
+    let sequence = sequence.unwrap_or_else(|| std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(1, |d| d.as_secs()));
+    let index = Index::build(name, sequence, entries, revoked, &private)?;
+    std::fs::write(out, index.to_json()?).with_context(|| format!("cannot write {}", out.display()))?;
+    Ok(format!("wrote {} ({} packages, {} taken back, number {}), signed by {}", out.display(), index.entries.len(), index.revoked.len(), index.sequence, public_key_of(&private)?))
+}
+
+/// A line saying what the index at `path` holds and who signed it; with `key`, the index must be signed by it. A bad or missing
+/// signature is an error.
+pub fn index_verify(path: &Path, key: Option<&str>) -> anyhow::Result<String> {
+    let size = std::fs::metadata(path).with_context(|| format!("cannot read {}", path.display()))?.len();
+    if size > MAX_INDEX_BYTES as u64 {
+        bail!("{} is {} KiB; an index is at most {} KiB", path.display(), size.div_ceil(1024), MAX_INDEX_BYTES / 1024);
+    }
+    let text = std::fs::read_to_string(path).with_context(|| format!("cannot read {}", path.display()))?;
+    let index = match key {
+        Some(key) => Index::parse_signed_by(&text, key)?,
+        None => Index::parse(&text)?,
+    };
+    let signer = index.signer()?;
+    let note = if key.is_some() { "the key you gave" } else { "a key you did not check against anything" };
+    Ok(format!("{} (number {}): {} packages, {} taken back, signed by {signer}, {note}", index.name, index.sequence, index.entries.len(), index.revoked.len()))
 }
 
 fn read_package(path: &Path) -> anyhow::Result<String> {
@@ -105,6 +152,44 @@ mod tests {
         sign(&unsigned, &key, Some(&copy)).unwrap();
         assert!(verify(&copy, &listed).unwrap().contains("a key you trust"));
         assert!(verify(&unsigned, &listed).unwrap().contains("not signed"), "the original is as it was");
+    }
+
+    #[test]
+    fn an_index_is_built_from_packages_signed_and_read_back_by_its_key_only() {
+        let dir = dir();
+        let (key, package, out) = (dir.join("signing.key"), package_file(&dir), dir.join("index.json"));
+        let public = keygen(&key).unwrap();
+        let hash = Package::parse(&std::fs::read_to_string(&package).unwrap()).unwrap().hash;
+        let taken = format!("sha256:{}", "ab".repeat(32));
+        let line = index_build("Ana's picks", &key, "https://example.org/skills/", &[format!("{taken}=it asked for a password")], &[package.clone()], &out, Some(5)).unwrap();
+        assert!(line.contains("1 packages, 1 taken back, number 5") && line.contains(&public), "{line}");
+
+        let index = Index::parse_signed_by(&std::fs::read_to_string(&out).unwrap(), &public).unwrap();
+        assert_eq!(index.entries[0].source, "https://example.org/skills/greet.warden-skill.json", "the slash at the end of the base is not doubled");
+        assert_eq!(index.entries[0].hash, hash);
+        assert_eq!(index.revoked_reason(&taken), Some("it asked for a password"));
+
+        assert!(index_verify(&out, Some(&public)).unwrap().contains("the key you gave"));
+        assert!(index_verify(&out, None).unwrap().contains("did not check"));
+        assert!(index_verify(&out, Some(&"cd".repeat(32))).unwrap_err().to_string().contains("another key"));
+        std::fs::write(&out, std::fs::read_to_string(&out).unwrap().replace("Ana's picks", "Mallory's picks")).unwrap();
+        assert!(index_verify(&out, Some(&public)).unwrap_err().to_string().contains("changed or damaged"));
+    }
+
+    #[test]
+    fn an_index_is_not_built_from_what_is_not_a_package_or_cannot_be_an_address() {
+        let dir = dir();
+        let (key, package, out) = (dir.join("signing.key"), package_file(&dir), dir.join("index.json"));
+        keygen(&key).unwrap();
+        let bad = dir.join("not a package.json");
+        std::fs::write(&bad, "hello").unwrap();
+        assert!(index_build("x", &key, "https://example.org", &[], &[bad], &out, None).is_err());
+        let spaced = dir.join("with space.json");
+        std::fs::copy(&package, &spaced).unwrap();
+        assert!(index_build("x", &key, "https://example.org", &[], &[spaced], &out, None).unwrap_err().to_string().contains("cannot go in an address"));
+        assert!(index_build("x", &key, "http://example.org", &[], &[package.clone()], &out, None).is_err(), "a source is https, ar:// or this machine");
+        assert!(index_build("x", &dir.join("no-key"), "https://example.org", &[], &[package], &out, None).is_err());
+        assert!(!out.exists(), "nothing was written");
     }
 
     #[test]

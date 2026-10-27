@@ -7,6 +7,7 @@ import { rich } from "../i18n/rich";
 import { signatureView } from "../hub/skillSignature";
 import { SigningError, createKeyFile, publicKeyOf, signPackageText } from "../hub/signing";
 import CopyButton from "./CopyButton";
+import Curators from "./Curators";
 import TrustedPublishers from "./TrustedPublishers";
 import TrustThisKey from "./TrustThisKey";
 import { diffLines, hasChanges, withContext } from "./skillDiff";
@@ -798,6 +799,15 @@ export default function SkillsView({
           </ul>
         </section>
       )}
+      {/* The sources are the owner's to change; a member reads what they list. The package they pick opens in the import preview above. */}
+      <Curators
+        conn={conn}
+        owner={!user}
+        onInstall={(content) => {
+          window.scrollTo?.({ top: 0 });
+          handleCheckImport(content);
+        }}
+      />
       {/* The keys the hub trusts are the owner's to change: a member does not see them. */}
       {!user && <TrustedPublishers conn={conn} key={trustedVersion} />}
     </div>

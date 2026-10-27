@@ -34,6 +34,7 @@ pub mod bot_admin;
 pub mod chat_input;
 pub mod code_turns;
 pub mod conversations;
+pub mod curators;
 pub mod device_registry;
 pub mod openai_api;
 pub mod package_cmd;

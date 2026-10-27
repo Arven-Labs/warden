@@ -102,6 +102,29 @@ export interface CatalogAgentDto {
   status: "notInstalled" | "installed" | "modified";
 }
 
+/** Mirrors `warden_server_protocol::protocol::CuratorDto` (P160): a curator the hub's owner takes skill packages from. */
+export interface CuratorDto {
+  name: string;
+  /** The Ed25519 public key that signs their index, 64 hex characters. */
+  key: string;
+  /** Where the index is published: `https://…` or `ar://<id>`. */
+  url: string;
+}
+
+/** Mirrors `CuratorEntryDto` (P160): one package in a curator's index. */
+export interface CuratorEntryDto {
+  id: string;
+  version: string;
+  hash: string;
+  source: string;
+  description: string;
+  author?: string;
+  license: string;
+  /** The curator no longer vouches for it. */
+  revoked?: boolean;
+  revokedReason?: string;
+}
+
 /** Mirrors `warden_server_protocol::protocol::TrustedPublisherDto` (P160): a key whose skill packages the hub's owner trusts, and the
  * name shown for it. */
 export interface TrustedPublisherDto {
@@ -1004,6 +1027,13 @@ export type ClientMessage =
    * with the pairing key) are both answered by `trustedPublishers`. */
   | { type: "listTrustedPublishers"; requestId: number }
   | { type: "saveTrustedPublishers"; requestId: number; pairingKey: string; publishers: TrustedPublisherDto[] }
+  /** P160 — the curators the hub's owner takes packages from. `listCurators` is for anyone signed in; `saveCurators` (the whole list, with the
+   * pairing key) is the owner's; both are answered by `curators`. `fetchCuratorIndex` is answered by `curatorIndex`, `fetchCuratorPackage` by
+   * `skillPackageFile`. */
+  | { type: "listCurators"; requestId: number }
+  | { type: "saveCurators"; requestId: number; pairingKey: string; curators: CuratorDto[] }
+  | { type: "fetchCuratorIndex"; requestId: number; curator: string }
+  | { type: "fetchCuratorPackage"; requestId: number; curator: string; hash: string }
   /** P131 — signing the hub in to an OAuth MCP server from here. The owner's only. `listMcpLogins` is answered by `mcpLogins`;
    * `beginMcpOauth` (with the pairing key) by `mcpOauthStarted`, whose address the person opens; `completeMcpOauth` with the address the
    * browser ended at by `mcpOauthDone`; `forgetMcpOauth` by `mcpLogins`. */
@@ -1106,6 +1136,8 @@ export type ServerMessage =
   | { type: "skillCatalog"; requestId: number; entries: CatalogSkillDto[] }
   | { type: "agentCatalog"; requestId: number; entries: CatalogAgentDto[] }
   | { type: "trustedPublishers"; requestId: number; publishers: TrustedPublisherDto[] }
+  | { type: "curators"; requestId: number; curators: CuratorDto[] }
+  | { type: "curatorIndex"; requestId: number; curator: string; name: string; sequence: number; entries: CuratorEntryDto[] }
   | { type: "mcpLogins"; requestId: number; names: string[] }
   | { type: "mcpOauthStarted"; requestId: number; flowId: string; authUrl: string; redirectPrefix: string }
   | { type: "mcpOauthDone"; requestId: number; name: string }
@@ -1239,6 +1271,8 @@ export function decode(text: string): ServerMessage {
     case "skillCatalog":
     case "agentCatalog":
     case "trustedPublishers":
+    case "curators":
+    case "curatorIndex":
     case "mcpLogins":
     case "mcpOauthStarted":
     case "mcpOauthDone":

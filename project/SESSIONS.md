@@ -2,7 +2,23 @@
 
 > **Nota**: Este log foi criado junto com o projeto. As sessões serão registradas aqui conforme o trabalho avança.
 >
-> Última atualização: 2026-10-26 (Sessão 316)
+> Última atualização: 2026-10-27 (Sessão 318)
+
+---
+
+### 2026-10-27 — Sessão 318 (o índice assinado dos curadores: P160)
+
+- **Pedido**: "blz continua", o item "índice assinado dos curadores" do P160. Planejado em modo de plano (o desenho está em `ARCHITECTURE.md`, seção "O índice assinado dos curadores"). Escolhas do usuário: escopo **formato + CLI + hub + web** (desktop, celular e extensão ficam) e transporte **https e ar://** com um helper novo de https com proteção contra SSRF (o repositório não tinha nenhuma).
+- **Feito**:
+  - `warden-core/skill/index.rs`: o envelope `warden-index` (entradas, revogados, `sequence`, hash, assinatura obrigatória), `Index::build`, `parse`, `parse_signed_by`, `is_source`; `signing.rs` ganhou `sign_hash` e `verify_field`, que o `Package` e o `Index` dividem (as mensagens do pacote não mudaram).
+  - `warden-sync/https_fetch.rs`: `HttpsFetcher` (só https, resolvedor que descarta endereço não público, IP literal conferido a cada redirecionamento, teto de bytes, 30 s), com `allow_private` para curador na rede do dono e para os testes.
+  - `warden-bootstrap/curator.rs`: `Curator`, `usable_curators`/`validate_curators`/`set_curators` (campo `curators` no `FileConfig`, carregado pelo desktop ao salvar), `fetch_index` (chave do curador e `sequence` não menor que a vista), `fetch_indexed_package` (recusa retirado e hash diferente) e `SeenSequences`.
+  - Protocolo e hub: `ListCurators`, `SaveCurators`, `FetchCuratorIndex`, `FetchCuratorPackage` e as respostas `Curators` e `CuratorIndex`; `warden-server/curators.rs`, `handle_save_curators` no `settings.rs`, a flag `--allow-private-curators` e `with_private_curators`.
+  - CLI: `warden-server package index build|verify`.
+  - Web: `hub/curators.ts` (regras puras), `components/Curators.tsx` (seção "Fontes": lista, adicionar e salvar com a chave de pareamento, abrir a lista, "Retirada" marcada e "Ler e instalar" pela prévia de importar) e textos nos dois idiomas. A seção fica fora de qualquer `<form>` (o erro da Sessão 317).
+- **Testes**: aqui `cargo check --workspace --tests` limpo, `npm test` da web (158) e `tsc` limpos, `node --check` nos E2E. **Escritos e não rodados** (CI): `index.rs` (10), `https_fetch` (unidade e `tests/https_fetch.rs`: recusa de IP privado, de loopback, de redirecionamento para fora e de corpo acima do teto), `curator.rs` (config, `SeenSequences`, busca com servidor falso), `tests/curators.rs` do hub (lista e salva, chave errada, membro lê e não salva, índice, retirado, chave de outro curador, retrocesso, padrão sem `--allow-private-curators`), `package_cmd` (`index_build`/`index_verify`), o ida e volta no protocolo e `web/e2e/curators.test.mjs` (hub com a flag e um índice feito pela CLI de verdade).
+- **Fora**: o botão "adicionar a fonte do Fabio" (ainda não há chave de curador), atualizar com diff por fonte, desktop, celular e extensão, agentes e integrações como `kind`.
+- **Fica**: a revisão do que o CI achar; quem assina o índice do primeiro curador (decisão do usuário); testar Linear, GitHub, Notion, Sentry e Slack nos serviços reais; `account.suspended` no site mãe.
 
 ---
 

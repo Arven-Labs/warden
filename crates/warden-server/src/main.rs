@@ -508,6 +508,46 @@ enum PackageAction {
         #[arg(long)]
         config: Option<PathBuf>,
     },
+    /// A curator's signed index of packages (P160): the list people add by your name and key to take your skills from.
+    Index {
+        #[command(subcommand)]
+        action: IndexAction,
+    },
+}
+
+#[derive(Subcommand, Debug)]
+enum IndexAction {
+    /// Makes the index of the PACKAGES files (each read and checked as it stands), signed with --key, and writes it to --out. Each
+    /// entry's address is --base-url, a slash and the file's name: where you will publish the files.
+    Build {
+        packages: Vec<PathBuf>,
+        /// What you call this list.
+        #[arg(long)]
+        name: String,
+        /// The signing key file (`package keygen` makes it).
+        #[arg(long)]
+        key: PathBuf,
+        /// Where the package files will be published: an https:// address.
+        #[arg(long)]
+        base_url: String,
+        /// A package hash to take back, `HASH` or `HASH=reason` (repeat it for more).
+        #[arg(long)]
+        revoke: Vec<String>,
+        /// The file to write.
+        #[arg(short, long)]
+        out: PathBuf,
+        /// The index's number, which has to grow with each one you publish (the clock, in seconds, when left out).
+        #[arg(long)]
+        sequence: Option<u64>,
+    },
+    /// Says what the index INDEX holds and who signed it; with --key it must be signed by that public key. A signature that does not
+    /// check out, or none, is an error.
+    Verify {
+        index: PathBuf,
+        /// The public key (64 hex characters) the index must be signed by.
+        #[arg(long)]
+        key: Option<String>,
+    },
 }
 
 #[derive(Subcommand, Debug)]
@@ -618,6 +658,12 @@ struct ServeArgs {
     /// connection, and the hub logs each change. Turn it on only for a hub you reach over TLS.
     #[arg(long)]
     allow_machine_settings: bool,
+
+    /// Let the hub fetch a curator's skill index and packages (P160) from a private address: another computer on your network, or this
+    /// one, over plain http:// too. Off by default: a curator's address is typed by whoever holds the pairing key, and the hub only
+    /// follows public https:// and ar:// addresses unless this is on.
+    #[arg(long)]
+    allow_private_curators: bool,
 
     /// Don't load the two search models (the vault's and the history's) when the hub starts: each loads at its first
     /// search instead. An idle hub then weighs ~25 MB rather than ~960 MB (P146), which is what a hub hosting many
@@ -1382,6 +1428,12 @@ fn run_package_command(action: PackageAction) -> anyhow::Result<()> {
                 .unwrap_or_default();
             println!("{}", package_cmd::verify(&package, &trusted)?);
         }
+        PackageAction::Index { action: IndexAction::Build { packages, name, key, base_url, revoke, out, sequence } } => {
+            println!("{}", package_cmd::index_build(&name, &key, &base_url, &revoke, &packages, &out, sequence)?);
+        }
+        PackageAction::Index { action: IndexAction::Verify { index, key } } => {
+            println!("{}", package_cmd::index_verify(&index, key.as_deref())?);
+        }
     }
     Ok(())
 }
@@ -1518,7 +1570,9 @@ async fn run_serve(args: ServeArgs) -> anyhow::Result<()> {
         // P122 — where each device's "always" live.
         .with_grants(grant_policy)
         // P119 — whether the web settings may change the shell, MCP servers, SSH hosts, folders and the embedded hub.
-        .with_machine_settings(args.allow_machine_settings);
+        .with_machine_settings(args.allow_machine_settings)
+        // P160 — whether a curator's index may be fetched from a private address.
+        .with_private_curators(args.allow_private_curators);
     // P146 c, P147 — the search models of the owner's, the shared folders' and the members' vaults go after a pause.
     if args.embedding_idle_secs > 0 {
         server = server.with_embedding_idle(std::time::Duration::from_secs(args.embedding_idle_secs));

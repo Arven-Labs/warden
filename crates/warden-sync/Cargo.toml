@@ -9,6 +9,7 @@ serde.workspace = true
 serde_json.workspace = true
 tokio = { workspace = true, features = ["sync", "time"] }
 reqwest.workspace = true
+url = "2"
 base64.workspace = true
 dirs.workspace = true
 sha2 = "0.10"

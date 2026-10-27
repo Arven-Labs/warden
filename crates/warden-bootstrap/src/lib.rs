@@ -65,6 +65,7 @@ pub mod project_scope;
 pub mod saved_hubs;
 pub mod settings;
 pub mod skill_gen;
+pub mod curator;
 pub mod skill_package;
 pub mod spend;
 pub mod ssh_audit;
@@ -644,6 +645,10 @@ pub struct FileConfig {
     /// `skill_package::usable_publishers`.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub trusted_publishers: Vec<skill_package::TrustedPublisher>,
+    /// Whose signed index of skill packages the person takes from (P160, TOML `[[curators]]`, each a `name`, the `key` that signs the
+    /// index and its `url`). Empty by default: Warden ships none. See `curator`.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub curators: Vec<curator::Curator>,
     /// The assistant learning from conversations (P104, TOML `[learning]`): off unless turned on. See `learning`.
     #[serde(default, skip_serializing_if = "learning::LearningSettings::is_default")]
     pub learning: learning::LearningSettings,
@@ -3073,6 +3078,7 @@ oauth = true
             truthid_public_url: None,
             topup_url: None,
             trusted_publishers: Vec::new(),
+            curators: Vec::new(),
             learning: Default::default(),
             telegram: bot_access::TelegramSettings { allowed_users: vec![42], pairing: true, members: [("42".to_string(), "ana".to_string())].into() },
             whatsapp: bot_access::WhatsAppSettings { allowed_chats: vec!["5511999999999".to_string()], pairing: false, members: Default::default() },

@@ -18,6 +18,7 @@ pub mod arweave;
 pub mod bundle;
 pub mod diff;
 pub mod git;
+pub mod https_fetch;
 pub mod lock;
 pub mod manifest;
 pub mod oauth;
@@ -34,6 +35,7 @@ use std::path::PathBuf;
 use warden_core::memory::Vault;
 
 pub use arweave::ArweaveClient;
+pub use https_fetch::HttpsFetcher;
 pub use git::{GitPullOutcome, GitPushOutcome, GitSyncEngine};
 pub use manifest::{SyncManifest, SyncSecrets};
 pub use pull::PullOutcome;
