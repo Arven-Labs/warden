@@ -132,7 +132,11 @@ export async function signIn(browser, hub, { colorScheme = "light", locale = pag
   }, colorScheme);
   const page = await context.newPage();
   const sent = [];
-  page.on("websocket", (ws) => ws.on("framesent", (f) => typeof f.payload === "string" && sent.push(f.payload)));
+  const received = [];
+  page.on("websocket", (ws) => {
+    ws.on("framesent", (f) => typeof f.payload === "string" && sent.push(f.payload));
+    ws.on("framereceived", (f) => typeof f.payload === "string" && received.push(f.payload));
+  });
   const errors = [];
   page.on("pageerror", (e) => errors.push(e.message));
   await page.goto(hub.url);
@@ -140,7 +144,7 @@ export async function signIn(browser, hub, { colorScheme = "light", locale = pag
   await page.getByRole("tab", { name: words.tab }).click();
   await page.getByLabel(words.field).first().fill(PAIRING_KEY);
   await page.getByRole("button", { name: words.button }).click();
-  return { page, sent, context, errors };
+  return { page, sent, received, context, errors };
 }
 
 /** Signs in and opens Configurações. */

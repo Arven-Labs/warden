@@ -41,7 +41,7 @@ oauth = true
     } catch (err) {
       // What the page showed and what the hub said, so a red CI run says why without a second run.
       const shown = await opened.page.locator("li.settings-card").allInnerTexts().catch(() => []);
-      console.log(`--- the settings cards on screen:\n${shown.join("\n---\n")}\n--- the hub's log (end):\n${hub.log().slice(-3000)}`);
+      console.log(`--- the settings cards on screen:\n${shown.filter((c) => c.includes("Endereço")).join("\n---\n")}\n--- the frames the hub sent about the login or an error:\n${opened.received.filter((f) => /ogin|rror|ettings/.test(f.slice(0, 80))).map((f) => f.slice(0, 400)).join("\n")}\n--- the hub's log (end):\n${hub.log().slice(-1500)}`);
       await snap(opened.page, "web-mcp-login-failure");
       throw err;
     }
