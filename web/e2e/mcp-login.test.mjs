@@ -116,7 +116,7 @@ describe("the web page signs the hub in to an OAuth MCP server", () => {
       await finish.click();
       await card.getByText(/Essa não é a página em que o login termina/).waitFor();
 
-      await field.fill(address.split("?")[0]);
+      await field.fill(`${address.split("?")[0]}?foo=bar`);
       await finish.click();
       await card.getByText(/O endereço não tem o código/).waitFor();
 
