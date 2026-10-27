@@ -36,7 +36,15 @@ oauth = true
     context = opened.context;
     // The providers and agents are `settings-card`s too: the MCP server's is the one with an address.
     const card = opened.page.locator("li.settings-card").filter({ hasText: "Endereço" });
-    await body({ hub, oauth, card, ...opened });
+    try {
+      await body({ hub, oauth, card, ...opened });
+    } catch (err) {
+      // What the page showed and what the hub said, so a red CI run says why without a second run.
+      const shown = await opened.page.locator("li.settings-card").allInnerTexts().catch(() => []);
+      console.log(`--- the settings cards on screen:\n${shown.join("\n---\n")}\n--- the hub's log (end):\n${hub.log().slice(-3000)}`);
+      await snap(opened.page, "web-mcp-login-failure");
+      throw err;
+    }
     assert.deepEqual(opened.errors, [], "the page raised no error");
   } finally {
     await context?.close();
