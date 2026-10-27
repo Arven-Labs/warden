@@ -556,6 +556,10 @@ export class ServerConnection {
       case "skillList":
       case "skillCatalog":
       case "agentCatalog":
+      case "trustedPublishers":
+      case "mcpLogins":
+      case "mcpOauthStarted":
+      case "mcpOauthDone":
       case "skillPackageFile":
       case "skillPackagePreview":
       case "skillOk":
