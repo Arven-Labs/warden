@@ -1,6 +1,6 @@
 # Warden — Estado do Projeto
 
-> Última atualização: 2026-10-26 (Sessão 316: P131/P140, o E2E do login OAuth dos servidores MCP do hub, no desktop e na web, e o defeito que ele achou (a web não recebia as respostas do login e das chaves confiáveis), CI, Desktop E2E e Web E2E verdes; antes, Sessão 315)
+> Última atualização: 2026-10-27 (Sessão 317: P160, criar a chave de assinatura pela web, gerada no navegador; antes, Sessão 316: P131/P140, o E2E do login OAuth dos servidores MCP do hub, no desktop e na web, e o defeito que ele achou (a web não recebia as respostas do login e das chaves confiáveis), CI, Desktop E2E e Web E2E verdes; antes, Sessão 315)
 
 > Modelo de negócio hospedado (Sessão 220, só desenho, nada implementado): self-host grátis ou assinatura em que o Fabio hospeda o Warden do cliente, com acesso a modelos por créditos pré-pagos, e uma loja gratuita de integrações, skills e agentes prontos, nos dois modos. Ver `HOSPEDAGEM.md` e `PENDING.md` P138 a P148. A seção K do `HOSPEDAGEM.md` (Sessão 222) traz a medição de RAM por instância e a decisão de custo.
 

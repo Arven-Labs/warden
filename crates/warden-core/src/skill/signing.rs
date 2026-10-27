@@ -156,6 +156,21 @@ mod tests {
         assert_eq!(again.signature, package.signature);
     }
 
+    /// A key file as the web screen makes it (`createKeyFile` in `web/src/hub/signing.ts`): the seed and the public key WebCrypto gave,
+    /// put into the PKCS#8 v2 shape by hand. `ring` has to read it, give the same public key and sign with it, or `warden-server
+    /// package sign` would refuse a key the web made.
+    const KEY_FILE_MADE_BY_THE_BROWSER: &str = "3053020101300506032b6570042204201c5caa67a01603a27b924886274d28529b65819b68513d13d03aa7e8d942c235a123032100db7f6c31a27f2206dd226102147aa82c1beb264b50ea29ef06cdf8e9a2133efb\n";
+
+    #[test]
+    fn a_key_file_made_by_the_browser_is_read_and_signs() {
+        let pkcs8 = decode_private_key(KEY_FILE_MADE_BY_THE_BROWSER).unwrap();
+        let public = public_key_of(&pkcs8).unwrap();
+        assert_eq!(public, "db7f6c31a27f2206dd226102147aa82c1beb264b50ea29ef06cdf8e9a2133efb");
+        let mut package = package();
+        package.sign(&pkcs8).unwrap();
+        assert_eq!(package.verified().unwrap(), Verification::Valid { key: public });
+    }
+
     fn hex_to_bytes(hex: &str) -> Vec<u8> {
         (0..hex.len()).step_by(2).map(|i| u8::from_str_radix(&hex[i..i + 2], 16).unwrap()).collect()
     }

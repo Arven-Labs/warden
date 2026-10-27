@@ -47,6 +47,28 @@ function asBuffer(bytes: Uint8Array): BufferSource {
   return bytes as unknown as BufferSource;
 }
 
+/** A new signing key, made here: the key file's text (the PKCS#8 v2 shape `ring` reads, so `warden-server package sign` and the
+ * desktop app accept it too) and its public key (64 hex characters). WebCrypto exports only the v1 shape, so the file is put together
+ * from the seed and the public key. */
+export async function createKeyFile(): Promise<{ text: string; publicKey: string }> {
+  const subtle = globalThis.crypto?.subtle;
+  if (!subtle) throw new SigningError("This browser cannot sign here: it has no WebCrypto.");
+  let seed: Uint8Array;
+  let publicKey: Uint8Array;
+  try {
+    const pair = (await subtle.generateKey({ name: "Ed25519" }, true, ["sign", "verify"])) as CryptoKeyPair;
+    const pkcs8 = new Uint8Array(await subtle.exportKey("pkcs8", pair.privateKey));
+    seed = pkcs8.slice(pkcs8.length - 32);
+    publicKey = new Uint8Array(await subtle.exportKey("raw", pair.publicKey));
+  } catch {
+    throw new SigningError("This browser cannot make this kind of key (Ed25519). Make it with the desktop app or `warden-server package keygen`.");
+  }
+  const text = `${V2_HEADER}${toHex(seed)}${PUBLIC_KEY_INTRO}${toHex(publicKey)}\n`;
+  const read = readKeyFile(text);
+  if (read === null || toHex(read.publicKey) !== toHex(publicKey)) throw new SigningError(NOT_A_KEY);
+  return { text, publicKey: toHex(publicKey) };
+}
+
 /** The public key (64 hex characters) of a key file's text, without signing anything. */
 export function publicKeyOf(keyFileText: string): string {
   const key = readKeyFile(keyFileText);

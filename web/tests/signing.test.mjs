@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { createHash, createPublicKey, generateKeyPairSync, verify } from "node:crypto";
 import { test } from "node:test";
-import { SigningError, publicKeyOf, readKeyFile, signPackageText } from "../src/hub/signing.ts";
+import { SigningError, createKeyFile, publicKeyOf, readKeyFile, signPackageText } from "../src/hub/signing.ts";
 import { skills } from "../src/i18n/en/skills.ts";
 import { skillsPt } from "../src/i18n/pt-BR/skills.ts";
 
@@ -64,8 +64,22 @@ test("a key file whose public half is not the seed's does not sign", async () =>
   await assert.rejects(signPackageText(exported(), mixed), SigningError);
 });
 
+test("a key made here is a key file the reader, the signer and the server's format all accept", async () => {
+  const made = await createKeyFile();
+  assert.match(made.publicKey, /^[0-9a-f]{64}$/);
+  assert.match(made.text, /^[0-9a-f]{170}\n$/, "85 bytes in hex on one line, as `ring` writes it");
+  assert.equal(publicKeyOf(made.text), made.publicKey);
+  const signed = await signPackageText(exported(), made.text);
+  assert.equal(signed.signer, made.publicKey);
+  const match = /^ed25519:([0-9a-f]{64}):([0-9a-f]{128})$/.exec(JSON.parse(signed.content).signature);
+  assert.ok(match);
+  const raw = Buffer.from("302a300506032b6570032100" + made.publicKey, "hex");
+  assert.equal(verify(null, Buffer.from(JSON.parse(signed.content).hash), createPublicKey({ key: raw, format: "der", type: "spki" }), Buffer.from(match[2], "hex")), true);
+  assert.notEqual((await createKeyFile()).publicKey, made.publicKey, "each call makes a different key");
+});
+
 test("every line the signing form can show exists in both languages", () => {
-  const keys = ["skills.signWith", "skills.signKeyFile", "skills.signAs", "skills.signNeedsKey", "skills.signFailed", "skills.signNotAccepted", "skills.signedDone"];
+  const keys = ["skills.signWith", "skills.signKeyFile", "skills.signAs", "skills.signNeedsKey", "skills.signFailed", "skills.signNotAccepted", "skills.signedDone", "skills.signCreate", "skills.signCreated", "skills.signCreatedTrusted"];
   for (const [name, table] of [["en", skills], ["pt-BR", skillsPt]]) {
     for (const key of keys) assert.ok(table[key], `${name}: ${key}`);
   }

@@ -5,7 +5,8 @@ import { intlTag, t, type Key } from "../i18n";
 import { catalogDescription } from "../i18n/catalog";
 import { rich } from "../i18n/rich";
 import { signatureView } from "../hub/skillSignature";
-import { SigningError, publicKeyOf, signPackageText } from "../hub/signing";
+import { SigningError, createKeyFile, publicKeyOf, signPackageText } from "../hub/signing";
+import CopyButton from "./CopyButton";
 import TrustedPublishers from "./TrustedPublishers";
 import TrustThisKey from "./TrustThisKey";
 import { diffLines, hasChanges, withContext } from "./skillDiff";
@@ -42,6 +43,8 @@ interface ExportState {
   sign: boolean;
   keyText: string | null;
   signer: string | null;
+  /** The key was made on this screen (`new`) and, for the hub's owner, then listed in "Who signs" (`trusted`). */
+  created: "new" | "trusted" | null;
 }
 
 /** A package being imported: the text and, once read and checked, what it says. */
@@ -57,8 +60,8 @@ interface ImportState {
 }
 
 /** Downloads `content` as a file, through the browser. */
-function downloadText(fileName: string, content: string) {
-  const url = URL.createObjectURL(new Blob([content], { type: "application/json" }));
+function downloadText(fileName: string, content: string, type = "application/json") {
+  const url = URL.createObjectURL(new Blob([content], { type }));
   const link = document.createElement("a");
   link.href = url;
   link.download = fileName;
@@ -119,14 +122,27 @@ export default function SkillsView({
         try {
           const signer = publicKeyOf(text);
           setError(null);
-          setExporting((current) => (current ? { ...current, keyText: text, signer } : current));
+          setExporting((current) => (current ? { ...current, keyText: text, signer, created: null } : current));
         } catch (err) {
-          setExporting((current) => (current ? { ...current, keyText: null, signer: null } : current));
+          setExporting((current) => (current ? { ...current, keyText: null, signer: null, created: null } : current));
           setError(t("skills.signFailed", { error: message(err) }));
         }
       },
       (err) => setError(t("skills.readFailed", { error: message(err) })),
     );
+  }
+
+  /** Makes a new signing key here, gives its file to the person to keep, and uses it for this export. The private key is made in the
+   * browser and never goes to the hub. */
+  async function handleCreateKey() {
+    setError(null);
+    try {
+      const key = await createKeyFile();
+      downloadText("warden-signing-key.txt", key.text, "text/plain");
+      setExporting((current) => (current ? { ...current, keyText: key.text, signer: key.publicKey, created: "new" } : current));
+    } catch (err) {
+      setError(t("skills.signFailed", { error: message(err) }));
+    }
   }
 
   function handleExport() {
@@ -418,7 +434,7 @@ export default function SkillsView({
             </select>
           </label>
           <label className="checkbox-row">
-            <input type="checkbox" checked={exporting.sign} onChange={(e) => setExporting({ ...exporting, sign: e.target.checked, keyText: null, signer: null })} />
+            <input type="checkbox" checked={exporting.sign} onChange={(e) => setExporting({ ...exporting, sign: e.target.checked, keyText: null, signer: null, created: null })} />
             {t("skills.signWith")}
           </label>
           {exporting.sign && (
@@ -428,7 +444,28 @@ export default function SkillsView({
                 {t("skills.signKeyFile")}
                 <input type="file" onChange={(e) => handleChooseKeyFile(e.target.files?.[0])} />
               </label>
+              <button type="button" className="link-button" onClick={() => void handleCreateKey()}>
+                {t("skills.signCreate")}
+              </button>
               {exporting.signer && <span className="skills-hint">{t("skills.signAs", { key: exporting.signer.slice(0, 16) })}</span>}
+              {exporting.created !== null && (
+                <>
+                  <span className="skills-hint">{t("skills.signCreated")}</span>
+                  {/* The owner's "trust this key" already has its own copy button. */}
+                  {!(exporting.created === "new" && conn && !user) && <CopyButton text={exporting.signer ?? ""} label={t("skills.copyKey")} />}
+                  {exporting.created === "trusted" && <span className="skills-hint">{t("skills.signCreatedTrusted")}</span>}
+                  {exporting.created === "new" && conn && !user && exporting.signer && (
+                    <TrustThisKey
+                      conn={conn}
+                      fullKey={exporting.signer}
+                      onTrusted={() => {
+                        setTrustedVersion((n) => n + 1);
+                        setExporting((current) => (current ? { ...current, created: "trusted" } : current));
+                      }}
+                    />
+                  )}
+                </>
+              )}
             </>
           )}
           <div className="skills-actions">
@@ -676,7 +713,7 @@ export default function SkillsView({
                       onClick={() => {
                         setError(null);
                         setNotice(null);
-                        setExporting({ name: skill.name, version: "1.0.0", author: "", license: LICENSES[0].id, sign: false, keyText: null, signer: null });
+                        setExporting({ name: skill.name, version: "1.0.0", author: "", license: LICENSES[0].id, sign: false, keyText: null, signer: null, created: null });
                       }}
                     >
                       {t("spaces.share")}

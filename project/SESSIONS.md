@@ -6,6 +6,18 @@
 
 ---
 
+### 2026-10-27 — Sessão 317 (criar a chave de assinatura pela web: P160)
+
+- **Pedido**: "vamos de dois", o item "P160, a parte que falta" que a 316 deixou, começando por criar a chave pela web. Planejado em modo de plano.
+- **Escolha**: gerar o par **no navegador**, sem frame novo e sem mudança no hub, para manter o princípio da 312 (a chave privada nunca sai da página). Descartado: gerar no hub e devolver a chave (quebra o princípio e exigiria `--allow-machine-settings` e TLS).
+- **Feito**:
+  - `web/src/hub/signing.ts`: `createKeyFile()` gera o Ed25519 com WebCrypto, pega a semente do PKCS#8 v1 que o navegador exporta e monta à mão o v2 que o `ring` lê (cabeçalho + semente + `a123032100` + pública, 85 bytes em hex), relendo-o com `readKeyFile` antes de devolver.
+  - `web/src/components/SkillsView.tsx`: no formulário de compartilhar, com "Assinar com a minha chave", o botão "Criar uma chave nova" baixa `warden-signing-key.txt`, já usa a chave neste envio e avisa para guardar o arquivo; o dono vê "Confiar nesta chave" (`TrustThisKey`, com a chave de pareamento) e o membro só copia. `downloadText` ganhou o tipo do arquivo. Textos nos dois idiomas.
+- **Testes**: aqui `npm test` da web (154, um novo: a chave criada é lida, assina e é verificada pelo `node:crypto`), `tsc` limpo e `cargo check -p warden-core --tests`. **Escritos e não rodados** (CI): `a_key_file_made_by_the_browser_is_read_and_signs` em `signing.rs` (um arquivo de chave gerado pela web, literal, que o `ring` lê e assina) e `web/e2e/signing-key.test.mjs` (3 casos: o formato do arquivo e a semente que não vai ao hub; o envio assinado e o hub lendo o mesmo signatário; "Confiar nesta chave" com chave errada recusada e certa gravada em `[[trusted_publishers]]`). Os seletores do E2E foram escritos sem rodar.
+- **Fica**: o índice assinado dos curadores e a revogação, celular e extensão, agentes e integrações como `kind`; testar Linear, GitHub, Notion, Sentry e Slack nos serviços reais; `account.suspended` no site mãe.
+
+---
+
 ### 2026-10-26 — Sessão 316 (E2E do login OAuth dos servidores MCP: P131/P140)
 
 - **Pedido**: "vamos de 2", o item que a 315 deixou em "não coberto": nenhum E2E abria a seção do desktop, a tela da web nem a galeria do Sentry. Planejado em modo de plano.
