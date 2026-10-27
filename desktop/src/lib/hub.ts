@@ -4,6 +4,7 @@
 
 import { invoke } from "@tauri-apps/api/core";
 import { t } from "../i18n";
+import type { Curator } from "./curators";
 import type { Publisher } from "./trustedPublishers";
 import type {
   Attachment,
@@ -14,6 +15,8 @@ import type {
   CatalogAgent,
   CatalogSkill,
   ChatMessage,
+  CuratorEntry,
+  CuratorIndex,
   ExportedPackage,
   Grant,
   GrantsView,
@@ -303,6 +306,28 @@ export async function hubListTrustedPublishers(): Promise<Publisher[]> {
 export async function hubSaveTrustedPublishers(askKey: KeyAsker, publishers: Publisher[]): Promise<Publisher[]> {
   const message = { type: "saveTrustedPublishers", publishers, pairingKey: await askKey(t("askKey.trustedPublishers")) };
   return (await ask<{ type: string; publishers: Publisher[] }>(message, "trustedPublishers")).publishers;
+}
+
+/** P160 — the curators the hub takes skill packages from. Open to anyone signed in; a hub from before them rejects. */
+export async function hubListCurators(): Promise<Curator[]> {
+  return (await ask<{ type: string; curators: Curator[] }>({ type: "listCurators" }, "curators")).curators;
+}
+
+/** P160 — replaces that whole list; only the owner may, with the pairing key. Answers with what the hub saved. */
+export async function hubSaveCurators(askKey: KeyAsker, curators: Curator[]): Promise<Curator[]> {
+  const message = { type: "saveCurators", curators, pairingKey: await askKey(t("askKey.curators")) };
+  return (await ask<{ type: string; curators: Curator[] }>(message, "curators")).curators;
+}
+
+/** P160 — what a curator's index lists, read by the hub (signature, number and the ones taken back already checked). */
+export async function hubFetchCuratorIndex(curator: string): Promise<CuratorIndex> {
+  const { name, sequence, entries } = await ask<{ type: string; curator: string; name: string; sequence: number; entries: CuratorEntry[] }>({ type: "fetchCuratorIndex", curator }, "curatorIndex");
+  return { curator, name, sequence, entries };
+}
+
+/** P160 — the text of one package a curator lists, downloaded by the hub and checked against the index. */
+export async function hubFetchCuratorPackage(curator: string, hash: string): Promise<string> {
+  return (await ask<{ type: string; content: string }>({ type: "fetchCuratorPackage", curator, hash }, "skillPackageFile")).content;
 }
 
 /** P131 — the hub's saved MCP servers that sign in with OAuth, by name (the owner's settings; a member or a hub without them rejects). */

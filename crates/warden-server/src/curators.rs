@@ -7,19 +7,15 @@
 //! hub was started with `--allow-private-curators`. The newest `sequence` seen from each curator is kept in `curators_seen.json` beside
 //! the config, so an older index someone replays is refused.
 
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
-use warden_bootstrap::curator::{fetch_index, fetch_indexed_package, usable_curators, ArweaveClient, Curator, HttpsFetcher, SeenSequences};
+use warden_bootstrap::curator::{fetch_indexed_package, read_index_remembering, seen_path, usable_curators, ArweaveClient, Curator, HttpsFetcher};
 use warden_bootstrap::{load_config_from_path, FileConfig};
+use warden_core::skill::index::Index;
 use warden_server_protocol::protocol::{CuratorDto, CuratorEntryDto};
 use warden_server_protocol::ServerMessage;
 
 use crate::settings::SettingsHost;
-
-/// Where the newest index number seen from each curator is kept: beside the config.
-fn seen_path(config_path: &Path) -> PathBuf {
-    config_path.with_file_name("curators_seen.json")
-}
 
 /// The curators as they go on the wire: only the usable ones, the same that a fetch looks among.
 pub fn curator_dtos(config: &FileConfig) -> Vec<CuratorDto> {
@@ -47,36 +43,36 @@ fn find(host: Option<&dyn SettingsHost>, name: &str) -> Result<(Curator, PathBuf
 }
 
 /// Reads `curator`'s index and remembers its number, so an older one is refused the next time.
-async fn read_index(host: Option<&dyn SettingsHost>, fetcher: &HttpsFetcher, name: &str) -> Result<(Curator, warden_core::skill::index::Index), String> {
+async fn read_index(host: Option<&dyn SettingsHost>, fetcher: &HttpsFetcher, name: &str) -> Result<(Curator, Index), String> {
     let (curator, seen_file) = find(host, name)?;
-    let mut seen = SeenSequences::load(&seen_file);
-    let index = fetch_index(fetcher, &ArweaveClient::new_default(), &curator, seen.get(&curator.key)).await?;
-    if let Err(err) = seen.remember(&seen_file, &curator.key, index.sequence) {
-        // Not being able to remember only weakens the replay check; the index itself was read and checked.
-        tracing::warn!("could not write {}: {err}", seen_file.display());
-    }
+    let index = read_index_remembering(fetcher, &ArweaveClient::new_default(), &curator, &seen_file).await?;
     Ok((curator, index))
+}
+
+/// The entries of `index` as they go on the wire, each with whether the curator took it back and why.
+pub fn entry_dtos(index: &Index) -> Vec<CuratorEntryDto> {
+    index
+        .entries
+        .iter()
+        .map(|e| CuratorEntryDto {
+            id: e.id.clone(),
+            version: e.version.clone(),
+            hash: e.hash.clone(),
+            source: e.source.clone(),
+            description: e.description.clone(),
+            author: e.author.clone(),
+            license: e.license.clone(),
+            revoked: index.is_revoked(&e.hash),
+            revoked_reason: index.revoked_reason(&e.hash).map(str::to_string),
+        })
+        .collect()
 }
 
 /// Answers `FetchCuratorIndex`.
 pub async fn handle_fetch_index(host: Option<&dyn SettingsHost>, fetcher: &HttpsFetcher, request_id: u64, curator: &str) -> ServerMessage {
     match read_index(host, fetcher, curator).await {
         Ok((curator, index)) => {
-            let entries = index
-                .entries
-                .iter()
-                .map(|e| CuratorEntryDto {
-                    id: e.id.clone(),
-                    version: e.version.clone(),
-                    hash: e.hash.clone(),
-                    source: e.source.clone(),
-                    description: e.description.clone(),
-                    author: e.author.clone(),
-                    license: e.license.clone(),
-                    revoked: index.is_revoked(&e.hash),
-                    revoked_reason: index.revoked_reason(&e.hash).map(str::to_string),
-                })
-                .collect();
+            let entries = entry_dtos(&index);
             ServerMessage::CuratorIndex { request_id, curator: curator.name, name: index.name.clone(), sequence: index.sequence, entries }
         }
         Err(message) => ServerMessage::SkillError { request_id, message },

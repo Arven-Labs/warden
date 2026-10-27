@@ -681,6 +681,27 @@ export interface PackagePreview {
   signerName?: string;
 }
 
+/** One package in a curator's index (P160): where it is and its hash, and whether the curator took it back. Mirrors `CuratorEntryDto`. */
+export interface CuratorEntry {
+  id: string;
+  version: string;
+  hash: string;
+  source: string;
+  description: string;
+  author?: string;
+  license: string;
+  revoked: boolean;
+  revokedReason?: string;
+}
+
+/** A curator's index as read (P160) — mirrors `CuratorIndexPayload` in `src-tauri/src/skills_cmds.rs` and the hub's `curatorIndex`. */
+export interface CuratorIndex {
+  curator: string;
+  name: string;
+  sequence: number;
+  entries: CuratorEntry[];
+}
+
 /** One skill (P16) — mirrors `SkillPayload` in `src-tauri/src/skills_cmds.rs`. */
 export interface SkillEntry {
   /** Slug (lowercase letters, digits, hyphens); doubles as the filename under `skills/`. */

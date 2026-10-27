@@ -109,6 +109,22 @@ pub async fn fetch_index(fetcher: &HttpsFetcher, arweave: &ArweaveClient, curato
     Ok(index)
 }
 
+/// Where the newest index number seen from each curator is kept: beside the config at `config_path`.
+pub fn seen_path(config_path: &Path) -> std::path::PathBuf {
+    config_path.with_file_name("curators_seen.json")
+}
+
+/// `fetch_index` against what `seen_file` remembers, then remembers this index's number so an older one is refused the next time.
+pub async fn read_index_remembering(fetcher: &HttpsFetcher, arweave: &ArweaveClient, curator: &Curator, seen_file: &Path) -> Result<Index, String> {
+    let mut seen = SeenSequences::load(seen_file);
+    let index = fetch_index(fetcher, arweave, curator, seen.get(&curator.key)).await?;
+    if let Err(err) = seen.remember(seen_file, &curator.key, index.sequence) {
+        // Not being able to remember only weakens the replay check; the index itself was read and checked.
+        tracing::warn!("could not write {}: {err}", seen_file.display());
+    }
+    Ok(index)
+}
+
 /// The text of the package `entry` lists, for the caller to preview and install like any other. Refused when the curator took the
 /// package back, and when what is at the source is not the package with the hash the index gave.
 pub async fn fetch_indexed_package(fetcher: &HttpsFetcher, arweave: &ArweaveClient, index: &Index, entry: &IndexEntry) -> Result<String, String> {
@@ -306,6 +322,27 @@ mod tests {
         let index = fetch_index(&fetcher, &arweave(), &ana(&swapped), 0).await.unwrap();
         let err = fetch_indexed_package(&fetcher, &arweave(), &index, &index.entries[0]).await.unwrap_err();
         assert!(err.contains("not the package the curator listed"), "{err}");
+    }
+
+    #[tokio::test]
+    async fn reading_an_index_remembers_its_number_and_refuses_an_older_one_later() {
+        let dir = std::env::temp_dir().join(format!("warden-curator-read-{}-{}", std::process::id(), std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
+        let seen_file = seen_path(&dir.join("config.toml"));
+        assert_eq!(seen_file, dir.join("curators_seen.json"));
+        let fetcher = HttpsFetcher::new(true);
+        let w = world(false, 10, false).await;
+        assert_eq!(read_index_remembering(&fetcher, &arweave(), &ana(&w), &seen_file).await.unwrap().sequence, 10);
+        assert_eq!(SeenSequences::load(&seen_file).get(&w.public), 10);
+
+        // The same server again, with the number it had: not older.
+        assert_eq!(read_index_remembering(&fetcher, &arweave(), &ana(&w), &seen_file).await.unwrap().sequence, 10);
+
+        // Once a newer number has been seen from that key, what the server still serves is older: refused, and the memory stays.
+        SeenSequences::load(&seen_file).remember(&seen_file, &w.public, 20).unwrap();
+        let err = read_index_remembering(&fetcher, &arweave(), &ana(&w), &seen_file).await.unwrap_err();
+        assert!(err.contains("older than one already seen"), "{err}");
+        assert_eq!(SeenSequences::load(&seen_file).get(&w.public), 20);
+        let _ = std::fs::remove_dir_all(dir);
     }
 
     #[tokio::test]

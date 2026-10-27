@@ -9,10 +9,12 @@
 
 use serde::{Deserialize, Serialize};
 use tauri::State;
+use warden_bootstrap::curator::{self, ArweaveClient, HttpsFetcher};
 use warden_bootstrap::skill_package;
 use warden_bootstrap::{build_model_for, default_config_path, load_config_from_path};
 use warden_core::skill::package::MAX_PACKAGE_BYTES;
 use warden_core::skill::{catalog, Skill, SkillStore};
+use warden_server_protocol::protocol::CuratorEntryDto;
 use warden_sync::publish;
 
 use crate::AppState;
@@ -173,6 +175,61 @@ pub fn list_trusted_publishers() -> Result<Vec<skill_package::TrustedPublisher>,
 pub fn save_trusted_publishers(publishers: Vec<skill_package::TrustedPublisher>) -> Result<Vec<skill_package::TrustedPublisher>, String> {
     let path = default_config_path().ok_or_else(|| "could not determine the OS config directory".to_string())?;
     skill_package::set_trusted_publishers(&path, &publishers)
+}
+
+/// The curators this computer's owner takes skill packages from (`[[curators]]` in its own config, P160): the usable ones.
+#[tauri::command]
+pub fn list_curators() -> Result<Vec<curator::Curator>, String> {
+    let path = default_config_path().ok_or_else(|| "could not determine the OS config directory".to_string())?;
+    let config = load_config_from_path(&path, false).map_err(|e| format!("{e:#}"))?;
+    Ok(curator::usable_curators(&config.curators))
+}
+
+/// Replaces that whole list once it checks out and returns what was saved. Like the trusted keys, it only needs this computer's own
+/// config, which this app already owns; nothing a curator lists is installed without the person reading it.
+#[tauri::command]
+pub fn save_curators(curators: Vec<curator::Curator>) -> Result<Vec<curator::Curator>, String> {
+    let path = default_config_path().ok_or_else(|| "could not determine the OS config directory".to_string())?;
+    curator::set_curators(&path, &curators)
+}
+
+/// A curator's index as the screen shows it: what it lists, with the ones the curator took back marked.
+#[derive(Serialize, Debug, Clone, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct CuratorIndexPayload {
+    curator: String,
+    name: String,
+    sequence: u64,
+    entries: Vec<CuratorEntryDto>,
+}
+
+/// The curator called `name` and the file that remembers their newest index, from this computer's config.
+fn find_curator(name: &str) -> Result<(curator::Curator, std::path::PathBuf), String> {
+    let path = default_config_path().ok_or_else(|| "could not determine the OS config directory".to_string())?;
+    let config = load_config_from_path(&path, false).map_err(|e| format!("{e:#}"))?;
+    let found = curator::usable_curators(&config.curators).into_iter().find(|c| c.name.eq_ignore_ascii_case(name.trim())).ok_or_else(|| format!("there is no curator called '{}'", name.trim()))?;
+    Ok((found, curator::seen_path(&path)))
+}
+
+/// Reads the signed index of a curator, from `https://` or `ar://`. A curator on this machine or this network is not reached: the
+/// address checks of `HttpsFetcher` stay on, since this app has no way to say otherwise.
+#[tauri::command]
+pub async fn fetch_curator_index(curator: String) -> Result<CuratorIndexPayload, String> {
+    let (found, seen_file) = find_curator(&curator)?;
+    let index = curator::read_index_remembering(&HttpsFetcher::default(), &ArweaveClient::new_default(), &found, &seen_file).await?;
+    Ok(CuratorIndexPayload { curator: found.name, name: index.name.clone(), sequence: index.sequence, entries: warden_server::curators::entry_dtos(&index) })
+}
+
+/// The text of one package a curator lists, for the screen to preview like a file. The index is read again, so a package the curator
+/// took back a moment ago is refused, and what comes back is checked against the hash the index gave.
+#[tauri::command]
+pub async fn fetch_curator_package(curator: String, hash: String) -> Result<String, String> {
+    let (found, seen_file) = find_curator(&curator)?;
+    let fetcher = HttpsFetcher::default();
+    let arweave = ArweaveClient::new_default();
+    let index = curator::read_index_remembering(&fetcher, &arweave, &found, &seen_file).await?;
+    let entry = index.entry_by_hash(&hash).ok_or("that package is not in the curator's index")?;
+    curator::fetch_indexed_package(&fetcher, &arweave, &index, entry).await
 }
 
 #[tauri::command]

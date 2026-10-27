@@ -287,6 +287,12 @@ async fn the_commands_the_screens_call_drive_a_real_hub_through_the_ipc() {
 
     let skill = json!({ "name": "greet", "description": "Say hello", "body": "Say hello.", "agents": [] });
     assert_eq!(ask(json!({ "type": "saveSkill", "skill": skill, "overwrite": false })).await.unwrap()["type"], "skillOk");
+    // The sources screen (P160): `hubListCurators` reads the reply named `curators`, and a curator that is not listed is refused by name.
+    let curators = ask(json!({ "type": "listCurators" })).await.unwrap();
+    assert_eq!((curators["type"].as_str(), curators["curators"].is_array()), (Some("curators"), true), "{curators}");
+    let unknown = ask(json!({ "type": "fetchCuratorIndex", "curator": "Nobody" })).await.unwrap();
+    assert_eq!(unknown["type"], "skillError", "{unknown}");
+    assert!(unknown["message"].as_str().unwrap().contains("no curator called 'Nobody'"), "{unknown}");
     let skills = ask(json!({ "type": "listSkills" })).await.unwrap();
     assert_eq!((skills["type"].as_str(), skills["skills"][0]["name"].as_str()), (Some("skillList"), Some("greet")));
     assert_eq!(ask(json!({ "type": "deleteSkill", "name": "greet" })).await.unwrap()["type"], "skillOk");

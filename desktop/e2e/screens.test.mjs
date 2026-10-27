@@ -179,6 +179,42 @@ for (const colorScheme of ["light", "dark"]) {
       }
     });
 
+    test("skills: a source lists its packages, a taken-back one cannot be installed, and one opens the import preview", { timeout: TIMEOUT }, async () => {
+      const key = "ab".repeat(32);
+      const entry = { id: "tidy-notes", version: "1.0.0", hash: "sha256:11", source: "https://example.org/tidy.json", description: "Tidy up rough notes.", license: "CC0-1.0", revoked: false };
+      const handlers = backend({
+        list_curators: [{ name: "Ana", key, url: "https://example.org/index.json" }],
+        fetch_curator_index: {
+          curator: "Ana",
+          name: "Ana's picks",
+          sequence: 3,
+          entries: [entry, { ...entry, id: "old-notes", hash: "sha256:22", description: "An old one.", revoked: true, revokedReason: "it asked for a password" }],
+        },
+        fetch_curator_package: JSON.stringify({ format: "warden-package", kind: "skill", id: "tidy-notes" }),
+        preview_skill_package: { id: "tidy-notes", version: "1.0.0", license: "CC0-1.0", name: "tidy-notes", description: "Tidy up rough notes.", body: "Rewrite the notes as short bullets.", hash: "sha256:11", status: "notInstalled" },
+      });
+      const { context, page, calls, errors } = await openApp(browser, app, { handlers, colorScheme });
+      try {
+        await page.getByRole("button", { name: "Skills", exact: true }).click();
+        await page.getByRole("heading", { name: "Sources" }).waitFor();
+        await page.getByRole("button", { name: "See what it lists" }).click();
+        await page.getByText("Ana's picks, number 3").waitFor();
+        await page.getByText("Taken back by the source: it asked for a password").waitFor();
+        await snap(page, `desktop-sources-${colorScheme}`, { focus: page.getByRole("heading", { name: "Sources" }), top: true });
+
+        const install = page.getByRole("button", { name: "Read and install" });
+        assert.equal(await install.nth(1).isDisabled(), true, "what the curator took back cannot be fetched");
+        await install.first().click();
+        await page.getByText("Rewrite the notes as short bullets.").first().waitFor();
+        const fetched = calls.find((c) => c.cmd === "fetch_curator_package");
+        assert.deepEqual(fetched?.args, { curator: "Ana", hash: "sha256:11" }, "the page asked for the package by its hash in the index");
+        assert.ok(calls.some((c) => c.cmd === "preview_skill_package"), "the text went to the same preview as a file");
+        assert.deepEqual(errors, [], "the page raised no error");
+      } finally {
+        await context.close();
+      }
+    });
+
     test("sync: sending shows the QR to approve and then the result", { timeout: TIMEOUT }, async () => {
       const waiting = deferred();
       const handlers = backend({

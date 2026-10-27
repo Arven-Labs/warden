@@ -123,6 +123,7 @@ export const lib = {
   "askKey.resumeAgentTask": "Resuming a task changes what the hub is doing.",
   "askKey.editOrg": "Changing the organization changes what the agents of the hub may reach.",
   "askKey.trustedPublishers": "Changing who you trust changes the hub's configuration.",
+  "askKey.curators": "Changing your sources changes the hub's configuration.",
   "askKey.mcpLogin": "Signing the hub in to a service changes its machine.",
   "askKey.saveWebhook": "Saving this webhook changes the hub.",
   "askKey.resumeWebhook": "Resuming {id} changes the hub.",

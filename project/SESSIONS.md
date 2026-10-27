@@ -2,7 +2,21 @@
 
 > **Nota**: Este log foi criado junto com o projeto. As sessões serão registradas aqui conforme o trabalho avança.
 >
-> Última atualização: 2026-10-27 (Sessão 318)
+> Última atualização: 2026-10-27 (Sessão 319)
+
+---
+
+### 2026-10-27 — Sessão 319 (a seção "Fontes" no desktop: P160)
+
+- **Pedido**: "vamos de 1", levar a seção "Fontes" da 318 para o desktop, local e com hub remoto. Planejado em modo de plano.
+- **Desenho**: o molde de `TrustedPublishers` do desktop. **Local**: o app é o dono, então salvar grava o `[[curators]]` do config do computador sem chave de pareamento. **Remoto**: as mensagens que o hub já entende (`listCurators`, `saveCurators` com o diálogo da chave de pareamento, `fetchCuratorIndex`, `fetchCuratorPackage`), sem mudança no protocolo. "Ler e instalar" entrega o texto a `handleCheckImport`, a mesma prévia, varredura, diff e instalação de um arquivo.
+- **Feito**:
+  - `warden-bootstrap/curator.rs`: `seen_path` e `read_index_remembering` (lê o índice contra o número já visto e lembra o novo), tirados do hub para o desktop usar a mesma lógica; `warden-server/curators.rs` passou a chamá-los e expõe `entry_dtos`.
+  - Desktop (Rust): `list_curators`, `save_curators`, `fetch_curator_index` e `fetch_curator_package` em `skills_cmds.rs`. O desktop lê com o `HttpsFetcher` padrão: só https público e `ar://`, sem a flag `--allow-private-curators` (curador na rede interna só pelo hub).
+  - Desktop (tela): `lib/curators.ts` (regras puras, cópia das da web), `hubListCurators`/`hubSaveCurators`/`hubFetchCuratorIndex`/`hubFetchCuratorPackage` em `lib/hub.ts`, tipos `CuratorEntry` e `CuratorIndex`, `components/Curators.tsx` (antes de "Quem assina"), textos `skills.curator*` nos dois idiomas e `askKey.curators`.
+- **Testes**: aqui `cargo check --workspace --tests` limpo, `tsc` e `npm test` do desktop (229) limpos, `node --check` no E2E. **No CI, ainda não rodados**: `reading_an_index_remembers_its_number_and_refuses_an_older_one_later` (`curator.rs`), o trecho de `listCurators`/`fetchCuratorIndex` em `remote_ipc_test.rs` (prova o nome `curators` que `lib/hub.ts` lê e o `skillError` de um curador que não existe) e o caso novo do `desktop/e2e/screens.test.mjs` (abre uma fonte, a retirada vem com o botão desligado, "Ler e instalar" chega à prévia).
+- **Fora**: celular e extensão, atualizar com diff por fonte, o botão "adicionar a fonte do Fabio" (falta a chave de curador). O desktop não distingue o membro do dono num hub remoto (como em "Quem assina"): quem não é dono vê os botões e o hub recusa ao salvar.
+- **Fica**: a revisão do que o CI achar; quem assina o índice do primeiro curador (decisão do usuário); testar Linear, GitHub, Notion, Sentry e Slack nos serviços reais; `account.suspended` no site mãe.
 
 ---
 

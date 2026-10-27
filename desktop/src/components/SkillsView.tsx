@@ -7,6 +7,7 @@ import { rich } from "../i18n/rich";
 import type { AgentEntry, CatalogSkill, ExportedPackage, PackagePreview, ProviderEntry, SkillEntry } from "../types";
 import { diffLines, hasChanges, withContext } from "./skillDiff";
 import CopyButton from "./CopyButton";
+import Curators from "./Curators";
 import TrustedPublishers from "./TrustedPublishers";
 import TrustThisKey from "./TrustThisKey";
 import SigningChoice, { type SigningState } from "./SigningChoice";
@@ -1146,6 +1147,13 @@ function SkillsView({
           </div>
         </section>
       )}
+      <Curators
+        remote={remote}
+        onInstall={(content) => {
+          // The preview opens at the top of the screen, above this section.
+          void handleCheckImport(content).then(() => requestAnimationFrame(() => document.querySelector(".skill-editor")?.scrollIntoView?.({ block: "start" })));
+        }}
+      />
       <TrustedPublishers remote={remote} key={trustedVersion} />
     </div>
   );
