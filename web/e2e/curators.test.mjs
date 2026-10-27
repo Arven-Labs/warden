@@ -140,7 +140,8 @@ describe("a curator's index on the web page", { timeout: TIMEOUT }, () => {
       await greet.getByRole("button", { name: "Ler e instalar" }).click();
       // The package opens in the import preview, like a file: the whole text, then "Instalar".
       await page.getByText("Say hello warmly.").first().waitFor();
-      await page.getByRole("button", { name: "Instalar", exact: true }).click();
+      // The gallery's cards have an "Instalar" too, so it is the one in the preview that is pressed.
+      await page.locator("div.skills-editor", { has: page.getByText("Say hello warmly.") }).getByRole("button", { name: "Instalar", exact: true }).click();
       await page.getByText("Skill greet instalada.").waitFor();
       await page.locator(".skills-item", { hasText: "greet" }).first().waitFor();
     });
