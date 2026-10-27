@@ -454,16 +454,6 @@ export default function SkillsView({
                   {/* The owner's "trust this key" already has its own copy button. */}
                   {!(exporting.created === "new" && conn && !user) && <CopyButton text={exporting.signer ?? ""} label={t("skills.copyKey")} />}
                   {exporting.created === "trusted" && <span className="skills-hint">{t("skills.signCreatedTrusted")}</span>}
-                  {exporting.created === "new" && conn && !user && exporting.signer && (
-                    <TrustThisKey
-                      conn={conn}
-                      fullKey={exporting.signer}
-                      onTrusted={() => {
-                        setTrustedVersion((n) => n + 1);
-                        setExporting((current) => (current ? { ...current, created: "trusted" } : current));
-                      }}
-                    />
-                  )}
                 </>
               )}
             </>
@@ -477,6 +467,17 @@ export default function SkillsView({
             </button>
           </div>
         </form>
+      )}
+      {/* Outside the export form: "trust this key" has a form of its own, and a form inside a form is not valid HTML (its submit reloaded the page). */}
+      {exporting?.created === "new" && conn && !user && exporting.signer && (
+        <TrustThisKey
+          conn={conn}
+          fullKey={exporting.signer}
+          onTrusted={() => {
+            setTrustedVersion((n) => n + 1);
+            setExporting((current) => (current ? { ...current, created: "trusted" } : current));
+          }}
+        />
       )}
       {importing && (
         <div className="skills-editor">
