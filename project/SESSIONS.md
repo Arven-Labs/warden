@@ -2,7 +2,20 @@
 
 > **Nota**: Este log foi criado junto com o projeto. As sessões serão registradas aqui conforme o trabalho avança.
 >
-> Última atualização: 2026-10-27 (Sessão 320)
+> Última atualização: 2026-10-28 (Sessão 321)
+
+---
+
+### 2026-10-28 — Sessão 321 (a prévia mostra o que muda numa skill que a pessoa já tem: P160)
+
+- **Pedido**: "vamos continuar no p160". Planejado em modo de plano. Das quatro fatias abertas (atualizar com diff por fonte, tirar as 8 skills do binário, índice no celular e na extensão, agentes como `kind`), o usuário escolheu **atualizar com diff por fonte**, e, entre ter ou não um registro de origem, **só o diff na prévia**.
+- **Achado antes de mexer**: a prévia de importação mostrava só o texto novo (nunca teve diff; o `diffLines` só servia ao cartão de sugestão de revisão), e nada registra de qual fonte uma skill instalada veio (`.catalog.json` é só da galeria embutida). Por isso a lista de Fontes não tem como dizer "há versão nova".
+- **Feito** (só front, web e desktop; sem Rust, protocolo nem hub): `packageChange(instalada, pacote)` em `web/src/hub/curators.ts` e `desktop/src/lib/curators.ts` (reusa `diffLines` e `withContext`; `null` quando não há skill de mesmo nome ou o texto é igual; a descrição vai como antes e depois). A prévia mostra o bloco "O que isto muda na sua skill" acima do texto inteiro quando o status é `modified`; a lista de Fontes ganhou a linha "Você já tem uma skill com este nome" (prop `have` do `Curators`). Substituir segue pedindo "trocar a minha". Textos nos dois idiomas.
+- **Testes**: unitários do helper e das chaves (falharam antes: a função não existia), web 164 e desktop 235 verdes aqui. **No CI (PR #7, `feat/p160-diff-na-previa`)**: `CI` verde (`Frontend (web)` e `Frontend (desktop)`; Rust, Flutter e Android pulados, só front), e, disparados à mão na branch, `Web E2E` (run 40783645896) e `Desktop E2E` (run 40783649749) verdes, com os dois casos novos executados: na web a fonte republica `greet` com outro texto e número maior e a prévia mostra a linha que sai e a que entra, com "trocar a minha" ainda por marcar; no desktop o backend de mentira faz o mesmo.
+- **O fluxo mostrou uma lacuna**: `web-e2e.yml` e `desktop-e2e.yml` só disparam em push na `main` e em `workflow_dispatch`, então **um PR não roda os E2E**; sem o disparo manual o PR teria ido verde sem ver as telas. Para o usuário decidir (mexe em CI, `CLAUDE.md` seção 4): rodá-los também em `pull_request`.
+- **Não verificado**: o `tsc` local tem um erro antigo (`rehype-highlight` ausente no `node_modules`), fora desta mudança; a aparência do bloco de diff só nas fotos do artefato do CI.
+- **Fora**: registro de origem (e o rótulo "há versão nova"), tirar as 8 skills do binário, índice no celular e na extensão, agentes e integrações como `kind`.
+- **Fica**: decidir se os E2E rodam em PR; testar Linear, GitHub, Notion, Sentry e Slack nos serviços reais; `account.suspended` no site mãe.
 
 ---
 
