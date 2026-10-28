@@ -240,3 +240,16 @@ Isso me ajuda a lembrar *por que* o sistema é como é, e a IA a não desfazer d
 - No fim de tarefas relevantes, inclua (quando houver algo a dizer):
   - **O que aprender aqui** (seção 7)
   - **Sugestões de melhoria do fluxo** (seção 0, item 5)
+
+---
+
+## 14. Fechamento de sessão (checklist antes de dizer "terminei")
+
+Antes de dar uma tarefa ou a sessão por encerrada, confira cada item abaixo e relate o resultado de um comando, não de memória. Se algum item falhar, o trabalho não está terminado: diga qual e por quê.
+
+1. **Git**: branch atual, `git status` limpo, nada importante só na máquina local.
+2. **PRs**: tudo que mudou está em PR (um por intenção), com o corpo no modelo do repositório. Liste cada PR com número e link.
+3. **CI**: para cada PR, diga se está verde, em andamento, falhou, ou se nem roda (e por quê). Nunca escreva "passou" sem ter visto o resultado.
+4. **Registro do projeto atualizado** (histórico de sessões, pendências, índice): com o resultado real do CI e das conferências feitas. Se o registro depende do resultado do CI, coloque-o no próprio PR de código antes de mesclar, em vez de abrir um PR só de docs depois.
+5. **Mesclar ou não**: para cada PR, diga "pronto para mesclar" ou "não mesclar ainda" e o motivo, com o comando de merge pronto para eu colar. Quem mescla sou eu, e **quem lembra é você**: depois do merge a branch é apagada (remota e local) e a `main` local é atualizada. No começo de toda sessão, antes de qualquer tarefa, confira se há PR aberto ou branch já mesclada sobrando e me avise na primeira resposta.
+6. **O que ficou em aberto**: decisões pendentes, backups, o que não foi verificado e o que depende de mim.
