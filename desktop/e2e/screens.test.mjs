@@ -216,6 +216,39 @@ for (const colorScheme of ["light", "dark"]) {
       }
     });
 
+    test("skills: a package for a skill the person has says so in the list and shows what changes in the preview", { timeout: TIMEOUT }, async () => {
+      const key = "ab".repeat(32);
+      const entry = { id: "tidy-notes", version: "1.1.0", hash: "sha256:33", source: "https://example.org/tidy.json", description: "Tidy up rough notes.", license: "CC0-1.0", revoked: false };
+      const handlers = backend({
+        list_curators: [{ name: "Ana", key, url: "https://example.org/index.json" }],
+        fetch_curator_index: { curator: "Ana", name: "Ana's picks", sequence: 4, entries: [entry, { ...entry, id: "brand-new", hash: "sha256:44" }] },
+        fetch_curator_package: JSON.stringify({ format: "warden-package", kind: "skill", id: "tidy-notes" }),
+        preview_skill_package: {
+          id: "tidy-notes", version: "1.1.0", license: "CC0-1.0", name: "tidy-notes", description: "Tidy up rough notes.",
+          body: "Rewrite the notes as bullets.", hash: "sha256:33", status: "modified",
+        },
+      });
+      const { context, page, errors } = await openApp(browser, app, { handlers, colorScheme });
+      try {
+        await page.getByRole("button", { name: "Skills", exact: true }).click();
+        await page.getByRole("button", { name: "See what it lists" }).click();
+        await page.getByText("Ana's picks, number 4").waitFor();
+        const hints = page.getByText("You already have a skill with this name.", { exact: false });
+        assert.equal(await hints.count(), 1, "only the entry named like a skill of theirs says so");
+
+        await page.getByRole("button", { name: "Read and install" }).first().click();
+        const change = page.locator(".skill-editor", { has: page.getByText("What this changes in your skill") });
+        await change.waitFor();
+        await change.getByText("The description changes", { exact: false }).waitFor();
+        await change.locator(".skill-diff-line--del", { hasText: "Rewrite the notes as short bullets." }).waitFor();
+        await change.locator(".skill-diff-line--add", { hasText: "Rewrite the notes as bullets." }).waitFor();
+        await snap(page, `desktop-sources-update-diff-${colorScheme}`, { focus: change, top: false });
+        assert.deepEqual(errors, [], "the page raised no error");
+      } finally {
+        await context.close();
+      }
+    });
+
     test("skills: the button for the first source fills it in, and saving sends it", { timeout: TIMEOUT }, async () => {
       const published = fs.readFileSync(new URL("../../community/PUBLIC_KEY", import.meta.url), "utf8").trim();
       const handlers = backend({ list_curators: [], save_curators: (args) => args.curators });

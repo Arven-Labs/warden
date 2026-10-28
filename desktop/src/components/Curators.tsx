@@ -12,7 +12,16 @@ import { KeyCancelled, usePairingKey } from "./PairingKeyDialog";
  * asks for its pairing key). Opening a source reads its list and shows what it holds; "Read and install" downloads the one package, checked
  * against the list, and hands its text to `onInstall`, which previews it like a file: nothing is installed without reading it. The server
  * checks every entry again; `checkCurator` only spares the round trip. */
-function Curators({ remote, onInstall }: { remote: boolean; onInstall: (content: string) => void }) {
+function Curators({
+  remote,
+  have,
+  onInstall,
+}: {
+  remote: boolean;
+  /** The names of the skills the person already has: an entry with one of them says so, and its preview shows what would change. */
+  have: readonly string[];
+  onInstall: (content: string) => void;
+}) {
   const { askKey, dialog } = usePairingKey();
   const [saved, setSaved] = useState<Curator[] | null>(null);
   const [draft, setDraft] = useState<Curator[]>([]);
@@ -166,6 +175,7 @@ function Curators({ remote, onInstall }: { remote: boolean; onInstall: (content:
                                 {t("skills.curatorEntryMeta", { version: entry.version, license: entry.license })}
                                 {entry.author ? t("skills.by", { author: entry.author }) : ""}
                               </p>
+                              {have.includes(entry.id) && <p className="settings-hint">{t("skills.curatorHaveName")}</p>}
                               {entry.revoked && entry.revokedReason && <p className="settings-hint">{t("skills.curatorRevokedWhy", { reason: entry.revokedReason })}</p>}
                             </div>
                           ))}

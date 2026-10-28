@@ -4,6 +4,7 @@ import type { CatalogSkillDto, PackagePreviewDto, SkillDto, UserInfo } from "../
 import { intlTag, t, type Key } from "../i18n";
 import { catalogDescription } from "../i18n/catalog";
 import { rich } from "../i18n/rich";
+import { packageChange } from "../hub/curators";
 import { signatureView } from "../hub/skillSignature";
 import { SigningError, createKeyFile, publicKeyOf, signPackageText } from "../hub/signing";
 import CopyButton from "./CopyButton";
@@ -540,6 +541,25 @@ export default function SkillsView({
                 return <p className="skills-hint">{t("skills.signedNone")}</p>;
               })()}
               {importing.preview.finding && <p className="error-banner">{t("skills.finding", { finding: importing.preview.finding })}</p>}
+              {(() => {
+                const change = importing.preview.status === "modified" ? packageChange(active.find((s) => s.name === importing.preview?.name), importing.preview) : null;
+                if (!change) return null;
+                return (
+                  <details open>
+                    <summary>{t("skills.previewChange")}</summary>
+                    {change.description && <p className="skills-hint">{t("skills.previewDescription", change.description)}</p>}
+                    <pre className="skills-body skills-diff">
+                      {change.body.map((line, i) => (
+                        <span key={i} className={`skills-diff-line skills-diff-line--${line.op}`}>
+                          {line.op === "add" ? "+ " : line.op === "del" ? "- " : "  "}
+                          {line.text}
+                          {"\n"}
+                        </span>
+                      ))}
+                    </pre>
+                  </details>
+                );
+              })()}
               <pre className="skills-body">{importing.preview.body}</pre>
               {importing.preview.status === "installed" && <p className="skills-hint">{t("skills.alreadyHave")}</p>}
               {importing.preview.status === "modified" && (
@@ -803,6 +823,7 @@ export default function SkillsView({
       <Curators
         conn={conn}
         owner={!user}
+        have={active.map((s) => s.name)}
         onInstall={(content) => {
           window.scrollTo?.({ top: 0 });
           handleCheckImport(content);
