@@ -16,7 +16,18 @@ interface OpenIndex {
  * can open a source and read what it lists; "Read and install" has the hub download the package, checked against the list, and hands the
  * text to `onInstall`, which previews it like a file. The list is edited by the owner only (`owner`), and it must not sit inside a form:
  * the pairing-key prompt is one of its own. */
-export default function Curators({ conn, owner, onInstall }: { conn: ServerConnection | null; owner: boolean; onInstall: (content: string) => void }) {
+export default function Curators({
+  conn,
+  owner,
+  have,
+  onInstall,
+}: {
+  conn: ServerConnection | null;
+  owner: boolean;
+  /** The names of the skills the person already has: an entry with one of them says so, and its preview shows what would change. */
+  have: readonly string[];
+  onInstall: (content: string) => void;
+}) {
   const [saved, setSaved] = useState<Curator[] | null>(null);
   const [draft, setDraft] = useState<Curator[]>([]);
   const [name, setName] = useState("");
@@ -189,6 +200,7 @@ export default function Curators({ conn, owner, onInstall }: { conn: ServerConne
                                   {t("skills.curatorEntryMeta", { version: entry.version, license: entry.license })}
                                   {entry.author ? t("skills.fromAuthor", { author: entry.author }) : ""}
                                 </p>
+                                {have.includes(entry.id) && <p className="skills-hint">{t("skills.curatorHaveName")}</p>}
                                 {entry.revoked && entry.revokedReason && <p className="skills-hint">{t("skills.curatorRevokedWhy", { reason: entry.revokedReason })}</p>}
                               </li>
                             ))}

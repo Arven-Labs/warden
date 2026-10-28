@@ -56,11 +56,18 @@ async function withCurator(body) {
   const keygen = execFileSync(bin, ["package", "keygen", keyFile], { encoding: "utf8" });
   const publicKey = /public key[^:]*: ([0-9a-f]{64})/.exec(keygen)?.[1];
   assert.ok(publicKey, keygen);
-  execFileSync(bin, [
-    "package", "index", "build", "--name", "Picks da Ana", "--key", keyFile, "--base-url", base,
-    "--revoke", `${leaky.hash}=pedia a senha`, "--sequence", "5", "--out", path.join(dir, "index.json"),
-    path.join(dir, "greet.warden-skill.json"), path.join(dir, "leaky.warden-skill.json"),
-  ]);
+  const buildIndex = (sequence) =>
+    execFileSync(bin, [
+      "package", "index", "build", "--name", "Picks da Ana", "--key", keyFile, "--base-url", base,
+      "--revoke", `${leaky.hash}=pedia a senha`, "--sequence", String(sequence), "--out", path.join(dir, "index.json"),
+      path.join(dir, "greet.warden-skill.json"), path.join(dir, "leaky.warden-skill.json"),
+    ]);
+  buildIndex(5);
+  /** The curator publishes a new text for `greet` under a higher number, as it would for a new version. */
+  const republishGreet = (newBody) => {
+    fs.writeFileSync(path.join(dir, "greet.warden-skill.json"), packageFile("greet", newBody).text);
+    buildIndex(6);
+  };
 
   const hub = await startHub({ extraArgs: ["--allow-private-curators"] });
   let context;
@@ -74,7 +81,7 @@ async function withCurator(body) {
       await sections.getByRole("button", { name: "Skills", exact: true }).click();
       const fontes = page.locator("section", { has: page.getByRole("heading", { name: "Fontes", exact: true }) });
       await fontes.waitFor();
-      await body({ hub, base, publicKey, fontes, ...opened });
+      await body({ hub, base, publicKey, fontes, republishGreet, ...opened });
     } catch (err) {
       console.log(`--- the frames the page sent (end):\n${opened.sent.slice(-8).map((f) => f.slice(0, 300)).join("\n")}\n--- the hub's log (end):\n${hub.log().slice(-1500)}`);
       await snap(page, "web-curators-failure");
@@ -161,6 +168,45 @@ describe("a curator's index on the web page", { timeout: TIMEOUT }, () => {
       await page.locator("div.skills-editor", { has: page.getByText("Say hello warmly.") }).getByRole("button", { name: "Instalar", exact: true }).click();
       await page.getByText("Skill greet instalada.").waitFor();
       await page.locator(".skills-item", { hasText: "greet" }).first().waitFor();
+    });
+  });
+
+  test("a skill the person already has: the source says so, and the preview of a new text shows the lines that change before anything is replaced", async () => {
+    await withCurator(async ({ base, publicKey, fontes, page, republishGreet }) => {
+      await addCurator(fontes, "Ana", publicKey, `${base}/index.json`);
+      await fontes.getByRole("button", { name: "Salvar", exact: true }).click();
+      await fontes.getByLabel("Chave de pareamento do hub").fill(PAIRING_KEY);
+      await fontes.getByRole("button", { name: "Confirmar" }).click();
+      await fontes.getByText("Salvo.").waitFor();
+
+      // The first time there is nothing of theirs to compare: no hint, and the preview shows no change.
+      await fontes.getByRole("button", { name: "Ver o que ela lista" }).click();
+      const greet = fontes.locator("li.skills-item li.skills-item", { hasText: "greet" });
+      await greet.getByRole("button", { name: "Ler e instalar" }).click();
+      const preview = page.locator("div.skills-editor", { has: page.getByText("Say hello warmly.") });
+      await preview.getByRole("button", { name: "Instalar", exact: true }).click();
+      await page.getByText("Skill greet instalada.").waitFor();
+      assert.equal(await page.getByText("O que isto muda na sua skill").count(), 0, "a first install has nothing to compare");
+
+      // The curator publishes a new text. The person opens the source again: the entry says they already have it, and the preview
+      // shows the old line going and the new one coming, with "replace mine" still to be ticked.
+      republishGreet("Say hello and ask how they are.");
+      await fontes.getByRole("button", { name: "Fechar", exact: true }).click();
+      await fontes.getByRole("button", { name: "Ver o que ela lista" }).click();
+      await fontes.getByText("Picks da Ana, número 6").waitFor();
+      await greet.getByText("Você já tem uma skill com este nome.", { exact: false }).waitFor();
+      await greet.getByRole("button", { name: "Ler e instalar" }).click();
+      const changed = page.locator("div.skills-editor", { has: page.getByText("O que isto muda na sua skill") });
+      await changed.waitFor();
+      await changed.locator(".skills-diff-line--del", { hasText: "Say hello warmly." }).waitFor();
+      await changed.locator(".skills-diff-line--add", { hasText: "Say hello and ask how they are." }).waitFor();
+      assert.equal(await changed.getByRole("button", { name: "Instalar", exact: true }).isDisabled(), true, "replacing still takes the person's say-so");
+      await snap(page, "web-curators-update-diff", { focus: changed });
+      await changed.getByLabel("Trocar a skill que eu já tenho com este nome").check();
+      await changed.getByRole("button", { name: "Instalar", exact: true }).click();
+      // The first install's notice may still be up, so what proves the second went through is the preview closing.
+      await changed.waitFor({ state: "detached" });
+      await page.getByText("Skill greet instalada.").waitFor();
     });
   });
 });

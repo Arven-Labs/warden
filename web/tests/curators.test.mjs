@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { readFileSync } from "node:fs";
-import { FABIO_SOURCE, addCurator, checkCurator, hasFabioSource, isSource, removeCurator, sameCurators } from "../src/hub/curators.ts";
+import { FABIO_SOURCE, addCurator, checkCurator, hasFabioSource, isSource, packageChange, removeCurator, sameCurators } from "../src/hub/curators.ts";
 import { skills } from "../src/i18n/en/skills.ts";
 import { skillsPt } from "../src/i18n/pt-BR/skills.ts";
 
@@ -65,4 +65,39 @@ test("the first source is the one community/ is signed with, and adds like any e
   for (const table of [skills, skillsPt]) {
     assert.ok(table["skills.curatorAddFabio"] && table["skills.curatorAddFabioHint"]);
   }
+});
+
+const mine = { name: "greet", description: "Say hello.", body: "Line one.\nLine two.\nLine three." };
+
+test("a package for a skill the person does not have shows no change", () => {
+  assert.equal(packageChange(undefined, mine), null);
+});
+
+test("a package with the same text as the skill the person has shows no change", () => {
+  assert.equal(packageChange(mine, { ...mine }), null);
+});
+
+test("a package that edits the body shows the lines that go and the lines that come", () => {
+  const change = packageChange(mine, { ...mine, body: "Line one.\nLine 2.\nLine three.\nLine four." });
+  assert.ok(change);
+  assert.equal(change.description, null);
+  const ops = change.body.filter((l) => l.op !== "same").map((l) => `${l.op}:${l.text}`);
+  assert.deepEqual(ops, ["del:Line two.", "add:Line 2.", "add:Line four."]);
+});
+
+test("a package that only rewrites the description says so and has no body lines to show", () => {
+  const change = packageChange(mine, { ...mine, description: "Say hello nicely." });
+  assert.ok(change);
+  assert.deepEqual(change.description, { before: "Say hello.", after: "Say hello nicely." });
+  assert.equal(change.body.some((l) => l.op === "add" || l.op === "del"), false);
+});
+
+test("the words for a change exist in both languages", () => {
+  for (const table of [skills, skillsPt]) {
+    for (const key of ["skills.previewChange", "skills.previewDescription", "skills.curatorHaveName"]) {
+      assert.ok(table[key], key);
+    }
+  }
+  assert.match(skills["skills.previewDescription"], /\{before\}.*\{after\}/);
+  assert.match(skillsPt["skills.previewDescription"], /\{before\}.*\{after\}/);
 });

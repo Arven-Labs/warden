@@ -2,6 +2,7 @@
 // testable without a DOM. The hub checks the list again when it is saved (`validate_curators`); these are the same rules, so the person
 // hears about a bad entry before a round trip, not instead of it.
 
+import { diffLines, hasChanges, withContext, type DiffLine } from "../components/skillDiff.ts";
 import { normalizeKey } from "./trustedPublishers.ts";
 
 export interface Curator {
@@ -72,6 +73,25 @@ export function addCurator(list: readonly Curator[], draft: Curator): Curator[] 
 /** `list` without the curator called `name`. */
 export function removeCurator(list: readonly Curator[], name: string): Curator[] {
   return list.filter((c) => c.name !== name);
+}
+
+/** What a package changes in a skill the person already has (P160). The body goes through the same line diff as a suggested revision, with
+ * its unchanged stretches folded; the description is a sentence, not lines, so it is shown as before and after. */
+export interface PackageChange {
+  body: DiffLine[];
+  description: { before: string; after: string } | null;
+}
+
+/** What `incoming` would change in `installed`, or `null` when the person has no skill of that name or the text is the same. */
+export function packageChange(
+  installed: { description: string; body: string } | undefined,
+  incoming: { description: string; body: string },
+): PackageChange | null {
+  if (!installed) return null;
+  const lines = diffLines(installed.body, incoming.body);
+  const description = installed.description === incoming.description ? null : { before: installed.description, after: incoming.description };
+  if (!hasChanges(lines) && description === null) return null;
+  return { body: withContext(lines), description };
 }
 
 /** Whether two lists hold the same curators in the same order: what says there is something to save. */

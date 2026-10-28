@@ -11,6 +11,7 @@ import Curators from "./Curators";
 import TrustedPublishers from "./TrustedPublishers";
 import TrustThisKey from "./TrustThisKey";
 import SigningChoice, { type SigningState } from "./SigningChoice";
+import { packageChange } from "../lib/curators";
 import { rememberedKeyPath } from "../lib/signingKey";
 import { hubSkills } from "../lib/hub";
 import { signatureView } from "../lib/skillSignature";
@@ -852,6 +853,25 @@ function SkillsView({
                 return <p className="settings-hint">{t("skills.signedNone")}</p>;
               })()}
               {importing.preview.finding && <p className="settings-error-banner">{t("skills.importFinding", { finding: importing.preview.finding })}</p>}
+              {(() => {
+                const change = importing.preview.status === "modified" ? packageChange(active.find((s) => s.name === importing.preview?.name), importing.preview) : null;
+                if (!change) return null;
+                return (
+                  <details open>
+                    <summary className="settings-hint">{t("skills.previewChange")}</summary>
+                    {change.description && <p className="settings-hint">{t("skills.previewDescription", change.description)}</p>}
+                    <pre className="skill-suggestion-body skill-diff">
+                      {change.body.map((line, i) => (
+                        <span key={i} className={`skill-diff-line skill-diff-line--${line.op}`}>
+                          {line.op === "add" ? "+ " : line.op === "del" ? "- " : "  "}
+                          {line.text}
+                          {"\n"}
+                        </span>
+                      ))}
+                    </pre>
+                  </details>
+                );
+              })()}
               <pre className="skill-suggestion-body">{importing.preview.body}</pre>
               {importing.preview.status === "installed" && <p className="settings-hint">{t("skills.alreadyHave")}</p>}
               {importing.preview.status === "modified" && (
@@ -1149,6 +1169,7 @@ function SkillsView({
       )}
       <Curators
         remote={remote}
+        have={active.map((s) => s.name)}
         onInstall={(content) => {
           // The preview opens at the top of the screen, above this section.
           void handleCheckImport(content).then(() => requestAnimationFrame(() => document.querySelector(".skill-editor")?.scrollIntoView?.({ block: "start" })));
