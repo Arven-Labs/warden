@@ -125,6 +125,8 @@ export const skills = {
   "skills.curatorKey": "Their public key",
   "skills.curatorUrl": "Address of their list (https:// or ar://)",
   "skills.curatorAdd": "Add",
+  "skills.curatorAddFabio": "Add Fabio's source",
+  "skills.curatorAddFabioHint": "Fabio's source is a list of ready-made skills kept by the author of Warden, in the Warden repository. Warden adds none by itself: this fills in the entry, you save it, and you still read every skill before installing it.",
   "skills.curatorRemove": "Remove",
   "skills.curatorSave": "Save",
   "skills.curatorSaving": "Saving…",

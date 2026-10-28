@@ -1,0 +1,16 @@
+{
+  "format": "warden-package",
+  "formatVersion": 1,
+  "kind": "skill",
+  "id": "decision-record",
+  "version": "1.0.0",
+  "author": "Fabio Anjos Junior",
+  "license": "MIT",
+  "content": {
+    "name": "decision-record",
+    "description": "Write down a decision with its context, the options considered and the reasons, so it can be understood later. Use when the person settles a technical or product choice and wants it recorded.",
+    "body": "When asked to record a decision, write a short note with these headings, in the person's language:\n\n1. **Decision**: one sentence saying what was decided.\n2. **Context**: the situation and the constraints that forced a choice.\n3. **Options considered**: each option in one or two lines, with its main advantage and main cost.\n4. **Why this one**: the reasons that tipped it, in order of weight.\n5. **Consequences**: what gets easier, what gets harder, and what must be revisited and when.\n6. **Status and date**: \"Accepted\", \"Proposed\" or \"Replaced\", with the date if the person gave it.\n\nRules:\n- Record what was actually discussed. If the reasons were not stated, ask rather than invent them.\n- Keep it under one page. A reader six months from now should understand it without the conversation.\n- Never drop an option the person rejected; the rejected ones are the most useful part later."
+  },
+  "hash": "sha256:8ebee6e98c3a955fe7002325b0bceb9e50e823b073395fb9d637838f485f1a04",
+  "signature": "ed25519:538d066ae6595f27f4048d7ef6c42ae3b9aefbc0b5471ece23b68c0dbbb34b25:8d58fc3a6fc4d21f19463588a9523a7ef54dd18da5c2d67a180616f870c66237db8b6cd36e741614266b80176e975f4a6aebccc19cec427ca39d9ab9b2e2bd07"
+}

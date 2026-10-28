@@ -123,6 +123,8 @@ export const skillsPt: Record<keyof typeof skills, string> = {
   "skills.curatorKey": "A chave pública dela",
   "skills.curatorUrl": "Endereço da lista (https:// ou ar://)",
   "skills.curatorAdd": "Adicionar",
+  "skills.curatorAddFabio": "Adicionar a fonte do Fabio",
+  "skills.curatorAddFabioHint": "A fonte do Fabio é uma lista de skills prontas mantida pelo autor do Warden, no repositório do Warden. O Warden não adiciona nenhuma sozinho: o botão preenche a entrada, você salva, e ainda lê cada skill antes de instalar.",
   "skills.curatorRemove": "Remover",
   "skills.curatorSave": "Salvar",
   "skills.curatorSaving": "Salvando…",

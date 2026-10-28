@@ -17,6 +17,21 @@ pub fn keygen(path: &Path) -> anyhow::Result<String> {
     skill_package::create_signing_key(path).map_err(anyhow::Error::msg)
 }
 
+/// Packs the skill in the markdown file `skill` (the vault's format; the file's name is the skill's) into a package and writes it to
+/// `out`, unsigned: `sign` comes next. This is what the app does when it shares a skill, for a skill that is a file in a repository.
+/// Returns a line saying what was written.
+pub fn export(skill: &Path, version: &str, author: Option<&str>, license: &str, out: &Path) -> anyhow::Result<String> {
+    let name = skill.file_stem().and_then(|n| n.to_str()).with_context(|| format!("{} has no usable name", skill.display()))?;
+    let size = std::fs::metadata(skill).with_context(|| format!("cannot read {}", skill.display()))?.len();
+    if size > MAX_PACKAGE_BYTES as u64 {
+        bail!("{} is {} KiB; a package is at most {} KiB", skill.display(), size.div_ceil(1024), MAX_PACKAGE_BYTES / 1024);
+    }
+    let raw = std::fs::read_to_string(skill).with_context(|| format!("cannot read {}", skill.display()))?;
+    let package = Package::export_skill(&warden_core::skill::Skill::parse(name, &raw), version, author, license)?;
+    std::fs::write(out, package.to_json()?).with_context(|| format!("cannot write {}", out.display()))?;
+    Ok(format!("wrote {} ({} {}, hash {})", out.display(), package.id, package.version, package.hash))
+}
+
 /// Reads the package at `package`, signs it with the key in `key` and writes it to `out` (the package's own file when `None`).
 /// Returns the signer's public key. A package that is not good as it stands (changed, damaged, or with a signature that does not
 /// check out) is refused rather than signed.
@@ -113,6 +128,31 @@ mod tests {
         let path = dir.join("greet.warden-skill.json");
         std::fs::write(&path, Package::export_skill(&skill, "1.0.0", Some("Ana"), "MIT").unwrap().to_json().unwrap()).unwrap();
         path
+    }
+
+    #[test]
+    fn a_skill_file_becomes_a_package_that_signs_and_reads_back() {
+        let dir = dir();
+        let skill = dir.join("greet.md");
+        std::fs::write(&skill, "---\nname: greet\ndescription: Greets.\n---\nSay hello.\n").unwrap();
+        let out = dir.join("greet.warden-skill.json");
+        let line = export(&skill, "1.0.0", Some("Ana"), "MIT", &out).unwrap();
+        assert!(line.contains("greet 1.0.0") && line.contains("sha256:"), "{line}");
+
+        let package = Package::parse(&std::fs::read_to_string(&out).unwrap()).unwrap();
+        assert_eq!((package.id.as_str(), package.author.as_deref(), package.license.as_str()), ("greet", Some("Ana"), "MIT"));
+        assert!(package.signature.is_none(), "export leaves signing to `sign`");
+        assert_eq!(package.as_skill().unwrap().body, "Say hello.");
+
+        let key = dir.join("signing.key");
+        let public = keygen(&key).unwrap();
+        assert_eq!(sign(&out, &key, None).unwrap(), public);
+        assert!(verify(&out, &[]).unwrap().contains(&public));
+
+        // What cannot be a package is refused, not written.
+        assert!(export(&skill, "not a version", None, "MIT", &dir.join("bad.json")).is_err());
+        assert!(!dir.join("bad.json").exists());
+        assert!(export(&dir.join("missing.md"), "1.0.0", None, "MIT", &dir.join("m.json")).unwrap_err().to_string().contains("cannot read"));
     }
 
     #[test]

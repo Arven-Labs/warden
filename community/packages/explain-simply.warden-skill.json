@@ -1,0 +1,16 @@
+{
+  "format": "warden-package",
+  "formatVersion": 1,
+  "kind": "skill",
+  "id": "explain-simply",
+  "version": "1.0.0",
+  "author": "Fabio Anjos Junior",
+  "license": "MIT",
+  "content": {
+    "name": "explain-simply",
+    "description": "Explain a hard idea in plain words with an everyday example. Use when the person says they do not understand something, asks for a simple explanation, or asks to explain it like they are new to the topic.",
+    "body": "When asked to explain something simply:\n\n1. Start with one sentence that says what the thing is, using no jargon.\n2. Give an everyday example or comparison that fits it, and say where the comparison stops being accurate if it misleads.\n3. Add the two or three ideas that matter most, one short paragraph each. Introduce any technical term only when needed and define it right there.\n4. End with a quick question or a small next step that lets the person check they understood.\n\nRules:\n- Answer in the language the person used.\n- Aim for the level of someone smart who is new to the field. Never talk down.\n- If the question rests on a wrong assumption, say so kindly and correct it first.\n- Prefer being a little imprecise to being unreadable, but never state something false to keep it simple."
+  },
+  "hash": "sha256:46c0cc9b448f41b7ce8c8c1ba9d4d14d6dfb7dab8ad397e174408e9311ebca1b",
+  "signature": "ed25519:538d066ae6595f27f4048d7ef6c42ae3b9aefbc0b5471ece23b68c0dbbb34b25:5a05c986626df65dee1f656f591b7a13a4b20e558d950a12d4090f231d8239e0dda66b892963f0210efc5e282ef9805bcfb9fc9c593959d19575ee7863403e0f"
+}

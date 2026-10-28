@@ -1,0 +1,16 @@
+{
+  "format": "warden-package",
+  "formatVersion": 1,
+  "kind": "skill",
+  "id": "weekly-summary",
+  "version": "1.0.0",
+  "author": "Fabio Anjos Junior",
+  "license": "MIT",
+  "content": {
+    "name": "weekly-summary",
+    "description": "Build a weekly status update from the person's notes, tasks or messages. Use when asked for a weekly report, a status update or a recap of the week.",
+    "body": "When asked for a weekly summary, use only what the person gave you or what you can read in their notes, and answer in their language with:\n\n1. **Done**: what was finished this week, one line each, most important first.\n2. **In progress**: what is under way and its state in a few words.\n3. **Blocked or at risk**: what is stuck, why, and what would unblock it. Write \"Nothing\" if so.\n4. **Next week**: the two to five things that matter most.\n\nRules:\n- Group items that belong together instead of listing every small task.\n- Keep numbers, names and dates exactly as in the source.\n- Do not claim something was done unless the source says it was. If the source is unclear, mark the line with \"(to confirm)\".\n- Keep the whole update under about 200 words unless the person asks for more detail."
+  },
+  "hash": "sha256:f90355c925249d84ff8270b80afb59edae43c09e0f1065d6dabcf4e0f127fd1b",
+  "signature": "ed25519:538d066ae6595f27f4048d7ef6c42ae3b9aefbc0b5471ece23b68c0dbbb34b25:9c510bbfd5d997745429d32530aa4debfcb12b442fb5d25bd6be1132e4e828e399db1427101dc78dea2ac73bb0954f3f45a2fd68ea4062a62b5124038f20f502"
+}

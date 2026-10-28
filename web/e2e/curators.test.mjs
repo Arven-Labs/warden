@@ -118,6 +118,23 @@ describe("a curator's index on the web page", { timeout: TIMEOUT }, () => {
     });
   });
 
+  test("the button for the first source fills it in, saves it with the pairing key, and goes away", async () => {
+    await withCurator(async ({ hub, fontes }) => {
+      const published = fs.readFileSync(new URL("../../community/PUBLIC_KEY", import.meta.url), "utf8").trim();
+      const add = fontes.getByRole("button", { name: "Adicionar a fonte do Fabio" });
+      await add.click();
+      await fontes.getByText("Há mudanças que ainda não foram salvas.").waitFor();
+      assert.equal(await add.count(), 0, "once it is in the list the button is gone");
+      assert.ok(!fs.readFileSync(hub.config, "utf8").includes("[[curators]]"), "the button only fills the draft: nothing is saved yet");
+      await fontes.getByRole("button", { name: "Salvar", exact: true }).click();
+      await fontes.getByLabel("Chave de pareamento do hub").fill(PAIRING_KEY);
+      await fontes.getByRole("button", { name: "Confirmar" }).click();
+      await fontes.getByText("Salvo.").waitFor();
+      const config = fs.readFileSync(hub.config, "utf8");
+      assert.ok(config.includes(published) && config.includes('name = "Fabio"') && config.includes("raw.githubusercontent.com/Arven-Labs/warden/main/community/index.json"), config.slice(-400));
+    });
+  });
+
   test("the index lists the packages, marks the one taken back, and the other installs through the preview", async () => {
     await withCurator(async ({ hub, base, publicKey, fontes, page }) => {
       // Saved through the screen so the hub's own check of the list is part of it.

@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { addCurator, checkCurator, isSource, removeCurator, sameCurators } from "../src/lib/curators.ts";
+import { readFileSync } from "node:fs";
+import { FABIO_SOURCE, addCurator, checkCurator, hasFabioSource, isSource, removeCurator, sameCurators } from "../src/lib/curators.ts";
 import { skills } from "../src/i18n/en/skills.ts";
 import { skillsPt } from "../src/i18n/pt-BR/skills.ts";
 
@@ -48,4 +49,20 @@ test("every line the sources screen can show exists in both languages", () => {
   }
   assert.match(skills["skills.curatorRevokedWhy"], /\{reason\}/);
   assert.match(skillsPt["skills.curatorEntries"], /\{name\}/);
+});
+
+test("the first source is the one community/ is signed with, and adds like any entry", () => {
+  const published = readFileSync(new URL("../../community/PUBLIC_KEY", import.meta.url), "utf8").trim();
+  assert.equal(FABIO_SOURCE.key, published, "the button and the repository name the same key");
+  assert.equal(FABIO_SOURCE.url, "https://raw.githubusercontent.com/Arven-Labs/warden/main/community/index.json");
+  assert.equal(checkCurator([], FABIO_SOURCE), null);
+  assert.equal(hasFabioSource([]), false);
+  const list = addCurator([], FABIO_SOURCE);
+  assert.deepEqual(list, [FABIO_SOURCE]);
+  assert.equal(hasFabioSource(list), true);
+  assert.equal(hasFabioSource([{ ...FABIO_SOURCE, name: "Renamed" }]), true, "found by key, not by name");
+  assert.equal(checkCurator([{ ...FABIO_SOURCE, key: "cd".repeat(32) }], FABIO_SOURCE), "duplicateName", "someone else already called Fabio");
+  for (const table of [skills, skillsPt]) {
+    assert.ok(table["skills.curatorAddFabio"] && table["skills.curatorAddFabioHint"]);
+  }
 });

@@ -12,6 +12,19 @@ export interface Curator {
   url: string;
 }
 
+/** The first source (P160), kept in this repository under `community/`: offered by an optional button, never added by itself. Its key is
+ * `community/PUBLIC_KEY` (a test checks they agree) and the private half stays with its owner. */
+export const FABIO_SOURCE: Curator = {
+  name: "Fabio",
+  key: "538d066ae6595f27f4048d7ef6c42ae3b9aefbc0b5471ece23b68c0dbbb34b25",
+  url: "https://raw.githubusercontent.com/Arven-Labs/warden/main/community/index.json",
+};
+
+/** Whether `list` already has the first source, by its key (the name may have been changed). */
+export function hasFabioSource(list: readonly Curator[]): boolean {
+  return list.some((c) => c.key === FABIO_SOURCE.key);
+}
+
 export const MAX_CURATORS = 20;
 export const MAX_NAME_CHARS = 80;
 export const MAX_URL_CHARS = 500;

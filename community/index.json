@@ -1,0 +1,83 @@
+{
+  "format": "warden-index",
+  "formatVersion": 1,
+  "name": "Fabio",
+  "sequence": 1793147221,
+  "entries": [
+    {
+      "id": "code-review-checklist",
+      "version": "1.0.0",
+      "hash": "sha256:ac1581cfd1fed8da44c36278f02eaff3f2760287d64e6794f4d8045acaa59560",
+      "source": "https://raw.githubusercontent.com/Arven-Labs/warden/main/community/packages/code-review-checklist.warden-skill.json",
+      "description": "Review a code change for bugs, risks and clarity, with findings ranked by severity. Use when the person shares a diff, a function or a pull request and asks for a review.",
+      "author": "Fabio Anjos Junior",
+      "license": "MIT"
+    },
+    {
+      "id": "commit-message",
+      "version": "1.0.0",
+      "hash": "sha256:e440394dc33f213310b7d41e986a594a4706219bdff81d8c84fbeb5d7b71e577",
+      "source": "https://raw.githubusercontent.com/Arven-Labs/warden/main/community/packages/commit-message.warden-skill.json",
+      "description": "Write a good commit message from a diff or a description of a change. Use when the person asks for a commit message or a pull request title and description.",
+      "author": "Fabio Anjos Junior",
+      "license": "MIT"
+    },
+    {
+      "id": "decision-record",
+      "version": "1.0.0",
+      "hash": "sha256:8ebee6e98c3a955fe7002325b0bceb9e50e823b073395fb9d637838f485f1a04",
+      "source": "https://raw.githubusercontent.com/Arven-Labs/warden/main/community/packages/decision-record.warden-skill.json",
+      "description": "Write down a decision with its context, the options considered and the reasons, so it can be understood later. Use when the person settles a technical or product choice and wants it recorded.",
+      "author": "Fabio Anjos Junior",
+      "license": "MIT"
+    },
+    {
+      "id": "email-draft",
+      "version": "1.0.0",
+      "hash": "sha256:caaf7f78e5dd7602f9c01e8e022c748c7e41a0eae1a520e9ba2373797b5fe1c1",
+      "source": "https://raw.githubusercontent.com/Arven-Labs/warden/main/community/packages/email-draft.warden-skill.json",
+      "description": "Draft a clear, polite email from a few points. Use when the person asks to write, reply to or rewrite an email or a message to someone.",
+      "author": "Fabio Anjos Junior",
+      "license": "MIT"
+    },
+    {
+      "id": "explain-simply",
+      "version": "1.0.0",
+      "hash": "sha256:46c0cc9b448f41b7ce8c8c1ba9d4d14d6dfb7dab8ad397e174408e9311ebca1b",
+      "source": "https://raw.githubusercontent.com/Arven-Labs/warden/main/community/packages/explain-simply.warden-skill.json",
+      "description": "Explain a hard idea in plain words with an everyday example. Use when the person says they do not understand something, asks for a simple explanation, or asks to explain it like they are new to the topic.",
+      "author": "Fabio Anjos Junior",
+      "license": "MIT"
+    },
+    {
+      "id": "meeting-summary",
+      "version": "1.0.0",
+      "hash": "sha256:9c98103b0b9db909fa1a0241aa0d33a83ec9950d9c11bd95592f0d7d73391a1e",
+      "source": "https://raw.githubusercontent.com/Arven-Labs/warden/main/community/packages/meeting-summary.warden-skill.json",
+      "description": "Turn meeting notes or a transcript into a short summary with decisions, action items and open questions. Use when the person pastes notes from a meeting or asks what was agreed.",
+      "author": "Fabio Anjos Junior",
+      "license": "MIT"
+    },
+    {
+      "id": "research-brief",
+      "version": "1.0.0",
+      "hash": "sha256:77dc9971143fba12e2db42a2d630ef952e1b7edd7a891ec456d80ba3848789d3",
+      "source": "https://raw.githubusercontent.com/Arven-Labs/warden/main/community/packages/research-brief.warden-skill.json",
+      "description": "Produce a short, honest research brief on a topic, separating what is known from what is uncertain. Use when asked to research, compare options or give an overview of a subject.",
+      "author": "Fabio Anjos Junior",
+      "license": "MIT"
+    },
+    {
+      "id": "weekly-summary",
+      "version": "1.0.0",
+      "hash": "sha256:f90355c925249d84ff8270b80afb59edae43c09e0f1065d6dabcf4e0f127fd1b",
+      "source": "https://raw.githubusercontent.com/Arven-Labs/warden/main/community/packages/weekly-summary.warden-skill.json",
+      "description": "Build a weekly status update from the person's notes, tasks or messages. Use when asked for a weekly report, a status update or a recap of the week.",
+      "author": "Fabio Anjos Junior",
+      "license": "MIT"
+    }
+  ],
+  "revoked": [],
+  "hash": "sha256:eaa9a9b1653cf439e20aa40ece541037df3c448d85f4fa32ea4a4478395c2271",
+  "signature": "ed25519:538d066ae6595f27f4048d7ef6c42ae3b9aefbc0b5471ece23b68c0dbbb34b25:e7a462d495da662986f5ddea1d2a521dc582f80c2445c97557295f06dc7e0d581a4901a45546660373b64b25034c1dd08f4812b39b7f8cc4c8b3b0131c24d301"
+}

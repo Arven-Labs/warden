@@ -2,7 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { useCallback, useEffect, useState } from "react";
 import { t, type Key } from "../i18n";
 import { hubFetchCuratorIndex, hubFetchCuratorPackage, hubListCurators, hubSaveCurators } from "../lib/hub";
-import { addCurator, checkCurator, removeCurator, sameCurators, type Curator } from "../lib/curators";
+import { FABIO_SOURCE, addCurator, checkCurator, hasFabioSource, removeCurator, sameCurators, type Curator } from "../lib/curators";
 import { shortKey } from "../lib/trustedPublishers";
 import type { CuratorEntry, CuratorIndex } from "../types";
 import { KeyCancelled, usePairingKey } from "./PairingKeyDialog";
@@ -52,6 +52,18 @@ function Curators({ remote, onInstall }: { remote: boolean; onInstall: (content:
     setName("");
     setKey("");
     setUrl("");
+    setMessage(null);
+  }
+
+  /** Puts the first source in the draft, to be saved like any other change; a name or key that clashes says so as for any entry. */
+  function handleAddFabio() {
+    const found = checkCurator(draft, FABIO_SOURCE);
+    if (found !== null) {
+      setProblem(t(`skills.curatorProblem.${found}` as Key));
+      return;
+    }
+    setProblem(null);
+    setDraft(addCurator(draft, FABIO_SOURCE));
     setMessage(null);
   }
 
@@ -183,6 +195,16 @@ function Curators({ remote, onInstall }: { remote: boolean; onInstall: (content:
             <input className="settings-input" value={url} spellCheck={false} autoComplete="off" onChange={(e) => setUrl(e.currentTarget.value)} />
           </label>
           {problem && <p className="settings-error-banner">{problem}</p>}
+          {!hasFabioSource(draft) && (
+            <>
+              <p className="settings-hint">{t("skills.curatorAddFabioHint")}</p>
+              <div className="skill-editor-actions">
+                <button type="button" className="settings-browse-btn" onClick={handleAddFabio} disabled={busy}>
+                  {t("skills.curatorAddFabio")}
+                </button>
+              </div>
+            </>
+          )}
           <div className="skill-editor-actions">
             <button type="button" className="settings-browse-btn" onClick={handleAdd} disabled={key.trim() === "" || busy}>
               {t("skills.curatorAdd")}

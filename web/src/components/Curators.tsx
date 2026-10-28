@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { SettingsError, type ServerConnection } from "../hub/connection";
 import type { CuratorEntryDto } from "../hub/messages";
-import { addCurator, checkCurator, removeCurator, sameCurators, type Curator } from "../hub/curators";
+import { FABIO_SOURCE, addCurator, checkCurator, hasFabioSource, removeCurator, sameCurators, type Curator } from "../hub/curators";
 import { shortKey } from "../hub/trustedPublishers";
 import { t, type Key } from "../i18n";
 
@@ -58,6 +58,18 @@ export default function Curators({ conn, owner, onInstall }: { conn: ServerConne
     setName("");
     setKey("");
     setUrl("");
+    setMessage(null);
+  }
+
+  /** Puts the first source in the draft, to be saved like any other change; a name or key that clashes says so as for any entry. */
+  function handleAddFabio() {
+    const found = checkCurator(draft, FABIO_SOURCE);
+    if (found !== null) {
+      setProblem(t(`skills.curatorProblem.${found}` as Key));
+      return;
+    }
+    setProblem(null);
+    setDraft(addCurator(draft, FABIO_SOURCE));
     setMessage(null);
   }
 
@@ -209,6 +221,16 @@ export default function Curators({ conn, owner, onInstall }: { conn: ServerConne
                 <input value={url} spellCheck={false} autoComplete="off" onChange={(e) => setUrl(e.target.value)} />
               </label>
               {problem && <p className="error-banner">{problem}</p>}
+              {!hasFabioSource(draft) && (
+                <>
+                  <p className="skills-hint">{t("skills.curatorAddFabioHint")}</p>
+                  <div className="skills-actions">
+                    <button type="button" className="link-button" disabled={busy || asking} onClick={handleAddFabio}>
+                      {t("skills.curatorAddFabio")}
+                    </button>
+                  </div>
+                </>
+              )}
               <div className="skills-actions">
                 <button type="button" className="link-button" disabled={key.trim() === "" || busy || asking} onClick={handleAdd}>
                   {t("skills.curatorAdd")}

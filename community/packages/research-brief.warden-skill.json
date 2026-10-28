@@ -1,0 +1,16 @@
+{
+  "format": "warden-package",
+  "formatVersion": 1,
+  "kind": "skill",
+  "id": "research-brief",
+  "version": "1.0.0",
+  "author": "Fabio Anjos Junior",
+  "license": "MIT",
+  "content": {
+    "name": "research-brief",
+    "description": "Produce a short, honest research brief on a topic, separating what is known from what is uncertain. Use when asked to research, compare options or give an overview of a subject.",
+    "body": "When asked for a research brief:\n\n1. Restate the question in one line, and note any assumption you had to make.\n2. **Findings**: the answer first, then the three to six most important points, each marked as \"established\", \"likely\" or \"uncertain\". Say where the information came from when you used a tool, a file or the web; say it is from your general knowledge when you did not.\n3. **Options or trade-offs**: when the question is a choice, compare the options on the criteria that matter for this person, in a small table.\n4. **What is missing**: facts you could not verify, and what would settle them.\n5. **Recommendation**: one line, only if the person asked for a decision.\n\nRules:\n- Never invent sources, quotes, figures or dates. If you do not know, say so.\n- Mention recent changes that could make your information out of date.\n- Keep it to about one page, in the language the person used."
+  },
+  "hash": "sha256:77dc9971143fba12e2db42a2d630ef952e1b7edd7a891ec456d80ba3848789d3",
+  "signature": "ed25519:538d066ae6595f27f4048d7ef6c42ae3b9aefbc0b5471ece23b68c0dbbb34b25:aecb076cace4bc90e84d76a7490cb85ab3165edb4f2552ab1655f6637bc40baafc7f54f5d2cc3594c98dce9fb9dbd9ae5bcedaea298958544721583098213500"
+}

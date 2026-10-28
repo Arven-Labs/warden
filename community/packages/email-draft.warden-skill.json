@@ -1,0 +1,16 @@
+{
+  "format": "warden-package",
+  "formatVersion": 1,
+  "kind": "skill",
+  "id": "email-draft",
+  "version": "1.0.0",
+  "author": "Fabio Anjos Junior",
+  "license": "MIT",
+  "content": {
+    "name": "email-draft",
+    "description": "Draft a clear, polite email from a few points. Use when the person asks to write, reply to or rewrite an email or a message to someone.",
+    "body": "When asked to write or answer an email:\n\n1. If the goal, the recipient or the tone is missing and cannot be guessed from the request, ask one short question first. Otherwise just write the draft.\n2. Write in the language the person asked in, or the language of the email they are replying to.\n3. Structure: a subject line, a greeting, the main point in the first sentence, the details in short paragraphs, one clear request or next step, and a sign-off.\n4. Keep it as short as the content allows. Prefer plain words to formal filler.\n5. Match the relationship: warm and direct for colleagues, more careful for clients or people senior to the writer.\n6. Never invent facts, dates, prices or commitments. Put a placeholder in square brackets, such as [date], where information is missing.\n\nGive the draft only, then at most one line offering a shorter or warmer version."
+  },
+  "hash": "sha256:caaf7f78e5dd7602f9c01e8e022c748c7e41a0eae1a520e9ba2373797b5fe1c1",
+  "signature": "ed25519:538d066ae6595f27f4048d7ef6c42ae3b9aefbc0b5471ece23b68c0dbbb34b25:e82ab91e5a86b0ff9ab01110cbcbcb5fa45513169293a83aa0564a3ee95c9764697ef73a73c807d84da41d928ce3fdadae44cd274267bfe26358fe5c5c2c8005"
+}

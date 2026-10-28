@@ -3,7 +3,7 @@ name: CI
 # The full suite runs here, not on the development machine (Session 223): on the machine only `cargo check`
 # and a one-off test stay. It runs on every push to main, on PRs and from the "Run workflow" button.
 # A commit that only touches the documentation does not trigger the run, and each job only runs if its area changed (job `changes`):
-#   rust       <- crates/**, desktop/src-tauri/**, Cargo.toml, Cargo.lock
+#   rust       <- crates/**, community/** (the first source's index is checked by a test), desktop/src-tauri/**, Cargo.toml, Cargo.lock
 #   web        <- web/**
 #   desktop    <- desktop/**
 #   extension  <- extension/**
@@ -59,6 +59,7 @@ jobs:
           filters: |
             rust:
               - 'crates/**'
+              - 'community/**'
               - 'desktop/src-tauri/**'
               - 'Cargo.toml'
               - 'Cargo.lock'

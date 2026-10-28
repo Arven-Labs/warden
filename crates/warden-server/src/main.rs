@@ -492,6 +492,22 @@ enum PackageAction {
     /// Makes a signing key: writes the private half to FILE (readable only by you; never overwritten, back it up) and prints the
     /// public half to give to the people who should trust you.
     Keygen { file: PathBuf },
+    /// Packs the skill file SKILL (the vault's markdown, named after the skill) into an unsigned package, ready for `sign`.
+    Export {
+        skill: PathBuf,
+        /// Numbers separated by dots, like 1.0.0.
+        #[arg(long)]
+        version: String,
+        /// Who wrote it (optional).
+        #[arg(long)]
+        author: Option<String>,
+        /// What others may do with it: CC0-1.0, MIT or CC-BY-4.0.
+        #[arg(long)]
+        license: String,
+        /// The package file to write.
+        #[arg(short, long)]
+        out: PathBuf,
+    },
     /// Signs the package PACKAGE with the key in --key. Replaces the file unless --out names another one.
     Sign {
         package: PathBuf,
@@ -1415,6 +1431,9 @@ fn run_package_command(action: PackageAction) -> anyhow::Result<()> {
             let public = package_cmd::keygen(&file)?;
             println!("wrote the private key to {} — keep it secret and back it up; it cannot be made again", file.display());
             println!("public key (give this to the people who should trust you): {public}");
+        }
+        PackageAction::Export { skill, version, author, license, out } => {
+            println!("{}", package_cmd::export(&skill, &version, author.as_deref(), &license, &out)?);
         }
         PackageAction::Sign { package, key, out } => {
             let public = package_cmd::sign(&package, &key, out.as_deref())?;

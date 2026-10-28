@@ -1,0 +1,16 @@
+{
+  "format": "warden-package",
+  "formatVersion": 1,
+  "kind": "skill",
+  "id": "code-review-checklist",
+  "version": "1.0.0",
+  "author": "Fabio Anjos Junior",
+  "license": "MIT",
+  "content": {
+    "name": "code-review-checklist",
+    "description": "Review a code change for bugs, risks and clarity, with findings ranked by severity. Use when the person shares a diff, a function or a pull request and asks for a review.",
+    "body": "When reviewing code, read all of it before commenting, then report findings ranked from most to least serious.\n\nLook for, in this order:\n1. **Correctness**: wrong logic, off-by-one errors, unhandled empty or missing values, wrong error handling, race conditions, resources not released.\n2. **Security**: unchecked input, injection, secrets in code, missing permission checks, unsafe defaults.\n3. **Data and compatibility**: changes that break existing data, callers or saved formats.\n4. **Tests**: behavior the change adds or alters that no test covers.\n5. **Clarity**: confusing names, dead code, duplication, comments that no longer match the code.\n\nFor each finding give: where it is, what is wrong, a concrete input or situation that shows it, and a suggested fix. Skip style preferences unless they hurt readability. If you find nothing serious, say so plainly instead of padding the review. Say what you could not check because the context was missing."
+  },
+  "hash": "sha256:ac1581cfd1fed8da44c36278f02eaff3f2760287d64e6794f4d8045acaa59560",
+  "signature": "ed25519:538d066ae6595f27f4048d7ef6c42ae3b9aefbc0b5471ece23b68c0dbbb34b25:0db8f826ed01f3749556f75dfaa3c731f2a07f3b9836baf00d63aece6354ab30494545baeb000a1d375867231dd06d4c06500201b669509f75527f43346dd10d"
+}

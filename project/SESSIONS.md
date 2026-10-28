@@ -2,7 +2,23 @@
 
 > **Nota**: Este log foi criado junto com o projeto. As sessões serão registradas aqui conforme o trabalho avança.
 >
-> Última atualização: 2026-10-27 (Sessão 319)
+> Última atualização: 2026-10-27 (Sessão 320)
+
+---
+
+### 2026-10-27 — Sessão 320 (o primeiro curador, a fonte do Fabio: P160)
+
+- **Pedido**: "vamos de 1", o item "primeiro curador" que a 319 deixou. Planejado em modo de plano. Escolhas do usuário: quem assina é **uma chave pessoal do Fabio** (privada só com ele, fora do git) e a hospedagem é **a pasta `community/` deste repositório**, servida por `raw.githubusercontent.com`.
+- **Feito**:
+  - `warden-server package export SKILL.md --version --author --license --out`: o elo que faltava entre um `.md` e `package sign`/`index build` (`package_cmd::export`, com teste).
+  - A chave gerada com `package keygen ~/.config/warden/curator.key` (0600, fora do repositório). A pública é `538d066a…4b25`, em `community/PUBLIC_KEY`.
+  - `community/`: `skills/*.md` (as 8 da galeria), `packages/*.warden-skill.json` (1.0.0, autor "Fabio Anjos Junior", MIT, assinados), `index.json` (8 pacotes, nenhum retirado), `build.sh` e `README.md`.
+  - `warden-server/tests/community.rs` (índice assinado pela chave pública, `source` e hash de cada entrada, cada pacote assinado e igual ao seu `.md`) e `community/**` no filtro `rust` do `ci.yml`.
+  - O botão "Adicionar a fonte do Fabio" na web e no desktop (`FABIO_SOURCE` e `hasFabioSource`): preenche o rascunho, salvar segue o caminho de qualquer fonte (com a chave de pareamento no hub), e some depois de adicionado. Textos nos dois idiomas.
+- **Testes**: aqui `cargo check --workspace --tests` limpo, `npm test` da web (159) e do desktop (230), `tsc` e `node --check` limpos; rodei uma vez `cargo test -p warden-server --test community` (4) e os de `package_cmd` (6), verdes. **No CI, ainda não rodados**: a suíte inteira de Rust, o caso do botão no `web/e2e/curators.test.mjs` (salva com a chave de pareamento e o `config.toml` ganha a fonte) e o do `desktop/e2e/screens.test.mjs`.
+- **Cuidado**: a chave privada é o único jeito de publicar de novo e de retirar um pacote; quem adicionou a fonte confia nela. **Faça backup de `~/.config/warden/curator.key`**; ela não entra no git nem pode ser refeita igual.
+- **Fora**: tirar as 8 skills do binário (a galeria e os testes dependem delas), modelo de PR para a comunidade, mais skills, celular e extensão, atualizar com diff por fonte.
+- **Fica**: depois do push, baixar `index.json` e um pacote do `raw.githubusercontent.com` e conferir com `index verify --key` (a fonte só existe de verdade quando o `main` serve os arquivos); a revisão do que o CI achar; testar Linear, GitHub, Notion, Sentry e Slack nos serviços reais; `account.suspended` no site mãe.
 
 ---
 

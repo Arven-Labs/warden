@@ -5,6 +5,7 @@
 // Run with `npm run test:e2e` after `npm run build`.
 
 import assert from "node:assert/strict";
+import fs from "node:fs";
 import { after, before, describe, test } from "node:test";
 import { deferred, launchBrowser, openApp, serveDist, snap } from "./harness.mjs";
 
@@ -209,6 +210,28 @@ for (const colorScheme of ["light", "dark"]) {
         const fetched = calls.find((c) => c.cmd === "fetch_curator_package");
         assert.deepEqual(fetched?.args, { curator: "Ana", hash: "sha256:11" }, "the page asked for the package by its hash in the index");
         assert.ok(calls.some((c) => c.cmd === "preview_skill_package"), "the text went to the same preview as a file");
+        assert.deepEqual(errors, [], "the page raised no error");
+      } finally {
+        await context.close();
+      }
+    });
+
+    test("skills: the button for the first source fills it in, and saving sends it", { timeout: TIMEOUT }, async () => {
+      const published = fs.readFileSync(new URL("../../community/PUBLIC_KEY", import.meta.url), "utf8").trim();
+      const handlers = backend({ list_curators: [], save_curators: (args) => args.curators });
+      const { context, page, calls, errors } = await openApp(browser, app, { handlers, colorScheme });
+      try {
+        await page.getByRole("button", { name: "Skills", exact: true }).click();
+        await page.getByRole("heading", { name: "Sources" }).waitFor();
+        const add = page.getByRole("button", { name: "Add Fabio's source" });
+        await add.click();
+        await page.getByText("You have changes that are not saved yet.").first().waitFor();
+        assert.equal(await add.count(), 0, "once it is in the list the button is gone");
+        assert.equal(calls.filter((c) => c.cmd === "save_curators").length, 0, "the button only fills the draft");
+        await page.locator("section", { has: page.getByRole("heading", { name: "Sources" }) }).getByRole("button", { name: "Save", exact: true }).click();
+        await page.getByText("Saved.").first().waitFor();
+        const saved = calls.find((c) => c.cmd === "save_curators");
+        assert.deepEqual(saved?.args.curators.map((c) => [c.name, c.key]), [["Fabio", published]]);
         assert.deepEqual(errors, [], "the page raised no error");
       } finally {
         await context.close();

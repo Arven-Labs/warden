@@ -1,0 +1,16 @@
+{
+  "format": "warden-package",
+  "formatVersion": 1,
+  "kind": "skill",
+  "id": "meeting-summary",
+  "version": "1.0.0",
+  "author": "Fabio Anjos Junior",
+  "license": "MIT",
+  "content": {
+    "name": "meeting-summary",
+    "description": "Turn meeting notes or a transcript into a short summary with decisions, action items and open questions. Use when the person pastes notes from a meeting or asks what was agreed.",
+    "body": "When the person gives you meeting notes or a transcript, answer in the language they wrote in, with these sections and nothing else:\n\n1. **Summary**: two or three sentences on what the meeting was about and how it ended.\n2. **Decisions**: one bullet per decision that was actually made. If nothing was decided, write \"None\".\n3. **Action items**: one bullet each, as \"who: what (by when)\". Use \"unassigned\" or \"no date\" when the notes do not say. Never invent an owner or a date.\n4. **Open questions**: what was raised but left unresolved.\n\nRules:\n- Keep names, numbers and dates exactly as written in the notes.\n- Do not add opinions or advice unless asked.\n- If the notes are too thin to fill a section, say so in that section instead of guessing."
+  },
+  "hash": "sha256:9c98103b0b9db909fa1a0241aa0d33a83ec9950d9c11bd95592f0d7d73391a1e",
+  "signature": "ed25519:538d066ae6595f27f4048d7ef6c42ae3b9aefbc0b5471ece23b68c0dbbb34b25:97de34b2e56ffd77217149cfdf730f719a209248334f7e10b4e419ec08b09287a4f91d75aec6b1149c6b219065dcbfd60751fe7d97c5ba46845298e487c7d105"
+}

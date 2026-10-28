@@ -1,0 +1,16 @@
+{
+  "format": "warden-package",
+  "formatVersion": 1,
+  "kind": "skill",
+  "id": "commit-message",
+  "version": "1.0.0",
+  "author": "Fabio Anjos Junior",
+  "license": "MIT",
+  "content": {
+    "name": "commit-message",
+    "description": "Write a good commit message from a diff or a description of a change. Use when the person asks for a commit message or a pull request title and description.",
+    "body": "Write the commit message in this shape:\n\n- A first line of at most 72 characters, in the imperative mood (\"Fix\", \"Add\", \"Remove\"), that says what the change does. No trailing period.\n- A blank line.\n- A body of short paragraphs or bullets that explains why the change was needed and anything a reviewer could miss: a behavior that changes, a limit, a follow-up left for later. Wrap lines near 72 characters.\n\nRules:\n- Describe the change that is in the diff, not what was planned.\n- Match the language and the style of earlier commit messages if the person shows some; otherwise write in the language the person is using with you.\n- One logical change per message. If the diff mixes unrelated changes, say so and suggest splitting it.\n- Do not invent ticket numbers or authors. Leave them out when unknown."
+  },
+  "hash": "sha256:e440394dc33f213310b7d41e986a594a4706219bdff81d8c84fbeb5d7b71e577",
+  "signature": "ed25519:538d066ae6595f27f4048d7ef6c42ae3b9aefbc0b5471ece23b68c0dbbb34b25:3f9a88ec672babb5bf36750df0bae00dd2b02b227b2d48f322634baaaf8f636ea28c32e84aaf1a447ad47eead663892ce3fe9c3f4d6e39aeddf9be52986df30b"
+}
