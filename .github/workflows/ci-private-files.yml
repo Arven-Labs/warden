@@ -1,0 +1,34 @@
+name: CI Private Files
+
+# Barra arquivos que não devem ser rastreados (segredos, chaves, credenciais).
+# Roda em todo push na main e em todo PR, sem filtro de caminho, para o check
+# `guard` sempre reportar (a main exige esse check). Padrões extras do projeto
+# ficam em .github/guard-patterns.txt (uma regex ERE por linha; # comenta).
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  guard:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: No private files are tracked
+        run: |
+          defaults='(^|/)\.env(\.[^/]+)?$|\.(pem|key|p12|pfx|jks|keystore)$|(^|/)id_(rsa|ed25519|ecdsa)$|(^|/)credentials(\.json)?$|\.kdbx$'
+          extra=''
+          if [ -f .github/guard-patterns.txt ]; then
+            extra=$(grep -vE '^[[:space:]]*(#|$)' .github/guard-patterns.txt | paste -sd'|' - || true)
+          fi
+          pattern="$defaults${extra:+|$extra}"
+          bad=$(git ls-files | grep -iE "$pattern" | grep -viE '\.env\.(example|sample|template)$' || true)
+          if [ -n "$bad" ]; then
+            echo "::error::Arquivos que parecem segredo, chave ou dado privado estão rastreados:"
+            echo "$bad"
+            exit 1
+          fi
+          echo "ok: nenhum arquivo privado rastreado"
