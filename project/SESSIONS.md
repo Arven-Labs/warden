@@ -2,7 +2,19 @@
 
 > **Nota**: Este log foi criado junto com o projeto. As sessões serão registradas aqui conforme o trabalho avança.
 >
-> Última atualização: 2026-10-29 (Sessão 322)
+> Última atualização: 2026-10-29 (Sessão 323)
+
+---
+
+### 2026-10-29 — Sessão 323 (o hub lembra de qual curador veio cada skill: P160)
+
+- **Pedido**: a fatia 1 do P160 ("registro de origem e o rótulo 'há versão nova'"). Planejado com opções e tradeoffs; o usuário disse "siga a recomendação" (`.origins.json` separado; "versão nova" = hash diferente, sem ordenar versões; skills já instaladas sem origem ficam sem rótulo) e aprovou o plano, inclusive a confirmação da §4 sobre assinaturas. Dividido em dois PRs: este (Rust e protocolo) e as telas (web e desktop) no seguinte.
+- **Feito** (PR #9, `feat/p160-origem-da-skill`): `skill/origin.rs` (`skills/.origins.json`, `nome → {chave, versão, hash}`, dotfile como o `.catalog.json`, melhor esforço; `read`, `record`, `forget`, `has_update`); `catalog::install_skill`, o funil da galeria e dos pacotes, esquece a origem quando troca o texto; `install_skill_package` grava a origem se o pacote é assinado (a chave sai de `Package::verified()`, nada da verificação mudou); `CuratorEntryDto.update` (omitido quando falso, então cliente velho vê o mesmo JSON); `entry_dtos(&index, &store)` marca `update` quando a pessoa tem a skill do mesmo curador (a chave que assinou o índice) e o hash listado é outro, nunca numa entrada revogada. O hub passa o vault de quem pediu; o desktop local passa o dele (mesma função).
+- **Testes**: `origin` e `catalog` falharam antes (`todo!()` e a origem sobrevivendo à troca); os de bootstrap falharam antes (a origem não era gravada); o de `entry_dtos` só "falhava" por não compilar, e o de ponta a ponta do hub (`tests/curators.rs`: instala assinado pela mensagem, lê o índice, o curador republica, a entrada vem com `update`) nasceu depois da implementação. Aqui: núcleo 76, bootstrap 16, hub 8 e `cargo check --workspace --tests` limpo. **No CI (PR #9)**: `Rust (clippy and tests)`, `Mobile`, `Android`, `Frontend (desktop)` e `Web E2E` verdes.
+- **A falha do Web E2E**: na primeira rodada falhou 1 de 58, `web/e2e/agents.test.mjs:82` ("uma mensagem que o agente deixou no canal com a página fechada aparece como não lida"), por `TimeoutError` de 30 s esperando o selo da aba Agentes (run 40876238274). Não tem a ver com curadores nem com o campo novo. **Reexecutei só o job que falhou, no mesmo commit, e passou.** Isso é coerente com instabilidade (selo que depende de tempo), mas uma falha e uma passada não provam; não investiguei a causa. A `main` estava verde nos runs anteriores.
+- **Não verificado**: nenhuma tela (não há tela neste PR); o comando Tauri do desktop só foi compilado; uma skill cujo `id` de pacote difere do nome da skill não ganha rótulo (a origem é por nome).
+- **Fora**: rótulo "há versão nova" e botão de atualizar nas telas (PR 2, web e desktop, com o espelho do campo `update` nos tipos TS), tirar as 8 skills do binário, índice no celular e na extensão, agentes e integrações como `kind`.
+- **Fica**: o PR 2 das telas; ficar de olho no teste de `agents.test.mjs:82` (se falhar de novo, investigar); decidir se vale um job-resumo para tornar os E2E obrigatórios; testar Linear, GitHub, Notion, Sentry e Slack nos serviços reais; `account.suspended` no site mãe.
 
 ---
 

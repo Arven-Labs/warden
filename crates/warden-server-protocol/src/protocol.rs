@@ -108,6 +108,10 @@ pub struct CuratorEntryDto {
     pub revoked: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub revoked_reason: Option<String>,
+    /// The person has this skill from this same curator (the key that signed the index), and the package listed now is not the one
+    /// installed. Not "newer": the hash differs.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub update: bool,
 }
 
 /// What a skill package says it holds (P160), read and checked but not installed: the answer to `PreviewSkillPackage`.
@@ -3912,14 +3916,16 @@ mod tests {
         let json = serde_json::to_string(&reply).unwrap();
         assert_eq!(serde_json::from_str::<ServerMessage>(&json).unwrap(), reply);
 
-        let entry = CuratorEntryDto { id: "greet".into(), version: "1.0.0".into(), hash: "sha256:00".into(), source: "https://example.org/a.json".into(), description: "Greets.".into(), author: None, license: "MIT".into(), revoked: true, revoked_reason: Some("leaked".into()) };
+        let entry = CuratorEntryDto { id: "greet".into(), version: "1.0.0".into(), hash: "sha256:00".into(), source: "https://example.org/a.json".into(), description: "Greets.".into(), author: None, license: "MIT".into(), revoked: true, revoked_reason: Some("leaked".into()), update: true };
         let reply = ServerMessage::CuratorIndex { request_id: 4, curator: "Ana".into(), name: "Ana's picks".into(), sequence: 7, entries: vec![entry] };
         let json = serde_json::to_string(&reply).unwrap();
-        assert_eq!(json, r#"{"type":"curatorIndex","requestId":4,"curator":"Ana","name":"Ana's picks","sequence":7,"entries":[{"id":"greet","version":"1.0.0","hash":"sha256:00","source":"https://example.org/a.json","description":"Greets.","license":"MIT","revoked":true,"revokedReason":"leaked"}]}"#);
+        assert_eq!(json, r#"{"type":"curatorIndex","requestId":4,"curator":"Ana","name":"Ana's picks","sequence":7,"entries":[{"id":"greet","version":"1.0.0","hash":"sha256:00","source":"https://example.org/a.json","description":"Greets.","license":"MIT","revoked":true,"revokedReason":"leaked","update":true}]}"#);
         assert_eq!(serde_json::from_str::<ServerMessage>(&json).unwrap(), reply);
-        // `revoked` may be left out: an entry nobody took back.
+        // `revoked` and `update` may be left out: an entry nobody took back, and one with nothing newer to offer.
         let plain = r#"{"id":"a","version":"1.0.0","hash":"sha256:00","source":"https://e.org/a","description":"","license":"MIT"}"#;
-        assert!(!serde_json::from_str::<CuratorEntryDto>(plain).unwrap().revoked);
+        let plain = serde_json::from_str::<CuratorEntryDto>(plain).unwrap();
+        assert!(!plain.revoked && !plain.update);
+        assert!(!serde_json::to_string(&plain).unwrap().contains("update"), "false is not sent, so a client that does not know it sees the same payload");
     }
 
     #[test]

@@ -17,7 +17,7 @@ use std::sync::OnceLock;
 use anyhow::{anyhow, bail};
 use sha2::{Digest, Sha256};
 
-use super::{Skill, SkillStore};
+use super::{origin, Skill, SkillStore};
 use crate::memory::SKILLS_DIR;
 
 /// What the gallery installed, by skill name: the hash of the text, see `text_hash`.
@@ -144,7 +144,11 @@ pub(super) fn install_skill(store: &SkillStore, skill: &Skill, overwrite: bool) 
         }
         CatalogStatus::NotInstalled | CatalogStatus::Modified | CatalogStatus::Outdated => {
             let agents = store.get(&skill.name).map(|s| s.agents).unwrap_or_default();
-            store.save(&Skill { agents, proposed: false, source: None, proposed_at: None, revises: None, ..skill.clone() })
+            store.save(&Skill { agents, proposed: false, source: None, proposed_at: None, revises: None, ..skill.clone() })?;
+            // The text now comes from here, so a curator it was installed from is no longer where it came from. A package install
+            // writes its own origin after this returns.
+            origin::forget(store, &skill.name);
+            Ok(())
         }
     }
 }
@@ -320,5 +324,29 @@ mod tests {
         install(&store, &entry.name, true).unwrap();
         assert!(!store.get(&entry.name).unwrap().proposed);
         assert_eq!(status(&store, entry), CatalogStatus::Installed);
+    }
+
+    #[test]
+    fn replacing_a_skill_forgets_where_it_came_from_but_leaving_it_alone_keeps_the_origin() {
+        use super::super::origin::{self, Origin};
+
+        let store = temp_store();
+        let entry = &entries()[0];
+        let from_a_curator = || Origin { key: "aa".repeat(32), version: "1.0.0".into(), hash: "sha256:aa".into() };
+
+        // Identical text: nothing is written, so the origin stays.
+        install(&store, &entry.name, false).unwrap();
+        origin::record(&store, &entry.name, from_a_curator());
+        install(&store, &entry.name, false).unwrap();
+        assert_eq!(origin::read(&store, &entry.name), Some(from_a_curator()));
+
+        // Refused for lack of `overwrite`: nothing is written either.
+        store.save(&Skill { body: "My own text.".into(), ..store.get(&entry.name).unwrap() }).unwrap();
+        install(&store, &entry.name, false).unwrap_err();
+        assert_eq!(origin::read(&store, &entry.name), Some(from_a_curator()));
+
+        // Replaced: the text now comes from the gallery, so the curator is no longer where it came from.
+        install(&store, &entry.name, true).unwrap();
+        assert_eq!(origin::read(&store, &entry.name), None);
     }
 }

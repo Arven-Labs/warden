@@ -260,6 +260,40 @@ async fn the_index_lists_what_the_curator_published_and_its_package_comes_back()
 }
 
 #[tokio::test]
+async fn an_entry_says_it_updates_a_skill_installed_from_the_same_curator_once_the_curator_lists_another_package() {
+    let (url, _) = spin_up(true).await;
+    let published = publish(7, false).await;
+    let mut owner = ServerConnection::connect(&url, "laptop", "Laptop", KEY).await.unwrap();
+    save(&mut owner, KEY, vec![curator("Ana", &published.public, &published.url())]).await;
+
+    // Nothing installed yet: nothing to update.
+    match fetch_index(&mut owner, "Ana").await {
+        ServerMessage::CuratorIndex { entries, .. } => assert!(!entries[0].update),
+        other => panic!("expected the index, got {other:?}"),
+    }
+
+    // Installed from the curator's package, signed with the curator's key: the listed package is what is installed.
+    let mut signed = published.package.clone();
+    signed.sign(&published.private).unwrap();
+    owner.send(&ClientMessage::InstallSkillPackage { request_id: 6, content: signed.to_json().unwrap(), overwrite: false, allow_flagged: false }).await.unwrap();
+    assert!(matches!(next(&mut owner).await, ServerMessage::SkillOk { .. }));
+    match fetch_index(&mut owner, "Ana").await {
+        ServerMessage::CuratorIndex { entries, .. } => assert!(!entries[0].update, "the listed package is the installed one"),
+        other => panic!("expected the index, got {other:?}"),
+    }
+
+    // The curator republishes `greet` with another text (a newer index number, or the hub refuses it as a replay).
+    let entry = IndexEntry::from_package(&published.other, &format!("{}/package.json", published.base)).unwrap();
+    published.swap_index(Index::build("Ana's picks", 8, vec![entry], vec![], &published.private).unwrap().to_json().unwrap());
+    match fetch_index(&mut owner, "Ana").await {
+        ServerMessage::CuratorIndex { entries, .. } => {
+            assert_eq!((entries[0].id.as_str(), entries[0].hash.as_str(), entries[0].update), ("greet", published.other.hash.as_str(), true));
+        }
+        other => panic!("expected the index, got {other:?}"),
+    }
+}
+
+#[tokio::test]
 async fn a_package_the_curator_took_back_or_that_is_not_listed_is_not_given() {
     let (url, _) = spin_up(true).await;
     let published = publish(1, true).await;

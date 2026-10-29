@@ -214,10 +214,11 @@ fn find_curator(name: &str) -> Result<(curator::Curator, std::path::PathBuf), St
 /// Reads the signed index of a curator, from `https://` or `ar://`. A curator on this machine or this network is not reached: the
 /// address checks of `HttpsFetcher` stay on, since this app has no way to say otherwise.
 #[tauri::command]
-pub async fn fetch_curator_index(curator: String) -> Result<CuratorIndexPayload, String> {
+pub async fn fetch_curator_index(state: State<'_, AppState>, curator: String) -> Result<CuratorIndexPayload, String> {
+    let store = store(&state)?;
     let (found, seen_file) = find_curator(&curator)?;
     let index = curator::read_index_remembering(&HttpsFetcher::default(), &ArweaveClient::new_default(), &found, &seen_file).await?;
-    Ok(CuratorIndexPayload { curator: found.name, name: index.name.clone(), sequence: index.sequence, entries: warden_server::curators::entry_dtos(&index) })
+    Ok(CuratorIndexPayload { curator: found.name, name: index.name.clone(), sequence: index.sequence, entries: warden_server::curators::entry_dtos(&index, &store) })
 }
 
 /// The text of one package a curator lists, for the screen to preview like a file. The index is read again, so a package the curator

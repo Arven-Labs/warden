@@ -4,6 +4,7 @@
 //! it is installed.
 
 use serde::{Deserialize, Serialize};
+use warden_core::skill::origin::{self, Origin};
 use warden_core::skill::package::{Package, MAX_PACKAGE_BYTES};
 use warden_core::skill::signing::{decode_private_key, encode_private_key, generate_keypair, normalize_public_key, public_key_of, Verification};
 use warden_core::skill::SkillStore;
@@ -228,7 +229,13 @@ pub fn install_skill_package(store: &SkillStore, content: &str, overwrite: bool,
             return Err(format!("this skill contains {finding}; read it and confirm to install it anyway"));
         }
     }
-    package.install_skill(store, overwrite).map_err(|e| format!("{e:#}"))
+    package.install_skill(store, overwrite).map_err(|e| format!("{e:#}"))?;
+    // Only a signed package has someone to ask about a newer one. `Package::parse` already refused a wrong signature, so the key is the
+    // signer's; `install_skill` has just forgotten any origin the replaced text had.
+    if let Verification::Valid { key } = package.verified().map_err(|e| format!("{e:#}"))? {
+        origin::record(store, &skill.name, Origin { key, version: package.version.clone(), hash: package.hash.clone() });
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -523,6 +530,52 @@ mod tests {
         assert_eq!(crate::load_config_from_path(&path, false).unwrap().trusted_publishers, saved);
         assert_eq!(set_trusted_publishers(&path, &[]).unwrap(), Vec::new());
         assert!(crate::load_config_from_path(&path, false).unwrap().trusted_publishers.is_empty());
+    }
+
+    /// `name` as it is in `store`, exported as `version` and signed with `pkcs8`.
+    fn signed_package(store: &SkillStore, name: &str, version: &str, pkcs8: &[u8]) -> String {
+        let mut package = Package::export_skill(&store.get(name).unwrap(), version, Some("Ana"), "MIT").unwrap();
+        package.sign(pkcs8).unwrap();
+        package.to_json().unwrap()
+    }
+
+    #[test]
+    fn installing_a_signed_package_writes_down_the_key_that_signed_it_and_a_later_install_updates_it() {
+        use warden_core::skill::origin::{self, Origin};
+
+        let (mine, yours) = (temp_store(), temp_store());
+        mine.save(&skill("greet", "Say hello warmly.")).unwrap();
+        let (pkcs8, public) = generate_keypair().unwrap();
+
+        let v1 = signed_package(&mine, "greet", "1.0.0", &pkcs8);
+        install_skill_package(&yours, &v1, false, false).unwrap();
+        let hash = Package::parse(&v1).unwrap().hash;
+        assert_eq!(origin::read(&yours, "greet"), Some(Origin { key: public.clone(), version: "1.0.0".into(), hash }));
+
+        // The same text under a new version is "identical" to the vault, so nothing is rewritten, but the origin follows the package.
+        let v2 = signed_package(&mine, "greet", "1.1.0", &pkcs8);
+        install_skill_package(&yours, &v2, false, false).unwrap();
+        let hash = Package::parse(&v2).unwrap().hash;
+        assert_eq!(origin::read(&yours, "greet"), Some(Origin { key: public, version: "1.1.0".into(), hash }));
+    }
+
+    #[test]
+    fn an_unsigned_package_leaves_no_origin_and_replaces_the_one_a_signed_install_left() {
+        use warden_core::skill::origin;
+
+        let (mine, yours) = (temp_store(), temp_store());
+        mine.save(&skill("greet", "Say hello warmly.")).unwrap();
+        install_skill_package(&yours, &exported(&mine, "greet"), false, false).unwrap();
+        assert_eq!(origin::read(&yours, "greet"), None, "nobody signed it, so there is no curator to ask");
+
+        let (pkcs8, _) = generate_keypair().unwrap();
+        install_skill_package(&yours, &signed_package(&mine, "greet", "1.0.0", &pkcs8), false, false).unwrap();
+        assert!(origin::read(&yours, "greet").is_some());
+
+        mine.save(&skill("greet", "Say hello coldly.")).unwrap();
+        install_skill_package(&yours, &exported(&mine, "greet"), true, false).unwrap();
+        assert_eq!(yours.get("greet").unwrap().body, "Say hello coldly.");
+        assert_eq!(origin::read(&yours, "greet"), None, "the text now comes from an unsigned file");
     }
 
     #[test]
