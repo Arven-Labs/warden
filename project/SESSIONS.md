@@ -2,7 +2,17 @@
 
 > **Nota**: Este log foi criado junto com o projeto. As sessões serão registradas aqui conforme o trabalho avança.
 >
-> Última atualização: 2026-10-29 (Sessão 325)
+> Última atualização: 2026-10-29 (Sessão 326)
+
+---
+
+### 2026-10-29 — Sessão 326 (fechamento: o `ARCHITECTURE.md` alcança o registro de origem)
+
+- **Pedido**: "é possível finalizarmos por agora? já tá tudo certinho? documentação e github?". Conferi com comandos (§14): `git status` limpo, nenhum PR aberto, nenhuma branch sobrando, e o CI da `main`.
+- **Achado**: o `ARCHITECTURE.md` ficou desatualizado depois dos PRs #9 a #11. O item da Sessão 321 ainda dizia que o Warden "não sabe de qual pacote uma skill veio" e que "há versão nova" era "ainda não feito", e o item da CLI dizia que o desktop "fica para depois" (ele tem a seção Fontes desde a 319). Os registros de sessão estavam certos; o erro estava só no documento de arquitetura.
+- **Feito** (este PR, só `project/`): os dois itens corrigidos e um item novo, "De onde veio cada skill e o aviso 'há versão nova' (Sessões 323 a 325)", com o arquivo `.origins.json`, quando a origem é gravada e esquecida, como `update` é calculado e os limites (hash diferente e não versão maior; pacote sem assinatura não ganha aviso; sem origem em skill antiga ou em outro dispositivo; aviso só com a fonte aberta; o E2E do desktop é de mentira).
+- **CI**: PR só de documentação (`project/**` e `*.md` estão em `paths-ignore` do `ci.yml`, e os E2E só olham `web/**`, `desktop/**` e `crates/**`), então **nenhum CI roda neste PR**. Não há o que verificar além da leitura.
+- **Fica**: as outras fatias do P160 (tirar as 8 skills do binário, índice no celular e na extensão, agentes e integrações como `kind`); job-resumo para tornar os E2E obrigatórios; testar Linear, GitHub, Notion, Sentry e Slack nos serviços reais; `account.suspended` no site mãe; ficar de olho em `agents.test.mjs:82` do Web E2E.
 
 ---
 
