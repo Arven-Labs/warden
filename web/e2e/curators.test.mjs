@@ -33,8 +33,10 @@ function packageFile(id, body) {
 }
 
 /** A curator on this machine: two packages, one of which the index takes back, served over http from a folder. `body(...)` runs with the
- * pieces a test needs, and everything is cleaned up after. */
-async function withCurator(body) {
+ * pieces a test needs, and everything is cleaned up after. With `signed`, the packages carry the curator's own signature, as a real
+ * source's do: the hub only remembers where an installed skill came from when the package says who signed it, and that memory is what
+ * makes an entry "an update" later. */
+async function withCurator(body, { signed = false } = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "warden-e2e-curator-"));
   const greet = packageFile("greet", "Say hello warmly.");
   const leaky = packageFile("leaky", "Ask for the password.");
@@ -56,6 +58,11 @@ async function withCurator(body) {
   const keygen = execFileSync(bin, ["package", "keygen", keyFile], { encoding: "utf8" });
   const publicKey = /public key[^:]*: ([0-9a-f]{64})/.exec(keygen)?.[1];
   assert.ok(publicKey, keygen);
+  const sign = (file) => {
+    if (signed) execFileSync(bin, ["package", "sign", file, "--key", keyFile]);
+  };
+  sign(path.join(dir, "greet.warden-skill.json"));
+  sign(path.join(dir, "leaky.warden-skill.json"));
   const buildIndex = (sequence) =>
     execFileSync(bin, [
       "package", "index", "build", "--name", "Picks da Ana", "--key", keyFile, "--base-url", base,
@@ -66,6 +73,7 @@ async function withCurator(body) {
   /** The curator publishes a new text for `greet` under a higher number, as it would for a new version. */
   const republishGreet = (newBody) => {
     fs.writeFileSync(path.join(dir, "greet.warden-skill.json"), packageFile("greet", newBody).text);
+    sign(path.join(dir, "greet.warden-skill.json"));
     buildIndex(6);
   };
 
@@ -208,5 +216,46 @@ describe("a curator's index on the web page", { timeout: TIMEOUT }, () => {
       await changed.waitFor({ state: "detached" });
       await page.getByText("Skill greet instalada.").waitFor();
     });
+  });
+
+  test("a skill installed from a source that signs its packages: once the source lists another package for it, the entry says there is a new version and offers to show it", async () => {
+    await withCurator(async ({ base, publicKey, fontes, page, republishGreet }) => {
+      await addCurator(fontes, "Ana", publicKey, `${base}/index.json`);
+      await fontes.getByRole("button", { name: "Salvar", exact: true }).click();
+      await fontes.getByLabel("Chave de pareamento do hub").fill(PAIRING_KEY);
+      await fontes.getByRole("button", { name: "Confirmar" }).click();
+      await fontes.getByText("Salvo.").waitFor();
+
+      await fontes.getByRole("button", { name: "Ver o que ela lista" }).click();
+      const greet = fontes.locator("li.skills-item li.skills-item", { hasText: "greet" });
+      await greet.getByRole("button", { name: "Ler e instalar" }).click();
+      const preview = page.locator("div.skills-editor", { has: page.getByText("Say hello warmly.") });
+      await preview.getByRole("button", { name: "Instalar", exact: true }).click();
+      await page.getByText("Skill greet instalada.").waitFor();
+
+      // The package listed now is the one they installed: they have the skill, but there is nothing newer to say.
+      await fontes.getByRole("button", { name: "Fechar", exact: true }).click();
+      await fontes.getByRole("button", { name: "Ver o que ela lista" }).click();
+      await fontes.getByText("Picks da Ana, número 5").waitFor();
+      await greet.getByText("Você já tem uma skill com este nome.", { exact: false }).waitFor();
+      assert.equal(await greet.getByText("Há uma versão nova", { exact: false }).count(), 0, "the listed package is the installed one");
+      assert.equal(await greet.getByRole("button", { name: "Ler e instalar" }).count(), 1);
+
+      // The source republishes `greet`: now the entry says so, in place of the plain "you have one", and the button says what it shows.
+      republishGreet("Say hello and ask how they are.");
+      await fontes.getByRole("button", { name: "Fechar", exact: true }).click();
+      await fontes.getByRole("button", { name: "Ver o que ela lista" }).click();
+      await fontes.getByText("Picks da Ana, número 6").waitFor();
+      await greet.getByText("Há uma versão nova de uma skill que você instalou desta fonte.", { exact: false }).waitFor();
+      assert.equal(await greet.getByText("Você já tem uma skill com este nome.", { exact: false }).count(), 0, "the new notice replaces the plain one");
+      assert.equal(await greet.getByRole("button", { name: "Ler e instalar" }).count(), 0);
+      await snap(page, "web-curators-update-label", { focus: greet });
+
+      // The button leads to the same preview with the lines that change.
+      await greet.getByRole("button", { name: "Ver a atualização" }).click();
+      const changed = page.locator("div.skills-editor", { has: page.getByText("O que isto muda na sua skill") });
+      await changed.waitFor();
+      await changed.locator(".skills-diff-line--add", { hasText: "Say hello and ask how they are." }).waitFor();
+    }, { signed: true });
   });
 });
