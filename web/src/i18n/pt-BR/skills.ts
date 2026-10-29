@@ -148,6 +148,8 @@ export const skillsPt: Record<keyof typeof skills, string> = {
   "skills.curatorRevoked": "Retirada",
   "skills.curatorRevokedWhy": "Retirada pela fonte: {reason}",
   "skills.curatorHaveName": "Você já tem uma skill com este nome. Ao ler, a prévia mostra o que mudaria.",
+  "skills.curatorUpdate": "Há uma versão nova de uma skill que você instalou desta fonte. A prévia mostra o que mudaria.",
+  "skills.curatorSeeUpdate": "Ver a atualização",
   "skills.previewChange": "O que isto muda na sua skill",
   "skills.previewDescription": "A descrição muda: “{before}” → “{after}”",
   "skills.curatorProblem.noName": "Dê um nome à fonte.",

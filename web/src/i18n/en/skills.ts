@@ -147,6 +147,8 @@ export const skills = {
   "skills.curatorRevoked": "Taken back",
   "skills.curatorRevokedWhy": "Taken back by the source: {reason}",
   "skills.curatorHaveName": "You already have a skill with this name. Reading it shows what would change.",
+  "skills.curatorUpdate": "There is a new version of a skill you installed from this source. The preview shows what would change.",
+  "skills.curatorSeeUpdate": "See the update",
   "skills.previewChange": "What this changes in your skill",
   "skills.previewDescription": "The description changes: “{before}” → “{after}”",
   "skills.curatorProblem.noName": "Give the source a name.",

@@ -123,6 +123,8 @@ export interface CuratorEntryDto {
   /** The curator no longer vouches for it. */
   revoked?: boolean;
   revokedReason?: string;
+  /** The person installed a skill of this name from this same source and the package listed now is not the one they installed. */
+  update?: boolean;
 }
 
 /** Mirrors `warden_server_protocol::protocol::TrustedPublisherDto` (P160): a key whose skill packages the hub's owner trusts, and the
