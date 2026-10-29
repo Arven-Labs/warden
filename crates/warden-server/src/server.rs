@@ -1863,9 +1863,11 @@ async fn handle_connection<S: Transport>(ws: WebSocketStream<S>, peer: SocketAdd
                 }
                 Ok(ClientMessage::FetchCuratorIndex { request_id, curator }) => {
                     // A small download of the curator's index: spawned, so the connection is not held up by the network.
+                    // The store is of the person asking (the same vault an install writes to), to mark the entries that update a skill they have.
+                    let store = SkillStore::new(person_vault(member.as_ref(), settings.as_deref(), &orchestrator.current(), &space_vaults));
                     let (settings, reply_tx) = (settings.clone(), tx.clone());
                     tokio::spawn(async move {
-                        let _ = reply_tx.send(crate::curators::handle_fetch_index(settings.as_deref(), &curator_fetcher, request_id, &curator).await);
+                        let _ = reply_tx.send(crate::curators::handle_fetch_index(settings.as_deref(), &curator_fetcher, request_id, &curator, &store).await);
                     });
                 }
                 Ok(ClientMessage::FetchCuratorPackage { request_id, curator, hash }) => {

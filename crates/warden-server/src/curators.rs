@@ -12,6 +12,8 @@ use std::path::PathBuf;
 use warden_bootstrap::curator::{fetch_indexed_package, read_index_remembering, seen_path, usable_curators, ArweaveClient, Curator, HttpsFetcher};
 use warden_bootstrap::{load_config_from_path, FileConfig};
 use warden_core::skill::index::Index;
+use warden_core::skill::origin;
+use warden_core::skill::SkillStore;
 use warden_server_protocol::protocol::{CuratorDto, CuratorEntryDto};
 use warden_server_protocol::ServerMessage;
 
@@ -49,30 +51,38 @@ async fn read_index(host: Option<&dyn SettingsHost>, fetcher: &HttpsFetcher, nam
     Ok((curator, index))
 }
 
-/// The entries of `index` as they go on the wire, each with whether the curator took it back and why.
-pub fn entry_dtos(index: &Index) -> Vec<CuratorEntryDto> {
+/// The entries of `index` as they go on the wire, each with whether the curator took it back and why, and whether it is an update of
+/// a skill the person in `store` installed from this same curator (`origin::has_update`, matched by the key that signed the index).
+/// An entry the curator took back is never offered as an update: it cannot be fetched.
+pub fn entry_dtos(index: &Index, store: &SkillStore) -> Vec<CuratorEntryDto> {
+    // `read_index` only hands out an index whose signature checks out, so this does not fail there; without a key nothing matches.
+    let curator_key = index.signer().ok();
     index
         .entries
         .iter()
-        .map(|e| CuratorEntryDto {
-            id: e.id.clone(),
-            version: e.version.clone(),
-            hash: e.hash.clone(),
-            source: e.source.clone(),
-            description: e.description.clone(),
-            author: e.author.clone(),
-            license: e.license.clone(),
-            revoked: index.is_revoked(&e.hash),
-            revoked_reason: index.revoked_reason(&e.hash).map(str::to_string),
+        .map(|e| {
+            let revoked = index.is_revoked(&e.hash);
+            CuratorEntryDto {
+                id: e.id.clone(),
+                version: e.version.clone(),
+                hash: e.hash.clone(),
+                source: e.source.clone(),
+                description: e.description.clone(),
+                author: e.author.clone(),
+                license: e.license.clone(),
+                revoked,
+                revoked_reason: index.revoked_reason(&e.hash).map(str::to_string),
+                update: !revoked && curator_key.as_deref().is_some_and(|key| origin::has_update(store, key, &e.id, &e.hash)),
+            }
         })
         .collect()
 }
 
-/// Answers `FetchCuratorIndex`.
-pub async fn handle_fetch_index(host: Option<&dyn SettingsHost>, fetcher: &HttpsFetcher, request_id: u64, curator: &str) -> ServerMessage {
+/// Answers `FetchCuratorIndex`. `store` is the vault of the person who asked, to tell which entries update a skill they have.
+pub async fn handle_fetch_index(host: Option<&dyn SettingsHost>, fetcher: &HttpsFetcher, request_id: u64, curator: &str, store: &SkillStore) -> ServerMessage {
     match read_index(host, fetcher, curator).await {
         Ok((curator, index)) => {
-            let entries = entry_dtos(&index);
+            let entries = entry_dtos(&index, store);
             ServerMessage::CuratorIndex { request_id, curator: curator.name, name: index.name.clone(), sequence: index.sequence, entries }
         }
         Err(message) => ServerMessage::SkillError { request_id, message },
@@ -90,5 +100,68 @@ pub async fn handle_fetch_package(host: Option<&dyn SettingsHost>, fetcher: &Htt
     match result {
         Ok(content) => ServerMessage::SkillPackageFile { request_id, content, attachments_skipped: false },
         Err(message) => ServerMessage::SkillError { request_id, message },
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use warden_core::memory::Vault;
+    use warden_core::skill::index::{IndexEntry, Revoked};
+    use warden_core::skill::origin::{self, Origin};
+    use warden_core::skill::signing::generate_keypair;
+    use warden_core::skill::{Skill, SkillStore};
+
+    use super::*;
+
+    fn temp_store() -> SkillStore {
+        let dir = std::env::temp_dir().join(format!(
+            "warden-server-curators-test-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+        ));
+        SkillStore::new(Arc::new(Vault::new(dir)))
+    }
+
+    fn skill(name: &str) -> Skill {
+        Skill { name: name.into(), description: "Does a thing.".into(), body: "Do it.".into(), agents: Vec::new(), proposed: false, source: None, proposed_at: None, revises: None }
+    }
+
+    fn hash(digit: char) -> String {
+        format!("sha256:{}", digit.to_string().repeat(64))
+    }
+
+    fn entry(id: &str, digit: char) -> IndexEntry {
+        IndexEntry { id: id.into(), version: "1.0.0".into(), hash: hash(digit), source: format!("https://example.org/{id}.json"), description: "Does a thing.".into(), author: None, license: "MIT".into() }
+    }
+
+    fn origin_of(key: &str, digit: char) -> Origin {
+        Origin { key: key.into(), version: "1.0.0".into(), hash: hash(digit) }
+    }
+
+    #[test]
+    fn an_entry_is_marked_for_update_only_when_the_person_has_that_skill_from_the_same_curator_and_the_hash_changed() {
+        let (pkcs8, curator_key) = generate_keypair().unwrap();
+        let store = temp_store();
+        for name in ["changed", "same", "other-curator", "also-changed", "never-installed", "no-origin"] {
+            store.save(&skill(name)).unwrap();
+        }
+        origin::record(&store, "changed", origin_of(&curator_key, '1'));
+        origin::record(&store, "same", origin_of(&curator_key, '2'));
+        origin::record(&store, "other-curator", origin_of(&"ab".repeat(32), '1'));
+        origin::record(&store, "also-changed", origin_of(&curator_key, '1'));
+        origin::record(&store, "gone", origin_of(&curator_key, '1'));
+
+        // Each entry has a hash of its own (an index refuses two entries with the same one).
+        let entries = vec![entry("changed", '3'), entry("same", '2'), entry("other-curator", '4'), entry("also-changed", '5'), entry("never-installed", '6'), entry("no-origin", '7'), entry("gone", '8')];
+        let plain = Index::build("Ana's picks", 1, entries.clone(), Vec::new(), &pkcs8).unwrap();
+        // The same index, but the curator took back the two packages that would have been updates.
+        let taken_back = vec![Revoked { hash: hash('3'), reason: None }, Revoked { hash: hash('5'), reason: Some("leaked".into()) }];
+        let index = Index::build("Ana's picks", 2, entries, taken_back, &pkcs8).unwrap();
+
+        let marked = |dtos: &[CuratorEntryDto]| dtos.iter().filter(|e| e.update).map(|e| e.id.clone()).collect::<Vec<_>>();
+        assert_eq!(marked(&entry_dtos(&plain, &store)), vec!["changed", "also-changed"], "same key and a different hash, skill still there; not the unchanged, the other curator's, the absent or the one with no origin");
+        assert_eq!(marked(&entry_dtos(&index, &store)), Vec::<String>::new(), "an entry the curator took back is never offered as an update");
     }
 }

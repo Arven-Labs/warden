@@ -37,6 +37,7 @@ use crate::memory::{Vault, SKILLS_DIR};
 
 pub mod catalog;
 pub mod index;
+pub mod origin;
 pub mod package;
 pub mod signing;
 
