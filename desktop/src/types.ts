@@ -692,6 +692,8 @@ export interface CuratorEntry {
   license: string;
   revoked: boolean;
   revokedReason?: string;
+  /** The person installed a skill of this name from this same source and the package listed now is not the one they installed. */
+  update?: boolean;
 }
 
 /** A curator's index as read (P160) — mirrors `CuratorIndexPayload` in `src-tauri/src/skills_cmds.rs` and the hub's `curatorIndex`. */

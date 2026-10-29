@@ -166,7 +166,7 @@ function Curators({
                                 <div className="skill-card-actions">
                                   {entry.revoked && <span className="settings-error-banner">{t("skills.curatorRevoked")}</span>}
                                   <button type="button" className="settings-browse-btn" onClick={() => void handleInstall(c.name, entry)} disabled={entry.revoked || getting !== null}>
-                                    {t("skills.curatorInstall")}
+                                    {entry.update ? t("skills.curatorSeeUpdate") : t("skills.curatorInstall")}
                                   </button>
                                 </div>
                               </div>
@@ -175,7 +175,11 @@ function Curators({
                                 {t("skills.curatorEntryMeta", { version: entry.version, license: entry.license })}
                                 {entry.author ? t("skills.by", { author: entry.author }) : ""}
                               </p>
-                              {have.includes(entry.id) && <p className="settings-hint">{t("skills.curatorHaveName")}</p>}
+                              {entry.update ? (
+                                <p className="settings-hint">{t("skills.curatorUpdate")}</p>
+                              ) : (
+                                have.includes(entry.id) && <p className="settings-hint">{t("skills.curatorHaveName")}</p>
+                              )}
                               {entry.revoked && entry.revokedReason && <p className="settings-hint">{t("skills.curatorRevokedWhy", { reason: entry.revokedReason })}</p>}
                             </div>
                           ))}
