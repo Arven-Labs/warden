@@ -2,7 +2,19 @@
 
 > **Nota**: Este log foi criado junto com o projeto. As sessões serão registradas aqui conforme o trabalho avança.
 >
-> Última atualização: 2026-10-29 (Sessão 324)
+> Última atualização: 2026-10-29 (Sessão 325)
+
+---
+
+### 2026-10-29 — Sessão 325 (o desktop avisa que há versão nova numa entrada da fonte: P160)
+
+- **Pedido**: o PR 2b, o desktop, espelhando o da web (#10) com as mesmas respostas do usuário: aviso só dentro da fonte aberta, botão com texto novo, textos idênticos aos da web.
+- **Feito** (PR #11, `feat/p160-aviso-de-versao-nova-desktop`, só `desktop/`): `CuratorEntry.update?` em `types.ts`; em `Curators.tsx` a entrada com `update` mostra "There is a new version of a skill you installed from this source…" no lugar da linha "você já tem uma skill com este nome" (que segue para quem tem a skill sem origem) e o botão vira "See the update"; as mesmas duas chaves de i18n da web nos dois idiomas. Sem Rust: o `update` já vinha de `entry_dtos` (PR #9), que o desktop local usa.
+- **Testes (contrato primeiro)**: um caso novo em `desktop/e2e/screens.test.mjs` (o backend de mentira marca uma entrada com `update: true`; espera o aviso em contagem 1, a linha antiga ausente apesar de `tidy-notes` estar nas skills da pessoa, a outra entrada com "Read and install", e o clique abrindo a prévia). **Falhou antes**: com só o teste (`fded6e1`, run 40891803244) o `Desktop E2E` deu 25 testes, 23 verdes e 2 vermelhos, o caso novo nos temas claro e escuro. **Passou depois**: no `3b8d2a2`, `CI` e `Desktop E2E` verdes, 25 de 25, 0 pulados. Aqui: `npm test` do desktop 235 verdes e `tsc --noEmit` limpo. Olhei as fotos `desktop-sources-update-label-light` e `-dark`: botão e aviso onde deviam nos dois temas.
+- **Limite**: o E2E do desktop prova a tela e o que ela pede ao backend, não o Rust por trás. Que o hub calcula `update` direito é coberto pelo teste de integração do #9 e pelo E2E da web (#10). O comando Tauri do desktop (`fetch_curator_index` com o `SkillStore`) só foi compilado e exercitado indiretamente; **nenhum teste executa o app Tauri de verdade**.
+- **Não verificado**: o app Tauri real com uma fonte real (nem o `update` chegando pelo caminho do desktop local); o aviso numa skill editada depois de instalada.
+- **Fatia 1 do P160 fechada** (origem no hub #9, web #10, desktop #11), exceto o que ficou de fora de propósito: selo na lista de skills (faria o app consultar os curadores sozinho), celular e extensão, e pacote sem assinatura (sem origem, sem aviso).
+- **Fica**: as outras fatias do P160 (tirar as 8 skills do binário, índice no celular e na extensão, agentes e integrações como `kind`); decidir se vale um job-resumo para tornar os E2E obrigatórios; testar Linear, GitHub, Notion, Sentry e Slack nos serviços reais; `account.suspended` no site mãe; ficar de olho no teste de `agents.test.mjs:82` do Web E2E (falhou uma vez na Sessão 323).
 
 ---
 
