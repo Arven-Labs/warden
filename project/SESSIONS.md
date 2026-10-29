@@ -6,6 +6,17 @@
 
 ---
 
+### 2026-10-29 — Sessão 328 (o `CLAUDE.md` sai do repositório)
+
+- **Pedido**: resolver a duplicação do `CLAUDE.md`. O fluxo IA + humano agora tem uma fonte única, o `AGENTS.md` na raiz do workspace (repo `masterlxz/workspace`, privado). O `CLAUDE.md` do warden (cópia mantida à mão com o do anchor) passou a carregar uma segunda vez, com instruções diferentes (`docs/decisoes/` contra `<projeto>/project/adr/`).
+- **Decisão do dono**: remover o arquivo e entregar em branch para revisão (publicada pelo dono depois, PR #14; as outras opções eram ponteiro ou manter alinhado).
+- **Feito** (branch `docs/remove-claude-md`, PR #14): `git rm CLAUDE.md`. Nenhum documento do warden depende dele para funcionar: `SESSIONS.md`, `INDEX.md` e `PENDING.md` o citam em registros de sessões passadas (não mudaram), e o P169, ainda aberto, é uma pendência sobre o fluxo que ele descrevia.
+- **CI**: nenhum check nem workflow rodou no PR #14 (`gh pr view` sem checks, `gh run list` vazio), o que bate com a leitura do `ci.yml`: `project/**` e `**/*.md` estão em `paths-ignore`, e `**/*.md` cobre o `CLAUDE.md` da raiz. O estado do PR é `CLEAN` e `MERGEABLE`; não há "passou" a registrar, a verificação é a leitura do diff.
+- **Não verificado**: o `cmp` com o anchor deixa de existir (a pendência da Sessão 327). O P169 segue aberto; esta sessão não o decide. Quem clonar o repo sozinho fica sem o fluxo escrito.
+- **Fica**: o dono mesclar o PR #14; a mesma remoção no `anchor` está no PR #22 de lá.
+
+---
+
 ### 2026-10-29 — Sessão 327 (o `CLAUDE.md` ganha o parágrafo "Plan mode")
 
 - **Pedido**: tarefa de processo, sem código: acrescentar ao `CLAUDE.md` do warden o mesmo parágrafo que o dono aprovou para o anchor, na Etapa C logo depois do "Limite de tamanho", mantendo os dois arquivos **idênticos** (a sincronia é manual, por cópia mais `cmp`, decisão da Sessão 251 do anchor).
