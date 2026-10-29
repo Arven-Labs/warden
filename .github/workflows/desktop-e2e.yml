@@ -3,13 +3,17 @@ name: Desktop E2E
 # The desktop-only screens (Publish a skill, the Gallery, the Sync QR) and the chat, photographed in a headless browser over `desktop/dist`,
 # with a fake backend in place of Tauri (`desktop/e2e/harness.mjs`) and made-up data. It proves the screen and what it asks of the backend, not
 # the Rust behind it. CI always uploads the photos, for someone to look at each one (`project/AUTOMACAO.md`). It does not compile Rust: only `tsc` and `vite`.
+# It also runs on PRs that touch the same paths (Session 322), so a PR is not green without the screens having been seen. `pull_request`, not
+# `pull_request_target`: the code of a PR never runs with the repository's token or secrets.
 on:
   push:
     branches: [main]
-    paths:
+    paths: &paths
       - 'desktop/**'
       - '!desktop/src-tauri/**'
       - '.github/workflows/desktop-e2e.yml'
+  pull_request:
+    paths: *paths
   workflow_dispatch:
 
 concurrency:

@@ -25,7 +25,8 @@ visual.
 - `web/e2e/screens.test.mjs` percorre as telas principais com dados inventados, em claro e escuro; os outros specs ganham `snap` onde há tela
   cheia.
 - `.github/workflows/web-e2e.yml` constrói a página e o hub, instala o Chromium, roda `npm run test:e2e` e sobe `e2e-screens` com
-  `if: always()`. Fica fora do `ci.yml` porque compila o hub e instala o navegador.
+  `if: always()`. Fica fora do `ci.yml` porque compila o hub e instala o navegador. Roda no push para a `main` e também em PR que toca os
+  mesmos caminhos (Sessão 322); o `desktop-e2e.yml` idem.
 
 ### 2.2 Como olhar
 1. `git push` e esperar o run (`gh run watch <id> --exit-status`).
