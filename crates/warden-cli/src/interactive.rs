@@ -2917,9 +2917,22 @@ async fn prompt_skill_name(terminal: &mut CliTerminal, store: &SkillStore) -> an
     }
 }
 
+/// The ids in `ids` that no agent in `known` has, in the order typed and without repeats. A skill
+/// bound to an id nobody has is visible to no agent, which `Skill::validate` can't tell (the core
+/// doesn't know the registry), so the wizard checks it (P72 c).
+fn unknown_agent_ids(ids: &[String], known: &[String]) -> Vec<String> {
+    let mut unknown: Vec<String> = Vec::new();
+    for id in ids {
+        if !known.contains(id) && !unknown.contains(id) {
+            unknown.push(id.clone());
+        }
+    }
+    unknown
+}
+
 /// Prompts `description` then, only if `edit_body`, `body`, then the agent restriction (P72 c),
-/// re-asking until the whole skill passes
-/// `Skill::validate` — the same rules the model's `manage_skill` and the desktop form enforce.
+/// re-asking until the whole skill passes `Skill::validate` — the same rules the model's
+/// `manage_skill` and the desktop form enforce — and every agent id is one in `known_agents`.
 /// The body is one line here (the field editor is single-line); a multi-line body is edited in the
 /// file itself, see `/skills path`. Returns `Ok(None)` if the user cancels.
 async fn prompt_skill_text(
@@ -2928,6 +2941,7 @@ async fn prompt_skill_text(
     description: &str,
     body: &str,
     agents: &[String],
+    known_agents: &[String],
     edit_body: bool,
 ) -> anyhow::Result<Option<Skill>> {
     let mut description = description.to_string();
@@ -2949,12 +2963,23 @@ async fn prompt_skill_text(
         };
         agents = new_agents.trim().to_string();
         let agent_ids: Vec<String> = agents.split(',').map(str::trim).filter(|id| !id.is_empty()).map(str::to_string).collect();
+        let unknown = unknown_agent_ids(&agent_ids, known_agents);
+        if !unknown.is_empty() {
+            skill_error_card(terminal, tr!("skills.unknown_agents", ids = unknown.join(", ")))?;
+            continue;
+        }
         let skill = Skill { name: name.to_string(), description: description.clone(), body: body.clone(), agents: agent_ids, proposed: false, source: None, proposed_at: None, revises: None };
         match skill.validate() {
             Ok(()) => return Ok(Some(skill)),
             Err(e) => skill_error_card(terminal, e.to_string())?,
         }
     }
+}
+
+/// The ids of the owner's agents — a member's own agents (P84) are theirs, not the owner's to bind a skill to.
+fn owner_agent_ids(session: &CliSession) -> anyhow::Result<Vec<String>> {
+    let config = load_fresh_config(session.config_path.as_deref())?;
+    Ok(config.agents.iter().filter(|a| a.owner.is_none()).map(|a| a.id.clone()).collect())
 }
 
 async fn wizard_skills_create(terminal: &mut CliTerminal, session: &CliSession) -> anyhow::Result<()> {
@@ -2964,7 +2989,8 @@ async fn wizard_skills_create(terminal: &mut CliTerminal, session: &CliSession) 
     let Some(name) = prompt_skill_name(terminal, &store).await? else {
         return cancelled(terminal);
     };
-    let Some(skill) = prompt_skill_text(terminal, &name, "", "", &[], true).await? else {
+    let known_agents = owner_agent_ids(session)?;
+    let Some(skill) = prompt_skill_text(terminal, &name, "", "", &[], &known_agents, true).await? else {
         return cancelled(terminal);
     };
     match store.save(&skill) {
@@ -2991,7 +3017,8 @@ async fn wizard_skills_edit(terminal: &mut CliTerminal, session: &CliSession, na
             vec![(tr!("skills.multiline_body", name = name), dim_style())],
         )?;
     }
-    let Some(skill) = prompt_skill_text(terminal, &name, &current.description, &current.body, &current.agents, body_editable).await? else {
+    let known_agents = owner_agent_ids(session)?;
+    let Some(skill) = prompt_skill_text(terminal, &name, &current.description, &current.body, &current.agents, &known_agents, body_editable).await? else {
         return render_message_card(terminal, "skills", dim_style(), vec![(tr!("cancelled.edit"), dim_style())]);
     };
     match store.save(&skill) {
@@ -4088,5 +4115,45 @@ mod tests {
         let long_row = "x".repeat(200);
         let long_body = vec![vec![(long_row, Style::default())]];
         assert_eq!(card_width(6, &long_body, 80), 80);
+    }
+
+    fn ids(list: &[&str]) -> Vec<String> {
+        list.iter().map(|id| id.to_string()).collect()
+    }
+
+    #[test]
+    fn a_skill_bound_to_known_agents_has_no_unknown_ids() {
+        assert!(unknown_agent_ids(&ids(&["research", "writer"]), &ids(&["research", "writer", "ops"])).is_empty());
+    }
+
+    #[test]
+    fn a_skill_with_no_agents_is_visible_to_all_so_nothing_is_unknown() {
+        assert!(unknown_agent_ids(&[], &ids(&["research"])).is_empty());
+        assert!(unknown_agent_ids(&[], &[]).is_empty());
+    }
+
+    #[test]
+    fn a_mistyped_agent_id_is_reported_and_the_right_one_is_not() {
+        assert_eq!(unknown_agent_ids(&ids(&["reserch", "writer"]), &ids(&["research", "writer"])), ids(&["reserch"]));
+    }
+
+    #[test]
+    fn every_unknown_id_is_reported_in_the_order_typed() {
+        assert_eq!(unknown_agent_ids(&ids(&["b", "research", "a"]), &ids(&["research"])), ids(&["b", "a"]));
+    }
+
+    #[test]
+    fn an_unknown_id_repeated_is_reported_once() {
+        assert_eq!(unknown_agent_ids(&ids(&["ghost", "ghost"]), &ids(&["research"])), ids(&["ghost"]));
+    }
+
+    #[test]
+    fn with_no_agents_registered_any_id_is_unknown() {
+        assert_eq!(unknown_agent_ids(&ids(&["research"]), &[]), ids(&["research"]));
+    }
+
+    #[test]
+    fn agent_ids_match_exactly_without_case_folding() {
+        assert_eq!(unknown_agent_ids(&ids(&["Research"]), &ids(&["research"])), ids(&["Research"]));
     }
 }
