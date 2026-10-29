@@ -6,6 +6,16 @@
 
 ---
 
+### 2026-10-29 — Sessão 329 (padrão de fluxo entre os projetos)
+
+- **Pedido**: o dono pediu para padronizar o fluxo entre os cinco projetos (anchor, kin, lume, truthid, warden) e "alinhar o máximo de coisas possíveis". Fonte das peças: pasta `padrao/` do repo `masterlxz/workspace` (privado), ADR 0005 de lá.
+- **Decisões do dono**: ruleset `protect-main` igual em todos (PR com 0 aprovações, check `guard` obrigatório, sem force push, sem apagar a `main`, admin só via PR); `guard` genérico; template de PR do warden; secret scanning, push protection e alertas do Dependabot ligados; logs de sessão não são reordenados; CI de testes por stack fica para outra rodada. No warden isso **tira o push direto do admin na `main`** (hoje a proteção clássica tem `enforce_admins` desligado e nenhum check obrigatório).
+- **Feito** (este PR, `chore/padrao-fluxo`): `.github/workflows/ci-private-files.yml` (job `guard`, novo aqui) e o `.github/pull_request_template.md`, que só trocou `docs/decisoes/` por `project/adr/` (caminho de ADR do §11 do `AGENTS.md`).
+- **Fica**: depois do merge e do `guard` verde na `main`, ligar o ruleset, os recursos de segurança e o `delete_branch_on_merge` (mudança de CI/permissões: uma confirmação do dono por repositório, §4). Ligar o ruleset antes deixaria todo PR esperando um check que nunca reporta. Aqui também remover a proteção clássica depois de confirmar o ruleset, para não ficarem duas.
+- **Não verificado**: o `guard` ainda não rodou no GitHub (o PR não foi aberto). Foi testado só localmente, com fixtures (`padrao/test-guard.sh` no workspace) e contra os arquivos já rastreados do repo, sem nenhum acerto.
+
+---
+
 ### 2026-10-29 — Sessão 328 (o `CLAUDE.md` sai do repositório)
 
 - **Pedido**: resolver a duplicação do `CLAUDE.md`. O fluxo IA + humano agora tem uma fonte única, o `AGENTS.md` na raiz do workspace (repo `masterlxz/workspace`, privado). O `CLAUDE.md` do warden (cópia mantida à mão com o do anchor) passou a carregar uma segunda vez, com instruções diferentes (`docs/decisoes/` contra `<projeto>/project/adr/`).

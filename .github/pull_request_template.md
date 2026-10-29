@@ -8,7 +8,7 @@
 <!-- O que NÃO muda. Refatoração que apareceu pelo caminho e ficou para depois entra aqui. -->
 
 ## Decisões e alternativas descartadas
-<!-- O que foi escolhido, o que foi descartado e o motivo. Decisão não óbvia de arquitetura merece um ADR em docs/decisoes/. -->
+<!-- O que foi escolhido, o que foi descartado e o motivo. Decisão não óbvia de arquitetura merece um ADR em project/adr/. -->
 
 ## Riscos
 <!-- O que pode quebrar, o que é irreversível, o que toca autenticação, criptografia, chaves, CI/CD, dinheiro ou dados de usuários.
