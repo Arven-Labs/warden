@@ -2,7 +2,18 @@
 
 > **Nota**: Este log foi criado junto com o projeto. As sessões serão registradas aqui conforme o trabalho avança.
 >
-> Última atualização: 2026-10-28 (Sessão 321)
+> Última atualização: 2026-10-29 (Sessão 322)
+
+---
+
+### 2026-10-29 — Sessão 322 (os E2E de navegador rodam em PR)
+
+- **Pedido**: "podemos começar pelo E2E e dps vamos pra 1" (a lacuna que a 321 levantou, depois o registro de origem do P160). Mexe em CI (§4 do `CLAUDE.md`), então parei com opções e plano e só mudei depois do "sim" do usuário. Escolhida a opção A (`pull_request` com os mesmos `paths`); descartada a de tornar os E2E checks obrigatórios, porque com filtro de `paths` um PR que não toca esses caminhos nunca cria o check e fica esperando para sempre (pede um job-resumo, tarefa à parte).
+- **Feito** (PR #8, `ci/e2e-em-pr`): `web-e2e.yml` e `desktop-e2e.yml` ganham `pull_request:` com os mesmos `paths` do `push` (âncora YAML `&paths`/`*paths`, como o `ci.yml` já faz com `&docs`). `pull_request` e não `pull_request_target`, para o código do PR nunca rodar com token de escrita nem secrets; os dois nem usam secrets. Cabeçalhos dos workflows e `AUTOMACAO.md` atualizados.
+- **Verificado no CI do próprio PR**: ele edita os dois workflows, que estão no filtro, então os dois dispararam sozinhos, sem disparo manual: `Web E2E` (run 40867550917) e `Desktop E2E` (run 40867551077) verdes, com "Browser tests" e "Screen photos" em sucesso. O `CI` pulou as áreas Rust, Flutter, Android e frontends (só mexeu em workflow e docs).
+- **Não verificado**: o YAML foi lido por um parser local (Ruby) e os filtros saíram idênticos entre `push` e `pull_request`; o comportamento num PR que **não** toca os caminhos (os E2E não devem rodar) não foi exercitado. O custo em minutos do Actions por PR só se vê com o uso.
+- **Fora**: branch protection (nenhum check ficou obrigatório), `ci.yml`.
+- **Fica**: o registro de origem do P160 (próxima tarefa); se vale um job-resumo para tornar os E2E obrigatórios; testar Linear, GitHub, Notion, Sentry e Slack nos serviços reais; `account.suspended` no site mãe.
 
 ---
 
