@@ -2,7 +2,19 @@
 
 > **Nota**: Este log foi criado junto com o projeto. As sessões serão registradas aqui conforme o trabalho avança.
 >
-> Última atualização: 2026-10-29 (Sessão 327)
+> Última atualização: 2026-10-29 (Sessão 330)
+
+---
+
+### 2026-10-29 — Sessão 330 (`/skills` do CLI rejeita id de agente inexistente)
+
+- **Pedido**: seguir para código depois de abrir a sessão. Entre as pendências, o dono escolheu o P72, cujos itens já estavam fechados; sobrou a lacuna registrada no (c): um id de agente digitado errado no wizard do CLI salvava a skill, que ficava invisível para todos.
+- **Decisões do dono**: rejeitar o id desconhecido (e não só avisar); a regra mora no wizard, não no `Skill::validate` do core (o core não conhece o registry).
+- **Feito** (PR #16, mesclado em `36104dc`): `unknown_agent_ids` (função pura) e `owner_agent_ids` em `crates/warden-cli/src/interactive.rs`; `prompt_skill_text` recebe `known_agents` e repete a pergunta no mesmo loop do `Skill::validate`; chave `skills.unknown_agents` em `en.rs` e `pt_br.rs`. Registry = agentes do dono (`owner.is_none()`), comparação exata. 7 testes novos da função pura.
+- **Verificado**: CI do PR #16 verde no commit final `9bb6eae`: `Rust (clippy and tests)`, `Browser against a real hub`, `guard`, `Changed areas`, Web E2E e CI Private Files passaram; Frontend, Mobile e Android pulados (nenhuma dessas áreas mudou). Estado do PR: `CLEAN`.
+- **Não verificado**: (1) o "falha antes" do teste não foi provado pelo CI, que só roda em `pull_request`: os dois commits (só testes; implementação) subiram juntos; (2) o wizard num terminal real (só a função pura é testada; a fiação dentro do loop não tem teste automático); (3) o CI da `main` depois do merge não tinha terminado quando este registro foi escrito.
+- **Conferência da Sessão 329**: o ruleset `protect-main` já estava ativo (19:31, sem proteção clássica), com secret scanning, push protection, alertas do Dependabot e `delete_branch_on_merge` ligados. Ficou só `dependabot_security_updates` desligado (decisão do dono pendente).
+- **Fluxo**: o `CLAUDE.md` do workspace ganhou a regra de editar arquivos só com `Edit`/`Write` (PR #1 do repo do workspace, a mesclar pelo dono). Build e testes locais não se usam aqui (tudo no CI).
 
 ---
 
