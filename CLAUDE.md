@@ -74,6 +74,8 @@ Todo plano deve conter, nesta ordem:
 
 **Limite de tamanho:** se o plano passar de ~7 etapas ou tocar muitos arquivos, pare e proponha quebrar em tarefas menores.
 
+**Plan mode (Claude Code):** nas tarefas com decisões reais (mais de um caminho razoável, vários arquivos, uma fase inteira, ou uma fonte/API/comportamento que ainda não foi medido), faça as Etapas A, B e C em plan mode: levantamento só de leitura, dúvidas pelo `AskUserQuestion` e plano no formato acima. A aprovação pelo `ExitPlanMode` substitui o "siga o plano" digitado (não peça aprovação em texto). Se o plano precisar de algo além de leitura (rodar um comando, chamar uma API para medir), isso vira a etapa 0 do plano, executada só depois da aprovação. Depois de aprovado, volta o fluxo normal: Etapa D (testes primeiro, eu revisando os testes), depois E e F. Tarefas mecânicas, que repetem uma receita já feita no projeto, seguem sem plan mode.
+
 ### Etapa D: Testes como contrato
 - Por padrão, **comece pelos testes** (ou escreva-os junto) que definem "pronto". Eu reviso os testes primeiro, porque são mais fáceis de entender que a implementação.
 - Se mudar comportamento, deve haver teste que **falharia antes** e **passa depois**.
