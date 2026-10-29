@@ -2,7 +2,19 @@
 
 > **Nota**: Este log foi criado junto com o projeto. As sessões serão registradas aqui conforme o trabalho avança.
 >
-> Última atualização: 2026-10-29 (Sessão 326)
+> Última atualização: 2026-10-29 (Sessão 327)
+
+---
+
+### 2026-10-29 — Sessão 327 (o `CLAUDE.md` ganha o parágrafo "Plan mode")
+
+- **Pedido**: tarefa de processo, sem código: acrescentar ao `CLAUDE.md` do warden o mesmo parágrafo que o dono aprovou para o anchor, na Etapa C logo depois do "Limite de tamanho", mantendo os dois arquivos **idênticos** (a sincronia é manual, por cópia mais `cmp`, decisão da Sessão 251 do anchor).
+- **Fluxo (§0.3)**: antes de editar, `cmp` entre o `CLAUDE.md` do anchor e o do warden deu **idênticos** (sem drift), e eu mostrei o diff e o impacto. O usuário aprovou ("sim") junto com a decisão do ponto 3, que valeu como proposto: **a aprovação do `ExitPlanMode` não substitui a confirmação explícita do §4** (CI, assinaturas, migrações continuam pedindo uma pergunta à parte).
+- **Premissa corrigida**: o pedido dizia que a branch em andamento era `docs/arquitetura-origem-da-skill`, mas ela já tinha sido mesclada (#12) e apagada; a `main` estava limpa. Nada para guardar; a branch nova saiu da `main`.
+- **Feito** (este PR, `docs/claude-md-plan-mode`): um `Edit` no `CLAUDE.md`, o parágrafo "Plan mode (Claude Code)" entre "Limite de tamanho" e "Etapa D". Mais nada no arquivo. O `CLAUDE.md` de `workspace/` não foi tocado. `git diff --stat`: 1 arquivo, 2 linhas inseridas (o parágrafo e uma linha em branco), nenhuma removida.
+- **CI**: **nenhum roda neste PR** (`**/*.md` e `project/**` estão em `paths-ignore` do `ci.yml`, e os E2E só olham `web/`, `desktop/` e `crates/`). Não há "passou" a registrar; a verificação é a leitura do diff.
+- **Não verificado**: a identidade com o `CLAUDE.md` do anchor **depois** da mudança. A branch `docs/claude-md-plan-mode` do anchor ainda **não existe** (nem local nem remota), então até o PR dele ser mesclado os dois arquivos divergem em 2 linhas. Falta rodar `cmp /home/masterlxz/Documents/workspace/anchor/CLAUDE.md CLAUDE.md` quando o do anchor estiver mesclado (ou comparar com a branch dele, se existir antes).
+- **Fica**: o `cmp` final com o anchor; as fatias restantes do P160; job-resumo para tornar os E2E obrigatórios; testar Linear, GitHub, Notion, Sentry e Slack nos serviços reais; `account.suspended` no site mãe; ficar de olho em `agents.test.mjs:82` do Web E2E.
 
 ---
 
