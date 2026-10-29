@@ -4089,4 +4089,44 @@ mod tests {
         let long_body = vec![vec![(long_row, Style::default())]];
         assert_eq!(card_width(6, &long_body, 80), 80);
     }
+
+    fn ids(list: &[&str]) -> Vec<String> {
+        list.iter().map(|id| id.to_string()).collect()
+    }
+
+    #[test]
+    fn a_skill_bound_to_known_agents_has_no_unknown_ids() {
+        assert!(unknown_agent_ids(&ids(&["research", "writer"]), &ids(&["research", "writer", "ops"])).is_empty());
+    }
+
+    #[test]
+    fn a_skill_with_no_agents_is_visible_to_all_so_nothing_is_unknown() {
+        assert!(unknown_agent_ids(&[], &ids(&["research"])).is_empty());
+        assert!(unknown_agent_ids(&[], &[]).is_empty());
+    }
+
+    #[test]
+    fn a_mistyped_agent_id_is_reported_and_the_right_one_is_not() {
+        assert_eq!(unknown_agent_ids(&ids(&["reserch", "writer"]), &ids(&["research", "writer"])), ids(&["reserch"]));
+    }
+
+    #[test]
+    fn every_unknown_id_is_reported_in_the_order_typed() {
+        assert_eq!(unknown_agent_ids(&ids(&["b", "research", "a"]), &ids(&["research"])), ids(&["b", "a"]));
+    }
+
+    #[test]
+    fn an_unknown_id_repeated_is_reported_once() {
+        assert_eq!(unknown_agent_ids(&ids(&["ghost", "ghost"]), &ids(&["research"])), ids(&["ghost"]));
+    }
+
+    #[test]
+    fn with_no_agents_registered_any_id_is_unknown() {
+        assert_eq!(unknown_agent_ids(&ids(&["research"]), &[]), ids(&["research"]));
+    }
+
+    #[test]
+    fn agent_ids_match_exactly_without_case_folding() {
+        assert_eq!(unknown_agent_ids(&ids(&["Research"]), &ids(&["research"])), ids(&["Research"]));
+    }
 }
