@@ -310,6 +310,7 @@ pub const CATALOG: &[(&str, &str)] = &[
     ("skills.prompt_description", " description (when to use the skill — the AI reads this every turn) "),
     ("skills.prompt_body", " body (the instructions, on one line — long text: /skills path) "),
     ("skills.prompt_agents", " agents (ids separated by commas — blank: every agent sees the skill) "),
+    ("skills.unknown_agents", "unknown agent(s): {ids} — use /agents to see the list"),
     ("skills.created", "skill '{name}' created"),
     ("skills.updated", "skill '{name}' updated"),
     ("skills.multiline_body", "the body has several lines — only the description is editable here; for the body use /skills path {name}"),
