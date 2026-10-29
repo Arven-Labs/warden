@@ -2,7 +2,20 @@
 
 > **Nota**: Este log foi criado junto com o projeto. As sessões serão registradas aqui conforme o trabalho avança.
 >
-> Última atualização: 2026-10-29 (Sessão 323)
+> Última atualização: 2026-10-29 (Sessão 324)
+
+---
+
+### 2026-10-29 — Sessão 324 (a web avisa que há versão nova numa entrada da fonte: P160)
+
+- **Pedido**: o PR 2 da fatia 1 do P160, as telas. Respostas do usuário às opções: o aviso só aparece dentro da fonte aberta (nada de selo na lista de skills, que faria o app consultar os curadores sozinho), o botão muda de texto, e **dois PRs, web primeiro**. Este é o da web; o desktop é o PR 2b.
+- **Feito** (PR #10, `feat/p160-aviso-de-versao-nova-web`, só `web/`): `CuratorEntryDto.update?` em `messages.ts`; em `Curators.tsx` uma entrada com `update` mostra "Há uma versão nova de uma skill que você instalou desta fonte. A prévia mostra o que mudaria." no lugar da linha "você já tem uma skill com este nome" (que segue para quem tem a skill sem origem), e o botão vira "Ver a atualização" (a mesma prévia com o diff da 321); duas chaves de i18n nos dois idiomas. Sem helper novo: é uma ramificação.
+- **Testes (contrato primeiro)**: `web/e2e/curators.test.mjs` ganhou a opção `signed` no fixture do curador (os pacotes passam a levar a assinatura dele, porque o hub só grava de onde veio a skill quando o **pacote** diz quem o assinou; a assinatura do índice não basta) e um caso novo. **Falhou antes**: com só o teste no branch (`6292938`, run 40882852378) o `Web E2E` deu 58 verdes e 1 vermelho, o caso novo, no `waitFor` do texto do aviso. **Passou depois**: no `ef961a7`, `CI` e `Web E2E` verdes, 59 de 59, 0 pulados. Aqui: `npm test` da web 164 verdes e `tsc --noEmit` limpo. Olhei a foto `web-curators-update-label` do artefato: aviso e botão onde deviam, entrada revogada intacta.
+- **Limite conhecido, dito no PR**: um pacote **sem assinatura**, mesmo listado num índice assinado, nunca ganha o aviso (não deixa origem). A fonte do Fabio assina tudo; um curador que esqueça de assinar fica sem o aviso. O E2E de caso antigo (pacotes sem assinatura) continua cobrindo "tem o nome, sem origem", com "Ler e instalar".
+- **Não verificado**: o desktop (PR 2b); o rótulo com uma skill que a pessoa editou depois de instalar (o aviso aparece, a prévia mostra o diff e trocar continua pedindo confirmação, mas não há caso de teste só disso).
+- **Fora**: desktop, selo na lista de skills, celular e extensão.
+- **Fica**: o PR 2b (desktop, com o backend de mentira do E2E marcando `update`); decidir se vale um job-resumo para tornar os E2E obrigatórios; testar Linear, GitHub, Notion, Sentry e Slack nos serviços reais; `account.suspended` no site mãe.
+- **Do fluxo**: o laço de espera que escrevi usava `jq`, que não está instalado aqui (saiu com 127, sem resultado); refiz só com `gh --jq`. E o CI do commit só com o teste foi o que provou o vermelho.
 
 ---
 
