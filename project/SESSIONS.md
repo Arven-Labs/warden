@@ -2,7 +2,20 @@
 
 > **Nota**: Este log foi criado junto com o projeto. As sessões serão registradas aqui conforme o trabalho avança.
 >
-> Última atualização: 2026-10-29 (Sessão 331)
+> Última atualização: 2026-10-30 (Sessão 332)
+
+---
+
+### 2026-10-30 — Sessão 332 (rascunho de skill pelo hub, na extensão — P72, fatia 1)
+
+- **Pedido**: continuar em código; o dono escolheu os restos do P72 (skills no mobile/extensão) e, depois do levantamento, a fatia "rascunho por IA: hub + extensão". Anexos e celular ficam para fatias seguintes.
+- **Levantamento**: o protocolo do hub não tinha mensagem de rascunho (o `skill_gen` só rodava no desktop/CLI) nem levava anexos no `SkillDto`. O desktop chama o modelo direto (`generate_skill_draft`), sem limite de gasto; num hub compartilhado isso furaria o orçamento.
+- **Decisões do dono**: fatia hub + extensão; rascunho só preenche o formulário, nunca salva; confirmou o plano que tocava gasto (§4).
+- **Feito** (PR #19): `skill_gen::draft_messages` e `parse_draft` público; `ClientMessage::DraftSkill` e `ServerMessage::SkillDraft`; `skills::draft_skill` no hub, via `Orchestrator::one_shot` (limite estourado recusa sem chamar o modelo; cobrado por dispositivo como o `Chat`; descrição de até 2.000 caracteres; spawnado); `DraftSkill` incluído em `gate_with` (`people.rs`), senão um membro com senha provisória ou um endereço bloqueado por tentativas gastaria tokens; extensão: campo "descreva a skill" na aba Skills (modo nova), timeout de 120 s, textos em `en` e `pt-BR`.
+- **Verificado**: CI do PR #19 no commit de código `d5fea80`: `Rust (clippy and tests)`, `Frontend (extension)` (`npm test` e `build`), `Mobile`, `Android`, `Browser against a real hub`, `guard`, `Changed areas`, Web E2E e CI Private Files passaram.
+- **Não verificado**: (1) o "falha antes" dos testes: o CI do commit só com testes foi cancelado pelo push seguinte (o repo cancela a corrida em andamento), então não há prova de CI de que falhavam sem a implementação; (2) a aba num Brave/Chrome real; (3) o rascunho com modelo real (P73); (4) dois pedidos seguidos; (5) o `SpendContext` real de membro versus dono (copiado do `Chat`, não testado à parte).
+- **Atenção**: um hub anterior a este derruba a conexão ao receber uma mensagem que não conhece (`server.rs`, braço `Err`): a extensão nova só funciona com o hub novo.
+- **Fica**: o celular (mesmo rascunho, via ponte Rust e `frb_generated`) e os anexos de skill (protocolo, hub e UI) seguem em aberto no P72.
 
 ---
 
