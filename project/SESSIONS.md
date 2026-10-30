@@ -15,7 +15,7 @@
 - **Verificado**: localmente com Flutter 3.47.4 (o do CI), `flutter analyze --no-fatal-infos` sem problemas e `flutter test` com 351 testes verdes. CI do PR #20 no commit `cbf2c8e`: `Mobile (Flutter analyze and tests)`, `Android (arm64 APK)`, `guard` e `Changed areas` passaram; `Rust` e `Frontend` foram pulados (o PR só toca `mobile/`).
 - **Não verificado**: (1) o "falha antes" dos testes de widget e de conexão não foi rodado sem a implementação (escrevi os testes antes, mas só rodei com ela); (2) o timeout de 120 s não tem teste; (3) a tela num celular/emulador e o rascunho com modelo real (P73); (4) o `l10n` gerado: o `gen-l10n` do Flutter 3.47.4 reformatou uma linha antiga (`skillsUpdateAvailable`), que desfiz à mão para não poluir o diff.
 - **Atenção**: um hub anterior ao #19 derruba a conexão ao receber `draftSkill`; o celular não detecta a versão do hub.
-- **Fica**: os anexos de skill (protocolo, hub e UI na extensão e no celular) seguem em aberto no P72.
+- **Fica**: os anexos de skill (protocolo, hub e UI na extensão e no celular) seguem em aberto no P72, divididos em 3 PRs (ver `PENDING.md`), por pesarem bem mais que esta fatia. O Flutter 3.47.4 está em `~/flutter` na máquina do dono, fora do PATH (usar `~/flutter/bin/flutter`).
 
 ---
 
