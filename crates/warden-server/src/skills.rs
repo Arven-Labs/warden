@@ -4,10 +4,36 @@
 //! without a socket; the same create/edit rules as the desktop's `save_skill` and the mobile
 //! bridge (create refuses a taken name, edit overwrites).
 
+use warden_bootstrap::skill_gen;
 use warden_bootstrap::skill_package::{self, TrustedPublisher};
+use warden_core::orchestrator::Orchestrator;
 use warden_core::skill::{catalog, Skill, SkillStore};
 use warden_server_protocol::protocol::{CatalogSkillDto, PackagePreviewDto, SkillDto};
 use warden_server_protocol::{ClientMessage, ServerMessage};
+
+/// The longest description a client may send to be turned into a draft: it goes to the model as the whole user turn.
+const MAX_DRAFT_DESCRIPTION_CHARS: usize = 2_000;
+
+/// Answers a `DraftSkill` (P72): one model call through `Orchestrator::one_shot`, so a spending limit with no room refuses
+/// it without calling the model and the tokens are booked to whoever `orchestrator` spends as. Never saves anything: the
+/// client loads the draft into its form and the person saves it with `SaveSkill`. Async and slow, so the caller spawns it.
+pub async fn draft_skill(orchestrator: &Orchestrator, request_id: u64, description: &str) -> ServerMessage {
+    let error = |message: String| ServerMessage::SkillError { request_id, message };
+    if description.trim().is_empty() {
+        return error("describe the skill you want first".to_string());
+    }
+    if description.chars().count() > MAX_DRAFT_DESCRIPTION_CHARS {
+        return error(format!("the description is too long (at most {MAX_DRAFT_DESCRIPTION_CHARS} characters)"));
+    }
+    match orchestrator.one_shot(skill_gen::draft_messages(description)).await {
+        Ok(Some(reply)) => match skill_gen::parse_draft(&reply) {
+            Ok(skill) => ServerMessage::SkillDraft { request_id, skill: SkillDto::from(skill) },
+            Err(err) => error(format!("{err:#}")),
+        },
+        Ok(None) => error("a spending limit has no room left, so the draft was not asked for".to_string()),
+        Err(err) => error(format!("{err:#}")),
+    }
+}
 
 /// Answers a skills request, or `None` for any other message. A package preview is measured against no trusted keys.
 pub fn handle_skill_request(store: &SkillStore, message: ClientMessage) -> Option<ServerMessage> {

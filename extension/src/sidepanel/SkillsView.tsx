@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import type { CatalogSkillDto, SkillDto } from "../protocol/messages";
-import type { ListSkillCatalogResponse, ListSkillsResponse, OkResponse } from "../background/popup_protocol";
+import type { DraftSkillResponse, ListSkillCatalogResponse, ListSkillsResponse, OkResponse } from "../background/popup_protocol";
 import { t } from "../i18n/index.ts";
 import { useLocale } from "../i18n/react.tsx";
 import { catalogAction, catalogDescription } from "./lib/skillCatalog";
@@ -22,6 +22,9 @@ export default function SkillsView() {
   const [error, setError] = useState<string | null>(null);
   const [editor, setEditor] = useState<EditorState | null>(null);
   const [saving, setSaving] = useState(false);
+  // P72 — "describe it and the AI drafts it": the text, and whether the hub is still writing.
+  const [draftText, setDraftText] = useState("");
+  const [drafting, setDrafting] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
   // P140 — the gallery; stays null when the hub has none (a hub from before it answers with an error), and the section is left out.
   const [catalog, setCatalog] = useState<CatalogSkillDto[] | null>(null);
@@ -82,6 +85,22 @@ export default function SkillsView() {
       });
   }
 
+  /** Asks the hub to write a draft from `draftText` and loads it into the form. It is never saved here: the person reviews it
+   * and saves with the form's own button. */
+  function handleDraft() {
+    setDrafting(true);
+    setError(null);
+    chrome.runtime.sendMessage({ type: "draftSkill", description: draftText }).then((res: DraftSkillResponse) => {
+      setDrafting(false);
+      if (res.ok && res.skill) {
+        setEditor((current) => (current ? { ...current, skill: res.skill! } : current));
+        setDraftText("");
+      } else {
+        setError(res.error ?? t("skills.draftFailed"));
+      }
+    });
+  }
+
   /** Accepts a suggestion as it is: a save without the `proposed` mark. */
   function handleAccept(skill: SkillDto) {
     setError(null);
@@ -115,6 +134,18 @@ export default function SkillsView() {
         }}
       >
         <strong>{editor.mode === "new" ? t("skills.new") : t("skills.editing", { name: editor.skill.name })}</strong>
+        {editor.mode === "new" && (
+          <div className="skills-draft">
+            <label>
+              {t("skills.draftLabel")}
+              <textarea value={draftText} onChange={(e) => setDraftText(e.target.value)} rows={3} maxLength={2000} placeholder={t("skills.draftPlaceholder")} disabled={drafting} />
+            </label>
+            <span className="skills-hint">{t("skills.draftHint")}</span>
+            <button type="button" disabled={drafting || saving || draftText.trim() === ""} onClick={handleDraft}>
+              {drafting ? t("skills.drafting") : t("skills.draftButton")}
+            </button>
+          </div>
+        )}
         <label>
           {t("common.name")}
           <input

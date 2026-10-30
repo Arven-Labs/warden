@@ -224,3 +224,10 @@ describe("what a model limit says", () => {
     assert.match(delegationSummary(["fast", "deep"]), /^Limited to 2 models; fast is what/);
   });
 });
+
+describe("decoding a skill draft", () => {
+  test("keeps the draft and defaults the agents to none", () => {
+    const reply = decode(JSON.stringify({ type: "skillDraft", requestId: 4, skill: { name: "review-pr", description: "d", body: "b" } }));
+    assert.deepEqual(reply, { type: "skillDraft", requestId: 4, skill: { name: "review-pr", description: "d", body: "b", agents: [] } });
+  });
+});

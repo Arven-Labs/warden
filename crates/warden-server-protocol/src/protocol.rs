@@ -1921,6 +1921,12 @@ pub enum ClientMessage {
         request_id: u64,
         name: String,
     },
+    /// "Describe a skill and the AI writes it" (P72): one model call on the hub that turns `description` into a draft,
+    /// which is never saved. Spends like the person's turns do. Answered by `SkillDraft`, or `SkillError`.
+    DraftSkill {
+        request_id: u64,
+        description: String,
+    },
     /// The gallery of ready-made skills that ship with the hub (P140), each with its state in this vault. Answered by
     /// `SkillCatalog`.
     ListSkillCatalog {
@@ -2736,6 +2742,11 @@ pub enum ServerMessage {
     /// Reply to a successful `SaveSkill`/`DeleteSkill`.
     SkillOk {
         request_id: u64,
+    },
+    /// Reply to `DraftSkill`: the skill the model wrote, not saved anywhere — the client loads it into its form for review.
+    SkillDraft {
+        request_id: u64,
+        skill: SkillDto,
     },
     /// A `ListSkills`/`SaveSkill`/`DeleteSkill` failed (invalid skill, name taken, no such skill) —
     /// the raw error text, same posture as `ChatError`.

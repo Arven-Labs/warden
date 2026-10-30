@@ -79,6 +79,7 @@ export type PopupRequest =
   | { type: "listSkills" }
   | { type: "saveSkill"; skill: SkillDto; overwrite: boolean }
   | { type: "deleteSkill"; name: string }
+  | { type: "draftSkill"; description: string }
   | { type: "listSkillCatalog" }
   | { type: "installCatalogSkill"; name: string; overwrite: boolean }
   | { type: "addTabToGroup" }
@@ -192,6 +193,13 @@ export interface DeviceAdminResponse {
 export interface ListSkillsResponse {
   ok: boolean;
   skills: SkillDto[];
+  error?: string;
+}
+
+/** Reply to `{ type: "draftSkill" }` — the skill the model wrote, not saved; `skill` is absent when `ok` is false. */
+export interface DraftSkillResponse {
+  ok: boolean;
+  skill?: SkillDto;
   error?: string;
 }
 
