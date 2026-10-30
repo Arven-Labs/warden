@@ -3509,6 +3509,22 @@ mod tests {
     }
 
     #[test]
+    fn draft_skill_messages_round_trip_through_json() {
+        let ask = ClientMessage::DraftSkill { request_id: 4, description: "review PRs".into() };
+        let json = serde_json::to_string(&ask).unwrap();
+        assert_eq!(json, r#"{"type":"draftSkill","requestId":4,"description":"review PRs"}"#);
+        assert_eq!(serde_json::from_str::<ClientMessage>(&json).unwrap(), ask);
+
+        let draft = ServerMessage::SkillDraft {
+            request_id: 4,
+            skill: SkillDto { name: "review-pr".into(), description: "d".into(), body: "b".into(), agents: Vec::new(), proposed: false, source: None, proposed_at: None, revises: None },
+        };
+        let json = serde_json::to_string(&draft).unwrap();
+        assert_eq!(json, r#"{"type":"skillDraft","requestId":4,"skill":{"name":"review-pr","description":"d","body":"b","agents":[]}}"#);
+        assert_eq!(serde_json::from_str::<ServerMessage>(&json).unwrap(), draft);
+    }
+
+    #[test]
     fn skill_catalog_messages_round_trip_through_json() {
         let list = ClientMessage::ListSkillCatalog { request_id: 1 };
         let json = serde_json::to_string(&list).unwrap();

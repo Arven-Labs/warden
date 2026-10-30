@@ -103,6 +103,16 @@ mod tests {
         assert!(parse_draft(r#"{"name":"x","description":"d","body":"  "}"#).is_err());
     }
 
+    #[test]
+    fn draft_messages_are_the_system_prompt_then_the_trimmed_request() {
+        let messages = draft_messages("  a skill for reviewing PRs \n");
+        assert_eq!(messages.len(), 2);
+        assert_eq!(messages[0].role, warden_core::model::Role::System);
+        assert_eq!(messages[0].content, SYSTEM_PROMPT);
+        assert_eq!(messages[1].role, warden_core::model::Role::User);
+        assert_eq!(messages[1].content, "a skill for reviewing PRs");
+    }
+
     #[tokio::test]
     async fn generate_skill_draft_runs_the_model_and_rejects_an_empty_request() {
         let skill = generate_skill_draft(&FixedReply(PLAIN), "a skill for reviewing PRs").await.unwrap();
