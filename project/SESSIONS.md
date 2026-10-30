@@ -2,7 +2,17 @@
 
 > **Nota**: Este log foi criado junto com o projeto. As sessões serão registradas aqui conforme o trabalho avança.
 >
-> Última atualização: 2026-10-29 (Sessão 330)
+> Última atualização: 2026-10-29 (Sessão 331)
+
+---
+
+### 2026-10-29 — Sessão 331 (P17 fechado sem código)
+
+- **Pedido**: continuar em código. O dono escolheu o P17 (dependência de Node/`npx` do `web_search`).
+- **Levantamento** (só leitura): a dependência é decisão registrada do dono na 5.3 (`ARCHITECTURE.md`); o Node continua obrigatório pelo WhatsApp (Baileys) e pela integração Google; a mensagem clara quando falta o Node já existia desde a Sessão 182 (`connect_stdio` em `tool/mcp.rs`).
+- **Decisão do dono**: fechar o P17, sem reverter a 5.3 (descartada a volta ao REST em Rust).
+- **Feito**: só documentação: o P17 em `PENDING.md` foi fechado com o motivo; esta entrada.
+- **Não verificado**: não rodei nada (sem código); a afirmação de que o Google MCP e o WhatsApp exigem Node vem da leitura de `ARCHITECTURE.md` e de `sidecar/whatsapp`, não de uma execução.
 
 ---
 
