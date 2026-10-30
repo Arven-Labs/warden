@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:mobile/protocol/messages.dart';
 import 'package:mobile/screens/skills_screen.dart';
+import 'package:mobile/services/server_connection.dart' show ConversationException;
+import 'package:mobile/services/skill_draft.dart';
 import 'package:mobile/services/skills_repository.dart';
 
 import '../helpers/test_app.dart';
@@ -68,6 +71,23 @@ class _FakeRepository implements SkillsRepository {
 
   @override
   Future<void> delete(String name) async => skills.removeWhere((s) => s.name == name);
+}
+
+/// The hub's model, as `SkillFormScreen` sees it: answers with [draft], or refuses with [error]. Records what it was asked.
+class _FakeDraftBackend implements SkillDraftBackend {
+  _FakeDraftBackend(SkillDraft this.draft) : error = null;
+  _FakeDraftBackend.failing(String this.error) : draft = null;
+
+  final SkillDraft? draft;
+  final String? error;
+  final asked = <String>[];
+
+  @override
+  Future<SkillDraft> draftSkill(String description) async {
+    asked.add(description);
+    if (error != null) throw ConversationException(error!);
+    return draft!;
+  }
 }
 
 const _review = SkillDto(name: 'review-pr', description: 'Reviews a PR', body: 'Read the diff.', proposed: false);
@@ -292,5 +312,64 @@ void main() {
     expect(find.text('- Read the diff.'), findsOneWidget);
     expect(find.text('+ Check tests first.'), findsOneWidget);
     expect(find.text('Suggested'), findsNothing);
+  });
+
+  group('draft by the hub (P72)', () {
+    const draftLabel = 'Describe the skill and the AI writes a draft';
+
+    Future<void> openNewForm(WidgetTester tester, _FakeRepository repo, SkillDraftBackend? hub) async {
+      await tester.pumpWidget(testApp(home: SkillsScreen(repository: repo, draftBackend: hub)));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('New skill'));
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets('fills the form from the description and saves nothing', (tester) async {
+      final repo = _FakeRepository([]);
+      final hub = _FakeDraftBackend(const SkillDraft(name: 'pr-summary', description: 'Summarise PRs', body: '1. List the PRs'));
+      await openNewForm(tester, repo, hub);
+
+      await tester.enterText(find.widgetWithText(TextField, draftLabel), 'summarise my PRs');
+      await tester.pump(); // the button enables on the next frame
+      await tester.tap(find.text('Write a draft'));
+      await tester.pumpAndSettle();
+
+      expect(hub.asked, ['summarise my PRs']);
+      expect(tester.widget<TextField>(find.widgetWithText(TextField, 'Name')).controller!.text, 'pr-summary');
+      expect(tester.widget<TextField>(find.widgetWithText(TextField, 'Description')).controller!.text, 'Summarise PRs');
+      expect(tester.widget<TextField>(find.widgetWithText(TextField, 'Instructions')).controller!.text, '1. List the PRs');
+      expect(repo.skills, isEmpty);
+    });
+
+    testWidgets('the hub refusing the draft shows its text and leaves the form as it was', (tester) async {
+      final repo = _FakeRepository([]);
+      final hub = _FakeDraftBackend.failing('spending limit reached');
+      await openNewForm(tester, repo, hub);
+
+      await tester.enterText(find.widgetWithText(TextField, 'Name'), 'mine');
+      await tester.enterText(find.widgetWithText(TextField, draftLabel), 'anything');
+      await tester.pump(); // the button enables on the next frame
+      await tester.tap(find.text('Write a draft'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Failed to write the draft: spending limit reached'), findsOneWidget);
+      expect(tester.widget<TextField>(find.widgetWithText(TextField, 'Name')).controller!.text, 'mine');
+      expect(repo.skills, isEmpty);
+    });
+
+    testWidgets('the button waits for a description', (tester) async {
+      await openNewForm(tester, _FakeRepository([]), _FakeDraftBackend(const SkillDraft(name: 'a', description: 'b', body: 'c')));
+      expect(tester.widget<OutlinedButton>(find.ancestor(of: find.text('Write a draft'), matching: find.byType(OutlinedButton))).onPressed, isNull);
+    });
+
+    testWidgets('is left out with no hub connection, and when editing', (tester) async {
+      await openNewForm(tester, _FakeRepository([]), null);
+      expect(find.text(draftLabel), findsNothing);
+
+      final hub = _FakeDraftBackend(const SkillDraft(name: 'a', description: 'b', body: 'c'));
+      await tester.pumpWidget(testApp(home: SkillFormScreen(repository: _FakeRepository([_review]), existing: _review, draftBackend: hub)));
+      await tester.pumpAndSettle();
+      expect(find.text(draftLabel), findsNothing);
+    });
   });
 }

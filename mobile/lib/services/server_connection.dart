@@ -8,6 +8,7 @@ import '../protocol/messages.dart';
 import 'agent_work.dart';
 import 'chat_transcript.dart';
 import 'device_invites.dart';
+import 'skill_draft.dart';
 
 /// Connection state exposed to the UI. Mirrors the lifecycle a Phase 7.2
 /// connection screen needs to render — nothing more.
@@ -129,7 +130,7 @@ typedef ServerConnector = Future<ServerConnection> Function({
   Map<String, ToolHandler> toolHandlers,
 });
 
-class ServerConnection implements ConversationBackend, AgentsBackend, MemberOrgBackend, DeviceInvitesBackend {
+class ServerConnection implements ConversationBackend, AgentsBackend, MemberOrgBackend, DeviceInvitesBackend, SkillDraftBackend {
   ServerConnection._(this._channel, this._subscription, this.serverName, this.issuedDeviceToken, this.user, this._toolHandlers) {
     _setStatus(Connected(serverName));
     _startHeartbeat();
@@ -349,6 +350,8 @@ class ServerConnection implements ConversationBackend, AgentsBackend, MemberOrgB
               SettingsMessage() ||
               SettingsSavedMessage() ||
               SettingsErrorMessage() ||
+              SkillDraftMessage() ||
+              SkillErrorMessage() ||
               AgentOrgListMessage() ||
               AgentTaskListMessage() ||
               UsageReportMessage() ||
@@ -413,6 +416,8 @@ class ServerConnection implements ConversationBackend, AgentsBackend, MemberOrgB
       case SettingsMessage(:final requestId) ||
             SettingsSavedMessage(:final requestId) ||
             SettingsErrorMessage(:final requestId) ||
+            SkillDraftMessage(:final requestId) ||
+            SkillErrorMessage(:final requestId) ||
             AgentOrgListMessage(:final requestId) ||
             AgentTaskListMessage(:final requestId) ||
             UsageReportMessage(:final requestId) ||
@@ -580,6 +585,21 @@ class ServerConnection implements ConversationBackend, AgentsBackend, MemberOrgB
         SettingsErrorMessage(:final message, :final authRejected) => throw HubRequestException(message, authRejected: authRejected),
         _ => throw ConversationException('Unexpected reply to the organization request: $reply'),
       };
+
+  /// P72 — a skill the hub's model writes from [description]; not saved. The model answers, so this waits as long as an
+  /// organization change does. The hub's refusal (spending limit, bad description) is a [ConversationException].
+  @override
+  Future<SkillDraft> draftSkill(String description) async {
+    final reply = await _conversationRequest(
+      (requestId) => DraftSkillMessage(requestId, description),
+      timeout: const Duration(seconds: 120),
+    );
+    return switch (reply) {
+      SkillDraftMessage(:final draft) => draft,
+      SkillErrorMessage(:final message) => throw ConversationException(message),
+      _ => throw ConversationException('Unexpected reply to the skill draft: $reply'),
+    };
+  }
 
   /// P123 — the work agents delegated to each other, newest first.
   @override

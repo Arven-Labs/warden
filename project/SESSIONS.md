@@ -2,7 +2,20 @@
 
 > **Nota**: Este log foi criado junto com o projeto. As sessões serão registradas aqui conforme o trabalho avança.
 >
-> Última atualização: 2026-10-30 (Sessão 332)
+> Última atualização: 2026-10-30 (Sessão 333)
+
+---
+
+### 2026-10-30 — Sessão 333 (rascunho de skill pelo hub, no celular — P72, fatia 2)
+
+- **Pedido**: seguir o P72; o dono escolheu a fatia "rascunho no celular" (anexos ficam para depois) e aprovou o plano em plan mode.
+- **Levantamento**: a premissa do P72 ("via ponte Rust e `frb_generated`") estava errada. A ponte do celular só faz I/O no cofre local (`bridge_*_skill`); o celular fala com o hub por WebSocket em Dart (`server_connection.dart` + `protocol/messages.dart`). O hub já tinha tudo desde o #19.
+- **Decisões**: chamar o hub direto do Dart (sem Rust); campo só na criação e só com hub conectado; timeout de 120 s; erro do hub mostrado sob o campo de rascunho (não no fim do formulário).
+- **Feito** (PR #20, só `mobile/`): `DraftSkillMessage`, `SkillDraftMessage`, `SkillErrorMessage` e `SkillDraft` em `messages.dart`; `ServerConnection.draftSkill` e a interface `SkillDraftBackend` (`skill_draft.dart`); campo, botão e dica na `SkillFormScreen`, com a conexão passada pela `ConnectionScreen`; 5 chaves l10n em en e pt; testes de protocolo, de conexão e de widget.
+- **Verificado**: localmente com Flutter 3.47.4 (o do CI), `flutter analyze --no-fatal-infos` sem problemas e `flutter test` com 351 testes verdes. CI do PR #20 no commit `cbf2c8e`: `Mobile (Flutter analyze and tests)`, `Android (arm64 APK)`, `guard` e `Changed areas` passaram; `Rust` e `Frontend` foram pulados (o PR só toca `mobile/`).
+- **Não verificado**: (1) o "falha antes" dos testes de widget e de conexão não foi rodado sem a implementação (escrevi os testes antes, mas só rodei com ela); (2) o timeout de 120 s não tem teste; (3) a tela num celular/emulador e o rascunho com modelo real (P73); (4) o `l10n` gerado: o `gen-l10n` do Flutter 3.47.4 reformatou uma linha antiga (`skillsUpdateAvailable`), que desfiz à mão para não poluir o diff.
+- **Atenção**: um hub anterior ao #19 derruba a conexão ao receber `draftSkill`; o celular não detecta a versão do hub.
+- **Fica**: os anexos de skill (protocolo, hub e UI na extensão e no celular) seguem em aberto no P72.
 
 ---
 

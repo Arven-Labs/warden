@@ -2354,6 +2354,36 @@ abstract class AppLocalizations {
   /// **'Saving…'**
   String get skillsSaving;
 
+  /// No description provided for @skillsDraftLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Describe the skill and the AI writes a draft'**
+  String get skillsDraftLabel;
+
+  /// No description provided for @skillsDraftButton.
+  ///
+  /// In en, this message translates to:
+  /// **'Write a draft'**
+  String get skillsDraftButton;
+
+  /// No description provided for @skillsDrafting.
+  ///
+  /// In en, this message translates to:
+  /// **'Writing…'**
+  String get skillsDrafting;
+
+  /// No description provided for @skillsDraftHint.
+  ///
+  /// In en, this message translates to:
+  /// **'A draft is not saved: review it below, then save. It spends tokens like a chat message.'**
+  String get skillsDraftHint;
+
+  /// No description provided for @skillsDraftFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Failed to write the draft: {error}'**
+  String skillsDraftFailed(String error);
+
   /// No description provided for @skillsGallery.
   ///
   /// In en, this message translates to:
