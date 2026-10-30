@@ -278,6 +278,7 @@ fn gate_with(message: &ClientMessage, text: &str) -> Option<ServerMessage> {
         ClientMessage::ListSkills { request_id }
         | ClientMessage::SaveSkill { request_id, .. }
         | ClientMessage::DeleteSkill { request_id, .. }
+        | ClientMessage::DraftSkill { request_id, .. }
         | ClientMessage::ListSkillCatalog { request_id }
         | ClientMessage::InstallCatalogSkill { request_id, .. }
         | ClientMessage::ExportSkill { request_id, .. }
@@ -597,6 +598,14 @@ mod tests {
         assert!(matches!(password_gate(&ClientMessage::ListConversations { request_id: 5 }), Some(ServerMessage::ConversationError { .. })));
         assert!(password_gate(&ClientMessage::ChangePassword { request_id: 6, old_password: "a".into(), new_password: "b".into(), recovery_code: None }).is_none());
         assert!(matches!(password_gate(&ClientMessage::ListDevices { request_id: 7 }), Some(ServerMessage::DeviceError { .. })));
+    }
+
+    #[test]
+    fn a_skill_draft_spends_tokens_so_it_waits_for_the_password_change_and_for_the_attempt_limit() {
+        let draft = ClientMessage::DraftSkill { request_id: 11, description: "review PRs".into() };
+        assert!(matches!(password_gate(&draft), Some(ServerMessage::SkillError { request_id: 11, .. })));
+        assert!(matches!(too_many_attempts_reply(&draft), Some(ServerMessage::SkillError { request_id: 11, .. })));
+        assert!(member_refusal(&draft).is_none(), "a member drafts skills for their own vault");
     }
 
     #[test]

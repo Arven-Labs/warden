@@ -27,15 +27,20 @@ pub async fn generate_skill_draft(model: &dyn ModelProvider, request: &str) -> a
     if request.trim().is_empty() {
         anyhow::bail!("describe the skill you want first");
     }
-    let response =
-        model.chat(vec![Message::system(SYSTEM_PROMPT), Message::user(request.trim().to_string())], Vec::new()).await?;
+    let response = model.chat(draft_messages(request), Vec::new()).await?;
     parse_draft(&response.content)
+}
+
+/// What the model is asked: the system prompt, then the person's description. Split out so the hub can send it through
+/// `Orchestrator::one_shot`, which books the spend, instead of calling the model directly like the desktop does.
+pub fn draft_messages(request: &str) -> Vec<Message> {
+    vec![Message::system(SYSTEM_PROMPT), Message::user(request.trim().to_string())]
 }
 
 /// Tolerant of what models actually do around a JSON answer: a ```json fence, or a sentence of
 /// preamble. Takes the outermost `{...}`, then slugifies the name (a model saying "Review PR"
 /// is fixed, not rejected) and runs the same validation a hand-written skill goes through.
-fn parse_draft(content: &str) -> anyhow::Result<Skill> {
+pub fn parse_draft(content: &str) -> anyhow::Result<Skill> {
     let (start, end) = match (content.find('{'), content.rfind('}')) {
         (Some(s), Some(e)) if s < e => (s, e),
         _ => anyhow::bail!("the model did not return a skill draft — try rephrasing"),
@@ -101,6 +106,16 @@ mod tests {
         assert!(parse_draft(r#"{"name":"!!!","description":"d","body":"b"}"#).is_err());
         assert!(parse_draft(r#"{"name":"x","description":"","body":"b"}"#).is_err());
         assert!(parse_draft(r#"{"name":"x","description":"d","body":"  "}"#).is_err());
+    }
+
+    #[test]
+    fn draft_messages_are_the_system_prompt_then_the_trimmed_request() {
+        let messages = draft_messages("  a skill for reviewing PRs \n");
+        assert_eq!(messages.len(), 2);
+        assert_eq!(messages[0].role, warden_core::model::Role::System);
+        assert_eq!(messages[0].content, SYSTEM_PROMPT);
+        assert_eq!(messages[1].role, warden_core::model::Role::User);
+        assert_eq!(messages[1].content, "a skill for reviewing PRs");
     }
 
     #[tokio::test]

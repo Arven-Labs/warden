@@ -1885,6 +1885,15 @@ async fn handle_connection<S: Transport>(ws: WebSocketStream<S>, peer: SocketAdd
                         let _ = reply_tx.send(crate::settings::handle_save_curators(&access, request_id, member_id.as_deref(), &pairing_key, &curators).await);
                     });
                 }
+                Ok(ClientMessage::DraftSkill { request_id, description }) => {
+                    // P72 — a model call (it can take a minute), so spawned like the folder reads; it spends per device, the
+                    // way a `Chat` turn does, so the person's and the device's limits cover it.
+                    let base = orchestrator.current().with_spend_context(SpendContext::new("server").with_user(device_id.clone()));
+                    let reply_tx = tx.clone();
+                    tokio::spawn(async move {
+                        let _ = reply_tx.send(crate::skills::draft_skill(&base, request_id, &description).await);
+                    });
+                }
                 Ok(
                     message @ (ClientMessage::ListSkills { .. }
                     | ClientMessage::SaveSkill { .. }

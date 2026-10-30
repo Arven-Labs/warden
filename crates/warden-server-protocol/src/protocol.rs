@@ -1921,6 +1921,12 @@ pub enum ClientMessage {
         request_id: u64,
         name: String,
     },
+    /// "Describe a skill and the AI writes it" (P72): one model call on the hub that turns `description` into a draft,
+    /// which is never saved. Spends like the person's turns do. Answered by `SkillDraft`, or `SkillError`.
+    DraftSkill {
+        request_id: u64,
+        description: String,
+    },
     /// The gallery of ready-made skills that ship with the hub (P140), each with its state in this vault. Answered by
     /// `SkillCatalog`.
     ListSkillCatalog {
@@ -2737,6 +2743,11 @@ pub enum ServerMessage {
     SkillOk {
         request_id: u64,
     },
+    /// Reply to `DraftSkill`: the skill the model wrote, not saved anywhere — the client loads it into its form for review.
+    SkillDraft {
+        request_id: u64,
+        skill: SkillDto,
+    },
     /// A `ListSkills`/`SaveSkill`/`DeleteSkill` failed (invalid skill, name taken, no such skill) —
     /// the raw error text, same posture as `ChatError`.
     SkillError {
@@ -3506,6 +3517,22 @@ mod tests {
         let json = serde_json::to_string(&err).unwrap();
         assert_eq!(json, r#"{"type":"skillError","requestId":3,"message":"no skill named 'x'"}"#);
         assert_eq!(serde_json::from_str::<ServerMessage>(&json).unwrap(), err);
+    }
+
+    #[test]
+    fn draft_skill_messages_round_trip_through_json() {
+        let ask = ClientMessage::DraftSkill { request_id: 4, description: "review PRs".into() };
+        let json = serde_json::to_string(&ask).unwrap();
+        assert_eq!(json, r#"{"type":"draftSkill","requestId":4,"description":"review PRs"}"#);
+        assert_eq!(serde_json::from_str::<ClientMessage>(&json).unwrap(), ask);
+
+        let draft = ServerMessage::SkillDraft {
+            request_id: 4,
+            skill: SkillDto { name: "review-pr".into(), description: "d".into(), body: "b".into(), agents: Vec::new(), proposed: false, source: None, proposed_at: None, revises: None },
+        };
+        let json = serde_json::to_string(&draft).unwrap();
+        assert_eq!(json, r#"{"type":"skillDraft","requestId":4,"skill":{"name":"review-pr","description":"d","body":"b","agents":[]}}"#);
+        assert_eq!(serde_json::from_str::<ServerMessage>(&json).unwrap(), draft);
     }
 
     #[test]

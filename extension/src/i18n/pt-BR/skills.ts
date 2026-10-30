@@ -3,6 +3,12 @@ import type { skills } from "../en/skills.ts";
 export const skillsPt: Record<keyof typeof skills, string> = {
   "skills.listFailed": "falha ao listar as skills",
   "skills.saveFailed": "falha ao salvar a skill",
+  "skills.draftLabel": "Descreva a skill e a IA escreve um rascunho",
+  "skills.draftPlaceholder": "ex.: revisar um pull request: conferir testes, nomes e riscos, e responder com uma lista curta",
+  "skills.draftButton": "Escrever um rascunho",
+  "skills.drafting": "Escrevendo…",
+  "skills.draftHint": "O rascunho não é salvo: revise abaixo e depois salve. Gasta tokens como uma mensagem de chat.",
+  "skills.draftFailed": "falha ao escrever o rascunho",
   "skills.acceptFailed": "falha ao aceitar a skill",
   "skills.deleteFailed": "falha ao apagar a skill",
   "skills.new": "Nova skill",

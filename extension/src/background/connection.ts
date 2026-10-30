@@ -96,6 +96,8 @@ export interface ConnectOptions {
 const DEFAULT_HANDSHAKE_TIMEOUT_MS = 10_000;
 const HEARTBEAT_INTERVAL_MS = 20_000;
 const REQUEST_TIMEOUT_MS = 15_000;
+/** A skill draft is a model call on the hub, which can take over a minute. */
+const DRAFT_SKILL_TIMEOUT_MS = 120_000;
 /** A change to the settings starts the hub's orchestrator again, which can take a while (MCP servers). */
 const SAVE_SETTINGS_TIMEOUT_MS = 120_000;
 
@@ -320,6 +322,7 @@ export class ServerConnection {
       case "skillList":
       case "skillCatalog":
       case "skillOk":
+      case "skillDraft":
       case "history":
       case "conversationList":
       case "conversationOk":
@@ -533,6 +536,14 @@ export class ServerConnection {
 
   async deleteSkill(name: string): Promise<void> {
     await this.request((requestId) => ({ type: "deleteSkill", requestId, name }));
+  }
+
+  /** P72 — asks the hub's model to write a skill from a description; the draft comes back unsaved. A model call takes far
+   * longer than the 15 s the other requests get (the chat's own replies are known to take up to a minute). */
+  async draftSkill(description: string): Promise<SkillDto> {
+    const reply = await this.request((requestId) => ({ type: "draftSkill", requestId, description }), DRAFT_SKILL_TIMEOUT_MS);
+    if (reply.type !== "skillDraft") throw new Error("unexpected reply to draftSkill");
+    return reply.skill;
   }
 
   /** P140 — the gallery of ready-made skills the hub ships with, each with its state in the person's vault. A hub from before

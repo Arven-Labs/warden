@@ -4,10 +4,36 @@
 //! without a socket; the same create/edit rules as the desktop's `save_skill` and the mobile
 //! bridge (create refuses a taken name, edit overwrites).
 
+use warden_bootstrap::skill_gen;
 use warden_bootstrap::skill_package::{self, TrustedPublisher};
+use warden_core::orchestrator::Orchestrator;
 use warden_core::skill::{catalog, Skill, SkillStore};
 use warden_server_protocol::protocol::{CatalogSkillDto, PackagePreviewDto, SkillDto};
 use warden_server_protocol::{ClientMessage, ServerMessage};
+
+/// The longest description a client may send to be turned into a draft: it goes to the model as the whole user turn.
+const MAX_DRAFT_DESCRIPTION_CHARS: usize = 2_000;
+
+/// Answers a `DraftSkill` (P72): one model call through `Orchestrator::one_shot`, so a spending limit with no room refuses
+/// it without calling the model and the tokens are booked to whoever `orchestrator` spends as. Never saves anything: the
+/// client loads the draft into its form and the person saves it with `SaveSkill`. Async and slow, so the caller spawns it.
+pub async fn draft_skill(orchestrator: &Orchestrator, request_id: u64, description: &str) -> ServerMessage {
+    let error = |message: String| ServerMessage::SkillError { request_id, message };
+    if description.trim().is_empty() {
+        return error("describe the skill you want first".to_string());
+    }
+    if description.chars().count() > MAX_DRAFT_DESCRIPTION_CHARS {
+        return error(format!("the description is too long (at most {MAX_DRAFT_DESCRIPTION_CHARS} characters)"));
+    }
+    match orchestrator.one_shot(skill_gen::draft_messages(description)).await {
+        Ok(Some(reply)) => match skill_gen::parse_draft(&reply) {
+            Ok(skill) => ServerMessage::SkillDraft { request_id, skill: SkillDto::from(skill) },
+            Err(err) => error(format!("{err:#}")),
+        },
+        Ok(None) => error("a spending limit has no room left, so the draft was not asked for".to_string()),
+        Err(err) => error(format!("{err:#}")),
+    }
+}
 
 /// Answers a skills request, or `None` for any other message. A package preview is measured against no trusted keys.
 pub fn handle_skill_request(store: &SkillStore, message: ClientMessage) -> Option<ServerMessage> {
@@ -292,5 +318,119 @@ mod tests {
 
         handle_skill_request(&store, save_req(SkillDto { agents: vec!["reviewer".into()], ..dto("x") }, true));
         assert_eq!(store.get("x").unwrap().agents, vec!["reviewer"]);
+    }
+
+    /// A model that answers `reply` (with 50 tokens of usage) and counts how many times it was asked.
+    struct Counting {
+        reply: &'static str,
+        calls: Arc<std::sync::atomic::AtomicUsize>,
+    }
+
+    #[async_trait::async_trait]
+    impl warden_core::model::ModelProvider for Counting {
+        fn model_id(&self) -> &str {
+            "counting"
+        }
+        async fn chat_stream(
+            &self,
+            _messages: Vec<warden_core::model::Message>,
+            _tools: Vec<warden_core::tool::ToolSpec>,
+        ) -> anyhow::Result<warden_core::model::ChatStream> {
+            self.calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            Ok(warden_core::model::response_stream(warden_core::model::Response {
+                content: self.reply.to_string(),
+                tool_calls: Vec::new(),
+                usage: Some(warden_core::model::Usage { prompt_tokens: 40, completion_tokens: 10, total_tokens: 50 }),
+            }))
+        }
+    }
+
+    const DRAFT: &str = r#"{"name":"review-pr","description":"Reviews a PR.","body":"Step 1."}"#;
+
+    /// An orchestrator for Ana whose day limit is `max_tokens`, over a model that answers `reply`.
+    fn orchestrator_for_ana(
+        reply: &'static str,
+        max_tokens: u64,
+    ) -> (warden_core::orchestrator::Orchestrator, Arc<warden_core::spend::SpendGuard>, Arc<std::sync::atomic::AtomicUsize>) {
+        use warden_core::spend::{Limit, MemoryStore, PriceTable, Scope, SpendContext, SpendGuard};
+        let calls = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let guard = Arc::new(SpendGuard::new(
+            Arc::new(MemoryStore::default()),
+            vec![Limit::new("ana-day", Scope::Person("ana".into()), 24).with_max_tokens(max_tokens)],
+            PriceTable::new(Vec::new()),
+        ));
+        let orchestrator = warden_core::orchestrator::Orchestrator::new(
+            Arc::new(Counting { reply, calls: calls.clone() }),
+            Arc::new(Vault::new(std::env::temp_dir())),
+        )
+        .with_spend_guard(guard.clone())
+        .with_spend_context(SpendContext::new("server").with_person("ana"));
+        (orchestrator, guard, calls)
+    }
+
+    #[tokio::test]
+    async fn a_draft_comes_back_unsaved_and_is_booked_to_the_person() {
+        let (orchestrator, guard, calls) = orchestrator_for_ana(DRAFT, 1_000);
+
+        let reply = draft_skill(&orchestrator, 7, "a skill for reviewing PRs").await;
+
+        match reply {
+            ServerMessage::SkillDraft { request_id: 7, skill } => {
+                assert_eq!(skill.name, "review-pr");
+                assert_eq!(skill.description, "Reviews a PR.");
+                assert!(skill.agents.is_empty());
+                assert!(!skill.proposed);
+            }
+            other => panic!("expected a draft, got {other:?}"),
+        }
+        assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), 1);
+        let status = guard.status(Some(&warden_core::spend::SpendContext::new("server").with_person("ana")));
+        assert_eq!(status[0].used_tokens, 50, "the call was booked to Ana");
+    }
+
+    #[tokio::test]
+    async fn an_empty_or_oversized_description_is_refused_without_calling_the_model() {
+        let (orchestrator, _guard, calls) = orchestrator_for_ana(DRAFT, 1_000);
+
+        for description in ["", "   \n ", &"x".repeat(2_001)] {
+            match draft_skill(&orchestrator, 8, description).await {
+                ServerMessage::SkillError { request_id: 8, .. } => {}
+                other => panic!("expected an error for {:?}, got {other:?}", description.len()),
+            }
+        }
+        assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), 0);
+    }
+
+    #[tokio::test]
+    async fn a_description_of_exactly_the_limit_is_accepted() {
+        let (orchestrator, _guard, calls) = orchestrator_for_ana(DRAFT, 1_000);
+
+        let reply = draft_skill(&orchestrator, 9, &"x".repeat(2_000)).await;
+
+        assert!(matches!(reply, ServerMessage::SkillDraft { request_id: 9, .. }), "{reply:?}");
+        assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn a_spending_limit_with_no_room_refuses_the_draft_without_calling_the_model() {
+        // A 40-token limit: the first draft fits (0 used) and books 50, so the second has no room.
+        let (orchestrator, _guard, calls) = orchestrator_for_ana(DRAFT, 40);
+
+        assert!(matches!(draft_skill(&orchestrator, 1, "one").await, ServerMessage::SkillDraft { .. }));
+        match draft_skill(&orchestrator, 2, "two").await {
+            ServerMessage::SkillError { request_id: 2, message } => assert!(message.to_lowercase().contains("limit"), "{message}"),
+            other => panic!("expected a limit error, got {other:?}"),
+        }
+        assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), 1, "the second request never reached the model");
+    }
+
+    #[tokio::test]
+    async fn a_reply_that_is_not_a_skill_becomes_an_error_not_a_draft() {
+        let (orchestrator, _guard, _calls) = orchestrator_for_ana("sorry, I cannot do that", 1_000);
+
+        match draft_skill(&orchestrator, 3, "a skill").await {
+            ServerMessage::SkillError { request_id: 3, .. } => {}
+            other => panic!("expected an error, got {other:?}"),
+        }
     }
 }

@@ -286,6 +286,8 @@ export type ClientMessage =
   | { type: "listSkills"; requestId: number }
   | { type: "saveSkill"; requestId: number; skill: SkillDto; overwrite: boolean }
   | { type: "deleteSkill"; requestId: number; name: string }
+  /** P72 — "describe a skill and the AI writes it": one model call on the hub, answered by `skillDraft`. Never saves. */
+  | { type: "draftSkill"; requestId: number; description: string }
   /** P140 — the gallery of ready-made skills; a skill that differs from the one in the vault is only replaced with `overwrite`. */
   | { type: "listSkillCatalog"; requestId: number }
   | { type: "installCatalogSkill"; requestId: number; name: string; overwrite: boolean }
@@ -357,6 +359,7 @@ export type ServerMessage =
   | { type: "skillList"; requestId: number; skills: SkillDto[] }
   | { type: "skillCatalog"; requestId: number; entries: CatalogSkillDto[] }
   | { type: "skillOk"; requestId: number }
+  | { type: "skillDraft"; requestId: number; skill: SkillDto }
   | { type: "skillError"; requestId: number; message: string }
   | { type: "history"; requestId: number; messages: HistoryMessage[] }
   | { type: "historyError"; requestId: number; message: string }
@@ -450,6 +453,10 @@ export function decode(text: string): ServerMessage {
     case "skillList": {
       const raw = json as { requestId: number; skills: Array<Omit<SkillDto, "agents"> & { agents?: string[] }> };
       return { type: "skillList", requestId: raw.requestId, skills: raw.skills.map((skill) => ({ ...skill, agents: skill.agents ?? [] })) };
+    }
+    case "skillDraft": {
+      const raw = json as { requestId: number; skill: Omit<SkillDto, "agents"> & { agents?: string[] } };
+      return { type: "skillDraft", requestId: raw.requestId, skill: { ...raw.skill, agents: raw.skill.agents ?? [] } };
     }
     case "settings": {
       const raw = json as { requestId: number; settings: RawSettings };
