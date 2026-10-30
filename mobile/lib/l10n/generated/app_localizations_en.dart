@@ -1452,6 +1452,24 @@ class AppLocalizationsEn extends AppLocalizations {
   String get skillsSaving => 'Saving…';
 
   @override
+  String get skillsDraftLabel => 'Describe the skill and the AI writes a draft';
+
+  @override
+  String get skillsDraftButton => 'Write a draft';
+
+  @override
+  String get skillsDrafting => 'Writing…';
+
+  @override
+  String get skillsDraftHint =>
+      'A draft is not saved: review it below, then save. It spends tokens like a chat message.';
+
+  @override
+  String skillsDraftFailed(String error) {
+    return 'Failed to write the draft: $error';
+  }
+
+  @override
   String get skillsGallery => 'Gallery';
 
   @override

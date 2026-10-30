@@ -400,6 +400,18 @@ final class ListAgentOrgMessage extends ClientMessage {
   Map<String, dynamic> toJson() => {'type': 'listAgentOrg', 'requestId': requestId};
 }
 
+/// P72 — asks the hub's model to write a draft of a skill from [description]. Nothing is saved; it spends like a chat
+/// turn. Answered by [SkillDraftMessage], or by [SkillErrorMessage].
+final class DraftSkillMessage extends ClientMessage {
+  const DraftSkillMessage(this.requestId, this.description);
+
+  final int requestId;
+  final String description;
+
+  @override
+  Map<String, dynamic> toJson() => {'type': 'draftSkill', 'requestId': requestId, 'description': description};
+}
+
 /// One change made from the organization tree (P120), as the hub receives it (`AgentOrgEdit`). A blank [role] or
 /// [reportsTo] means none and is left out.
 sealed class OrgEdit {
@@ -1121,6 +1133,8 @@ sealed class ServerMessage {
           json['access'] as String? ?? '',
         ),
       'settingsError' => SettingsErrorMessage(json['requestId'] as int, json['message'] as String, authRejected: json['authRejected'] as bool? ?? false),
+      'skillDraft' => SkillDraftMessage(json['requestId'] as int, SkillDraft.fromJson(json['skill'] as Map<String, dynamic>)),
+      'skillError' => SkillErrorMessage(json['requestId'] as int, json['message'] as String),
       'agentTaskList' => AgentTaskListMessage(
           json['requestId'] as int,
           (json['tasks'] as List<dynamic>).map(AgentTask.fromJson).toList(),
@@ -1551,6 +1565,36 @@ final class SettingsErrorMessage extends ServerMessage {
   final int requestId;
   final String message;
   final bool authRejected;
+}
+
+/// The skill the hub's model wrote (P72), not saved anywhere: the screen loads it into its form for review. The agents
+/// the hub may send with it are left out — a skill made from a draft starts global.
+class SkillDraft {
+  const SkillDraft({required this.name, required this.description, required this.body});
+
+  factory SkillDraft.fromJson(Map<String, dynamic> json) =>
+      SkillDraft(name: json['name'] as String, description: json['description'] as String, body: json['body'] as String);
+
+  final String name;
+  final String description;
+  final String body;
+}
+
+/// Reply to [DraftSkillMessage] (P72).
+final class SkillDraftMessage extends ServerMessage {
+  const SkillDraftMessage(this.requestId, this.draft);
+
+  final int requestId;
+  final SkillDraft draft;
+}
+
+/// A skill request failed (P72): an empty or too long description, the spending limit, a model that wrote nothing usable.
+/// The raw text of the hub.
+final class SkillErrorMessage extends ServerMessage {
+  const SkillErrorMessage(this.requestId, this.message);
+
+  final int requestId;
+  final String message;
 }
 
 /// Reply to [ListAgentTasksMessage] and to a successful [ControlAgentTaskMessage] (P123): the delegated tasks, newest first.

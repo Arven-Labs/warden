@@ -504,6 +504,16 @@
   "skillsAcceptThis": "Accept this skill",
   "skillsAcceptThisHint": "Off: it stays a suggestion and the AI still ignores it.",
   "skillsSaving": "Saving…",
+  "skillsDraftLabel": "Describe the skill and the AI writes a draft",
+  "skillsDraftButton": "Write a draft",
+  "skillsDrafting": "Writing…",
+  "skillsDraftHint": "A draft is not saved: review it below, then save. It spends tokens like a chat message.",
+  "skillsDraftFailed": "Failed to write the draft: {error}",
+  "@skillsDraftFailed": {
+    "placeholders": {
+      "error": {"type": "String"}
+    }
+  },
   "skillsGallery": "Gallery",
   "skillsGalleryIntro": "Ready-made skills that come with Warden. Installing copies the skill into your vault, where you can edit it like any other. Nothing is downloaded.",
   "skillsGalleryInstalled": "Installed",

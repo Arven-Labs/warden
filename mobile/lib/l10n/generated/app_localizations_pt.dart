@@ -1454,6 +1454,24 @@ class AppLocalizationsPt extends AppLocalizations {
   String get skillsSaving => 'Salvando…';
 
   @override
+  String get skillsDraftLabel => 'Descreva a skill e a IA escreve um rascunho';
+
+  @override
+  String get skillsDraftButton => 'Escrever um rascunho';
+
+  @override
+  String get skillsDrafting => 'Escrevendo…';
+
+  @override
+  String get skillsDraftHint =>
+      'O rascunho não é salvo: revise abaixo e depois salve. Gasta tokens como uma mensagem de chat.';
+
+  @override
+  String skillsDraftFailed(String error) {
+    return 'Falha ao escrever o rascunho: $error';
+  }
+
+  @override
   String get skillsGallery => 'Galeria';
 
   @override

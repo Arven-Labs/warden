@@ -512,6 +512,32 @@ void main() {
     await expectLater(refused, throwsA(isA<HubRequestException>().having((e) => e.message, 'message', 'no access')));
   });
 
+  test('a skill draft is asked by description and comes back unsaved; the hub refusing it is an exception (P72)', () async {
+    final controller = StreamChannelController<dynamic>();
+    final fromClient = StreamQueue<dynamic>(controller.local.stream);
+
+    final future = ServerConnection.connectOverChannel(
+      channel: controller.foreign,
+      deviceId: 'dev-1',
+      deviceName: 'Test',
+      authKey: 'test-key',
+    );
+    await fromClient.next; // Hello
+    controller.local.sink.add('{"type":"helloAck","serverName":"warden-server"}');
+    final conn = await future;
+
+    final draft = conn.draftSkill('summarise my PRs');
+    expect(await fromClient.next as String, '{"type":"draftSkill","requestId":1,"description":"summarise my PRs"}');
+    controller.local.sink.add('{"type":"skillDraft","requestId":1,"skill":{"name":"pr-summary","description":"Summarise PRs","body":"1. List"}}');
+    final skill = await draft;
+    expect((skill.name, skill.description, skill.body), ('pr-summary', 'Summarise PRs', '1. List'));
+
+    final refused = conn.draftSkill('x');
+    expect(await fromClient.next as String, '{"type":"draftSkill","requestId":2,"description":"x"}');
+    controller.local.sink.add('{"type":"skillError","requestId":2,"message":"spending limit reached"}');
+    await expectLater(refused, throwsA(isA<ConversationException>().having((e) => e.message, 'message', 'spending limit reached')));
+  });
+
   test('an invite and a key rotation are asked with the pairing key, and a wrong key is an authRejected error (P36)', () async {
     final controller = StreamChannelController<dynamic>();
     final fromClient = StreamQueue<dynamic>(controller.local.stream);

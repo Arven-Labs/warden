@@ -347,4 +347,34 @@ void main() {
       expect((old.encrypted, old.locked, old.recoveries.isEmpty, old.truthid), (false, false, true, ''));
     });
   });
+
+  group('P72 skill draft messages', () {
+    test('DraftSkill encodes the description under the request id', () {
+      const msg = DraftSkillMessage(4, 'summarise my PRs');
+      expect(msg.encode(), '{"type":"draftSkill","requestId":4,"description":"summarise my PRs"}');
+    });
+
+    test('SkillDraft decodes the draft; the agents the hub may send are ignored', () {
+      final msg = ServerMessage.decode(
+        '{"type":"skillDraft","requestId":4,"skill":{"name":"pr-summary","description":"Summarise PRs","body":"1. List the PRs"}}',
+      );
+      expect(msg, isA<SkillDraftMessage>().having((m) => m.requestId, 'requestId', 4));
+      final draft = (msg as SkillDraftMessage).draft;
+      expect((draft.name, draft.description, draft.body), ('pr-summary', 'Summarise PRs', '1. List the PRs'));
+
+      final withAgents = ServerMessage.decode(
+        '{"type":"skillDraft","requestId":5,"skill":{"name":"a","description":"b","body":"c","agents":["chief"]}}',
+      );
+      expect(withAgents, isA<SkillDraftMessage>());
+    });
+
+    test('SkillError decodes the raw message', () {
+      expect(
+        ServerMessage.decode('{"type":"skillError","requestId":4,"message":"describe the skill you want first"}'),
+        isA<SkillErrorMessage>()
+            .having((m) => m.requestId, 'requestId', 4)
+            .having((m) => m.message, 'message', 'describe the skill you want first'),
+      );
+    });
+  });
 }

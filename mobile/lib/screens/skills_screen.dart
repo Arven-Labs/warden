@@ -1,19 +1,23 @@
 import 'package:flutter/material.dart';
 
 import '../l10n/generated/app_localizations.dart';
+import '../services/skill_draft.dart';
 import '../services/skills_repository.dart';
 import 'catalog_descriptions.dart';
 import 'skill_diff.dart';
 
 /// P72 (b) — lists, creates, edits and deletes the skills stored in this device's local vault
-/// (`skills/<name>.md`, see `SkillsRepository`). Mirrors the desktop `SkillsView.tsx` minus the
-/// "describe it and the AI drafts it" box: the phone is a pure `warden-server` client with no model
-/// of its own to ask. Skills written here reach the desktop/server through the normal vault sync
+/// (`skills/<name>.md`, see `SkillsRepository`). Mirrors the desktop `SkillsView.tsx`. The phone has no model of its
+/// own, so the "describe it and the AI drafts it" box asks the hub, and only shows while connected to one
+/// ([draftBackend]). Skills written here reach the desktop/server through the normal vault sync
 /// (`SyncScreen`), and the model only sees the ones in the vault it runs against.
 class SkillsScreen extends StatefulWidget {
-  const SkillsScreen({super.key, this.repository = const BridgeSkillsRepository()});
+  const SkillsScreen({super.key, this.repository = const BridgeSkillsRepository(), this.draftBackend});
 
   final SkillsRepository repository;
+
+  /// The hub connection that writes drafts; null when there is none, and the draft box is left out.
+  final SkillDraftBackend? draftBackend;
 
   @override
   State<SkillsScreen> createState() => _SkillsScreenState();
@@ -148,7 +152,7 @@ class _SkillsScreenState extends State<SkillsScreen> {
 
   Future<void> _openForm({SkillDto? existing}) async {
     final saved = await Navigator.of(context).push<bool>(
-      MaterialPageRoute(builder: (_) => SkillFormScreen(repository: widget.repository, existing: existing)),
+      MaterialPageRoute(builder: (_) => SkillFormScreen(repository: widget.repository, existing: existing, draftBackend: widget.draftBackend)),
     );
     if (saved == true) await _load();
   }
@@ -328,10 +332,13 @@ class _SkillsScreenState extends State<SkillsScreen> {
 /// New/edit form. `existing == null` is "create" (name editable, refuses a taken name); otherwise
 /// the name — which is the filename — is locked and saving overwrites. Pops `true` once saved.
 class SkillFormScreen extends StatefulWidget {
-  const SkillFormScreen({super.key, required this.repository, this.existing});
+  const SkillFormScreen({super.key, required this.repository, this.existing, this.draftBackend});
 
   final SkillsRepository repository;
   final SkillDto? existing;
+
+  /// Writes a draft into the form; only offered when creating, and only with a hub connection.
+  final SkillDraftBackend? draftBackend;
 
   @override
   State<SkillFormScreen> createState() => _SkillFormScreenState();
@@ -341,8 +348,12 @@ class _SkillFormScreenState extends State<SkillFormScreen> {
   late final _name = TextEditingController(text: widget.existing?.name ?? '');
   late final _description = TextEditingController(text: widget.existing?.description ?? '');
   late final _body = TextEditingController(text: widget.existing?.body ?? '');
+  final _draftRequest = TextEditingController();
   bool _saving = false;
+  bool _drafting = false;
   String? _error;
+  // Shown under the draft box, not at the bottom of the form, where the person is not looking.
+  String? _draftError;
   // Editing a suggestion keeps it pending unless this is switched on.
   bool _accept = false;
 
@@ -354,7 +365,31 @@ class _SkillFormScreenState extends State<SkillFormScreen> {
     _name.dispose();
     _description.dispose();
     _body.dispose();
+    _draftRequest.dispose();
     super.dispose();
+  }
+
+  // The hub's model writes the three fields; nothing is saved until the person reviews them and taps Save.
+  Future<void> _draft() async {
+    final l10n = AppLocalizations.of(context);
+    setState(() {
+      _drafting = true;
+      _draftError = null;
+    });
+    try {
+      final draft = await widget.draftBackend!.draftSkill(_draftRequest.text.trim());
+      if (!mounted) return;
+      setState(() {
+        _name.text = draft.name;
+        _description.text = draft.description;
+        _body.text = draft.body;
+        _draftRequest.clear();
+      });
+    } catch (e) {
+      if (mounted) setState(() => _draftError = l10n.skillsDraftFailed(e.toString()));
+    } finally {
+      if (mounted) setState(() => _drafting = false);
+    }
   }
 
   Future<void> _save() async {
@@ -390,6 +425,35 @@ class _SkillFormScreenState extends State<SkillFormScreen> {
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
+          if (!_isEdit && widget.draftBackend != null) ...[
+            TextField(
+              controller: _draftRequest,
+              maxLength: 2000,
+              minLines: 2,
+              maxLines: 4,
+              onChanged: (_) => setState(() {}),
+              decoration: InputDecoration(
+                labelText: l10n.skillsDraftLabel,
+                helperText: l10n.skillsDraftHint,
+                helperMaxLines: 3,
+                border: const OutlineInputBorder(),
+              ),
+            ),
+            const SizedBox(height: 8),
+            Align(
+              alignment: Alignment.centerRight,
+              child: OutlinedButton(
+                onPressed: _drafting || _saving || _draftRequest.text.trim().isEmpty ? null : _draft,
+                child: Text(_drafting ? l10n.skillsDrafting : l10n.skillsDraftButton),
+              ),
+            ),
+            if (_draftError != null)
+              Padding(
+                padding: const EdgeInsets.only(top: 8),
+                child: Text(_draftError!, style: TextStyle(color: Theme.of(context).colorScheme.error)),
+              ),
+            const SizedBox(height: 16),
+          ],
           TextField(
             controller: _name,
             enabled: !_isEdit,

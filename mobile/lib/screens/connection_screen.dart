@@ -361,11 +361,12 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
             tooltip: l10n.connSyncTooltip,
             onPressed: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const SyncScreen())),
           ),
-          // P72 (b) — skills live in this device's local vault, independent of the server connection.
+          // P72 (b) — skills live in this device's local vault, independent of the server connection; the connected hub
+          // (if any) only writes drafts.
           IconButton(
             icon: const Icon(Icons.auto_awesome),
             tooltip: l10n.connSkillsTooltip,
-            onPressed: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const SkillsScreen())),
+            onPressed: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => SkillsScreen(draftBackend: _connection))),
           ),
         ],
       ),
