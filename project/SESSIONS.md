@@ -2,7 +2,17 @@
 
 > **Nota**: Este log foi criado junto com o projeto. As sessões serão registradas aqui conforme o trabalho avança.
 >
-> Última atualização: 2026-10-31 (Sessão 347)
+> Última atualização: 2026-10-31 (Sessão 348)
+
+---
+
+### 2026-10-31 — Sessão 348 (`cargo audit` e as atualizações de lockfile — P173)
+
+- **Pedido**: depois da Sessão 347, instalar o `cargo-audit` (aprovado pelo dono) e corrigir o que ele achasse.
+- **Feito**: `cargo install cargo-audit --locked`; `cargo audit` listou 8 vulnerabilidades que o Dependabot não tinha. Em plan mode, medi `cargo audit --json`, `cargo tree --locked --target all -i` e `cargo update --dry-run`; o plano foi aprovado. `cargo update -p quinn-proto -p rustls-webpki -p webpki-roots@1.0.9 -p webpki-root-certs -p pulldown-cmark` trocou exatamente 5 pacotes em `Cargo.lock` (16 linhas), `Cargo.toml` intacto. `crypto-bigint` ficou aberto (major via `k256`).
+- **Verificado**: `cargo audit` foi de 8 para 1 vulnerabilidade; `cargo build --workspace --locked` passa. `cargo test --workspace --locked`: exit 0, 100 suítes, 2446 passaram, 0 falharam, 21 ignorados (a primeira execução teve a saída cortada por um `head`, então rodei de novo com o log inteiro).
+- **Não verificado**: a explorabilidade de `quinn-proto` e dos pacotes de TLS; o CI deste PR; `crypto-bigint`.
+- **Fica**: `crypto-bigint`/`k256` (P173), os 33 alertas que o GitHub não reavalia (P172) e a checagem do segredo no `warden-gateway` (Sessão 346).
 
 ---
 
