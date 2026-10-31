@@ -7,6 +7,8 @@
 //!   warden-orchestrator backup acme            # or --all [--every 86400]; encrypted, in <state-dir>/backups/acme/
 //!   warden-orchestrator upgrade --image ghcr.io/arven-labs/warden-server:0.2.0   # canary, then waves; rolls back what fails
 //!   warden-orchestrator verify acme            # restores the newest backup into a scratch volume and starts a hub on it
+//!   warden-orchestrator serve                  # the signed HTTP API of the site mãe; needs WARDEN_ORCHESTRATOR_ADMIN_SECRET
+//!   warden-orchestrator purge-expired [--yes]  # lists, or with --yes erases, the instances whose delete deadline has passed
 //!   warden-orchestrator delete acme --purge-data
 //!   warden-orchestrator restore acme latest    # into a volume that is not there; then `provision` again
 //!
@@ -20,6 +22,7 @@ use std::time::Duration;
 use anyhow::Context;
 use clap::{Parser, Subcommand};
 use tracing_subscriber::EnvFilter;
+use warden_orchestrator::api::{non_loopback_warning, router, validate_secrets, ApiConfig};
 use warden_orchestrator::{
     recycle_pass, BackupKey, CommandSink, DockerCli, HttpStatus, InstanceManager, InstanceSpec, InstanceStore, Outcome, RecyclePolicy, UpgradeOptions,
 };
@@ -174,6 +177,37 @@ enum Command {
         #[arg(long)]
         min_uptime_secs: Option<u64>,
     },
+    /// Serves the signed HTTP API of the site mãe (provision, suspend, resume, export, delete). Plain HTTP: keep it on
+    /// loopback and put a reverse proxy with TLS in front.
+    Serve {
+        #[arg(long, env = "WARDEN_ORCHESTRATOR_LISTEN", default_value = "127.0.0.1:7440")]
+        listen: std::net::SocketAddr,
+        /// The secret the calls are signed with (32 characters at least). Required.
+        #[arg(long, env = "WARDEN_ORCHESTRATOR_ADMIN_SECRET", hide_env_values = true)]
+        admin_secret: Option<String>,
+        /// The secret being replaced, accepted too while the site rotates to the new one. Leave it out otherwise.
+        #[arg(long, env = "WARDEN_ORCHESTRATOR_ADMIN_SECRET_PREVIOUS", hide_env_values = true)]
+        admin_secret_previous: Option<String>,
+        /// Days the data of a deleted instance is kept before `purge-expired` may erase it.
+        #[arg(long, env = "WARDEN_ORCHESTRATOR_RETENTION_DAYS", default_value_t = 30)]
+        retention_days: u64,
+        /// How many backups of a customer stay after an export.
+        #[arg(long, env = "WARDEN_ORCHESTRATOR_KEEP_BACKUPS", default_value_t = DEFAULT_KEEP)]
+        keep_backups: usize,
+    },
+    /// Erases the instances whose delete deadline has passed, data included. Without --yes it only lists them.
+    PurgeExpired {
+        /// Really erase. Irreversible: the volume with the customer's data is removed.
+        #[arg(long)]
+        yes: bool,
+        /// Keep going, one pass every this many seconds (needs --yes). Without it, one pass and done.
+        #[arg(long)]
+        every: Option<u64>,
+    },
+}
+
+fn now_ms() -> u64 {
+    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis() as u64).unwrap_or(0)
 }
 
 #[tokio::main]
@@ -299,6 +333,50 @@ async fn main() -> anyhow::Result<()> {
                     _ = tokio::signal::ctrl_c() => break,
                 }
             }
+        }
+        Command::Serve { listen, admin_secret, admin_secret_previous, retention_days, keep_backups } => {
+            let secrets = validate_secrets(admin_secret.as_deref().unwrap_or(""), admin_secret_previous.as_deref())?;
+            anyhow::ensure!(retention_days >= 1, "--retention-days is at least 1: 0 would let the data be erased the moment a delete is asked for");
+            anyhow::ensure!(keep_backups >= 1, "--keep-backups is at least 1: keeping none would delete the backup just taken");
+            if let Some(warning) = non_loopback_warning(listen) {
+                tracing::warn!("{warning}");
+            }
+            let config = ApiConfig { secrets, retention: Duration::from_secs(retention_days * 24 * 60 * 60), keep_backups };
+            let app = router(Arc::new(manager), Arc::new(HttpStatus::new()), config);
+            let listener = tokio::net::TcpListener::bind(listen).await.with_context(|| format!("could not listen on {listen}"))?;
+            tracing::info!(%listen, "serving the orchestrator API");
+            axum::serve(listener, app).with_graceful_shutdown(async { let _ = tokio::signal::ctrl_c().await; }).await?;
+        }
+        Command::PurgeExpired { yes, every } => {
+            anyhow::ensure!(yes || every.is_none(), "--every needs --yes: repeating a list that erases nothing is no use");
+            let mut failed = false;
+            loop {
+                if yes {
+                    for (customer, result) in manager.purge_expired(now_ms()).await? {
+                        match result {
+                            Ok(()) => println!("{customer} purged"),
+                            Err(err) => {
+                                failed = true;
+                                tracing::warn!(%customer, "could not purge: {err:#}");
+                            }
+                        }
+                    }
+                } else {
+                    let due = manager.expired(now_ms())?;
+                    for instance in &due {
+                        println!("{} would be erased (deadline {} ms); run with --yes to erase it", instance.spec.customer_id, instance.delete_after_ms.unwrap_or_default());
+                    }
+                    if due.is_empty() {
+                        println!("nothing is past its deadline");
+                    }
+                }
+                let Some(secs) = every else { break };
+                tokio::select! {
+                    _ = tokio::time::sleep(Duration::from_secs(secs)) => {}
+                    _ = tokio::signal::ctrl_c() => break,
+                }
+            }
+            anyhow::ensure!(!failed, "some instances could not be purged; they stay recorded, so the next pass tries them again");
         }
     }
     Ok(())

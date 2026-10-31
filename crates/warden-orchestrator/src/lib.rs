@@ -11,9 +11,10 @@
 //! Everything that touches the world sits behind a trait (`ContainerRuntime`, `StatusSource`), so the rest is tested with
 //! `fake::FakeRuntime` and a canned status. `backup` takes the encrypted copies of a volume and restores and checks them;
 //! `upgrade` moves instances to a new image in waves, putting the old one back where the new one does not come up.
-//! A delete can be scheduled (`schedule_delete`): the container stops and the data stays until the deadline, when
-//! `purge_expired` erases it. Not here yet: the site mother's HTTP contract (B1), the CLI for the delete schedule, the
-//! reverse proxy with TLS and a domain per customer.
+//! A delete is scheduled (`schedule_delete`): the container stops and the data stays until the deadline, when
+//! `purge_expired` erases it (`purge-expired --yes`; without `--yes` it only lists). `api` is the site mother's HTTP
+//! contract (B1), signed, served by `serve`. Not here yet: the reverse proxy with TLS and a domain per customer, and the
+//! loop (`serve` and `purge-expired --every`) as a service.
 
 pub mod api;
 pub mod backup;

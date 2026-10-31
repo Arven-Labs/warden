@@ -56,6 +56,30 @@ where
     Router::new().fallback(handle::<R, S>).with_state(Arc::new(Api { manager, status, config }))
 }
 
+/// The shortest secret `serve` takes: long enough that a guess is not a way in.
+pub const MIN_SECRET_LEN: usize = 32;
+
+/// The secrets a call may be signed with, current first, after checking them. A missing, blank or short secret is refused
+/// (`serve` would otherwise run with next to no authentication), and so is a previous one equal to the current. The
+/// error never repeats a secret.
+pub fn validate_secrets(current: &str, previous: Option<&str>) -> anyhow::Result<Vec<String>> {
+    let long_enough = |secret: &str| secret.trim().len() >= MIN_SECRET_LEN;
+    anyhow::ensure!(long_enough(current), "the admin secret is missing or shorter than {MIN_SECRET_LEN} characters");
+    let mut secrets = vec![current.to_string()];
+    if let Some(previous) = previous {
+        anyhow::ensure!(long_enough(previous), "the previous admin secret is empty or shorter than {MIN_SECRET_LEN} characters; leave it out when no rotation is going on");
+        anyhow::ensure!(previous != current, "the previous admin secret is the same as the current one");
+        secrets.push(previous.to_string());
+    }
+    Ok(secrets)
+}
+
+/// A warning for an address the API would be reachable from outside the machine on: it speaks plain HTTP, so the TLS is a
+/// reverse proxy's job. `None` for loopback.
+pub fn non_loopback_warning(addr: std::net::SocketAddr) -> Option<String> {
+    (!addr.ip().is_loopback()).then(|| format!("{addr} is not a loopback address and the orchestrator API has no TLS of its own: put a reverse proxy with TLS in front, or listen on 127.0.0.1"))
+}
+
 /// The body of `PUT`. The fields of the contract that nothing implements yet (`plan_ref`, `region`, `domain`, `limits`,
 /// `owner_identity`) are refused rather than dropped: a caller that sends them would believe they were applied.
 #[derive(Deserialize)]
@@ -234,4 +258,40 @@ fn not_found(customer_id: &str) -> Response {
 fn internal(err: &anyhow::Error) -> Response {
     tracing::error!("orchestrator API call failed: {err:#}");
     error(StatusCode::INTERNAL_SERVER_ERROR, "internal_error", "the orchestrator could not do that; see its log")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const GOOD: &str = "0123456789abcdef0123456789abcdef";
+
+    #[test]
+    fn a_secret_must_be_given_and_long_enough_and_the_previous_one_too() {
+        assert_eq!(validate_secrets(GOOD, None).unwrap(), [GOOD]);
+        let previous = "fedcba9876543210fedcba9876543210";
+        assert_eq!(validate_secrets(GOOD, Some(previous)).unwrap(), [GOOD, previous], "the current one first");
+
+        for bad in ["", "   ", "hunter2", &GOOD[..31]] {
+            let err = validate_secrets(bad, None).unwrap_err().to_string();
+            assert!(err.contains("32"), "says how long: {err}");
+            if !bad.trim().is_empty() {
+                assert!(!err.contains(bad), "never echoes the secret: {err}");
+            }
+        }
+        assert!(validate_secrets(GOOD, Some("")).is_err(), "a previous secret that is set but empty is a mistake, not 'none'");
+        assert!(validate_secrets(GOOD, Some("short")).is_err());
+        assert!(validate_secrets(GOOD, Some(GOOD)).is_err(), "rotating to the same secret rotates nothing");
+    }
+
+    #[test]
+    fn only_an_address_off_loopback_gets_a_warning_and_it_says_why() {
+        for local in ["127.0.0.1:7440", "[::1]:7440", "127.0.0.2:1"] {
+            assert_eq!(non_loopback_warning(local.parse().unwrap()), None, "{local}");
+        }
+        for open in ["0.0.0.0:7440", "10.0.0.5:7440", "[::]:7440"] {
+            let warning = non_loopback_warning(open.parse().unwrap()).unwrap_or_else(|| panic!("{open}"));
+            assert!(warning.contains("TLS") && warning.contains(open), "{warning}");
+        }
+    }
 }

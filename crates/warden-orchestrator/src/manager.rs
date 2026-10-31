@@ -126,13 +126,17 @@ impl<R: ContainerRuntime> InstanceManager<R> {
         })
     }
 
+    /// The instances whose deadline is `now_ms` or earlier: what `purge_expired` would erase, without erasing anything.
+    pub fn expired(&self, now_ms: u64) -> anyhow::Result<Vec<Instance>> {
+        Ok(self.store.list()?.into_iter().filter(|i| i.delete_after_ms.is_some_and(|at| at <= now_ms)).collect())
+    }
+
     /// Erases, data included, every instance whose deadline is `now_ms` or earlier. One that fails is reported and stays
     /// recorded, so the next pass tries it again; it doesn't stop the others. `now_ms` is a parameter so the deadline is
     /// testable to the millisecond.
     pub async fn purge_expired(&self, now_ms: u64) -> anyhow::Result<Vec<(String, anyhow::Result<()>)>> {
-        let due: Vec<String> = self.store.list()?.into_iter().filter(|i| i.delete_after_ms.is_some_and(|at| at <= now_ms)).map(|i| i.spec.customer_id).collect();
         let mut out = Vec::new();
-        for customer_id in due {
+        for customer_id in self.expired(now_ms)?.into_iter().map(|i| i.spec.customer_id) {
             let result = self.delete(&customer_id, true).await.map(|_| ());
             out.push((customer_id, result));
         }
@@ -710,6 +714,26 @@ mod tests {
         assert!(m.runtime().has_volume("warden-data-plain"));
         assert_eq!(m.get("plain").unwrap().unwrap().state, State::Suspended);
         assert!(m.runtime().container("warden-live").unwrap().running);
+    }
+
+    #[tokio::test]
+    async fn listing_what_is_expired_erases_nothing_and_matches_what_a_purge_would_take() {
+        let m = manager("expired");
+        for id in ["old", "young", "plain"] {
+            m.provision(spec(id)).await.unwrap();
+        }
+        m.schedule_delete("old", 10 * DAY).await.unwrap();
+        m.schedule_delete("young", 40 * DAY).await.unwrap();
+        m.suspend("plain").await.unwrap();
+        let old_due = m.get("old").unwrap().unwrap().delete_after_ms.unwrap();
+
+        assert!(m.expired(old_due - 1).unwrap().is_empty());
+        let listed: Vec<String> = m.expired(old_due).unwrap().into_iter().map(|i| i.spec.customer_id).collect();
+        assert_eq!(listed, ["old"]);
+        assert!(m.get("old").unwrap().is_some() && m.runtime().has_volume("warden-data-old"), "listing erases nothing");
+
+        let purged: Vec<String> = m.purge_expired(old_due).await.unwrap().into_iter().map(|(id, _)| id).collect();
+        assert_eq!(purged, listed, "the same ones");
     }
 
     #[tokio::test]
