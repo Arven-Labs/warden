@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../l10n/generated/app_localizations.dart';
 import '../services/skill_draft.dart';
+import '../services/skill_files.dart';
 import '../services/skills_repository.dart';
 import 'catalog_descriptions.dart';
 import 'skill_diff.dart';
@@ -356,9 +357,112 @@ class _SkillFormScreenState extends State<SkillFormScreen> {
   String? _draftError;
   // Editing a suggestion keeps it pending unless this is switched on.
   bool _accept = false;
+  // P72 d — the attached files of the skill being edited, the one shown (read on demand) and the last error of the section.
+  List<SkillFileInfo> _files = const [];
+  String? _viewingFile;
+  String? _viewingText;
+  String? _filesError;
 
   bool get _isEdit => widget.existing != null;
   bool get _isSuggestion => widget.existing?.proposed ?? false;
+
+  @override
+  void initState() {
+    super.initState();
+    if (_isEdit) _loadFiles();
+  }
+
+  /// Reloads only the attachments, never the form: what the person typed and has not saved stays where it is.
+  Future<void> _loadFiles() async {
+    try {
+      final files = await widget.repository.listFiles(widget.existing!.name);
+      if (mounted) setState(() => _files = files);
+    } catch (e) {
+      // Not read before the `await`: this also runs from `initState`, where the context can't be asked for the language yet.
+      if (mounted) setState(() => _filesError = AppLocalizations.of(context).skillsFileFailed(e.toString()));
+    }
+  }
+
+  Future<void> _toggleView(String file) async {
+    if (_viewingFile == file) {
+      setState(() => _viewingFile = null);
+      return;
+    }
+    final l10n = AppLocalizations.of(context);
+    setState(() => _filesError = null);
+    try {
+      final text = await widget.repository.readFile(widget.existing!.name, file);
+      if (mounted) {
+        setState(() {
+          _viewingFile = file;
+          _viewingText = text;
+        });
+      }
+    } catch (e) {
+      if (mounted) setState(() => _filesError = l10n.skillsFileFailed(e.toString()));
+    }
+  }
+
+  Future<void> _removeFile(String file) async {
+    final l10n = AppLocalizations.of(context);
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(l10n.skillsFileRemoveTitle(file)),
+        actions: [
+          TextButton(onPressed: () => Navigator.of(context).pop(false), child: Text(l10n.commonCancel)),
+          TextButton(onPressed: () => Navigator.of(context).pop(true), child: Text(l10n.commonRemove)),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    setState(() => _filesError = null);
+    try {
+      await widget.repository.deleteFile(widget.existing!.name, file);
+      if (_viewingFile == file) _viewingFile = null;
+      await _loadFiles();
+    } catch (e) {
+      if (mounted) setState(() => _filesError = l10n.skillsFileFailed(e.toString()));
+    }
+  }
+
+  /// Checks what was pasted the way the vault will (name, 64 KB in bytes, 20 per skill) and saves it; the vault still decides.
+  /// Returns the message to show in the dialog, or null when the file was saved.
+  Future<String?> _attach(String file, String content) async {
+    final l10n = AppLocalizations.of(context);
+    final nameProblem = validateFileName(file);
+    if (nameProblem != null) {
+      return switch (nameProblem) {
+        FileNameProblem.length => l10n.skillsFileNameLength,
+        FileNameProblem.chars => l10n.skillsFileNameChars,
+        FileNameProblem.dot => l10n.skillsFileNameDot,
+      };
+    }
+    if (!canAttach(_files, file)) return l10n.skillsFileLimit(maxFilesPerSkill);
+    final contentProblem = checkContent(content);
+    if (contentProblem != null) {
+      return switch (contentProblem) {
+        ContentProblem.tooBig => l10n.skillsFileTooBig,
+        ContentProblem.notText => l10n.skillsFileNotText,
+      };
+    }
+    try {
+      await widget.repository.saveFile(widget.existing!.name, file, content);
+    } catch (e) {
+      return l10n.skillsFileFailed(e.toString());
+    }
+    if (mounted) {
+      // A file that was on screen is out of date now.
+      if (_viewingFile == file) setState(() => _viewingFile = null);
+      await _loadFiles();
+    }
+    return null;
+  }
+
+  Future<void> _openAttachDialog() async {
+    setState(() => _filesError = null);
+    await showDialog<void>(context: context, builder: (context) => _AttachFileDialog(onAttach: _attach));
+  }
 
   @override
   void dispose() {
@@ -415,6 +519,55 @@ class _SkillFormScreenState extends State<SkillFormScreen> {
     } finally {
       if (mounted) setState(() => _saving = false);
     }
+  }
+
+  List<Widget> _filesSection(AppLocalizations l10n) {
+    final theme = Theme.of(context);
+    return [
+      const SizedBox(height: 24),
+      Text(l10n.skillsFilesTitle, style: theme.textTheme.titleMedium),
+      const SizedBox(height: 4),
+      Text(l10n.skillsFilesHint(maxFilesPerSkill), style: theme.textTheme.bodySmall),
+      if (_files.isEmpty)
+        Padding(padding: const EdgeInsets.symmetric(vertical: 8), child: Text(l10n.skillsFilesNone, style: theme.textTheme.bodySmall)),
+      for (final f in _files) ...[
+        ListTile(
+          contentPadding: EdgeInsets.zero,
+          dense: true,
+          title: Text(f.name),
+          subtitle: Text(l10n.skillsFileSize(f.size)),
+          trailing: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              IconButton(
+                tooltip: _viewingFile == f.name ? l10n.skillsFileHide(f.name) : l10n.skillsFileView(f.name),
+                icon: Icon(_viewingFile == f.name ? Icons.visibility_off_outlined : Icons.visibility_outlined),
+                onPressed: () => _toggleView(f.name),
+              ),
+              IconButton(
+                tooltip: l10n.skillsFileRemove(f.name),
+                icon: const Icon(Icons.delete_outline),
+                onPressed: () => _removeFile(f.name),
+              ),
+            ],
+          ),
+        ),
+        if (_viewingFile == f.name)
+          Container(
+            width: double.infinity,
+            constraints: const BoxConstraints(maxHeight: 240),
+            padding: const EdgeInsets.all(8),
+            decoration: BoxDecoration(border: Border.all(color: theme.dividerColor), borderRadius: BorderRadius.circular(4)),
+            child: SingleChildScrollView(child: Text(_viewingText ?? '', style: theme.textTheme.bodySmall)),
+          ),
+      ],
+      if (_filesError != null)
+        Padding(padding: const EdgeInsets.only(top: 8), child: Text(_filesError!, style: TextStyle(color: theme.colorScheme.error))),
+      Align(
+        alignment: Alignment.centerLeft,
+        child: OutlinedButton.icon(onPressed: _openAttachDialog, icon: const Icon(Icons.attach_file), label: Text(l10n.skillsFileAttach)),
+      ),
+    ];
   }
 
   @override
@@ -486,6 +639,7 @@ class _SkillFormScreenState extends State<SkillFormScreen> {
               border: const OutlineInputBorder(),
             ),
           ),
+          if (_isEdit) ..._filesSection(l10n),
           if (_isSuggestion)
             SwitchListTile(
               contentPadding: EdgeInsets.zero,
@@ -503,6 +657,86 @@ class _SkillFormScreenState extends State<SkillFormScreen> {
           FilledButton(onPressed: _saving ? null : _save, child: Text(_saving ? l10n.skillsSaving : l10n.commonSave)),
         ],
       ),
+    );
+  }
+}
+
+/// The name and the pasted text of a file to attach. [onAttach] returns why it was refused, which is shown here with the dialog
+/// still open (what was pasted is not lost), or null when it was saved and the dialog can close.
+class _AttachFileDialog extends StatefulWidget {
+  const _AttachFileDialog({required this.onAttach});
+
+  final Future<String?> Function(String file, String content) onAttach;
+
+  @override
+  State<_AttachFileDialog> createState() => _AttachFileDialogState();
+}
+
+class _AttachFileDialogState extends State<_AttachFileDialog> {
+  final _file = TextEditingController();
+  final _content = TextEditingController();
+  bool _busy = false;
+  String? _error;
+
+  @override
+  void dispose() {
+    _file.dispose();
+    _content.dispose();
+    super.dispose();
+  }
+
+  Future<void> _submit() async {
+    setState(() {
+      _busy = true;
+      _error = null;
+    });
+    final error = await widget.onAttach(_file.text.trim(), _content.text);
+    if (!mounted) return;
+    if (error == null) {
+      Navigator.of(context).pop();
+    } else {
+      setState(() {
+        _error = error;
+        _busy = false;
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
+    return AlertDialog(
+      title: Text(l10n.skillsFileAttach),
+      content: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            TextField(
+              controller: _file,
+              autocorrect: false,
+              decoration: InputDecoration(labelText: l10n.skillsFileNameLabel, border: const OutlineInputBorder()),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: _content,
+              minLines: 4,
+              maxLines: 10,
+              keyboardType: TextInputType.multiline,
+              decoration: InputDecoration(labelText: l10n.skillsFileTextLabel, alignLabelWithHint: true, border: const OutlineInputBorder()),
+            ),
+            if (_error != null)
+              Padding(
+                padding: const EdgeInsets.only(top: 12),
+                child: Text(_error!, style: TextStyle(color: Theme.of(context).colorScheme.error)),
+              ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(onPressed: _busy ? null : () => Navigator.of(context).pop(), child: Text(l10n.commonCancel)),
+        FilledButton(onPressed: _busy ? null : _submit, child: Text(l10n.skillsFileAttachConfirm)),
+      ],
     );
   }
 }

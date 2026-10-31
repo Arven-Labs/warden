@@ -71,6 +71,35 @@ class _FakeRepository implements SkillsRepository {
 
   @override
   Future<void> delete(String name) async => skills.removeWhere((s) => s.name == name);
+
+  /// The attachments by skill, then by file name: what `skills/<name>.files/` holds.
+  final files = <String, Map<String, String>>{};
+
+  /// When set, every attachment call fails with it (the bridge's error text comes back as an exception).
+  String? filesFailWith;
+
+  @override
+  Future<List<SkillFileInfo>> listFiles(String name) async => [
+        for (final e in (files[name] ?? {}).entries.toList()..sort((a, b) => a.key.compareTo(b.key))) SkillFileInfo(name: e.key, size: e.value.length),
+      ];
+
+  @override
+  Future<String> readFile(String name, String file) async {
+    if (filesFailWith != null) throw filesFailWith!;
+    return files[name]?[file] ?? (throw "skill '$name' has no attachment '$file'");
+  }
+
+  @override
+  Future<void> saveFile(String name, String file, String content) async {
+    if (filesFailWith != null) throw filesFailWith!;
+    (files[name] ??= {})[file] = content;
+  }
+
+  @override
+  Future<void> deleteFile(String name, String file) async {
+    if (filesFailWith != null) throw filesFailWith!;
+    files[name]?.remove(file);
+  }
 }
 
 /// The hub's model, as `SkillFormScreen` sees it: answers with [draft], or refuses with [error]. Records what it was asked.
@@ -150,6 +179,9 @@ void main() {
     expect(tester.widget<TextField>(find.widgetWithText(TextField, 'Name')).enabled, isFalse);
 
     await tester.enterText(find.widgetWithText(TextField, 'Description'), 'Reviews a pull request');
+    await tester.scrollUntilVisible(find.text('Save'), 300, scrollable: find.byType(Scrollable).first); // below the attached files now
+    await tester.ensureVisible(find.text('Save')); // the scroll above stops at the edge, where the tap would miss
+    await tester.pumpAndSettle();
     await tester.tap(find.text('Save'));
     await tester.pumpAndSettle();
 
@@ -182,6 +214,7 @@ void main() {
 
     await tester.tap(find.text('Edit'));
     await tester.pumpAndSettle();
+    await tester.scrollUntilVisible(find.text('Save'), 300, scrollable: find.byType(Scrollable).first); // below the attached files now
     await tester.tap(find.text('Save'));
     await tester.pumpAndSettle();
 
@@ -370,6 +403,136 @@ void main() {
       await tester.pumpWidget(testApp(home: SkillFormScreen(repository: _FakeRepository([_review]), existing: _review, draftBackend: hub)));
       await tester.pumpAndSettle();
       expect(find.text(draftLabel), findsNothing);
+    });
+  });
+
+  // P72 d — the files attached to a skill, in its edit form. They live next to the skill in the local vault (`skills/<name>.files/`).
+  group('attached files', () {
+    Future<_FakeRepository> openEdit(WidgetTester tester, {Map<String, String> attached = const {}}) async {
+      // A tall screen, so the whole form is built: a ListView only builds what is near the viewport.
+      tester.view.physicalSize = const Size(800, 3000);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.reset);
+      final repo = _FakeRepository([_review]);
+      if (attached.isNotEmpty) repo.files['review-pr'] = Map.of(attached);
+      await tester.pumpWidget(testApp(home: SkillFormScreen(repository: repo, existing: _review)));
+      await tester.pumpAndSettle();
+      return repo;
+    }
+
+    Future<void> tapVisible(WidgetTester tester, Finder finder) async {
+      await tester.ensureVisible(finder);
+      await tester.pumpAndSettle();
+      await tester.tap(finder);
+      await tester.pumpAndSettle();
+    }
+
+    Future<void> attach(WidgetTester tester, String name, String text) async {
+      await tapVisible(tester, find.text('Attach a file'));
+      await tester.enterText(find.widgetWithText(TextField, 'File name'), name);
+      await tester.enterText(find.widgetWithText(TextField, 'Text'), text);
+      await tester.tap(find.widgetWithText(FilledButton, 'Attach'));
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets('are only offered when editing: a new skill has nowhere to put them yet', (tester) async {
+      await tester.pumpWidget(testApp(home: SkillFormScreen(repository: _FakeRepository([]))));
+      await tester.pumpAndSettle();
+      expect(find.text('Attached files'), findsNothing);
+    });
+
+    testWidgets('say there are none when there are none', (tester) async {
+      await openEdit(tester);
+      await tester.ensureVisible(find.text('No attached files.'));
+      expect(find.text('No attached files.'), findsOneWidget);
+    });
+
+    testWidgets('list the name and the size', (tester) async {
+      await openEdit(tester, attached: {'b.md': 'hello', 'a.md': 'hi'});
+      await tester.ensureVisible(find.text('a.md'));
+      expect(find.text('a.md'), findsOneWidget);
+      expect(find.text('2 bytes'), findsOneWidget);
+      expect(find.text('5 bytes'), findsOneWidget);
+    });
+
+    testWidgets('viewing reads the text on demand and hiding puts it away', (tester) async {
+      await openEdit(tester, attached: {'a.md': 'the checklist'});
+      expect(find.text('the checklist'), findsNothing);
+
+      await tapVisible(tester, find.byTooltip('View a.md'));
+      expect(find.text('the checklist'), findsOneWidget);
+
+      await tapVisible(tester, find.byTooltip('Hide a.md'));
+      expect(find.text('the checklist'), findsNothing);
+    });
+
+    testWidgets('attaching saves the file and lists it, without losing what was typed in the form', (tester) async {
+      final repo = await openEdit(tester);
+      await tester.enterText(find.widgetWithText(TextField, 'Description'), 'half written');
+
+      await attach(tester, 'notes.md', 'some notes');
+
+      expect(repo.files['review-pr'], {'notes.md': 'some notes'});
+      await tester.ensureVisible(find.text('notes.md'));
+      expect(find.text('notes.md'), findsOneWidget);
+      expect(tester.widget<TextField>(find.widgetWithText(TextField, 'Description')).controller!.text, 'half written');
+    });
+
+    testWidgets('attaching a name that is already there replaces the text', (tester) async {
+      final repo = await openEdit(tester, attached: {'a.md': 'old'});
+      await attach(tester, 'a.md', 'new');
+      expect(repo.files['review-pr'], {'a.md': 'new'});
+    });
+
+    testWidgets('a bad name and a text over 64 KB are refused before anything is saved, and the dialog stays open with what was pasted', (tester) async {
+      final repo = await openEdit(tester);
+
+      await attach(tester, '../x.md', 'text');
+      expect(find.textContaining('may only use letters'), findsOneWidget);
+      expect(find.widgetWithText(TextField, 'File name'), findsOneWidget, reason: 'the dialog is still open');
+
+      await tester.enterText(find.widgetWithText(TextField, 'File name'), 'big.md');
+      await tester.enterText(find.widgetWithText(TextField, 'Text'), 'a' * (64 * 1024 + 1));
+      await tester.tap(find.widgetWithText(FilledButton, 'Attach'));
+      await tester.pumpAndSettle();
+      expect(find.textContaining('bigger than 64 KB'), findsOneWidget);
+      expect(repo.files, isEmpty);
+    });
+
+    testWidgets('a 21st file is refused, but replacing one of the twenty is fine', (tester) async {
+      final repo = await openEdit(tester, attached: {for (var i = 0; i < 20; i++) 'f$i.md': 'x'});
+
+      await attach(tester, 'one-too-many.md', 'x');
+      expect(find.textContaining('at most 20'), findsOneWidget);
+      expect(repo.files['review-pr']!.containsKey('one-too-many.md'), isFalse);
+
+      await tester.enterText(find.widgetWithText(TextField, 'File name'), 'f3.md');
+      await tester.enterText(find.widgetWithText(TextField, 'Text'), 'replaced');
+      await tester.tap(find.widgetWithText(FilledButton, 'Attach'));
+      await tester.pumpAndSettle();
+      expect(repo.files['review-pr']!['f3.md'], 'replaced');
+    });
+
+    testWidgets('an error from the vault is shown and nothing changes', (tester) async {
+      final repo = await openEdit(tester);
+      repo.filesFailWith = 'disk full';
+      await attach(tester, 'a.md', 'x');
+      expect(find.textContaining('disk full'), findsOneWidget);
+      expect(repo.files, isEmpty);
+    });
+
+    testWidgets('removing asks first and only removes on confirm', (tester) async {
+      final repo = await openEdit(tester, attached: {'a.md': 'x'});
+
+      await tapVisible(tester, find.byTooltip('Remove a.md'));
+      await tester.tap(find.text('Cancel'));
+      await tester.pumpAndSettle();
+      expect(repo.files['review-pr'], {'a.md': 'x'});
+
+      await tapVisible(tester, find.byTooltip('Remove a.md'));
+      await tester.tap(find.widgetWithText(TextButton, 'Remove'));
+      await tester.pumpAndSettle();
+      expect(repo.files['review-pr'], isEmpty);
     });
   });
 }

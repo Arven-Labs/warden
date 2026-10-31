@@ -8,7 +8,7 @@ import '../frb_generated.dart';
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
 // These functions are ignored because they are not marked as `pub`: `store`
-// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `clone`, `fmt`, `from`
+// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `clone`, `clone`, `clone`, `fmt`, `fmt`, `fmt`, `from`
 
 Future<List<SkillDto>> bridgeListSkills({required String vaultRoot}) =>
     RustLib.instance.api.crateApiSkillsBridgeListSkills(vaultRoot: vaultRoot);
@@ -50,6 +50,50 @@ Future<void> bridgeInstallCatalogSkill({
   vaultRoot: vaultRoot,
   name: name,
   overwrite: overwrite,
+);
+
+/// The attachments of `name`, sorted, with their sizes; empty when there are none or the skill is unknown. The text is
+/// asked for with `bridge_read_skill_file`.
+Future<List<SkillFileInfo>> bridgeListSkillFiles({
+  required String vaultRoot,
+  required String name,
+}) => RustLib.instance.api.crateApiSkillsBridgeListSkillFiles(
+  vaultRoot: vaultRoot,
+  name: name,
+);
+
+Future<String> bridgeReadSkillFile({
+  required String vaultRoot,
+  required String name,
+  required String file,
+}) => RustLib.instance.api.crateApiSkillsBridgeReadSkillFile(
+  vaultRoot: vaultRoot,
+  name: name,
+  file: file,
+);
+
+/// Creates or replaces an attachment; the skill must already exist. The name, the 64 KB and the 20 per skill are the
+/// `SkillStore`'s rules, the same the CLI, the desktop and the hub apply.
+Future<void> bridgeSaveSkillFile({
+  required String vaultRoot,
+  required String name,
+  required String file,
+  required String content,
+}) => RustLib.instance.api.crateApiSkillsBridgeSaveSkillFile(
+  vaultRoot: vaultRoot,
+  name: name,
+  file: file,
+  content: content,
+);
+
+Future<void> bridgeDeleteSkillFile({
+  required String vaultRoot,
+  required String name,
+  required String file,
+}) => RustLib.instance.api.crateApiSkillsBridgeDeleteSkillFile(
+  vaultRoot: vaultRoot,
+  name: name,
+  file: file,
 );
 
 /// One entry of the gallery of ready-made skills (P140), with where it stands in this vault. `status` is the
@@ -128,4 +172,24 @@ class SkillDto {
           source == other.source &&
           proposedAt == other.proposedAt &&
           revises == other.revises;
+}
+
+/// One attachment of a skill (P72 d): its name and its size in bytes. `u32` because the limit is 64 KB, and it keeps the
+/// generated Dart a plain `int`.
+class SkillFileInfo {
+  final String name;
+  final int size;
+
+  const SkillFileInfo({required this.name, required this.size});
+
+  @override
+  int get hashCode => name.hashCode ^ size.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is SkillFileInfo &&
+          runtimeType == other.runtimeType &&
+          name == other.name &&
+          size == other.size;
 }

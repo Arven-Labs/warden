@@ -40,6 +40,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   SkillDto dco_decode_box_autoadd_skill_dto(dynamic raw);
 
   @protected
+  CatalogSkillDto dco_decode_catalog_skill_dto(dynamic raw);
+
+  @protected
   DiscoveredHubDto dco_decode_discovered_hub_dto(dynamic raw);
 
   @protected
@@ -49,6 +52,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   List<String> dco_decode_list_String(dynamic raw);
 
   @protected
+  List<CatalogSkillDto> dco_decode_list_catalog_skill_dto(dynamic raw);
+
+  @protected
   List<DiscoveredHubDto> dco_decode_list_discovered_hub_dto(dynamic raw);
 
   @protected
@@ -56,6 +62,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   List<SkillDto> dco_decode_list_skill_dto(dynamic raw);
+
+  @protected
+  List<SkillFileInfo> dco_decode_list_skill_file_info(dynamic raw);
 
   @protected
   String? dco_decode_opt_String(dynamic raw);
@@ -77,6 +86,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   SkillDto dco_decode_skill_dto(dynamic raw);
+
+  @protected
+  SkillFileInfo dco_decode_skill_file_info(dynamic raw);
 
   @protected
   SyncStatusDto dco_decode_sync_status_dto(dynamic raw);
@@ -111,6 +123,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   SkillDto sse_decode_box_autoadd_skill_dto(SseDeserializer deserializer);
 
   @protected
+  CatalogSkillDto sse_decode_catalog_skill_dto(SseDeserializer deserializer);
+
+  @protected
   DiscoveredHubDto sse_decode_discovered_hub_dto(SseDeserializer deserializer);
 
   @protected
@@ -118,6 +133,11 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   List<String> sse_decode_list_String(SseDeserializer deserializer);
+
+  @protected
+  List<CatalogSkillDto> sse_decode_list_catalog_skill_dto(
+    SseDeserializer deserializer,
+  );
 
   @protected
   List<DiscoveredHubDto> sse_decode_list_discovered_hub_dto(
@@ -129,6 +149,11 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   List<SkillDto> sse_decode_list_skill_dto(SseDeserializer deserializer);
+
+  @protected
+  List<SkillFileInfo> sse_decode_list_skill_file_info(
+    SseDeserializer deserializer,
+  );
 
   @protected
   String? sse_decode_opt_String(SseDeserializer deserializer);
@@ -152,6 +177,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   SkillDto sse_decode_skill_dto(SseDeserializer deserializer);
+
+  @protected
+  SkillFileInfo sse_decode_skill_file_info(SseDeserializer deserializer);
 
   @protected
   SyncStatusDto sse_decode_sync_status_dto(SseDeserializer deserializer);
@@ -196,6 +224,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  void sse_encode_catalog_skill_dto(
+    CatalogSkillDto self,
+    SseSerializer serializer,
+  );
+
+  @protected
   void sse_encode_discovered_hub_dto(
     DiscoveredHubDto self,
     SseSerializer serializer,
@@ -206,6 +240,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   void sse_encode_list_String(List<String> self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_list_catalog_skill_dto(
+    List<CatalogSkillDto> self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_list_discovered_hub_dto(
@@ -221,6 +261,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   void sse_encode_list_skill_dto(List<SkillDto> self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_list_skill_file_info(
+    List<SkillFileInfo> self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_opt_String(String? self, SseSerializer serializer);
@@ -248,6 +294,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   void sse_encode_skill_dto(SkillDto self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_skill_file_info(SkillFileInfo self, SseSerializer serializer);
 
   @protected
   void sse_encode_sync_status_dto(SyncStatusDto self, SseSerializer serializer);

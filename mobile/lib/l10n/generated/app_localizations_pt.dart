@@ -1454,6 +1454,82 @@ class AppLocalizationsPt extends AppLocalizations {
   String get skillsSaving => 'Salvando…';
 
   @override
+  String get skillsFilesTitle => 'Arquivos anexados';
+
+  @override
+  String skillsFilesHint(int max) {
+    return 'Arquivos de texto (até 64 KB, $max por skill) que a IA pode ler quando usa esta skill. Anexar um com o mesmo nome substitui o anterior.';
+  }
+
+  @override
+  String get skillsFilesNone => 'Nenhum arquivo anexado.';
+
+  @override
+  String skillsFileSize(int size) {
+    return '$size bytes';
+  }
+
+  @override
+  String get skillsFileAttach => 'Anexar um arquivo';
+
+  @override
+  String get skillsFileNameLabel => 'Nome do arquivo';
+
+  @override
+  String get skillsFileTextLabel => 'Texto';
+
+  @override
+  String get skillsFileAttachConfirm => 'Anexar';
+
+  @override
+  String skillsFileView(String name) {
+    return 'Ver $name';
+  }
+
+  @override
+  String skillsFileHide(String name) {
+    return 'Ocultar $name';
+  }
+
+  @override
+  String skillsFileRemove(String name) {
+    return 'Remover $name';
+  }
+
+  @override
+  String skillsFileRemoveTitle(String name) {
+    return 'Remover \'$name\'?';
+  }
+
+  @override
+  String get skillsFileNameLength =>
+      'O nome do arquivo deve ter de 1 a 64 caracteres.';
+
+  @override
+  String get skillsFileNameChars =>
+      'O nome do arquivo só pode ter letras, dígitos, ponto, hífen e sublinhado.';
+
+  @override
+  String get skillsFileNameDot =>
+      'O nome do arquivo não pode começar com ponto.';
+
+  @override
+  String get skillsFileTooBig => 'O texto tem mais de 64 KB.';
+
+  @override
+  String get skillsFileNotText => 'O texto não pode ter o caractere NUL.';
+
+  @override
+  String skillsFileLimit(int max) {
+    return 'Uma skill aceita no máximo $max arquivos; remova um antes.';
+  }
+
+  @override
+  String skillsFileFailed(String error) {
+    return 'Falha no arquivo anexado: $error';
+  }
+
+  @override
   String get skillsDraftLabel => 'Descreva a skill e a IA escreve um rascunho';
 
   @override

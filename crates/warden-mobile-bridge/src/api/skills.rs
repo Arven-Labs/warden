@@ -91,6 +91,42 @@ pub fn bridge_install_catalog_skill(vault_root: String, name: String, overwrite:
     catalog::install(&store(&vault_root), &name, overwrite).map_err(|e| format!("{e:#}"))
 }
 
+/// One attachment of a skill (P72 d): its name and its size in bytes. `u32` because the limit is 64 KB, and it keeps the
+/// generated Dart a plain `int`.
+#[derive(Debug, Clone)]
+pub struct SkillFileInfo {
+    pub name: String,
+    pub size: u32,
+}
+
+/// The attachments of `name`, sorted, with their sizes; empty when there are none or the skill is unknown. The text is
+/// asked for with `bridge_read_skill_file`.
+pub fn bridge_list_skill_files(vault_root: String, name: String) -> Result<Vec<SkillFileInfo>, String> {
+    let store = store(&vault_root);
+    let names = store.list_files(&name).map_err(|e| format!("{e:#}"))?;
+    names
+        .into_iter()
+        .map(|file| {
+            let text = store.read_file(&name, &file).map_err(|e| format!("{e:#}"))?;
+            Ok(SkillFileInfo { name: file, size: u32::try_from(text.len()).unwrap_or(u32::MAX) })
+        })
+        .collect()
+}
+
+pub fn bridge_read_skill_file(vault_root: String, name: String, file: String) -> Result<String, String> {
+    store(&vault_root).read_file(&name, &file).map_err(|e| format!("{e:#}"))
+}
+
+/// Creates or replaces an attachment; the skill must already exist. The name, the 64 KB and the 20 per skill are the
+/// `SkillStore`'s rules, the same the CLI, the desktop and the hub apply.
+pub fn bridge_save_skill_file(vault_root: String, name: String, file: String, content: String) -> Result<(), String> {
+    store(&vault_root).save_file(&name, &file, &content).map_err(|e| format!("{e:#}"))
+}
+
+pub fn bridge_delete_skill_file(vault_root: String, name: String, file: String) -> Result<(), String> {
+    store(&vault_root).delete_file(&name, &file).map_err(|e| format!("{e:#}"))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -192,6 +228,94 @@ mod tests {
 
         bridge_install_catalog_skill(vault.clone(), name, true).unwrap();
         assert_eq!(bridge_list_skill_catalog(vault)[0].status, "installed");
+    }
+
+    fn saved(vault: &str, name: &str) {
+        bridge_save_skill(vault.to_string(), dto(name), false).unwrap();
+    }
+
+    #[test]
+    fn an_attachment_round_trips_and_the_list_has_name_and_size_in_bytes() {
+        let vault = temp_vault();
+        saved(&vault, "x");
+        bridge_save_skill_file(vault.clone(), "x".into(), "b.md".into(), "héllo".into()).unwrap();
+        bridge_save_skill_file(vault.clone(), "x".into(), "a.md".into(), "hi".into()).unwrap();
+
+        let files = bridge_list_skill_files(vault.clone(), "x".into()).unwrap();
+        let listed: Vec<(&str, u32)> = files.iter().map(|f| (f.name.as_str(), f.size)).collect();
+        assert_eq!(listed, vec![("a.md", 2), ("b.md", "héllo".len() as u32)], "sorted, sized in bytes");
+
+        assert_eq!(bridge_read_skill_file(vault.clone(), "x".into(), "b.md".into()).unwrap(), "héllo");
+        bridge_delete_skill_file(vault.clone(), "x".into(), "b.md".into()).unwrap();
+        assert_eq!(bridge_list_skill_files(vault, "x".into()).unwrap().len(), 1);
+    }
+
+    #[test]
+    fn editing_the_skill_keeps_its_attachments_and_deleting_it_takes_them() {
+        let vault = temp_vault();
+        saved(&vault, "x");
+        bridge_save_skill_file(vault.clone(), "x".into(), "a.md".into(), "keep me".into()).unwrap();
+
+        bridge_save_skill(vault.clone(), SkillDto { body: "new".into(), ..dto("x") }, true).unwrap();
+        assert_eq!(bridge_read_skill_file(vault.clone(), "x".into(), "a.md".into()).unwrap(), "keep me");
+
+        bridge_delete_skill(vault.clone(), "x".into()).unwrap();
+        assert!(bridge_list_skill_files(vault, "x".into()).unwrap().is_empty());
+    }
+
+    #[test]
+    fn hostile_names_are_refused_and_nothing_is_written() {
+        let vault = temp_vault();
+        saved(&vault, "x");
+        let too_long = "a".repeat(warden_core::skill::MAX_FILE_NAME_LEN + 1);
+        for bad in ["../x.md", "a/b.md", "a\\b.md", ".hidden", "..", "", "nul\0.md", "sp ace.md", "é.md", too_long.as_str()] {
+            assert!(bridge_save_skill_file(vault.clone(), "x".into(), bad.into(), "c".into()).is_err(), "save {bad:?}");
+            assert!(bridge_read_skill_file(vault.clone(), "x".into(), bad.into()).is_err(), "read {bad:?}");
+            assert!(bridge_delete_skill_file(vault.clone(), "x".into(), bad.into()).is_err(), "delete {bad:?}");
+        }
+        assert!(bridge_list_skill_files(vault.clone(), "x".into()).unwrap().is_empty());
+        for bad in ["../escape", "a/b", ".."] {
+            assert!(bridge_save_skill_file(vault.clone(), bad.into(), "a.md".into(), "c".into()).is_err(), "skill {bad}");
+            assert!(bridge_list_skill_files(vault.clone(), bad.into()).is_err(), "list skill {bad}");
+        }
+    }
+
+    #[test]
+    fn an_attachment_needs_an_existing_skill_and_an_existing_file() {
+        let vault = temp_vault();
+        assert!(bridge_save_skill_file(vault.clone(), "ghost".into(), "a.md".into(), "c".into()).is_err());
+        assert!(bridge_list_skill_files(vault.clone(), "ghost".into()).unwrap().is_empty());
+        saved(&vault, "x");
+        assert!(bridge_read_skill_file(vault.clone(), "x".into(), "nope.md".into()).is_err());
+        assert!(bridge_delete_skill_file(vault, "x".into(), "nope.md".into()).is_err());
+    }
+
+    #[test]
+    fn the_size_and_count_limits_hold() {
+        let vault = temp_vault();
+        saved(&vault, "x");
+        let at_limit = "a".repeat(warden_core::skill::MAX_FILE_BYTES);
+        bridge_save_skill_file(vault.clone(), "x".into(), "big.md".into(), at_limit.clone()).unwrap();
+        assert!(bridge_save_skill_file(vault.clone(), "x".into(), "bigger.md".into(), format!("{at_limit}a")).is_err());
+        // Growing an existing one past the limit is refused and keeps the old text.
+        assert!(bridge_save_skill_file(vault.clone(), "x".into(), "big.md".into(), format!("{at_limit}a")).is_err());
+        assert_eq!(bridge_read_skill_file(vault.clone(), "x".into(), "big.md".into()).unwrap().len(), warden_core::skill::MAX_FILE_BYTES);
+
+        for i in 1..warden_core::skill::MAX_FILES_PER_SKILL {
+            bridge_save_skill_file(vault.clone(), "x".into(), format!("f{i}.md"), "c".into()).unwrap();
+        }
+        assert!(bridge_save_skill_file(vault.clone(), "x".into(), "one-too-many.md".into(), "c".into()).is_err());
+        bridge_save_skill_file(vault, "x".into(), "f1.md".into(), "new".into()).unwrap();
+    }
+
+    #[test]
+    fn the_sync_walk_carries_the_attachments_with_the_skill() {
+        let vault = temp_vault();
+        saved(&vault, "x");
+        bridge_save_skill_file(vault.clone(), "x".into(), "a.md".into(), "c".into()).unwrap();
+        let mut files: Vec<String> = Vault::new(&vault).list_all_files().unwrap().into_iter().map(|p| p.to_string_lossy().replace('\\', "/")).collect();
+        files.sort();
+        assert_eq!(files, vec!["skills/x.files/a.md".to_string(), "skills/x.md".to_string()]);
     }
 
     #[test]
