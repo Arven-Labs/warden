@@ -66,6 +66,10 @@ pub struct Instance {
     /// The hub's pairing key, made when the instance was. The orchestrator reads `/status` with it.
     pub pairing_key: String,
     pub created_at_ms: u64,
+    /// When the data is erased, for an instance whose delete was asked for: the container is stopped and the record and
+    /// the volume stay until then (`HOSPEDAGEM.md` question 4). `None`: no delete is pending. Resuming cancels it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub delete_after_ms: Option<u64>,
 }
 
 impl Instance {
@@ -119,6 +123,18 @@ mod tests {
         let names = base.differs_from(&other);
         assert_eq!(names, ["image", "memory_mb", "config"]);
         assert!(!format!("{names:?}").contains("s3cret"));
+    }
+
+    #[test]
+    fn a_record_written_before_the_deadline_existed_still_loads_and_has_none() {
+        let old = r#"{"customer_id":"acme","image":"img:1","state":"suspended","port":20001,"pairing_key":"k","created_at_ms":1}"#;
+        let instance: Instance = serde_json::from_str(old).unwrap();
+        assert_eq!(instance.delete_after_ms, None);
+        assert!(!serde_json::to_string(&instance).unwrap().contains("delete_after_ms"), "no deadline, no field");
+
+        let pending = Instance { delete_after_ms: Some(42), ..instance };
+        let back: Instance = serde_json::from_str(&serde_json::to_string(&pending).unwrap()).unwrap();
+        assert_eq!(back.delete_after_ms, Some(42));
     }
 
     #[test]

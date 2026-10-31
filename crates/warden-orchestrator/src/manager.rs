@@ -65,7 +65,7 @@ impl<R: ContainerRuntime> InstanceManager<R> {
                 );
                 return Ok((existing.clone(), false));
             }
-            let instance = Instance { port: free_port(all)?, spec: candidate, state: State::Active, pairing_key: new_key()?, created_at_ms: now_ms() };
+            let instance = Instance { port: free_port(all)?, spec: candidate, state: State::Active, pairing_key: new_key()?, created_at_ms: now_ms(), delete_after_ms: None };
             all.push(instance.clone());
             Ok((instance, true))
         })?;
@@ -91,12 +91,52 @@ impl<R: ContainerRuntime> InstanceManager<R> {
         self.set_state(customer_id, State::Suspended)
     }
 
-    /// Starts a suspended instance again, on the same data. Resuming one that is running is a no-op.
+    /// Starts a suspended instance again, on the same data. Resuming one that is running is a no-op. It also cancels a
+    /// delete that was scheduled and is not due yet.
     pub async fn resume(&self, customer_id: &str) -> anyhow::Result<Instance> {
-        let instance = self.require(customer_id)?;
-        let instance = self.set_state(customer_id, State::Active).map(|_| Instance { state: State::Active, ..instance })?;
+        self.require(customer_id)?;
+        let instance = self.set_state(customer_id, State::Active)?;
         self.reconcile(&instance).await?;
         Ok(instance)
+    }
+
+    /// Asks for the instance to be deleted `retention` from now: the container stops, and the record and the data stay until
+    /// then (`purge_expired` erases them). Asking again keeps the first deadline, so repeating the request never extends or
+    /// shortens the time the data is kept.
+    pub async fn schedule_delete(&self, customer_id: &str, retention: Duration) -> anyhow::Result<Instance> {
+        let instance = self.require(customer_id)?;
+        if instance.state == State::Active {
+            self.runtime.stop(&instance.container_name()).await?;
+        }
+        let due = now_ms().saturating_add(u64::try_from(retention.as_millis()).unwrap_or(u64::MAX));
+        self.store.update(|all| {
+            let instance = all.iter_mut().find(|i| i.spec.customer_id == customer_id).with_context(|| format!("there is no instance for '{customer_id}'"))?;
+            instance.state = State::Suspended;
+            instance.delete_after_ms.get_or_insert(due);
+            Ok(instance.clone())
+        })
+    }
+
+    /// Takes back a scheduled delete. The instance stays suspended: `resume` wakes it. Without a pending delete it is a no-op.
+    pub fn cancel_delete(&self, customer_id: &str) -> anyhow::Result<Instance> {
+        self.store.update(|all| {
+            let instance = all.iter_mut().find(|i| i.spec.customer_id == customer_id).with_context(|| format!("there is no instance for '{customer_id}'"))?;
+            instance.delete_after_ms = None;
+            Ok(instance.clone())
+        })
+    }
+
+    /// Erases, data included, every instance whose deadline is `now_ms` or earlier. One that fails is reported and stays
+    /// recorded, so the next pass tries it again; it doesn't stop the others. `now_ms` is a parameter so the deadline is
+    /// testable to the millisecond.
+    pub async fn purge_expired(&self, now_ms: u64) -> anyhow::Result<Vec<(String, anyhow::Result<()>)>> {
+        let due: Vec<String> = self.store.list()?.into_iter().filter(|i| i.delete_after_ms.is_some_and(|at| at <= now_ms)).map(|i| i.spec.customer_id).collect();
+        let mut out = Vec::new();
+        for customer_id in due {
+            let result = self.delete(&customer_id, true).await.map(|_| ());
+            out.push((customer_id, result));
+        }
+        Ok(out)
     }
 
     /// Removes the instance: the container and the record. The volume, with the customer's data, stays unless
@@ -222,6 +262,7 @@ impl<R: ContainerRuntime> InstanceManager<R> {
             port: 0,
             pairing_key: new_key()?,
             created_at_ms: now_ms(),
+            delete_after_ms: None,
         };
         let checked = async {
             self.restore_into(&scratch.volume_name(), &scratch.spec.image, &file, &key).await?;
@@ -430,6 +471,9 @@ impl<R: ContainerRuntime> InstanceManager<R> {
         self.store.update(|all| {
             let instance = all.iter_mut().find(|i| i.spec.customer_id == customer_id).with_context(|| format!("there is no instance for '{customer_id}'"))?;
             instance.state = state;
+            if state == State::Active {
+                instance.delete_after_ms = None;
+            }
             Ok(instance.clone())
         })
     }
@@ -576,6 +620,114 @@ mod tests {
         assert_eq!(m.get("acme").unwrap().unwrap().state, State::Active);
         m.resume("acme").await.unwrap();
         assert_eq!(m.runtime().container("warden-acme").unwrap().starts, 2, "resuming a running one starts nothing");
+    }
+
+    const DAY_MS: u64 = 24 * 60 * 60 * 1000;
+    const DAY: Duration = Duration::from_secs(24 * 60 * 60);
+
+    #[tokio::test]
+    async fn scheduling_a_delete_stops_the_container_and_keeps_the_record_and_the_data() {
+        let m = manager("schedule-delete");
+        m.provision(spec("acme")).await.unwrap();
+        let before = now_ms();
+        let pending = m.schedule_delete("acme", 30 * DAY).await.unwrap();
+        let after = now_ms();
+
+        assert_eq!(pending.state, State::Suspended);
+        let due = pending.delete_after_ms.expect("a deadline");
+        assert!((before + 30 * DAY_MS..=after + 30 * DAY_MS).contains(&due), "{due}");
+        assert!(!m.runtime().container("warden-acme").unwrap().running);
+        assert!(m.runtime().has_volume("warden-data-acme"), "nothing is erased by scheduling");
+        assert_eq!(m.get("acme").unwrap().unwrap().delete_after_ms, Some(due), "saved, not only returned");
+    }
+
+    #[tokio::test]
+    async fn scheduling_again_keeps_the_first_deadline_and_an_unknown_customer_is_refused() {
+        let m = manager("schedule-twice");
+        m.provision(spec("acme")).await.unwrap();
+        let first = m.schedule_delete("acme", 30 * DAY).await.unwrap().delete_after_ms;
+        let again = m.schedule_delete("acme", DAY).await.unwrap().delete_after_ms;
+        assert_eq!(again, first, "asking twice neither extends nor shortens the time to keep the data");
+
+        let err = m.schedule_delete("ghost", DAY).await.unwrap_err().to_string();
+        assert!(err.contains("no instance for 'ghost'"), "{err}");
+        assert!(m.get("ghost").unwrap().is_none());
+    }
+
+    #[tokio::test]
+    async fn resuming_before_the_deadline_cancels_the_delete() {
+        let m = manager("resume-cancels");
+        m.provision(spec("acme")).await.unwrap();
+        m.schedule_delete("acme", DAY).await.unwrap();
+
+        let resumed = m.resume("acme").await.unwrap();
+        assert_eq!(resumed.state, State::Active);
+        assert_eq!(resumed.delete_after_ms, None);
+        assert_eq!(m.get("acme").unwrap().unwrap().delete_after_ms, None, "saved, not only returned");
+        assert!(m.runtime().container("warden-acme").unwrap().running);
+        assert!(m.purge_expired(u64::MAX).await.unwrap().is_empty(), "a resumed instance is never purged");
+        assert!(m.runtime().has_volume("warden-data-acme"));
+    }
+
+    #[tokio::test]
+    async fn cancelling_a_delete_clears_the_deadline_and_leaves_the_instance_suspended() {
+        let m = manager("cancel-delete");
+        m.provision(spec("acme")).await.unwrap();
+        m.schedule_delete("acme", DAY).await.unwrap();
+
+        let cancelled = m.cancel_delete("acme").unwrap();
+        assert_eq!(cancelled.delete_after_ms, None);
+        assert_eq!(cancelled.state, State::Suspended, "cancelling does not wake it up; resume does");
+        assert!(!m.runtime().container("warden-acme").unwrap().running);
+        assert_eq!(m.cancel_delete("acme").unwrap().delete_after_ms, None, "again is a no-op");
+        assert!(m.cancel_delete("ghost").is_err());
+    }
+
+    #[tokio::test]
+    async fn only_what_is_past_its_deadline_is_purged_and_only_then() {
+        let m = manager("purge");
+        for id in ["old", "young", "plain", "live"] {
+            m.provision(spec(id)).await.unwrap();
+        }
+        m.schedule_delete("old", 10 * DAY).await.unwrap();
+        m.schedule_delete("young", 40 * DAY).await.unwrap();
+        m.suspend("plain").await.unwrap();
+        let old_due = m.get("old").unwrap().unwrap().delete_after_ms.unwrap();
+
+        assert!(m.purge_expired(old_due - 1).await.unwrap().is_empty(), "one millisecond early: nothing");
+        assert!(m.runtime().has_volume("warden-data-old"));
+
+        let purged = m.purge_expired(old_due).await.unwrap();
+        assert_eq!(purged.iter().map(|(id, _)| id.as_str()).collect::<Vec<_>>(), ["old"]);
+        assert!(purged.iter().all(|(_, result)| result.is_ok()));
+        assert!(m.get("old").unwrap().is_none());
+        assert!(m.runtime().container("warden-old").is_none());
+        assert!(!m.runtime().has_volume("warden-data-old"), "past the deadline the data is erased");
+
+        // The others are untouched: a later deadline, a suspend with no deadline, and a running instance.
+        assert!(m.runtime().has_volume("warden-data-young"));
+        assert!(m.get("young").unwrap().unwrap().delete_after_ms.is_some());
+        assert!(m.runtime().has_volume("warden-data-plain"));
+        assert_eq!(m.get("plain").unwrap().unwrap().state, State::Suspended);
+        assert!(m.runtime().container("warden-live").unwrap().running);
+    }
+
+    #[tokio::test]
+    async fn one_purge_failing_does_not_stop_the_others_and_the_record_stays_for_a_retry() {
+        let m = manager("purge-failure");
+        for id in ["bad", "good"] {
+            m.provision(spec(id)).await.unwrap();
+            m.schedule_delete(id, DAY).await.unwrap();
+        }
+        m.runtime().break_container("warden-bad");
+
+        let purged = m.purge_expired(u64::MAX).await.unwrap();
+        let outcome = |id: &str| purged.iter().find(|(name, _)| name == id).map(|(_, result)| result.is_ok());
+        assert_eq!(outcome("bad"), Some(false));
+        assert_eq!(outcome("good"), Some(true));
+        assert!(m.get("bad").unwrap().is_some(), "still recorded, so the next pass tries again");
+        assert!(m.runtime().has_volume("warden-data-bad"));
+        assert!(!m.runtime().has_volume("warden-data-good"));
     }
 
     #[tokio::test]

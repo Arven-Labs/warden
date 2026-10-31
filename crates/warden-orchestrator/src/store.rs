@@ -113,6 +113,7 @@ mod tests {
             port,
             pairing_key: "k".repeat(64),
             created_at_ms: 1,
+            delete_after_ms: None,
         }
     }
 
