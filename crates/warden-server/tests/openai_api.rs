@@ -2,6 +2,8 @@
 //! plain HTTP the way an OpenAI SDK would, next to the web UI and the WebSocket protocol on the
 //! same port.
 
+mod support;
+
 use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
@@ -84,7 +86,7 @@ struct Hub {
 }
 
 async fn hub() -> Hub {
-    let dir = std::env::temp_dir().join(format!("warden-openai-api-{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
+    let dir = support::unique_temp_dir("warden-openai-api");
     std::fs::create_dir_all(&dir).unwrap();
     let config = dir.join("config.toml");
     std::fs::write(&config, "[[agents]]\nid = \"poet\"\npersona = \"You are the poet.\"\n").unwrap();
