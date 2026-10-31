@@ -3,6 +3,8 @@
 //! waiting when the link drops, reconnect by itself, and carry an approval from the hub to the person and back.
 //! A TCP proxy stands between the client and the hub where a test has to cut the link without stopping the hub.
 
+mod support;
+
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -79,7 +81,7 @@ struct Hub {
 }
 
 async fn spin_up() -> Hub {
-    let dir = std::env::temp_dir().join(format!("warden-server-remote-client-{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
+    let dir = support::unique_temp_dir("warden-server-remote-client");
     std::fs::create_dir_all(&dir).unwrap();
     let config_path = dir.join("config.toml");
     let chief = AgentConfig {

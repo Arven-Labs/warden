@@ -2,7 +2,18 @@
 
 > **Nota**: Este log foi criado junto com o projeto. As sessões serão registradas aqui conforme o trabalho avança.
 >
-> Última atualização: 2026-10-31 (Sessão 337)
+> Última atualização: 2026-10-31 (Sessão 338)
+
+---
+
+### 2026-10-31 — Sessão 338 (pastas temporárias únicas nos testes, PR 1 de 3 — P171)
+
+- **Pedido**: seguir com o P171. O dono escolheu 3 PRs por tamanho de risco e pular o loop de baseline.
+- **Levantamento**: refiz a lista do P171. Só colide o nome montado numa função chamada por 2 ou mais testes, sem `{n}`. Isso tirou da lista `people.rs` (tem `{n}`) e os nomes montados dentro de um teste só; ficaram 13 arquivos certos e 5 a conferir (o texto do P171 foi corrigido).
+- **Feito** (PR 1): `remote_client.rs`, `router_raw.rs` e `curators.rs` ganharam `mod support;` e usam `support::unique_temp_dir(...)` no lugar do nome com só `nanos`. O ajudante não mudou.
+- **Verificado**: `cargo test -p warden-server --test remote_client --test router_raw --test curators` com 13, 10 e 8 testes verdes; clippy sem aviso nesses arquivos. CI do PR: ver o corpo do PR.
+- **Não verificado**: (1) a corrida nunca foi vista falhando nesses três; sem loop de baseline por escolha do dono, então não há teste que "falha antes"; (2) a lista de "vulneráveis" vem de contar chamadas por `grep` da função, não de ler cada teste.
+- **Fica**: PR 2 (`nodes`, `tasks`, `webhooks`, `agents`, `agent_tasks:23`) e PR 3 (`activity`, `hosted_credit`, `org_access`, `trusted_publishers`, `ssh_audit:26` e os 5 a conferir), em `PENDING.md` P171.
 
 ---
 

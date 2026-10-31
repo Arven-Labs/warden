@@ -2,6 +2,8 @@
 //! the config, with no agent. A real `Server`, real `openai_compatible` providers pointed at tiny local
 //! HTTP servers (so it goes through `build_model_for` and the real OpenAI client), spoken to with plain HTTP.
 
+mod support;
+
 use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -81,7 +83,7 @@ struct Hub {
 /// A hub with providers `busy` (503), `spare` (answers), `far` (a node's model) and `relay` (another hub, kind cloud,
 /// pointed at a server that answers), and combos `fast` (busy, spare) and `mixed` (spare, relay).
 async fn hub(limits: Vec<Limit>) -> Hub {
-    let dir = std::env::temp_dir().join(format!("warden-router-raw-{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
+    let dir = support::unique_temp_dir("warden-router-raw");
     std::fs::create_dir_all(&dir).unwrap();
     let config_path = dir.join("config.toml");
     let config = FileConfig {
