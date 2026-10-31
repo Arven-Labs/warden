@@ -2,7 +2,17 @@
 
 > **Nota**: Este log foi criado junto com o projeto. As sessões serão registradas aqui conforme o trabalho avança.
 >
-> Última atualização: 2026-10-31 (Sessão 345)
+> Última atualização: 2026-10-31 (Sessão 346)
+
+---
+
+### 2026-10-31 — Sessão 346 (o `serve` do orquestrador recusa segredo com espaço nas pontas — P138)
+
+- **Pedido**: o ponto que ficou aberto no PR #34: `validate_secrets` conta `trim().len()` mas guardava o segredo sem aparar, então um segredo com `\n` no fim passava e o HMAC era feito sobre a string com ele; o site mãe, que provavelmente o tem sem, receberia 401 sem pista do motivo.
+- **Feito**: `validate_secrets` (`crates/warden-orchestrator/src/api.rs`) recusa segredo, atual ou anterior, com espaço, tabulação ou quebra de linha no começo ou no fim, com mensagem que não repete o segredo. Recusa em vez de aparar de propósito: aparar deixaria os dois lados com strings diferentes. Espaço no meio continua aceito.
+- **Verificado**: teste novo `a_secret_with_a_space_or_a_line_break_at_either_end_is_refused_not_trimmed` (falhava antes: `Ok` para `GOOD + "\n"`); `cargo test -p warden-orchestrator` com 91 testes da biblioteca e 10 de `tests/api.rs`; `serve` com `WARDEN_ORCHESTRATOR_ADMIN_SECRET` terminando em `\n` recusa com a mensagem nova.
+- **Não verificado**: o CI deste PR (ver o corpo); se o gateway tem o mesmo problema com o `WARDEN_GATEWAY_ADMIN_SECRET` (não li esse caminho; a checagem de tamanho também não existe lá).
+- **Fica**: avaliar a mesma checagem no `warden-gateway`, num PR à parte.
 
 ---
 
