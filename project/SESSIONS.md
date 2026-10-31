@@ -2,7 +2,19 @@
 
 > **Nota**: Este log foi criado junto com o projeto. As sessões serão registradas aqui conforme o trabalho avança.
 >
-> Última atualização: 2026-10-31 (Sessão 335)
+> Última atualização: 2026-10-31 (Sessão 336)
+
+---
+
+### 2026-10-31 — Sessão 336 (anexos de skill no celular — P72, PR 3 de 3)
+
+- **Pedido**: seguir com o PR 3 do P72. O dono aprovou o plano em plan mode e escolheu: conteúdo colado (nome + texto, sem dependência nova) e seção completa (listar, ver, anexar/substituir, remover).
+- **Levantamento**: a tela de Skills do celular usa o cofre **local** pela ponte Rust, não o hub; por isso os anexos passam pela ponte e o PR regenera o `frb_generated` (o rascunho do #20 falava com o hub em Dart). O sync percorre subpastas e arquivos que não são Markdown, então `skills/<nome>.files/` vai junto.
+- **Feito** (PR #24): `SkillFileInfo` e `bridge_list/read/save/delete_skill_file` em `api/skills.rs` (só repassam ao `SkillStore`); código do `flutter_rust_bridge` 2.13.0 regenerado (diff conferido: renumeração de IDs, hash e reordenação de argumentos); `SkillsRepository` com 4 métodos; `lib/services/skill_files.dart` (nome, 64 KB em bytes, NUL, 20 por skill); seção "Arquivos anexados" e `_AttachFileDialog` em `skills_screen.dart` (só na edição; só a lista de anexos é recarregada, o formulário não); 22 chaves de l10n em en e pt.
+- **Verificado**: localmente `cargo test -p warden_mobile_bridge` com 13 testes (7 novos), clippy sem avisos nos arquivos tocados, `flutter analyze` limpo e `flutter test` com 368 testes verdes. CI do PR #24 no commit `8b644ab` (o do código): `Android (arm64 APK)` (10m25s), `Rust` (9m3s), `Mobile`, `Browser against a real hub`, `Changed areas` e `guard` passaram; `Frontend` foi pulado. Os testes de Dart foram vistos falhando antes (não carregavam sem a implementação).
+- **Bug achado pelos testes**: `AppLocalizations.of(context)` no `initState` (via `_loadFiles`) quebra; passou a ser lido só no `catch`, depois do `await`. Dois testes antigos de edição ganharam `scrollUntilVisible` porque a seção nova empurrou o botão Salvar para baixo da tela de teste.
+- **Não verificado**: (1) a tela num celular ou emulador e o APK instalado; (2) os anexos chegando ao desktop pelo sync de verdade (só a listagem do cofre); (3) o "falha antes" dos testes da ponte (Rust) não foi observado, porque a primeira compilação pegou a implementação que eu escrevia em paralelo; parte deles (preservar anexos no save, o sync) cobre comportamento que já existia; (4) o `gen-l10n` reformatou de novo a linha `skillsUpdateAvailable` (como na Sessão 333) e eu a desfiz à mão.
+- **Fica**: com os PRs #22, #23 e #24 o P72 não tem mais item de código aberto; restam as verificações manuais (extensão no Brave/Chrome contra um hub real, celular, sync) e o P73. O P170 (teste instável do `openai_api.rs`) segue aberto. O Flutter 3.47.4 está em `~/flutter` fora do PATH (usar `~/flutter/bin/flutter`).
 
 ---
 
