@@ -3,6 +3,8 @@
 //! round brings another device's `config.toml`. Also the hub showing a pairing code (P88) that a
 //! device joins through with the hub's address.
 
+mod support;
+
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
@@ -50,10 +52,7 @@ impl SettingsHost for CountingHost {
 }
 
 fn temp_dir() -> PathBuf {
-    let dir = std::env::temp_dir().join(format!(
-        "warden-server-sync-{}",
-        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
-    ));
+    let dir = support::unique_temp_dir("warden-server-sync");
     std::fs::create_dir_all(&dir).unwrap();
     dir
 }

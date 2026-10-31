@@ -2,7 +2,18 @@
 
 > **Nota**: Este log foi criado junto com o projeto. As sessões serão registradas aqui conforme o trabalho avança.
 >
-> Última atualização: 2026-10-31 (Sessão 339)
+> Última atualização: 2026-10-31 (Sessão 340)
+
+---
+
+### 2026-10-31 — Sessão 340 (pastas temporárias únicas nos testes, PR 3 de 3 — P171)
+
+- **Pedido**: seguir com o PR 3 do P171.
+- **Conferência dos "a conferir"**: li como cada função é chamada. `invite_cli`, `rotate_key_cli`, `ssh_audit:22`, `worktree_sweep` e `activity` recebem um `name` diferente em cada chamada, então os nomes não colidem e ficaram como estão. Só o `sync.rs` era vulnerável (`temp_dir()` sem argumento, 3 chamadas). A lista da Sessão 338 colocava o `activity` entre os vulneráveis; estava errada.
+- **Feito** (PR 3): `hosted_credit.rs`, `org_access.rs`, `trusted_publishers.rs`, `ssh_audit.rs` (site da linha 26) e `sync.rs` ganharam `mod support;` e usam `support::unique_temp_dir(...)`. Em `sync.rs` o `format!` ocupava 4 linhas e virou uma. O ajudante não mudou.
+- **Verificado**: `cargo test -p warden-server --test hosted_credit --test org_access --test trusted_publishers --test ssh_audit --test sync` com 4, 3, 4, 2 e 3 testes verdes; clippy sem aviso nesses arquivos. O `grep` de `as_nanos` nos testes só devolve os sites já classificados como seguros. CI do PR: ver o corpo do PR.
+- **Não verificado**: (1) a corrida nunca foi vista falhando em nenhum dos 3 PRs do P171 (sem loop de baseline, escolha do dono); (2) "seguro" para nome com `name` diferente vem de ler as chamadas hoje; um teste novo que repita o `name` quebraria isso sem aviso.
+- **Fica**: P171 fechado no código. Continuam abertos o P72/P67/P73 (verificações manuais) e o P170/P171 só se a falha voltar no CI.
 
 ---
 
