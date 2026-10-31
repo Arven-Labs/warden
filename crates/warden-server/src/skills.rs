@@ -8,7 +8,7 @@ use warden_bootstrap::skill_gen;
 use warden_bootstrap::skill_package::{self, TrustedPublisher};
 use warden_core::orchestrator::Orchestrator;
 use warden_core::skill::{catalog, Skill, SkillStore};
-use warden_server_protocol::protocol::{CatalogSkillDto, PackagePreviewDto, SkillDto};
+use warden_server_protocol::protocol::{CatalogSkillDto, PackagePreviewDto, SkillDto, SkillFileInfo};
 use warden_server_protocol::{ClientMessage, ServerMessage};
 
 /// The longest description a client may send to be turned into a draft: it goes to the model as the whole user turn.
@@ -45,8 +45,20 @@ pub fn handle_skill_request(store: &SkillStore, message: ClientMessage) -> Optio
 pub fn handle_skill_request_with(store: &SkillStore, trusted: &[TrustedPublisher], message: ClientMessage) -> Option<ServerMessage> {
     Some(match message {
         ClientMessage::ListSkills { request_id } => {
-            ServerMessage::SkillList { request_id, skills: store.list().into_iter().map(SkillDto::from).collect() }
+            ServerMessage::SkillList { request_id, skills: store.list().into_iter().map(|skill| dto_with_files(store, skill)).collect() }
         }
+        ClientMessage::ReadSkillFile { request_id, name, file } => match store.read_file(&name, &file) {
+            Ok(content) => ServerMessage::SkillFile { request_id, content },
+            Err(err) => ServerMessage::SkillError { request_id, message: format!("{err:#}") },
+        },
+        ClientMessage::SaveSkillFile { request_id, name, file, content } => match store.save_file(&name, &file, &content) {
+            Ok(()) => ServerMessage::SkillOk { request_id },
+            Err(err) => ServerMessage::SkillError { request_id, message: format!("{err:#}") },
+        },
+        ClientMessage::DeleteSkillFile { request_id, name, file } => match store.delete_file(&name, &file) {
+            Ok(()) => ServerMessage::SkillOk { request_id },
+            Err(err) => ServerMessage::SkillError { request_id, message: format!("{err:#}") },
+        },
         ClientMessage::SaveSkill { request_id, skill, overwrite } => match save(store, skill, overwrite) {
             Ok(()) => ServerMessage::SkillOk { request_id },
             Err(message) => ServerMessage::SkillError { request_id, message },
@@ -108,6 +120,18 @@ pub fn handle_skill_request_with(store: &SkillStore, trusted: &[TrustedPublisher
     })
 }
 
+/// The skill as `ListSkills` shows it: with the name and size of each attachment. An attachment that can't be read is left out
+/// of the list rather than failing the whole listing.
+fn dto_with_files(store: &SkillStore, skill: Skill) -> SkillDto {
+    let files = store
+        .list_files(&skill.name)
+        .unwrap_or_default()
+        .into_iter()
+        .filter_map(|name| store.read_file(&skill.name, &name).ok().map(|text| SkillFileInfo { name, size: text.len() }))
+        .collect();
+    SkillDto { files, ..SkillDto::from(skill) }
+}
+
 fn save(store: &SkillStore, dto: SkillDto, overwrite: bool) -> Result<(), String> {
     let name = dto.name.trim().to_string();
     // An edit that sends no agents keeps the restriction already on disk (see `SaveSkill`'s docs) —
@@ -137,7 +161,7 @@ mod tests {
     }
 
     fn dto(name: &str) -> SkillDto {
-        SkillDto { name: name.into(), description: "d".into(), body: "b".into(), agents: Vec::new(), proposed: false, source: None, proposed_at: None, revises: None }
+        SkillDto { name: name.into(), description: "d".into(), body: "b".into(), agents: Vec::new(), files: Vec::new(), proposed: false, source: None, proposed_at: None, revises: None }
     }
 
     fn save_req(skill: SkillDto, overwrite: bool) -> ClientMessage {
@@ -187,6 +211,118 @@ mod tests {
             Some(ServerMessage::SkillError { .. })
         ));
         assert!(store.list().is_empty());
+    }
+
+    fn save_file_req(name: &str, file: &str, content: &str) -> ClientMessage {
+        ClientMessage::SaveSkillFile { request_id: 11, name: name.into(), file: file.into(), content: content.into() }
+    }
+
+    fn read_file_req(name: &str, file: &str) -> ClientMessage {
+        ClientMessage::ReadSkillFile { request_id: 12, name: name.into(), file: file.into() }
+    }
+
+    fn delete_file_req(name: &str, file: &str) -> ClientMessage {
+        ClientMessage::DeleteSkillFile { request_id: 13, name: name.into(), file: file.into() }
+    }
+
+    fn is_error(reply: Option<ServerMessage>) -> bool {
+        matches!(reply, Some(ServerMessage::SkillError { .. }))
+    }
+
+    fn listed_files(store: &SkillStore, name: &str) -> Vec<warden_server_protocol::protocol::SkillFileInfo> {
+        match handle_skill_request(store, ClientMessage::ListSkills { request_id: 4 }) {
+            Some(ServerMessage::SkillList { skills, .. }) => skills.into_iter().find(|s| s.name == name).expect("skill listed").files,
+            other => panic!("unexpected {other:?}"),
+        }
+    }
+
+    #[test]
+    fn an_attachment_round_trips_and_the_list_shows_name_and_size_only() {
+        let store = temp_store();
+        handle_skill_request(&store, save_req(dto("x"), false));
+        assert_eq!(handle_skill_request(&store, save_file_req("x", "notes.md", "héllo")), Some(ServerMessage::SkillOk { request_id: 11 }));
+
+        let files = listed_files(&store, "x");
+        assert_eq!(files.len(), 1);
+        assert_eq!((files[0].name.as_str(), files[0].size), ("notes.md", "héllo".len()), "size is in bytes");
+
+        assert_eq!(handle_skill_request(&store, read_file_req("x", "notes.md")), Some(ServerMessage::SkillFile { request_id: 12, content: "héllo".into() }));
+        assert_eq!(handle_skill_request(&store, delete_file_req("x", "notes.md")), Some(ServerMessage::SkillOk { request_id: 13 }));
+        assert!(listed_files(&store, "x").is_empty());
+    }
+
+    #[test]
+    fn saving_the_skill_again_keeps_its_attachments() {
+        let store = temp_store();
+        handle_skill_request(&store, save_req(dto("x"), false));
+        handle_skill_request(&store, save_file_req("x", "a.md", "keep me"));
+
+        let edited = SkillDto { body: "new".into(), ..dto("x") };
+        assert_eq!(handle_skill_request(&store, save_req(edited, true)), Some(ServerMessage::SkillOk { request_id: 9 }));
+        assert_eq!(store.read_file("x", "a.md").unwrap(), "keep me");
+    }
+
+    #[test]
+    fn deleting_the_skill_takes_its_attachments_with_it() {
+        let store = temp_store();
+        handle_skill_request(&store, save_req(dto("x"), false));
+        handle_skill_request(&store, save_file_req("x", "a.md", "bye"));
+        handle_skill_request(&store, ClientMessage::DeleteSkill { request_id: 5, name: "x".into() });
+        assert!(store.list_files("x").unwrap().is_empty());
+    }
+
+    #[test]
+    fn hostile_attachment_names_are_refused_and_nothing_is_written() {
+        let store = temp_store();
+        handle_skill_request(&store, save_req(dto("x"), false));
+        let too_long = "a".repeat(warden_core::skill::MAX_FILE_NAME_LEN + 1);
+        for bad in ["../x.md", "a/b.md", "a\\b.md", ".hidden", "..", "", "nul\0.md", "sp ace.md", "é.md", too_long.as_str()] {
+            assert!(is_error(handle_skill_request(&store, save_file_req("x", bad, "c"))), "save {bad:?}");
+            assert!(is_error(handle_skill_request(&store, read_file_req("x", bad))), "read {bad:?}");
+            assert!(is_error(handle_skill_request(&store, delete_file_req("x", bad))), "delete {bad:?}");
+        }
+        assert!(store.list_files("x").unwrap().is_empty());
+    }
+
+    #[test]
+    fn a_hostile_skill_name_cannot_reach_outside_the_skills_folder() {
+        let store = temp_store();
+        for bad in ["../escape", "a/b", ".."] {
+            assert!(is_error(handle_skill_request(&store, save_file_req(bad, "a.md", "c"))), "save {bad}");
+            assert!(is_error(handle_skill_request(&store, read_file_req(bad, "a.md"))), "read {bad}");
+            assert!(is_error(handle_skill_request(&store, delete_file_req(bad, "a.md"))), "delete {bad}");
+        }
+    }
+
+    #[test]
+    fn attachments_need_an_existing_skill_and_an_existing_file() {
+        let store = temp_store();
+        assert!(is_error(handle_skill_request(&store, save_file_req("ghost", "a.md", "c"))));
+        assert!(is_error(handle_skill_request(&store, read_file_req("ghost", "a.md"))));
+        handle_skill_request(&store, save_req(dto("x"), false));
+        assert!(is_error(handle_skill_request(&store, read_file_req("x", "nope.md"))));
+        assert!(is_error(handle_skill_request(&store, delete_file_req("x", "nope.md"))));
+    }
+
+    #[test]
+    fn the_size_and_count_limits_hold_over_the_wire() {
+        let store = temp_store();
+        handle_skill_request(&store, save_req(dto("x"), false));
+
+        let at_limit = "a".repeat(warden_core::skill::MAX_FILE_BYTES);
+        assert_eq!(handle_skill_request(&store, save_file_req("x", "big.md", &at_limit)), Some(ServerMessage::SkillOk { request_id: 11 }));
+        assert!(is_error(handle_skill_request(&store, save_file_req("x", "bigger.md", &format!("{at_limit}a")))));
+        // An overwrite that grows past the limit is refused and keeps the old content.
+        assert!(is_error(handle_skill_request(&store, save_file_req("x", "big.md", &format!("{at_limit}a")))));
+        assert_eq!(store.read_file("x", "big.md").unwrap().len(), warden_core::skill::MAX_FILE_BYTES);
+
+        for i in 1..warden_core::skill::MAX_FILES_PER_SKILL {
+            assert_eq!(handle_skill_request(&store, save_file_req("x", &format!("f{i}.md"), "c")), Some(ServerMessage::SkillOk { request_id: 11 }));
+        }
+        assert_eq!(listed_files(&store, "x").len(), warden_core::skill::MAX_FILES_PER_SKILL);
+        assert!(is_error(handle_skill_request(&store, save_file_req("x", "one-too-many.md", "c"))));
+        // Replacing one of the twenty is still fine.
+        assert_eq!(handle_skill_request(&store, save_file_req("x", "f1.md", "new")), Some(ServerMessage::SkillOk { request_id: 11 }));
     }
 
     fn catalog_of(store: &SkillStore) -> Vec<CatalogSkillDto> {

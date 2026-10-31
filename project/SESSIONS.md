@@ -2,7 +2,19 @@
 
 > **Nota**: Este log foi criado junto com o projeto. As sessões serão registradas aqui conforme o trabalho avança.
 >
-> Última atualização: 2026-10-30 (Sessão 333)
+> Última atualização: 2026-10-31 (Sessão 334)
+
+---
+
+### 2026-10-31 — Sessão 334 (anexos de skill no protocolo e no hub — P72, PR 1 de 3)
+
+- **Pedido**: seguir a recomendação do P72, o PR 1 dos anexos. O dono confirmou o toque no hub compartilhado (§4) e aprovou o plano em plan mode.
+- **Decisões (dono)**: a listagem leva só nome e tamanho, e o texto vem por `ReadSkillFile`; o `SaveSkill` não muda e os anexos têm mensagens próprias. Descartados: texto no `ListSkills` (até ~1,3 MB por skill) e `files` dentro do `SaveSkill` (ausente, vazio e remoção ficam ambíguos).
+- **Feito** (PR #22): `SkillDto.files` e `SkillFileInfo`; `ReadSkillFile`, `SaveSkillFile`, `DeleteSkillFile` e `SkillFile` em `protocol.rs`; `dto_with_files` e os handlers em `warden-server/src/skills.rs`; despacho em `server.rs` e erro em `people.rs`. Nenhuma validação nova: tudo passa por `SkillStore` (`validate_file_name`, 64 KB, 20 por skill). 9 testes novos (2 de protocolo, 7 do hub: round-trip, nomes de arquivo e de skill hostis, limites, `SaveSkill` e `DeleteSkill` com anexos).
+- **Verificado**: localmente, `cargo test -p warden-server-protocol -p warden-server` verde (exit 0) e os 9 testes novos vistos passando. CI do PR #22 (commit `1b9ea3f`): `Rust (clippy and tests)` **falhou na primeira rodada** por um teste instável sem relação (P170) e **passou ao rodar de novo o mesmo commit** (23m3s); `Android`, `Mobile`, `Browser against a real hub`, `Changed areas` e `guard` passaram; `Frontend` foi pulado.
+- **Não verificado**: (1) o "falha antes" dos testes não foi rodado sem a implementação; (2) nenhum hub real com uma skill criada por `manage_skill`; (3) `cargo fmt --check` reclama de arquivos que o PR não toca (o repo usa linhas largas) e não rodei o fmt só nos meus; (4) a causa do P170 vem do log, não de reprodução.
+- **Atenção**: `dto_with_files` lê cada anexo inteiro só para medir o tamanho (até 20 leituras por skill a cada `ListSkills`); um anexo ilegível some da listagem em vez de falhar. Hub antigo ignora as mensagens novas.
+- **Fica**: PR 2 (UI na extensão) e PR 3 (UI no celular, que passa pela ponte Rust e regenera o `frb_generated`), em `PENDING.md` P72. P170 aberto.
 
 ---
 

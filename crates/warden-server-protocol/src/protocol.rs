@@ -19,6 +19,10 @@ pub struct SkillDto {
     pub body: String,
     #[serde(default)]
     pub agents: Vec<String>,
+    /// Attached files (P72 d), by name and size only — the text is asked for with `ReadSkillFile`. Filled by `ListSkills`;
+    /// a save ignores it (attachments change through `SaveSkillFile`/`DeleteSkillFile`, never through the skill's own save).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub files: Vec<SkillFileInfo>,
     /// P104: a suggestion the assistant made after a conversation, not yet accepted — invisible to the
     /// model until it's saved without this flag. Sent back as it came, so editing a suggestion doesn't accept it.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
@@ -35,9 +39,18 @@ pub struct SkillDto {
     pub revises: Option<String>,
 }
 
+/// One attachment of a skill on the wire: its name and its size in bytes.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SkillFileInfo {
+    pub name: String,
+    pub size: usize,
+}
+
 impl From<Skill> for SkillDto {
+    /// Without `files`: a `Skill` doesn't know its attachments, the store does (see `ListSkills`).
     fn from(skill: Skill) -> Self {
-        Self { name: skill.name, description: skill.description, body: skill.body, agents: skill.agents, proposed: skill.proposed, source: skill.source, proposed_at: skill.proposed_at, revises: skill.revises }
+        Self { name: skill.name, description: skill.description, body: skill.body, agents: skill.agents, files: Vec::new(), proposed: skill.proposed, source: skill.source, proposed_at: skill.proposed_at, revises: skill.revises }
     }
 }
 
@@ -1921,6 +1934,26 @@ pub enum ClientMessage {
         request_id: u64,
         name: String,
     },
+    /// The text of one attachment of a skill (P72 d). Answered by `SkillFile`, or `SkillError` (no such skill or file, bad name).
+    ReadSkillFile {
+        request_id: u64,
+        name: String,
+        file: String,
+    },
+    /// Creates or replaces one attachment; the skill must exist. Text only, at most 64 KB, 20 per skill — the limits the CLI and
+    /// the desktop have, enforced by the same `SkillStore`. Answered by `SkillOk`, or `SkillError`.
+    SaveSkillFile {
+        request_id: u64,
+        name: String,
+        file: String,
+        content: String,
+    },
+    /// Removes one attachment. Answered by `SkillOk`, or `SkillError`.
+    DeleteSkillFile {
+        request_id: u64,
+        name: String,
+        file: String,
+    },
     /// "Describe a skill and the AI writes it" (P72): one model call on the hub that turns `description` into a draft,
     /// which is never saved. Spends like the person's turns do. Answered by `SkillDraft`, or `SkillError`.
     DraftSkill {
@@ -2739,9 +2772,14 @@ pub enum ServerMessage {
         request_id: u64,
         skills: Vec<SkillDto>,
     },
-    /// Reply to a successful `SaveSkill`/`DeleteSkill`.
+    /// Reply to a successful `SaveSkill`/`DeleteSkill`/`SaveSkillFile`/`DeleteSkillFile`.
     SkillOk {
         request_id: u64,
+    },
+    /// Reply to `ReadSkillFile`: the text of the attachment.
+    SkillFile {
+        request_id: u64,
+        content: String,
     },
     /// Reply to `DraftSkill`: the skill the model wrote, not saved anywhere — the client loads it into its form for review.
     SkillDraft {
@@ -3472,7 +3510,7 @@ mod tests {
 
         let save = ClientMessage::SaveSkill {
             request_id: 2,
-            skill: SkillDto { name: "review-pr".into(), description: "d".into(), body: "b".into(), agents: vec!["writer".into()], proposed: false, source: None, proposed_at: None, revises: None },
+            skill: SkillDto { name: "review-pr".into(), description: "d".into(), body: "b".into(), agents: vec!["writer".into()], files: Vec::new(), proposed: false, source: None, proposed_at: None, revises: None },
             overwrite: true,
         };
         let json = serde_json::to_string(&save).unwrap();
@@ -3496,10 +3534,47 @@ mod tests {
     }
 
     #[test]
+    fn skill_attachment_messages_round_trip_through_json() {
+        let read = ClientMessage::ReadSkillFile { request_id: 1, name: "s".into(), file: "a.md".into() };
+        let json = serde_json::to_string(&read).unwrap();
+        assert_eq!(json, r#"{"type":"readSkillFile","requestId":1,"name":"s","file":"a.md"}"#);
+        assert_eq!(serde_json::from_str::<ClientMessage>(&json).unwrap(), read);
+
+        let save = ClientMessage::SaveSkillFile { request_id: 2, name: "s".into(), file: "a.md".into(), content: "hi".into() };
+        let json = serde_json::to_string(&save).unwrap();
+        assert_eq!(json, r#"{"type":"saveSkillFile","requestId":2,"name":"s","file":"a.md","content":"hi"}"#);
+        assert_eq!(serde_json::from_str::<ClientMessage>(&json).unwrap(), save);
+
+        let delete = ClientMessage::DeleteSkillFile { request_id: 3, name: "s".into(), file: "a.md".into() };
+        let json = serde_json::to_string(&delete).unwrap();
+        assert_eq!(json, r#"{"type":"deleteSkillFile","requestId":3,"name":"s","file":"a.md"}"#);
+        assert_eq!(serde_json::from_str::<ClientMessage>(&json).unwrap(), delete);
+
+        let reply = ServerMessage::SkillFile { request_id: 4, content: "hi".into() };
+        let json = serde_json::to_string(&reply).unwrap();
+        assert_eq!(json, r#"{"type":"skillFile","requestId":4,"content":"hi"}"#);
+        assert_eq!(serde_json::from_str::<ServerMessage>(&json).unwrap(), reply);
+    }
+
+    #[test]
+    fn skill_dto_files_default_to_empty_and_stay_off_the_wire_when_empty() {
+        let bare = r#"{"name":"x","description":"d","body":"b"}"#;
+        assert!(serde_json::from_str::<SkillDto>(bare).unwrap().files.is_empty());
+
+        let mut dto = SkillDto { name: "x".into(), description: "d".into(), body: "b".into(), agents: Vec::new(), files: Vec::new(), proposed: false, source: None, proposed_at: None, revises: None };
+        assert!(!serde_json::to_string(&dto).unwrap().contains("files"));
+
+        dto.files = vec![SkillFileInfo { name: "a.md".into(), size: 5 }];
+        let json = serde_json::to_string(&dto).unwrap();
+        assert!(json.contains(r#""files":[{"name":"a.md","size":5}]"#), "{json}");
+        assert_eq!(serde_json::from_str::<SkillDto>(&json).unwrap(), dto);
+    }
+
+    #[test]
     fn server_skill_messages_round_trip_through_json() {
         let list = ServerMessage::SkillList {
             request_id: 1,
-            skills: vec![SkillDto { name: "x".into(), description: "d".into(), body: "b".into(), agents: Vec::new(), proposed: false, source: None, proposed_at: None, revises: None }],
+            skills: vec![SkillDto { name: "x".into(), description: "d".into(), body: "b".into(), agents: Vec::new(), files: Vec::new(), proposed: false, source: None, proposed_at: None, revises: None }],
         };
         let json = serde_json::to_string(&list).unwrap();
         assert_eq!(
@@ -3528,7 +3603,7 @@ mod tests {
 
         let draft = ServerMessage::SkillDraft {
             request_id: 4,
-            skill: SkillDto { name: "review-pr".into(), description: "d".into(), body: "b".into(), agents: Vec::new(), proposed: false, source: None, proposed_at: None, revises: None },
+            skill: SkillDto { name: "review-pr".into(), description: "d".into(), body: "b".into(), agents: Vec::new(), files: Vec::new(), proposed: false, source: None, proposed_at: None, revises: None },
         };
         let json = serde_json::to_string(&draft).unwrap();
         assert_eq!(json, r#"{"type":"skillDraft","requestId":4,"skill":{"name":"review-pr","description":"d","body":"b","agents":[]}}"#);
