@@ -2,7 +2,18 @@
 
 > **Nota**: Este log foi criado junto com o projeto. As sessões serão registradas aqui conforme o trabalho avança.
 >
-> Última atualização: 2026-10-31 (Sessão 344)
+> Última atualização: 2026-10-31 (Sessão 345)
+
+---
+
+### 2026-10-31 — Sessão 345 (diagnóstico: por que os 33 alertas do Dependabot não fecham — P172)
+
+- **Pedido**: depois de quatro merges na `main` (#29, #30, #31 e os da hospedagem) a API ainda mostrava 33 alertas abertos e 0 `fixed`. O dono pediu o diagnóstico.
+- **Feito** (só leitura): li o SBOM do repo, os `updated_at` dos alertas e as configurações de segurança do repo.
+- **Achado**: o grafo de dependências do GitHub está certo (só as versões corrigidas aparecem, em todos os manifestos), e os alertas continuam parados desde a criação em lote de 2026-10-29. Ou seja, as correções chegaram; falta o GitHub reavaliar os alertas. Causa não identificada.
+- **Verificado**: `gh api .../dependency-graph/sbom` (2126 pacotes; os dez de interesse nas versões novas), `gh api .../dependabot/alerts` (33 abertos, 0 `fixed`, `updated_at` todos de 2026-10-29), `gh api repos/Arven-Labs/warden` (público, `dependabot_security_updates` desligado).
+- **Não verificado**: por que o GitHub não reavaliou; se o paliativo de desligar e religar o Dependabot alerts funciona (não está em documentação oficial que eu tenha lido).
+- **Fica**: reler a contagem a partir de 2026-11-01; se continuar, o dono liga/desliga o Dependabot alerts ou abre chamado no GitHub Support. Detalhe no P172 do `PENDING.md`.
 
 ---
 
