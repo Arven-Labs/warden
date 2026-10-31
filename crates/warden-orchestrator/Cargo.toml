@@ -16,6 +16,8 @@ path = "src/main.rs"
 aes-gcm = { version = "0.10", features = ["stream"] }
 anyhow.workspace = true
 async-trait.workspace = true
+# The B1 API (`api.rs`): the same `axum` the hub uses, instead of a second hand-written HTTP server.
+axum = "0.8"
 clap = { version = "4", features = ["derive", "env"] }
 futures-util = "0.3"
 reqwest.workspace = true
@@ -24,4 +26,5 @@ serde_json.workspace = true
 tokio.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
+warden-hosted-protocol = { path = "../warden-hosted-protocol" }
 warden-server-protocol = { path = "../warden-server-protocol" }
