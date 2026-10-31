@@ -12,7 +12,7 @@ reqwest.workspace = true
 base64.workspace = true
 futures-util = "0.3"
 hex = "0.4"
-k256 = { version = "0.13", features = ["ecdh"] }
+k256 = { version = "0.14", features = ["ecdh", "getrandom"] }
 aes-gcm = "0.10"
 hkdf = "0.12"
 sha2 = "0.10"

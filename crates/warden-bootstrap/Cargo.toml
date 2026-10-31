@@ -34,7 +34,7 @@ url = "2"
 zeroize = "1"
 # P84 slice 4 parte B: the owner's recovery key is a secp256k1 pair (`recovery.rs`), sealed to with the
 # ECIES `warden-truthid` already has (both are already in the tree through `warden-sync`).
-k256 = "0.13"
+k256 = "0.14"
 warden-truthid = { path = "../warden-truthid" }
 warden-core = { path = "../warden-core" }
 warden-server-protocol = { path = "../warden-server-protocol" }

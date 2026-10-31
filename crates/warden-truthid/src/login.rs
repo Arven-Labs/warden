@@ -89,7 +89,7 @@ pub fn recover_personal_sign_address(message: &str, signature_hex: &str) -> anyh
 
 /// The Ethereum address of a public key: the last 20 bytes of keccak256 of the uncompressed point, without its prefix.
 pub fn address_of(key: &VerifyingKey) -> String {
-    let point = key.to_encoded_point(false);
+    let point = key.to_sec1_point(false);
     let hash = Keccak256::digest(&point.as_bytes()[1..]);
     format!("0x{}", hex::encode(&hash[12..]))
 }
@@ -97,7 +97,7 @@ pub fn address_of(key: &VerifyingKey) -> String {
 /// The phone's side: `personal_sign` over the challenge's JSON with the device key, as the TruthID app does
 /// (`r || s || v`, v = 27/28), as the answer it would post. For tests and tools that stand in for the phone.
 pub fn sign_challenge(key: &k256::ecdsa::SigningKey, challenge: &AuthChallenge) -> AuthResponse {
-    let (signature, recovery) = key.sign_prehash_recoverable(&personal_message_digest(&challenge.signed_text())).expect("a 32-byte digest signs");
+    let (signature, recovery) = key.sign_prehash_recoverable(&personal_message_digest(&challenge.signed_text()));
     let mut raw = signature.to_bytes().to_vec();
     raw.push(recovery.to_byte() + 27);
     AuthResponse { approved: true, nonce: challenge.nonce.clone(), signature: format!("0x{}", hex::encode(raw)), device_address: address_of(key.verifying_key()) }

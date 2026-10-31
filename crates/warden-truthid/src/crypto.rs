@@ -2,6 +2,7 @@ use aes_gcm::aead::{Aead, KeyInit};
 use aes_gcm::{Aes256Gcm, Key, Nonce};
 use hkdf::Hkdf;
 use k256::ecdh::diffie_hellman;
+use k256::elliptic_curve::Generate;
 use k256::{PublicKey, SecretKey};
 use rand_core::OsRng;
 use sha2::{Digest, Sha256};
@@ -59,7 +60,7 @@ pub struct EciesKeyPair {
 }
 
 pub fn generate_ecies_keypair() -> EciesKeyPair {
-    let secret = SecretKey::random(&mut OsRng);
+    let secret = SecretKey::generate();
     let public_hex = hex::encode(secret.public_key().to_sec1_bytes());
     EciesKeyPair { secret, public_hex }
 }
@@ -80,7 +81,7 @@ fn derive_aes_key(shared_secret: &[u8]) -> [u8; 32] {
 /// always `SHA-256(ECDH secret)`, never the raw secret.
 pub fn ecies_encrypt(plaintext: &[u8], recipient_pub_hex: &str) -> anyhow::Result<Vec<u8>> {
     let recipient_pub = parse_public_key(recipient_pub_hex)?;
-    let ephemeral_secret = SecretKey::random(&mut OsRng);
+    let ephemeral_secret = SecretKey::generate();
     let ephemeral_pub_bytes = ephemeral_secret.public_key().to_sec1_bytes();
 
     let shared = diffie_hellman(
