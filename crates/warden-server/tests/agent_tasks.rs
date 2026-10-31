@@ -1,5 +1,7 @@
 //! P123 on the hub: `ListAgentTasks` shows the tasks agents delegated to each other, read from the log the orchestrator writes.
 
+mod support;
+
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -20,7 +22,7 @@ impl warden_core::model::ModelProvider for NoModel {
 }
 
 async fn spin_up(log: Option<PathBuf>) -> String {
-    let dir = std::env::temp_dir().join(format!("warden-server-agent-tasks-{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
+    let dir = support::unique_temp_dir("warden-server-agent-tasks");
     std::fs::create_dir_all(&dir).unwrap();
     let orchestrator = Orchestrator::new(Arc::new(NoModel), Arc::new(Vault::new(dir.join("vault"))));
     let server = Server::bind("127.0.0.1:0".parse().unwrap(), "test-key", "Test Hub", Arc::new(orchestrator), dir.join("conversations"), dir.join("devices.json"))
