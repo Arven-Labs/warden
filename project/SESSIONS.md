@@ -2,7 +2,18 @@
 
 > **Nota**: Este log foi criado junto com o projeto. As sessões serão registradas aqui conforme o trabalho avança.
 >
-> Última atualização: 2026-10-31 (Sessão 336)
+> Última atualização: 2026-10-31 (Sessão 337)
+
+---
+
+### 2026-10-31 — Sessão 337 (teste instável do `openai_api.rs` — P170)
+
+- **Pedido**: seguir em código; recomendei o P170 e o dono aprovou. Levantamento e plano em plan mode; o dono escolheu corrigir só o `openai_api.rs` e abrir um pendente para o resto.
+- **Levantamento**: o P170 é a mesma corrida do P155 (Sessão 228). O ajudante `unique_temp_dir` (pid + contador + nanos) já existia em `tests/support/mod.rs`, mas o `openai_api.rs` não o usava: `hub()` montava `warden-openai-api-<nanos>` e 8 testes paralelos podiam cair na mesma pasta e no mesmo `api_keys.json` (o erro `there is already a key named 'script'`).
+- **Feito** (`crates/warden-server/tests/openai_api.rs`): `mod support;` e `support::unique_temp_dir("warden-openai-api")` no lugar do nome com `nanos`. `PENDING.md`: P170 marcado como resolvido no código; P171 aberto com os arquivos que ainda repetem o padrão.
+- **Verificado**: `cargo test -p warden-server --test openai_api` com 8 testes verdes; `cargo clippy -p warden-server --test openai_api` sem aviso no arquivo (os avisos que aparecem são da lib, já existiam); o binário rodado 100 vezes seguidas, 0 falhas. CI do PR: ver o corpo do PR.
+- **Não verificado**: (1) que esta foi de fato a causa da falha do CI do #22: nunca reproduzi, e não rodei o loop **antes** da mudança, então o 0/100 não prova nada sozinho (a colisão depende de timing); (2) a lista do P171 vem de `grep`, sem conferir arquivo a arquivo se os contadores locais bastam.
+- **Fica**: P171 (migração dos demais arquivos, em PRs pequenos). P72/P67/P73 seguem com verificações manuais.
 
 ---
 
