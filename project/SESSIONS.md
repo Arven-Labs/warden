@@ -2,7 +2,17 @@
 
 > **Nota**: Este log foi criado junto com o projeto. As sessões serão registradas aqui conforme o trabalho avança.
 >
-> Última atualização: 2026-10-31 (Sessão 346)
+> Última atualização: 2026-10-31 (Sessão 347)
+
+---
+
+### 2026-10-31 — Sessão 347 (triagem do Dependabot com `/dependencias` e o `nanoid` do desktop — P172)
+
+- **Pedido**: abrir o warden, triar os alertas do Dependabot e corrigir o que a segunda opinião achasse.
+- **Feito**: triagem dos 33 alertas abertos (todos criados em 2026-10-29 22:32 e nunca reavaliados): a `main` (`079536e`) já tem as versões corrigidas de `zip`, `rustls`, `sharp`, `music-metadata`, `vite` e `source-map-js`, lidas nos lockfiles. `npm audit` achou o `nanoid` 3.3.16 no `desktop/` (alta, `development`, via `vite → postcss`, sem alerta no Dependabot); `npm update nanoid --package-lock-only` o levou a 3.3.20. Só `desktop/package-lock.json` mudou (3 linhas), `package.json` intacto.
+- **Verificado**: `npm audit` no `desktop` passou de 1 alta para 0; `sidecar/whatsapp` (`--omit=dev`), `extension` e `web` deram 0. Contagem de alertas na API: 33 antes; o GitHub não reavalia a branch, só a `main`.
+- **Não verificado**: `cargo audit` não está instalado (nenhuma segunda opinião para `zip` e `rustls`); `npm run build` do desktop; a explorabilidade do `nanoid` foi avaliada como não alcançável (só build, sem entrada externa) sem ler o `postcss`; o `npm ls` mostrou `vite@7.3.6` no `node_modules` local do desktop, contra 7.3.7 no lockfile (instalação local provavelmente velha, `npm ci` não rodado).
+- **Fica**: a causa de o GitHub não reavaliar os 33 alertas (P172); `cargo audit` se o dono aprovar instalar; a checagem do segredo no `warden-gateway` (Sessão 346).
 
 ---
 
