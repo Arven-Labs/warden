@@ -15,6 +15,7 @@
 //! `purge_expired` erases it. Not here yet: the site mother's HTTP contract (B1), the CLI for the delete schedule, the
 //! reverse proxy with TLS and a domain per customer.
 
+pub mod api;
 pub mod backup;
 pub mod fake;
 pub mod instance;
