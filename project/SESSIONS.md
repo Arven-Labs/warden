@@ -2,7 +2,17 @@
 
 > **Nota**: Este log foi criado junto com o projeto. As sessões serão registradas aqui conforme o trabalho avança.
 >
-> Última atualização: 2026-10-31 (Sessão 338)
+> Última atualização: 2026-10-31 (Sessão 339)
+
+---
+
+### 2026-10-31 — Sessão 339 (pastas temporárias únicas nos testes, PR 2 de 3 — P171)
+
+- **Pedido**: seguir com o PR 2 do P171, na divisão aprovada na Sessão 338.
+- **Feito** (PR 2): `nodes.rs`, `tasks.rs`, `webhooks.rs`, `agents.rs` e `agent_tasks.rs` ganharam `mod support;` e usam `support::unique_temp_dir(...)` no lugar do nome com só `nanos` (em `agents.rs`, `nodes.rs` e `tasks.rs` o `format!` ocupava 4 linhas e virou uma). O ajudante não mudou.
+- **Verificado**: `cargo test -p warden-server --test nodes --test tasks --test webhooks --test agents --test agent_tasks` com 5, 13, 5, 4 e 21 testes verdes; clippy sem aviso nesses arquivos. CI do PR: ver o corpo do PR.
+- **Não verificado**: (1) a corrida nunca foi vista falhando nesses arquivos, e não há loop de baseline (escolha do dono na Sessão 338); (2) `agents.rs` também tem outras funções de montagem de servidor, mas só o site com `nanos` foi trocado; não li o arquivo inteiro atrás de outros jeitos de montar a pasta.
+- **Fica**: PR 3 (`activity`, `hosted_credit`, `org_access`, `trusted_publishers`, `ssh_audit:26` e os 5 a conferir), em `PENDING.md` P171.
 
 ---
 

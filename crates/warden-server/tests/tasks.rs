@@ -1,6 +1,8 @@
 //! P92 on the hub: a scheduled task that is due runs as its agent, lands in its own conversation,
 //! every connected device hears about it and lists it, and nobody is asked to approve anything.
 
+mod support;
+
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -141,10 +143,7 @@ impl Hub {
 }
 
 async fn spin_up(run_tasks: bool) -> Hub {
-    let dir = std::env::temp_dir().join(format!(
-        "warden-server-tasks-{}",
-        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
-    ));
+    let dir = support::unique_temp_dir("warden-server-tasks");
     std::fs::create_dir_all(&dir).unwrap();
     let config_path = dir.join("config.toml");
     let config = FileConfig { agents: vec![agent("chief", "You are the chief.", true), agent("poet", "You are a poet.", false)], ..FileConfig::default() };

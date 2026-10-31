@@ -2,6 +2,8 @@
 //! once, and the result lands in the webhook's conversation, which every device hears about and lists. Spoken to with
 //! plain HTTP over a real socket, next to the web page and the WebSocket protocol on the same port.
 
+mod support;
+
 use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
@@ -128,7 +130,7 @@ impl Hub {
 }
 
 async fn hub_with(limits: Vec<Limit>, webhooks_on: bool) -> Hub {
-    let dir = std::env::temp_dir().join(format!("warden-server-webhooks-{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
+    let dir = support::unique_temp_dir("warden-server-webhooks");
     std::fs::create_dir_all(&dir).unwrap();
     let config_path = dir.join("config.toml");
     let inputs = Arc::new(Mutex::new(Vec::new()));

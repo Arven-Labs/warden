@@ -1,6 +1,8 @@
 //! P46 on the hub: a `Chat` names a configured agent, `manage_agents` asks the device that is
 //! chatting for approval, and `message_agent` leaves a message in a conversation the device sees.
 
+mod support;
+
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
@@ -110,10 +112,7 @@ async fn spin_up() -> Hub {
 
 /// `keep_grants`: the hub writes each device's "always" in a folder beside its config (P122), as a real one does by default.
 async fn spin_up_keeping_grants(keep_grants: bool) -> Hub {
-    let dir = std::env::temp_dir().join(format!(
-        "warden-server-agents-{}",
-        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
-    ));
+    let dir = support::unique_temp_dir("warden-server-agents");
     std::fs::create_dir_all(&dir).unwrap();
     let config_path = dir.join("config.toml");
     let config = FileConfig {

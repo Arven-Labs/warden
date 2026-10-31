@@ -3,6 +3,8 @@
 //! once it's approved and allowed, only for the agents allowed, with a yes when it asks for one, and
 //! a call cut short when the node drops.
 
+mod support;
+
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -113,10 +115,7 @@ struct Hub {
 }
 
 async fn spin_up() -> Hub {
-    let dir = std::env::temp_dir().join(format!(
-        "warden-server-nodes-{}",
-        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
-    ));
+    let dir = support::unique_temp_dir("warden-server-nodes");
     std::fs::create_dir_all(dir.join("shared")).unwrap();
     let config_path = dir.join("config.toml");
     save_config(&config_path, &FileConfig { agents: vec![agent("ops"), agent("other")], ..FileConfig::default() }).unwrap();
