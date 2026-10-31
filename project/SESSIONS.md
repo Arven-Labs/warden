@@ -2,7 +2,18 @@
 
 > **Nota**: Este log foi criado junto com o projeto. As sessões serão registradas aqui conforme o trabalho avança.
 >
-> Última atualização: 2026-10-31 (Sessão 342)
+> Última atualização: 2026-10-31 (Sessão 343)
+
+---
+
+### 2026-10-31 — Sessão 343 (triagem dos alertas do Dependabot e dispensa do `glib` — P172)
+
+- **Pedido**: abrir o projeto e fechar o que restava do P172. Rodei `/dependencias warden` (só leitura).
+- **Achado**: o `Cargo.lock` e os `package-lock.json` da `main` já têm todas as versões corrigidas (`zip` 9.2.0, `rustls` 0.23.46, `vite` 7.3.7, `source-map-js` 1.2.2, `sharp` 0.35.5, `music-metadata` 11.16.1), mas a API ainda mostrava 34 alertas abertos e 0 `fixed`. O GitHub não reavaliou a `main`; não é correção que falhou.
+- **`glib` (#1)**: a única entrada do `VariantStrIter` é `Variant::array_iter_str` (`glib-0.18.5/src/variant.rs:843`). Busquei esse nome e `VariantStrIter` nos crates do grafo do `glib` (lista do `cargo tree --locked -i glib --target all`) e em `desktop/src-tauri`: zero ocorrências fora do próprio `glib`. O dono dispensou o alerta como `not_used` (comando rodado por ele com `!`, porque o classificador de permissões bloqueou a escrita no GitHub).
+- **Verificado**: versões lidas nos lockfiles da `main`; contagem relida da API depois da dispensa: **33 abertos** (eram 34).
+- **Não verificado**: (1) é busca textual, não análise de chamadas; (2) `cargo audit` não está instalado, então sem segunda opinião da base RustSec; (3) quando o GitHub reavalia os 33 alertas já corrigidos.
+- **Fica**: reler a contagem depois da reavaliação; se os 33 não fecharem, investigar o grafo de dependências do GitHub.
 
 ---
 
