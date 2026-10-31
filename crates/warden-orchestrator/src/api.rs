@@ -64,10 +64,15 @@ pub const MIN_SECRET_LEN: usize = 32;
 /// error never repeats a secret.
 pub fn validate_secrets(current: &str, previous: Option<&str>) -> anyhow::Result<Vec<String>> {
     let long_enough = |secret: &str| secret.trim().len() >= MIN_SECRET_LEN;
+    // Refused, not trimmed: the other side signs with the string it has, so a trimmed copy here would be a different
+    // secret and every call would be a 401 with no hint why. A pasted final newline is the usual cause.
+    let bare = |secret: &str| secret == secret.trim();
     anyhow::ensure!(long_enough(current), "the admin secret is missing or shorter than {MIN_SECRET_LEN} characters");
+    anyhow::ensure!(bare(current), "the admin secret has a space or line break at its start or end (a pasted newline, usually); remove it");
     let mut secrets = vec![current.to_string()];
     if let Some(previous) = previous {
         anyhow::ensure!(long_enough(previous), "the previous admin secret is empty or shorter than {MIN_SECRET_LEN} characters; leave it out when no rotation is going on");
+        anyhow::ensure!(bare(previous), "the previous admin secret has a space or line break at its start or end (a pasted newline, usually); remove it");
         anyhow::ensure!(previous != current, "the previous admin secret is the same as the current one");
         secrets.push(previous.to_string());
     }
@@ -282,6 +287,23 @@ mod tests {
         assert!(validate_secrets(GOOD, Some("")).is_err(), "a previous secret that is set but empty is a mistake, not 'none'");
         assert!(validate_secrets(GOOD, Some("short")).is_err());
         assert!(validate_secrets(GOOD, Some(GOOD)).is_err(), "rotating to the same secret rotates nothing");
+    }
+
+    #[test]
+    fn a_secret_with_a_space_or_a_line_break_at_either_end_is_refused_not_trimmed() {
+        // A secret pasted from a file or a `echo` usually carries a final newline. The HMAC would be made over the string
+        // with it, and the site mãe, which most likely has it without, would be answered with 401 and no hint why.
+        for padded in [format!("{GOOD}\n"), format!("{GOOD}\r\n"), format!(" {GOOD}"), format!("{GOOD} "), format!("\t{GOOD}")] {
+            let err = validate_secrets(&padded, None).unwrap_err().to_string();
+            assert!(err.contains("space") && err.contains("start or end"), "says what is wrong: {err}");
+            assert!(!err.contains(GOOD), "never echoes the secret: {err}");
+
+            let previous_err = validate_secrets(GOOD, Some(&padded)).unwrap_err().to_string();
+            assert!(previous_err.contains("previous") && previous_err.contains("start or end"), "{previous_err}");
+        }
+        // Inside the secret, a space is the owner's business: only the ends are checked.
+        let inner = "0123456789abcdef 0123456789abcdef";
+        assert_eq!(validate_secrets(inner, None).unwrap(), [inner]);
     }
 
     #[test]
