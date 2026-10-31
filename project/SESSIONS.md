@@ -2,7 +2,18 @@
 
 > **Nota**: Este log foi criado junto com o projeto. As sessões serão registradas aqui conforme o trabalho avança.
 >
-> Última atualização: 2026-10-31 (Sessão 340)
+> Última atualização: 2026-10-31 (Sessão 341)
+
+---
+
+### 2026-10-31 — Sessão 341 (alertas do Dependabot, PR 1: lockfiles compatíveis — P172)
+
+- **Pedido**: tratar o aviso de 34 alertas do Dependabot, mas como **procedimento padrão para todos os projetos**, não só aqui. O dono escolheu triagem manual + skill (sem PRs automáticos) e escopo "procedimento + warden".
+- **Procedimento** (repo do workspace, PR #2 lá): `padrao/dependencias.md`, skill `/dependencias`, ADR 0006. O warden é o primeiro caso. Seguindo só o texto escrito, o passo 1 devolveu os mesmos 34 alertas; agrupados por pacote: `zip` 5, `rustls` 5, `vite` 15, `source-map-js` 3, `sharp` 2, `music-metadata` 3, `glib` 1. Na primeira contagem usei `-q 'length'` com `--paginate` e o anchor veio como 100 e 10 (são 110): o filtro roda por página; o procedimento manda contar linhas.
+- **Feito** (este PR, só lockfiles): `cargo update -p rustls` (0.23.44→0.23.46); `npm update vite source-map-js` em `desktop/`, `extension/` e `web/`; `npm update sharp music-metadata` em `sidecar/whatsapp/`. `Cargo.toml` e `package.json` não mudaram. Efeitos colaterais nos lockfiles, lidos no diff: o `rustls` novo trocou `syn 3.0.5→2.0.119` e `getrandom 0.4.3→0.3.4` entre as dependências dele; no sidecar, `@img/sharp-*` 0.35.3→0.35.5, `sharp-libvips` 1.3.2→1.3.4 e `content-type` 2.0.0→2.1.0 (este último não era alerta).
+- **Verificado**: `cargo test -p warden-server --test tls --locked` com 9 testes verdes; `npm test` e `npm run build` limpos em `desktop/` (235 testes), `extension/` (146) e `web/` (164). CI do PR: ver o corpo do PR.
+- **Não verificado**: (1) o sidecar do WhatsApp não tem script de teste: `sharp`, `music-metadata` e `content-type` novos não foram exercitados; (2) o `rustls` novo só foi exercitado pelos testes de TLS do `warden-server`, não pela suíte inteira local (o CI roda a inteira); (3) a contagem "depois" só vale depois do merge, quando o GitHub reavalia a `main`.
+- **Fica**: P172: `zip` (subir `rust_xlsxwriter` para 0.102 num PR à parte, e confirmar que o `warden-core` só escreve xlsx) e `glib` (dispensa só com confirmação do dono). Mesclar o PR #2 do workspace.
 
 ---
 
