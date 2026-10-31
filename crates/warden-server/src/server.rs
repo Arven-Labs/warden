@@ -1898,6 +1898,9 @@ async fn handle_connection<S: Transport>(ws: WebSocketStream<S>, peer: SocketAdd
                     message @ (ClientMessage::ListSkills { .. }
                     | ClientMessage::SaveSkill { .. }
                     | ClientMessage::DeleteSkill { .. }
+                    | ClientMessage::ReadSkillFile { .. }
+                    | ClientMessage::SaveSkillFile { .. }
+                    | ClientMessage::DeleteSkillFile { .. }
                     | ClientMessage::ListSkillCatalog { .. }
                     | ClientMessage::InstallCatalogSkill { .. }
                     | ClientMessage::ExportSkill { .. }

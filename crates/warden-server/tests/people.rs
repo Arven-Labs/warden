@@ -1511,6 +1511,7 @@ async fn a_correction_for_an_existing_skill_becomes_a_pending_change_that_applie
         description: "How to lay out release notes.".into(),
         body: "Group them under Added and Fixed.".into(),
         agents: Vec::new(),
+        files: Vec::new(),
         proposed: false,
         source: None,
         proposed_at: None,

@@ -278,6 +278,9 @@ fn gate_with(message: &ClientMessage, text: &str) -> Option<ServerMessage> {
         ClientMessage::ListSkills { request_id }
         | ClientMessage::SaveSkill { request_id, .. }
         | ClientMessage::DeleteSkill { request_id, .. }
+        | ClientMessage::ReadSkillFile { request_id, .. }
+        | ClientMessage::SaveSkillFile { request_id, .. }
+        | ClientMessage::DeleteSkillFile { request_id, .. }
         | ClientMessage::DraftSkill { request_id, .. }
         | ClientMessage::ListSkillCatalog { request_id }
         | ClientMessage::InstallCatalogSkill { request_id, .. }
