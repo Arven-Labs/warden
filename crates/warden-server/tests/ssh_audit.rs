@@ -1,5 +1,7 @@
 //! P47 on the hub: `ListSshAudit` shows the calls the SSH tools made, read from the log they write, to the owner.
 
+mod support;
+
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -23,7 +25,7 @@ fn temp_log(name: &str) -> PathBuf {
 }
 
 async fn spin_up(log: Option<PathBuf>) -> String {
-    let dir = std::env::temp_dir().join(format!("warden-server-ssh-audit-{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
+    let dir = support::unique_temp_dir("warden-server-ssh-audit");
     std::fs::create_dir_all(&dir).unwrap();
     let orchestrator = Orchestrator::new(Arc::new(NoModel), Arc::new(Vault::new(dir.join("vault"))));
     let server = Server::bind("127.0.0.1:0".parse().unwrap(), "test-key", "Test Hub", Arc::new(orchestrator), dir.join("conversations"), dir.join("devices.json"))

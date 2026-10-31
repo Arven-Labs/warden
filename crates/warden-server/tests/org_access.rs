@@ -2,6 +2,8 @@
 //! `none`, `view` or `edit`. A member never sends a pairing key: their session plus the access in the config is the authorization, read
 //! from the file at each request.
 
+mod support;
+
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
@@ -77,7 +79,7 @@ struct Hub {
 }
 
 async fn spin_up() -> Hub {
-    let dir = std::env::temp_dir().join(format!("warden-server-org-access-{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
+    let dir = support::unique_temp_dir("warden-server-org-access");
     std::fs::create_dir_all(&dir).unwrap();
     let path = dir.join("config.toml");
     let mut config = FileConfig { agents: vec![agent("chief", None, None), agent("lead", Some("chief"), None), agent("dev", Some("lead"), None), agent("anas-own", None, Some("ana"))], ..FileConfig::default() };

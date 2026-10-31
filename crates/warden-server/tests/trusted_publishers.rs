@@ -2,6 +2,8 @@
 //! `SaveTrustedPublishers` are the owner's (a pairing key for the save, like any change); a package preview then says `trusted` for a
 //! signature by a listed key.
 
+mod support;
+
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
@@ -48,7 +50,7 @@ impl SettingsHost for Host {
 
 /// A hub whose config has a member, Ana, and one unrelated setting that a save of the list must leave alone.
 async fn spin_up() -> (String, PathBuf) {
-    let dir = std::env::temp_dir().join(format!("warden-server-trusted-publishers-{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
+    let dir = support::unique_temp_dir("warden-server-trusted-publishers");
     std::fs::create_dir_all(&dir).unwrap();
     let path = dir.join("config.toml");
     let mut config = FileConfig { topup_url: Some("https://example.com/credits".into()), ..FileConfig::default() };

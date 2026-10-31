@@ -2,6 +2,8 @@
 //! usage, and the report carries it. A real `Server` and a real `Provider::Cloud` config, with a tiny local HTTP server standing
 //! in for the gateway.
 
+mod support;
+
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -72,7 +74,7 @@ async fn hub(providers: Vec<ProviderConfig>) -> String {
 
 /// Like `hub`, with `topup_url` as it is written in the config.
 async fn hub_with_topup(providers: Vec<ProviderConfig>, topup_url: Option<&str>) -> String {
-    let dir = std::env::temp_dir().join(format!("warden-hosted-credit-{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
+    let dir = support::unique_temp_dir("warden-hosted-credit");
     std::fs::create_dir_all(&dir).unwrap();
     let config_path = dir.join("config.toml");
     save_config(&config_path, &FileConfig { providers, topup_url: topup_url.map(str::to_string), ..FileConfig::default() }).unwrap();
