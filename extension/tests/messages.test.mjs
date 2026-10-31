@@ -225,6 +225,27 @@ describe("what a model limit says", () => {
   });
 });
 
+describe("decoding a skill's attached files", () => {
+  test("a listed skill keeps the name and size of its attachments, and one without them has none", () => {
+    const reply = decode(
+      JSON.stringify({
+        type: "skillList",
+        requestId: 1,
+        skills: [
+          { name: "a", description: "d", body: "b", files: [{ name: "n.md", size: 5 }] },
+          { name: "b", description: "d", body: "b" },
+        ],
+      }),
+    );
+    assert.deepEqual(reply.skills[0].files, [{ name: "n.md", size: 5 }]);
+    assert.equal(reply.skills[1].files, undefined);
+  });
+
+  test("an attachment's text comes back as it is", () => {
+    assert.deepEqual(decode(JSON.stringify({ type: "skillFile", requestId: 7, content: "hi" })), { type: "skillFile", requestId: 7, content: "hi" });
+  });
+});
+
 describe("decoding a skill draft", () => {
   test("keeps the draft and defaults the agents to none", () => {
     const reply = decode(JSON.stringify({ type: "skillDraft", requestId: 4, skill: { name: "review-pr", description: "d", body: "b" } }));

@@ -699,6 +699,14 @@ async function handleRequest(request: PopupRequest): Promise<unknown> {
         return { ok: false, skills: [], error: err instanceof Error ? err.message : String(err) };
       }
 
+    case "readSkillFile":
+      if (!connection || connection.status.kind !== "connected") return { ok: false, error: "not connected" };
+      try {
+        return { ok: true, content: await connection.readSkillFile(request.name, request.file) };
+      } catch (err) {
+        return { ok: false, error: err instanceof Error ? err.message : String(err) };
+      }
+
     case "draftSkill":
       if (!connection || connection.status.kind !== "connected") return { ok: false, error: "not connected" };
       try {
@@ -717,10 +725,14 @@ async function handleRequest(request: PopupRequest): Promise<unknown> {
 
     case "saveSkill":
     case "deleteSkill":
+    case "saveSkillFile":
+    case "deleteSkillFile":
     case "installCatalogSkill":
       if (!connection || connection.status.kind !== "connected") return { ok: false, error: "not connected" };
       try {
         if (request.type === "saveSkill") await connection.saveSkill(request.skill, request.overwrite);
+        else if (request.type === "saveSkillFile") await connection.saveSkillFile(request.name, request.file, request.content);
+        else if (request.type === "deleteSkillFile") await connection.deleteSkillFile(request.name, request.file);
         else if (request.type === "installCatalogSkill") await connection.installCatalogSkill(request.name, request.overwrite);
         else await connection.deleteSkill(request.name);
         return { ok: true };

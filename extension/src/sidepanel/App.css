@@ -727,6 +727,35 @@ button:focus-visible {
   margin-top: 0.4rem;
 }
 
+/* P72: the files attached to a skill, in its edit form. */
+.skills-files {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  margin: 0;
+  padding: 0.5rem;
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  font-size: 0.8rem;
+}
+
+.skills-file-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.skills-file-name {
+  font-weight: 600;
+  word-break: break-all;
+}
+
+.skills-files .skills-diff {
+  max-height: 12rem;
+  overflow: auto;
+}
+
 /* P115: diff between a skill and the revision the assistant suggested. */
 .skills-diff {
   white-space: pre-wrap;

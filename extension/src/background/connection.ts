@@ -322,6 +322,7 @@ export class ServerConnection {
       case "skillList":
       case "skillCatalog":
       case "skillOk":
+      case "skillFile":
       case "skillDraft":
       case "history":
       case "conversationList":
@@ -536,6 +537,22 @@ export class ServerConnection {
 
   async deleteSkill(name: string): Promise<void> {
     await this.request((requestId) => ({ type: "deleteSkill", requestId, name }));
+  }
+
+  /** P72 — the text of one of a skill's attachments. */
+  async readSkillFile(name: string, file: string): Promise<string> {
+    const reply = await this.request((requestId) => ({ type: "readSkillFile", requestId, name, file }));
+    if (reply.type !== "skillFile") throw new Error("unexpected reply to readSkillFile");
+    return reply.content;
+  }
+
+  /** Creates or replaces an attachment; the skill must already be saved. */
+  async saveSkillFile(name: string, file: string, content: string): Promise<void> {
+    await this.request((requestId) => ({ type: "saveSkillFile", requestId, name, file, content }));
+  }
+
+  async deleteSkillFile(name: string, file: string): Promise<void> {
+    await this.request((requestId) => ({ type: "deleteSkillFile", requestId, name, file }));
   }
 
   /** P72 — asks the hub's model to write a skill from a description; the draft comes back unsaved. A model call takes far

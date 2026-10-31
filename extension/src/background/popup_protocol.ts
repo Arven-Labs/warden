@@ -79,6 +79,9 @@ export type PopupRequest =
   | { type: "listSkills" }
   | { type: "saveSkill"; skill: SkillDto; overwrite: boolean }
   | { type: "deleteSkill"; name: string }
+  | { type: "readSkillFile"; name: string; file: string }
+  | { type: "saveSkillFile"; name: string; file: string; content: string }
+  | { type: "deleteSkillFile"; name: string; file: string }
   | { type: "draftSkill"; description: string }
   | { type: "listSkillCatalog" }
   | { type: "installCatalogSkill"; name: string; overwrite: boolean }
@@ -193,6 +196,13 @@ export interface DeviceAdminResponse {
 export interface ListSkillsResponse {
   ok: boolean;
   skills: SkillDto[];
+  error?: string;
+}
+
+/** Reply to `{ type: "readSkillFile" }` — the attachment's text; `content` is absent when `ok` is false. */
+export interface ReadSkillFileResponse {
+  ok: boolean;
+  content?: string;
   error?: string;
 }
 
