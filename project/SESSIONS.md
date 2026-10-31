@@ -2,7 +2,21 @@
 
 > **Nota**: Este log foi criado junto com o projeto. As sessões serão registradas aqui conforme o trabalho avança.
 >
-> Última atualização: 2026-10-31 (Sessão 343)
+> Última atualização: 2026-10-31 (Sessão 344)
+
+---
+
+### 2026-10-31 — Sessão 344 (API HTTP do orquestrador e retenção antes de apagar, contrato B1 — P138/P168)
+
+- **Pedido**: seguir a frente de hospedagem. O gateway (P168) já estava fechado; o que o `HOSPEDAGEM.md` listava como faltando na fase 4 era a API HTTP do contrato B1. Plano em plan mode, com as decisões do dono: B1 antes do B2; `axum`; `DELETE` que marca e apaga depois; `purge-expired` em dry-run por padrão; segredo com 32 caracteres no mínimo.
+- **Feito, em 3 PRs** (testes primeiro, o dono revisando):
+  - **#32**: `Instance.delete_after_ms`, `schedule_delete`, `cancel_delete`, `purge_expired`; `resume` cancela a remoção. Campo no `Instance`, não um `State` novo: não quebra os `== State::Active` e o `instances.json` antigo carrega.
+  - **#33**: `api.rs`. Um handler só: lê o corpo (64 KiB), confere a assinatura (`verify_any`), e só então roteia, então um estranho recebe 401 até em rota que não existe. Respostas por um `View`, sem a chave de pareamento nem o config. `PUT` 201/200/409, campos do contrato ainda sem uso dão 400.
+  - **este PR**: `serve` (segredo e segredo anterior por variável de ambiente, `--retention-days`, `--keep-backups`, aviso fora de loopback), `purge-expired` (`--yes`, `--every`), `manager.expired` e o registro.
+- **Verificado**: `cargo test -p warden-orchestrator` com 90 testes da biblioteca e 10 de `tests/api.rs` (por socket TCP, runtime em memória, clientes assinando de verdade); CI verde nos PRs #32 e #33. Rodei o binário: recusa sem segredo, com segredo curto, `--retention-days 0` e `--every` sem `--yes`; o dry-run vazio avisa; uma chamada sem assinatura dá 401; fora de loopback sai o aviso de TLS. Um teste meu (`a_secret_must_be_given...`) tinha um falso positivo (`"short"` é parte de "shorter"); troquei o valor de teste, a implementação não mudou.
+- **Não verificado**: (1) a API contra o `DockerCli` real e contra o site mãe de verdade; (2) sob carga, ou com cliente que fecha a conexão no meio do corpo; (3) o `--every` do `purge-expired` e o `serve` como serviço (só foram rodados à mão); (4) o CI deste PR, ver o corpo.
+- **Desvio de processo**: usei `sed -i` uma vez em `api.rs` (troca de `&api` por `api` em 4 chamadas), contra a regra do `CLAUDE.md` de editar só com `Edit`/`Write`. Conferi as 4 linhas depois; não repito.
+- **Fica**: proxy com TLS e o laço como serviço; `plan_ref`/`region`/`domain`/`limits`/`owner_identity`; o aviso de estado ao site mãe; B2 (login federado, depende da pergunta 7 do `HOSPEDAGEM.md`); retenção real (pergunta 4); reler a contagem de alertas do Dependabot (P172).
 
 ---
 
