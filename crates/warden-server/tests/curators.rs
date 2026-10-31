@@ -3,6 +3,8 @@
 //! published, checked against the curator's key, from a server of our own that the hub may reach only because it was started with
 //! `with_private_curators`.
 
+mod support;
+
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -50,7 +52,7 @@ impl SettingsHost for Host {
 
 /// A hub whose config has a member, Ana, and one unrelated setting that a save of the list must leave alone.
 async fn spin_up(private_curators: bool) -> (String, PathBuf) {
-    let dir = std::env::temp_dir().join(format!("warden-server-curators-{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
+    let dir = support::unique_temp_dir("warden-server-curators");
     std::fs::create_dir_all(&dir).unwrap();
     let path = dir.join("config.toml");
     let mut config = FileConfig { topup_url: Some("https://example.com/credits".into()), ..FileConfig::default() };
