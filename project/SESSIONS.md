@@ -2,7 +2,17 @@
 
 > **Nota**: Este log foi criado junto com o projeto. As sessões serão registradas aqui conforme o trabalho avança.
 >
-> Última atualização: 2026-10-31 (Sessão 348)
+> Última atualização: 2026-10-31 (Sessão 349)
+
+---
+
+### 2026-10-31 — Sessão 349 (registro: o GitHub fechou os alertas do Dependabot — P172; plano do `k256` — P173)
+
+- **Pedido**: depois do merge do #38, atualizar o registro e seguir com o `crypto-bigint`.
+- **Feito**: relida a API do Dependabot: 0 abertos, 34 `fixed`, 1 `dismissed` (o `glib`). P172 marcada como resolvida no `PENDING.md`; P173 recebe o estado pós-#38 (`cargo audit` na `main`: 1 vulnerabilidade, `crypto-bigint`) e o plano. Plano aprovado em plan mode: testes de vetor fixo e depois `k256` 0.13→0.14, em PR à parte.
+- **Verificado**: `gh api .../dependabot/alerts --paginate -q '.[].state' | sort | uniq -c` e `.../alerts/7` (`fixed`, `fixed_at` 2026-10-31T21:02:23Z); `cargo audit` na `main` (`0685c91`) listou só o `crypto-bigint` como vulnerabilidade.
+- **Não verificado**: por que o GitHub reavaliou só agora (o #37, o #38 ou o tempo). Nenhum código mudou neste PR.
+- **Fica**: o PR do `k256` 0.14 (P173) e a checagem do segredo no `warden-gateway` (Sessão 346).
 
 ---
 
