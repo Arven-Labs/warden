@@ -327,6 +327,7 @@ mod tests {
             port: 20001,
             pairing_key: "secret-key-that-must-not-be-an-argument".into(),
             created_at_ms: 0,
+            delete_after_ms: None,
         }
     }
 
