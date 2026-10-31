@@ -2,7 +2,17 @@
 
 > **Nota**: Este log foi criado junto com o projeto. As sessões serão registradas aqui conforme o trabalho avança.
 >
-> Última atualização: 2026-10-31 (Sessão 341)
+> Última atualização: 2026-10-31 (Sessão 342)
+
+---
+
+### 2026-10-31 — Sessão 342 (alertas do Dependabot, PR 2: sair do `zip` vulnerável — P172)
+
+- **Pedido**: fechar os 5 alertas do `zip` (1 crítico). Li o código antes de decidir: os avisos são de extração/leitura de zip, e o warden só escreve xlsx (`rust_xlsxwriter`, `document.rs:244-275`) e só lê em teste (`calamine`, `document.rs:471,513`, depois de `#[cfg(test)]`). Não alcançáveis em produção; o dono escolheu mesmo assim corrigir em vez de dispensar.
+- **Feito** (PR `fix/deps-zip-xlsx`): `crates/warden-core/Cargo.toml` — `rust_xlsxwriter` 0.95→0.102 e `calamine` 0.36→0.37 (o `zip 8.6.0` que o `calamine` 0.36 puxava está yanked). `cargo update -p rust_xlsxwriter -p calamine`: saem `zip 7.2.0`, `zip 8.6.0` e `quick-xml 0.41.0`; entra `zip 9.2.0`; `typed-path` 0.12.3→0.13.0 vem junto. `document.rs` não mudou.
+- **Verificado**: `cargo test -p warden-core --lib document` com 16 testes verdes (inclui `writes_an_xlsx_file` e `writes_an_xlsx_with_multiple_sheets`, de ida e volta pelo `calamine`); `cargo tree --locked -i zip` mostra só `zip v9.2.0`; clippy sem aviso em `document.rs`. Gerei a mesma planilha (2 abas, cabeçalho em negrito com fundo, formatos de moeda e porcentagem, booleano, fórmula, `autofit` e largura fixa) com 0.95 e 0.102 num projeto à parte e comparei os arquivos descompactados: `diff -rq` não achou nenhuma diferença. CI do PR: ver o corpo do PR.
+- **Não verificado**: (1) a planilha só exercita as chamadas que o `document.rs` usa, não todos os caminhos do crate; (2) a suíte completa só roda no CI; (3) a contagem de alertas depois do merge: a API ainda mostrava 34 abertos depois do PR anterior (o grafo já tem as versões novas), então não sei quando o GitHub fecha os alertas.
+- **Fica**: `glib` (dispensa por `tolerable_risk`, só com confirmação do dono) e reler a contagem de alertas.
 
 ---
 
