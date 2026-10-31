@@ -196,6 +196,33 @@ mod tests {
         );
     }
 
+    /// Contract for the `k256` upgrade: `ecies_decrypt` must open a blob built from frozen
+    /// values only (the ephemeral key is the scalar 2, so its public key and the AES key are the
+    /// constants the Dart-verified test above already pins), never from a random one.
+    #[test]
+    fn ecies_decrypt_opens_a_blob_built_from_frozen_values() {
+        let ephemeral_pub = hex::decode("02c6047f9441ed7d6d3045406e95c07cd85c778e4b8cef3ca7abac09b95c709ee5").unwrap();
+        let aes_key = hex::decode("0135da2f8acf7b9e3090939432e47684eb888ea38c2173054d4eedffdf152ca5").unwrap();
+        let nonce = [7u8; NONCE_LEN];
+        let plaintext = b"frozen ecies payload";
+
+        let cipher = Aes256Gcm::new(Key::<Aes256Gcm>::from_slice(&aes_key));
+        let ciphertext = cipher.encrypt(Nonce::from_slice(&nonce), plaintext.as_ref()).unwrap();
+        let mut blob = ephemeral_pub;
+        blob.extend_from_slice(&nonce);
+        blob.extend_from_slice(&ciphertext);
+
+        let mut recipient_bytes = [0u8; 32];
+        recipient_bytes[31] = 1;
+        let recipient = SecretKey::from_slice(&recipient_bytes).unwrap();
+
+        assert_eq!(ecies_decrypt(&blob, &recipient).unwrap(), plaintext);
+        // A different recipient (scalar 3) derives another key and must not open it.
+        recipient_bytes[31] = 3;
+        let stranger = SecretKey::from_slice(&recipient_bytes).unwrap();
+        assert!(ecies_decrypt(&blob, &stranger).is_err());
+    }
+
     #[test]
     fn derive_pin_content_key_rejects_invalid_hex() {
         assert!(derive_pin_content_key("not-hex").is_err());
