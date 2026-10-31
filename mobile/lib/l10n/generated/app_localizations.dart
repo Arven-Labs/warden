@@ -2354,6 +2354,120 @@ abstract class AppLocalizations {
   /// **'Saving…'**
   String get skillsSaving;
 
+  /// No description provided for @skillsFilesTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Attached files'**
+  String get skillsFilesTitle;
+
+  /// No description provided for @skillsFilesHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Text files (up to 64 KB, {max} per skill) the AI can read when it uses this skill. Attaching one with the same name replaces it.'**
+  String skillsFilesHint(int max);
+
+  /// No description provided for @skillsFilesNone.
+  ///
+  /// In en, this message translates to:
+  /// **'No attached files.'**
+  String get skillsFilesNone;
+
+  /// No description provided for @skillsFileSize.
+  ///
+  /// In en, this message translates to:
+  /// **'{size} bytes'**
+  String skillsFileSize(int size);
+
+  /// No description provided for @skillsFileAttach.
+  ///
+  /// In en, this message translates to:
+  /// **'Attach a file'**
+  String get skillsFileAttach;
+
+  /// No description provided for @skillsFileNameLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'File name'**
+  String get skillsFileNameLabel;
+
+  /// No description provided for @skillsFileTextLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Text'**
+  String get skillsFileTextLabel;
+
+  /// No description provided for @skillsFileAttachConfirm.
+  ///
+  /// In en, this message translates to:
+  /// **'Attach'**
+  String get skillsFileAttachConfirm;
+
+  /// No description provided for @skillsFileView.
+  ///
+  /// In en, this message translates to:
+  /// **'View {name}'**
+  String skillsFileView(String name);
+
+  /// No description provided for @skillsFileHide.
+  ///
+  /// In en, this message translates to:
+  /// **'Hide {name}'**
+  String skillsFileHide(String name);
+
+  /// No description provided for @skillsFileRemove.
+  ///
+  /// In en, this message translates to:
+  /// **'Remove {name}'**
+  String skillsFileRemove(String name);
+
+  /// No description provided for @skillsFileRemoveTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Remove \'{name}\'?'**
+  String skillsFileRemoveTitle(String name);
+
+  /// No description provided for @skillsFileNameLength.
+  ///
+  /// In en, this message translates to:
+  /// **'The file name must be 1 to 64 characters.'**
+  String get skillsFileNameLength;
+
+  /// No description provided for @skillsFileNameChars.
+  ///
+  /// In en, this message translates to:
+  /// **'The file name may only use letters, digits, dot, dash and underscore.'**
+  String get skillsFileNameChars;
+
+  /// No description provided for @skillsFileNameDot.
+  ///
+  /// In en, this message translates to:
+  /// **'The file name can\'t start with a dot.'**
+  String get skillsFileNameDot;
+
+  /// No description provided for @skillsFileTooBig.
+  ///
+  /// In en, this message translates to:
+  /// **'The text is bigger than 64 KB.'**
+  String get skillsFileTooBig;
+
+  /// No description provided for @skillsFileNotText.
+  ///
+  /// In en, this message translates to:
+  /// **'The text can\'t hold a NUL character.'**
+  String get skillsFileNotText;
+
+  /// No description provided for @skillsFileLimit.
+  ///
+  /// In en, this message translates to:
+  /// **'A skill takes at most {max} files; remove one first.'**
+  String skillsFileLimit(int max);
+
+  /// No description provided for @skillsFileFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Attached file failed: {error}'**
+  String skillsFileFailed(String error);
+
   /// No description provided for @skillsDraftLabel.
   ///
   /// In en, this message translates to:

@@ -1,8 +1,8 @@
 import '../src/rust/api/skills.dart' as bridge;
-import '../src/rust/api/skills.dart' show CatalogSkillDto, SkillDto;
+import '../src/rust/api/skills.dart' show CatalogSkillDto, SkillDto, SkillFileInfo;
 import 'vault_paths.dart';
 
-export '../src/rust/api/skills.dart' show CatalogSkillDto, SkillDto;
+export '../src/rust/api/skills.dart' show CatalogSkillDto, SkillDto, SkillFileInfo;
 
 /// P72 (b) — the seam between `SkillsScreen` and the Rust bridge, so the screen can be tested with
 /// a fake instead of a native library. The real implementation reads/writes `skills/<name>.md` in
@@ -24,6 +24,18 @@ abstract class SkillsRepository {
   /// Copies the gallery skill `name` into the vault. One that differs from what's there is only
   /// replaced with `overwrite: true`.
   Future<void> installCatalog(String name, {required bool overwrite});
+
+  /// The skill's attached files (P72 d), by name and size in bytes, sorted. They sit in `skills/<name>.files/`, next to the
+  /// skill, and ride the vault sync with it. Empty when there are none.
+  Future<List<SkillFileInfo>> listFiles(String name);
+
+  Future<String> readFile(String name, String file);
+
+  /// Creates or replaces an attachment; the skill must already be saved. The Rust store refuses a bad name, more than
+  /// 64 KB and a 21st file.
+  Future<void> saveFile(String name, String file, String content);
+
+  Future<void> deleteFile(String name, String file);
 }
 
 class BridgeSkillsRepository implements SkillsRepository {
@@ -47,4 +59,19 @@ class BridgeSkillsRepository implements SkillsRepository {
   @override
   Future<void> installCatalog(String name, {required bool overwrite}) async =>
       bridge.bridgeInstallCatalogSkill(vaultRoot: await _vaultRoot(), name: name, overwrite: overwrite);
+
+  @override
+  Future<List<SkillFileInfo>> listFiles(String name) async => bridge.bridgeListSkillFiles(vaultRoot: await _vaultRoot(), name: name);
+
+  @override
+  Future<String> readFile(String name, String file) async =>
+      bridge.bridgeReadSkillFile(vaultRoot: await _vaultRoot(), name: name, file: file);
+
+  @override
+  Future<void> saveFile(String name, String file, String content) async =>
+      bridge.bridgeSaveSkillFile(vaultRoot: await _vaultRoot(), name: name, file: file, content: content);
+
+  @override
+  Future<void> deleteFile(String name, String file) async =>
+      bridge.bridgeDeleteSkillFile(vaultRoot: await _vaultRoot(), name: name, file: file);
 }

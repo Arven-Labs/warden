@@ -1452,6 +1452,81 @@ class AppLocalizationsEn extends AppLocalizations {
   String get skillsSaving => 'Saving…';
 
   @override
+  String get skillsFilesTitle => 'Attached files';
+
+  @override
+  String skillsFilesHint(int max) {
+    return 'Text files (up to 64 KB, $max per skill) the AI can read when it uses this skill. Attaching one with the same name replaces it.';
+  }
+
+  @override
+  String get skillsFilesNone => 'No attached files.';
+
+  @override
+  String skillsFileSize(int size) {
+    return '$size bytes';
+  }
+
+  @override
+  String get skillsFileAttach => 'Attach a file';
+
+  @override
+  String get skillsFileNameLabel => 'File name';
+
+  @override
+  String get skillsFileTextLabel => 'Text';
+
+  @override
+  String get skillsFileAttachConfirm => 'Attach';
+
+  @override
+  String skillsFileView(String name) {
+    return 'View $name';
+  }
+
+  @override
+  String skillsFileHide(String name) {
+    return 'Hide $name';
+  }
+
+  @override
+  String skillsFileRemove(String name) {
+    return 'Remove $name';
+  }
+
+  @override
+  String skillsFileRemoveTitle(String name) {
+    return 'Remove \'$name\'?';
+  }
+
+  @override
+  String get skillsFileNameLength =>
+      'The file name must be 1 to 64 characters.';
+
+  @override
+  String get skillsFileNameChars =>
+      'The file name may only use letters, digits, dot, dash and underscore.';
+
+  @override
+  String get skillsFileNameDot => 'The file name can\'t start with a dot.';
+
+  @override
+  String get skillsFileTooBig => 'The text is bigger than 64 KB.';
+
+  @override
+  String get skillsFileNotText => 'The text can\'t hold a NUL character.';
+
+  @override
+  String skillsFileLimit(int max) {
+    return 'A skill takes at most $max files; remove one first.';
+  }
+
+  @override
+  String skillsFileFailed(String error) {
+    return 'Attached file failed: $error';
+  }
+
+  @override
   String get skillsDraftLabel => 'Describe the skill and the AI writes a draft';
 
   @override
