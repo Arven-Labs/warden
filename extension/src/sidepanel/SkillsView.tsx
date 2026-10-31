@@ -1,9 +1,10 @@
 import { useEffect, useState } from "react";
 import type { CatalogSkillDto, SkillDto } from "../protocol/messages";
-import type { DraftSkillResponse, ListSkillCatalogResponse, ListSkillsResponse, OkResponse } from "../background/popup_protocol";
+import type { DraftSkillResponse, ListSkillCatalogResponse, ListSkillsResponse, OkResponse, ReadSkillFileResponse } from "../background/popup_protocol";
 import { t } from "../i18n/index.ts";
 import { useLocale } from "../i18n/react.tsx";
 import { catalogAction, catalogDescription } from "./lib/skillCatalog";
+import { MAX_FILES_PER_SKILL, canAttach, decodeAttachment, validateFileName } from "./lib/skillFiles";
 import { diffLines, hasChanges, withContext } from "./skillDiff";
 
 /** What the editor form is doing: `new` (name editable, refuses a taken name) or `edit` (name
@@ -30,6 +31,10 @@ export default function SkillsView() {
   const [catalog, setCatalog] = useState<CatalogSkillDto[] | null>(null);
   const [installing, setInstalling] = useState<string | null>(null);
   const [confirmReplace, setConfirmReplace] = useState<string | null>(null);
+  // P72 — the attachments of the skill being edited: whether one is being sent, the one shown (read on demand), the one asked to be removed.
+  const [attaching, setAttaching] = useState(false);
+  const [viewing, setViewing] = useState<{ file: string; content: string } | null>(null);
+  const [confirmFileRemove, setConfirmFileRemove] = useState<string | null>(null);
   const locale = useLocale();
 
   function refresh() {
@@ -124,6 +129,63 @@ export default function SkillsView() {
     setEditor((current) => (current ? { ...current, skill: { ...current.skill, ...patch } } : current));
   }
 
+  /** Reloads the list and takes only `name`'s attachments from it, so what the person typed in the form is not lost
+   * (`refresh` would rebuild the whole editor). */
+  function reloadFiles(name: string) {
+    chrome.runtime.sendMessage({ type: "listSkills" }).then((res: ListSkillsResponse) => {
+      if (!res.ok) return;
+      setSkills(res.skills);
+      const files = res.skills.find((s) => s.name === name)?.files;
+      setEditor((current) => (current && current.skill.name === name ? { ...current, skill: { ...current.skill, files } } : current));
+    });
+  }
+
+  const fileNameMessage = { length: "skills.fileNameLength", chars: "skills.fileNameChars", dot: "skills.fileNameDot" } as const;
+
+  /** Checks the chosen file the way the hub will (name, 64 KB in bytes, UTF-8, 20 per skill) and sends it; the hub still decides. */
+  async function handleAttach(chosen: File | undefined, skill: SkillDto) {
+    if (!chosen) return;
+    setError(null);
+    const problem = validateFileName(chosen.name);
+    if (problem) return setError(t(fileNameMessage[problem]));
+    if (!canAttach(skill.files, chosen.name)) return setError(t("skills.fileLimit", { max: MAX_FILES_PER_SKILL }));
+    const decoded = decodeAttachment(new Uint8Array(await chosen.arrayBuffer()));
+    if (!decoded.ok) return setError(t(decoded.reason === "tooBig" ? "skills.fileTooBig" : "skills.fileNotText"));
+    setAttaching(true);
+    chrome.runtime.sendMessage({ type: "saveSkillFile", name: skill.name, file: chosen.name, content: decoded.text }).then((res: OkResponse) => {
+      setAttaching(false);
+      if (res.ok) {
+        // A file that was on screen is now out of date.
+        setViewing((current) => (current?.file === chosen.name ? null : current));
+        reloadFiles(skill.name);
+      } else {
+        setError(res.error ?? t("skills.fileSaveFailed"));
+      }
+    });
+  }
+
+  function handleViewFile(name: string, file: string) {
+    if (viewing?.file === file) return setViewing(null);
+    setError(null);
+    chrome.runtime.sendMessage({ type: "readSkillFile", name, file }).then((res: ReadSkillFileResponse) => {
+      if (res.ok && res.content !== undefined) setViewing({ file, content: res.content });
+      else setError(res.error ?? t("skills.fileReadFailed"));
+    });
+  }
+
+  function handleRemoveFile(name: string, file: string) {
+    setError(null);
+    chrome.runtime.sendMessage({ type: "deleteSkillFile", name, file }).then((res: OkResponse) => {
+      setConfirmFileRemove(null);
+      if (res.ok) {
+        setViewing((current) => (current?.file === file ? null : current));
+        reloadFiles(name);
+      } else {
+        setError(res.error ?? t("skills.fileDeleteFailed"));
+      }
+    });
+  }
+
   if (editor) {
     return (
       <form
@@ -183,6 +245,57 @@ export default function SkillsView() {
             {t("skills.acceptThis")}
           </label>
         )}
+        <fieldset className="skills-files">
+          <legend>{t("skills.files")}</legend>
+          {editor.mode === "new" ? (
+            <span className="skills-hint">{t("skills.filesSaveFirst")}</span>
+          ) : (
+            <>
+              <span className="skills-hint">{t("skills.filesHint", { max: MAX_FILES_PER_SKILL })}</span>
+              {(editor.skill.files ?? []).length === 0 && <span className="skills-hint">{t("skills.filesNone")}</span>}
+              {(editor.skill.files ?? []).map((f) => (
+                <div key={f.name} className="skills-file">
+                  <div className="skills-file-row">
+                    <span className="skills-file-name">{f.name}</span>
+                    <span className="skills-hint">{t("skills.fileSize", { size: f.size })}</span>
+                    <button type="button" className="link-button" onClick={() => handleViewFile(editor.skill.name, f.name)}>
+                      {viewing?.file === f.name ? t("skills.fileHide") : t("skills.fileView")}
+                    </button>
+                    {confirmFileRemove === f.name ? (
+                      <>
+                        <span className="skills-hint">{t("skills.fileRemoveConfirm", { name: f.name })}</span>
+                        <button type="button" className="link-button skills-danger" onClick={() => handleRemoveFile(editor.skill.name, f.name)}>
+                          {t("skills.fileRemove")}
+                        </button>
+                        <button type="button" className="link-button" onClick={() => setConfirmFileRemove(null)}>
+                          {t("common.cancel")}
+                        </button>
+                      </>
+                    ) : (
+                      <button type="button" className="link-button skills-danger" onClick={() => setConfirmFileRemove(f.name)}>
+                        {t("skills.fileRemove")}
+                      </button>
+                    )}
+                  </div>
+                  {viewing?.file === f.name && <pre className="skills-diff">{viewing.content}</pre>}
+                </div>
+              ))}
+              <label className="skills-file-add">
+                {attaching ? t("skills.fileAdding") : t("skills.fileAdd")}
+                <input
+                  type="file"
+                  disabled={attaching}
+                  onChange={(e) => {
+                    const input = e.target;
+                    void handleAttach(input.files?.[0], editor.skill).finally(() => {
+                      input.value = "";
+                    });
+                  }}
+                />
+              </label>
+            </>
+          )}
+        </fieldset>
         {error && <p className="error-banner">{error}</p>}
         <div className="skills-actions">
           <button type="submit" disabled={saving}>

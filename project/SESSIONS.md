@@ -2,7 +2,19 @@
 
 > **Nota**: Este log foi criado junto com o projeto. As sessões serão registradas aqui conforme o trabalho avança.
 >
-> Última atualização: 2026-10-31 (Sessão 334)
+> Última atualização: 2026-10-31 (Sessão 335)
+
+---
+
+### 2026-10-31 — Sessão 335 (anexos de skill na extensão — P72, PR 2 de 3)
+
+- **Pedido**: seguir com o PR 2 do P72. O dono aprovou o plano em plan mode e escolheu: conteúdo por seletor de arquivo, e seção completa (listar, ver, anexar/substituir, remover).
+- **Feito** (PR #23, só `extension/`): `SkillFileInfo`, `files?` e as mensagens `readSkillFile`/`saveSkillFile`/`deleteSkillFile`/`skillFile` em `messages.ts`; os três pedidos em `connection.ts`, `popup_protocol.ts` e `background/index.ts`; `sidepanel/lib/skillFiles.ts` (nome, 64 KB em bytes, UTF-8 estrito sem NUL, 20 por skill); seção "Arquivos anexados" em `SkillsView.tsx` (só na edição), CSS e i18n en e pt-BR. Depois de cada operação só `files` do editor é recarregado (`reloadFiles`), para não perder o que foi digitado.
+- **Desvio do plano**: o `decode` não normaliza `files ?? []` (mudaria o teste do rascunho); a UI usa `?? []`.
+- **Verificado**: localmente `npm test` com 146 testes verdes e `npm run build` (`tsc` + vite) limpo. "Falha antes" provado para `an attachment's text comes back as it is` (sem o `messages.ts` novo falha) e para `skillFiles.test.mjs` (módulo inexistente). CI do PR #23 no commit `9043a31` (o do código): `Frontend (extension)`, `Changed areas` e `guard` passaram; `Rust`, `Android` e `Mobile` foram pulados (o PR só toca `extension/`).
+- **Não verificado**: (1) a tela num Brave/Chrome de verdade e contra um hub real: o seletor de arquivo é o primeiro da extensão e o CI não cobre a extensão de ponta a ponta; (2) o teste de `skillList` com `files` já passava antes (o spread preserva o campo), só documenta; (3) erro do hub e o limite de 20 só pela lógica pura, não pela tela; (4) `npm ci` avisou que o `postinstall` do `esbuild` não foi aprovado (`npm install-scripts`); o build funcionou mesmo assim, não investiguei.
+- **Atenção**: um hub anterior ao #22 ignora as mensagens novas e o pedido estoura em 15 s; a extensão não detecta a versão do hub.
+- **Fica**: PR 3 (UI no celular, pela ponte Rust, com `frb_generated` regenerado), em `PENDING.md` P72. P170 segue aberto.
 
 ---
 

@@ -25,6 +25,12 @@ export interface ToolSpec {
   parameters: unknown;
 }
 
+/** Mirrors `warden_server_protocol::protocol::SkillFileInfo` (P72): one attachment of a skill, by name and size in bytes. */
+export interface SkillFileInfo {
+  name: string;
+  size: number;
+}
+
 /** Mirrors `warden_server_protocol::protocol::SkillDto` (P72). `agents` is the agent restriction
  * (empty = every agent) — this client only displays it; an edit that sends `[]` keeps whatever the
  * server has stored. */
@@ -33,6 +39,9 @@ export interface SkillDto {
   description: string;
   body: string;
   agents: string[];
+  /** The attachments, by name and size; absent when there are none. A save ignores it — they change through
+   * `saveSkillFile`/`deleteSkillFile`. */
+  files?: SkillFileInfo[];
   /** P104 — a suggestion the assistant made, still pending. Sending a save without it accepts the skill. */
   proposed?: boolean;
   source?: string;
@@ -286,6 +295,11 @@ export type ClientMessage =
   | { type: "listSkills"; requestId: number }
   | { type: "saveSkill"; requestId: number; skill: SkillDto; overwrite: boolean }
   | { type: "deleteSkill"; requestId: number; name: string }
+  /** P72 — a skill's attachments: the text of one (answered by `skillFile`), save one (text only, at most 64 KB, 20 per skill)
+   * or remove one (both answered by `skillOk`). */
+  | { type: "readSkillFile"; requestId: number; name: string; file: string }
+  | { type: "saveSkillFile"; requestId: number; name: string; file: string; content: string }
+  | { type: "deleteSkillFile"; requestId: number; name: string; file: string }
   /** P72 — "describe a skill and the AI writes it": one model call on the hub, answered by `skillDraft`. Never saves. */
   | { type: "draftSkill"; requestId: number; description: string }
   /** P140 — the gallery of ready-made skills; a skill that differs from the one in the vault is only replaced with `overwrite`. */
@@ -359,6 +373,7 @@ export type ServerMessage =
   | { type: "skillList"; requestId: number; skills: SkillDto[] }
   | { type: "skillCatalog"; requestId: number; entries: CatalogSkillDto[] }
   | { type: "skillOk"; requestId: number }
+  | { type: "skillFile"; requestId: number; content: string }
   | { type: "skillDraft"; requestId: number; skill: SkillDto }
   | { type: "skillError"; requestId: number; message: string }
   | { type: "history"; requestId: number; messages: HistoryMessage[] }
@@ -481,6 +496,7 @@ export function decode(text: string): ServerMessage {
     case "conversationsChanged":
     case "skillCatalog":
     case "skillOk":
+    case "skillFile":
     case "skillError":
     case "historyError":
     case "conversationList":
