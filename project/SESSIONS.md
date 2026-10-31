@@ -2,7 +2,18 @@
 
 > **Nota**: Este log foi criado junto com o projeto. As sessões serão registradas aqui conforme o trabalho avança.
 >
-> Última atualização: 2026-10-31 (Sessão 349)
+> Última atualização: 2026-10-31 (Sessão 350)
+
+---
+
+### 2026-10-31 — Sessão 350 (`k256` 0.13→0.14 para fechar o `crypto-bigint` — P173)
+
+- **Pedido**: executar o plano aprovado da Sessão 349: contrato de testes primeiro, depois a migração.
+- **Feito**: (1) teste `ecies_decrypt_opens_a_blob_built_from_frozen_values` (`warden-truthid/src/crypto.rs`), aprovado pelo dono antes da migração; (2) `k256` 0.14 em `warden-truthid`, `warden-bootstrap` e `warden-server`; `warden-truthid` com `SecretKey::generate()`, `to_sec1_point` e sem o `.expect` do `sign_prehash_recoverable`. Lockfile: `crypto-bigint` 0.7.10, `elliptic-curve` 0.14.3, `ecdsa` 0.17.0, `signature` 3.0.0, `primeorder`, `primefield`, `wnaf`, `ctutils`, `cmov`, `hkdf`/`hmac` 0.13 novos.
+- **Verificado**: `cargo audit`: 0 vulnerabilidades (antes 1); `cargo check --workspace --all-targets` passa; `cargo test -p warden-truthid -p warden-bootstrap -p warden-server --locked --no-fail-fast` com `CARGO_INCREMENTAL=0` e `-j 2`: 53 suítes, 1105 passaram, 0 falharam, 8 ignorados; clippy nesses 3 crates, exit 0 com avisos.
+- **Não verificado**: a suíte do workspace inteira (a máquina teve ICE do `rustc`, SIGSEGV do `clippy-driver` e crash do `rust-lld`; a causa não foi provada, suspeita de ambiente); 2 testes de `people.rs` falharam uma vez na suíte completa e passaram em 3 execuções isoladas (família do P171, não provado); compatibilidade com blobs e assinaturas reais já gravados; o CI deste PR.
+- **Deslize**: numa análise descartável editei `Cargo.toml` com `sed -i`, contra o `CLAUDE.md`; revertido com `git checkout` e refeito com `Edit`.
+- **Fica**: confirmar o CI e a confirmação do dono (criptografia, §4) antes de mesclar; checagem do segredo no `warden-gateway` (Sessão 346); os 7 avisos de manutenção do `cargo audit`.
 
 ---
 
