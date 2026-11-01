@@ -8,10 +8,13 @@
  * device's conversations (P40, several since P78), so every connect reloads the open one from there
  * (`loadHistory`); a service worker that gets evicted loses the connection and the transcript
  * together, and the next connect brings the transcript back. Only which conversation was open is
- * kept in `chrome.storage`, so it reopens on the next connect. No automatic
- * reconnect either: a fresh service worker reports `disconnected`, and the panel shows the
- * connection form again — same accepted gap `server_connection.dart` (Phase 7.2) drew, see its doc
- * comment.
+ * kept in `chrome.storage`, so it reopens on the next connect.
+ *
+ * Reconnect (P67): a connection that drops is dialled again with a growing wait, and a service worker that
+ * starts connects by itself if the person had been connected (`wantConnected` in `chrome.storage`). Neither
+ * happens after the person disconnects or after the hub refuses the key. The wait is a `setTimeout`, so an
+ * evicted service worker loses the timer; the next one to start connects instead (no `alarms` permission, by
+ * choice). The rules are in `protocol/reconnect.ts`.
  */
 
 import { HubRequestError, ServerConnection, type ChatEntry, type ConnectionStatus } from "./connection";
@@ -22,6 +25,7 @@ import { applyEvent, type LiveTurn } from "../protocol/liveTurn";
 import { entriesBefore, redoBlock } from "../protocol/regenerate";
 import { visibleConversations, withMessageIds } from "../protocol/threads";
 import { badgeText, baseline, markSeen, notificationBody, unreadIds, type SeenMap } from "../protocol/unread";
+import { canAutoConnect, isAuthRejection, retryDelayMs, STABLE_AFTER_MS } from "../protocol/reconnect";
 import { toolSpecs, toolHandlers } from "./tools";
 import { addActiveTabToGroup, listGroupTabs, removeTabFromGroup, setGroupChangeListener } from "./tab_group";
 import { openPanel, setUpPanelOpening, supportsHubDiscovery } from "./platform";
@@ -36,8 +40,19 @@ const STORAGE_KEY_SETTINGS = "connectionSettings";
 const STORAGE_KEY_DEVICE_TOKENS = "deviceTokens";
 const STORAGE_KEY_ACTIVE_CONVERSATION = "activeConversation";
 const STORAGE_KEY_SEEN = "channelSeen";
+const STORAGE_KEY_WANT_CONNECTED = "wantConnected";
 
 let connection: ServerConnection | null = null;
+/** Automatic reconnect: whether the person wants to be connected (they connected and did not disconnect since, and the hub did not refuse the
+ * key). Kept in `chrome.storage.local` so a service worker that comes back after being evicted knows to connect again. */
+let wantConnected = false;
+/** How many retries in a row have failed since the last good connection, for the wait before the next one. */
+let retryAttempt = 0;
+let retryTimer: ReturnType<typeof setTimeout> | null = null;
+/** Runs `retryAttempt = 0` once a connection has held for `STABLE_AFTER_MS`. */
+let stableTimer: ReturnType<typeof setTimeout> | null = null;
+/** Bumped by every connect, so one that finishes after a newer one started closes its socket instead of replacing it. */
+let connectGeneration = 0;
 /** The open conversation's transcript. */
 let history: ChatEntry[] = [];
 let currentStatus: ConnectionStatus = { kind: "disconnected" };
@@ -104,6 +119,64 @@ function broadcast(message: unknown): void {
 function setStatus(status: ConnectionStatus): void {
   currentStatus = status;
   broadcast({ type: "statusChanged", status });
+  followForReconnect(status);
+}
+
+function cancelRetry(): void {
+  if (retryTimer !== null) clearTimeout(retryTimer);
+  retryTimer = null;
+}
+
+async function setWantConnected(wanted: boolean): Promise<void> {
+  wantConnected = wanted;
+  if (!wanted) {
+    cancelRetry();
+    retryAttempt = 0;
+  }
+  await chrome.storage.local.set({ [STORAGE_KEY_WANT_CONNECTED]: wanted });
+}
+
+/** A good connection ends the run of retries; a failure schedules the next one (`retryDelayMs` says no to a refusal of the key, and to a person
+ * who disconnected); a refusal also stops wanting to be connected, so the next service worker does not knock again with the same wrong key. */
+function followForReconnect(status: ConnectionStatus): void {
+  if (stableTimer !== null) clearTimeout(stableTimer);
+  stableTimer = null;
+  if (status.kind === "connected") {
+    cancelRetry();
+    // Forgotten only once it has held for a while: a hub that accepts and drops at once keeps the growing wait.
+    stableTimer = setTimeout(() => (retryAttempt = 0), STABLE_AFTER_MS);
+    return;
+  }
+  if (status.kind === "failure" && isAuthRejection(status.message) && wantConnected) void setWantConnected(false);
+  const delay = retryDelayMs(wantConnected, status, retryAttempt);
+  if (delay === null) return;
+  cancelRetry();
+  retryAttempt += 1;
+  retryTimer = setTimeout(() => void retryConnect(), delay);
+}
+
+/** Dials the hub saved last time, with the same request a click on "Connect" would make. */
+async function connectSaved(): Promise<void> {
+  const saved = await getSavedSettings();
+  if (!canAutoConnect(wantConnected, saved)) return;
+  await handleRequest({ type: "connect", ...(saved as ConnectionSettings) });
+}
+
+async function retryConnect(): Promise<void> {
+  retryTimer = null;
+  // Something else (the person, or the service worker starting) connected, or is connecting, in the meantime.
+  if (!wantConnected || currentStatus.kind === "connected" || currentStatus.kind === "connecting") return;
+  await connectSaved();
+}
+
+/** A service worker that has just started (the browser evicts an idle one, and the socket goes with it) connects again if the person was
+ * connected. */
+async function connectOnStart(): Promise<void> {
+  const stored = (await chrome.storage.local.get(STORAGE_KEY_WANT_CONNECTED))[STORAGE_KEY_WANT_CONNECTED] as boolean | undefined;
+  // The person clicked Connect (or Disconnect) while this was reading: what they asked for wins over what was saved.
+  if (connectGeneration > 0 || connection !== null) return;
+  wantConnected = stored === true;
+  await connectSaved();
 }
 
 /** Sets (or, with `null`, drops) a conversation's live turn and tells the panel. */
@@ -345,6 +418,8 @@ async function handleRequest(request: PopupRequest): Promise<unknown> {
       return { status: currentStatus, history, savedSettings: await getSavedSettings(), approvals, liveTurns, ...conversationState() };
 
     case "connect": {
+      const generation = ++connectGeneration;
+      cancelRetry();
       connection?.goodbye();
       const deviceId = await getOrCreateDeviceId();
       const hub = `${request.host}:${request.port}`;
@@ -366,6 +441,11 @@ async function handleRequest(request: PopupRequest): Promise<unknown> {
         const message = err instanceof Error ? err.message : String(err);
         setStatus({ kind: "failure", message });
         return { ok: false, error: message };
+      }
+      if (generation !== connectGeneration) {
+        // A newer connect (the person's click, or a retry) started while this one was dialling: the newer one owns the connection.
+        next.goodbye();
+        return { ok: false, error: "superseded by a newer connect" };
       }
       if (next.issuedDeviceToken !== undefined) await saveDeviceToken(hub, next.issuedDeviceToken);
       connection = next;
@@ -442,10 +522,12 @@ async function handleRequest(request: PopupRequest): Promise<unknown> {
       });
       void restoreConversations(next);
       void refreshAgents(next);
+      await setWantConnected(true);
       return { ok: true };
     }
 
     case "disconnect":
+      await setWantConnected(false);
       connection?.goodbye();
       connection = null;
       setApprovals([]);
@@ -771,8 +853,16 @@ async function handleRequest(request: PopupRequest): Promise<unknown> {
 }
 
 chrome.runtime.onMessage.addListener((request: PopupRequest, _sender, sendResponse) => {
+  // A click on Connect starts over: until it succeeds nothing retries the hub saved last time (a typo in the address would otherwise send the
+  // retries back to the old one).
+  if (request.type === "connect") {
+    wantConnected = false;
+    cancelRetry();
+  }
   handleRequest(request)
     .then(sendResponse)
     .catch((err: unknown) => sendResponse({ ok: false, error: err instanceof Error ? err.message : String(err) }));
   return true; // keep the message channel open for the async response above
 });
+
+void connectOnStart();

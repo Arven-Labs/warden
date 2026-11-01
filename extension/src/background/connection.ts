@@ -6,8 +6,9 @@
  * 116+ resets the service worker's idle-shutdown timer on WebSocket message activity).
  *
  * Tool-call handling (Phase 8.3-8.6) also ports `_handleToolCallRequest` from the Dart client.
- * Deliberately still out of scope, same cut line `server_connection.dart` drew for Phase 7.2: no
- * automatic reconnect on a dropped/failed connection.
+ * Deliberately not here, same cut line `server_connection.dart` drew for Phase 7.2: reconnecting after a drop. A
+ * `ServerConnection` is one socket and never dials again; `background/index.ts` decides when to make a new one
+ * (`protocol/reconnect.ts`).
  */
 
 import {
@@ -34,6 +35,7 @@ import {
   type ThreadParent,
   type ToolSpec,
 } from "../protocol/messages";
+import { AUTH_REJECTED_PREFIX } from "../protocol/reconnect";
 
 /** A local tool this client can run when the server asks (Phase 8.3-8.6) — `args` is whatever
  * JSON value the model passed as the tool call's arguments. Return the JSON-encodable result, or
@@ -161,7 +163,7 @@ export class ServerConnection {
       this.setStatus(
         this.goodbyeSent
           ? { kind: "disconnected" }
-          : { kind: "failure", message: this.rejectedReason !== null ? `authentication rejected: ${this.rejectedReason}` : "Connection closed unexpectedly" },
+          : { kind: "failure", message: this.rejectedReason !== null ? `${AUTH_REJECTED_PREFIX}: ${this.rejectedReason}` : "Connection closed unexpectedly" },
       );
     });
   }
@@ -238,7 +240,7 @@ export class ServerConnection {
               break;
             case "authError":
               socket.close();
-              reject(new HandshakeError(`authentication rejected: ${reply.reason}`));
+              reject(new HandshakeError(`${AUTH_REJECTED_PREFIX}: ${reply.reason}`));
               break;
             default:
               socket.close();
