@@ -2,7 +2,17 @@
 
 > **Nota**: Este log foi criado junto com o projeto. As sessões serão registradas aqui conforme o trabalho avança.
 >
-> Última atualização: 2026-11-01 (Sessão 360)
+> Última atualização: 2026-11-01 (Sessão 361)
+
+---
+
+### 2026-11-01 — Sessão 361 (mapa de arquitetura e ADRs — P177)
+
+- **Pedido**: o P177, a escolha do dono depois do P176. Decisões dele (AskUserQuestion): **sim**, um mapa curto à parte; ADRs em `project/adr/` daqui para frente. Plan mode, plano aprovado.
+- **Feito** (PR `docs/arquitetura-e-adr`, só docs): `docs/ARQUITETURA.md` (tabela dos 14 crates com dependências lidas dos `Cargo.toml`, mais os clientes; 4 fluxos no formato de trace: chat no CLI/desktop, cliente remoto até o hub, sync Send/Pull, Warden hospedado), `project/adr/0001-mapa-de-arquitetura-e-adrs.md`, linha no `INDEX.md`, P177 fechado.
+- **Verificado**: `grep` de cada função e arquivo citado (49 símbolos em 15 arquivos, mais a existência de 5 caminhos): todos existem em `cf42bd6`. A conferência pegou 2 erros meus antes do PR: eu tinha escrito que o hub não participa do sync (participa: `SyncRunner` em `auto_sync.rs`, `sync_loop` e a tela Sync) e que a conversa do CLI é salva pelo bootstrap (não achei chamada de gravação no `warden-cli`); os dois trechos foram corrigidos, o segundo virou "não tracei".
+- **Não verificado**: `grep` prova que o símbolo existe, não que o salto descrito está certo; li os trechos, não executei os fluxos. Não tracei o caminho de `CodeTurn` e de aprovação de tools remotas (Fluxo 2), a gravação de conversa no CLI/desktop (Fluxo 1), nem a criptografia do bundle (Fluxo 3). Números de linha citados envelhecem.
+- **Fica**: P138; P176 (aguarda o CI); verificações manuais P67, P72, P73.
 
 ---
 
