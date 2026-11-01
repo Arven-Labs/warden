@@ -205,7 +205,7 @@ pub fn load_manifest(path: &Path) -> anyhow::Result<SyncManifest> {
 
 pub fn save_manifest(path: &Path, manifest: &SyncManifest) -> anyhow::Result<()> {
     if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent)?;
+        create_private_dir(parent)?;
     }
     write_atomic(path, serde_json::to_string_pretty(manifest)?.as_bytes(), false)
 }
@@ -321,6 +321,25 @@ mod tests {
         save_secrets(&path, &generate_secrets()).unwrap();
         assert_eq!(mode_of(&dir), 0o700);
         assert_eq!(mode_of(&dir.join("inner")), 0o700);
+    }
+
+    // The manifest is not secret, but it shares the folder with the vault key: if saving it is what creates the folder (the
+    // order of the first calls is not ours to rely on), the folder must not come out with the umask's mode.
+    #[cfg(unix)]
+    #[test]
+    fn a_folder_created_by_saving_the_manifest_is_owner_only() {
+        let dir = temp_path("manifest-new-dir");
+        save_manifest(&dir.join("inner").join("sync_manifest.json"), &SyncManifest { version: 1, ..Default::default() }).unwrap();
+        assert_eq!(mode_of(&dir), 0o700);
+        assert_eq!(mode_of(&dir.join("inner")), 0o700);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn saving_the_manifest_into_an_existing_folder_does_not_change_its_mode() {
+        let dir = dir_with_mode("manifest-existing-dir", 0o755);
+        save_manifest(&dir.join("sync_manifest.json"), &SyncManifest { version: 1, ..Default::default() }).unwrap();
+        assert_eq!(mode_of(&dir), 0o755);
     }
 
     #[cfg(unix)]
