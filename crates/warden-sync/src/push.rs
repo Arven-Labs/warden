@@ -128,7 +128,7 @@ pub async fn ensure_remote_not_newer(arweave: &ArweaveClient, manifest: &SyncMan
 }
 
 /// How far back `ensure_remote_not_newer` looks for the latest bundle (P-14).
-const RECENT_TXS_TO_SCAN: u32 = 10;
+pub(crate) const RECENT_TXS_TO_SCAN: u32 = 10;
 
 /// Runs the actual TruthID exchange (`pending.run`, sweeping every real LAN host — see
 /// `run_push_with_hosts` to target a known set instead, e.g. in tests), then folds the result
