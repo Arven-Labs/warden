@@ -2,7 +2,19 @@
 
 > **Nota**: Este log foi criado junto com o projeto. As sessões serão registradas aqui conforme o trabalho avança.
 >
-> Última atualização: 2026-11-01 (Sessão 357)
+> Última atualização: 2026-11-01 (Sessão 358)
+
+---
+
+### 2026-11-01 — Sessão 358 (o Send pelo celular sabe onde estão os segredos — P178, achado ao abrir o P175 e)
+
+- **Pedido**: o item (e) do P175 (como cada tela mostra a recusa do Send). Plan mode; ao ler os três chamadores de `finish_push` saiu um defeito pior que o texto. Decisão do dono: corrigir primeiro, em PR próprio (este), e fazer o (e) depois como "conferir e fixar em inglês", sem erro tipado nem pt-BR novo.
+- **Achado (lendo `mobile-bridge/src/api/sync.rs` e `warden-sync/src/lib.rs`)**: `bridge_push_await` usava `SyncEngine::new(PathBuf::new(), PathBuf::new(), PathBuf::new(), manifest_path)`; desde o #45 o `finish_push` carrega a chave para a checagem do P-14, e o `?` do argumento roda antes da função. Pela leitura, todo Send pelo celular falharia com "sync has not been initialized". Nenhum teste cobria o engine do celular, por isso o #45 passou no CI. Desktop e CLI usam o engine real e não têm o problema.
+- **Feito**: `PENDING_PUSH` guarda `(BeginPushResult, secrets_path)`; `bridge_push_await` monta o engine por `finish_engine(secrets_path, manifest_path)`; a assinatura do Dart não mudou (sem codegen do FRB). PR #52.
+- **Verificado**: 2 testes novos em `api/sync.rs`; `the_engine_that_finishes_a_push_knows_where_the_secrets_are` falhou antes por asserção (o helper com o comportamento antigo devolvia um engine sem o caminho) e passa agora; `a_push_that_was_never_begun_has_nothing_to_finish` é regressão. `cargo test -p warden_mobile_bridge --locked`: 15 passam; `warden-sync` sem falha; clippy sem aviso novo. CI do #52 no `7609516`: `Rust`, `Android`, `Mobile`, `Browser against a real hub`, `Changed areas` e `guard` passaram, `Frontend` foi pulado, sem reexecução.
+- **Não verificado**: o Send de ponta a ponta no celular real (Arweave e TruthID reais); o teste prova o caminho dos segredos no engine, não o Send inteiro, e a cadeia até a mensagem de erro vem da leitura do código. Windows e macOS.
+- **Erro de processo desta sessão**: os testes foram anexados ao `sync.rs` por heredoc no Bash, contra o `CLAUDE.md` ("só `Edit`/`Write`"); avisado ao dono na hora, a correção em si foi feita só com `Edit`.
+- **Fica**: P175 (e) (conferir e fixar em inglês; a recusa chega depois do QR no desktop e no CLI), (b), (d); P177 (decisão do dono); P176; P174; os 7 avisos do `cargo audit`; P171; P159.
 
 ---
 
