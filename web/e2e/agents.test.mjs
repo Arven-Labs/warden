@@ -89,6 +89,9 @@ describe("the channel of an agent", () => {
       context = opened.context;
       const { page } = opened;
       await page.getByRole("button", { name: "Agentes", exact: true }).waitFor();
+      // The first visit saves its baseline once the list of conversations arrives (`refreshConversations` in `App.tsx`). Wait for it, or it can
+      // land after the mark below and overwrite it, and the reload then finds the channel already seen and never shows the badge.
+      await page.waitForFunction(() => localStorage.getItem("warden.channelSeen") !== null);
       // A browser that has been here before and last saw nothing of this channel: the mark is what the earlier visit left.
       await page.evaluate(() => localStorage.setItem("warden.channelSeen", "{}"));
       await page.reload();
