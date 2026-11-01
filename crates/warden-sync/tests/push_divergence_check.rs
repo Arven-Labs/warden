@@ -171,6 +171,25 @@ async fn a_remote_bundle_with_the_same_counter_and_another_tx_is_a_divergence() 
     assert!(message.contains("diverged"), "{message}");
 }
 
+// P175(e): the desktop, the CLI and the phone show these refusals as they come, with no translation of their own (errors from Rust
+// stay in English), so the exact words are part of what the person reads. `desktop/e2e/screens.test.mjs` ("a send another device
+// got ahead of") carries a copy of the first one: change them together.
+#[tokio::test]
+async fn the_refusal_for_a_newer_snapshot_reads_exactly_like_this() {
+    let secrets = generate_secrets();
+    let (arweave, _) = gateway_with_latest("tx-other", LOCAL_COUNTER + 1, &secrets).await;
+    let message = refusal(ensure_remote_not_newer(&arweave, &local_manifest(), &secrets).await);
+    assert_eq!(message, "another device sent a newer snapshot (counter 6, this device is at 5); pull before sending");
+}
+
+#[tokio::test]
+async fn the_refusal_for_a_divergence_reads_exactly_like_this() {
+    let secrets = generate_secrets();
+    let (arweave, _) = gateway_with_latest("tx-other", LOCAL_COUNTER, &secrets).await;
+    let message = refusal(ensure_remote_not_newer(&arweave, &local_manifest(), &secrets).await);
+    assert_eq!(message, "another device sent from the same point and the two diverged (both at counter 5); pull before sending");
+}
+
 #[tokio::test]
 async fn a_lower_counter_is_a_gateway_that_has_not_caught_up_and_the_send_goes_ahead() {
     // Right after this device's own Send the gateway still answers the tx before it.

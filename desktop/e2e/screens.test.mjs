@@ -331,5 +331,36 @@ for (const colorScheme of ["light", "dark"]) {
         await context.close();
       }
     });
+
+    // P175(e): the refusal comes from Rust in English and the screen shows it as it is. The sentence is a copy of the one pinned in
+    // `crates/warden-sync/tests/push_divergence_check.rs` ("the refusal for a newer snapshot reads exactly like this"): change them together.
+    test("sync: a send another device got ahead of shows the reason and drops the QR", { timeout: TIMEOUT }, async () => {
+      const reason = "another device sent a newer snapshot (counter 6, this device is at 5); pull before sending";
+      const refused = deferred();
+      const handlers = backend({
+        sync_push_begin: { qrSvg: fakeQr(), filesChanged: 3, configChanged: true },
+        sync_push_await: () => refused.promise,
+      });
+      const { context, page, errors } = await openApp(browser, app, { handlers, colorScheme });
+      try {
+        await page.getByRole("button", { name: "Sync", exact: true }).click();
+        await page.getByRole("heading", { name: "Sync" }).waitFor();
+
+        await page.getByRole("button", { name: "Send", exact: true }).click();
+        await page.getByText("Waiting for approval…").waitFor();
+        assert.equal(await page.locator(".sync-qr-image svg").count(), 1, "the QR is up while the check runs, as in the real flow");
+
+        refused.reject(reason);
+        const banner = page.locator(".settings-error-banner");
+        await banner.waitFor();
+        assert.equal((await banner.textContent())?.trim(), reason);
+        assert.equal(await page.locator(".sync-qr-image svg").count(), 0, "a refused send leaves no QR to scan");
+        assert.equal(await page.getByRole("button", { name: "Send", exact: true }).isEnabled(), true, "the person can try again after pulling");
+        await snap(page, `desktop-sync-refused-${colorScheme}`);
+        assert.deepEqual(errors, [], "the page raised no error");
+      } finally {
+        await context.close();
+      }
+    });
   });
 }
