@@ -6,6 +6,17 @@
 
 ---
 
+### 2026-11-01 — Sessão 371 (P175 d: a pasta do segredo de sync fechada para o dono)
+
+- **Pedido**: o dono pediu uma recomendação de código; da triagem da Sessão 370 saiu o P175(d). Escolheu o (d) (pasta `0o700`) em vez do "fica" do (e) (recusa antes do QR) e aprovou o plano e os testes antes da implementação.
+- **Feito** (PR `fix/sync-secrets-dir-0700`, só `crates/warden-sync/src/manifest.rs` mais estes dois docs): `save_secrets` cria pastas novas com `0o700`; `load_secrets` fecha a pasta padrão de uma instalação antiga; pasta existente fora do padrão (`--data-dir`, `/tmp` dos testes) nunca muda.
+- **Desvio do plano**: o critério passou de "é a pasta padrão" para "é exatamente `warden_dir()` e não há `--data-dir`", porque os testes existentes usam `std::env::temp_dir()` e um `chmod` no `/tmp` seria um efeito que ninguém pediu.
+- **Verificado**: `cargo test -p warden-sync` local: 91 testes da lib e os de integração passaram (6 novos). `cargo clippy -p warden-sync --all-targets`: 2 avisos que já existiam (`arweave.rs:90`, `signing.rs:119`), não tocados. CI do PR: ver o corpo do PR.
+- **Não verificado**: a ligação de `load_secrets` com a pasta padrão real (`OnceLock` global, só o núcleo tem teste); Windows.
+- **Fica**: o `save_manifest` ainda usa `create_dir_all`; o (b) e o "fica" do (e) do P175; os outros itens da Sessão 370.
+
+---
+
 ### 2026-11-01 — Sessão 370 (P170 e P171 confirmados no CI; triagem dos outros cinco)
 
 - **Pedido**: algo menor e sem verificação manual. Dos 7 itens que ficaram fora do PR #63, só o P170 e o P171 dependiam de uma conferência que dá para fazer por leitura (o histórico de CI).

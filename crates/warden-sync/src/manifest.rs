@@ -79,6 +79,10 @@ pub fn load_secrets(path: &Path) -> anyhow::Result<Option<SyncSecrets>> {
             // P-11: a file written before `save_secrets` set `0o600` has the umask's mode; `save_secrets` only runs at init and
             // pairing, so an existing install is closed here. A file that cannot be closed is an error, not a silent pass.
             close_to_owner(path)?;
+            // P175(d): same for the folder, but only the default one (see `default_warden_dir`).
+            if let Some(parent) = path.parent() {
+                close_parent_if_ours(parent, default_warden_dir().as_deref())?;
+            }
             Ok(Some(serde_json::from_str(&contents)?))
         }
         Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(None),
@@ -88,9 +92,48 @@ pub fn load_secrets(path: &Path) -> anyhow::Result<Option<SyncSecrets>> {
 
 pub fn save_secrets(path: &Path, secrets: &SyncSecrets) -> anyhow::Result<()> {
     if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent)?;
+        create_private_dir(parent)?;
     }
     write_atomic(path, serde_json::to_string_pretty(secrets)?.as_bytes(), true)
+}
+
+/// Like `create_dir_all`, but every folder it has to create gets `0o700` on unix (P175d). A folder that already exists is left
+/// as it is: it may be the operator's (`--data-dir`) or a shared one, and only what we create is ours to close.
+fn create_private_dir(dir: &Path) -> std::io::Result<()> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::DirBuilderExt;
+        std::fs::DirBuilder::new().recursive(true).mode(0o700).create(dir)
+    }
+    #[cfg(not(unix))]
+    {
+        std::fs::create_dir_all(dir)
+    }
+}
+
+/// The folder Warden itself names as its own, when it is the default one: `<config dir>/warden`. With `--data-dir` the folder
+/// belongs to the operator (a service volume, maybe read by another user or group), so it is never ours to change.
+fn default_warden_dir() -> Option<std::path::PathBuf> {
+    match warden_core::paths::data_dir() {
+        Some(_) => None,
+        None => warden_core::paths::warden_dir(),
+    }
+}
+
+/// Sets `0o700` on `dir` when it is exactly `ours` and is open to its group or to others (P175d). Any other folder, and the
+/// case of there being no `ours`, is left untouched: the path comes from the caller, and `chmod` on a folder we did not
+/// create (the system temp dir, say) would be an effect nobody asked for. Outside unix there is no mode to set.
+fn close_parent_if_ours(dir: &Path, ours: Option<&Path>) -> anyhow::Result<()> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        if ours == Some(dir) && std::fs::metadata(dir)?.permissions().mode() & 0o077 != 0 {
+            std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o700))?;
+        }
+    }
+    #[cfg(not(unix))]
+    let _ = (dir, ours);
+    Ok(())
 }
 
 /// Writes `contents` to `path` so that a reader, or a cut in the middle of the write, never sees half of it (P175a): the bytes
@@ -256,6 +299,77 @@ mod tests {
         save_secrets(&path, &generate_secrets()).unwrap();
         load_secrets(&path).unwrap().unwrap();
         assert_eq!(mode_of(&path), 0o600);
+    }
+
+    // P175(d): the folder that holds the vault key is for its owner only too. A mode set on a file does not hide its name or
+    // stop a listing, and the folder is what other users meet first.
+    #[cfg(unix)]
+    fn dir_with_mode(name: &str, mode: u32) -> std::path::PathBuf {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = temp_path(name);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(mode)).unwrap();
+        dir
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_secrets_folder_created_by_saving_is_owner_only() {
+        let dir = temp_path("secrets-new-dir");
+        // Two levels that do not exist yet: every level we create is closed, not just the last one.
+        let path = dir.join("inner").join("sync_secrets.json");
+        save_secrets(&path, &generate_secrets()).unwrap();
+        assert_eq!(mode_of(&dir), 0o700);
+        assert_eq!(mode_of(&dir.join("inner")), 0o700);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn saving_into_an_existing_folder_does_not_change_its_mode() {
+        // The folder may be the operator's (`--data-dir`), or a shared one: only a folder we create is ours to close.
+        let dir = dir_with_mode("secrets-existing-dir", 0o755);
+        save_secrets(&dir.join("sync_secrets.json"), &generate_secrets()).unwrap();
+        assert_eq!(mode_of(&dir), 0o755);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn our_own_open_folder_is_closed_to_the_owner() {
+        for open in [0o755, 0o750, 0o705] {
+            let dir = dir_with_mode(&format!("close-dir-{open:o}"), open);
+            close_parent_if_ours(&dir, Some(&dir)).unwrap();
+            assert_eq!(mode_of(&dir), 0o700, "from {open:o}");
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn our_own_closed_folder_is_left_alone() {
+        let dir = dir_with_mode("close-dir-closed", 0o700);
+        close_parent_if_ours(&dir, Some(&dir)).unwrap();
+        assert_eq!(mode_of(&dir), 0o700);
+    }
+
+    // The path comes from the caller (the tests here pass the system temp dir; the mobile bridge passes its own): only the
+    // folder Warden itself names as its own is ever changed.
+    #[cfg(unix)]
+    #[test]
+    fn a_folder_that_is_not_ours_is_never_changed() {
+        let dir = dir_with_mode("close-dir-not-ours", 0o755);
+        let other = temp_path("close-dir-other");
+        close_parent_if_ours(&dir, Some(&other)).unwrap();
+        close_parent_if_ours(&dir, None).unwrap();
+        assert_eq!(mode_of(&dir), 0o755);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn loading_the_secrets_from_a_folder_that_is_not_the_default_leaves_the_folder_alone() {
+        let dir = dir_with_mode("secrets-load-other-dir", 0o755);
+        let path = dir.join("sync_secrets.json");
+        save_secrets(&path, &generate_secrets()).unwrap();
+        load_secrets(&path).unwrap().unwrap();
+        assert_eq!(mode_of(&dir), 0o755);
     }
 
     // P175(a): the state files are written to a temporary next to them and swapped in with a rename, so a cut in the middle of a
