@@ -2,7 +2,19 @@
 
 > **Nota**: Este log foi criado junto com o projeto. As sessões serão registradas aqui conforme o trabalho avança.
 >
-> Última atualização: 2026-11-01 (Sessão 369)
+> Última atualização: 2026-11-01 (Sessão 370)
+
+---
+
+### 2026-11-01 — Sessão 370 (P170 e P171 confirmados no CI; triagem dos outros cinco)
+
+- **Pedido**: algo menor e sem verificação manual. Dos 7 itens que ficaram fora do PR #63, só o P170 e o P171 dependiam de uma conferência que dá para fazer por leitura (o histórico de CI).
+- **Conferência**: desde o commit do fix (`769558d`, 2026-10-31 12:39Z) até 2026-11-01 houve 26 runs do `ci.yml` na `main`. Em 21, o job `Rust (clippy and tests)` rodou e passou; 0 falharam; 5 foram pulados ou cancelados. A única falha do período no workflow é a original, do PR #22, anterior ao fix. Contagem feita com `gh run list` e `gh api .../actions/runs/<id>/jobs`.
+- **Feito** (PR `docs/pending-p170-p171-confirmados`): P170 e P171 movidos para "Resolvidas", com a nota da conferência e a última coluna trocada para "✅ Resolvida e confirmada no CI (Sessão 370)". Movidos à mão por `Edit`, não por script.
+- **Limite da evidência**: é ausência de falha em 21 runs, não prova. A taxa do flake antes do fix nunca foi medida, e a causa nunca foi reproduzida (o próprio P170 diz). Se voltar, guardar o log antes de mexer.
+- **Triagem dos outros cinco (nada mudado; cada um precisa de decisão ou de verificação que não é só leitura)**: **P174** (tamanho mínimo de 32 caracteres para o segredo do gateway: decisão de deploy, AGENTS.md §4); **P175** (resto do item (e): conferir como desktop, CLI e mobile mostram a mensagem de erro e se o pt-BR precisa de texto próprio, que o dono deixou para depois); **P126** (formato de `info.tokens` do opencode real, sem opencode aqui, e os dólares por combo, porque o ledger não grava o combo); **P54** (refresh token que o provedor troca a cada uso pode se desencontrar entre dois aparelhos; reconexão por servidor; nunca verificado com um servidor OAuth real); **P105** (ver as telas de webhook numa janela, teste do `save_settings`, Slack, sandbox do `shell`, Discord no P27).
+- **Não verificado**: não li os runs pulados ou cancelados para saber por que o Rust não rodou neles; contei como "sem evidência".
+- **Fica**: os cinco acima; verificação manual no Chrome; 8.8 (lojas); dados reais do `k256` na máquina do dono.
 
 ---
 
