@@ -2,7 +2,19 @@
 
 > **Nota**: Este log foi criado junto com o projeto. As sessões serão registradas aqui conforme o trabalho avança.
 >
-> Última atualização: 2026-11-01 (Sessão 367)
+> Última atualização: 2026-11-01 (Sessão 368)
+
+---
+
+### 2026-11-01 — Sessão 368 (restaura a seção "Resolvidas" do `PENDING.md`, PR 1 de 2)
+
+- **Pedido**: arrumar o `PENDING.md`, cujas 21 frases "ver seção Resolvidas abaixo" apontavam para uma seção que não existia. O dono escolheu restaurar do git e depois mover os ✅ recentes, em dois PRs.
+- **Achado, lendo o git**: a seção `## Resolvidas` (48 linhas, 76 KB) e a "Funcionalidades Pendentes" (P7, obsoleta) foram apagadas pelo commit `ebaf839` (Sessão 110), cuja mensagem fala só do P84 e do P99. Foi remoção não declarada, não uma decisão registrada.
+- **Feito** (PR `docs/pending-restaurar-resolvidas`): o bloco de `ebaf839^:project/PENDING.md` (linhas 107 a 154) acrescentado ao fim do `PENDING.md`, antecedido de `---`, sem editar o texto. "Funcionalidades Pendentes" não foi restaurada. Nenhum código mudou.
+- **Verificado**: `cmp` do trecho restaurado contra o bloco do git: idêntico byte a byte. `git diff`: 51 linhas inseridas, 0 removidas. Os 20 IDs que aparecem nas duas tabelas são os stubs "ver seção Resolvidas abaixo" da tabela atual, que agora apontam para texto existente. CI do PR: ver o corpo do PR.
+- **Achado na restauração**: o P94 ficou duplicado. A linha da tabela "Não Resolvidas" é a versão atual (reescrita depois); a da seção restaurada é a antiga, que já estava lá no original (um item em aberto na época, fora do lugar). Mantive a cópia fiel; o PR 2 decide qual vale.
+- **Não verificado**: se cada uma das 21 frases cita um ID que tem linha na seção (os 20 IDs em comum com a tabela atual batem, mas não conferi frase a frase).
+- **Fica**: PR 2 (mover os ✅ recentes). Uma heurística automática erra (P170 e P171 parecem resolvidos mas estão em aberto; P173 e P175 não foram pegos), então a lista de candidatos vai para a aprovação do dono antes de qualquer movimento. Depois: verificação manual no Chrome; 8.8 (lojas); P179 só com um caso concreto.
 
 ---
 
