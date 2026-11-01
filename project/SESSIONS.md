@@ -2,7 +2,18 @@
 
 > **Nota**: Este log foi criado junto com o projeto. As sessões serão registradas aqui conforme o trabalho avança.
 >
-> Última atualização: 2026-11-01 (Sessão 364)
+> Última atualização: 2026-11-01 (Sessão 365)
+
+---
+
+### 2026-11-01 — Sessão 365 (tool `browser_type_text`, PR 3b da Fase 8)
+
+- **Pedido**: o segundo PR das tools de DOM, o de risco alto. As travas escolhidas pelo dono: recusar campo de senha, nunca enviar o formulário, aprovação sempre. Testes escritos primeiro e revistos por ele ("sim") antes da implementação.
+- **Decisão de desenho**: a aprovação "sempre" não foi feita no hub (exigiria mudar `autonomy.rs`, que afeta todas as tools); foi feita **dentro da extensão**, no painel, reaproveitando o `ApprovalCard` e o selo "!" do ícone. Vale para qualquer agente e autonomia, e falha fechada: 60 s sem resposta, conexão caída ou id desconhecido viram "não".
+- **Feito** (PR `feat/extension-browser-type-text`): `protocol/domGuards.ts` (`refusalFor`: só `input` de texto/busca/email/url/tel/número e `textarea`; recusa senha, `autocomplete` de credencial/código/cartão, nome/id/rótulo de segredo como palavra inteira, campo desabilitado/somente leitura/invisível; `parseTypeTextArgs` descarta `submit`/`pressEnter`), `protocol/localApproval.ts` (`LocalApprovals`, ids negativos), `background/local_approval.ts` (instância compartilhada), `background/index.ts` (fila local junto da do hub no painel e no selo; `resolveApproval` de id local; `denyAll` quando a conexão cai, é trocada ou o dono desconecta), `tools/type_text.ts` (inspeciona, recusa ou pergunta, e só então escreve; a fase de escrita compara os fatos do campo com os aprovados e aborta se algo mudou, sem duplicar regras dentro da página), textos em `i18n/en` e `i18n/pt-BR`, e `risk.rs` (`browser_type_text` é `ExternalMessage`, igual ao clicar).
+- **Verificado**: `npm test` 191 verdes (167 + 15 de `domGuards` e 9 de `localApproval`), `npm run build` e `npm run build:firefox` limpos, `cargo test -p warden-bootstrap --lib risk` 11 verdes (o teste novo falhava antes da linha do `risk.rs`). CI do PR: ver o corpo do PR.
+- **Não verificado**: tudo que roda numa página real. O código injetado (`fieldInPage`) não tem teste: se o `input`/`change` fazem React e afins aceitarem o valor, se a heurística de visibilidade erra em página real, se o painel mostra a pergunta (e o selo "!" aparece com o painel fechado). A pergunta mostra o rótulo do campo, que **é texto da página** e pode enganar; o que protege são as recusas, não o rótulo. Sem limite de quantas perguntas o modelo faz seguidas: cada uma espera 60 s e o painel mostra "N a mais esperando". Pré-visualização do texto não trata caracteres de direção (RTL).
+- **Fica**: PR 3c (`browser_screenshot`, começa checando se o resultado de uma tool leva imagem ao modelo); verificação manual no Chrome da reconexão, do scroll e do `type_text`; 8.8.
 
 ---
 
