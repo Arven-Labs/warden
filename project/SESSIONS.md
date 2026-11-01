@@ -2,7 +2,17 @@
 
 > **Nota**: Este log foi criado junto com o projeto. As sessões serão registradas aqui conforme o trabalho avança.
 >
-> Última atualização: 2026-11-01 (Sessão 365)
+> Última atualização: 2026-11-01 (Sessão 366)
+
+---
+
+### 2026-11-01 — Sessão 366 (`browser_screenshot`: etapa 0 e adiamento — P179)
+
+- **Pedido**: o PR 3c das tools de DOM, começando pela etapa 0 do plano (só leitura): uma imagem devolvida por uma tool do cliente chega ao modelo?
+- **Achado, lendo o código**: não chega. `extract_media_from_tool_result` (`warden-core/src/orchestrator/mod.rs:1061`) aceita blocos `image` no formato MCP, mas os guarda como `Attachment` do resultado do turno, para a pessoa, e o modelo recebe só o texto `[image attached: image/png]`; `Message::tool_result` (`warden-core/src/model/mod.rs:102`) sempre cria `attachments: Vec::new()`. Imagem chega ao modelo apenas como anexo de mensagem de usuário. Para o screenshot servir, o núcleo teria de injetar essa mensagem depois da tool: mudança no orquestrador, com privacidade em jogo.
+- **Decisão do dono**: adiar o screenshot. Nenhum código escrito; o achado e o caminho para retomar estão no P179.
+- **Verificado**: só leitura (`orchestrator/mod.rs`, `model/mod.rs`). Não cheguei a ler a codificação de imagens de cada um dos 3 provedores, nem testei `captureVisibleTab`.
+- **Fica**: as tools de DOM do PR 3 estão completas sem o screenshot (scroll e type_text na `main`); verificação manual no Chrome da reconexão, do scroll e do `type_text`; 8.8 (lojas); P179 só com um caso concreto.
 
 ---
 
