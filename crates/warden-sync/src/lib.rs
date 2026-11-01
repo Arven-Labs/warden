@@ -148,6 +148,7 @@ impl SyncEngine {
     pub async fn finish_push(&self, begin: push::BeginPushResult) -> anyhow::Result<push::PushOutcome> {
         let _one_sync_at_a_time = self.sync_lock().await?;
         let manifest = manifest::load_manifest(&self.manifest_path)?;
+        push::ensure_remote_not_newer(&self.arweave, &manifest, &self.load_secrets()?).await?;
         let (outcome, new_manifest) = push::run_push(begin, &self.arweave, manifest).await?;
         manifest::save_manifest(&self.manifest_path, &new_manifest)?;
         Ok(outcome)
@@ -163,6 +164,7 @@ impl SyncEngine {
     ) -> anyhow::Result<push::PushOutcome> {
         let _one_sync_at_a_time = self.sync_lock().await?;
         let manifest = manifest::load_manifest(&self.manifest_path)?;
+        push::ensure_remote_not_newer(&self.arweave, &manifest, &self.load_secrets()?).await?;
         let (outcome, new_manifest) = push::run_push_with_hosts(begin, &self.arweave, manifest, hosts).await?;
         manifest::save_manifest(&self.manifest_path, &new_manifest)?;
         Ok(outcome)
