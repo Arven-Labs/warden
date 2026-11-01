@@ -90,27 +90,52 @@ pub fn save_secrets(path: &Path, secrets: &SyncSecrets) -> anyhow::Result<()> {
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)?;
     }
-    write_owner_only(path, serde_json::to_string_pretty(secrets)?.as_bytes())
+    write_atomic(path, serde_json::to_string_pretty(secrets)?.as_bytes(), true)
 }
 
-/// Writes `contents` to a file only its owner can read (P-11). Created with `0o600` from the start (no window with the umask's
-/// mode, unlike a write followed by a chmod); a file that already existed is closed *before* the key goes in, since the mode of
-/// `open` only applies to a new file. Outside unix there is no mode to set.
-fn write_owner_only(path: &Path, contents: &[u8]) -> anyhow::Result<()> {
+/// Writes `contents` to `path` so that a reader, or a cut in the middle of the write, never sees half of it (P175a): the bytes
+/// go to a temporary next to the file, are flushed to disk, and the temporary is renamed over the real name in one step (same
+/// directory, so the same filesystem). On any failure the temporary is removed and the file that was there is left untouched.
+///
+/// With `owner_only` (the vault key, P-11) the temporary is created with `0o600`, so there is no window with the umask's mode,
+/// and a leftover temporary from an earlier crash is closed *before* the key goes in, since the mode of `open` only applies to
+/// a new file. Without it the umask decides, as `std::fs::write` did. Outside unix there is no mode to set.
+///
+/// Not synced: the parent directory. Without that, a power cut right after can lose the rename, which leaves the previous file
+/// (or none): a consistent state, not a broken one.
+fn write_atomic(path: &Path, contents: &[u8], owner_only: bool) -> anyhow::Result<()> {
+    let tmp = path.with_extension("tmp");
+    let result = write_then_swap(&tmp, path, contents, owner_only);
+    if result.is_err() {
+        // Best effort: if `tmp` is a directory (or gone) this fails too, and the original error is what matters.
+        let _ = std::fs::remove_file(&tmp);
+    }
+    result
+}
+
+fn write_then_swap(tmp: &Path, path: &Path, contents: &[u8], owner_only: bool) -> anyhow::Result<()> {
+    use std::io::Write;
+    let mut options = std::fs::OpenOptions::new();
+    options.write(true).create(true).truncate(true);
     #[cfg(unix)]
-    {
-        use std::io::Write;
-        use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
-        let mut file = std::fs::OpenOptions::new().write(true).create(true).truncate(true).mode(0o600).open(path)?;
+    if owner_only {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600);
+    }
+    let mut file = options.open(tmp)?;
+    #[cfg(unix)]
+    if owner_only {
+        use std::os::unix::fs::PermissionsExt;
         file.set_permissions(std::fs::Permissions::from_mode(0o600))?;
-        file.write_all(contents)?;
-        Ok(())
     }
     #[cfg(not(unix))]
-    {
-        std::fs::write(path, contents)?;
-        Ok(())
-    }
+    let _ = owner_only;
+    file.write_all(contents)?;
+    // Data on disk before the name changes: otherwise a power cut can persist the rename and leave an empty file under it.
+    file.sync_all()?;
+    drop(file);
+    std::fs::rename(tmp, path)?;
+    Ok(())
 }
 
 /// Sets `0o600` when the file is open to its group or to others; leaves one that is already closed untouched.
@@ -139,8 +164,7 @@ pub fn save_manifest(path: &Path, manifest: &SyncManifest) -> anyhow::Result<()>
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)?;
     }
-    std::fs::write(path, serde_json::to_string_pretty(manifest)?)?;
-    Ok(())
+    write_atomic(path, serde_json::to_string_pretty(manifest)?.as_bytes(), false)
 }
 
 mod base64_32 {
@@ -232,6 +256,65 @@ mod tests {
         save_secrets(&path, &generate_secrets()).unwrap();
         load_secrets(&path).unwrap().unwrap();
         assert_eq!(mode_of(&path), 0o600);
+    }
+
+    // P175(a): the state files are written to a temporary next to them and swapped in with a rename, so a cut in the middle of a
+    // write never leaves the real file empty or half written (which would make `is_initialized()` true over a file that no
+    // longer parses, and lock the device out of `init_fresh` and of pairing).
+    fn tmp_of(path: &std::path::Path) -> std::path::PathBuf {
+        path.with_extension("tmp")
+    }
+
+    #[test]
+    fn saving_the_secrets_and_the_manifest_leaves_no_temporary_behind() {
+        let secrets_path = temp_path("atomic-secrets-clean");
+        let manifest_path = temp_path("atomic-manifest-clean");
+        save_secrets(&secrets_path, &generate_secrets()).unwrap();
+        save_manifest(&manifest_path, &SyncManifest { version: 1, ..Default::default() }).unwrap();
+        assert!(!tmp_of(&secrets_path).exists());
+        assert!(!tmp_of(&manifest_path).exists());
+    }
+
+    #[test]
+    fn a_failed_secrets_save_leaves_the_previous_file_whole() {
+        let original = generate_secrets();
+        let path = temp_path("atomic-secrets-fail");
+        save_secrets(&path, &original).unwrap();
+        // A directory where the temporary has to go makes creating it fail, after which the real file must be untouched.
+        std::fs::create_dir(tmp_of(&path)).unwrap();
+
+        assert!(save_secrets(&path, &generate_secrets()).is_err());
+
+        let loaded = load_secrets(&path).unwrap().unwrap();
+        assert_eq!(loaded.vault_key, original.vault_key, "the old key must still be there, whole");
+    }
+
+    #[test]
+    fn a_failed_manifest_save_leaves_the_previous_file_whole() {
+        let original = SyncManifest { version: 1, owner_address: Some("abc123".to_string()), manifest_counter: 7, ..Default::default() };
+        let path = temp_path("atomic-manifest-fail");
+        save_manifest(&path, &original).unwrap();
+        std::fs::create_dir(tmp_of(&path)).unwrap();
+
+        assert!(save_manifest(&path, &SyncManifest { version: 1, manifest_counter: 8, ..Default::default() }).is_err());
+
+        assert_eq!(load_manifest(&path).unwrap(), original);
+    }
+
+    // A temporary left by an earlier crash keeps the mode it had, and the `mode()` of `open` only applies to a new file: it has
+    // to be closed before the key goes in.
+    #[cfg(unix)]
+    #[test]
+    fn a_stale_open_temporary_does_not_leak_the_key() {
+        use std::os::unix::fs::PermissionsExt;
+        let path = temp_path("atomic-secrets-stale-tmp");
+        std::fs::write(tmp_of(&path), "left by a crash").unwrap();
+        std::fs::set_permissions(tmp_of(&path), std::fs::Permissions::from_mode(0o644)).unwrap();
+
+        save_secrets(&path, &generate_secrets()).unwrap();
+
+        assert_eq!(mode_of(&path), 0o600);
+        assert!(!tmp_of(&path).exists());
     }
 
     #[test]
