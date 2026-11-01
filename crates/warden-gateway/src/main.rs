@@ -8,7 +8,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use anyhow::{bail, Context, Result};
+use anyhow::{bail, ensure, Context, Result};
 use clap::{Parser, Subcommand};
 use tracing_subscriber::EnvFilter;
 use warden_gateway::http::GatewayServer;
@@ -228,6 +228,18 @@ fn show_cap(cap: Option<Micros>) -> String {
     cap.map_or("none".to_string(), format_usd)
 }
 
+/// Refuses an admin secret, current or previous, with a space, tab or line break at its start or end. Refused, not
+/// trimmed: the site mãe signs with the string it has, so a trimmed copy here would be a different secret and every call
+/// would be a 401 with no hint why. A pasted final newline is the usual cause. The error never repeats a secret.
+fn check_admin_secret_ends(current: &str, previous: Option<&str>) -> Result<()> {
+    let bare = |secret: &str| secret == secret.trim();
+    ensure!(bare(current), "the admin secret has a space or line break at its start or end (a pasted newline, usually); remove it");
+    if let Some(previous) = previous {
+        ensure!(bare(previous), "the previous admin secret has a space or line break at its start or end (a pasted newline, usually); remove it");
+    }
+    Ok(())
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
     tracing_subscriber::fmt().with_env_filter(EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"))).init();
@@ -293,6 +305,7 @@ async fn main() -> Result<()> {
             let previous = admin_secret_previous.as_deref().filter(|s| !s.is_empty());
             match admin_secret.as_deref().filter(|s| !s.is_empty()) {
                 Some(secret) => {
+                    check_admin_secret_ends(secret, previous)?;
                     server = server.with_admin_secret(secret);
                     if let Some(previous) = previous {
                         server = server.with_previous_admin_secret(previous);
@@ -469,4 +482,37 @@ fn accounts(cli: &Cli, command: &AccountsCommand) -> Result<()> {
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const GOOD: &str = "0123456789abcdef0123456789abcdef";
+
+    #[test]
+    fn a_secret_with_a_space_or_a_line_break_at_either_end_is_refused_not_trimmed() {
+        // A secret pasted from a file or an `echo` usually carries a final newline. The HMAC would be made over the string
+        // with it, and the site mãe, which most likely has it without, would be answered with 401 and no hint why.
+        let padded = [format!("{GOOD}\n"), format!("{GOOD}\r\n"), format!(" {GOOD}"), format!("{GOOD} "), format!("\t{GOOD}"), " ".to_string()];
+        for secret in &padded {
+            let err = check_admin_secret_ends(secret, None).unwrap_err().to_string();
+            assert!(err.contains("space or line break") && err.contains("start or end"), "says what is wrong ({secret:?}): {err}");
+            assert!(!err.contains(GOOD), "never echoes the secret: {err}");
+            assert!(!err.contains("previous"), "names the current one, not the previous: {err}");
+
+            let previous_err = check_admin_secret_ends(GOOD, Some(secret)).unwrap_err().to_string();
+            assert!(previous_err.contains("previous") && previous_err.contains("start or end"), "{secret:?}: {previous_err}");
+            assert!(!previous_err.contains(GOOD), "never echoes the secret: {previous_err}");
+        }
+    }
+
+    #[test]
+    fn a_space_inside_the_secret_and_a_clean_one_are_accepted() {
+        // Only the ends are checked: inside, a space is the owner's business. The clean case shows the test above is not
+        // passing just because everything is refused.
+        assert!(check_admin_secret_ends(GOOD, None).is_ok());
+        assert!(check_admin_secret_ends(GOOD, Some("fedcba9876543210 fedcba9876543210")).is_ok());
+        assert!(check_admin_secret_ends("0123456789abcdef 0123456789abcdef", None).is_ok());
+    }
 }

@@ -2,7 +2,18 @@
 
 > **Nota**: Este log foi criado junto com o projeto. As sessões serão registradas aqui conforme o trabalho avança.
 >
-> Última atualização: 2026-10-31 (Sessão 351)
+> Última atualização: 2026-10-31 (Sessão 352)
+
+---
+
+### 2026-10-31 — Sessão 352 (o `serve` do gateway recusa segredo admin com espaço nas pontas — P174)
+
+- **Pedido**: o ponto que a Sessão 346 deixou em aberto: o gateway tem a mesma falha do orquestrador com `WARDEN_GATEWAY_ADMIN_SECRET`? Plano aprovado em plan mode; o dono decidiu fora de escopo o tamanho mínimo e o `--webhook-secret`.
+- **Achado (lendo `main.rs` e `http.rs`)**: tinha. O segredo ia cru para o HMAC (`verify_any`); `"…\n"` subia e dava 401 sem pista, e `" "` valia como segredo.
+- **Feito**: `check_admin_secret_ends` em `crates/warden-gateway/src/main.rs`, ligada antes de `with_admin_secret`; recusa o atual e o anterior (mensagem própria para o anterior), sem repetir o segredo. A API da biblioteca não mudou (os testes usam segredos curtos). Recusa em vez de aparar, como na Sessão 346.
+- **Verificado**: 2 testes novos em `main.rs`, aprovados pelo dono antes da implementação (o primeiro falhou com o stub: `unwrap_err()` num `Ok`); `cargo test -p warden-gateway --locked --no-fail-fast`: exit 0, 166 + 2 + 17 + 22 + 13 + 14 + 6 passaram, 0 falharam, 4 ignorados (`real_provider`); clippy do crate exit 0, 2 avisos, nenhum em `main.rs`; binário real: `\n` no fim, anterior com espaço e só `" "` saem com erro e exit 1; segredo limpo e sem segredo sobem (o `timeout` mata, exit 124).
+- **Não verificado**: o CI do PR; não procurei deploys fora deste repo (o `Dockerfile.gateway` usa `$(openssl rand -hex 32)` e o `scripts/gateway-smoke.sh` tira o `\n` com `tr`, então os do repo não são afetados). Um gateway em produção com segredo terminando em `\n` passa a recusar subir depois do deploy: é o efeito pretendido, está no corpo do PR.
+- **Fica**: P174 (tamanho mínimo e `--webhook-secret`); os 7 avisos do `cargo audit`; P171.
 
 ---
 
