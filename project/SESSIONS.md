@@ -2,7 +2,18 @@
 
 > **Nota**: Este log foi criado junto com o projeto. As sessões serão registradas aqui conforme o trabalho avança.
 >
-> Última atualização: 2026-11-01 (Sessão 361)
+> Última atualização: 2026-11-01 (Sessão 362)
+
+---
+
+### 2026-11-01 — Sessão 362 (Fase 8: docs defasados, PR 1 de 2 aprovados — a reconexão é o PR 2)
+
+- **Pedido**: seguir pela Fase 8, "mais a parte de código". Plan mode; o dono escolheu 4 frentes (reconexão, histórico, mais tools de DOM, docs) e o plano as dividiu em PRs.
+- **Achado**: recomendei a Fase 8 lendo o `OVERVIEW.md`, que dizia "Pendente"; o `PHASE.md` já tinha 8.1-8.7 concluídas e o Firefox saído (P69). O `OVERVIEW.md` e o item 5.4 estavam defasados, e eu não tinha conferido o `PHASE.md` antes de recomendar.
+- **Feito** (PR `docs/fase-8-status-e-5-4`, só docs): `OVERVIEW.md` (Fase 5 concluída; Fase 8 "quase completa", falta a 8.8), `PHASE.md` (5.4 marcada, com a nota de que são as `browser_*`), `PENDING.md` (P67 atualizado: o histórico em memória deixa de ser lacuna).
+- **Verificado**: li `extension/src/background/tools/index.ts` (5 specs e 5 handlers: `read_page`, `click_element`, `navigate`, `extract_text`, `list_tabs`), vi que `index.ts` os passa ao `ServerConnection` (`toolSpecs`, `toolHandlers`) e que o hub os roteia como tools do cliente (`remote_tool.rs`, `RemoteTool`). Nenhum código mudou.
+- **Não verificado**: a 5.4 como comportamento ponta a ponta hoje (li o registro, não rodei a extensão); a P67/P68(2) manuais continuam abertas.
+- **Fica**: PR 2 (reconexão automática, com testes primeiro); PR 3 (tools novas de DOM, plano próprio por tocar segurança); 8.8 (lojas); P68(2).
 
 ---
 

@@ -25,12 +25,14 @@ Fase 2 — Canal Telegram              [x] Concluída
 Fase 3 — Canal WhatsApp              [x] Concluída
 Fase 4 — Vault & Memória             [x] Concluída (sync via Arweave no desktop/CLI/mobile +
                                           busca semântica local via ONNX, Sessão 56)
-Fase 5 — Tools & MCP                 [~] Quase completa (falta só 5.4, bloqueada pela Fase 8)
+Fase 5 — Tools & MCP                 [x] Concluída (a 5.4, tool `browser`, são as `browser_*` da
+                                          extensão, Fase 8.3-8.6; marcada na Sessão 362)
 Fase 6 — App Desktop Nativo          [x] Concluída (polish: registry de provedores ✓ Sessão 35)
 Fase 7 — App Mobile                  [~] Quase completa (7.1-7.5 concluídas — chat real +
                                           arquivos do celular + notificações locais; falta só 7.6
                                           build/deploy de release, não pedido ainda)
-Fase 8 — Extensão de Navegador       [ ] Pendente
+Fase 8 — Extensão de Navegador       [~] Quase completa (8.1-8.7 concluídas, Chrome e Firefox;
+                                          falta só a 8.8, publicação nas lojas)
 Fase 9 — Rede de Nós & Tailscale     [x] Concluída (9.1 redefinida — descoberta de hub na LAN, não
                                           integração nativa com Tailscale, ver ARCHITECTURE.md —
                                           Sessão 69)
