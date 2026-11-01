@@ -2,7 +2,18 @@
 
 > **Nota**: Este log foi criado junto com o projeto. As sessões serão registradas aqui conforme o trabalho avança.
 >
-> Última atualização: 2026-11-01 (Sessão 359)
+> Última atualização: 2026-11-01 (Sessão 360)
+
+---
+
+### 2026-11-01 — Sessão 360 (corrida do teste do selo de não lido no E2E web — P176)
+
+- **Pedido**: seguir pelo P176, a recomendação da abertura da sessão. Plan mode; sem decisão aberta do dono (só teste).
+- **Causa lida no código** (não vista falhando): o teste espera o botão "Agentes", que aparece antes de `listConversations()` responder; quando a lista chega, `refreshConversations` faz `setSeen(current ?? baseline(list))` (`App.tsx:266`) e o efeito `saveSeen` grava o baseline no `localStorage`. Se isso cair depois do `setItem("warden.channelSeen", "{}")` do teste, sobrescreve o `{}`; o `reload` acha o canal já visto e o `.tab-badge` nunca aparece (`waitFor` de 30 s). O app está certo (primeira execução = baseline é o desenho de `hub/unread.ts`); o defeito é de sincronização do teste.
+- **Feito** (PR `fix/e2e-agents-seen-race`): `web/e2e/agents.test.mjs`, antes de gravar o `{}`, `await page.waitForFunction(() => localStorage.getItem("warden.channelSeen") !== null)`, com comentário do porquê. Nada em `src/`, harness ou workflow.
+- **Verificado**: `node --test --test-name-pattern "left in its channel" e2e/agents.test.mjs` 25 de 25 verdes depois da correção, e o arquivo inteiro com 2 de 2. **Antes da correção, 0 falhas em 25 sem carga e 0 em 25 com a CPU saturada**: a corrida **não foi reproduzida** aqui. Uma sonda à parte (gravar `{}` logo após o login e reler 3 s depois, 5 vezes) também não viu a sobrescrita, mas não força a ordem ruim. Para rodar na máquina foi preciso instalar o Chromium do Playwright (`~/.cache/ms-playwright`), reconstruir `web/dist` e o `warden-server` (o binário de 31/10 estava defasado e o login nem aparecia). CI do PR: ver o corpo do PR.
+- **Não verificado**: que esta é a causa real (lida, não vista falhando); o efeito no CI só aparece com o tempo.
+- **Fica**: P176 aberto até o CI ficar sem a falha por um tempo; P177 (decisão do dono); P138; verificações manuais P67, P72, P73.
 
 ---
 
