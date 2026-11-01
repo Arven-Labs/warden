@@ -250,7 +250,7 @@ implementado na Sessão 54, ver P37 em `PENDING.md` e "Sync descentralizado (Fas
 - [x] 5.1 — Registry de tools (`ToolProvider` trait)
 - [x] 5.2 — MCP client: conectar em MCP servers externos
 - [x] 5.3 — Tool `web_search` via MCP
-- [ ] 5.4 — Tool `browser` (via extensão — ver Fase 8)
+- [x] 5.4 — Tool `browser` (via extensão — ver Fase 8) — *sem código novo na 5.4: são as tools `browser_read_page`, `browser_click_element`, `browser_navigate`, `browser_extract_text` (8.3-8.6) e `browser_list_tabs` (P69), registradas em `extension/src/background/tools/index.ts` e roteadas pelo hub como tools do cliente (`RemoteTool`, Fase 7.4). Marcada na Sessão 362: o item ficou desmarcado depois da Fase 8 por esquecimento*
 - [x] 5.5 — Tool `shell` (executar comando no nó cliente)
 - [x] 5.6 — Tool `file_system` (ler/escrever arquivos no nó cliente) — *sem código novo: realizada via o mecanismo genérico `[[mcp_servers]]` da 5.2, apontando pro server oficial `@modelcontextprotocol/server-filesystem`; ver `ARCHITECTURE.md`*
 - [x] 5.7 — Integração Google (Gmail, Drive, Calendar) via MCP servers existentes — *sem código novo, mesmo mecanismo genérico `[[mcp_servers]]` da 5.2/5.6; server escolhido `@aaronsb/google-workspace-mcp` (`npx`); ver `ARCHITECTURE.md`*
