@@ -2,7 +2,18 @@
 
 > **Nota**: Este log foi criado junto com o projeto. As sessões serão registradas aqui conforme o trabalho avança.
 >
-> Última atualização: 2026-11-01 (Sessão 362)
+> Última atualização: 2026-11-01 (Sessão 363)
+
+---
+
+### 2026-11-01 — Sessão 363 (reconexão automática da extensão, PR 2 da Fase 8 — P67)
+
+- **Pedido**: o PR 2 do plano da Sessão 362. Testes escritos antes; decisão do dono: `setTimeout`, sem a permissão `alarms`.
+- **Feito** (PR #57): `extension/src/protocol/reconnect.ts` (puro: espera dobrando de 1 s a 60 s com jitter, `retryDelayMs`, `canAutoConnect`, `isAuthRejection`, `STABLE_AFTER_MS`), `background/index.ts` (chave `wantConnected` em `chrome.storage.local`, retry em `setStatus`, `connectOnStart`, guarda `connectGeneration` contra dois `connect` ao mesmo tempo), `background/connection.ts` (as 2 mensagens de recusa usam `AUTH_REJECTED_PREFIX`, texto igual; comentário do cabeçalho). Nunca tenta de novo depois de recusa de chave nem depois do Desconectar.
+- **Autorrevisão**: achei que um hub que aceita e derruba logo em seguida zerava o contador a cada conexão e seria consultado a cada ~1 s; o contador agora só zera depois de 30 s de conexão estável (`STABLE_AFTER_MS`).
+- **Verificado**: `npm test` com 158 testes verdes (146 anteriores + 12 de `reconnect.test.mjs`), `npm run build` e `npm run build:firefox` limpos (incluem `tsc`). CI do #57 no commit anterior à rebase: `Frontend (extension)`, `Changed areas` e `guard` passaram; o CI do commit rebaseado: ver o corpo do PR.
+- **Não verificado**: tudo que depende do navegador. O `setTimeout` real, o service worker sendo descartado e reacordando e o arranque conectando sozinho não rodaram num Chrome; a orquestração de `index.ts` não tem teste automatizado. Um `connect` manual que falha deixa `wantConnected` salvo como `true`, então o próximo arranque reconecta ao hub salvo antes.
+- **Fica**: verificação manual da reconexão no Chrome (conectar, reiniciar o hub, ver voltar; Desconectar não volta; chave errada não insiste); PR 3 (tools novas de DOM, plano próprio, toca segurança); 8.8 (lojas); P68(2).
 
 ---
 
