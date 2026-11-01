@@ -2,7 +2,20 @@
 
 > **Nota**: Este log foi criado junto com o projeto. As sessões serão registradas aqui conforme o trabalho avança.
 >
-> Última atualização: 2026-11-01 (Sessão 368)
+> Última atualização: 2026-11-01 (Sessão 369)
+
+---
+
+### 2026-11-01 — Sessão 369 (move os itens já resolvidos para a seção "Resolvidas", PR 2 de 2)
+
+- **Pedido**: o segundo PR da limpeza do `PENDING.md` (o primeiro, #62, restaurou a seção): mover para "Resolvidas" os itens que a tabela "Não Resolvidas" já marcava como resolvidos desde 27/09. O dono aprovou a lista antes de qualquer movimento.
+- **Lista**: o levantamento por marca (`~~`, `✅ Resolvida`) deu 55 candidatos. Tirei 21 que já são ponteiros ("ver seção Resolvidas abaixo", que voltou a valer) e 11 parciais. De 29 aprovados, **movi 26**. Ao ler as linhas inteiras saíram 3: **P174** (tem "Aberto": o tamanho mínimo do segredo, decisão de deploy), **P54** e **P105** (listas de "fica/falta" sem registro em outro lugar). Também não movi P170 e P171 ("confirmar no CI"), P175 e P126 (sobras declaradas).
+- **Movidas (26)**: P4, P10, P12, P17, P18, P36, P51, P94, P109, P110, P111, P118, P119, P128, P130, P141, P145, P147, P150, P151, P162, P169, P172, P173, P177, P178. Ressalvas: P36 e P51 foram resolvidos no que é código (o resto está no P129 e no P116); P141 é a "v1" do export; P173 segue "não verificado" nos dados reais gravados.
+- **P94 duplicado**: movi a versão atual e apaguei a antiga da seção restaurada (escolha do dono). O texto antigo continua em `ebaf839^`.
+- **Método (exceção pontual)**: 3 linhas foram movidas por `Edit` (P169, P177, P178). Ao tentar o P173, errei a retranscrição de uma linha de 3,6 KB (o `Edit` recusou, nada mudou). Com o aval do dono, as outras 23 foram movidas por um script de `awk` que recorta a linha inteira sem retranscrever. Foi uma exceção à regra de editar só por `Edit`/`Write`, só para este movimento.
+- **Verificado**: o multiconjunto de linhas do arquivo antes (sem o P94 antigo) e depois é idêntico (`sort` + `cmp`): nenhuma linha mudou, sumiu ou duplicou. Linhas de tabela 193 → 192. Nenhuma das 23 linhas movidas ficou na tabela de cima, e os 22 ponteiros seguem lá. CI do PR: ver o corpo do PR.
+- **Não verificado**: as linhas movidas mantêm as colunas da tabela de origem ("Onde se originou" e "Prioridade") sob o cabeçalho "Resolução" e "Sessão". O Markdown renderiza, mas o significado das duas últimas colunas varia dentro da seção; as linhas restauradas do git já eram assim. Não uniformizei.
+- **Fica**: P170, P171, P175, P126, P174, P54, P105 (cada um precisa de uma decisão ou conferência própria); verificação manual no Chrome; 8.8 (lojas); dados reais do `k256` na máquina do dono.
 
 ---
 
