@@ -2,7 +2,18 @@
 
 > **Nota**: Este log foi criado junto com o projeto. As sessões serão registradas aqui conforme o trabalho avança.
 >
-> Última atualização: 2026-11-01 (Sessão 356)
+> Última atualização: 2026-11-01 (Sessão 357)
+
+---
+
+### 2026-11-01 — Sessão 357 (a `vault_key` e o manifest gravados por temporário e rename — P175 a)
+
+- **Pedido**: o item (a) do P175. Plano aprovado em plan mode; o dono decidiu incluir o `save_manifest` no mesmo PR; testes revistos e aprovados antes da implementação.
+- **Achado (lendo `manifest.rs` e `lib.rs`)**: `write_owner_only` abria o arquivo final com `truncate(true)` e escrevia. O efeito é mais brando que o texto do P175: `is_initialized()` é só `secrets_path.exists()`, então um arquivo truncado trava `init_fresh` e o pareamento e faz `load_secrets` falhar no JSON, sem perda de dado. O `save_manifest` tinha o mesmo padrão (`std::fs::write`) e roda a cada Send/Pull.
+- **Feito**: `write_atomic(path, contents, owner_only)` em `crates/warden-sync/src/manifest.rs`: temporário `path.with_extension("tmp")` (criado com 0o600 e fechado antes de escrever, para um `.tmp` velho aberto não vazar a chave), `write_all`, `sync_all`, `rename`; em erro o `.tmp` é removido e o arquivo anterior fica intacto. `save_secrets` usa `owner_only = true`; `save_manifest`, `false` (modo da umask, como antes). PR #51.
+- **Verificado**: 4 testes novos em `manifest.rs`; 3 falharam antes (`a_failed_secrets_save...`, `a_failed_manifest_save...`, `a_stale_open_temporary...`) e o de "nenhum `.tmp` sobra" é regressão. `cargo test -p warden-sync --locked --no-fail-fast`: tudo verde (85 da lib); clippy sem aviso novo (ficam `signing.rs:119` e `arweave.rs:90`). CI do #51 no `215acd3`: `Rust`, `Android`, `Mobile`, `Browser against a real hub`, `Changed areas` e `guard` passaram, `Frontend` foi pulado, sem reexecução.
+- **Não verificado**: corte real no meio da gravação e queda de energia (a falha é simulada com um diretório no lugar do `.tmp`), Windows e macOS, `cargo test --workspace` local (o CI rodou).
+- **Fica**: P175 (b), (d), (e); P177 (decisão do dono); P176; P174, só o tamanho mínimo de 32; os 7 avisos do `cargo audit`; P171; P159.
 
 ---
 
