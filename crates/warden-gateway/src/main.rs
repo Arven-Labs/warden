@@ -220,6 +220,14 @@ async fn stop_signal() {
     }
 }
 
+/// Refuses a webhook secret with a space, tab or line break at its start or end. Refused, not trimmed, for the same reason
+/// as the admin secret: the site mãe checks the signature with the string it has, so a trimmed copy here would be a
+/// different secret and every webhook would be refused over there. The error never repeats the secret.
+fn check_webhook_secret_ends(secret: &str) -> Result<()> {
+    ensure!(secret == secret.trim(), "the webhook secret has a space or line break at its start or end (a pasted newline, usually); remove it");
+    Ok(())
+}
+
 fn optional_usd(value: &Option<String>) -> Result<Option<Micros>> {
     value.as_deref().map(|v| parse_usd(v).map_err(anyhow::Error::msg)).transpose()
 }
@@ -317,6 +325,7 @@ async fn main() -> Result<()> {
             }
             match (webhook_url.as_deref().filter(|s| !s.is_empty()), webhook_secret.as_deref().filter(|s| !s.is_empty())) {
                 (Some(url), Some(secret)) => {
+                    check_webhook_secret_ends(secret)?;
                     let dispatcher = Dispatcher::new(store.clone(), Arc::new(HttpSender::new()), url, secret);
                     tokio::spawn(Arc::new(dispatcher).run());
                     tracing::info!(%url, "webhooks on");
@@ -505,6 +514,26 @@ mod tests {
             assert!(previous_err.contains("previous") && previous_err.contains("start or end"), "{secret:?}: {previous_err}");
             assert!(!previous_err.contains(GOOD), "never echoes the secret: {previous_err}");
         }
+    }
+
+    #[test]
+    fn a_webhook_secret_with_a_space_or_a_line_break_at_either_end_is_refused_not_trimmed() {
+        // Same as the admin secret, on the way out: the gateway signs the webhooks with the string it has, and the site
+        // mãe checks them with the one it has. With a pasted final newline on one side only, every webhook would be
+        // refused over there, and nothing here would say so.
+        let padded = [format!("{GOOD}\n"), format!("{GOOD}\r\n"), format!(" {GOOD}"), format!("{GOOD} "), format!("\t{GOOD}"), " ".to_string()];
+        for secret in &padded {
+            let err = check_webhook_secret_ends(secret).unwrap_err().to_string();
+            assert!(err.contains("webhook secret") && err.contains("space or line break") && err.contains("start or end"), "{secret:?}: {err}");
+            assert!(!err.contains(GOOD), "never echoes the secret: {err}");
+            assert!(!err.contains("admin"), "names the webhook secret, not the admin one: {err}");
+        }
+    }
+
+    #[test]
+    fn a_clean_webhook_secret_and_one_with_a_space_inside_are_accepted() {
+        assert!(check_webhook_secret_ends(GOOD).is_ok());
+        assert!(check_webhook_secret_ends("0123456789abcdef 0123456789abcdef").is_ok());
     }
 
     #[test]
