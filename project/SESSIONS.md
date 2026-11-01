@@ -6,6 +6,16 @@
 
 ---
 
+### 2026-11-01 — Sessão 372 (P175 d: `save_manifest` também cria a pasta com `0o700`)
+
+- **Pedido**: o dono escolheu fechar o resíduo anotado na Sessão 371 (o `save_manifest` ainda usava `create_dir_all`). Testes revisados e aprovados antes da troca.
+- **Feito** (PR `fix/sync-manifest-dir-0700`, `manifest.rs` mais estes docs): `save_manifest` troca `create_dir_all` por `create_private_dir`. 2 testes novos: pasta nova com dois níveis sai `0o700` (falhou antes: `0o755`); pasta existente `0o755` não muda.
+- **Verificado**: `cargo test -p warden-sync` local, 93 testes da lib e os de integração passaram. CI do PR: ver o corpo do PR.
+- **Não verificado**: Windows.
+- **Fica**: o (b) e o "fica" do (e) do P175; P174, P126, P54, P105.
+
+---
+
 ### 2026-11-01 — Sessão 371 (P175 d: a pasta do segredo de sync fechada para o dono)
 
 - **Pedido**: o dono pediu uma recomendação de código; da triagem da Sessão 370 saiu o P175(d). Escolheu o (d) (pasta `0o700`) em vez do "fica" do (e) (recusa antes do QR) e aprovou o plano e os testes antes da implementação.
