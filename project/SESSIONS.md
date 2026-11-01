@@ -2,7 +2,19 @@
 
 > **Nota**: Este log foi criado junto com o projeto. As sessões serão registradas aqui conforme o trabalho avança.
 >
-> Última atualização: 2026-11-01 (Sessão 354)
+> Última atualização: 2026-11-01 (Sessão 355)
+
+---
+
+### 2026-11-01 — Sessão 355 (o Pull olha além de uma publicação que não é snapshot — P175 c)
+
+- **Pedido**: o item (c) do P175, recomendado pela abertura de sessão. Plano aprovado em plan mode; o dono decidiu o erro (e não aviso) quando nenhuma publicação abre com a chave; testes revistos e aprovados antes da implementação.
+- **Achado (lendo `pull.rs`)**: confirmado. `latest_tx_by_owner` + `decrypt_bundle(...)?` abortava o Pull quando a tx mais nova da carteira era um pacote de skill (P160).
+- **Feito**: `pull_with_oauth` em `crates/warden-sync/src/pull.rs` usa `recent_txs_by_owner` (as últimas 10, a mesma constante do Send, agora `pub(crate)` em `push.rs`), para na `last_tx_id` sem baixar a tx, pula o que não decifra e aplica o primeiro snapshot que abre; se nenhum abrir, erro claro. Carteira vazia continua `up_to_date`. Resposta do GraphQL fora do formato agora é erro, não "nada publicado". PR #49.
+- **Verificado**: `tests/pull_skips_non_bundles.rs`, 9 testes; 7 falharam antes (`AES-GCM decryption failed`) e os 2 de regressão (carteira vazia, contador menor) passavam. `cargo test -p warden-sync --locked --no-fail-fast`: tudo verde (81 da lib, 15 de `push_divergence_check`). Clippy sem aviso novo. CI do #49 no `7551497`: na primeira execução o job `Rust` falhou em `warden-core code_engine::process::tests::a_server_starts_in_the_folder...` com `Text file busy (os error 26)` (P159, crate que o PR não toca) e passou ao reexecutar o job (`gh run rerun --failed`); `Android`, `Mobile`, `Browser against a real hub`, `Changed areas` e `guard` passaram, `Frontend` foi pulado.
+- **Não verificado**: Arweave e celular reais, Windows e macOS, `cargo test --workspace` (só `-p warden-sync` local; o CI rodou o workspace), como desktop, CLI e mobile-bridge mostram o erro novo.
+- **Fica**: P175 (a), (b), (d), (e); P176; P174, só o tamanho mínimo de 32; os 7 avisos do `cargo audit`; P171; P159 reapareceu (2ª ocorrência registrada aqui); P169 a decidir pelo dono (o texto diz que o `CLAUDE.md` não está commitado, defasado).
+- **Duplicação aceita**: a varredura do Pull repete ~10 linhas da do Send (`push::ensure_remote_not_newer`); as regras diferem (o Send decide por contador, o Pull aplica). Um helper comum fica para depois.
 
 ---
 

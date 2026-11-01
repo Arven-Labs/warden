@@ -7,6 +7,7 @@ use crate::bundle;
 use crate::diff::sha256_hex;
 use crate::manifest::{SyncDirection, SyncManifest, SyncSecrets};
 use crate::oauth;
+use crate::push::RECENT_TXS_TO_SCAN;
 use crate::syncignore::SyncIgnore;
 
 #[derive(Debug)]
@@ -65,16 +66,28 @@ pub async fn pull_with_oauth(
         );
     };
 
-    let Some(tx_id) = arweave.latest_tx_by_owner(&owner).await? else {
+    // The same wallet also pins things that are not snapshots (a skill package, P160), so the newest tx is not always one
+    // (P175c): walk the latest publications newest first, look past what does not open with this key, and stop at the tx
+    // this device already applied (nothing newer than it).
+    let recent = arweave.recent_txs_by_owner(&owner, RECENT_TXS_TO_SCAN).await?;
+    if recent.is_empty() {
         return Ok((PullOutcome::up_to_date(None, "nenhum snapshot foi publicado ainda"), manifest));
-    };
-
-    if manifest.last_tx_id.as_deref() == Some(tx_id.as_str()) {
-        return Ok((PullOutcome::up_to_date(Some(tx_id), "already up to date"), manifest));
     }
 
-    let blob = arweave.fetch_tx_data(&tx_id).await?;
-    let decoded_bundle = bundle::decrypt_bundle(&blob, &secrets.vault_key)?;
+    let mut found = None;
+    for candidate in recent {
+        if manifest.last_tx_id.as_deref() == Some(candidate.as_str()) {
+            return Ok((PullOutcome::up_to_date(Some(candidate), "already up to date"), manifest));
+        }
+        let blob = arweave.fetch_tx_data(&candidate).await?;
+        if let Ok(decoded) = bundle::decrypt_bundle(&blob, &secrets.vault_key) {
+            found = Some((candidate, decoded));
+            break;
+        }
+    }
+    let Some((tx_id, decoded_bundle)) = found else {
+        anyhow::bail!("none of the last {RECENT_TXS_TO_SCAN} publications of this wallet is a snapshot this device can read");
+    };
 
     if decoded_bundle.manifest_counter <= manifest.manifest_counter {
         // Same counter, other tx (the early return above already handled the same tx): two devices Sent from the same point
