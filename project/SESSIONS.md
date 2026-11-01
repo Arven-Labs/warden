@@ -2,7 +2,17 @@
 
 > **Nota**: Este log foi criado junto com o projeto. As sessões serão registradas aqui conforme o trabalho avança.
 >
-> Última atualização: 2026-10-31 (Sessão 352)
+> Última atualização: 2026-10-31 (Sessão 353)
+
+---
+
+### 2026-10-31 — Sessão 353 (o `serve` do gateway recusa `--webhook-secret` com espaço nas pontas — P174)
+
+- **Pedido**: o outro item da P174, que o dono deixou fora do #44: o `--webhook-secret` tem o mesmo risco do `\n` final. Sem plan mode (repete a receita da Sessão 352); testes revistos e aprovados pelo dono antes da implementação.
+- **Feito**: `check_webhook_secret_ends` em `crates/warden-gateway/src/main.rs`, chamada no ramo `(Some(url), Some(secret))` antes de `Dispatcher::new`. Mesma regra: recusa, não apara, e não repete o segredo; a mensagem diz "webhook secret", para o operador saber qual variável corrigir. Não existe segredo anterior do webhook (a rotação é do lado do site mãe). `check_admin_secret_ends` não foi tocada.
+- **Verificado**: 2 testes novos em `main.rs`; o de recusa falhou com o stub (`unwrap_err()` num `Ok`). `cargo test -p warden-gateway --locked --no-fail-fast`: exit 0, 0 falhas, 4 ignorados (`real_provider`); clippy do crate exit 0, nada em `main.rs`. Binário real: webhook com `\n` no fim sai com o erro novo e exit 1; webhook limpo sobe (exit 124 do `timeout`); só o segredo, sem a URL, continua caindo no erro antigo "go together".
+- **Não verificado**: o CI do PR. Um gateway em produção com `WARDEN_GATEWAY_WEBHOOK_SECRET` terminando em `\n` passa a recusar subir depois do deploy: é o efeito pretendido, está no corpo do PR. Deploys fora deste repo não foram lidos.
+- **Fica**: P174, só o tamanho mínimo de 32 (decisão de deploy); os 7 avisos do `cargo audit`; P171.
 
 ---
 
