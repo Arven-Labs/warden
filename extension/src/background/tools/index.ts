@@ -9,8 +9,9 @@ import { navigateSpec, navigate } from "./navigate";
 import { extractTextSpec, extractText } from "./extract_text";
 import { listTabsSpec, listTabs } from "./list_tabs";
 import { scrollSpec, scroll } from "./scroll";
+import { typeTextSpec, typeText } from "./type_text";
 
-export const toolSpecs: ToolSpec[] = [readPageSpec, clickElementSpec, navigateSpec, extractTextSpec, listTabsSpec, scrollSpec];
+export const toolSpecs: ToolSpec[] = [readPageSpec, clickElementSpec, navigateSpec, extractTextSpec, listTabsSpec, scrollSpec, typeTextSpec];
 
 export const toolHandlers: Record<string, ToolHandler> = {
   [readPageSpec.name]: (args) => readPage(args),
@@ -19,4 +20,5 @@ export const toolHandlers: Record<string, ToolHandler> = {
   [extractTextSpec.name]: (args) => extractText(args),
   [listTabsSpec.name]: () => listTabs(),
   [scrollSpec.name]: (args) => scroll(args),
+  [typeTextSpec.name]: (args) => typeText(args),
 };

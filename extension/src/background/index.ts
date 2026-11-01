@@ -26,6 +26,8 @@ import { entriesBefore, redoBlock } from "../protocol/regenerate";
 import { visibleConversations, withMessageIds } from "../protocol/threads";
 import { badgeText, baseline, markSeen, notificationBody, unreadIds, type SeenMap } from "../protocol/unread";
 import { canAutoConnect, isAuthRejection, retryDelayMs, STABLE_AFTER_MS } from "../protocol/reconnect";
+import { isLocalApprovalId } from "../protocol/localApproval";
+import { localApprovals, onLocalApprovalsChange } from "./local_approval";
 import { toolSpecs, toolHandlers } from "./tools";
 import { addActiveTabToGroup, listGroupTabs, removeTabFromGroup, setGroupChangeListener } from "./tab_group";
 import { openPanel, setUpPanelOpening, supportsHubDiscovery } from "./platform";
@@ -216,9 +218,20 @@ function threadParentOfActive(): ThreadParent | null {
 
 function setApprovals(next: ApprovalPrompt[]): void {
   approvals = next;
-  updateBadge();
-  broadcast({ type: "approvalsChanged", approvals });
+  showApprovals();
 }
+
+/** What the panel shows as waiting: the hub's questions, then the extension's own (the yes before `browser_type_text` writes). */
+function shownApprovals(): ApprovalPrompt[] {
+  return [...approvals, ...localApprovals.pending()];
+}
+
+function showApprovals(): void {
+  updateBadge();
+  broadcast({ type: "approvalsChanged", approvals: shownApprovals() });
+}
+
+onLocalApprovalsChange(showApprovals);
 
 /** P121 — the channels with something the person has not seen. The one in front of the panel is read as it arrives. */
 function unreadChannels(): string[] {
@@ -228,7 +241,7 @@ function unreadChannels(): string[] {
 /** The toolbar icon: an approval waiting wins, else how many agent channels have something new. It shows with the panel closed, which is
  * the point: an agent that started a message has to be noticed without the panel open. */
 function updateBadge(): void {
-  void chrome.action.setBadgeText({ text: badgeText(approvals.length, unreadChannels().length) });
+  void chrome.action.setBadgeText({ text: badgeText(shownApprovals().length, unreadChannels().length) });
 }
 
 /** P121 — brings the marks up to date after the conversations or what is in front changed: the baseline on a first run, the channel in front
@@ -415,7 +428,7 @@ setGroupChangeListener(() => broadcast({ type: "groupChanged" }));
 async function handleRequest(request: PopupRequest): Promise<unknown> {
   switch (request.type) {
     case "getStatus":
-      return { status: currentStatus, history, savedSettings: await getSavedSettings(), approvals, liveTurns, ...conversationState() };
+      return { status: currentStatus, history, savedSettings: await getSavedSettings(), approvals: shownApprovals(), liveTurns, ...conversationState() };
 
     case "connect": {
       const generation = ++connectGeneration;
@@ -458,6 +471,8 @@ async function handleRequest(request: PopupRequest): Promise<unknown> {
       // The marks kept from earlier visits (none on a first run: the first list becomes the baseline).
       seen = ((await chrome.storage.local.get(STORAGE_KEY_SEEN))[STORAGE_KEY_SEEN] as SeenMap | undefined) ?? null;
       agentIds = [];
+      // A question asked on the connection that was just replaced can no longer be answered to anyone: it is a no.
+      localApprovals.denyAll();
       setApprovals([]);
       if (activeConversationId === null) {
         const stored = await chrome.storage.local.get(STORAGE_KEY_ACTIVE_CONVERSATION);
@@ -468,6 +483,7 @@ async function handleRequest(request: PopupRequest): Promise<unknown> {
         if (status.kind !== "connected") {
           pendingTurns = {};
           clearLiveTurns();
+          localApprovals.denyAll();
           setApprovals([]);
         }
         setStatus(status);
@@ -530,6 +546,7 @@ async function handleRequest(request: PopupRequest): Promise<unknown> {
       await setWantConnected(false);
       connection?.goodbye();
       connection = null;
+      localApprovals.denyAll();
       setApprovals([]);
       setStatus({ kind: "disconnected" });
       return { ok: true };
@@ -621,6 +638,11 @@ async function handleRequest(request: PopupRequest): Promise<unknown> {
       return { ok: true };
 
     case "resolveApproval":
+      // The extension's own question (before typing into a page) is answered here; the hub never heard of it.
+      if (isLocalApprovalId(request.approvalId)) {
+        localApprovals.resolve(request.approvalId, request.approved);
+        return { ok: true };
+      }
       setApprovals(approvals.filter((a) => a.approvalId !== request.approvalId));
       connection?.resolveApproval(request.approvalId, request.approved);
       return { ok: true };

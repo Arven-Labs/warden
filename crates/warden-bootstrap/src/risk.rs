@@ -44,7 +44,8 @@ pub fn builtin_category(name: &str, arguments: &Value) -> Option<Category> {
             "delete" => Some(Category::DeleteData),
             _ => Some(Category::ImportantConfig),
         },
-        "browser_click_element" | "browser_navigate" => Some(Category::ExternalMessage),
+        // Typing into a page is held like clicking on it: both act inside the person's own, logged-in session.
+        "browser_click_element" | "browser_navigate" | "browser_type_text" => Some(Category::ExternalMessage),
         // Reaching the person on their channels, or leaving another agent a message that sets it working; collecting an answer sends nothing.
         "message_user" => Some(Category::ExternalMessage),
         "message_agent" => match action {
@@ -164,6 +165,12 @@ mod tests {
         assert_eq!(builtin_category("browser_click_element", &json!({})), Some(Category::ExternalMessage));
         assert_eq!(builtin_category("laptop__browser_navigate", &json!({})), Some(Category::ExternalMessage));
         assert_eq!(builtin_category("browser_read_page", &json!({})), None);
+    }
+
+    #[test]
+    fn typing_into_a_page_is_held_like_clicking_on_it() {
+        assert_eq!(builtin_category("browser_type_text", &json!({ "selector": "#q", "text": "oi" })), Some(Category::ExternalMessage));
+        assert_eq!(builtin_category("laptop__browser_type_text", &json!({})), Some(Category::ExternalMessage));
     }
 
     #[test]
