@@ -2,7 +2,18 @@
 
 > **Nota**: Este log foi criado junto com o projeto. As sessões serão registradas aqui conforme o trabalho avança.
 >
-> Última atualização: 2026-11-01 (Sessão 358)
+> Última atualização: 2026-11-01 (Sessão 359)
+
+---
+
+### 2026-11-01 — Sessão 359 (a recusa do Send fixada por teste — P175 e)
+
+- **Pedido**: o item (e) do P175, depois do P178. Plan mode; decisão do dono: conferir e fixar em inglês, sem erro tipado nem pt-BR novo; testes revistos e aprovados antes do PR. Nenhum código de produção mudou.
+- **Conferido lendo o código**: o texto sai de `push::ensure_remote_not_newer` (chamado em `finish_push`) e chega cru às três telas. Desktop: `sync_push_await` devolve `format!("{e:#}")` e `SyncView.tsx` faz `setError(String(err))` e `setPushBegin(null)` (banner, sem QR). CLI: o erro sobe por `?` até o laço de `interactive.rs:3422`, que mostra o cartão vermelho "Error". Celular: `sse_decode_String` e `e.toString()` (confiança média). A checagem roda depois de o QR ter sido mostrado.
+- **Feito** (PR #53): 2 testes em `crates/warden-sync/tests/push_divergence_check.rs` com a frase inteira das recusas "newer" e "diverged"; 1 caso novo em `desktop/e2e/screens.test.mjs`, `sync: a send another device got ahead of shows the reason and drops the QR` (a frase do E2E é uma cópia da do Rust, com comentário nos dois lados).
+- **Verificado**: `cargo test -p warden-sync --locked --test push_divergence_check`: 17 passam. Testes de caracterização, passavam antes (nada mudou em produção). CI do #53 no `aeb7043`: `Rust`, `Android`, `Mobile`, `Browser against a real hub`, `Desktop screens in a browser`, `Frontend (desktop)`, `Changed areas` e `guard` passaram, sem reexecução. Baixei o artefato `desktop-e2e-screens` e olhei `desktop-sync-refused-light.png` e `-dark.png`: banner com a frase exata, sem QR, `Send` e `Pull` ativos.
+- **Não verificado**: o cartão de erro do CLI e a tela do celular, só por leitura (o `SyncScreen` chama a bridge sem injeção); o Send real pelo celular (P178); Windows e macOS.
+- **Fica**: a recusa chegar antes do QR (API nova nas três telas); P175 (b), (d); P177 (decisão do dono); P176 (mais uma ocorrência registrada, na Sessão 358); P174; os 7 avisos do `cargo audit`; P171; P159.
 
 ---
 
