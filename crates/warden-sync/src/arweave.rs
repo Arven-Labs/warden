@@ -31,6 +31,19 @@ impl ArweaveClient {
         Ok(parse_latest_tx_response(&text))
     }
 
+    /// Ids of the latest `limit` transactions published by `owner_address`, newest first (P-14). The same wallet also pins
+    /// things that are not sync bundles (a skill package, P160), so the newest tx is not always a bundle and a check that
+    /// looks for one has to look past it. Unlike `latest_tx_by_owner`, an answer that is not the expected shape (a GraphQL
+    /// error, a rate-limit page) is an error here, not "nothing published": a check that reads that as "nothing there" would
+    /// let a Send through without having seen anything.
+    pub async fn recent_txs_by_owner(&self, owner_address: &str, limit: u32) -> anyhow::Result<Vec<String>> {
+        let query = r#"query($owners:[String!],$first:Int){ transactions(owners:$owners, first:$first, sort:HEIGHT_DESC){ edges { node { id } } } }"#;
+        let body = serde_json::json!({ "query": query, "variables": { "owners": [owner_address], "first": limit } });
+        let resp = self.http.post(&self.graphql_url).json(&body).send().await?.error_for_status()?;
+        let text = resp.text().await?;
+        parse_recent_txs_response(&text)
+    }
+
     /// The wallet address that published `tx_id` — used once, right after this device's very
     /// first successful push, to learn the owner address to remember from then on.
     pub async fn owner_of_tx(&self, tx_id: &str) -> anyhow::Result<Option<String>> {
@@ -123,6 +136,17 @@ fn parse_latest_tx_response(json: &str) -> Option<String> {
         .map(String::from)
 }
 
+fn parse_recent_txs_response(json: &str) -> anyhow::Result<Vec<String>> {
+    let value: Value = serde_json::from_str(json).map_err(|_| anyhow::anyhow!("the gateway answered something that is not JSON"))?;
+    let edges = value
+        .get("data")
+        .and_then(|data| data.get("transactions"))
+        .and_then(|transactions| transactions.get("edges"))
+        .and_then(Value::as_array)
+        .ok_or_else(|| anyhow::anyhow!("the gateway's answer has no list of transactions"))?;
+    Ok(edges.iter().filter_map(|edge| edge.get("node")?.get("id")?.as_str().map(String::from)).collect())
+}
+
 fn parse_owner_response(json: &str) -> Option<String> {
     let value: Value = serde_json::from_str(json).ok()?;
     value.get("data")?.get("transaction")?.get("owner")?.get("address")?.as_str().map(String::from)
@@ -164,6 +188,20 @@ mod tests {
     fn parses_a_real_shaped_latest_tx_success_response() {
         let json = r#"{"data":{"transactions":{"edges":[{"node":{"id":"abc123"}}]}}}"#;
         assert_eq!(parse_latest_tx_response(json), Some("abc123".to_string()));
+    }
+
+    #[test]
+    fn a_list_of_recent_txs_comes_back_newest_first() {
+        let json = r#"{"data":{"transactions":{"edges":[{"node":{"id":"new"}},{"node":{"id":"old"}}]}}}"#;
+        assert_eq!(parse_recent_txs_response(json).unwrap(), ["new", "old"]);
+    }
+
+    #[test]
+    fn no_recent_txs_is_an_empty_list_but_a_wrong_shape_is_an_error() {
+        assert!(parse_recent_txs_response(r#"{"data":{"transactions":{"edges":[]}}}"#).unwrap().is_empty());
+        for wrong in ["not json", r#"{"errors":[{"message":"boom"}]}"#, r#"{"data":{"transactions":null}}"#, "<html>429</html>"] {
+            assert!(parse_recent_txs_response(wrong).is_err(), "{wrong:?}");
+        }
     }
 
     #[test]

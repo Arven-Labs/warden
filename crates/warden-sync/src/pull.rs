@@ -77,9 +77,14 @@ pub async fn pull_with_oauth(
     let decoded_bundle = bundle::decrypt_bundle(&blob, &secrets.vault_key)?;
 
     if decoded_bundle.manifest_counter <= manifest.manifest_counter {
-        let warning =
+        // Same counter, other tx (the early return above already handled the same tx): two devices Sent from the same point
+        // (P-14). Say so, instead of the "older" message that hides it.
+        let warning = if decoded_bundle.manifest_counter == manifest.manifest_counter {
+            "the remote snapshot diverged from this device's: both are at the same counter but are different snapshots — ignored so as not to overwrite local state"
+        } else {
             "the remote snapshot looks older than (or the same as) the one already applied — ignored so as not to overwrite a newer local state"
-                .to_string();
+        }
+        .to_string();
         return Ok((PullOutcome::up_to_date(Some(tx_id), &warning), manifest));
     }
 

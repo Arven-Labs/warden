@@ -1,11 +1,11 @@
 //! P-14 (arca): two paired devices edit different files and each Sends from the same
-//! `manifest_counter`, without syncing in between. Both bundles then carry counter N+1, and the
-//! bundle of whoever sent second is the "latest" one on Arweave. Reading `push.rs`/`pull.rs`
-//! predicts that the first device ignores it ("older than or the same as") and the second finds
-//! `last_tx_id` equal to the latest, so neither ever receives the other's file.
+//! `manifest_counter`, without syncing in between. Before the fix both bundles carried counter
+//! N+1, the first device ignored the second's ("older than or the same as") and the second found
+//! `last_tx_id` equal to the latest, so neither ever received the other's file — silently.
 //!
-//! The assertions state what SHOULD happen (both vaults end up with both files), so this test is
-//! `#[ignore]`d until the divergence is fixed; run it with `--ignored` to see the failure.
+//! Now the second Send is refused before the phone is asked to pin anything
+//! (`push::ensure_remote_not_newer`); the device pulls, sends again, and both vaults end up with
+//! both files. This test was `#[ignore]`d while the bug was open (PR #40).
 //!
 //! Unlike `engine_lifecycle.rs`, the fake gateway hands out a NEW tx id per push (`tx-1`, `tx-2`,
 //! ...). With a constant id, `pull` would return early on `last_tx_id == tx_id` and the counter
@@ -140,21 +140,26 @@ async fn spawn_fake_phone(requester_pub_hex: String, chain: Chain) -> tokio::tas
     task
 }
 
-/// One whole Send from `device`: diff, QR, a fresh fake phone that pins it, finish.
-async fn send(device: &TestDevice, chain: &Chain) {
+/// One whole Send from `device`: diff, QR, a fresh fake phone that pins it, finish. Returns the
+/// error of `finish`, so a test can look at a refused Send.
+async fn try_send(device: &TestDevice, chain: &Chain) -> anyhow::Result<()> {
     let begin = device.engine.begin_push().unwrap().expect("something to send");
     let qr: serde_json::Value = serde_json::from_str(&begin.pending.qr_payload_json().unwrap()).unwrap();
     let requester_pub_hex = qr["ephemeralPubKey"].as_str().unwrap().to_string();
     let phone = spawn_fake_phone(requester_pub_hex, chain.clone()).await;
-    device.engine.finish_push_with_hosts(begin, vec![Ipv4Addr::LOCALHOST]).await.unwrap();
+    let result = device.engine.finish_push_with_hosts(begin, vec![Ipv4Addr::LOCALHOST]).await;
     phone.abort();
     let _ = phone.await;
     // Let the OS release the LAN port before the next phone binds one.
     tokio::time::sleep(Duration::from_millis(50)).await;
+    result.map(|_| ())
+}
+
+async fn send(device: &TestDevice, chain: &Chain) {
+    try_send(device, chain).await.unwrap();
 }
 
 #[tokio::test]
-#[ignore = "P-14: two Sends from the same counter diverge silently; remove when fixed (arca ADR 0005)"]
 async fn two_devices_that_send_from_the_same_counter_end_up_with_both_files() {
     let chain: Chain = Arc::new(Mutex::new(Vec::new()));
     let gateway_url = spawn_fake_gateway(chain.clone()).await;
@@ -180,21 +185,25 @@ async fn two_devices_that_send_from_the_same_counter_end_up_with_both_files() {
     std::fs::write(device_a.vault_root.join("from-a.md"), "written on A").unwrap();
     send(&device_a, &chain).await; // tx-2, counter 2
     std::fs::write(device_b.vault_root.join("from-b.md"), "written on B").unwrap();
-    send(&device_b, &chain).await; // tx-3, counter 2 as well
 
-    // Each device now syncs. What the user would hope for: both end up with both files.
+    // B's Send would have been tx-3 at counter 2 as well. It is refused before the phone pins
+    // anything: nothing new reaches the chain.
+    let refused = try_send(&device_b, &chain).await.expect_err("B's Send from a stale counter must be refused");
+    let message = format!("{refused:#}");
+    assert!(message.contains("newer") && message.contains("pull"), "{message}");
+    assert_eq!(chain.lock().unwrap().len(), 2, "a refused Send must not pin anything");
+
+    // B pulls A's file, then sends its own (counter 3); A pulls it. Both end up with both files.
+    device_b.engine.pull().await.unwrap();
+    send(&device_b, &chain).await; // tx-3, counter 3
     let pulled_a = device_a.engine.pull().await.unwrap();
-    let pulled_b = device_b.engine.pull().await.unwrap();
 
-    let a_has_b_file = device_a.vault_root.join("from-b.md").exists();
-    let b_has_a_file = device_b.vault_root.join("from-a.md").exists();
-    assert!(
-        a_has_b_file && b_has_a_file,
-        "the vaults diverged silently: A has from-b.md = {a_has_b_file}, B has from-a.md = {b_has_a_file}; \
-         A's pull: tx {:?}, warnings {:?}; B's pull: tx {:?}, warnings {:?}",
+    assert_eq!(std::fs::read_to_string(device_b.vault_root.join("from-a.md")).unwrap(), "written on A");
+    assert_eq!(
+        std::fs::read_to_string(device_a.vault_root.join("from-b.md")).unwrap(),
+        "written on B",
+        "A's pull: tx {:?}, warnings {:?}",
         pulled_a.tx_id,
         pulled_a.warnings,
-        pulled_b.tx_id,
-        pulled_b.warnings,
     );
 }

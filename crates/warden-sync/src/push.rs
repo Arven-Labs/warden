@@ -73,6 +73,63 @@ pub fn begin_push_with_oauth(
     Ok(Some(BeginPushResult { pending, encrypted_bundle, bundle }))
 }
 
+/// P-14: refuses a Send when the latest bundle on Arweave is not one this device is already at or past. Runs before the phone
+/// is asked to pin anything, so a refusal costs nothing; without it two devices that Send from the same `manifest_counter`
+/// both publish counter N+1 and diverge silently (the first one's `pull` ignores the other as "older or the same").
+///
+/// The decision is by COUNTER, not by tx id: the gateway indexes by block height, so right after this device's own Send it
+/// still answers the tx before it. A counter below ours is that lag and the Send goes ahead; above ours is a newer snapshot to
+/// pull first; equal with another tx is a divergence.
+///
+/// The same wallet also pins things that are not bundles (a skill package, P160), so the newest tx is not always a snapshot:
+/// the check walks the latest `RECENT_TXS_TO_SCAN` publications, newest first, skips what does not decrypt as a bundle with
+/// this key, and decides on the first one that does. Reaching the tx this device already applied first means nothing newer.
+///
+/// Not being able to check refuses too, because without the check there is no way to know the Send will not diverge: the
+/// gateway down or answering something unexpected, no data at a tx yet, or every one of the scanned publications being
+/// something that is not a bundle (the snapshot may be further back). A wallet with fewer publications than that, none of
+/// them a bundle, has nothing to diverge from. A device that is not paired yet has nothing to check.
+///
+/// Not atomic: another device can still Send between this check and the approval on the phone. Arweave has no compare-and-swap,
+/// so that window stays; the pull now says "diverged" instead of the old "older or the same".
+pub async fn ensure_remote_not_newer(arweave: &ArweaveClient, manifest: &SyncManifest, secrets: &SyncSecrets) -> anyhow::Result<()> {
+    let Some(owner) = manifest.owner_address.as_deref() else { return Ok(()) };
+    let could_not_check = |reason: &dyn std::fmt::Display| {
+        anyhow::anyhow!("could not check whether another device sent a newer snapshot ({reason}); nothing was sent — try again, or pull first")
+    };
+
+    let recent = arweave.recent_txs_by_owner(owner, RECENT_TXS_TO_SCAN).await.map_err(|e| could_not_check(&format!("{e:#}")))?;
+    for tx_id in &recent {
+        if manifest.last_tx_id.as_deref() == Some(tx_id.as_str()) {
+            return Ok(());
+        }
+        let blob = arweave.fetch_tx_data(tx_id).await.map_err(|e| could_not_check(&format!("{e:#}")))?;
+        // A publication that does not open with this key is not one of our bundles (a skill package, say): look past it.
+        let Ok(remote) = bundle::decrypt_bundle(&blob, &secrets.vault_key) else { continue };
+
+        return match remote.manifest_counter.cmp(&manifest.manifest_counter) {
+            std::cmp::Ordering::Less => Ok(()),
+            std::cmp::Ordering::Greater => anyhow::bail!(
+                "another device sent a newer snapshot (counter {}, this device is at {}); pull before sending",
+                remote.manifest_counter,
+                manifest.manifest_counter
+            ),
+            std::cmp::Ordering::Equal => anyhow::bail!(
+                "another device sent from the same point and the two diverged (both at counter {}); pull before sending",
+                manifest.manifest_counter
+            ),
+        };
+    }
+
+    if recent.len() >= RECENT_TXS_TO_SCAN as usize {
+        return Err(could_not_check(&format!("none of the last {RECENT_TXS_TO_SCAN} publications of this wallet is a snapshot this device can read")));
+    }
+    Ok(())
+}
+
+/// How far back `ensure_remote_not_newer` looks for the latest bundle (P-14).
+const RECENT_TXS_TO_SCAN: u32 = 10;
+
 /// Runs the actual TruthID exchange (`pending.run`, sweeping every real LAN host — see
 /// `run_push_with_hosts` to target a known set instead, e.g. in tests), then folds the result
 /// into `manifest` — returns the new manifest for the caller to persist (this crate never assumes
