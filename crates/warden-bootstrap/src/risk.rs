@@ -167,6 +167,12 @@ mod tests {
     }
 
     #[test]
+    fn scrolling_a_page_only_moves_the_view_and_has_no_category() {
+        assert_eq!(builtin_category("browser_scroll", &json!({ "direction": "down" })), None);
+        assert_eq!(builtin_category("laptop__browser_scroll", &json!({ "direction": "bottom" })), None);
+    }
+
+    #[test]
     fn a_server_hint_is_read_with_the_protocols_defaults_unless_the_tool_says_it_only_reads() {
         let hints = |read_only, destructive, open_world| RiskHints { read_only, destructive, open_world };
         assert_eq!(category_from_hints(&hints(Some(false), Some(true), None)), Some(Category::DeleteData));

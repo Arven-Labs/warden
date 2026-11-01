@@ -2,7 +2,18 @@
 
 > **Nota**: Este log foi criado junto com o projeto. As sessões serão registradas aqui conforme o trabalho avança.
 >
-> Última atualização: 2026-11-01 (Sessão 363)
+> Última atualização: 2026-11-01 (Sessão 364)
+
+---
+
+### 2026-11-01 — Sessão 364 (tool `browser_scroll`, PR 3a da Fase 8)
+
+- **Pedido**: o PR 3 das tools de DOM. Plan mode, com modelo de ameaça; o dono escolheu as 3 tools (scroll, type_text, screenshot) e as 3 travas do `type_text` (recusar campo de senha, nunca enviar o formulário, aprovação sempre). Este é o primeiro, de baixo risco; o `type_text` e o `screenshot` vêm em PRs próprios, o `type_text` com os testes revistos por ele antes da implementação.
+- **Modelo de ameaça, lido no código**: o hub só classifica `browser_click_element` e `browser_navigate` (`ExternalMessage`, `risk.rs`); nenhuma `browser_*` está em `SAFE_AGENT_TOOLS`, então num agente de autonomia 2 ou 3 todas pedem um "sim"; com autonomia 4 e sem `approval_required`, rodam sem perguntar. Este PR não muda isso.
+- **Feito** (PR `feat/extension-browser-scroll`): `extension/src/protocol/scrollArgs.ts` (validação pura: direção entre up/down/top/bottom, `amount` de 1 a 10.000 px arredondado, `selector` e `tabId` opcionais; `amount` é ignorado em top/bottom), `background/tools/scroll.ts` (rola a página ou um elemento rolável, devolve onde parou e se chegou ao topo/fim), registro em `tools/index.ts`, teste Rust em `risk.rs` (`browser_scroll` sem categoria, só move a vista).
+- **Verificado**: `npm test` 167 verdes (158 + 9 de `scrollArgs.test.mjs`, escritos antes), `npm run build` e `npm run build:firefox` limpos, `cargo test -p warden-bootstrap --lib risk` 10 verdes. CI do PR: ver o corpo do PR.
+- **Não verificado**: o scroll numa página real (o código injetado não tem teste, não há DOM aqui): rolar a página, rolar um contêiner por `selector`, página com `scroll-behavior: smooth`, lazy-load. O teste Rust do `risk.rs` passaria também sem a linha nova (o padrão é `None`); ele documenta a intenção.
+- **Fica**: PR 3b (`browser_type_text`, risco alto: travas, aprovação no painel, testes revistos antes); PR 3c (`browser_screenshot`, começa por checar se o resultado de uma tool leva imagem ao modelo); verificação manual da reconexão e do scroll no Chrome; 8.8.
 
 ---
 
