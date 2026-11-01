@@ -32,6 +32,8 @@ Leia o arquivo relevante para o que você precisa:
 | Estudos de fora (Hermes e o aprendizado dos agentes, etc.) | `STUDIES.md` |
 | **Produto hospedado: assinatura, créditos de modelo e loja (desenho, nada implementado)** | **`HOSPEDAGEM.md`** |
 | Verificação por código: fotos das telas da web e do desktop no CI (P161, P165) e as automações ligadas (P162 a P164: RSS semanal, roteiro com modelo real, notas de release, testes que falharam) | `AUTOMACAO.md` |
+| **Por onde uma ação passa hoje: mapa de crates e 4 fluxos de ponta a ponta** | **`../docs/ARQUITETURA.md`** |
+| Decisões novas e não óbvias (um arquivo por decisão, com alternativas descartadas) | `adr/` |
 | Log completo de sessões de trabalho | `SESSIONS.md` |
 
 **Ao começar uma sessão**: Diga ao Claude "leia os arquivos em `project/` e me ajude a continuar"
