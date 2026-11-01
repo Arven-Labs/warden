@@ -29,7 +29,8 @@ fn rt() -> &'static tokio::runtime::Runtime {
     RT.get_or_init(|| tokio::runtime::Runtime::new().expect("failed to start Tokio runtime for warden_mobile_bridge"))
 }
 
-static PENDING_PUSH: Mutex<Option<BeginPushResult>> = Mutex::new(None);
+/// The push begun by `bridge_push_begin`, with the secrets path it was begun with: step 2 needs it (see `finish_engine`).
+static PENDING_PUSH: Mutex<Option<(BeginPushResult, String)>> = Mutex::new(None);
 static PENDING_PAIRING_HOST: Mutex<Option<PairingHost>> = Mutex::new(None);
 
 fn engine(vault_root: &str, config_path: &str, secrets_path: &str, manifest_path: &str) -> SyncEngine {
@@ -102,7 +103,7 @@ pub fn bridge_push_begin(vault_root: String, config_path: String, secrets_path: 
         files_changed: (begin.bundle.vault_files.len() + begin.bundle.deleted_vault_files.len()) as u32,
         config_changed: begin.bundle.config_toml.is_some() || begin.bundle.config_deleted,
     };
-    *PENDING_PUSH.lock().unwrap() = Some(begin);
+    *PENDING_PUSH.lock().unwrap() = Some((begin, secrets_path));
     Ok(Some(dto))
 }
 
@@ -116,12 +117,13 @@ pub struct PushResultDto {
 /// Step 2 of Send: waits for the TruthID phone to pin the bundle prepared by `bridge_push_begin`,
 /// then persists the updated manifest at `manifest_path`.
 pub fn bridge_push_await(manifest_path: String, hosts: Vec<String>) -> Result<PushResultDto, String> {
-    let begin = PENDING_PUSH.lock().unwrap().take().ok_or_else(|| "no push in progress — call bridge_push_begin first".to_string())?;
+    let (begin, secrets_path) =
+        PENDING_PUSH.lock().unwrap().take().ok_or_else(|| "no push in progress — call bridge_push_begin first".to_string())?;
     let hosts = parse_hosts(hosts)?;
 
-    // `SyncEngine` only needs `manifest_path` for this step (it re-reads the manifest, runs the
-    // push, and rewrites it) — the other 3 paths were already baked into `begin` in step 1.
-    let stub_engine = SyncEngine::new(PathBuf::new(), PathBuf::new(), PathBuf::new(), manifest_path.into());
+    // The vault and the config were already baked into `begin` in step 1; this step re-reads the manifest, checks the remote
+    // against the secrets, runs the push and rewrites the manifest.
+    let stub_engine = finish_engine(&secrets_path, &manifest_path);
     let outcome = rt()
         .block_on(async {
             if hosts.is_empty() {
@@ -133,6 +135,12 @@ pub fn bridge_push_await(manifest_path: String, hosts: Vec<String>) -> Result<Pu
         .map_err(|e| format!("{e:#}"))?;
 
     Ok(PushResultDto { tx_id: outcome.tx_id, files_changed: outcome.files_changed as u32, config_changed: outcome.config_changed })
+}
+
+/// The engine that finishes a push (step 2). It does not need the vault or the config, but it does need the secrets: the check
+/// that runs before the phone is asked to pin anything (P-14) opens the remote bundle with the vault key.
+fn finish_engine(secrets_path: &str, manifest_path: &str) -> SyncEngine {
+    SyncEngine::new(PathBuf::new(), PathBuf::new(), secrets_path.into(), manifest_path.into())
 }
 
 #[derive(Debug, Clone)]
@@ -181,4 +189,42 @@ pub fn bridge_pairing_join(vault_root: String, config_path: String, secrets_path
     rt()
         .block_on(async { if hosts.is_empty() { eng.pairing_join(&code).await } else { eng.pairing_join_with_hosts(&code, hosts).await } })
         .map_err(|e| format!("{e:#}"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn temp_dir(name: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!(
+            "warden-bridge-sync-{name}-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    // P178: `finish_push` opens the remote bundle with the vault key before the phone is asked to pin anything, so the engine
+    // that finishes a push has to know where the secrets are. It used to be built with an empty path, which made every Send
+    // from the phone fail with "sync has not been initialized on this device yet".
+    #[test]
+    fn the_engine_that_finishes_a_push_knows_where_the_secrets_are() {
+        let dir = temp_dir("secrets");
+        let secrets_path = dir.join("sync_secrets.json");
+        warden_sync::manifest::save_secrets(&secrets_path, &warden_sync::manifest::generate_secrets()).unwrap();
+
+        let engine = finish_engine(secrets_path.to_str().unwrap(), dir.join("sync_manifest.json").to_str().unwrap());
+
+        assert!(engine.is_initialized(), "the engine must be pointed at the secrets file of this device");
+    }
+
+    #[test]
+    fn a_push_that_was_never_begun_has_nothing_to_finish() {
+        *PENDING_PUSH.lock().unwrap() = None;
+
+        let error = bridge_push_await("manifest.json".to_string(), Vec::new()).unwrap_err();
+
+        assert!(error.contains("no push in progress"), "{error}");
+    }
 }
