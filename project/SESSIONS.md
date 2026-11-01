@@ -2,7 +2,18 @@
 
 > **Nota**: Este log foi criado junto com o projeto. As sessões serão registradas aqui conforme o trabalho avança.
 >
-> Última atualização: 2026-11-01 (Sessão 366)
+> Última atualização: 2026-11-01 (Sessão 367)
+
+---
+
+### 2026-11-01 — Sessão 367 (teste de valor congelado do escrow, resto do P173)
+
+- **Pedido**: fechar a lacuna que o P173 admitia ("blobs ECIES e assinaturas reais já gravados não verificados"). Antes, conferi que o P172 e o P173 já estavam resolvidos (API do Dependabot: 0 abertos, 34 `fixed`, 1 `dismissed`) e que não existe seção "Resolvidas" no `PENDING.md` (os itens ✅ ficam no lugar).
+- **Achado, lendo o código**: ECIES (`crypto.rs:203`) e assinatura/endereço (`login.rs:246`, vetores do SDK Dart) já tinham valor congelado. Faltava o escrow do dono (`recovery.rs`): só havia teste de ida e volta, e nada cobria a leitura da chave como o dono a escreve (`parse_secret`, base32) nem um blob fixo.
+- **Feito** (PR `test/escrow-frozen-vector`): um teste em `warden-bootstrap/src/recovery.rs`, só com constantes (dono com escalar 1, efêmera de escalar 2, nonce fixo, chave de membro `0x42`×32). Nenhum código de produção mudou, nem `Cargo.toml`. O texto cifrado foi calculado uma vez com um teste descartável em `crypto.rs` (revertido).
+- **Verificado**: `cargo test -p warden-bootstrap --lib recovery` 9 verdes. Mutação (tirar o `to_ascii_lowercase` de `parse_secret`) derrubou o teste novo e dois antigos; revertida. CI do PR: ver o corpo do PR.
+- **Não verificado**: a suíte do workspace e o clippy localmente; nenhuma mutação no formato do ECIES; blobs e assinaturas reais já gravados na máquina do dono.
+- **Fica**: verificação manual no Chrome (reconexão, scroll, `type_text`); 8.8 (lojas); P179 só com um caso concreto.
 
 ---
 
