@@ -2,7 +2,18 @@
 
 > **Nota**: Este log foi criado junto com o projeto. As sessões serão registradas aqui conforme o trabalho avança.
 >
-> Última atualização: 2026-11-01 (Sessão 355)
+> Última atualização: 2026-11-01 (Sessão 356)
+
+---
+
+### 2026-11-01 — Sessão 356 (P169 resolvido: o texto estava defasado)
+
+- **Pedido**: corrigir o P169, que ainda dizia que o `CLAUDE.md` "não está commitado". PR de documentação, separado do #49 (uma intenção por PR).
+- **Achado (lendo `PENDING.md` e a Sessão 328)**: o `CLAUDE.md` do warden saiu do repo na Sessão 328 (PR #14), o fluxo vive no `AGENTS.md` do workspace, o (a) foi decidido (branch + PR) e o ruleset `protect-main` com o `guard` obrigatório está ativo desde a Sessão 329. Os itens (b) a (d) são o que o `AGENTS.md` pede e que as sessões recentes seguem.
+- **Decisão do dono**: fechar o P169 e abrir uma pendência só para o (e).
+- **Feito**: P169 marcado como ✅ Resolvida (o texto da Sessão 320 ficou como histórico, com a nota do que mudou); P177 novo: o dono quer um `docs/ARQUITETURA.md` e ADRs em `project/adr/`? Nada foi criado (o `AGENTS.md` §6 e §11 mandam perguntar antes).
+- **Não verificado**: não procurei se os itens (b) a (d) foram seguidos em todas as sessões desde a 320, só nas recentes (352 a 355); o CI do PR.
+- **Fica**: P177 (decisão do dono); P175 (a), (b), (d), (e); P176; P174; os 7 avisos do `cargo audit`; P171; P159.
 
 ---
 
