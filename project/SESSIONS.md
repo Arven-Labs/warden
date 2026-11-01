@@ -2,7 +2,18 @@
 
 > **Nota**: Este log foi criado junto com o projeto. As sessões serão registradas aqui conforme o trabalho avança.
 >
-> Última atualização: 2026-10-31 (Sessão 350)
+> Última atualização: 2026-10-31 (Sessão 351)
+
+---
+
+### 2026-10-31 — Sessão 351 (P173 resolvida: `k256` 0.14 mesclado, CI da `main` verde)
+
+- **Pedido**: depois do merge do #41, reler o `cargo audit` na `main` e fechar o P173.
+- **Feito**: P173 marcada como ✅ Resolvida no `PENDING.md`. Nenhum código mudou.
+- **Verificado**: `cargo audit` na `main` (`ebdabd5`): 0 vulnerabilidades, 7 avisos de manutenção; `gh run list` para o `ebdabd5`: CI, CI Private Files, Web E2E e Gateway image com `success`. No PR #41, o `Rust (clippy and tests)` passou, o que cobre a suíte do workspace que não rodou na máquina local.
+- **Não verificado**: blobs ECIES e assinaturas reais já gravados em produção (só vetores fixos); a causa dos travamentos de toolchain da máquina de dev e dos 2 testes de `people.rs` que falharam uma vez (P171).
+- **Deslize**: meu primeiro watcher do CI da `main` usou `--commit`, que devolveu saída vazia, e ficou preso; li o resultado por SHA com `gh run list`.
+- **Fica**: checagem do segredo no `warden-gateway` (Sessão 346; toca autenticação, pedir confirmação); os 7 avisos de manutenção do `cargo audit`.
 
 ---
 
