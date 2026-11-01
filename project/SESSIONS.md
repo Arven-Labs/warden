@@ -2,7 +2,18 @@
 
 > **Nota**: Este log foi criado junto com o projeto. As sessões serão registradas aqui conforme o trabalho avança.
 >
-> Última atualização: 2026-10-31 (Sessão 353)
+> Última atualização: 2026-11-01 (Sessão 354)
+
+---
+
+### 2026-11-01 — Sessão 354 (registro dos achados P-11 e P-14 da arca no `warden-sync` — P175 e P176)
+
+- **Pedido**: fechar P-11 e P-14, achados da Fase 0 da arca (repo `Arven-Labs/arca`), antes de a Fase 1 começar. Plano aprovado em plan mode; um PR por intenção.
+- **Decisão do dono**: P-14 por checagem antes do pin, por **contador** (não por id da tx: o gateway indexa por altura e ainda devolve a tx anterior logo depois do Send), sem mudar o formato do bundle; recusar o Send se não conseguir checar; olhar as últimas 10 publicações (achado da sessão: a carteira também pina pacotes de skill em texto puro e travaria o Send); P-11 com `0o600` na criação e ao carregar.
+- **Feito**: PR #43 (`manifest.rs`: `write_owner_only` e `close_to_owner`, 4 testes que falhavam antes) e PR #45 (`push::ensure_remote_not_newer`, `ArweaveClient::recent_txs_by_owner`, mensagem "diverged" no Pull, `concurrent_push.rs` sem o `#[ignore]` do #40, 15 testes novos em `push_divergence_check.rs`); ambos mesclados. Neste PR: P175 (o que sobrou) e P176 (E2E instável). Worktrees isolados de `origin/main`.
+- **Verificado**: `cargo test -p warden-sync` (81 da lib, mais os de integração) passou nos dois; sem a chamada em `lib.rs`, o `concurrent_push` falha; clippy sem aviso novo nos arquivos alterados. CI do #43: `Rust`, `Android`, `Mobile`, `guard` passaram; o `Browser against a real hub` falhou em `agents.test.mjs:82` e passou ao reexecutar o job. CI do #45: todos os checks passaram.
+- **Não verificado**: o `Rust` da `main` no merge do #45 (`d6ed852`): a execução foi **cancelada** pelo push do #46 (`51de50b`), então a verificação é a do `51de50b`, que ainda estava na fila na última leitura; o `Web E2E` do `d6ed852` passou. Arweave e celular reais, Windows e macOS, a suíte do workspace inteira (só `-p warden-sync`), `cargo clippy --workspace`, como a interface mostra a recusa do Send.
+- **Fica**: P175 (a)-(e); P176; P174, só o tamanho mínimo de 32; os 7 avisos do `cargo audit`; P171.
 
 ---
 
