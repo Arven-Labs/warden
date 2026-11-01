@@ -2,6 +2,7 @@ use aes_gcm::aead::{Aead, KeyInit};
 use aes_gcm::{Aes256Gcm, Key, Nonce};
 use hkdf::Hkdf;
 use k256::ecdh::diffie_hellman;
+use k256::elliptic_curve::Generate;
 use k256::{PublicKey, SecretKey};
 use rand_core::OsRng;
 use sha2::{Digest, Sha256};
@@ -59,7 +60,7 @@ pub struct EciesKeyPair {
 }
 
 pub fn generate_ecies_keypair() -> EciesKeyPair {
-    let secret = SecretKey::random(&mut OsRng);
+    let secret = SecretKey::generate();
     let public_hex = hex::encode(secret.public_key().to_sec1_bytes());
     EciesKeyPair { secret, public_hex }
 }
@@ -80,7 +81,7 @@ fn derive_aes_key(shared_secret: &[u8]) -> [u8; 32] {
 /// always `SHA-256(ECDH secret)`, never the raw secret.
 pub fn ecies_encrypt(plaintext: &[u8], recipient_pub_hex: &str) -> anyhow::Result<Vec<u8>> {
     let recipient_pub = parse_public_key(recipient_pub_hex)?;
-    let ephemeral_secret = SecretKey::random(&mut OsRng);
+    let ephemeral_secret = SecretKey::generate();
     let ephemeral_pub_bytes = ephemeral_secret.public_key().to_sec1_bytes();
 
     let shared = diffie_hellman(
@@ -194,6 +195,33 @@ mod tests {
             hex::encode(derive_aes_key(shared_a_to_b.raw_secret_bytes().as_slice())),
             "0135da2f8acf7b9e3090939432e47684eb888ea38c2173054d4eedffdf152ca5"
         );
+    }
+
+    /// Contract for the `k256` upgrade: `ecies_decrypt` must open a blob built from frozen
+    /// values only (the ephemeral key is the scalar 2, so its public key and the AES key are the
+    /// constants the Dart-verified test above already pins), never from a random one.
+    #[test]
+    fn ecies_decrypt_opens_a_blob_built_from_frozen_values() {
+        let ephemeral_pub = hex::decode("02c6047f9441ed7d6d3045406e95c07cd85c778e4b8cef3ca7abac09b95c709ee5").unwrap();
+        let aes_key = hex::decode("0135da2f8acf7b9e3090939432e47684eb888ea38c2173054d4eedffdf152ca5").unwrap();
+        let nonce = [7u8; NONCE_LEN];
+        let plaintext = b"frozen ecies payload";
+
+        let cipher = Aes256Gcm::new(Key::<Aes256Gcm>::from_slice(&aes_key));
+        let ciphertext = cipher.encrypt(Nonce::from_slice(&nonce), plaintext.as_ref()).unwrap();
+        let mut blob = ephemeral_pub;
+        blob.extend_from_slice(&nonce);
+        blob.extend_from_slice(&ciphertext);
+
+        let mut recipient_bytes = [0u8; 32];
+        recipient_bytes[31] = 1;
+        let recipient = SecretKey::from_slice(&recipient_bytes).unwrap();
+
+        assert_eq!(ecies_decrypt(&blob, &recipient).unwrap(), plaintext);
+        // A different recipient (scalar 3) derives another key and must not open it.
+        recipient_bytes[31] = 3;
+        let stranger = SecretKey::from_slice(&recipient_bytes).unwrap();
+        assert!(ecies_decrypt(&blob, &stranger).is_err());
     }
 
     #[test]
