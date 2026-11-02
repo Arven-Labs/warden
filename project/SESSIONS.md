@@ -2,7 +2,18 @@
 
 > **Nota**: Este log foi criado junto com o projeto. As sessões serão registradas aqui conforme o trabalho avança.
 >
-> Última atualização: 2026-11-02 (Sessão 376)
+> Última atualização: 2026-11-02 (Sessão 377)
+
+---
+
+### 2026-11-02 — Sessão 377 (P117: os achados baixos da auditoria)
+
+- **Pedido**: o dono escolheu os cinco achados baixos; plano aprovado em plan mode e testes revisados antes da implementação.
+- **Decidido sem código**: config com erro de parse mantém a lista antiga (aceito, intencional e com log); lock do `approve_as` contra `save_config` simultâneo (risco de todo escritor do config, outra intenção, aberto).
+- **Feito** (PR `fix/bots-achados-baixos`): `owner_chats` só privado (`bot_access.rs`); arquivos de pareamento em 0600 por `write_private` (`bot_pairing.rs`); `MAX_REPORTED` = 10 000 nos conjuntos `reported` do Telegram e do WhatsApp.
+- **Verificado**: `cargo test -p warden-bootstrap -p warden-telegram -p warden-whatsapp` (585 + 28 + 20 e os demais) verde local; clippy sem aviso nos arquivos tocados. Não confirmei que os testes de A e B falhavam antes: os de D não compilavam sem a constante; A e B eu escrevi e implementei na mesma sequência, sem rodar entre os dois.
+- **Não verificado**: Windows (sem modo a ajustar); nenhum bot real.
+- **Fica**: o lock do config, o teste ponta a ponta com o Node e o WhatsApp reais, P174, P126, P180.
 
 ---
 

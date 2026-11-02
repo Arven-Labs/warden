@@ -56,7 +56,7 @@ impl TelegramSettings {
     /// The people who talk to the bot as the owner (P121): listed and mapped to no member. What an agent forwards on its own
     /// (`bot_outbox.rs`) goes to them and to nobody else; a member's chat is that member's, not the owner's to write in.
     pub fn owner_chats(&self) -> Vec<i64> {
-        self.allowed_users.iter().copied().filter(|id| self.member_for(*id).is_none()).collect()
+        self.allowed_users.iter().copied().filter(|id| *id > 0 && self.member_for(*id).is_none()).collect()
     }
 
     /// Whether a message from user `user_id` in a chat of kind `chat_kind` (`private`, `group`,
@@ -109,6 +109,7 @@ impl WhatsAppSettings {
             .map(|entry| entry.trim().trim_start_matches('+'))
             .filter(|entry| !entry.is_empty() && self.member_for(entry).is_none())
             .map(|entry| if entry.contains('@') { entry.to_string() } else { format!("{entry}@s.whatsapp.net") })
+            .filter(|chat_id| is_private_chat(chat_id))
             .collect()
     }
 
@@ -188,6 +189,24 @@ mod tests {
 
         let whatsapp: WhatsAppSettings = toml::from_str("allowed_chats = [\"+5511999999999\", \"5522888888888@lid\", \"5533777777777\"]\n[members]\n5533777777777 = \"bia\"\n").unwrap();
         assert_eq!(whatsapp.owner_chats(), vec!["5511999999999@s.whatsapp.net".to_string(), "5522888888888@lid".to_string()], "a number becomes a whole id; the member's chat is out");
+    }
+
+    // P117: the gate answers private chats only, and what an agent forwards on its own follows the same rule. A group listed by
+    // mistake (a negative Telegram id, an `@g.us`) must not receive it.
+    #[test]
+    fn the_owners_chats_never_include_a_group_listed_by_mistake() {
+        let telegram: TelegramSettings = toml::from_str("allowed_users = [42, -1001234567890, 0]\n").unwrap();
+        assert_eq!(telegram.owner_chats(), vec![42]);
+
+        let whatsapp: WhatsAppSettings = toml::from_str(
+            "allowed_chats = [\"5511999999999\", \"120363000000000000@g.us\", \"status@broadcast\", \"120363111@newsletter\", \"5522888888888@lid\", \"+5533777777777@s.whatsapp.net\"]\n",
+        )
+        .unwrap();
+        assert_eq!(
+            whatsapp.owner_chats(),
+            vec!["5511999999999@s.whatsapp.net".to_string(), "5522888888888@lid".to_string(), "5533777777777@s.whatsapp.net".to_string()],
+            "a number or a private id stays; a group, a status and a newsletter are out"
+        );
     }
 
     #[test]

@@ -250,6 +250,10 @@ async fn announce_outbox(sidecar: &mut impl WhatsAppSidecar, outbox: &warden_boo
     }
 }
 
+/// How many ignored chats are remembered for the "log once" rule. Past it the list starts over, which at worst repeats a log line,
+/// instead of growing with every id a stranger makes up.
+const MAX_REPORTED: usize = 10_000;
+
 /// Who may talk to the bot (P117), and who it has already said it ignored.
 #[derive(Default)]
 struct Access {
@@ -291,6 +295,9 @@ impl Access {
             return Gate::Allowed;
         }
         let private = warden_bootstrap::bot_access::is_private_chat(chat_id);
+        if self.reported.len() >= MAX_REPORTED {
+            self.reported.clear();
+        }
         if self.reported.insert(chat_id.to_string()) {
             if private {
                 eprintln!("ignored whatsapp chat {chat_id}: to allow it, add \"{chat_id}\" (or just its number) to [whatsapp] allowed_chats in config.toml");
@@ -484,6 +491,19 @@ mod tests {
     /// The chats `[whatsapp] allowed_chats` lists.
     fn access_for(chats: &[&str]) -> Access {
         Access { settings: warden_bootstrap::bot_access::WhatsAppSettings { allowed_chats: chats.iter().map(|c| c.to_string()).collect(), ..Default::default() }, ..Access::default() }
+    }
+
+    // P117: every stranger chat is remembered so it is logged once; without a bound, ids made up one after another grow it forever.
+    #[test]
+    fn the_list_of_ignored_chats_is_bounded() {
+        let mut access = Access::default();
+
+        for n in 0..(MAX_REPORTED + 5) {
+            assert_eq!(access.check(&format!("55{n}@s.whatsapp.net"), None), Gate::Silent);
+        }
+
+        assert!(access.reported.len() <= MAX_REPORTED, "{}", access.reported.len());
+        assert!(!access.reported.is_empty());
     }
 
     /// P117: a stranger gets nothing (no reply, no media notice, no conversation, no model call), a group

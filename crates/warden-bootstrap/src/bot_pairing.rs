@@ -142,10 +142,7 @@ impl BotPairing {
     }
 
     fn write(&self, requests: &[PairingRequest]) -> anyhow::Result<()> {
-        let text = serde_json::to_string_pretty(requests)?;
-        let tmp = self.path.with_extension("json.tmp");
-        std::fs::write(&tmp, text).with_context(|| format!("writing {}", tmp.display()))?;
-        std::fs::rename(&tmp, &self.path).with_context(|| format!("replacing {}", self.path.display()))
+        crate::secrets::write_private(&self.path, serde_json::to_string_pretty(requests)?.as_bytes())
     }
 
     /// The valid requests, oldest first.
@@ -262,11 +259,7 @@ impl BotPairing {
     }
 
     fn write_approved(&self, approved: &[Approved]) -> anyhow::Result<()> {
-        let path = self.approved_path();
-        let text = serde_json::to_string_pretty(approved)?;
-        let tmp = path.with_extension("json.tmp");
-        std::fs::write(&tmp, text).with_context(|| format!("writing {}", tmp.display()))?;
-        std::fs::rename(&tmp, &path).with_context(|| format!("replacing {}", path.display()))
+        crate::secrets::write_private(&self.approved_path(), serde_json::to_string_pretty(approved)?.as_bytes())
     }
 
     /// Notes that `request`'s sender is in, once per sender, for their bot to pick up.
@@ -451,6 +444,40 @@ mod tests {
         let code = fresh(store.request(TELEGRAM, "-100123", "", 100).unwrap());
         assert!(store.approve(&code, 150, &path).is_err());
         assert_eq!(store.list(150).unwrap().len(), 1, "still there for the owner to deny");
+    }
+
+    // P117: who is waiting to be approved is not for other users of the machine to read; `config.toml` is already 0600.
+    #[cfg(unix)]
+    fn mode_of(path: &Path) -> u32 {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::metadata(path).unwrap().permissions().mode() & 0o777
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn the_pairing_files_are_for_the_owner_only() {
+        let (path, store) = setup("");
+        let code = fresh(store.request(WHATSAPP, "5511999999999@s.whatsapp.net", "Ana", 100).unwrap());
+        assert_eq!(mode_of(&path.with_file_name("bot_pairing.json")), 0o600);
+
+        store.approve(&code, 150, &path).unwrap();
+
+        assert_eq!(mode_of(&path.with_file_name("bot_pairing.json")), 0o600);
+        assert_eq!(mode_of(&path.with_file_name("bot_pairing_approved.json")), 0o600);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_pairing_file_an_older_version_left_open_is_closed_by_the_next_write() {
+        use std::os::unix::fs::PermissionsExt;
+        let (path, store) = setup("");
+        let file = path.with_file_name("bot_pairing.json");
+        std::fs::write(&file, "[]").unwrap();
+        std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o644)).unwrap();
+
+        fresh(store.request(WHATSAPP, "5511999999999@s.whatsapp.net", "", 100).unwrap());
+
+        assert_eq!(mode_of(&file), 0o600);
     }
 
     // P117: the label is the WhatsApp `pushName`, which the stranger chooses. The owner reads it in `warden bots pair list` (and in
