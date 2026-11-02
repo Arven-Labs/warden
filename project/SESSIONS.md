@@ -2,7 +2,19 @@
 
 > **Nota**: Este log foi criado junto com o projeto. As sessões serão registradas aqui conforme o trabalho avança.
 >
-> Última atualização: 2026-11-01 (Sessão 370)
+> Última atualização: 2026-11-02 (Sessão 374)
+
+---
+
+### 2026-11-02 — Sessão 374 (P175 b: a janela do P-14 fica como limitação aceita)
+
+- **Pedido**: seguir no (b) do P175. Plano aprovado em plan mode; sem código.
+- **Achado**: detectar a corrida depois do pin não funciona. O gateway indexa por altura de bloco (já anotado em `push_divergence_check.rs`), então logo após o pin ainda responde a tx anterior, e o rival que pinou na janela também pode não estar indexado. Reconsultar só pegaria o rival já indexado, que a checagem de antes quase sempre já pegou.
+- **Decisão do dono**: só documentar. Descartados: reconsulta pós-pin (acima) e `base_tx_id` no bundle (muda formato e cripto/dados, duplica a `base_version` da arca).
+- **Feito** (PR `docs/p175b-janela-aceita`): `PENDING.md` (P175 b) e este arquivo. Nenhum código.
+- **Verificado**: só por leitura. Que o Pull avisa "diverged" sem tocar o estado local tem teste (`push_divergence_check.rs:279`, `pull_skips_non_bundles.rs:233`); rodei nenhum teste.
+- **Não verificado**: o comportamento do indexador do Arweave real (a premissa vem do comentário do teste e de `sort:HEIGHT_DESC`, não de uma medição).
+- **Fica**: o (b) fecha na migração para a arca; P174, P126, P54, P105.
 
 ---
 
