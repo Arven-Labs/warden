@@ -69,12 +69,14 @@ pub struct PushBeginPayload {
 /// blocking on the phone are deliberately separate IPC calls, so the frontend can render the QR
 /// before the (potentially minutes-long, human-paced) wait begins.
 #[tauri::command]
-pub fn sync_push_begin(state: State<'_, AppState>) -> Result<PushBeginPayload, String> {
+pub async fn sync_push_begin(state: State<'_, AppState>) -> Result<PushBeginPayload, String> {
     let begin = state
         .sync
         .begin_push()
         .map_err(|e| format!("{e:#}"))?
         .ok_or_else(|| "Nothing to send — the vault and the config already match the last send".to_string())?;
+    // P175(e): a device that is behind is told before the QR exists (`sync_push_await` checks again, under the lock).
+    state.sync.check_remote_not_newer().await.map_err(|e| format!("{e:#}"))?;
 
     let qr_json = begin.pending.qr_payload_json().map_err(|e| format!("{e:#}"))?;
     let qr_svg = crate::qr::render_qr_svg(&qr_json)?;

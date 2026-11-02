@@ -6,6 +6,19 @@
 
 ---
 
+### 2026-11-01 — Sessão 373 (P175 e: a recusa de "outro dispositivo à frente" chega antes do QR)
+
+- **Pedido**: seguir no P175; ficou o "fica" do (e). Plano aprovado em plan mode; os testes foram revisados antes da implementação.
+- **Achado**: o PENDING dizia que mover a checagem "pede API nova nas três telas". Não pede: o `begin_push` é local e síncrono, a checagem é de rede; basta um método novo do engine e uma chamada em cada tela, sem mudar nome de IPC, de bridge nem TS/Dart.
+- **Feito** (PR `feat/sync-check-before-qr`): `SyncEngine::check_remote_not_newer` (consultiva, sem lock) e um helper privado usado também por `finish_push` e `finish_push_with_hosts`, que seguem checando sob o lock; uma chamada em `cmd_sync_push` (CLI), `sync_push_begin` (desktop, agora `async`) e `bridge_push_begin` (`block_on`). Só quando `begin_push` devolve `Some`.
+- **Testes**: 4 novos em `push_divergence_check.rs` (recusa "newer" e "diverged" com a frase exata, passa em dia sem buscar nada, dispositivo sem segredos diz "not been initialized") e 1 E2E no desktop (`refused before any QR is shown`: sem QR, sem `sync_push_await`, botão Send de volta).
+- **Verificado**: `cargo test -p warden-sync` local (4 novos passam); `cargo check -p warden-cli -p warden_mobile_bridge` limpo. O `cargo check` do desktop e o E2E rodam no CI (ver o corpo do PR).
+- **Não verificado**: CLI e celular só por leitura; se o `BeginPushResult` atravessa o `await` no comando async do Tauri (o compilador do CI confirma).
+- **Incidente de ferramenta**: um `rustc` ficou 36 minutos a 100% de CPU num `cargo test` e foi morto; o mesmo alvo compilou em 2,8 s depois. Causa não investigada; não voltou.
+- **Fica**: (b) do P175, sem correção possível sem mudar o desenho da arca (Arweave não tem compare-and-swap); P174, P126, P54, P105.
+
+---
+
 ### 2026-11-01 — Sessão 372 (P175 d: `save_manifest` também cria a pasta com `0o700`)
 
 - **Pedido**: o dono escolheu fechar o resíduo anotado na Sessão 371 (o `save_manifest` ainda usava `create_dir_all`). Testes revisados e aprovados antes da troca.
