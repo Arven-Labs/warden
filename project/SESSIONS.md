@@ -2,7 +2,18 @@
 
 > **Nota**: Este log foi criado junto com o projeto. As sessões serão registradas aqui conforme o trabalho avança.
 >
-> Última atualização: 2026-11-02 (Sessão 380)
+> Última atualização: 2026-11-02 (Sessão 381)
+
+---
+
+### 2026-11-02 — Sessão 381 (P157: a busca de conversas do desktop acha também pelo conteúdo)
+
+- **Pedido**: seguir pelo P157. Plano aprovado em plan mode; escopo escolhido pelo dono: só o modo local (sem protocolo novo). Testes revisados antes da implementação.
+- **Feito** (PR `feat/busca-conversas-conteudo`): `desktop/src/lib/conversationSearch.ts` passa a exigir as palavras no título ou nas mensagens (podem estar espalhadas entre eles); o título é checado primeiro e as mensagens só para as palavras que faltam; o texto normalizado de cada mensagem fica num `WeakMap`. 5 testes novos em `desktop/tests/conversationSearch.test.mjs`.
+- **Decisão**: no hub a lista não traz mensagens, então só as conversas já abertas são achadas pelo conteúdo; as outras, pelo título. Descartada uma busca no servidor (PR grande, escopo por membro).
+- **Verificado**: `npm test` do desktop com 240 testes verdes e `tsc --noEmit` limpo. Os 3 testes que mudam comportamento falhavam antes (vistos falhar). Medido no pior caso inventado (500 conversas de 100 mensagens de ~600 caracteres): sem cache cerca de 200 ms por tecla; com o `WeakMap`, cerca de 60 ms depois da primeira chamada (a primeira ficou entre 200 e 430 ms nas medidas).
+- **Não verificado**: a busca numa janela real (P129); o CI; o desempenho com histórico real.
+- **Fica**: o teste ponta a ponta com o Node e o WhatsApp reais; P126, P180; o item (2) do P68.
 
 ---
 
