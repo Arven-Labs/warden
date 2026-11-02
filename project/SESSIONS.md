@@ -2,7 +2,18 @@
 
 > **Nota**: Este log foi criado junto com o projeto. As sessões serão registradas aqui conforme o trabalho avança.
 >
-> Última atualização: 2026-11-02 (Sessão 378)
+> Última atualização: 2026-11-02 (Sessão 379)
+
+---
+
+### 2026-11-02 — Sessão 379 (P174: o gateway exige 32 caracteres nos segredos de assinatura)
+
+- **Pedido**: o P174 era o único item de código pequeno e bem definido. O dono respondeu a pergunta de deploy: **não há gateway implantado**. Sem plan mode (repete a receita das Sessões 352 e 353); testes revisados antes da implementação.
+- **Feito** (PR `fix/gateway-segredo-minimo-32`, `crates/warden-gateway/src/main.rs` mais estes docs): `MIN_SECRET_LEN = 32` (bytes, como o orquestrador); `check_admin_secret_ends` e `check_webhook_secret_ends` recusam segredo curto depois de checar as pontas. 4 testes novos: admin curto (31, 12, 1, 16) recusado e 32/64 aceitos; anterior curto recusado com o nome certo; webhook curto recusado; `"short\n"` segue dando a mensagem do `\n`.
+- **Decisões minhas**: manter os nomes `check_*_ends` (renomear mexeria nos testes existentes); estender o piso ao webhook por consistência.
+- **Verificado**: `cargo test -p warden-gateway` verde local (166 na lib e os de integração); clippy sem aviso em `main.rs`. Não conferi que os 4 testes novos falhavam antes da mudança.
+- **Não verificado**: o CI; um gateway real subido com segredo curto.
+- **Fica**: o teste ponta a ponta com o Node e o WhatsApp reais; P126 (só verificação), P180.
 
 ---
 
