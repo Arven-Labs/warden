@@ -123,3 +123,41 @@ export async function fitAttachment(
   }
   return incoming;
 }
+
+// P157 — a text or code file goes into the message text, not as an attachment: the hub and the providers take only images and PDFs.
+
+/** The most a text file may be: it becomes part of the prompt. The same 1 MiB `read_text_file` (Rust) refuses above. */
+export const MAX_TEXT_FILE_BYTES = 1024 * 1024;
+
+/** The extensions of the files that go into the message text: the list of `read_text_file` (Rust). */
+export const TEXT_FILE_EXTENSIONS = [
+  "txt", "md", "markdown", "csv", "tsv", "json", "yaml", "yml", "toml", "xml", "html", "css", "js", "ts", "tsx", "jsx", "py", "rs", "go", "java", "c", "h", "cpp", "sh",
+  "sql", "log", "ini",
+];
+
+/** The extension of the file name at the end of `path` (either kind of slash), in lower case; empty when it has none. */
+function extensionOf(path: string): string {
+  const name = path.split(/[\\/]/).pop() ?? "";
+  const dot = name.lastIndexOf(".");
+  return dot <= 0 ? "" : name.slice(dot + 1).toLowerCase();
+}
+
+/** Whether the path is a text or code file that goes into the message text (by its extension). */
+export function isTextPath(path: string): boolean {
+  return TEXT_FILE_EXTENSIONS.includes(extensionOf(path));
+}
+
+/** The file as a block of the message: its name, then its text fenced with the language of its extension. The fence is one backtick
+ * longer than the longest run of them in the text (three at least), or a file with ``` inside would close it early. */
+export function textFileBlock(name: string, text: string): string {
+  const longestRun = Math.max(0, ...(text.match(/`+/g) ?? []).map((run) => run.length));
+  const fence = "`".repeat(Math.max(3, longestRun + 1));
+  const body = text.endsWith("\n") ? text.slice(0, -1) : text;
+  return `${name}\n${fence}${extensionOf(name)}\n${body}\n${fence}`;
+}
+
+/** The draft with `block` at its end after a blank line, and a blank line after it to keep typing. */
+export function appendToDraft(draft: string, block: string): string {
+  const before = draft.trimEnd();
+  return `${before === "" ? "" : `${before}\n\n`}${block}\n\n`;
+}

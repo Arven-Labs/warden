@@ -5,7 +5,7 @@ export const chatPt: Record<keyof typeof chat, string> = {
   "copy.copied": "Copiado",
   "copy.failed": "Não foi possível copiar",
 
-  "input.filterName": "Imagens e PDFs",
+  "input.filterName": "Imagens, PDFs e arquivos de texto",
   "input.removeAttachment": "Remover anexo",
   "input.attach": "Anexar imagem ou PDF",
   "input.stopRecording": "Parar a gravação",
