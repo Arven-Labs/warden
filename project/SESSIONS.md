@@ -2,7 +2,17 @@
 
 > **Nota**: Este log foi criado junto com o projeto. As sessões serão registradas aqui conforme o trabalho avança.
 >
-> Última atualização: 2026-11-02 (Sessão 379)
+> Última atualização: 2026-11-02 (Sessão 380)
+
+---
+
+### 2026-11-02 — Sessão 380 (P68: o Markdown da extensão já estava feito; só o registro foi corrigido)
+
+- **Pedido**: abrir o projeto e recomendar código. Recomendei o P68 (1), Markdown no chat da extensão, e entrei em plan mode.
+- **Achado**: a recomendação estava errada. Eu li só o começo truncado da linha do P68; o "Atualizado 2026-09-16 (Sessão 69)" no meio já dizia que o item (1) estava feito. Conferido no código: `extension/src/sidepanel/ChatView.tsx` usa `react-markdown`, `remark-gfm` e `PopupMarkdownLink`.
+- **Feito** (PR `docs/p68-registro-markdown-feito`): `PENDING.md` (estado do P68 no começo da linha e cabeçalho) e este arquivo. Nenhum código.
+- **Verificado**: só por leitura e `grep`. Nada executado.
+- **Fica**: o item (2) do P68 (verificação manual das tools de DOM e do erro de `activeTab` expirada, feita pelo dono); o teste ponta a ponta com o Node e o WhatsApp reais; P126 (só verificação), P180.
 
 ---
 
