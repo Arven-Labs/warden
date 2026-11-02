@@ -2,7 +2,18 @@
 
 > **Nota**: Este log foi criado junto com o projeto. As sessões serão registradas aqui conforme o trabalho avança.
 >
-> Última atualização: 2026-11-02 (Sessão 382)
+> Última atualização: 2026-11-02 (Sessão 383)
+
+---
+
+### 2026-11-02 — Sessão 383 (P157: o arquivo de texto entra no texto da mensagem)
+
+- **Pedido**: o último item do P157 que sobrava, texto como anexo. Plano aprovado em plan mode. Decisões do dono: inserir no texto da mensagem (descartado um tipo novo no hub e nos três providers) e teto de **1 MiB**, contra a minha recomendação de 256 KiB (1 MiB pode chegar a cerca de 250 mil tokens).
+- **Feito** (PR `feat/anexo-texto-no-rascunho`): `read_text_file` em `desktop/src-tauri/src/lib.rs` (lista fechada de extensões, UTF-8, até 1 MiB, devolve o nome e não o caminho); `isTextPath`, `textFileBlock`, `appendToDraft` e `TEXT_FILE_EXTENSIONS` em `desktop/src/lib/attachments.ts`; `addPaths` no `MessageInput` (botão e arrasto; imagem e PDF seguem como anexo); o filtro do diálogo e seu rótulo ganham os textos. Sem tocar em hub, protocolo, providers nem capabilities do Tauri.
+- **Decisões minhas**: `.env`, `id_rsa` e arquivo sem extensão são recusados de propósito (arrastar por engano); a cerca do bloco é uma crase maior que a maior sequência do arquivo; o nome da linguagem é a própria extensão.
+- **Verificado**: `npm test` do desktop (255 verdes) e `tsc --noEmit` limpo; os testes de TS falhavam antes (o módulo não exportava as funções). `cargo test --lib` do `desktop/src-tauri` com o teste novo (`a_text_file_is_read_...`) e o de anexos de imagem e PDF, que já existia, verdes. Não vi o teste Rust falhar antes da implementação (o primeiro `cargo test` abortou compilando o `syn`).
+- **Não verificado**: o clippy; o CI; numa janela real (P129); o desempenho da caixa de texto com 1 MiB; se o hub tem limite menor para o texto de uma mensagem.
+- **Fica**: ver o arquivo entrar no rascunho numa janela; lembrar o último agente (contradiz a decisão da Sessão 245, só se mudar de ideia); o teste ponta a ponta com o Node e o WhatsApp reais; P126, P180; o item (2) do P68.
 
 ---
 

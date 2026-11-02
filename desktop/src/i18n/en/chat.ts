@@ -4,7 +4,7 @@ export const chat = {
   "copy.copied": "Copied",
   "copy.failed": "Could not copy",
 
-  "input.filterName": "Images and PDFs",
+  "input.filterName": "Images, PDFs and text files",
   "input.removeAttachment": "Remove attachment",
   "input.attach": "Attach image or PDF",
   "input.stopRecording": "Stop recording",

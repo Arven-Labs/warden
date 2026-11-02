@@ -3,7 +3,11 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 import {
+  appendToDraft,
   canShrink,
+  isTextPath,
+  MAX_TEXT_FILE_BYTES,
+  textFileBlock,
   checkAttachmentLimits,
   fileToAttachment,
   fitAttachment,
@@ -145,5 +149,39 @@ describe("shrinking a picture that would not fit (P157)", () => {
     const png = attachment("image/png", cap + 1);
     assert.equal(await fitAttachment(full, png, shrink), png);
     assert.equal(calls, 0);
+  });
+});
+
+describe("a text or code file put into the message (P157)", () => {
+  test("is told by the extension of its path, in any case and with either kind of slash; no extension is no text", () => {
+    for (const path of ["/home/a/notes.md", "C:\\Users\\a\\main.RS", "data.JSON", "a.b.c.py", "x.tsx", "run.sh", "q.sql", "app.log"]) assert.equal(isTextPath(path), true, path);
+    for (const path of ["photo.png", "doc.pdf", "archive.tar.gz", "/home/a/.ssh/id_rsa", ".env", "Makefile", "", "dir.md/file", "notes.md.exe"]) assert.equal(isTextPath(path), false, path);
+  });
+
+  test("the cap is 1 MiB", () => {
+    assert.equal(MAX_TEXT_FILE_BYTES, 1024 * 1024);
+  });
+
+  test("becomes a fenced block with the file name and the language of its extension", () => {
+    assert.equal(textFileBlock("main.rs", "fn main() {}\n"), "main.rs\n```rs\nfn main() {}\n```");
+    assert.equal(textFileBlock("notes.txt", "olá"), "notes.txt\n```txt\nolá\n```", "a missing final newline is not needed");
+  });
+
+  test("the fence is longer than any run of backticks in the file, so the file cannot close it early", () => {
+    const withFence = "Exemplo:\n```js\nx\n```\nfim";
+    assert.equal(textFileBlock("guia.md", withFence), "guia.md\n````md\nExemplo:\n```js\nx\n```\nfim\n````");
+    const longer = "a `````` b";
+    assert.equal(textFileBlock("a.md", longer), "a.md\n```````md\na `````` b\n```````");
+  });
+
+  test("an empty file is still a block, not a failure", () => {
+    assert.equal(textFileBlock("empty.txt", ""), "empty.txt\n```txt\n\n```");
+  });
+
+  test("goes at the end of the draft after a blank line, and leaves room to keep typing", () => {
+    assert.equal(appendToDraft("", "A\n```\nb\n```"), "A\n```\nb\n```\n\n");
+    assert.equal(appendToDraft("   \n", "B"), "B\n\n", "a blank draft counts as empty");
+    assert.equal(appendToDraft("Resuma isto:", "B"), "Resuma isto:\n\nB\n\n");
+    assert.equal(appendToDraft("Resuma isto:  \n\n", "B"), "Resuma isto:\n\nB\n\n", "the end of the draft is not doubled");
   });
 });
