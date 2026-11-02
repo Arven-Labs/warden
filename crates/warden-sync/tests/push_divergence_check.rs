@@ -289,3 +289,70 @@ async fn a_pull_that_meets_the_same_counter_with_another_tx_says_the_devices_div
     assert_eq!(manifest, local_manifest(), "a diverged remote must not touch the local state");
     assert!(outcome.warnings.iter().any(|w| w.contains("diverged")), "{:?}", outcome.warnings);
 }
+
+// P175(e): the check also runs on its own, before the QR is shown, so a device that is behind is told before anyone reaches for
+// the phone. `finish_push` still runs it again under the sync lock: that one decides, this one only spares the QR.
+use warden_sync::manifest::{save_manifest, save_secrets};
+use warden_sync::SyncEngine;
+
+/// A paired device with one note in its vault (so a Send has something to send) and `secrets` on disk.
+fn paired_engine(name: &str, arweave: ArweaveClient, secrets: &SyncSecrets) -> SyncEngine {
+    let base = std::env::temp_dir().join(format!(
+        "warden-sync-check-before-qr-{name}-{}",
+        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+    ));
+    std::fs::create_dir_all(base.join("vault")).unwrap();
+    std::fs::write(base.join("vault").join("note.md"), "something to send").unwrap();
+    save_secrets(&base.join("sync_secrets.json"), secrets).unwrap();
+    save_manifest(&base.join("sync_manifest.json"), &local_manifest()).unwrap();
+    SyncEngine::new(base.join("vault"), base.join("config.toml"), base.join("sync_secrets.json"), base.join("sync_manifest.json"))
+        .with_arweave_client(arweave)
+}
+
+#[tokio::test]
+async fn the_engine_refuses_a_send_before_the_qr_when_another_device_is_ahead() {
+    let secrets = generate_secrets();
+    let (arweave, _) = gateway_with_latest("tx-other", LOCAL_COUNTER + 1, &secrets).await;
+    let engine = paired_engine("ahead", arweave, &secrets);
+
+    // The order of the three screens: begin (local), check (network), and only then the QR. `finish_push` is never reached.
+    let begin = engine.begin_push().unwrap();
+    assert!(begin.is_some(), "the note is something to send");
+    let message = refusal(engine.check_remote_not_newer().await);
+
+    assert_eq!(message, "another device sent a newer snapshot (counter 6, this device is at 5); pull before sending");
+}
+
+#[tokio::test]
+async fn the_engine_check_says_the_devices_diverged_with_the_same_words() {
+    let secrets = generate_secrets();
+    let (arweave, _) = gateway_with_latest("tx-other", LOCAL_COUNTER, &secrets).await;
+    let engine = paired_engine("diverged", arweave, &secrets);
+
+    let message = refusal(engine.check_remote_not_newer().await);
+
+    assert_eq!(message, "another device sent from the same point and the two diverged (both at counter 5); pull before sending");
+}
+
+#[tokio::test]
+async fn the_engine_check_lets_the_send_go_ahead_when_this_device_is_up_to_date() {
+    let secrets = generate_secrets();
+    let (arweave, state) = gateway_with_latest(LOCAL_TX, LOCAL_COUNTER, &secrets).await;
+    state.lock().unwrap().blobs.clear(); // a fetch would now be a 404
+    let engine = paired_engine("up-to-date", arweave, &secrets);
+
+    engine.check_remote_not_newer().await.unwrap();
+
+    assert_eq!(state.lock().unwrap().fetches, 0);
+}
+
+#[tokio::test]
+async fn the_engine_check_of_a_device_that_is_not_initialized_says_so() {
+    // No secrets on disk: the check needs the vault key to open the remote bundle, and says what is missing instead of passing.
+    let base = std::env::temp_dir().join("warden-sync-check-before-qr-uninitialized");
+    let engine = SyncEngine::new(base.join("vault"), base.join("config.toml"), base.join("none.json"), base.join("none-manifest.json"));
+
+    let message = refusal(engine.check_remote_not_newer().await);
+
+    assert!(message.contains("not been initialized"), "{message}");
+}

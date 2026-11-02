@@ -334,6 +334,36 @@ for (const colorScheme of ["light", "dark"]) {
 
     // P175(e): the refusal comes from Rust in English and the screen shows it as it is. The sentence is a copy of the one pinned in
     // `crates/warden-sync/tests/push_divergence_check.rs` ("the refusal for a newer snapshot reads exactly like this"): change them together.
+    // P175(e): the same refusal now comes from `sync_push_begin`, before the QR exists; the one at `sync_push_await` (test below) is
+    // the check under the sync lock, which still runs. Same sentence as pinned in `push_divergence_check.rs`.
+    test("sync: a send another device got ahead of is refused before any QR is shown", { timeout: TIMEOUT }, async () => {
+      const reason = "another device sent a newer snapshot (counter 6, this device is at 5); pull before sending";
+      let awaited = false;
+      const handlers = backend({
+        sync_push_begin: () => Promise.reject(reason),
+        sync_push_await: () => {
+          awaited = true;
+          return new Promise(() => {});
+        },
+      });
+      const { context, page, errors } = await openApp(browser, app, { handlers, colorScheme });
+      try {
+        await page.getByRole("button", { name: "Sync", exact: true }).click();
+        await page.getByRole("heading", { name: "Sync" }).waitFor();
+
+        await page.getByRole("button", { name: "Send", exact: true }).click();
+        const banner = page.locator(".settings-error-banner");
+        await banner.waitFor();
+        assert.equal((await banner.textContent())?.trim(), reason);
+        assert.equal(await page.locator(".sync-qr-image svg").count(), 0, "no QR was ever shown");
+        assert.equal(awaited, false, "the screen did not go on to wait for the phone");
+        assert.equal(await page.getByRole("button", { name: "Send", exact: true }).isEnabled(), true, "the person can try again after pulling");
+        assert.deepEqual(errors, [], "the page raised no error");
+      } finally {
+        await context.close();
+      }
+    });
+
     test("sync: a send another device got ahead of shows the reason and drops the QR", { timeout: TIMEOUT }, async () => {
       const reason = "another device sent a newer snapshot (counter 6, this device is at 5); pull before sending";
       const refused = deferred();
