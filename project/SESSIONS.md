@@ -2,7 +2,18 @@
 
 > **Nota**: Este log foi criado junto com o projeto. As sessões serão registradas aqui conforme o trabalho avança.
 >
-> Última atualização: 2026-11-02 (Sessão 374)
+> Última atualização: 2026-11-02 (Sessão 375)
+
+---
+
+### 2026-11-02 — Sessão 375 (P176 resolvido pelo histórico do CI; P180 aberto)
+
+- **Pedido**: o dono pediu uma recomendação de código; a melhor opção era fechar o P176 sem código. Só documentação.
+- **Conferido** (`gh run list`): 15 execuções do `Web E2E` depois da correção `cf42bd6`; 14 verdes e 1 vermelha (run `41329879991`). Antes da correção eram 3 falhas em 12. Li o `conclusion` de cada run, não o log dos verdes.
+- **Achado**: a vermelha é `ENOTEMPTY` na pasta temporária do harness (`web/e2e/harness.mjs:75`), não o sintoma do P176. Corrijo o que eu disse na conversa: não é da família P170/P171 (testes Rust do `warden-server`). Virou o **P180**, sem correção até repetir.
+- **Feito** (PR `docs/p176-resolvido`): `PENDING.md` (P176 resolvido, P180 novo) e este arquivo. Nenhum código.
+- **Não verificado**: a causa do P180 é hipótese; a contagem de 15 runs vem de uma listagem limitada a 200 execuções.
+- **Fica**: P174 (tamanho mínimo do segredo, pede decisão de deploy), P126, P54, P105, P180.
 
 ---
 
