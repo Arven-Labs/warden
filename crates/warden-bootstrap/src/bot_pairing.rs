@@ -86,6 +86,24 @@ fn normalize(code: &str) -> String {
     code.chars().filter(|c| c.is_ascii_alphanumeric()).collect::<String>().to_uppercase()
 }
 
+/// The longest label kept, in characters.
+const MAX_LABEL_CHARS: usize = 32;
+
+/// The name a stranger chose for itself (a WhatsApp `pushName`), made safe to print next to a code the owner is about to
+/// approve (P117): control characters (a newline, an escape sequence) become a space so they cannot fake a line or move the
+/// cursor, invisible and direction-changing characters are dropped so they cannot hide or reorder text, runs of spaces
+/// collapse, and the result is cut to `MAX_LABEL_CHARS` characters. The sender's id is what identifies the request; this is
+/// only a hint beside it.
+fn clean_label(label: &str) -> String {
+    let spaced: String = label
+        .chars()
+        .filter(|c| !matches!(c, '\u{200B}'..='\u{200F}' | '\u{202A}'..='\u{202E}' | '\u{2060}'..='\u{2069}' | '\u{FEFF}'))
+        .map(|c| if c.is_control() { ' ' } else { c })
+        .collect();
+    let collapsed = spaced.split_whitespace().collect::<Vec<_>>().join(" ");
+    collapsed.chars().take(MAX_LABEL_CHARS).collect::<String>().trim_end().to_string()
+}
+
 /// The pending requests of one `config.toml`.
 pub struct BotPairing {
     path: PathBuf,
@@ -151,7 +169,7 @@ impl BotPairing {
                 break code;
             }
         };
-        requests.push(PairingRequest { channel: channel.to_string(), sender: sender.to_string(), label: label.trim().to_string(), code: code.clone(), expires_at: now + VALID_FOR_SECS });
+        requests.push(PairingRequest { channel: channel.to_string(), sender: sender.to_string(), label: clean_label(label), code: code.clone(), expires_at: now + VALID_FOR_SECS });
         self.write(&requests)?;
         Ok(Issued::Fresh(code))
     }
@@ -433,6 +451,58 @@ mod tests {
         let code = fresh(store.request(TELEGRAM, "-100123", "", 100).unwrap());
         assert!(store.approve(&code, 150, &path).is_err());
         assert_eq!(store.list(150).unwrap().len(), 1, "still there for the owner to deny");
+    }
+
+    // P117: the label is the WhatsApp `pushName`, which the stranger chooses. The owner reads it in `warden bots pair list` (and in
+    // the desktop and web lists) to decide who to approve, so it must not be able to fake a line, move the cursor or hide text.
+    fn label_stored(sent: &str) -> String {
+        let (_, store) = setup("");
+        fresh(store.request(WHATSAPP, "5511999999999@s.whatsapp.net", sent, 100).unwrap());
+        store.list(150).unwrap().remove(0).label
+    }
+
+    #[test]
+    fn an_ordinary_label_is_kept_as_it_was() {
+        assert_eq!(label_stored("Ana"), "Ana");
+        assert_eq!(label_stored("  Ana Souza  "), "Ana Souza");
+        assert_eq!(label_stored("João 🙂"), "João 🙂");
+    }
+
+    #[test]
+    fn a_label_cannot_start_a_new_line_or_send_terminal_escapes() {
+        let stored = label_stored("Ana\nABCD-EFGH telegram 1 (Dono)\x1b[2J\x07");
+
+        assert!(!stored.chars().any(|c| c.is_control()), "{stored:?}");
+        assert!(stored.starts_with("Ana"), "{stored:?}");
+    }
+
+    #[test]
+    fn a_label_cannot_use_invisible_or_direction_changing_characters() {
+        let stored = label_stored("Ana\u{202E}odnoD\u{200B}\u{2066}\u{FEFF}");
+
+        assert_eq!(stored, "AnaodnoD");
+    }
+
+    #[test]
+    fn a_long_label_is_cut_at_32_characters_not_bytes() {
+        assert_eq!(label_stored(&"a".repeat(100)).chars().count(), 32);
+        let emoji = label_stored(&"🙂".repeat(100));
+        assert_eq!(emoji.chars().count(), 32, "cut on a character, never inside one");
+    }
+
+    #[test]
+    fn a_label_of_only_control_characters_ends_up_empty() {
+        assert_eq!(label_stored("\n\r\t\x1b\u{200B}"), "");
+    }
+
+    #[test]
+    fn cleaning_the_label_never_touches_who_is_asking() {
+        let (_, store) = setup("");
+        fresh(store.request(WHATSAPP, "5511999999999@s.whatsapp.net", "Ana\nx", 100).unwrap());
+
+        let pending = store.list(150).unwrap();
+
+        assert_eq!(pending[0].sender, "5511999999999@s.whatsapp.net");
     }
 
     #[test]
