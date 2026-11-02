@@ -2,7 +2,18 @@
 
 > **Nota**: Este log foi criado junto com o projeto. As sessões serão registradas aqui conforme o trabalho avança.
 >
-> Última atualização: 2026-11-02 (Sessão 377)
+> Última atualização: 2026-11-02 (Sessão 378)
+
+---
+
+### 2026-11-02 — Sessão 378 (P117: o lock do config no `approve_as` fica como risco aceito)
+
+- **Pedido**: seguir no último item aberto do P117. Plano aprovado em plan mode; sem código.
+- **Achado**: um lock em `save_config` não fecha a corrida, porque o problema é ler-modificar-gravar e nenhum dos cerca de 10 escritores do `config.toml` segura nada entre o `load` e o `save`. A tela de Settings do desktop relê o `existing` ao salvar e carrega `telegram`, `whatsapp` e `bot_hub`, então não apaga uma aprovação mesmo aberta há tempo. Janela de milissegundos; pior efeito: aprovação perdida com aviso "Approved" ao remetente, falha fechada.
+- **Decisão do dono**: aceitar. Descartados: `update_config` só nos escritores dos bots (parcial) e em todos (PR grande).
+- **Feito** (PR `docs/p117-lock-config-aceito`): `PENDING.md` e este arquivo. Nenhum código.
+- **Verificado**: só por leitura (os escritores via `grep save_config`; o comentário de `lib.rs` sobre carregar as listas adiante). Nada executado e a corrida não foi reproduzida.
+- **Fica**: o teste ponta a ponta com o Node e o WhatsApp reais; P174, P126, P180.
 
 ---
 
