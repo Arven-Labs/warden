@@ -2,7 +2,20 @@
 
 > **Nota**: Este log foi criado junto com o projeto. As sessões serão registradas aqui conforme o trabalho avança.
 >
-> Última atualização: 2026-11-02 (Sessão 375)
+> Última atualização: 2026-11-02 (Sessão 376)
+
+---
+
+### 2026-11-02 — Sessão 376 (P117: auditoria dos bots e três correções, uma delas o protocolo do WhatsApp)
+
+- **Pedido**: o dono pediu uma recomendação de código; saiu a revisão adversarial da allowlist dos bots (P117). Plano aprovado em plan mode e testes revisados antes da implementação.
+- **Auditoria** (subagente `security-auditor`, só leitura): sem furo na allowlist. Dois achados importantes: linha malformada do sidecar derruba o `run_bot`; `pushName` sem sanitizar na tela de aprovação. Cinco sugestões baixas, registradas no PENDING.
+- **Feito** (PR `fix/bots-linha-ruim-e-label`, `sidecar.rs`, `bot_pairing.rs` e estes docs): `next_event` pula linha ruim sem logar o texto (nem a mensagem do serde, que cita de volta um `type` desconhecido); `clean_label` em `BotPairing::request`.
+- **Achado fora do plano**: o primeiro teste de mensagem falhou e mostrou que `rename_all` num enum não renomeia os campos. O protocolo com o `index.mjs` estava quebrado nos dois sentidos desde a Fase 3. Decisão do dono: corrigir no mesmo PR (`rename_all_fields`), com dois testes de contrato. Sem isso, pular linhas ruins faria o bot ignorar toda mensagem real em silêncio.
+- **Verificado**: `cargo test -p warden-whatsapp` (19) e `cargo test -p warden-bootstrap bot_pairing` (18) passaram local; clippy sem aviso nos arquivos tocados. Os testes do protocolo e do label falharam antes.
+- **Não verificado**: Node e WhatsApp reais; o `cargo test` completo dos dois crates; outras divergências além de `chatId`, `senderName` e `loggedOut`.
+- **Desvio de processo**: usei um `python3` em heredoc para uma sonda temporária em `sidecar.rs` (contra a regra do CLAUDE.md); restaurei do backup e conferi o diff.
+- **Fica**: os cinco achados baixos; um teste ponta a ponta com o Node real; P174, P126, P180.
 
 ---
 
