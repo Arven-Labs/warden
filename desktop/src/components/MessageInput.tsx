@@ -4,7 +4,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { AttachIcon, CloseIcon, MicIcon, SendIcon, StopIcon } from "./Icons";
 import { t } from "../i18n";
-import { checkAttachmentLimits, fileToAttachment, isAttachmentFile, isPdf } from "../lib/attachments";
+import { checkAttachmentLimits, fileToAttachment, fitAttachment, isAttachmentFile, isPdf, shrinkImage } from "../lib/attachments";
 import type { Attachment } from "../types";
 
 interface MessageInputProps {
@@ -86,7 +86,9 @@ function MessageInput({ onSend, focusKey, disabled, onStop, onCycleMode }: Messa
     setAttachError(null);
     for (const read of readers) {
       try {
-        const attachment = await read();
+        // A picture that would not fit is shrunk until it does; if shrinking itself fails the original goes on, and the refusal
+        // below tells the person the real reason (too big).
+        const attachment = await fitAttachment(attachmentsRef.current, await read(), (picture, side) => shrinkImage(picture, side).catch(() => picture));
         const refused = checkAttachmentLimits(attachmentsRef.current, attachment);
         if (refused) {
           setAttachError(refused);
