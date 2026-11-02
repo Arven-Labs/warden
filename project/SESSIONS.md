@@ -2,7 +2,18 @@
 
 > **Nota**: Este log foi criado junto com o projeto. As sessões serão registradas aqui conforme o trabalho avança.
 >
-> Última atualização: 2026-11-02 (Sessão 381)
+> Última atualização: 2026-11-02 (Sessão 382)
+
+---
+
+### 2026-11-02 — Sessão 382 (P157: a imagem grande é reduzida em vez de recusada)
+
+- **Pedido**: seguir no P157; escolhi, com o dono, "redimensionar imagem grande". Plano aprovado em plan mode: só no frontend (sem crate `image`, sem mexer no Rust) e só quando a imagem não caberia no turno. Testes da lógica pura revisados antes da implementação.
+- **Feito** (PR `feat/anexo-reduz-imagem-grande`): em `desktop/src/lib/attachments.ts`, `canShrink`, `SHRINK_STEPS` (2048, 1536, 1024), `targetSize`, `shrunkMimeType`, `fitAttachment` (com o redutor injetável) e `shrinkImage` (canvas da página); `MessageInput.tsx` chama `fitAttachment` no `addAttachments`, que cobre colar, escolher e arrastar; se a redução falhar, segue o original e a recusa de hoje aparece. Mensagem nova `attach.shrinkFailed` (en e pt-BR). `bytesToBase64` extraído de `fileToAttachment`.
+- **Decisões minhas**: canvas de página e não `OffscreenCanvas` (o WebKitGTK do Linux pode ser antigo); fundo branco antes de desenhar em JPEG, para a transparência não virar preto; `imageOrientation: "from-image"` para manter a rotação da foto.
+- **Verificado**: `npm test` do desktop com 249 testes verdes e `tsc --noEmit` limpo. Os testes novos falhavam antes (o arquivo nem carregava, faltavam as exportações).
+- **Não verificado**: `shrinkImage` (canvas) não tem teste e não rodei numa janela; a qualidade e os passos de 2048/1536/1024 são palpite; o CI.
+- **Fica**: ver a redução numa janela (P129); texto como anexo; o teste ponta a ponta com o Node e o WhatsApp reais; P126, P180; o item (2) do P68.
 
 ---
 

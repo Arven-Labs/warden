@@ -136,5 +136,6 @@ export const libPt: Record<keyof typeof lib, string> = {
   "attach.unsupported": "Tipo de arquivo não aceito",
   "attach.fileTooBig": "Este arquivo tem {mb} MB; o máximo que uma mensagem leva é {max} MB",
   "attach.tooMany": "Uma mensagem leva no máximo {max} imagens ou PDFs",
-  "attach.tooLarge": "Os anexos são grandes demais ({mb} MB; o máximo que uma mensagem leva é {max} MB)",
+  "attach.shrinkFailed": "Não foi possível reduzir a imagem",
+  "attach.tooLarge":"Os anexos são grandes demais ({mb} MB; o máximo que uma mensagem leva é {max} MB)",
 };
