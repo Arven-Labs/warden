@@ -98,6 +98,15 @@ pub struct HelloOutcome {
     pub user: Option<String>,
 }
 
+/// The device a token was issued to (`PairingStore::find_by_token`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TokenHolder {
+    pub device_id: String,
+    pub status: PairingStatus,
+    /// Whose device it is — `None` for the root.
+    pub user: Option<String>,
+}
+
 /// Why `PairingStore::authenticate` turned a `Hello` down — `Display` is the `AuthError.reason`
 /// the client sees.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -271,6 +280,22 @@ impl PairingStore {
         Ok(Ok(HelloOutcome { status, issued_token, user }))
     }
 
+    /// Who holds `token`, for a caller that presents only the token (the arca HTTP routes, which have no `Hello` and so no
+    /// device id). `None` when no device was issued it. The registry keeps only the hash of a token, so this hashes the one
+    /// presented and looks for it; the status comes with the answer so the caller decides what each one may do.
+    pub fn find_by_token(&self, token: &str) -> anyhow::Result<Option<TokenHolder>> {
+        if token.is_empty() {
+            return Ok(None);
+        }
+        let hashed = hash_token(token);
+        let file = load(&self.path)?;
+        Ok(file.devices.iter().find(|(_, device)| device.token_hash.as_deref() == Some(hashed.as_str())).map(|(id, device)| TokenHolder {
+            device_id: id.clone(),
+            status: device.status,
+            user: device.user.clone(),
+        }))
+    }
+
     pub fn status(&self, device_id: &str) -> anyhow::Result<Option<PairingStatus>> {
         Ok(load(&self.path)?.devices.get(device_id).map(|d| d.status))
     }
@@ -367,6 +392,51 @@ mod tests {
         }
         let code = store.create_invite("test", std::time::Duration::from_secs(60)).unwrap();
         store.authenticate_as(device_id, device_name, None, PairingProof::Invite(code)).unwrap().unwrap()
+    }
+
+    #[test]
+    fn find_by_token_returns_the_device_the_token_was_issued_to() {
+        let store = PairingStore::new(temp_path());
+        let token_a = pair(&store, "dev-a", "A").issued_token.unwrap();
+        let token_b = pair(&store, "dev-b", "B").issued_token.unwrap();
+        store.approve("dev-b").unwrap();
+
+        let a = store.find_by_token(&token_a).unwrap().unwrap();
+        assert_eq!((a.device_id.as_str(), a.status, a.user), ("dev-a", PairingStatus::Pending, None));
+        let b = store.find_by_token(&token_b).unwrap().unwrap();
+        assert_eq!((b.device_id.as_str(), b.status), ("dev-b", PairingStatus::Approved));
+    }
+
+    #[test]
+    fn find_by_token_follows_approval_and_revocation() {
+        let store = PairingStore::new(temp_path());
+        let token = pair(&store, "dev-a", "A").issued_token.unwrap();
+        store.approve("dev-a").unwrap();
+        assert_eq!(store.find_by_token(&token).unwrap().unwrap().status, PairingStatus::Approved);
+        store.revoke("dev-a").unwrap();
+        assert_eq!(store.find_by_token(&token).unwrap().unwrap().status, PairingStatus::Revoked);
+    }
+
+    #[test]
+    fn find_by_token_knows_a_members_device_by_its_user() {
+        let store = PairingStore::new(temp_path());
+        pair(&store, "dev-root", "Root");
+        let token = store.authenticate_as("dev-m", "M", None, PairingProof::Member("alice".into())).unwrap().unwrap().issued_token.unwrap();
+        assert_eq!(store.find_by_token(&token).unwrap().unwrap().user.as_deref(), Some("alice"));
+    }
+
+    #[test]
+    fn find_by_token_finds_nothing_for_anything_that_is_not_an_issued_token() {
+        let store = PairingStore::new(temp_path());
+        let token = pair(&store, "dev-a", "A").issued_token.unwrap();
+        assert_eq!(store.find_by_token("").unwrap(), None);
+        assert_eq!(store.find_by_token("not-a-token").unwrap(), None);
+        assert_eq!(store.find_by_token(&format!("{token}x")).unwrap(), None);
+        assert_eq!(store.find_by_token(&token[1..]).unwrap(), None);
+        // What the file stores is the hash, and the hash is not a credential.
+        assert_eq!(store.find_by_token(&hash_token(&token)).unwrap(), None);
+        // No registry yet: nobody holds anything.
+        assert_eq!(PairingStore::new(temp_path()).find_by_token(&token).unwrap(), None);
     }
 
     #[test]

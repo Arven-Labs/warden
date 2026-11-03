@@ -681,6 +681,12 @@ struct ServeArgs {
     #[arg(long)]
     allow_private_curators: bool,
 
+    /// Keep encrypted objects for arca, the sync layer, under `/arca/v1/` on this hub's port: an approved device stores and
+    /// reads its owner's objects with its device token, up to a byte quota per owner (arca's phase 2b). Off by default: it
+    /// puts files from your devices on this machine's disk. The objects are encrypted on the device; this hub never has the key.
+    #[arg(long)]
+    arca: bool,
+
     /// Don't load the two search models (the vault's and the history's) when the hub starts: each loads at its first
     /// search instead. An idle hub then weighs ~25 MB rather than ~960 MB (P146), which is what a hub hosting many
     /// instances wants; the cost is that the first turn that searches waits for the model.
@@ -1338,6 +1344,11 @@ fn api_keys_path() -> anyhow::Result<PathBuf> {
     warden_bootstrap::default_api_keys_path().context("could not determine the OS config directory for the API keys")
 }
 
+/// Where the hub keeps the objects arca's devices store with it (`--arca`), one folder per owner.
+fn arca_dir() -> anyhow::Result<PathBuf> {
+    warden_core::paths::warden_dir().map(|dir| dir.join("arca")).context("could not determine the OS config directory for the arca objects")
+}
+
 fn webhook_tokens_path() -> anyhow::Result<PathBuf> {
     warden_bootstrap::default_webhook_tokens_path().context("could not determine the OS config directory for the webhook tokens")
 }
@@ -1592,6 +1603,11 @@ async fn run_serve(args: ServeArgs) -> anyhow::Result<()> {
         .with_machine_settings(args.allow_machine_settings)
         // P160 — whether a curator's index may be fetched from a private address.
         .with_private_curators(args.allow_private_curators);
+    if args.arca {
+        let dir = arca_dir()?;
+        println!("arca: storing devices' encrypted objects in {} (/arca/v1/, with the device token)", dir.display());
+        server = server.with_arca(dir);
+    }
     // P146 c, P147 — the search models of the owner's, the shared folders' and the members' vaults go after a pause.
     if args.embedding_idle_secs > 0 {
         server = server.with_embedding_idle(std::time::Duration::from_secs(args.embedding_idle_secs));

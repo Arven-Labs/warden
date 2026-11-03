@@ -29,6 +29,7 @@ pub mod grant_registry;
 pub mod api_key_admin;
 pub mod api_keys;
 pub mod approval;
+pub mod arca_api;
 pub mod attempt_limit;
 pub mod bot_admin;
 pub mod chat_input;
@@ -72,7 +73,7 @@ pub mod webhook_signature;
 pub mod webhook_tokens;
 pub mod webhooks;
 
-pub use device_registry::{AuthRejection, HelloOutcome, Invite, PairedDevice, PairingProof, PairingStatus, PairingStore};
+pub use device_registry::{AuthRejection, HelloOutcome, Invite, PairedDevice, PairingProof, PairingStatus, PairingStore, TokenHolder};
 pub use pairing_key::PairingKey;
 pub use remote_tool::{RemoteTool, RemoteToolChannel};
 pub use server::{resolve_server_name, Server};
