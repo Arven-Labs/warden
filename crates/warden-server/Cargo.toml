@@ -10,7 +10,7 @@ path = "src/main.rs"
 [dependencies]
 # The `/arca/v1/` routes (`arca_api.rs`): the contract served by `arca_core::server`, without arca's HTTP client (its `hub` feature,
 # which is not needed to serve). Pinned by commit; moving the `rev` is a decision each time arca changes.
-arca-core = { git = "https://github.com/Arven-Labs/arca", rev = "d0f932b76d17a048b26ef373c4f4351ff14c7ddd", default-features = false }
+arca-core = { git = "https://github.com/Arven-Labs/arca", rev = "69fec7159efe9a5936630aa34deb41d1cbeca3d6", default-features = false }
 anyhow.workspace = true
 async-trait.workspace = true
 base64.workspace = true
@@ -44,7 +44,7 @@ warden-server-protocol = { path = "../warden-server-protocol" }
 
 [dev-dependencies]
 # The arca client (`HubStore`) and `Engine`, to prove the real hub speaks what they expect (tests/arca_api.rs).
-arca-core = { git = "https://github.com/Arven-Labs/arca", rev = "d0f932b76d17a048b26ef373c4f4351ff14c7ddd", features = ["hub"] }
+arca-core = { git = "https://github.com/Arven-Labs/arca", rev = "69fec7159efe9a5936630aa34deb41d1cbeca3d6", features = ["hub"] }
 k256 = { version = "0.14", features = ["ecdsa"] }
 # Throwaway CA + leaf certs for the TLS tests (tests/tls.rs) — `ring` backend, same as rustls here.
 rcgen = { version = "0.14", default-features = false, features = ["crypto", "pem", "ring"] }

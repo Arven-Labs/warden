@@ -2,7 +2,21 @@
 
 > **Nota**: Este log foi criado junto com o projeto. As sessões serão registradas aqui conforme o trabalho avança.
 >
-> Última atualização: 2026-11-02 (Sessão 383)
+> Última atualização: 2026-11-03 (Sessão 385)
+
+---
+
+### 2026-11-03 — Sessão 385 (pareamento da arca pelo hub — arca, fase 2b-3 — P182)
+
+- **Pedido**: a 2b-3, entregar a `vault_key` a um dispositivo novo. Plano aprovado em plan mode; decisões do dono: **relay pelo hub com ECIES** (descartado o pareamento LAN do `warden-sync`: só na mesma rede e com código de 8 caracteres sem limite de tentativas), **o mesmo token do `Hello`**, e o hash da cabeça (P-31(1) da arca) fica para a Fase 4. Dois PRs: arca#51 (`VaultKey::export_bytes`, mesclado) e este.
+- **Feito** (PR `feat/arca-pairing-relay`): `arca_pairing.rs` (novo): rotas `PUT offer`, `GET offers`, `PUT grant/{id}?key=`, `GET grant`; ofertas e concessões em arquivos `0600` numa pasta `<dono>.pairing/`, com validade (`ArcaLimits::pairing_ttl`, 10 min) e teto de ofertas por dono (8); um lock por dono; chave pública guardada na forma comprimida; `verification_code(device_id, chave)` e `key_fingerprint(vault_key)`. `arca_api.rs`: despacho para o pareamento, `Owner.device_id`, `409`. `warden-truthid::crypto::canonical_public_key` (valida e normaliza a chave). `Cargo.toml`: `rev` do arca em `69fec71`.
+- **Testes primeiro** (tabela revisada pelo dono): 14 testes, 12 falhavam e 2 já passavam. Depois da auditoria, a tabela foi refeita: 7 testes alterados e 11 novos, 18 falhavam antes. Ficam 46 no `arca_api` (21 antigos).
+- **Auditoria** (`security-auditor`, a pedido do dono): sem bypass de autenticação nem path traversal. **Achado importante: a concessão não é autenticada** (o ECIES não diz quem cifrou; o hub ou um dispositivo aprovado sem a chave entrega a B uma `vault_key` própria; o código da chave pública não pega isso). Decisão do dono: **segunda conferência, a impressão da `vault_key`**. Corrigidos no mesmo PR: código sem forma canônica da chave (comprimida e não comprimida davam códigos diferentes), concessão que não nomeava a chave vista (agora `409`), oferta de dispositivo revogado ainda listada, teto de ofertas ultrapassável sob concorrência, `tmp-`/`taken-` órfãos, `device_id` fora do código.
+- **Quebras propositais** (todas derrubaram o teste certo e foram revertidas): conceder a si mesmo; `>=` por `>` no teto; validade que não expira; ler a concessão de outro dispositivo; lock desligado (só o teste das ofertas simultâneas caiu, 3 de 3; **o das concessões simultâneas não detecta**); `409` desligado; revalidação do destino desligada; canonicalização do código; limpeza de órfãos.
+- **Verificado localmente** (só os testes e o `clippy` dos crates tocados, pela regra do Warden): `cargo test -p warden-server --test arca_api` (46), `--lib find_by_token` (4), `warden-truthid crypto` (8); `clippy` sem aviso nos arquivos que toquei. O `rustfmt` não vale no Warden (`activity.rs` já diverge). **No CI**: ver o PR.
+- **Não verificado**: nenhuma interface mostra os códigos (P182 item 1; sem ela o desenho não protege contra hub hostil); cliente real; disco cheio e queda no meio da gravação; TLS; o `security-auditor` não rodou sobre a rodada de correções; o auditor não leu o diff do arca entre os dois `rev` (conferi só pelo conteúdo do arca#51).
+- **Desvios de processo meus**: criei e apaguei um arquivo temporário vazio por engano (nada de código); o `Edit` corta o espaço final da `new_string`, o que deixou uma quebra proposital sem reverter na primeira tentativa (achei pelo `grep` e corrigi).
+- **Fica**: P182 (interface dos códigos, cliente, 2b-4); P181; no arca, registrar as rotas de pareamento no `SPEC-TECNICA.md` §4.2 e um ADR do pareamento (perguntar antes de criar).
 
 ---
 

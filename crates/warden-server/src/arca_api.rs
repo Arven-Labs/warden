@@ -35,6 +35,7 @@ use sha2::{Digest, Sha256};
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 
+use crate::arca_pairing::{self, Pairing, Route};
 use crate::attempt_limit::Reservation;
 use crate::device_registry::{PairingStatus, PairingStore};
 use crate::settings::WRONG_KEY_DELAY;
@@ -79,11 +80,22 @@ pub struct ArcaLimits {
     /// How long a caller may leave the hub waiting, for the next piece of its body or to take the next piece of the answer.
     /// An upload also has to keep above `MIN_UPLOAD_RATE`, so trickling a byte just inside this does not hold a request.
     pub io_idle_timeout: Duration,
+    /// How long a pairing offer, and a grant waiting to be read, stay valid (`arca_pairing`).
+    pub pairing_ttl: Duration,
+    /// Pairing offers of one owner waiting at once; a new one past it answers `507`.
+    pub max_pending_offers: usize,
 }
 
 impl Default for ArcaLimits {
     fn default() -> Self {
-        Self { max_owner_bytes: 10 * 1024 * 1024 * 1024, max_concurrent_per_owner: 4, max_concurrent: 16, io_idle_timeout: Duration::from_secs(10) }
+        Self {
+            max_owner_bytes: 10 * 1024 * 1024 * 1024,
+            max_concurrent_per_owner: 4,
+            max_concurrent: 16,
+            io_idle_timeout: Duration::from_secs(10),
+            pairing_ttl: Duration::from_secs(600),
+            max_pending_offers: 8,
+        }
     }
 }
 
@@ -102,6 +114,8 @@ pub(crate) struct ArcaContext {
     devices_path: Arc<PathBuf>,
     global: Arc<Semaphore>,
     owners: Arc<Mutex<HashMap<String, Arc<Semaphore>>>>,
+    /// One lock per owner for the pairing files (`arca_pairing`).
+    pairing_locks: Arc<Mutex<HashMap<String, Arc<Mutex<()>>>>>,
 }
 
 impl ArcaContext {
@@ -112,7 +126,13 @@ impl ArcaContext {
             devices_path,
             global: Arc::new(Semaphore::new(config.limits.max_concurrent)),
             owners: Arc::default(),
+            pairing_locks: Arc::default(),
         }
+    }
+
+    fn pairing_lock(&self, folder: &str) -> Arc<Mutex<()>> {
+        let mut locks = self.pairing_locks.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        locks.entry(folder.to_string()).or_default().clone()
     }
 
     fn owner_semaphore(&self, folder: &str) -> Arc<Semaphore> {
@@ -159,6 +179,7 @@ fn status_line(status: u16) -> &'static str {
         404 => "404 Not Found",
         405 => "405 Method Not Allowed",
         408 => "408 Request Timeout",
+        409 => "409 Conflict",
         411 => "411 Length Required",
         413 => "413 Payload Too Large",
         414 => "414 URI Too Long",
@@ -222,6 +243,8 @@ async fn send<S: AsyncWrite + Unpin>(stream: &mut S, head: &RequestHead, answer:
 /// Whose folder this call works in.
 struct Owner {
     folder: String,
+    /// The device whose token made the call.
+    device_id: String,
 }
 
 /// The target, then the proof. Anything but an approved device's token is refused here, before a body is looked at.
@@ -239,7 +262,7 @@ async fn authenticate(head: &RequestHead, ctx: &ArcaContext) -> Result<Owner, An
         return Err(Answer::text(401, "missing or unknown device token"));
     };
     match holder.status {
-        PairingStatus::Approved => Ok(Owner { folder: owner_folder(holder.user.as_deref()) }),
+        PairingStatus::Approved => Ok(Owner { folder: owner_folder(holder.user.as_deref()), device_id: holder.device_id }),
         _ => Err(Answer::text(403, "this device is not approved")),
     }
 }
@@ -254,6 +277,9 @@ fn acquire(ctx: &ArcaContext, owner: &Owner) -> Result<(OwnedSemaphorePermit, Ow
 
 async fn call<S: AsyncRead + Unpin>(stream: &mut S, head: &RequestHead, ctx: &ArcaContext, owner: &Owner) -> Answer {
     let (method, target) = (head.method.clone(), head.path.clone());
+    if let Some(route) = arca_pairing::route(&method, &target) {
+        return pairing_call(stream, head, ctx, owner, route).await;
+    }
     let dir = ctx.dir.join(&owner.folder);
     let body = if server::body_limit(&method, &target) > 0 {
         let length = match declared_length(head) {
@@ -283,6 +309,49 @@ async fn call<S: AsyncRead + Unpin>(stream: &mut S, head: &RequestHead, ctx: &Ar
         }
     };
     run_blocking(work).await.unwrap_or_else(|| Answer::text(500, "the request failed"))
+}
+
+/// A pairing call (`arca_pairing`): same order as an object call, the body only after the proof and the permits, and a body
+/// over `MAX_BODY_BYTES` is `413` before a byte is read. The files are touched on the blocking pool.
+async fn pairing_call<S: AsyncRead + Unpin>(stream: &mut S, head: &RequestHead, ctx: &ArcaContext, owner: &Owner, route: Result<Route, u16>) -> Answer {
+    let route = match route {
+        Ok(route) => route,
+        Err(404) => return Answer::text(404, "no such pairing route"),
+        Err(_) => return Answer::text(405, "that method is not for this pairing route"),
+    };
+    let takes_body = matches!(route, Route::Offer | Route::Grant(..));
+    let body = if takes_body {
+        let length = match declared_length(head) {
+            Ok(length) => length,
+            Err(answer) => return answer,
+        };
+        if length > arca_pairing::MAX_BODY_BYTES {
+            return Answer::text(413, "the body is over the size cap");
+        }
+        match read_body(stream, head, length, ctx.limits.io_idle_timeout).await {
+            Ok(body) => body,
+            Err(answer) => return answer,
+        }
+    } else if has_body(head) {
+        return Answer::text(400, "this call takes no body");
+    } else {
+        Vec::new()
+    };
+    let devices = PairingStore::new(ctx.devices_path.as_ref().clone());
+    let pairing = Pairing::new(ctx.dir.join(format!("{}.pairing", owner.folder)), ctx.limits.pairing_ttl, ctx.limits.max_pending_offers, devices, ctx.pairing_lock(&owner.folder));
+    let device_id = owner.device_id.clone();
+    let work = async move {
+        match route {
+            Route::Offer => pairing.put_offer(&device_id, &body),
+            Route::Offers => pairing.list_offers(),
+            Route::Grant(to, saw) => pairing.put_grant(&device_id, &to, saw.as_deref(), &body),
+            Route::TakeGrant => pairing.take_grant(&device_id),
+        }
+    };
+    match run_blocking(work).await {
+        Some(done) => Answer { status: done.status, content_type: done.content_type, body: done.body, retry_after: false },
+        None => Answer::text(500, "the request failed"),
+    }
 }
 
 /// Runs `work` on the blocking pool (its CPU-heavy parts must not take a thread of the async executor), driving it with the
