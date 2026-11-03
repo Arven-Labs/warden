@@ -71,6 +71,14 @@ fn parse_public_key(hex_str: &str) -> anyhow::Result<PublicKey> {
     PublicKey::from_sec1_bytes(&bytes).map_err(|_| anyhow::anyhow!("invalid secp256k1 public key"))
 }
 
+/// The one spelling of a secp256k1 public key (SEC1, hex) that `ecies_encrypt` accepts: compressed (33 bytes), lowercase,
+/// no `0x`. Surrounding whitespace is trimmed first (`ecies_encrypt` itself does not trim). Errors for any key
+/// `ecies_encrypt` would refuse. For a caller that only stores or compares keys (the hub's
+/// pairing offers) and must not keep one nobody can encrypt to, nor treat two spellings of one key as two keys.
+pub fn canonical_public_key(hex_str: &str) -> anyhow::Result<String> {
+    Ok(hex::encode(parse_public_key(hex_str.trim())?.to_sec1_bytes()))
+}
+
 fn derive_aes_key(shared_secret: &[u8]) -> [u8; 32] {
     Sha256::digest(shared_secret).into()
 }

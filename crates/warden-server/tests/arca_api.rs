@@ -17,12 +17,14 @@ use arca_core::engine::{Engine, Roots, Snapshot};
 use arca_core::hub::HubStore;
 use arca_core::server::{MAX_BLOB_OBJECT_BYTES, MAX_MANIFEST_OBJECT_BYTES};
 use arca_core::store::BlobStore;
-use arca_core::{Alg, EpochKeys, Header, ObjectId, ObjectKind, VaultKey, FORMAT_VERSION, NONCE_LEN};
+use arca_core::{open, seal, Alg, EpochKeys, Header, ObjectId, ObjectKind, VaultKey, FORMAT_VERSION, NONCE_LEN};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 use warden_core::memory::Vault;
 use warden_core::orchestrator::Orchestrator;
 use warden_server::arca_api::ArcaLimits;
+use warden_server::arca_pairing::{key_fingerprint, verification_code};
+use warden_truthid::crypto::{ecies_decrypt, ecies_encrypt, generate_ecies_keypair};
 use warden_server::settings::WRONG_KEY_DELAY;
 use warden_server::{PairingProof, PairingStore, Server};
 
@@ -532,4 +534,401 @@ async fn the_whole_hub_has_a_cap_on_requests_in_flight_too() {
     assert_eq!(poll(&hub, &bob, true).await.status, 503);
     drop(held);
     assert_eq!(poll(&hub, &bob, false).await.status, 200);
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
+// Handing the vault key to a new device (arca's phase 2b-3): B offers a public key, A encrypts the key to it, B reads it once
+// ---------------------------------------------------------------------------------------------------------------------
+
+const OFFER: &str = "/arca/v1/pairing/offer";
+const OFFERS: &str = "/arca/v1/pairing/offers";
+const GRANT: &str = "/arca/v1/pairing/grant";
+
+fn offer_body(public_key: &str) -> Vec<u8> {
+    serde_json::to_vec(&serde_json::json!({ "public_key": public_key })).unwrap()
+}
+
+/// A grant names the device and the key the giver saw in its offer: the hub refuses it if the offer has changed since.
+fn grant_path(device_id: &str, key: &str) -> String {
+    format!("{GRANT}/{device_id}?key={key}")
+}
+
+/// The same key in the uncompressed SEC1 form (`04` + x + y), made from a compressed one.
+fn uncompressed(public_key: &str) -> String {
+    use k256::elliptic_curve::sec1::ToSec1Point;
+    let bytes: Vec<u8> = (0..public_key.len() / 2).map(|i| u8::from_str_radix(&public_key[2 * i..2 * i + 2], 16).unwrap()).collect();
+    let key = k256::PublicKey::from_sec1_bytes(&bytes).unwrap();
+    key.to_sec1_point(false).as_bytes().iter().map(|b| format!("{b:02x}")).collect()
+}
+
+/// The directory where the owner of the root's devices keeps its pairing files.
+fn root_pairing_dir(hub: &Hub) -> PathBuf {
+    hub.arca_dir.join("owner.pairing")
+}
+
+/// `(device_id, public_key)` of every offer in an answer to `OFFERS`.
+fn offers(response: &Response) -> Vec<(String, String)> {
+    assert_eq!(response.status, 200, "{}", String::from_utf8_lossy(&response.body));
+    let json: serde_json::Value = serde_json::from_slice(&response.body).unwrap();
+    json["offers"].as_array().unwrap().iter().map(|o| (o["device_id"].as_str().unwrap().to_string(), o["public_key"].as_str().unwrap().to_string())).collect()
+}
+
+#[tokio::test]
+async fn a_device_offers_a_key_and_another_device_of_the_same_owner_sees_it() {
+    let hub = hub(Some(ArcaLimits::default())).await;
+    let a = hub.approved_root("dev-a");
+    let b = hub.approved_root("dev-b");
+    let key = generate_ecies_keypair().public_hex;
+
+    assert_eq!(hub.call("PUT", OFFER, Some(&b), Some(&offer_body(&key))).await.status, 204);
+    assert_eq!(offers(&hub.call("GET", OFFERS, Some(&a), None).await), vec![("dev-b".to_string(), key)]);
+}
+
+#[tokio::test]
+async fn a_pending_or_revoked_device_cannot_offer_list_or_read() {
+    let hub = hub(Some(ArcaLimits::default())).await;
+    let approved = hub.approved_root("dev-a");
+    let pending = hub.root_device("dev-p");
+    let key = generate_ecies_keypair().public_hex;
+
+    for (method, path, body) in [("PUT", OFFER, Some(offer_body(&key))), ("GET", OFFERS, None), ("GET", GRANT, None)] {
+        assert_eq!(hub.call(method, path, Some(&pending), body.as_deref()).await.status, 403, "{method} {path} while pending");
+    }
+    hub.devices.revoke("dev-a").unwrap();
+    assert_eq!(hub.call("PUT", OFFER, Some(&approved), Some(&offer_body(&key))).await.status, 403);
+    // And nothing was stored by the refused calls.
+    let admin = hub.approved_root("dev-c");
+    assert!(offers(&hub.call("GET", OFFERS, Some(&admin), None).await).is_empty());
+}
+
+#[tokio::test]
+async fn the_pairing_routes_need_a_known_token() {
+    let hub = hub(Some(ArcaLimits::default())).await;
+    let key = generate_ecies_keypair().public_hex;
+    assert_eq!(hub.call("PUT", OFFER, None, Some(&offer_body(&key))).await.status, 401);
+    assert_eq!(hub.call("GET", OFFERS, Some("not-a-token"), None).await.status, 401);
+    assert_eq!(hub.call("GET", GRANT, Some("not-a-token"), None).await.status, 401);
+}
+
+#[tokio::test]
+async fn offers_stay_inside_their_owner() {
+    let hub = hub(Some(ArcaLimits::default())).await;
+    let alice_new = hub.approved_member("alice-2", "alice");
+    let alice = hub.approved_member("alice-1", "alice");
+    let bob = hub.approved_member("bob-1", "bob");
+    let key = generate_ecies_keypair().public_hex;
+
+    assert_eq!(hub.call("PUT", OFFER, Some(&alice_new), Some(&offer_body(&key))).await.status, 204);
+    assert_eq!(offers(&hub.call("GET", OFFERS, Some(&alice), None).await).len(), 1);
+    assert!(offers(&hub.call("GET", OFFERS, Some(&bob), None).await).is_empty());
+    // Bob cannot grant to Alice's device either: for him it has no offer.
+    assert_eq!(hub.call("PUT", &grant_path("alice-2", &key), Some(&bob), Some(b"x")).await.status, 404);
+}
+
+#[tokio::test]
+async fn a_grant_reaches_only_the_device_it_is_for_and_only_once() {
+    let hub = hub(Some(ArcaLimits::default())).await;
+    let a = hub.approved_root("dev-a");
+    let b = hub.approved_root("dev-b");
+    let c = hub.approved_root("dev-c");
+    let key = generate_ecies_keypair().public_hex;
+    hub.call("PUT", OFFER, Some(&b), Some(&offer_body(&key))).await;
+
+    let blob = b"sealed-for-b".to_vec();
+    assert_eq!(hub.call("PUT", &grant_path("dev-b", &key), Some(&a), Some(&blob)).await.status, 204);
+    // C is another approved device of the same owner: it never gets B's grant.
+    assert_eq!(hub.call("GET", GRANT, Some(&c), None).await.status, 404);
+    let got = hub.call("GET", GRANT, Some(&b), None).await;
+    assert_eq!((got.status, got.body), (200, blob));
+    assert_eq!(hub.call("GET", GRANT, Some(&b), None).await.status, 404, "a grant is read once");
+}
+
+#[tokio::test]
+async fn a_grant_needs_an_offer_and_not_for_oneself() {
+    let hub = hub(Some(ArcaLimits::default())).await;
+    let a = hub.approved_root("dev-a");
+    let key = generate_ecies_keypair().public_hex;
+
+    assert_eq!(hub.call("PUT", &grant_path("dev-b", &key), Some(&a), Some(b"x")).await.status, 404, "no offer from dev-b");
+    hub.call("PUT", OFFER, Some(&a), Some(&offer_body(&key))).await;
+    assert_eq!(hub.call("PUT", &grant_path("dev-a", &key), Some(&a), Some(b"x")).await.status, 400, "a device does not grant to itself");
+}
+
+#[tokio::test]
+async fn a_device_revoked_after_the_offer_cannot_grant() {
+    let hub = hub(Some(ArcaLimits::default())).await;
+    let a = hub.approved_root("dev-a");
+    let b = hub.approved_root("dev-b");
+    let key = generate_ecies_keypair().public_hex;
+    hub.call("PUT", OFFER, Some(&b), Some(&offer_body(&key))).await;
+
+    hub.devices.revoke("dev-a").unwrap();
+    assert_eq!(hub.call("PUT", &grant_path("dev-b", &key), Some(&a), Some(b"x")).await.status, 403);
+    assert_eq!(hub.call("GET", GRANT, Some(&b), None).await.status, 404, "nothing was left for dev-b");
+}
+
+#[tokio::test]
+async fn offers_and_grants_expire() {
+    let hub = hub(Some(ArcaLimits { pairing_ttl: Duration::from_millis(300), ..ArcaLimits::default() })).await;
+    let a = hub.approved_root("dev-a");
+    let b = hub.approved_root("dev-b");
+    let c = hub.approved_root("dev-c");
+    let (key_b, key_c) = (generate_ecies_keypair().public_hex, generate_ecies_keypair().public_hex);
+    hub.call("PUT", OFFER, Some(&b), Some(&offer_body(&key_b))).await;
+    assert_eq!(hub.call("PUT", &grant_path("dev-b", &key_b), Some(&a), Some(b"x")).await.status, 204);
+    hub.call("PUT", OFFER, Some(&c), Some(&offer_body(&key_c))).await;
+
+    tokio::time::sleep(Duration::from_millis(600)).await;
+    assert_eq!(hub.call("GET", GRANT, Some(&b), None).await.status, 404, "the grant is too old");
+    assert!(offers(&hub.call("GET", OFFERS, Some(&a), None).await).is_empty(), "the offer is too old");
+    assert_eq!(hub.call("PUT", &grant_path("dev-c", &key_c), Some(&a), Some(b"x")).await.status, 404, "and so nothing to grant to");
+}
+
+#[tokio::test]
+async fn a_malformed_or_oversized_offer_is_refused() {
+    let hub = hub(Some(ArcaLimits::default())).await;
+    let b = hub.approved_root("dev-b");
+
+    for bad in [offer_body("not hex"), offer_body("02aabb"), offer_body(&"00".repeat(33)), b"not json".to_vec(), b"{}".to_vec()] {
+        assert_eq!(hub.call("PUT", OFFER, Some(&b), Some(&bad)).await.status, 400, "{}", String::from_utf8_lossy(&bad));
+    }
+    assert_eq!(hub.call("PUT", OFFER, Some(&b), Some(&vec![b'x'; 64 * 1024])).await.status, 413);
+    let admin = hub.approved_root("dev-a");
+    assert!(offers(&hub.call("GET", OFFERS, Some(&admin), None).await).is_empty());
+}
+
+#[tokio::test]
+async fn an_owner_has_a_cap_on_waiting_offers_and_a_device_replaces_its_own() {
+    let hub = hub(Some(ArcaLimits { max_pending_offers: 2, ..ArcaLimits::default() })).await;
+    let tokens: Vec<String> = (0..4).map(|i| hub.approved_root(&format!("dev-{i}"))).collect();
+    let key = || offer_body(&generate_ecies_keypair().public_hex);
+
+    assert_eq!(hub.call("PUT", OFFER, Some(&tokens[0]), Some(&key())).await.status, 204);
+    assert_eq!(hub.call("PUT", OFFER, Some(&tokens[1]), Some(&key())).await.status, 204);
+    assert_eq!(hub.call("PUT", OFFER, Some(&tokens[2]), Some(&key())).await.status, 507);
+    // A device that already has an offer replaces it; that is not a third one.
+    assert_eq!(hub.call("PUT", OFFER, Some(&tokens[0]), Some(&key())).await.status, 204);
+    assert_eq!(offers(&hub.call("GET", OFFERS, Some(&tokens[3]), None).await).len(), 2);
+}
+
+#[tokio::test]
+async fn an_oversized_grant_is_refused() {
+    let hub = hub(Some(ArcaLimits::default())).await;
+    let a = hub.approved_root("dev-a");
+    let b = hub.approved_root("dev-b");
+    let key = generate_ecies_keypair().public_hex;
+    hub.call("PUT", OFFER, Some(&b), Some(&offer_body(&key))).await;
+    assert_eq!(hub.call("PUT", &grant_path("dev-b", &key), Some(&a), Some(&vec![0u8; 64 * 1024])).await.status, 413);
+}
+
+#[test]
+fn the_verification_code_is_four_groups_of_four_hex_digits_and_depends_on_the_key() {
+    let (k1, k2) = (generate_ecies_keypair().public_hex, generate_ecies_keypair().public_hex);
+    let code = verification_code("dev-b", &k1);
+    assert_four_groups(&code);
+    assert_eq!(code, verification_code("dev-b", &k1), "deterministic");
+    assert_ne!(code, verification_code("dev-b", &k2));
+}
+
+fn assert_four_groups(code: &str) {
+    let groups: Vec<&str> = code.split('-').collect();
+    assert_eq!(groups.len(), 4, "{code}");
+    assert!(groups.iter().all(|g| g.len() == 4 && g.chars().all(|c| c.is_ascii_digit() || ('a'..='f').contains(&c))), "{code}");
+}
+
+#[test]
+fn the_verification_code_depends_on_the_device_it_is_for() {
+    let key = generate_ecies_keypair().public_hex;
+    assert_ne!(verification_code("dev-b", &key), verification_code("dev-c", &key));
+}
+
+#[test]
+fn the_same_key_in_either_encoding_or_spelling_gets_the_same_code() {
+    let key = generate_ecies_keypair().public_hex;
+    let code = verification_code("dev-b", &key);
+    assert_eq!(verification_code("dev-b", &uncompressed(&key)), code);
+    assert_eq!(verification_code("dev-b", &key.to_uppercase()), code);
+    assert_eq!(verification_code("dev-b", &format!("0x{key}")), code);
+}
+
+#[test]
+fn the_key_fingerprint_is_four_groups_stable_and_depends_on_the_key() {
+    let (a, b) = ([7u8; 32], [8u8; 32]);
+    assert_four_groups(&key_fingerprint(&a));
+    assert_eq!(key_fingerprint(&a), key_fingerprint(&a));
+    assert_ne!(key_fingerprint(&a), key_fingerprint(&b));
+    // It is not the pairing code of anything: another label.
+    assert_ne!(key_fingerprint(&a), verification_code("dev-b", &generate_ecies_keypair().public_hex));
+}
+
+#[tokio::test]
+async fn a_hub_that_swaps_the_public_key_shows_a_different_code() {
+    let (real, swapped) = (generate_ecies_keypair().public_hex, generate_ecies_keypair().public_hex);
+    let shown_on_b = verification_code("dev-b", &real);
+    // What a hostile hub would hand to A in place of B's key.
+    assert_ne!(verification_code("dev-b", &swapped), shown_on_b);
+
+    // And through the real hub, A computes from what the hub gave it: the code matches B's only if the key is B's.
+    let hub = hub(Some(ArcaLimits::default())).await;
+    let a = hub.approved_root("dev-a");
+    let b = hub.approved_root("dev-b");
+    hub.call("PUT", OFFER, Some(&b), Some(&offer_body(&real))).await;
+    let (id_seen_by_a, seen_by_a) = offers(&hub.call("GET", OFFERS, Some(&a), None).await).remove(0);
+    assert_eq!(verification_code(&id_seen_by_a, &seen_by_a), shown_on_b);
+}
+
+#[tokio::test]
+async fn the_vault_key_travels_from_one_device_to_another_and_opens_what_the_first_sealed() {
+    let hub = hub(Some(ArcaLimits::default())).await;
+    let a = hub.approved_root("dev-a");
+    let b = hub.approved_root("dev-b");
+    let vault_key = VaultKey::generate().unwrap();
+    let sealed = seal(&EpochKeys::derive(&vault_key, 1), ObjectKind::Blob, b"made on device A").unwrap();
+
+    // B: a key pair that lives only here, and its public half offered.
+    let pair = generate_ecies_keypair();
+    hub.call("PUT", OFFER, Some(&b), Some(&offer_body(&pair.public_hex))).await;
+    // A: picks B's offer and encrypts the key to the key it was given.
+    let (device_id, public_key) = offers(&hub.call("GET", OFFERS, Some(&a), None).await).remove(0);
+    let blob = ecies_encrypt(&vault_key.export_bytes()[..], &public_key).unwrap();
+    assert_eq!(hub.call("PUT", &grant_path(&device_id, &public_key), Some(&a), Some(&blob)).await.status, 204);
+    // B: reads it, decrypts it, and now opens A's object.
+    let got = hub.call("GET", GRANT, Some(&b), None).await;
+    assert_eq!(got.status, 200);
+    let bytes: [u8; 32] = ecies_decrypt(&got.body, &pair.secret).unwrap().try_into().unwrap();
+    let received = VaultKey::from_bytes(bytes);
+    assert_eq!(*received.export_bytes(), *vault_key.export_bytes());
+    assert_eq!(&open(&EpochKeys::derive(&received, 1), ObjectKind::Blob, &sealed.bytes).unwrap()[..], b"made on device A");
+    // What went through the hub was ciphertext: the key's bytes are not in it.
+    assert!(!got.body.windows(32).any(|w| w == &vault_key.export_bytes()[..]));
+    // The two devices end up showing the same fingerprint, each computed from the key it has.
+    assert_eq!(key_fingerprint(&vault_key.export_bytes()), key_fingerprint(&received.export_bytes()));
+}
+
+#[tokio::test]
+async fn a_key_the_hub_made_up_is_caught_by_the_fingerprint_not_by_the_hub() {
+    let hub = hub(Some(ArcaLimits::default())).await;
+    let a = hub.approved_root("dev-a");
+    let b = hub.approved_root("dev-b");
+    let real = VaultKey::generate().unwrap();
+    let pair = generate_ecies_keypair();
+    hub.call("PUT", OFFER, Some(&b), Some(&offer_body(&pair.public_hex))).await;
+
+    // A device with no key of its own (here dev-c, approved but never given the vault key) grants in A's place: the hub has no
+    // way to tell, ECIES encrypts to anyone who knows B's public key.
+    let forged = VaultKey::generate().unwrap();
+    let c = hub.approved_root("dev-c");
+    let blob = ecies_encrypt(&forged.export_bytes()[..], &pair.public_hex).unwrap();
+    assert_eq!(hub.call("PUT", &grant_path("dev-b", &pair.public_hex), Some(&c), Some(&blob)).await.status, 204);
+
+    let got = hub.call("GET", GRANT, Some(&b), None).await;
+    let bytes: [u8; 32] = ecies_decrypt(&got.body, &pair.secret).unwrap().try_into().unwrap();
+    // B cannot tell by itself, but the person comparing A's fingerprint with B's can.
+    assert_ne!(key_fingerprint(&real.export_bytes()), key_fingerprint(&bytes));
+    let _ = a;
+}
+
+#[tokio::test]
+async fn a_grant_names_the_key_it_saw_and_a_missing_or_malformed_one_is_400() {
+    let hub = hub(Some(ArcaLimits::default())).await;
+    let a = hub.approved_root("dev-a");
+    let b = hub.approved_root("dev-b");
+    let key = generate_ecies_keypair().public_hex;
+    hub.call("PUT", OFFER, Some(&b), Some(&offer_body(&key))).await;
+
+    for bad in [format!("{GRANT}/dev-b"), format!("{GRANT}/dev-b?key="), format!("{GRANT}/dev-b?key=zz"), format!("{GRANT}/dev-b?other={key}")] {
+        assert_eq!(hub.call("PUT", &bad, Some(&a), Some(b"x")).await.status, 400, "{bad}");
+    }
+    assert_eq!(offers(&hub.call("GET", OFFERS, Some(&a), None).await).len(), 1, "the offer is still there");
+}
+
+#[tokio::test]
+async fn a_grant_for_a_key_the_offer_no_longer_has_is_409_and_keeps_the_new_offer() {
+    let hub = hub(Some(ArcaLimits::default())).await;
+    let a = hub.approved_root("dev-a");
+    let b = hub.approved_root("dev-b");
+    let (old, new) = (generate_ecies_keypair().public_hex, generate_ecies_keypair().public_hex);
+    hub.call("PUT", OFFER, Some(&b), Some(&offer_body(&old))).await;
+    // B starts over before A grants.
+    hub.call("PUT", OFFER, Some(&b), Some(&offer_body(&new))).await;
+
+    assert_eq!(hub.call("PUT", &grant_path("dev-b", &old), Some(&a), Some(b"for-the-old-key")).await.status, 409);
+    assert_eq!(offers(&hub.call("GET", OFFERS, Some(&a), None).await), vec![("dev-b".to_string(), new)]);
+    assert_eq!(hub.call("GET", GRANT, Some(&b), None).await.status, 404, "nothing was stored");
+}
+
+#[tokio::test]
+async fn a_key_is_kept_and_listed_in_its_compressed_form_whatever_form_it_came_in() {
+    let hub = hub(Some(ArcaLimits::default())).await;
+    let a = hub.approved_root("dev-a");
+    let b = hub.approved_root("dev-b");
+    let compressed = generate_ecies_keypair().public_hex;
+
+    hub.call("PUT", OFFER, Some(&b), Some(&offer_body(&uncompressed(&compressed)))).await;
+    assert_eq!(offers(&hub.call("GET", OFFERS, Some(&a), None).await), vec![("dev-b".to_string(), compressed.clone())]);
+    // A grant that names the key in the other spelling still finds the offer.
+    assert_eq!(hub.call("PUT", &grant_path("dev-b", &compressed.to_uppercase()), Some(&a), Some(b"x")).await.status, 204);
+}
+
+#[tokio::test]
+async fn an_offer_of_a_device_revoked_since_is_neither_listed_nor_granted() {
+    let hub = hub(Some(ArcaLimits::default())).await;
+    let a = hub.approved_root("dev-a");
+    let b = hub.approved_root("dev-b");
+    let key = generate_ecies_keypair().public_hex;
+    hub.call("PUT", OFFER, Some(&b), Some(&offer_body(&key))).await;
+
+    hub.devices.revoke("dev-b").unwrap();
+    assert!(offers(&hub.call("GET", OFFERS, Some(&a), None).await).is_empty());
+    assert_eq!(hub.call("PUT", &grant_path("dev-b", &key), Some(&a), Some(b"x")).await.status, 404);
+}
+
+#[tokio::test]
+async fn two_grants_at_once_for_the_same_device_leave_one_winner() {
+    let hub = hub(Some(ArcaLimits { max_concurrent_per_owner: 8, ..ArcaLimits::default() })).await;
+    let a = hub.approved_root("dev-a");
+    let b = hub.approved_root("dev-b");
+    let key = generate_ecies_keypair().public_hex;
+    hub.call("PUT", OFFER, Some(&b), Some(&offer_body(&key))).await;
+
+    let path = grant_path("dev-b", &key);
+    let (first, second) = tokio::join!(hub.call("PUT", &path, Some(&a), Some(b"one")), hub.call("PUT", &path, Some(&a), Some(b"two")));
+    let mut statuses = [first.status, second.status];
+    statuses.sort();
+    assert_eq!(statuses, [204, 404]);
+}
+
+#[tokio::test]
+async fn offers_made_at_once_do_not_go_past_the_cap() {
+    let hub = hub(Some(ArcaLimits { max_pending_offers: 2, max_concurrent_per_owner: 8, ..ArcaLimits::default() })).await;
+    let t: Vec<String> = (0..6).map(|i| hub.approved_root(&format!("dev-{i}"))).collect();
+    let body: Vec<Vec<u8>> = (0..6).map(|_| offer_body(&generate_ecies_keypair().public_hex)).collect();
+
+    let (r0, r1, r2, r3, r4, r5) = tokio::join!(
+        hub.call("PUT", OFFER, Some(&t[0]), Some(&body[0])),
+        hub.call("PUT", OFFER, Some(&t[1]), Some(&body[1])),
+        hub.call("PUT", OFFER, Some(&t[2]), Some(&body[2])),
+        hub.call("PUT", OFFER, Some(&t[3]), Some(&body[3])),
+        hub.call("PUT", OFFER, Some(&t[4]), Some(&body[4])),
+        hub.call("PUT", OFFER, Some(&t[5]), Some(&body[5])),
+    );
+    let accepted = [r0, r1, r2, r3, r4, r5].iter().filter(|r| r.status == 204).count();
+    assert_eq!(accepted, 2);
+}
+
+#[tokio::test]
+async fn leftovers_of_a_crashed_call_are_swept_once_they_are_older_than_the_ttl() {
+    let hub = hub(Some(ArcaLimits { pairing_ttl: Duration::from_millis(300), ..ArcaLimits::default() })).await;
+    let a = hub.approved_root("dev-a");
+    hub.call("PUT", OFFER, Some(&a), Some(&offer_body(&generate_ecies_keypair().public_hex))).await;
+    let dir = root_pairing_dir(&hub);
+    let old = std::time::SystemTime::now() - Duration::from_secs(3600);
+    let leftovers = ["tmp-1-1-1", "taken-1-1-1"].map(|name| dir.join(name));
+    for file in &leftovers {
+        let f = std::fs::File::create(file).unwrap();
+        f.set_modified(old).unwrap();
+    }
+
+    hub.call("GET", OFFERS, Some(&a), None).await;
+    assert!(leftovers.iter().all(|f| !f.exists()), "old tmp- and taken- files are gone");
 }

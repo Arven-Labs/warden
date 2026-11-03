@@ -30,6 +30,7 @@ pub mod api_key_admin;
 pub mod api_keys;
 pub mod approval;
 pub mod arca_api;
+pub mod arca_pairing;
 pub mod attempt_limit;
 pub mod bot_admin;
 pub mod chat_input;
