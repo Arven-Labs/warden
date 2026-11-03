@@ -43,6 +43,8 @@ warden-core = { path = "../warden-core" }
 warden-server-protocol = { path = "../warden-server-protocol" }
 
 [dev-dependencies]
+# The client of the arca pairing routes, proven against the real hub (tests/arca_pairing_client.rs).
+warden-sync = { path = "../warden-sync" }
 # The arca client (`HubStore`) and `Engine`, to prove the real hub speaks what they expect (tests/arca_api.rs).
 arca-core = { git = "https://github.com/Arven-Labs/arca", rev = "69fec7159efe9a5936630aa34deb41d1cbeca3d6", features = ["hub"] }
 k256 = { version = "0.14", features = ["ecdsa"] }

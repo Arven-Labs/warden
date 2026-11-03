@@ -2,7 +2,21 @@
 
 > **Nota**: Este log foi criado junto com o projeto. As sessões serão registradas aqui conforme o trabalho avança.
 >
-> Última atualização: 2026-11-03 (Sessão 385)
+> Última atualização: 2026-11-03 (Sessão 386)
+
+---
+
+### 2026-11-03 — Sessão 386 (cliente do pareamento da arca, PR 1: a biblioteca — P182)
+
+- **Pedido**: o P182 item 1 (a interface em que a pessoa confere os dois códigos). Plano aprovado em plan mode, em 2 PRs: **biblioteca** (este) e **CLI** (próximo). Decisões do dono: biblioteca em Rust + CLI como primeira superfície (descartados desktop primeiro e só biblioteca), identidade pelo `remote_hub.json` do desktop, chave em `[u8; 32]` sem `zeroize` (como o `SyncSecrets` de hoje), digitação tolerante a formato (maiúscula, espaços, sem hífens) e estrita no conteúdo, e `confirm` adota a chave pelo `SyncEngine`.
+- **Feito** (PR `feat/arca-pairing-client`): `warden-sync/src/arca_pairing.rs` (novo): `HubAccess` (`https` em qualquer host, `http` só em loopback, sem redirecionamento nem proxy, token fora do `Debug`, resposta com teto), `Offer` (B), `list_offers`, `PendingOffer` e `grant` (A: **recusa antes de qualquer requisição** se o código digitado não confere), `Received::confirm` (B: só grava se a impressão digitada confere), `PairingError`. `SyncEngine::export_vault_key` e `adopt_vault_key`. `verification_code` e `key_fingerprint` foram **movidos** para `warden-truthid` (o cliente não pode depender do `warden-server`), com re-export no servidor.
+- **Testes primeiro** (revisados pelo dono): 17 testes, 17 falhavam no `todo!()`. Depois da auditoria: +1 de ponta a ponta (um hub de mentira que responde `307`, `200` e `202`; falhava) e +1 de formas de endereço (já passava). Ficam 9 unitários no `warden-sync` e 10 de ponta a ponta no `warden-server`.
+- **Auditoria** (`security-auditor`, a pedido do dono): sem crítico. **Importante corrigido**: um `307`, ou um `200` onde se documenta `204`, virava sucesso (`common_failure` só olhava `>= 400`), então `grant` diria "entregue" sem nada gravado; agora cada rota exige o status documentado. Registrado, sem correção: `localhost` por nome, corrida entre dois processos, sem zeroize, a defesa some se a pessoa copia e cola.
+- **Quebras propositais** (todas derrubaram o teste certo e foram revertidas): pular a checagem do código na concessão, pular a da impressão no `confirm`, aceitar `http` externo, gravar a chave antes de conferir a impressão.
+- **Verificado localmente** (só os crates tocados): `cargo test -p warden-sync` (toda a suíte), `-p warden-server --test arca_api --test arca_pairing_client` (46 e 10), `-p warden-truthid --lib`; `clippy` sem aviso nos arquivos que toquei. **No CI**: ver o PR.
+- **Não verificado**: nenhum cliente real nem interface (**o P182 item 1 segue aberto até o CLI**); hub hostil de verdade; TLS; o `security-auditor` não rodou sobre a correção do `3xx`.
+- **Desvios de processo meus**: nenhum além de a quebra proposital precisar de revisão do espaço final cortado pelo `Edit` (já conhecido da Sessão 385).
+- **Fica**: PR 2 (CLI: `warden arca pair`, `RemoteIdentities` para o `warden-bootstrap`, i18n en/pt-BR, leitura do teclado com teste, polling da concessão); desktop, mobile e web; 2b-4; P182 e P181.
 
 ---
 
