@@ -72,6 +72,9 @@ use warden_core::tool::ssh::test_connection;
 use warden_core::autonomy::{Grant, GrantBook, Grants, RememberingApprover};
 use warden_core::tool::{Answer, ApprovalRequest, Approver};
 
+use warden_sync::arca_pairing::{HubAccess, PendingOffer};
+use warden_sync::arca_pairing_flow::{run_grant, run_offer, Ask, FlowError, PairingPrompts, Shown};
+
 use crate::commands::{self, Command, ParseOutcome};
 use crate::{i18n, tr};
 
@@ -112,11 +115,17 @@ struct LineEditor {
     history: Vec<String>,
     history_index: Option<usize>,
     draft: Option<Vec<char>>,
+    /// A secret being typed: the box shows a dot per character instead of the text.
+    masked: bool,
 }
 
 impl LineEditor {
     fn new(history: Vec<String>) -> Self {
-        Self { buffer: Vec::new(), cursor: 0, history, history_index: None, draft: None }
+        Self { buffer: Vec::new(), cursor: 0, history, history_index: None, draft: None, masked: false }
+    }
+
+    fn new_masked() -> Self {
+        Self { masked: true, ..Self::new(Vec::new()) }
     }
 
     fn is_empty(&self) -> bool {
@@ -262,13 +271,14 @@ fn render_input_box(frame: &mut ratatui::Frame, editor: &LineEditor, title: &str
     let inner = block.inner(area);
     frame.render_widget(block, area);
 
-    let mut spans = vec![Span::raw(editor.as_str())];
+    let shown = if editor.masked { "•".repeat(editor.buffer.len()) } else { editor.as_str() };
+    let mut spans = vec![Span::raw(shown)];
     if let Some(suffix) = ghost {
         spans.push(Span::styled(suffix.to_string(), Style::default().add_modifier(Modifier::DIM)));
     }
     frame.render_widget(Paragraph::new(Line::from(spans)), inner);
 
-    let cursor_col = inner.x + UnicodeWidthStr::width(editor.prefix().as_str()) as u16;
+    let cursor_col = inner.x + if editor.masked { editor.cursor as u16 } else { UnicodeWidthStr::width(editor.prefix().as_str()) as u16 };
     frame.set_cursor_position((cursor_col, inner.y));
 }
 
@@ -774,6 +784,12 @@ async fn read_field(terminal: &mut CliTerminal, title: &str, initial: &str) -> a
     for c in initial.chars() {
         editor.insert(c);
     }
+    drive_line_editor(terminal, &mut editor, title, false).await
+}
+
+/// Same as `read_field`, for a secret: empty box, a dot per character, nothing kept in any history.
+async fn read_secret_field(terminal: &mut CliTerminal, title: &str) -> anyhow::Result<LineOutcome> {
+    let mut editor = LineEditor::new_masked();
     drive_line_editor(terminal, &mut editor, title, false).await
 }
 
@@ -1299,6 +1315,8 @@ async fn cmd_help(terminal: &mut CliTerminal) -> anyhow::Result<()> {
         ("/sync pair <code> [ip]", "help.sync_pair_join"),
         ("/sync git push", "help.sync_git_push"),
         ("/sync git pull", "help.sync_git_pull"),
+        ("/arca pair offer", "help.arca_pair_offer"),
+        ("/arca pair grant", "help.arca_pair_grant"),
     ]
     .into_iter()
     .map(|(command, description)| (format!("{command} — {}", tr!(description)), style))
@@ -3194,6 +3212,90 @@ async fn cmd_sync_pair_join(terminal: &mut CliTerminal, session: &CliSession, co
     render_message_card(terminal, "sync", accent_style(), vec![(tr!("sync.paired_ok"), Style::default())])
 }
 
+/// The person at this terminal, for `warden_sync::arca_pairing_flow`: what this device computed goes on the screen (`show`),
+/// what the person types comes back from a field (`ask`). The flow never gives `ask` anything to fill in.
+struct TerminalPrompts<'a> {
+    terminal: &'a mut CliTerminal,
+}
+
+impl PairingPrompts for TerminalPrompts<'_> {
+    fn show(&mut self, shown: Shown) {
+        let lines = match shown {
+            Shown::OfferCode(code) => vec![(tr!("arca.offer_code", code = code), Style::default()), (tr!("arca.offer_instructions"), Style::default())],
+            Shown::KeyFingerprint(fingerprint) => {
+                vec![(tr!("arca.key_fingerprint", fingerprint = fingerprint), Style::default()), (tr!("arca.fingerprint_instructions"), Style::default())]
+            }
+        };
+        // If the card cannot be drawn the person simply has nothing to type on the other device, and the wait runs out.
+        let _ = render_message_card(self.terminal, "arca", accent_style(), lines);
+    }
+
+    async fn choose_offer(&mut self, offers: &[PendingOffer]) -> Option<usize> {
+        if offers.len() == 1 {
+            return Some(0);
+        }
+        let mut lines = vec![(tr!("arca.offers_waiting"), Style::default())];
+        lines.extend(offers.iter().enumerate().map(|(i, offer)| (format!("  {}. {}", i + 1, offer.device_id), Style::default())));
+        render_message_card(self.terminal, "arca", accent_style(), lines).ok()?;
+        let typed = prompt_field(self.terminal, &tr!("arca.pick_offer"), "").await.ok().flatten()?;
+        typed.trim().parse::<usize>().ok()?.checked_sub(1).filter(|index| *index < offers.len())
+    }
+
+    async fn ask(&mut self, ask: Ask) -> Option<String> {
+        let title = match ask {
+            Ask::CodeShownByTheNewDevice => tr!("arca.ask_code"),
+            Ask::FingerprintShownByTheOldDevice => tr!("arca.ask_fingerprint"),
+        };
+        prompt_field(self.terminal, &title, "").await.ok().flatten().filter(|typed| !typed.trim().is_empty())
+    }
+}
+
+/// Asks for the hub address and this device's token (not echoed, not stored anywhere). `None` if the person gave up or left a
+/// field empty.
+async fn ask_hub_access(terminal: &mut CliTerminal) -> anyhow::Result<Option<HubAccess>> {
+    let Some(url) = prompt_field(terminal, &tr!("arca.ask_url"), "").await? else { return Ok(None) };
+    let LineOutcome::Submitted(token) = read_secret_field(terminal, &tr!("arca.ask_token")).await? else { return Ok(None) };
+    if url.trim().is_empty() || token.trim().is_empty() {
+        return Ok(None);
+    }
+    Ok(Some(HubAccess::new(url.trim(), token.trim())?))
+}
+
+fn cancelled_card(terminal: &mut CliTerminal) -> anyhow::Result<()> {
+    render_message_card(terminal, "arca", accent_style(), vec![(tr!("arca.cancelled"), Style::default())])
+}
+
+/// `/arca pair offer` — on the new device: publishes an offer, shows its code and waits for the key (arca ADR 0016).
+async fn cmd_arca_pair_offer(terminal: &mut CliTerminal, session: &CliSession) -> anyhow::Result<()> {
+    let engine = make_sync_engine(session)?;
+    let Some(access) = ask_hub_access(terminal).await? else { return cancelled_card(terminal) };
+    let Some(device_id) = prompt_field(terminal, &tr!("arca.ask_device"), "").await?.map(|id| id.trim().to_string()).filter(|id| !id.is_empty()) else {
+        return cancelled_card(terminal);
+    };
+    let result = run_offer(&access, &device_id, &engine, &mut TerminalPrompts { terminal }, ARCA_OFFER_POLL, ARCA_OFFER_TIMEOUT).await;
+    finish_arca_pairing(terminal, result, "arca.stored_ok")
+}
+
+/// `/arca pair grant` — on the device that has the key: lists the waiting offers and hands the key to the chosen one.
+async fn cmd_arca_pair_grant(terminal: &mut CliTerminal, session: &CliSession) -> anyhow::Result<()> {
+    let engine = make_sync_engine(session)?;
+    let Some(access) = ask_hub_access(terminal).await? else { return cancelled_card(terminal) };
+    let result = run_grant(&access, &engine, &mut TerminalPrompts { terminal }).await;
+    finish_arca_pairing(terminal, result, "arca.granted_ok")
+}
+
+fn finish_arca_pairing(terminal: &mut CliTerminal, result: Result<(), FlowError>, ok_key: &str) -> anyhow::Result<()> {
+    match result {
+        Ok(()) => render_message_card(terminal, "arca", accent_style(), vec![(tr!(ok_key), Style::default())]),
+        Err(FlowError::Cancelled) => cancelled_card(terminal),
+        Err(e) => render_message_card(terminal, "arca", error_style(), vec![(e.to_string(), error_style())]),
+    }
+}
+
+/// How long the new device waits for a grant: the same 10 minutes an offer lives on the hub.
+const ARCA_OFFER_TIMEOUT: Duration = Duration::from_secs(600);
+const ARCA_OFFER_POLL: Duration = Duration::from_secs(2);
+
 /// `/sync git push` (P63) — no QR/phone step like `/sync push` has: a git remote needs no
 /// per-push approval, so this is a single call straight through.
 async fn cmd_sync_git_push(terminal: &mut CliTerminal, session: &CliSession) -> anyhow::Result<()> {
@@ -3349,6 +3451,8 @@ async fn handle_command(command: Command, terminal: &mut CliTerminal, session: &
         Command::SyncPull => cmd_sync_pull(terminal, session).await,
         Command::SyncPairShow => cmd_sync_pair_show(terminal, session).await,
         Command::SyncPairJoin(code, host) => cmd_sync_pair_join(terminal, session, code, host).await,
+        Command::ArcaPairOffer => cmd_arca_pair_offer(terminal, session).await,
+        Command::ArcaPairGrant => cmd_arca_pair_grant(terminal, session).await,
         Command::SyncGitPush => cmd_sync_git_push(terminal, session).await,
         Command::SyncGitPull => cmd_sync_git_pull(terminal, session).await,
     }

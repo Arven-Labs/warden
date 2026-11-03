@@ -15,6 +15,7 @@
 //! agnostic already); only the transport differs.
 
 pub mod arca_pairing;
+pub mod arca_pairing_flow;
 pub mod arweave;
 pub mod bundle;
 pub mod diff;

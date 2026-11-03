@@ -87,6 +87,10 @@ pub enum Command {
     SyncPairJoin(String, Option<String>),
     SyncGitPush,
     SyncGitPull,
+    /// `/arca pair offer` — on the new device: offers itself to the hub and waits for the key (arca ADR 0016).
+    ArcaPairOffer,
+    /// `/arca pair grant` — on the device that has the key: hands it to a waiting offer.
+    ArcaPairGrant,
 }
 
 /// What a line of input turned out to be, once checked against the slash-command grammar.
@@ -184,6 +188,8 @@ pub fn parse_command(input: &str) -> ParseOutcome {
         ("sync", ["pair", code, host]) => Command::SyncPairJoin(code.to_string(), Some(host.to_string())),
         ("sync", ["git", "push"]) => Command::SyncGitPush,
         ("sync", ["git", "pull"]) => Command::SyncGitPull,
+        ("arca", ["pair", "offer"]) => Command::ArcaPairOffer,
+        ("arca", ["pair", "grant"]) => Command::ArcaPairGrant,
         _ => return ParseOutcome::Unrecognized(trimmed.to_string()),
     };
     ParseOutcome::Recognized(command)
@@ -219,7 +225,7 @@ pub fn kind_label(kind: Provider) -> &'static str {
 pub const DEFAULT_AGENT_WORD: &str = "padrao";
 
 const GRANTS_SUBCOMMANDS: &[&str] = &["revoke"];
-const TOP_LEVEL_COMMANDS: &[&str] = &["exit", "quit", "help", "lang", "usage", "limits", "extend", "grants", "prices", "models", "combos", "agents", "skills", "ssh", "sync"];
+const TOP_LEVEL_COMMANDS: &[&str] = &["exit", "quit", "help", "lang", "usage", "limits", "extend", "grants", "prices", "models", "combos", "agents", "skills", "ssh", "sync", "arca"];
 const LIMITS_SUBCOMMANDS: &[&str] = &["add", "edit", "remove", "off", "reset"];
 const PRICES_SUBCOMMANDS: &[&str] = &["add", "edit", "remove"];
 const MODELS_SUBCOMMANDS: &[&str] = &["use", "reset", "add", "edit", "remove"];
@@ -228,6 +234,7 @@ const AGENTS_SUBCOMMANDS: &[&str] = &["use", "tree", "create", "edit", "remove"]
 const SKILLS_SUBCOMMANDS: &[&str] = &["show", "create", "edit", "remove", "path", "file", "attach", "detach"];
 const SSH_SUBCOMMANDS: &[&str] = &["add", "edit", "remove", "on", "off", "test"];
 const SYNC_SUBCOMMANDS: &[&str] = &["push", "pull", "pair", "git"];
+const ARCA_SUBCOMMANDS: &[&str] = &["pair"];
 
 /// Parses the word currently being typed (the last whitespace-separated token) out of a
 /// `/`-prefixed `input`, along with its candidate completions from the fixed part of the grammar
@@ -254,6 +261,7 @@ fn current_word(input: &str) -> Option<(&str, Vec<&'static str>)> {
             "skills" => SKILLS_SUBCOMMANDS,
             "ssh" => SSH_SUBCOMMANDS,
             "sync" => SYNC_SUBCOMMANDS,
+            "arca" => ARCA_SUBCOMMANDS,
             _ => return None,
         };
         let typed_lower = rest.to_ascii_lowercase();
@@ -445,6 +453,16 @@ mod tests {
     fn sync_git_subcommands_parse() {
         assert!(matches!(assert_recognized("/sync git push"), Command::SyncGitPush));
         assert!(matches!(assert_recognized("/sync git pull"), Command::SyncGitPull));
+    }
+
+    #[test]
+    fn arca_pair_subcommands_parse_and_take_no_arguments() {
+        assert!(matches!(assert_recognized("/arca pair offer"), Command::ArcaPairOffer));
+        assert!(matches!(assert_recognized("/arca pair grant"), Command::ArcaPairGrant));
+        // The hub address and the token are asked for in the terminal, never taken from the line (it would stay in the history).
+        for line in ["/arca", "/arca pair", "/arca pair offer https://hub", "/arca pair grant token123", "/arca pair other"] {
+            assert!(matches!(parse_command(line), ParseOutcome::Unrecognized(_)), "{line}");
+        }
     }
 
     #[test]
