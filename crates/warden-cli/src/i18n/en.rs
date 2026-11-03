@@ -350,7 +350,7 @@ pub const CATALOG: &[(&str, &str)] = &[
     ("arca.pick_offer", " offer number "),
     ("arca.offers_waiting", "offers waiting for the key:"),
     ("arca.offer_code", "this offer's code: {code}"),
-    ("arca.offer_instructions", "on the device that has the key, run /arca pair grant and type this code. Read it on both screens and type it: copy and paste defeats the check. waiting…"),
+    ("arca.offer_instructions", "on the device that has the key, run /arca pair grant and type this code. Read it on both screens and type it: copy and paste defeats the check. waiting… (Ctrl+D cancels)"),
     ("arca.key_fingerprint", "fingerprint of the key handed over: {fingerprint}"),
     ("arca.fingerprint_instructions", "type this fingerprint on the new device. If it refuses, what it received is NOT your key: do not trust this hub."),
     ("arca.granted_ok", "key handed over. The new device still has to check the fingerprint."),

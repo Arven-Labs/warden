@@ -350,7 +350,7 @@ pub const CATALOG: &[(&str, &str)] = &[
     ("arca.pick_offer", " número da oferta "),
     ("arca.offers_waiting", "ofertas esperando a chave:"),
     ("arca.offer_code", "código desta oferta: {code}"),
-    ("arca.offer_instructions", "no dispositivo que tem a chave, rode /arca pair grant e digite este código. Leia nas duas telas e digite: copiar e colar anula a conferência. aguardando…"),
+    ("arca.offer_instructions", "no dispositivo que tem a chave, rode /arca pair grant e digite este código. Leia nas duas telas e digite: copiar e colar anula a conferência. aguardando… (Ctrl+D cancela)"),
     ("arca.key_fingerprint", "impressão da chave entregue: {fingerprint}"),
     ("arca.fingerprint_instructions", "digite esta impressão no dispositivo novo. Se ele recusar, o que ele recebeu NÃO é a sua chave: não confie neste hub."),
     ("arca.granted_ok", "chave entregue. Falta o dispositivo novo conferir a impressão."),
