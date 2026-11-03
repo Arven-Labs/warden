@@ -313,6 +313,10 @@ async fn announce_outbox(api: &impl TelegramApi, outbox: &warden_bootstrap::bot_
     }
 }
 
+/// How many ignored users are remembered for the "log once" rule. Past it the list starts over, which at worst repeats a log line,
+/// instead of growing with every id a stranger makes up.
+const MAX_REPORTED: usize = 10_000;
+
 /// Who may talk to the bot (P117), and who it has already said it ignored.
 #[derive(Default)]
 struct Access {
@@ -348,6 +352,9 @@ impl Access {
         let username = message.from.as_ref().and_then(|s| s.username.as_deref());
         let name = username.map(|u| format!(" (@{u})")).unwrap_or_default();
         let private = message.chat.kind == "private";
+        if self.reported.len() >= MAX_REPORTED {
+            self.reported.clear();
+        }
         if self.reported.insert(who) {
             if private {
                 eprintln!("ignored telegram user {who}{name}: to allow them, add {who} to [telegram] allowed_users in config.toml");
@@ -587,6 +594,24 @@ mod tests {
     /// The people `[telegram] allowed_users` lists.
     fn access_for(users: &[i64]) -> Access {
         Access { settings: warden_bootstrap::bot_access::TelegramSettings { allowed_users: users.to_vec(), ..Default::default() }, ..Access::default() }
+    }
+
+    // P117: every stranger id is remembered so it is logged once; without a bound, ids made up one after another grow it forever.
+    #[test]
+    fn the_list_of_ignored_users_is_bounded() {
+        let mut access = Access::default();
+        let stranger = |id: i64| IncomingMessage {
+            chat: Chat { id, kind: "private".to_string() },
+            text: Some("hi".to_string()),
+            from: Some(Sender { id: Some(id), username: None, first_name: None }),
+        };
+
+        for id in 1..=(MAX_REPORTED as i64 + 5) {
+            assert_eq!(access.check(&stranger(id)), Gate::Silent);
+        }
+
+        assert!(access.reported.len() <= MAX_REPORTED, "{}", access.reported.len());
+        assert!(!access.reported.is_empty());
     }
 
     /// P117: a stranger gets nothing: no reply (`/start` included), no conversation, no model call; a

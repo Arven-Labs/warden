@@ -139,6 +139,29 @@ mod tests {
         assert_ne!(blob, escrow_seal(&key, &owner.public_hex).unwrap(), "a fresh seal each time");
     }
 
+    /// Contract for the `k256` upgrade (P173): `escrow_open` must open a blob built from frozen
+    /// values only, with the recovery key as the owner writes it down. The owner's scalar is 1
+    /// (so the text is 51 `A`s and a `Q`), the blob is the ephemeral key of scalar 2 (its public
+    /// key and the AES key are the constants the Dart-verified test in `warden-truthid` pins),
+    /// a fixed nonce, and the member key `0x42` x 32 sealed under them. A round trip would pass
+    /// even if seal and open changed format together; this one fails if the format moves.
+    #[test]
+    fn an_escrow_blob_built_from_frozen_values_opens_with_the_key_as_the_owner_wrote_it() {
+        let hex = |text: &str| -> Vec<u8> { (0..text.len()).step_by(2).map(|i| u8::from_str_radix(&text[i..i + 2], 16).unwrap()).collect() };
+        let mut blob = hex("02c6047f9441ed7d6d3045406e95c07cd85c778e4b8cef3ca7abac09b95c709ee5");
+        blob.extend_from_slice(&[7u8; 12]);
+        blob.extend_from_slice(&hex("59d2ee85b3c2e723a590f1275e85cd61a225ec899bb2b6c7f846064f441b97cb5409c01532e197b707fd74d5437a5023"));
+        let written = "AAAA-AAAA-AAAA-AAAA-AAAA-AAAA-AAAA-AAAA-AAAA-AAAA-AAAA-AAAA-AAAQ";
+
+        assert_eq!(*escrow_open(&blob, written).unwrap(), [0x42u8; 32]);
+        // However the owner typed it: lower case, spaces for dashes, no separators at all.
+        assert_eq!(*escrow_open(&blob, &written.to_ascii_lowercase().replace('-', " ")).unwrap(), [0x42u8; 32]);
+        assert_eq!(*escrow_open(&blob, &written.replace('-', "")).unwrap(), [0x42u8; 32]);
+        // The next scalar (3) is a valid key that derives another AES key and must not open it.
+        let stranger = "AAAA-AAAA-AAAA-AAAA-AAAA-AAAA-AAAA-AAAA-AAAA-AAAA-AAAA-AAAA-AABQ";
+        assert!(escrow_open(&blob, stranger).is_err());
+    }
+
     #[test]
     fn the_secret_is_written_for_a_person_and_the_id_names_the_public_key() {
         let owner = generate_escrow_keypair();

@@ -220,11 +220,17 @@ async fn stop_signal() {
     }
 }
 
-/// Refuses a webhook secret with a space, tab or line break at its start or end. Refused, not trimmed, for the same reason
-/// as the admin secret: the site mãe checks the signature with the string it has, so a trimmed copy here would be a
-/// different secret and every webhook would be refused over there. The error never repeats the secret.
+/// The shortest signing secret `serve` takes (P174): the same floor as `warden-orchestrator`'s `MIN_SECRET_LEN`, repeated on
+/// purpose because the gateway does not depend on the orchestrator. Counted in bytes, as there.
+const MIN_SECRET_LEN: usize = 32;
+
+/// Refuses a webhook secret with a space, tab or line break at its start or end, or shorter than `MIN_SECRET_LEN`. Refused, not
+/// trimmed, for the same reason as the admin secret: the site mãe checks the signature with the string it has, so a trimmed
+/// copy here would be a different secret and every webhook would be refused over there. The ends are checked first: a pasted
+/// newline is the usual mistake and the one to fix first. The error never repeats the secret.
 fn check_webhook_secret_ends(secret: &str) -> Result<()> {
     ensure!(secret == secret.trim(), "the webhook secret has a space or line break at its start or end (a pasted newline, usually); remove it");
+    ensure!(secret.len() >= MIN_SECRET_LEN, "the webhook secret is shorter than {MIN_SECRET_LEN} characters");
     Ok(())
 }
 
@@ -236,14 +242,19 @@ fn show_cap(cap: Option<Micros>) -> String {
     cap.map_or("none".to_string(), format_usd)
 }
 
-/// Refuses an admin secret, current or previous, with a space, tab or line break at its start or end. Refused, not
-/// trimmed: the site mãe signs with the string it has, so a trimmed copy here would be a different secret and every call
-/// would be a 401 with no hint why. A pasted final newline is the usual cause. The error never repeats a secret.
+/// Refuses an admin secret, current or previous, with a space, tab or line break at its start or end, or shorter than
+/// `MIN_SECRET_LEN`. Refused, not trimmed: the site mãe signs with the string it has, so a trimmed copy here would be a
+/// different secret and every call would be a 401 with no hint why. A pasted final newline is the usual cause, so the ends are
+/// checked before the length. The error never repeats a secret.
 fn check_admin_secret_ends(current: &str, previous: Option<&str>) -> Result<()> {
     let bare = |secret: &str| secret == secret.trim();
     ensure!(bare(current), "the admin secret has a space or line break at its start or end (a pasted newline, usually); remove it");
     if let Some(previous) = previous {
         ensure!(bare(previous), "the previous admin secret has a space or line break at its start or end (a pasted newline, usually); remove it");
+    }
+    ensure!(current.len() >= MIN_SECRET_LEN, "the admin secret is shorter than {MIN_SECRET_LEN} characters");
+    if let Some(previous) = previous {
+        ensure!(previous.len() >= MIN_SECRET_LEN, "the previous admin secret is shorter than {MIN_SECRET_LEN} characters; leave it out when no rotation is going on");
     }
     Ok(())
 }
@@ -534,6 +545,51 @@ mod tests {
     fn a_clean_webhook_secret_and_one_with_a_space_inside_are_accepted() {
         assert!(check_webhook_secret_ends(GOOD).is_ok());
         assert!(check_webhook_secret_ends("0123456789abcdef 0123456789abcdef").is_ok());
+    }
+
+    // P174: the orchestrator (`warden-orchestrator`, `MIN_SECRET_LEN`) refuses an admin secret under 32 characters; the gateway took
+    // any, so a one-letter secret signed the site mãe's calls. Same floor here, for the admin and the webhook secret.
+    #[test]
+    fn an_admin_secret_under_32_characters_is_refused_and_32_is_accepted() {
+        let thirty_one = "a".repeat(31);
+        for secret in [thirty_one.as_str(), "admin-secret", "x", "0123456789abcdef"] {
+            let err = check_admin_secret_ends(secret, None).unwrap_err().to_string();
+            assert!(err.contains("admin secret") && err.contains("shorter than 32"), "{secret:?}: {err}");
+            assert!(!err.contains("previous"), "names the current one: {err}");
+            assert!(!err.contains(secret), "never echoes the secret: {err}");
+        }
+        assert!(check_admin_secret_ends(&"a".repeat(32), None).is_ok());
+        assert!(check_admin_secret_ends(&"a".repeat(64), None).is_ok(), "an `openssl rand -hex 32` is 64");
+    }
+
+    #[test]
+    fn a_previous_admin_secret_under_32_characters_is_refused_naming_the_previous_one() {
+        let err = check_admin_secret_ends(GOOD, Some("short-old-secret")).unwrap_err().to_string();
+
+        assert!(err.contains("previous admin secret") && err.contains("shorter than 32"), "{err}");
+        assert!(!err.contains("short-old-secret"), "never echoes the secret: {err}");
+        assert!(check_admin_secret_ends(GOOD, Some(&"b".repeat(32))).is_ok());
+    }
+
+    #[test]
+    fn a_webhook_secret_under_32_characters_is_refused_and_32_is_accepted() {
+        let thirty_one = "w".repeat(31);
+        for secret in [thirty_one.as_str(), "whsec", "x"] {
+            let err = check_webhook_secret_ends(secret).unwrap_err().to_string();
+            assert!(err.contains("webhook secret") && err.contains("shorter than 32"), "{secret:?}: {err}");
+            assert!(!err.contains("admin"), "names the webhook secret: {err}");
+            assert!(!err.contains(secret), "never echoes the secret: {err}");
+        }
+        assert!(check_webhook_secret_ends(&"w".repeat(32)).is_ok());
+    }
+
+    #[test]
+    fn a_secret_with_a_pasted_newline_still_gets_the_newline_message_not_the_length_one() {
+        // Both mistakes at once: the newline is what to fix first, and it is the message the owner already knows.
+        let err = check_admin_secret_ends("short\n", None).unwrap_err().to_string();
+        assert!(err.contains("space or line break"), "{err}");
+        let err = check_webhook_secret_ends("short\n").unwrap_err().to_string();
+        assert!(err.contains("space or line break"), "{err}");
     }
 
     #[test]

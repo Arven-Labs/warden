@@ -143,12 +143,26 @@ impl SyncEngine {
         push::begin_push_with_oauth(&self.vault, &self.config_path, self.oauth_dir.as_deref(), &secrets, &manifest)
     }
 
+    /// Between step 1 and the QR: refuses a Send when another device already sent something newer (P-14), so a device that is
+    /// behind hears it before anyone reaches for the phone (P175e). Call it only when `begin_push` returned `Some`.
+    ///
+    /// Advisory: it does not take the sync lock and another device can still send afterwards. The check that decides is the one
+    /// `finish_push` runs under the lock, right before the phone is asked to pin; this one only spares the QR.
+    pub async fn check_remote_not_newer(&self) -> anyhow::Result<()> {
+        let manifest = manifest::load_manifest(&self.manifest_path)?;
+        self.ensure_remote_not_newer(&manifest).await
+    }
+
+    async fn ensure_remote_not_newer(&self, manifest: &manifest::SyncManifest) -> anyhow::Result<()> {
+        push::ensure_remote_not_newer(&self.arweave, manifest, &self.load_secrets()?).await
+    }
+
     /// Step 2 of Send: waits for the TruthID phone to pin the bundle, then persists the updated
     /// manifest.
     pub async fn finish_push(&self, begin: push::BeginPushResult) -> anyhow::Result<push::PushOutcome> {
         let _one_sync_at_a_time = self.sync_lock().await?;
         let manifest = manifest::load_manifest(&self.manifest_path)?;
-        push::ensure_remote_not_newer(&self.arweave, &manifest, &self.load_secrets()?).await?;
+        self.ensure_remote_not_newer(&manifest).await?;
         let (outcome, new_manifest) = push::run_push(begin, &self.arweave, manifest).await?;
         manifest::save_manifest(&self.manifest_path, &new_manifest)?;
         Ok(outcome)
@@ -164,7 +178,7 @@ impl SyncEngine {
     ) -> anyhow::Result<push::PushOutcome> {
         let _one_sync_at_a_time = self.sync_lock().await?;
         let manifest = manifest::load_manifest(&self.manifest_path)?;
-        push::ensure_remote_not_newer(&self.arweave, &manifest, &self.load_secrets()?).await?;
+        self.ensure_remote_not_newer(&manifest).await?;
         let (outcome, new_manifest) = push::run_push_with_hosts(begin, &self.arweave, manifest, hosts).await?;
         manifest::save_manifest(&self.manifest_path, &new_manifest)?;
         Ok(outcome)

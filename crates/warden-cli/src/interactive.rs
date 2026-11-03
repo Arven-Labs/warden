@@ -3116,6 +3116,8 @@ async fn cmd_sync_push(terminal: &mut CliTerminal, session: &CliSession) -> anyh
             vec![(tr!("sync.nothing_to_send"), Style::default())],
         );
     };
+    // P175(e): a device that is behind is told before the QR goes up (`finish_push` checks again, under the lock).
+    engine.check_remote_not_newer().await?;
 
     let qr_json = begin.pending.qr_payload_json()?;
     let qr_code = qrcode::QrCode::new(qr_json.as_bytes()).map_err(|e| anyhow::anyhow!(tr!("sync.qr_failed", error = e)))?;

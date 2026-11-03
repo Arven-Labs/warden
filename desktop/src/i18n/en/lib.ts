@@ -135,5 +135,6 @@ export const lib = {
   "attach.unsupported": "Unsupported file type",
   "attach.fileTooBig": "This file is {mb} MB; the most a message can carry is {max} MB",
   "attach.tooMany": "A message can carry at most {max} images or PDFs",
-  "attach.tooLarge": "The attachments are too big ({mb} MB; the most a message can carry is {max} MB)",
+  "attach.shrinkFailed": "Could not shrink the picture",
+  "attach.tooLarge":"The attachments are too big ({mb} MB; the most a message can carry is {max} MB)",
 } as const;

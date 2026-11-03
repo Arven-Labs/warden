@@ -12,7 +12,7 @@ use std::process::Stdio;
 use anyhow::Context;
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
-use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader, Lines};
+use tokio::io::{AsyncBufRead, AsyncBufReadExt,AsyncWriteExt, BufReader, Lines};
 use tokio::process::{Child, ChildStdin, ChildStdout, Command};
 use warden_bootstrap::bot_hub::{self, HubMemberChat, MemberChat, MemberReply};
 use warden_bootstrap::bot_pairing::{self, BotPairing, Issued};
@@ -27,7 +27,7 @@ const MEDIA_REPLY: &str = "Sorry, I can only read text messages for now.";
 const APPROVAL_CHECK_EVERY: std::time::Duration = std::time::Duration::from_secs(3);
 
 #[derive(Debug, Clone, Deserialize)]
-#[serde(tag = "type", rename_all = "camelCase")]
+#[serde(tag = "type", rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum SidecarEvent {
     Connected,
     Disconnected { logged_out: bool },
@@ -35,7 +35,7 @@ pub enum SidecarEvent {
 }
 
 #[derive(Debug, Serialize)]
-#[serde(tag = "type", rename_all = "camelCase")]
+#[serde(tag = "type", rename_all = "camelCase", rename_all_fields = "camelCase")]
 enum SidecarCommand {
     Send { chat_id: String, text: String },
     /// Media extracted from an MCP tool result during a turn (P64 frente 2 slice 2) — `data` is
@@ -93,17 +93,29 @@ impl ChildSidecar {
     }
 }
 
+/// The next event on the sidecar's stdout. A line that is not an event is logged and skipped (P117): its text comes from
+/// whoever messaged the bot, and one odd line must not end `run_bot` for everyone. Only a broken pipe is an error, and a
+/// closed stdout is `Ok(None)`.
+async fn next_event<R: AsyncBufRead + Unpin>(lines: &mut Lines<R>) -> anyhow::Result<Option<SidecarEvent>> {
+    while let Some(line) = lines.next_line().await.context("failed to read from the WhatsApp sidecar's stdout")? {
+        match serde_json::from_str(&line) {
+            Ok(event) => return Ok(Some(event)),
+            Err(err) => eprintln!("{}", skipped_line_note(line.len(), &err)),
+        }
+    }
+    Ok(None)
+}
+
+/// What the log says about a skipped line: its size and where/what kind of parse error, never its text, and never serde's
+/// message either (it quotes an unknown `type` back).
+fn skipped_line_note(len: usize, err: &serde_json::Error) -> String {
+    format!("skipped a line from the WhatsApp sidecar that is not an event ({len} bytes, {:?} error at column {})", err.classify(), err.column())
+}
+
 #[async_trait]
 impl WhatsAppSidecar for ChildSidecar {
     async fn recv_event(&mut self) -> anyhow::Result<Option<SidecarEvent>> {
-        match self.lines.next_line().await.context("failed to read from the WhatsApp sidecar's stdout")? {
-            Some(line) => {
-                let event = serde_json::from_str(&line)
-                    .with_context(|| format!("failed to parse event from the WhatsApp sidecar: {line}"))?;
-                Ok(Some(event))
-            }
-            None => Ok(None),
-        }
+        next_event(&mut self.lines).await
     }
 
     async fn send(&mut self, chat_id: &str, text: &str) -> anyhow::Result<()> {
@@ -238,6 +250,10 @@ async fn announce_outbox(sidecar: &mut impl WhatsAppSidecar, outbox: &warden_boo
     }
 }
 
+/// How many ignored chats are remembered for the "log once" rule. Past it the list starts over, which at worst repeats a log line,
+/// instead of growing with every id a stranger makes up.
+const MAX_REPORTED: usize = 10_000;
+
 /// Who may talk to the bot (P117), and who it has already said it ignored.
 #[derive(Default)]
 struct Access {
@@ -279,6 +295,9 @@ impl Access {
             return Gate::Allowed;
         }
         let private = warden_bootstrap::bot_access::is_private_chat(chat_id);
+        if self.reported.len() >= MAX_REPORTED {
+            self.reported.clear();
+        }
         if self.reported.insert(chat_id.to_string()) {
             if private {
                 eprintln!("ignored whatsapp chat {chat_id}: to allow it, add \"{chat_id}\" (or just its number) to [whatsapp] allowed_chats in config.toml");
@@ -472,6 +491,19 @@ mod tests {
     /// The chats `[whatsapp] allowed_chats` lists.
     fn access_for(chats: &[&str]) -> Access {
         Access { settings: warden_bootstrap::bot_access::WhatsAppSettings { allowed_chats: chats.iter().map(|c| c.to_string()).collect(), ..Default::default() }, ..Access::default() }
+    }
+
+    // P117: every stranger chat is remembered so it is logged once; without a bound, ids made up one after another grow it forever.
+    #[test]
+    fn the_list_of_ignored_chats_is_bounded() {
+        let mut access = Access::default();
+
+        for n in 0..(MAX_REPORTED + 5) {
+            assert_eq!(access.check(&format!("55{n}@s.whatsapp.net"), None), Gate::Silent);
+        }
+
+        assert!(access.reported.len() <= MAX_REPORTED, "{}", access.reported.len());
+        assert!(!access.reported.is_empty());
     }
 
     /// P117: a stranger gets nothing (no reply, no media notice, no conversation, no model call), a group
@@ -860,5 +892,91 @@ mod tests {
             sent_media[0],
             ("5511999999999@s.whatsapp.net".to_string(), Attachment { mime_type: "image/png".to_string(), data: "aGVsbG8=".to_string() })
         );
+    }
+
+    /// The sidecar's stdout as `next_event` reads it: one JSON object per line.
+    fn stdout_of(text: &'static str) -> Lines<BufReader<&'static [u8]>> {
+        BufReader::new(text.as_bytes()).lines()
+    }
+
+    // P117: a sender controls `text` and `pushName`, so what the sidecar prints is not trusted. A line that is not an event
+    // used to end `run_bot` (`?` on the parse error), taking the whole bot down for everyone.
+    #[tokio::test]
+    async fn a_line_that_is_not_an_event_is_skipped_and_the_next_one_is_read() {
+        let mut lines = stdout_of("{\"type\":\"message\",\"chatId\":\n{\"type\":\"nope\"}\n\nnot json at all\n{\"type\":\"connected\"}\n");
+
+        let event = next_event(&mut lines).await.unwrap();
+
+        assert!(matches!(event, Some(SidecarEvent::Connected)), "{event:?}");
+        assert!(next_event(&mut lines).await.unwrap().is_none(), "stdout closed after it");
+    }
+
+    #[tokio::test]
+    async fn a_message_after_a_bad_line_still_arrives_whole() {
+        let mut lines = stdout_of("garbage\n{\"type\":\"message\",\"chatId\":\"5511999999999@s.whatsapp.net\",\"senderName\":\"Ana\",\"text\":\"oi\"}\n");
+
+        let event = next_event(&mut lines).await.unwrap();
+
+        match event {
+            Some(SidecarEvent::Message { chat_id, sender_name, text }) => {
+                assert_eq!((chat_id.as_str(), sender_name.as_deref(), text.as_deref()), ("5511999999999@s.whatsapp.net", Some("Ana"), Some("oi")));
+            }
+            other => panic!("{other:?}"),
+        }
+    }
+
+    // The wire format is the one `sidecar/whatsapp/index.mjs` speaks: camelCase fields (`chatId`, `loggedOut`). `rename_all` on an
+    // enum renames only the variants, so without `rename_all_fields` every real event failed to parse and every command went out
+    // with `chat_id`, which the Node side does not read.
+    #[test]
+    fn the_events_the_node_sidecar_emits_parse() {
+        let message: SidecarEvent = serde_json::from_str(r#"{"type":"message","chatId":"5511999999999@s.whatsapp.net","senderName":null,"text":"oi"}"#).unwrap();
+        assert!(matches!(&message, SidecarEvent::Message { chat_id, sender_name: None, text: Some(t) } if chat_id == "5511999999999@s.whatsapp.net" && t == "oi"), "{message:?}");
+
+        let gone: SidecarEvent = serde_json::from_str(r#"{"type":"disconnected","loggedOut":true}"#).unwrap();
+        assert!(matches!(gone, SidecarEvent::Disconnected { logged_out: true }), "{gone:?}");
+
+        assert!(matches!(serde_json::from_str::<SidecarEvent>(r#"{"type":"connected"}"#).unwrap(), SidecarEvent::Connected));
+    }
+
+    #[test]
+    fn the_commands_sent_to_the_node_sidecar_use_its_field_names() {
+        let send = serde_json::to_value(SidecarCommand::Send { chat_id: "c".into(), text: "t".into() }).unwrap();
+        assert_eq!(send, json!({ "type": "send", "chatId": "c", "text": "t" }));
+
+        let media = serde_json::to_value(SidecarCommand::SendMedia { chat_id: "c".into(), mime_type: "image/png".into(), data: "AA==".into() }).unwrap();
+        assert_eq!(media, json!({ "type": "sendMedia", "chatId": "c", "mimeType": "image/png", "data": "AA==" }));
+    }
+
+    #[tokio::test]
+    async fn only_bad_lines_then_a_closed_stdout_means_the_sidecar_exited() {
+        let mut lines = stdout_of("garbage\n{}\n");
+
+        assert!(next_event(&mut lines).await.unwrap().is_none());
+    }
+
+    #[tokio::test]
+    async fn a_read_error_is_still_an_error_and_not_skipped() {
+        // Invalid UTF-8 makes the line reader fail: that is the pipe being broken, not one odd event.
+        let mut lines = BufReader::new(&b"\xff\xfe\n"[..]).lines();
+
+        assert!(next_event(&mut lines).await.is_err());
+    }
+
+    #[test]
+    fn the_log_line_for_a_skipped_event_does_not_carry_what_the_sender_wrote() {
+        let line = "{\"type\":\"message\",\"text\":\"SECRET-FROM-A-STRANGER\"";
+        let err = serde_json::from_str::<SidecarEvent>(line).unwrap_err();
+
+        let logged = skipped_line_note(line.len(), &err);
+
+        assert!(!logged.contains("SECRET-FROM-A-STRANGER"), "{logged}");
+        assert!(logged.contains(&line.len().to_string()), "{logged}");
+
+        // serde's own message quotes an unknown `type` back (unknown variant `...`), so the note must not reuse that text.
+        let line = "{\"type\":\"SECRET-VARIANT\"}";
+        let err = serde_json::from_str::<SidecarEvent>(line).unwrap_err();
+        assert!(err.to_string().contains("SECRET-VARIANT"), "premise: serde quotes it back");
+        assert!(!skipped_line_note(line.len(), &err).contains("SECRET-VARIANT"));
     }
 }

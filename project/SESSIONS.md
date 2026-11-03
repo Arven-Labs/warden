@@ -2,19 +2,214 @@
 
 > **Nota**: Este log foi criado junto com o projeto. As sessões serão registradas aqui conforme o trabalho avança.
 >
-> Última atualização: 2026-11-01 (Sessão 366)
+> Última atualização: 2026-11-02 (Sessão 383)
 
 ---
 
-### 2026-11-03 — Sessão 367 (rotas `/arca/v1/` no hub — arca, fase 2b-2b — P180)
+### 2026-11-03 — Sessão 384 (rotas `/arca/v1/` no hub — arca, fase 2b-2b — P181)
 
 - **Pedido**: o hub passar a guardar os objetos cifrados da arca (camada de sincronização local-first, repo `Arven-Labs/arca`), para um dispositivo puxar o que outro enviou. O contrato (`PUT`/`GET`/`HEAD` de objeto, listagem paginada) vive no `arca-core` (`arca_core::server::{handle, body_limit}`, arca#50); aqui entra o que é do host: quem chama, de quem é a pasta, quanto custa. Plano aprovado em plan mode; decisões do dono: dependência git com `rev` fixo, `spawn_blocking` no host, cota por dono como pré-requisito, só a 2b-2 (sem entrega da `vault_key`, sem modo "arca").
 - **Testes primeiro** (revisados pelo dono): 20 testes novos, 19 falhavam e 1 já passava (`404` com a arca desligada); depois da auditoria, mais 5 (corpo parado, corpo gotejado, cliente que não lê, objeto exatamente no teto, miniaturas em blocos) e 1 alterado (a cota em blocos).
 - **Feito** (PR `feat/arca-hub-routes`): `arca_api.rs` (novo): `Authorization: Bearer <token do dispositivo>` por `PairingStore::find_by_token` (novo; `401` após `WRONG_KEY_DELAY`, `403` para pendente ou revogado, checado a cada chamada), uma pasta por dono (`owner` ou `member-<sha256 do usuário>`, nunca o nome), permit por dono e global (`503` com `Retry-After`, sem fila), `body_limit` do arca aplicado antes de ler o corpo (`413`), cota de disco por dono em blocos de 4 KiB (`507`), corpo lido em pedaços de 64 KiB com ociosidade de 10 s e piso de 64 KiB/s (`408`), resposta escrita em pedaços com o mesmo timeout, `handle` no pool bloqueante (o hash de até 256 MiB não pára o executor), alvo de no máximo 512 bytes (`414`), corpo de `GET`/`HEAD` recusado. `server.rs`: despacho de `/arca/v1/` ao lado de `/hooks/` e `Server::with_arca`/`with_arca_limits`; `main.rs`: flag `--arca` (desligada por padrão); `web_ui.rs`: `response_head` extraído de `write_response`, sem mudar comportamento. `Cargo.toml`: dependência `arca-core` por git (`rev d0f932b`), sem a feature `hub`; com ela só em `dev-dependencies`, para o teste usar o `HubStore` do arca. **`Cargo.lock`**: patches forçados pelo arca (`serde_json` 1.0.151→1.0.154, `sha2` 0.11.0→0.11.1, `thiserror` 2.0.20→2.0.21, `zeroize` 1.9.0→1.9.1, `unicode-normalization` 0.1.25→0.1.26, `tokio` 1.53.1→1.53.3, travado para não subir um minor) e crates novas do arca (`aead`, `chacha20poly1305`, `poly1305`, `universal-hash`, `bip39`, `bitcoin_hashes`, `hex-conservative`, `zeroize_derive`).
-- **Auditoria** (`security-auditor`, a pedido do dono, duas vezes: no arca e aqui): sem bypass de autenticação nem escape de pasta. Quatro achados importantes de esgotamento de recursos por dispositivo aprovado, os quatro corrigidos aqui com teste primeiro: resposta sem timeout, corpo zerado com o tamanho declarado, cota que contava bytes aparentes, slowloris com permits presos. Ficam no P180.
+- **Auditoria** (`security-auditor`, a pedido do dono, duas vezes: no arca e aqui): sem bypass de autenticação nem escape de pasta. Quatro achados importantes de esgotamento de recursos por dispositivo aprovado, os quatro corrigidos aqui com teste primeiro: resposta sem timeout, corpo zerado com o tamanho declarado, cota que contava bytes aparentes, slowloris com permits presos. Ficam no P181.
 - **Verificado localmente** (só `cargo check` e testes avulsos, pela regra do Warden): `cargo test -p warden-server --test arca_api` (21), `--lib find_by_token` (4), e os `web_ui`, `openai_api`, `webhooks`, `status` (a refatoração do `web_ui.rs` não quebrou nada); `cargo clippy -p warden-server --all-targets` sem aviso novo. **Quebras propositais**: `Pending` tratado como aprovado, isolamento por dono desligado, cota com `>=`, teto de corpo com `>=` (sobreviveu: faltava o teste do objeto exatamente no teto; escrito e repetida a quebra), taxa mínima removida, timeout de escrita removido; todas derrubaram algum teste e foram revertidas. **No CI**: ver o PR.
-- **Não verificado**: corpo lento de verdade em rede real; o `ECONNRESET` que o cliente pode ver em vez do `413`/`507` quando o hub recusa antes de ler um upload grande; build do Docker e do CI com a dependência git; TLS; Android.
-- **Fica**: P180; no arca, registrar `507`, `408` e `503` no contrato (`SPEC-TECNICA.md` §4.2) e o piso de 64 KiB/s; 2b-3 (entrega da `vault_key`) e 2b-4 (modo "arca" por Vault).
+- **Conflito na hora de abrir o PR**: a `main` já estava na Sessão 383 e já tinha um P180 (ENOTEMPTY no E2E web); a minha entrada foi renumerada para a Sessão 384 e o item para o **P181**, e os registros foram refeitos em cima da versão da `main` (merge da `main` na branch, sem force push).
+- **Não verificado**: corpo lento de verdade em rede real; o `ECONNRESET` que o cliente pode ver em vez do `413`/`507` quando o hub recusa antes de ler um upload grande; build do Docker e do CI com a dependência git; TLS; Android; o `security-auditor` não rodou sobre a última rodada de correções.
+- **Fica**: P181; no arca, registrar `507`, `408`, `503` e o piso de 64 KiB/s no contrato (`SPEC-TECNICA.md` §4.2); 2b-3 (entrega da `vault_key`) e 2b-4 (modo "arca" por Vault).
+
+---
+
+### 2026-11-02 — Sessão 383 (P157: o arquivo de texto entra no texto da mensagem)
+
+- **Pedido**: o último item do P157 que sobrava, texto como anexo. Plano aprovado em plan mode. Decisões do dono: inserir no texto da mensagem (descartado um tipo novo no hub e nos três providers) e teto de **1 MiB**, contra a minha recomendação de 256 KiB (1 MiB pode chegar a cerca de 250 mil tokens).
+- **Feito** (PR `feat/anexo-texto-no-rascunho`): `read_text_file` em `desktop/src-tauri/src/lib.rs` (lista fechada de extensões, UTF-8, até 1 MiB, devolve o nome e não o caminho); `isTextPath`, `textFileBlock`, `appendToDraft` e `TEXT_FILE_EXTENSIONS` em `desktop/src/lib/attachments.ts`; `addPaths` no `MessageInput` (botão e arrasto; imagem e PDF seguem como anexo); o filtro do diálogo e seu rótulo ganham os textos. Sem tocar em hub, protocolo, providers nem capabilities do Tauri.
+- **Decisões minhas**: `.env`, `id_rsa` e arquivo sem extensão são recusados de propósito (arrastar por engano); a cerca do bloco é uma crase maior que a maior sequência do arquivo; o nome da linguagem é a própria extensão.
+- **Verificado**: `npm test` do desktop (255 verdes) e `tsc --noEmit` limpo; os testes de TS falhavam antes (o módulo não exportava as funções). `cargo test --lib` do `desktop/src-tauri` com o teste novo (`a_text_file_is_read_...`) e o de anexos de imagem e PDF, que já existia, verdes. Não vi o teste Rust falhar antes da implementação (o primeiro `cargo test` abortou compilando o `syn`).
+- **Não verificado**: o clippy; o CI; numa janela real (P129); o desempenho da caixa de texto com 1 MiB; se o hub tem limite menor para o texto de uma mensagem.
+- **Fica**: ver o arquivo entrar no rascunho numa janela; lembrar o último agente (contradiz a decisão da Sessão 245, só se mudar de ideia); o teste ponta a ponta com o Node e o WhatsApp reais; P126, P180; o item (2) do P68.
+
+---
+
+### 2026-11-02 — Sessão 382 (P157: a imagem grande é reduzida em vez de recusada)
+
+- **Pedido**: seguir no P157; escolhi, com o dono, "redimensionar imagem grande". Plano aprovado em plan mode: só no frontend (sem crate `image`, sem mexer no Rust) e só quando a imagem não caberia no turno. Testes da lógica pura revisados antes da implementação.
+- **Feito** (PR `feat/anexo-reduz-imagem-grande`): em `desktop/src/lib/attachments.ts`, `canShrink`, `SHRINK_STEPS` (2048, 1536, 1024), `targetSize`, `shrunkMimeType`, `fitAttachment` (com o redutor injetável) e `shrinkImage` (canvas da página); `MessageInput.tsx` chama `fitAttachment` no `addAttachments`, que cobre colar, escolher e arrastar; se a redução falhar, segue o original e a recusa de hoje aparece. Mensagem nova `attach.shrinkFailed` (en e pt-BR). `bytesToBase64` extraído de `fileToAttachment`.
+- **Decisões minhas**: canvas de página e não `OffscreenCanvas` (o WebKitGTK do Linux pode ser antigo); fundo branco antes de desenhar em JPEG, para a transparência não virar preto; `imageOrientation: "from-image"` para manter a rotação da foto.
+- **Verificado**: `npm test` do desktop com 249 testes verdes e `tsc --noEmit` limpo. Os testes novos falhavam antes (o arquivo nem carregava, faltavam as exportações).
+- **Não verificado**: `shrinkImage` (canvas) não tem teste e não rodei numa janela; a qualidade e os passos de 2048/1536/1024 são palpite; o CI.
+- **Fica**: ver a redução numa janela (P129); texto como anexo; o teste ponta a ponta com o Node e o WhatsApp reais; P126, P180; o item (2) do P68.
+
+---
+
+### 2026-11-02 — Sessão 381 (P157: a busca de conversas do desktop acha também pelo conteúdo)
+
+- **Pedido**: seguir pelo P157. Plano aprovado em plan mode; escopo escolhido pelo dono: só o modo local (sem protocolo novo). Testes revisados antes da implementação.
+- **Feito** (PR `feat/busca-conversas-conteudo`): `desktop/src/lib/conversationSearch.ts` passa a exigir as palavras no título ou nas mensagens (podem estar espalhadas entre eles); o título é checado primeiro e as mensagens só para as palavras que faltam; o texto normalizado de cada mensagem fica num `WeakMap`. 5 testes novos em `desktop/tests/conversationSearch.test.mjs`.
+- **Decisão**: no hub a lista não traz mensagens, então só as conversas já abertas são achadas pelo conteúdo; as outras, pelo título. Descartada uma busca no servidor (PR grande, escopo por membro).
+- **Verificado**: `npm test` do desktop com 240 testes verdes e `tsc --noEmit` limpo. Os 3 testes que mudam comportamento falhavam antes (vistos falhar). Medido no pior caso inventado (500 conversas de 100 mensagens de ~600 caracteres): sem cache cerca de 200 ms por tecla; com o `WeakMap`, cerca de 60 ms depois da primeira chamada (a primeira ficou entre 200 e 430 ms nas medidas).
+- **Não verificado**: a busca numa janela real (P129); o CI; o desempenho com histórico real.
+- **Fica**: o teste ponta a ponta com o Node e o WhatsApp reais; P126, P180; o item (2) do P68.
+
+---
+
+### 2026-11-02 — Sessão 380 (P68: o Markdown da extensão já estava feito; só o registro foi corrigido)
+
+- **Pedido**: abrir o projeto e recomendar código. Recomendei o P68 (1), Markdown no chat da extensão, e entrei em plan mode.
+- **Achado**: a recomendação estava errada. Eu li só o começo truncado da linha do P68; o "Atualizado 2026-09-16 (Sessão 69)" no meio já dizia que o item (1) estava feito. Conferido no código: `extension/src/sidepanel/ChatView.tsx` usa `react-markdown`, `remark-gfm` e `PopupMarkdownLink`.
+- **Feito** (PR `docs/p68-registro-markdown-feito`): `PENDING.md` (estado do P68 no começo da linha e cabeçalho) e este arquivo. Nenhum código.
+- **Verificado**: só por leitura e `grep`. Nada executado.
+- **Fica**: o item (2) do P68 (verificação manual das tools de DOM e do erro de `activeTab` expirada, feita pelo dono); o teste ponta a ponta com o Node e o WhatsApp reais; P126 (só verificação), P180.
+
+---
+
+### 2026-11-02 — Sessão 379 (P174: o gateway exige 32 caracteres nos segredos de assinatura)
+
+- **Pedido**: o P174 era o único item de código pequeno e bem definido. O dono respondeu a pergunta de deploy: **não há gateway implantado**. Sem plan mode (repete a receita das Sessões 352 e 353); testes revisados antes da implementação.
+- **Feito** (PR `fix/gateway-segredo-minimo-32`, `crates/warden-gateway/src/main.rs` mais estes docs): `MIN_SECRET_LEN = 32` (bytes, como o orquestrador); `check_admin_secret_ends` e `check_webhook_secret_ends` recusam segredo curto depois de checar as pontas. 4 testes novos: admin curto (31, 12, 1, 16) recusado e 32/64 aceitos; anterior curto recusado com o nome certo; webhook curto recusado; `"short\n"` segue dando a mensagem do `\n`.
+- **Decisões minhas**: manter os nomes `check_*_ends` (renomear mexeria nos testes existentes); estender o piso ao webhook por consistência.
+- **Verificado**: `cargo test -p warden-gateway` verde local (166 na lib e os de integração); clippy sem aviso em `main.rs`. Não conferi que os 4 testes novos falhavam antes da mudança.
+- **Não verificado**: o CI; um gateway real subido com segredo curto.
+- **Fica**: o teste ponta a ponta com o Node e o WhatsApp reais; P126 (só verificação), P180.
+
+---
+
+### 2026-11-02 — Sessão 378 (P117: o lock do config no `approve_as` fica como risco aceito)
+
+- **Pedido**: seguir no último item aberto do P117. Plano aprovado em plan mode; sem código.
+- **Achado**: um lock em `save_config` não fecha a corrida, porque o problema é ler-modificar-gravar e nenhum dos cerca de 10 escritores do `config.toml` segura nada entre o `load` e o `save`. A tela de Settings do desktop relê o `existing` ao salvar e carrega `telegram`, `whatsapp` e `bot_hub`, então não apaga uma aprovação mesmo aberta há tempo. Janela de milissegundos; pior efeito: aprovação perdida com aviso "Approved" ao remetente, falha fechada.
+- **Decisão do dono**: aceitar. Descartados: `update_config` só nos escritores dos bots (parcial) e em todos (PR grande).
+- **Feito** (PR `docs/p117-lock-config-aceito`): `PENDING.md` e este arquivo. Nenhum código.
+- **Verificado**: só por leitura (os escritores via `grep save_config`; o comentário de `lib.rs` sobre carregar as listas adiante). Nada executado e a corrida não foi reproduzida.
+- **Fica**: o teste ponta a ponta com o Node e o WhatsApp reais; P174, P126, P180.
+
+---
+
+### 2026-11-02 — Sessão 377 (P117: os achados baixos da auditoria)
+
+- **Pedido**: o dono escolheu os cinco achados baixos; plano aprovado em plan mode e testes revisados antes da implementação.
+- **Decidido sem código**: config com erro de parse mantém a lista antiga (aceito, intencional e com log); lock do `approve_as` contra `save_config` simultâneo (risco de todo escritor do config, outra intenção, aberto).
+- **Feito** (PR `fix/bots-achados-baixos`): `owner_chats` só privado (`bot_access.rs`); arquivos de pareamento em 0600 por `write_private` (`bot_pairing.rs`); `MAX_REPORTED` = 10 000 nos conjuntos `reported` do Telegram e do WhatsApp.
+- **Verificado**: `cargo test -p warden-bootstrap -p warden-telegram -p warden-whatsapp` (585 + 28 + 20 e os demais) verde local; clippy sem aviso nos arquivos tocados. Não confirmei que os testes de A e B falhavam antes: os de D não compilavam sem a constante; A e B eu escrevi e implementei na mesma sequência, sem rodar entre os dois.
+- **Não verificado**: Windows (sem modo a ajustar); nenhum bot real.
+- **Fica**: o lock do config, o teste ponta a ponta com o Node e o WhatsApp reais, P174, P126, P180.
+
+---
+
+### 2026-11-02 — Sessão 376 (P117: auditoria dos bots e três correções, uma delas o protocolo do WhatsApp)
+
+- **Pedido**: o dono pediu uma recomendação de código; saiu a revisão adversarial da allowlist dos bots (P117). Plano aprovado em plan mode e testes revisados antes da implementação.
+- **Auditoria** (subagente `security-auditor`, só leitura): sem furo na allowlist. Dois achados importantes: linha malformada do sidecar derruba o `run_bot`; `pushName` sem sanitizar na tela de aprovação. Cinco sugestões baixas, registradas no PENDING.
+- **Feito** (PR `fix/bots-linha-ruim-e-label`, `sidecar.rs`, `bot_pairing.rs` e estes docs): `next_event` pula linha ruim sem logar o texto (nem a mensagem do serde, que cita de volta um `type` desconhecido); `clean_label` em `BotPairing::request`.
+- **Achado fora do plano**: o primeiro teste de mensagem falhou e mostrou que `rename_all` num enum não renomeia os campos. O protocolo com o `index.mjs` estava quebrado nos dois sentidos desde a Fase 3. Decisão do dono: corrigir no mesmo PR (`rename_all_fields`), com dois testes de contrato. Sem isso, pular linhas ruins faria o bot ignorar toda mensagem real em silêncio.
+- **Verificado**: `cargo test -p warden-whatsapp` (19) e `cargo test -p warden-bootstrap bot_pairing` (18) passaram local; clippy sem aviso nos arquivos tocados. Os testes do protocolo e do label falharam antes.
+- **Não verificado**: Node e WhatsApp reais; o `cargo test` completo dos dois crates; outras divergências além de `chatId`, `senderName` e `loggedOut`.
+- **Desvio de processo**: usei um `python3` em heredoc para uma sonda temporária em `sidecar.rs` (contra a regra do CLAUDE.md); restaurei do backup e conferi o diff.
+- **Fica**: os cinco achados baixos; um teste ponta a ponta com o Node real; P174, P126, P180.
+
+---
+
+### 2026-11-02 — Sessão 375 (P176 resolvido pelo histórico do CI; P180 aberto)
+
+- **Pedido**: o dono pediu uma recomendação de código; a melhor opção era fechar o P176 sem código. Só documentação.
+- **Conferido** (`gh run list`): 15 execuções do `Web E2E` depois da correção `cf42bd6`; 14 verdes e 1 vermelha (run `41329879991`). Antes da correção eram 3 falhas em 12. Li o `conclusion` de cada run, não o log dos verdes.
+- **Achado**: a vermelha é `ENOTEMPTY` na pasta temporária do harness (`web/e2e/harness.mjs:75`), não o sintoma do P176. Corrijo o que eu disse na conversa: não é da família P170/P171 (testes Rust do `warden-server`). Virou o **P180**, sem correção até repetir.
+- **Feito** (PR `docs/p176-resolvido`): `PENDING.md` (P176 resolvido, P180 novo) e este arquivo. Nenhum código.
+- **Não verificado**: a causa do P180 é hipótese; a contagem de 15 runs vem de uma listagem limitada a 200 execuções.
+- **Fica**: P174 (tamanho mínimo do segredo, pede decisão de deploy), P126, P54, P105, P180.
+
+---
+
+### 2026-11-02 — Sessão 374 (P175 b: a janela do P-14 fica como limitação aceita)
+
+- **Pedido**: seguir no (b) do P175. Plano aprovado em plan mode; sem código.
+- **Achado**: detectar a corrida depois do pin não funciona. O gateway indexa por altura de bloco (já anotado em `push_divergence_check.rs`), então logo após o pin ainda responde a tx anterior, e o rival que pinou na janela também pode não estar indexado. Reconsultar só pegaria o rival já indexado, que a checagem de antes quase sempre já pegou.
+- **Decisão do dono**: só documentar. Descartados: reconsulta pós-pin (acima) e `base_tx_id` no bundle (muda formato e cripto/dados, duplica a `base_version` da arca).
+- **Feito** (PR `docs/p175b-janela-aceita`): `PENDING.md` (P175 b) e este arquivo. Nenhum código.
+- **Verificado**: só por leitura. Que o Pull avisa "diverged" sem tocar o estado local tem teste (`push_divergence_check.rs:279`, `pull_skips_non_bundles.rs:233`); rodei nenhum teste.
+- **Não verificado**: o comportamento do indexador do Arweave real (a premissa vem do comentário do teste e de `sort:HEIGHT_DESC`, não de uma medição).
+- **Fica**: o (b) fecha na migração para a arca; P174, P126, P54, P105.
+
+---
+
+### 2026-11-01 — Sessão 373 (P175 e: a recusa de "outro dispositivo à frente" chega antes do QR)
+
+- **Pedido**: seguir no P175; ficou o "fica" do (e). Plano aprovado em plan mode; os testes foram revisados antes da implementação.
+- **Achado**: o PENDING dizia que mover a checagem "pede API nova nas três telas". Não pede: o `begin_push` é local e síncrono, a checagem é de rede; basta um método novo do engine e uma chamada em cada tela, sem mudar nome de IPC, de bridge nem TS/Dart.
+- **Feito** (PR `feat/sync-check-before-qr`): `SyncEngine::check_remote_not_newer` (consultiva, sem lock) e um helper privado usado também por `finish_push` e `finish_push_with_hosts`, que seguem checando sob o lock; uma chamada em `cmd_sync_push` (CLI), `sync_push_begin` (desktop, agora `async`) e `bridge_push_begin` (`block_on`). Só quando `begin_push` devolve `Some`.
+- **Testes**: 4 novos em `push_divergence_check.rs` (recusa "newer" e "diverged" com a frase exata, passa em dia sem buscar nada, dispositivo sem segredos diz "not been initialized") e 1 E2E no desktop (`refused before any QR is shown`: sem QR, sem `sync_push_await`, botão Send de volta).
+- **Verificado**: `cargo test -p warden-sync` local (4 novos passam); `cargo check -p warden-cli -p warden_mobile_bridge` limpo. O `cargo check` do desktop e o E2E rodam no CI (ver o corpo do PR).
+- **Não verificado**: CLI e celular só por leitura; se o `BeginPushResult` atravessa o `await` no comando async do Tauri (o compilador do CI confirma).
+- **Incidente de ferramenta**: um `rustc` ficou 36 minutos a 100% de CPU num `cargo test` e foi morto; o mesmo alvo compilou em 2,8 s depois. Causa não investigada; não voltou.
+- **Fica**: (b) do P175, sem correção possível sem mudar o desenho da arca (Arweave não tem compare-and-swap); P174, P126, P54, P105.
+
+---
+
+### 2026-11-01 — Sessão 372 (P175 d: `save_manifest` também cria a pasta com `0o700`)
+
+- **Pedido**: o dono escolheu fechar o resíduo anotado na Sessão 371 (o `save_manifest` ainda usava `create_dir_all`). Testes revisados e aprovados antes da troca.
+- **Feito** (PR `fix/sync-manifest-dir-0700`, `manifest.rs` mais estes docs): `save_manifest` troca `create_dir_all` por `create_private_dir`. 2 testes novos: pasta nova com dois níveis sai `0o700` (falhou antes: `0o755`); pasta existente `0o755` não muda.
+- **Verificado**: `cargo test -p warden-sync` local, 93 testes da lib e os de integração passaram. CI do PR: ver o corpo do PR.
+- **Não verificado**: Windows.
+- **Fica**: o (b) e o "fica" do (e) do P175; P174, P126, P54, P105.
+
+---
+
+### 2026-11-01 — Sessão 371 (P175 d: a pasta do segredo de sync fechada para o dono)
+
+- **Pedido**: o dono pediu uma recomendação de código; da triagem da Sessão 370 saiu o P175(d). Escolheu o (d) (pasta `0o700`) em vez do "fica" do (e) (recusa antes do QR) e aprovou o plano e os testes antes da implementação.
+- **Feito** (PR `fix/sync-secrets-dir-0700`, só `crates/warden-sync/src/manifest.rs` mais estes dois docs): `save_secrets` cria pastas novas com `0o700`; `load_secrets` fecha a pasta padrão de uma instalação antiga; pasta existente fora do padrão (`--data-dir`, `/tmp` dos testes) nunca muda.
+- **Desvio do plano**: o critério passou de "é a pasta padrão" para "é exatamente `warden_dir()` e não há `--data-dir`", porque os testes existentes usam `std::env::temp_dir()` e um `chmod` no `/tmp` seria um efeito que ninguém pediu.
+- **Verificado**: `cargo test -p warden-sync` local: 91 testes da lib e os de integração passaram (6 novos). `cargo clippy -p warden-sync --all-targets`: 2 avisos que já existiam (`arweave.rs:90`, `signing.rs:119`), não tocados. CI do PR: ver o corpo do PR.
+- **Não verificado**: a ligação de `load_secrets` com a pasta padrão real (`OnceLock` global, só o núcleo tem teste); Windows.
+- **Fica**: o `save_manifest` ainda usa `create_dir_all`; o (b) e o "fica" do (e) do P175; os outros itens da Sessão 370.
+
+---
+
+### 2026-11-01 — Sessão 370 (P170 e P171 confirmados no CI; triagem dos outros cinco)
+
+- **Pedido**: algo menor e sem verificação manual. Dos 7 itens que ficaram fora do PR #63, só o P170 e o P171 dependiam de uma conferência que dá para fazer por leitura (o histórico de CI).
+- **Conferência**: desde o commit do fix (`769558d`, 2026-10-31 12:39Z) até 2026-11-01 houve 26 runs do `ci.yml` na `main`. Em 21, o job `Rust (clippy and tests)` rodou e passou; 0 falharam; 5 foram pulados ou cancelados. A única falha do período no workflow é a original, do PR #22, anterior ao fix. Contagem feita com `gh run list` e `gh api .../actions/runs/<id>/jobs`.
+- **Feito** (PR `docs/pending-p170-p171-confirmados`): P170 e P171 movidos para "Resolvidas", com a nota da conferência e a última coluna trocada para "✅ Resolvida e confirmada no CI (Sessão 370)". Movidos à mão por `Edit`, não por script.
+- **Limite da evidência**: é ausência de falha em 21 runs, não prova. A taxa do flake antes do fix nunca foi medida, e a causa nunca foi reproduzida (o próprio P170 diz). Se voltar, guardar o log antes de mexer.
+- **Triagem dos outros cinco (nada mudado; cada um precisa de decisão ou de verificação que não é só leitura)**: **P174** (tamanho mínimo de 32 caracteres para o segredo do gateway: decisão de deploy, AGENTS.md §4); **P175** (resto do item (e): conferir como desktop, CLI e mobile mostram a mensagem de erro e se o pt-BR precisa de texto próprio, que o dono deixou para depois); **P126** (formato de `info.tokens` do opencode real, sem opencode aqui, e os dólares por combo, porque o ledger não grava o combo); **P54** (refresh token que o provedor troca a cada uso pode se desencontrar entre dois aparelhos; reconexão por servidor; nunca verificado com um servidor OAuth real); **P105** (ver as telas de webhook numa janela, teste do `save_settings`, Slack, sandbox do `shell`, Discord no P27).
+- **Não verificado**: não li os runs pulados ou cancelados para saber por que o Rust não rodou neles; contei como "sem evidência".
+- **Fica**: os cinco acima; verificação manual no Chrome; 8.8 (lojas); dados reais do `k256` na máquina do dono.
+
+---
+
+### 2026-11-01 — Sessão 369 (move os itens já resolvidos para a seção "Resolvidas", PR 2 de 2)
+
+- **Pedido**: o segundo PR da limpeza do `PENDING.md` (o primeiro, #62, restaurou a seção): mover para "Resolvidas" os itens que a tabela "Não Resolvidas" já marcava como resolvidos desde 27/09. O dono aprovou a lista antes de qualquer movimento.
+- **Lista**: o levantamento por marca (`~~`, `✅ Resolvida`) deu 55 candidatos. Tirei 21 que já são ponteiros ("ver seção Resolvidas abaixo", que voltou a valer) e 11 parciais. De 29 aprovados, **movi 26**. Ao ler as linhas inteiras saíram 3: **P174** (tem "Aberto": o tamanho mínimo do segredo, decisão de deploy), **P54** e **P105** (listas de "fica/falta" sem registro em outro lugar). Também não movi P170 e P171 ("confirmar no CI"), P175 e P126 (sobras declaradas).
+- **Movidas (26)**: P4, P10, P12, P17, P18, P36, P51, P94, P109, P110, P111, P118, P119, P128, P130, P141, P145, P147, P150, P151, P162, P169, P172, P173, P177, P178. Ressalvas: P36 e P51 foram resolvidos no que é código (o resto está no P129 e no P116); P141 é a "v1" do export; P173 segue "não verificado" nos dados reais gravados.
+- **P94 duplicado**: movi a versão atual e apaguei a antiga da seção restaurada (escolha do dono). O texto antigo continua em `ebaf839^`.
+- **Método (exceção pontual)**: 3 linhas foram movidas por `Edit` (P169, P177, P178). Ao tentar o P173, errei a retranscrição de uma linha de 3,6 KB (o `Edit` recusou, nada mudou). Com o aval do dono, as outras 23 foram movidas por um script de `awk` que recorta a linha inteira sem retranscrever. Foi uma exceção à regra de editar só por `Edit`/`Write`, só para este movimento.
+- **Verificado**: o multiconjunto de linhas do arquivo antes (sem o P94 antigo) e depois é idêntico (`sort` + `cmp`): nenhuma linha mudou, sumiu ou duplicou. Linhas de tabela 193 → 192. Nenhuma das 23 linhas movidas ficou na tabela de cima, e os 22 ponteiros seguem lá. CI do PR: ver o corpo do PR.
+- **Não verificado**: as linhas movidas mantêm as colunas da tabela de origem ("Onde se originou" e "Prioridade") sob o cabeçalho "Resolução" e "Sessão". O Markdown renderiza, mas o significado das duas últimas colunas varia dentro da seção; as linhas restauradas do git já eram assim. Não uniformizei.
+- **Fica**: P170, P171, P175, P126, P174, P54, P105 (cada um precisa de uma decisão ou conferência própria); verificação manual no Chrome; 8.8 (lojas); dados reais do `k256` na máquina do dono.
+
+---
+
+### 2026-11-01 — Sessão 368 (restaura a seção "Resolvidas" do `PENDING.md`, PR 1 de 2)
+
+- **Pedido**: arrumar o `PENDING.md`, cujas 21 frases "ver seção Resolvidas abaixo" apontavam para uma seção que não existia. O dono escolheu restaurar do git e depois mover os ✅ recentes, em dois PRs.
+- **Achado, lendo o git**: a seção `## Resolvidas` (48 linhas, 76 KB) e a "Funcionalidades Pendentes" (P7, obsoleta) foram apagadas pelo commit `ebaf839` (Sessão 110), cuja mensagem fala só do P84 e do P99. Foi remoção não declarada, não uma decisão registrada.
+- **Feito** (PR `docs/pending-restaurar-resolvidas`): o bloco de `ebaf839^:project/PENDING.md` (linhas 107 a 154) acrescentado ao fim do `PENDING.md`, antecedido de `---`, sem editar o texto. "Funcionalidades Pendentes" não foi restaurada. Nenhum código mudou.
+- **Verificado**: `cmp` do trecho restaurado contra o bloco do git: idêntico byte a byte. `git diff`: 51 linhas inseridas, 0 removidas. Os 20 IDs que aparecem nas duas tabelas são os stubs "ver seção Resolvidas abaixo" da tabela atual, que agora apontam para texto existente. CI do PR: ver o corpo do PR.
+- **Achado na restauração**: o P94 ficou duplicado. A linha da tabela "Não Resolvidas" é a versão atual (reescrita depois); a da seção restaurada é a antiga, que já estava lá no original (um item em aberto na época, fora do lugar). Mantive a cópia fiel; o PR 2 decide qual vale.
+- **Não verificado**: se cada uma das 21 frases cita um ID que tem linha na seção (os 20 IDs em comum com a tabela atual batem, mas não conferi frase a frase).
+- **Fica**: PR 2 (mover os ✅ recentes). Uma heurística automática erra (P170 e P171 parecem resolvidos mas estão em aberto; P173 e P175 não foram pegos), então a lista de candidatos vai para a aprovação do dono antes de qualquer movimento. Depois: verificação manual no Chrome; 8.8 (lojas); P179 só com um caso concreto.
+
+---
+
+### 2026-11-01 — Sessão 367 (teste de valor congelado do escrow, resto do P173)
+
+- **Pedido**: fechar a lacuna que o P173 admitia ("blobs ECIES e assinaturas reais já gravados não verificados"). Antes, conferi que o P172 e o P173 já estavam resolvidos (API do Dependabot: 0 abertos, 34 `fixed`, 1 `dismissed`) e que não existe seção "Resolvidas" no `PENDING.md` (os itens ✅ ficam no lugar).
+- **Achado, lendo o código**: ECIES (`crypto.rs:203`) e assinatura/endereço (`login.rs:246`, vetores do SDK Dart) já tinham valor congelado. Faltava o escrow do dono (`recovery.rs`): só havia teste de ida e volta, e nada cobria a leitura da chave como o dono a escreve (`parse_secret`, base32) nem um blob fixo.
+- **Feito** (PR `test/escrow-frozen-vector`): um teste em `warden-bootstrap/src/recovery.rs`, só com constantes (dono com escalar 1, efêmera de escalar 2, nonce fixo, chave de membro `0x42`×32). Nenhum código de produção mudou, nem `Cargo.toml`. O texto cifrado foi calculado uma vez com um teste descartável em `crypto.rs` (revertido).
+- **Verificado**: `cargo test -p warden-bootstrap --lib recovery` 9 verdes. Mutação (tirar o `to_ascii_lowercase` de `parse_secret`) derrubou o teste novo e dois antigos; revertida. CI do PR: ver o corpo do PR.
+- **Não verificado**: a suíte do workspace e o clippy localmente; nenhuma mutação no formato do ECIES; blobs e assinaturas reais já gravados na máquina do dono.
+- **Fica**: verificação manual no Chrome (reconexão, scroll, `type_text`); 8.8 (lojas); P179 só com um caso concreto.
 
 ---
 

@@ -94,8 +94,11 @@ pub struct PushBeginDto {
 /// `bridge_push_await` to pick up — `qr_payload_json` is rendered into an actual QR image on the
 /// Dart side via `qr_flutter`, for the separate TruthID app to scan.
 pub fn bridge_push_begin(vault_root: String, config_path: String, secrets_path: String, manifest_path: String) -> Result<Option<PushBeginDto>, String> {
-    let begin = engine(&vault_root, &config_path, &secrets_path, &manifest_path).begin_push().map_err(|e| format!("{e:#}"))?;
+    let engine = engine(&vault_root, &config_path, &secrets_path, &manifest_path);
+    let begin = engine.begin_push().map_err(|e| format!("{e:#}"))?;
     let Some(begin) = begin else { return Ok(None) };
+    // P175(e): a device that is behind is told before the QR goes up (`bridge_push_await` checks again, under the lock).
+    rt().block_on(engine.check_remote_not_newer()).map_err(|e| format!("{e:#}"))?;
 
     let qr_payload_json = begin.pending.qr_payload_json().map_err(|e| format!("{e:#}"))?;
     let dto = PushBeginDto {

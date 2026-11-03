@@ -181,6 +181,43 @@ fn read_attachment(path: String) -> Result<AttachmentPayload, String> {
     Ok(AttachmentPayload { mime_type: mime_type.to_string(), data })
 }
 
+/// The extensions of the text and code files that go into the message text (P157). A closed list: a file without an extension
+/// or with an unknown one (a key, a `.env`) is not read by mistake when dragged in. Mirrored in `desktop/src/lib/attachments.ts`.
+const TEXT_FILE_EXTENSIONS: &[&str] = &[
+    "txt", "md", "markdown", "csv", "tsv", "json", "yaml", "yml", "toml", "xml", "html", "css", "js", "ts", "tsx", "jsx", "py", "rs", "go", "java", "c", "h", "cpp", "sh",
+    "sql", "log", "ini",
+];
+
+/// The biggest text file `read_text_file` takes. It becomes part of the prompt, so the cap is about the model's context and not
+/// the hub's attachment limit. Mirrored in `desktop/src/lib/attachments.ts`.
+const MAX_TEXT_FILE_BYTES: u64 = 1024 * 1024;
+
+/// What `read_text_file` hands back: the file's name (not its path) and its text.
+#[derive(Serialize)]
+struct TextFilePayload {
+    name: String,
+    text: String,
+}
+
+/// Reads a text or code file picked or dragged in, to be put in the message text (P157). Only a listed extension, valid UTF-8, up to
+/// `MAX_TEXT_FILE_BYTES`.
+#[tauri::command]
+fn read_text_file(path: String) -> Result<TextFilePayload, String> {
+    let path = PathBuf::from(path);
+    let extension = path.extension().and_then(|e| e.to_str()).unwrap_or_default().to_ascii_lowercase();
+    if !TEXT_FILE_EXTENSIONS.contains(&extension.as_str()) {
+        return Err("Unsupported file type".to_string());
+    }
+    let size = std::fs::metadata(&path).map_err(|e| format!("{e:#}"))?.len();
+    if size > MAX_TEXT_FILE_BYTES {
+        return Err(format!("This file is {:.1} MB; the most a message can take is {} MB", size as f64 / 1024.0 / 1024.0, MAX_TEXT_FILE_BYTES / 1024 / 1024));
+    }
+    let bytes = std::fs::read(&path).map_err(|e| format!("{e:#}"))?;
+    let text = String::from_utf8(bytes).map_err(|_| "This file is not valid UTF-8 text".to_string())?;
+    let name = path.file_name().and_then(|n| n.to_str()).unwrap_or_default().to_string();
+    Ok(TextFilePayload { name, text })
+}
+
 /// A markdown vault is meant to be human-browsable (like an Obsidian vault), unlike opaque
 /// app data — so it goes directly under the home dir, not the hidden OS data-dir. A CLI user
 /// can rely on their own working directory for the default relative "vault" path; a
@@ -1262,6 +1299,7 @@ pub fn run() {
             code_cmds::set_code_mode,
             open_generated_file,
             read_attachment,
+            read_text_file,
             transcribe_audio,
             synthesize_speech,
             start_recording,
@@ -1587,6 +1625,46 @@ mod tests {
         let refused = read_attachment(big.to_string_lossy().into_owned()).err().unwrap();
         assert!(refused.contains("the most a message can carry is 9 MB"), "{refused}");
         assert_eq!(read_attachment(root.join("a.txt").to_string_lossy().into_owned()).err().as_deref(), Some("Unsupported file type"));
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    /// P157: a text or code file goes into the message text. Only a listed extension, valid UTF-8, up to 1 MiB; the answer carries
+    /// the file's name and not its path.
+    #[test]
+    fn a_text_file_is_read_when_its_extension_is_listed_it_is_utf8_and_small() {
+        let root = std::env::temp_dir().join(format!("warden-desktop-textfile-{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
+        std::fs::create_dir_all(&root).unwrap();
+        let path = |name: &str| root.join(name).to_string_lossy().into_owned();
+
+        std::fs::write(root.join("notes.md"), "# Título\nação\n").unwrap();
+        let read = read_text_file(path("notes.md")).unwrap();
+        assert_eq!((read.name.as_str(), read.text.as_str()), ("notes.md", "# Título\nação\n"), "the name only, the text as it is");
+        std::fs::write(root.join("MAIN.RS"), "fn main() {}").unwrap();
+        assert_eq!(read_text_file(path("MAIN.RS")).unwrap().text, "fn main() {}", "the extension is matched in any case");
+
+        for name in ["a.txt", "a.json", "a.csv", "a.py", "a.ts", "a.tsx", "a.toml", "a.yaml", "a.sh", "a.sql", "a.log"] {
+            std::fs::write(root.join(name), "x").unwrap();
+            assert!(read_text_file(path(name)).is_ok(), "{name}");
+        }
+
+        std::fs::write(root.join("photo.png"), "x").unwrap();
+        std::fs::write(root.join("id_rsa"), "x").unwrap();
+        std::fs::write(root.join(".env"), "SECRET=1").unwrap();
+        for name in ["photo.png", "id_rsa", ".env"] {
+            assert_eq!(read_text_file(path(name)).err().as_deref(), Some("Unsupported file type"), "{name}");
+        }
+
+        std::fs::write(root.join("bad.txt"), [0x66u8, 0xff, 0xfe, 0x00]).unwrap();
+        let not_utf8 = read_text_file(path("bad.txt")).err().unwrap();
+        assert!(not_utf8.contains("UTF-8"), "{not_utf8}");
+
+        std::fs::write(root.join("exact.txt"), vec![b'a'; MAX_TEXT_FILE_BYTES as usize]).unwrap();
+        assert_eq!(read_text_file(path("exact.txt")).unwrap().text.len(), MAX_TEXT_FILE_BYTES as usize, "exactly the cap still goes");
+        std::fs::write(root.join("big.txt"), vec![b'a'; MAX_TEXT_FILE_BYTES as usize + 1]).unwrap();
+        let too_big = read_text_file(path("big.txt")).err().unwrap();
+        assert!(too_big.contains("the most a message can take is 1 MB"), "{too_big}");
+
+        assert!(read_text_file(path("missing.txt")).is_err());
         std::fs::remove_dir_all(&root).ok();
     }
 }

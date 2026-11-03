@@ -4,7 +4,18 @@ import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { AttachIcon, CloseIcon, MicIcon, SendIcon, StopIcon } from "./Icons";
 import { t } from "../i18n";
-import { checkAttachmentLimits, fileToAttachment, isAttachmentFile, isPdf } from "../lib/attachments";
+import {
+  appendToDraft,
+  checkAttachmentLimits,
+  fileToAttachment,
+  fitAttachment,
+  isAttachmentFile,
+  isPdf,
+  isTextPath,
+  shrinkImage,
+  TEXT_FILE_EXTENSIONS,
+  textFileBlock,
+} from "../lib/attachments";
 import type { Attachment } from "../types";
 
 interface MessageInputProps {
@@ -56,7 +67,7 @@ function MessageInput({ onSend, focusKey, disabled, onStop, onCycleMode }: Messa
         else if (type === "leave") setDragging(false);
         else if (type === "drop") {
           setDragging(false);
-          if (!disabledRef.current) void addAttachments(event.payload.paths.map((path) => () => invoke<Attachment>("read_attachment", { path })));
+          if (!disabledRef.current) void addPaths(event.payload.paths);
         }
       })
       .then((stop) => (gone ? stop() : (unlisten = stop)))
@@ -86,7 +97,9 @@ function MessageInput({ onSend, focusKey, disabled, onStop, onCycleMode }: Messa
     setAttachError(null);
     for (const read of readers) {
       try {
-        const attachment = await read();
+        // A picture that would not fit is shrunk until it does; if shrinking itself fails the original goes on, and the refusal
+        // below tells the person the real reason (too big).
+        const attachment = await fitAttachment(attachmentsRef.current, await read(), (picture, side) => shrinkImage(picture, side).catch(() => picture));
         const refused = checkAttachmentLimits(attachmentsRef.current, attachment);
         if (refused) {
           setAttachError(refused);
@@ -99,16 +112,29 @@ function MessageInput({ onSend, focusKey, disabled, onStop, onCycleMode }: Messa
     }
   }
 
+  /** What was picked or dragged in: a text or code file goes into the message text (P157), the rest are attachments as before. A text
+   * file that can't be read says why and the rest go on. */
+  async function addPaths(paths: string[]) {
+    await addAttachments(paths.filter((path) => !isTextPath(path)).map((path) => () => invoke<Attachment>("read_attachment", { path })));
+    for (const path of paths.filter(isTextPath)) {
+      try {
+        const file = await invoke<{ name: string; text: string }>("read_text_file", { path });
+        setDraft((prev) => appendToDraft(prev, textFileBlock(file.name, file.text)));
+      } catch (err) {
+        setAttachError(String(err instanceof Error ? err.message : err));
+      }
+    }
+  }
+
   async function handleAttach() {
     setAttachError(null);
     const selected = await open({
       multiple: true,
-      filters: [{ name: t("input.filterName"), extensions: ["png", "jpg", "jpeg", "webp", "gif", "pdf"] }],
+      filters: [{ name: t("input.filterName"), extensions: ["png", "jpg", "jpeg", "webp", "gif", "pdf", ...TEXT_FILE_EXTENSIONS] }],
     });
     if (!selected) return;
 
-    const paths = Array.isArray(selected) ? selected : [selected];
-    await addAttachments(paths.map((path) => () => invoke<Attachment>("read_attachment", { path })));
+    await addPaths(Array.isArray(selected) ? selected : [selected]);
   }
 
   /** A picture or a PDF on the clipboard (a screenshot, a copied image) goes in as an attachment; text pastes as it always did. */
