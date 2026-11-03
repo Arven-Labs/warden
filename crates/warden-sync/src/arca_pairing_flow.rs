@@ -10,6 +10,9 @@ use std::time::Duration;
 
 use crate::arca_pairing::{grant, key_fingerprint, list_offers, HubAccess, Offer, PairingError, PendingOffer};use crate::SyncEngine;
 
+/// How many looks at the hub may fail one after the other before B gives up (the third ends the wait).
+const MAX_FAILURES_IN_A_ROW: u32 = 3;
+
 /// Something this device computed, for the person to read out loud to the other device. Never asked back.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Shown {
@@ -28,8 +31,19 @@ pub enum Ask {
     FingerprintShownByTheOldDevice,
 }
 
+/// How a pause between two looks at the hub ended.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Wait {
+    Continue,
+    /// The person gave up while waiting.
+    Cancelled,
+}
+
 /// How an interface talks to the person.
 pub trait PairingPrompts {
+    /// Pauses for `pause` while B waits for the grant. An interface that reads the keyboard does it here: it returns
+    /// `Cancelled` when the person gives up, and throws away every other key, so nothing typed while waiting reaches the next field.
+    fn wait(&mut self, pause: Duration) -> impl std::future::Future<Output = Wait>;
     /// Shows what this device computed.
     fn show(&mut self, shown: Shown);
     /// Which of the waiting offers to grant to (by index into `offers`), or `None` to give up. Only device ids are shown.
@@ -49,6 +63,8 @@ pub enum FlowError {
     TimedOut,
     /// This device has no key to hand over.
     NoKey(String),
+    /// The new device already has a key; it would refuse the one that arrives, after the grant was used up.
+    AlreadyHasKey,
 }
 
 impl std::fmt::Display for FlowError {
@@ -59,6 +75,7 @@ impl std::fmt::Display for FlowError {
             FlowError::Cancelled => write!(f, "cancelled"),
             FlowError::TimedOut => write!(f, "no key arrived in time"),
             FlowError::NoKey(why) => write!(f, "this device has no key to hand over: {why}"),
+            FlowError::AlreadyHasKey => write!(f, "this device already has a key; pairing is for a new device"),
         }
     }
 }
@@ -88,17 +105,28 @@ pub async fn run_grant<P: PairingPrompts>(access: &HubAccess, engine: &SyncEngin
 /// B's side: publishes an offer and shows its code, waits (polling every `poll`, up to `timeout`) for the grant, asks for the
 /// fingerprint A shows, and stores the key only if it matches.
 pub async fn run_offer<P: PairingPrompts>(access: &HubAccess, device_id: &str, engine: &SyncEngine, prompts: &mut P, poll: Duration, timeout: Duration) -> Result<(), FlowError> {
+    // Before any offer: a device that has a key would refuse the one that arrives, after the grant was used up and the person typed.
+    if engine.is_initialized() {
+        return Err(FlowError::AlreadyHasKey);
+    }
     let offer = Offer::publish(access, device_id).await?;
     prompts.show(Shown::OfferCode(offer.code()));
     let deadline = tokio::time::Instant::now() + timeout;
+    let mut failures_in_a_row = 0;
     let received = loop {
-        if let Some(received) = offer.receive(access).await? {
-            break received;
+        match offer.receive(access).await {
+            Ok(Some(received)) => break received,
+            Ok(None) => failures_in_a_row = 0,
+            // The network or the hub failing is not the end: the offer's key pair lives only here, and dropping it loses the grant.
+            Err(PairingError::Hub(_)) if failures_in_a_row + 1 < MAX_FAILURES_IN_A_ROW => failures_in_a_row += 1,
+            Err(e) => return Err(e.into()),
         }
         if tokio::time::Instant::now() >= deadline {
             return Err(FlowError::TimedOut);
         }
-        tokio::time::sleep(poll).await;
+        if prompts.wait(poll).await == Wait::Cancelled {
+            return Err(FlowError::Cancelled);
+        }
     };
     let typed = prompts.ask(Ask::FingerprintShownByTheOldDevice).await.ok_or(FlowError::Cancelled)?;
     received.confirm(&typed, engine)?;

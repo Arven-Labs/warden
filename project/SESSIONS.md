@@ -2,7 +2,19 @@
 
 > **Nota**: Este log foi criado junto com o projeto. As sessões serão registradas aqui conforme o trabalho avança.
 >
-> Última atualização: 2026-11-03 (Sessão 387)
+> Última atualização: 2026-11-03 (Sessão 388)
+
+---
+
+### 2026-11-03 — Sessão 388 (endurecimento do CLI do pareamento da arca — P182)
+
+- **Pedido**: auditoria do `security-auditor` sobre o Warden#81 (sem crítico; I1, I2 e S7 de disponibilidade e teste). Plano aprovado em plan mode: só I1, I2 e S7; S1 a S6 e a perda do grant consumido ficam no P182 (i).
+- **Feito**: `run_offer` recusa com `FlowError::AlreadyHasKey` antes de publicar a oferta; o polling tolera até 2 falhas `Hub(_)` seguidas (a 3ª aborta, qualquer outro erro aborta na hora); `PairingPrompts::wait` (tipo `Wait`) substitui o `sleep`, e no CLI lê o teclado (Ctrl+D ou Ctrl+C cancela, o resto é descartado); `ask` descarta a fila de teclas; `parse_pick` extraída e testada; dica "Ctrl+D cancela" no texto de B.
+- **Testes primeiro** (tabela aprovada no plano): 5 novos de ponta a ponta com o hub real e um hub de mentira roteirizado. Antes de implementar, 4 falhavam (`AlreadyHasKey`, cancelar na espera, 2 falhas seguidas, 3ª falha); o do 401 já passava (guarda contra regressão). Mais 1 unitário no CLI, `parse_pick` (com `todo!()`).
+- **Quebras propositais** (derrubaram o teste certo e foram revertidas): limite de falhas `+ 1` para `+ 2` (derrubou 2 testes); `is_initialized` desligado (derrubou o de `AlreadyHasKey`).
+- **Verificado localmente**: `cargo test -p warden-sync -p warden-server -p warden-cli --locked` sem falha; 12 testes do fluxo; `clippy` sem aviso nos arquivos que toquei. **No CI**: ver o PR.
+- **Não verificado**: o descarte de teclas e o cancelamento no terminal real (sem teste automático; passada manual dispensada pelo dono); o `security-auditor` não rodou sobre este PR; a perda do grant consumido (i1).
+- **Fica**: P182 (i1) a (i8); desktop, mobile e web; 2b-4.
 
 ---
 

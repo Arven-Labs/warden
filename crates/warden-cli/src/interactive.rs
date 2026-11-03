@@ -73,7 +73,7 @@ use warden_core::autonomy::{Grant, GrantBook, Grants, RememberingApprover};
 use warden_core::tool::{Answer, ApprovalRequest, Approver};
 
 use warden_sync::arca_pairing::{HubAccess, PendingOffer};
-use warden_sync::arca_pairing_flow::{run_grant, run_offer, Ask, FlowError, PairingPrompts, Shown};
+use warden_sync::arca_pairing_flow::{run_grant, run_offer, Ask, FlowError, PairingPrompts, Shown, Wait};
 
 use crate::commands::{self, Command, ParseOutcome};
 use crate::{i18n, tr};
@@ -3218,7 +3218,39 @@ struct TerminalPrompts<'a> {
     terminal: &'a mut CliTerminal,
 }
 
+/// Throws away the keys waiting in the queue: whatever was typed while the program was not reading must not land in the next field.
+fn discard_pending_keys() {
+    while event::poll(Duration::ZERO).unwrap_or(false) {
+        if event::read().is_err() {
+            break;
+        }
+    }
+}
+
 impl PairingPrompts for TerminalPrompts<'_> {
+    /// Waits `pause` reading the keyboard: Ctrl+D or Ctrl+C gives up, every other key is thrown away. A terminal that fails to
+    /// read counts as giving up.
+    async fn wait(&mut self, pause: Duration) -> Wait {
+        let deadline = Instant::now() + pause;
+        loop {
+            let left = deadline.saturating_duration_since(Instant::now());
+            if left.is_zero() {
+                return Wait::Continue;
+            }
+            match event::poll(left.min(POLL_INTERVAL)) {
+                Ok(true) => match event::read() {
+                    Ok(Event::Key(key)) if key.kind == KeyEventKind::Press && key.modifiers.contains(KeyModifiers::CONTROL) && matches!(key.code, KeyCode::Char('c' | 'd')) => {
+                        return Wait::Cancelled;
+                    }
+                    Ok(_) => {}
+                    Err(_) => return Wait::Cancelled,
+                },
+                Ok(false) => tokio::task::yield_now().await,
+                Err(_) => return Wait::Cancelled,
+            }
+        }
+    }
+
     fn show(&mut self, shown: Shown) {
         let lines = match shown {
             Shown::OfferCode(code) => vec![(tr!("arca.offer_code", code = code), Style::default()), (tr!("arca.offer_instructions"), Style::default())],
@@ -3238,7 +3270,7 @@ impl PairingPrompts for TerminalPrompts<'_> {
         lines.extend(offers.iter().enumerate().map(|(i, offer)| (format!("  {}. {}", i + 1, offer.device_id), Style::default())));
         render_message_card(self.terminal, "arca", accent_style(), lines).ok()?;
         let typed = prompt_field(self.terminal, &tr!("arca.pick_offer"), "").await.ok().flatten()?;
-        typed.trim().parse::<usize>().ok()?.checked_sub(1).filter(|index| *index < offers.len())
+        parse_pick(&typed, offers.len())
     }
 
     async fn ask(&mut self, ask: Ask) -> Option<String> {
@@ -3246,8 +3278,18 @@ impl PairingPrompts for TerminalPrompts<'_> {
             Ask::CodeShownByTheNewDevice => tr!("arca.ask_code"),
             Ask::FingerprintShownByTheOldDevice => tr!("arca.ask_fingerprint"),
         };
+        discard_pending_keys();
         prompt_field(self.terminal, &title, "").await.ok().flatten().filter(|typed| !typed.trim().is_empty())
     }
+}
+
+/// The offer a person chose by number (1 to `count`), as an index; `None` for anything else.
+fn parse_pick(typed: &str, count: usize) -> Option<usize> {
+    let typed = typed.trim();
+    if typed.is_empty() || !typed.chars().all(|c| c.is_ascii_digit()) {
+        return None;
+    }
+    typed.parse::<usize>().ok()?.checked_sub(1).filter(|index| *index < count)
 }
 
 /// Asks for the hub address and this device's token (not echoed, not stored anywhere). `None` if the person gave up or left a
@@ -3717,6 +3759,13 @@ mod tests {
 
         assert!(save_config_and_reload(&mut session, &FileConfig::default()).await.is_err(), "no config path to write to");
         assert!(!session.reload_requested);
+    }
+
+    #[test]
+    fn an_offer_is_picked_by_its_number_and_nothing_else_is_a_pick() {
+        for (typed, expected) in [("1", Some(0)), (" 2 ", Some(1)), ("3", Some(2)), ("0", None), ("4", None), ("-1", None), ("abc", None), ("", None), ("+1", None), ("1 2", None)] {
+            assert_eq!(parse_pick(typed, 3), expected, "{typed:?}");
+        }
     }
 
     #[tokio::test]

@@ -12,7 +12,7 @@ use warden_core::orchestrator::Orchestrator;
 use warden_server::arca_api::ArcaLimits;
 use warden_server::{PairingProof, PairingStore, Server};
 use warden_sync::arca_pairing::{key_fingerprint, list_offers, HubAccess, PairingError, PendingOffer};
-use warden_sync::arca_pairing_flow::{run_grant, run_offer, Ask, FlowError, PairingPrompts, Shown};
+use warden_sync::arca_pairing_flow::{run_grant, run_offer, Ask, FlowError, PairingPrompts, Shown, Wait};
 use warden_sync::SyncEngine;
 
 struct Hub {
@@ -66,9 +66,21 @@ struct Script {
     typed: Option<String>,
     shown: Vec<Shown>,
     asked: Vec<Ask>,
+    /// The person gives up during this pause (1 = the first), if set.
+    cancel_at_wait: Option<usize>,
+    waits: usize,
 }
 
 impl PairingPrompts for Script {
+    async fn wait(&mut self, pause: Duration) -> Wait {
+        self.waits += 1;
+        tokio::time::sleep(pause).await;
+        if self.cancel_at_wait.is_some_and(|at| self.waits >= at) {
+            Wait::Cancelled
+        } else {
+            Wait::Continue
+        }
+    }
     fn show(&mut self, shown: Shown) {
         self.shown.push(shown);
     }
@@ -235,4 +247,111 @@ async fn the_new_device_that_hears_nothing_gives_up_without_asking_for_a_fingerp
     assert!(matches!(result, Err(FlowError::TimedOut)), "{result:?}");
     assert!(script.asked.is_empty());
     assert!(!b_engine.is_initialized());
+}
+
+#[tokio::test]
+async fn a_new_device_that_already_has_a_key_does_not_even_make_an_offer() {
+    let hub = hub().await;
+    let (a, b) = (hub.approved("dev-a"), hub.approved("dev-b"));
+    let (b_engine, _key) = a_device_with_a_key("b-with-key");
+    let mut script = Script { typed: Some(WRONG.into()), ..Script::default() };
+
+    let result = run_offer(&b, "dev-b", &b_engine, &mut script, POLL, Duration::from_millis(200)).await;
+
+    assert!(matches!(result, Err(FlowError::AlreadyHasKey)), "{result:?}");
+    assert!(list_offers(&a).await.unwrap().is_empty(), "no offer was left on the hub");
+    assert!(script.shown.is_empty() && script.asked.is_empty(), "the person was not asked or shown anything");
+}
+
+#[tokio::test]
+async fn the_person_can_give_up_while_the_new_device_waits() {
+    let hub = hub().await;
+    let b = hub.approved("dev-b");
+    let b_engine = device("b");
+    let mut script = Script { typed: Some(WRONG.into()), cancel_at_wait: Some(2), ..Script::default() };
+
+    let result = run_offer(&b, "dev-b", &b_engine, &mut script, POLL, WAIT).await;
+
+    assert!(matches!(result, Err(FlowError::Cancelled)), "{result:?}");
+    assert_eq!(script.waits, 2, "it stopped at the pause where the person gave up");
+    assert!(script.asked.is_empty(), "the fingerprint was never asked for");
+    assert!(!b_engine.is_initialized());
+}
+
+/// A "hub" that answers `PUT .../offer` with 204 and every `GET .../grant` from `answers` (status line, body), one after the other,
+/// repeating the last one. Returns the access and how many `GET`s it got.
+async fn scripted_hub(answers: Vec<(&'static str, &'static str)>) -> (HubAccess, Arc<std::sync::atomic::AtomicUsize>) {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    let gets = Arc::new(AtomicUsize::new(0));
+    let seen = gets.clone();
+    tokio::spawn(async move {
+        loop {
+            let Ok((mut stream, _)) = listener.accept().await else { return };
+            let (answers, gets) = (answers.clone(), seen.clone());
+            tokio::spawn(async move {
+                let mut raw = Vec::new();
+                let mut chunk = [0u8; 4096];
+                loop {
+                    let Ok(n) = stream.read(&mut chunk).await else { return };
+                    if n == 0 {
+                        break;
+                    }
+                    raw.extend_from_slice(&chunk[..n]);
+                    if let Some(split) = raw.windows(4).position(|w| w == b"\r\n\r\n") {
+                        let head = String::from_utf8_lossy(&raw[..split]).to_ascii_lowercase();
+                        let declared: usize = head.lines().find_map(|l| l.strip_prefix("content-length:")).and_then(|v| v.trim().parse().ok()).unwrap_or(0);
+                        if raw.len() >= split + 4 + declared {
+                            break;
+                        }
+                    }
+                }
+                let (status, body) = if raw.starts_with(b"PUT") {
+                    ("204 No Content", "")
+                } else {
+                    let index = gets.fetch_add(1, Ordering::SeqCst);
+                    answers[index.min(answers.len() - 1)]
+                };
+                let answer = format!("HTTP/1.1 {status}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len());
+                let _ = stream.write_all(answer.as_bytes()).await;
+                let _ = stream.shutdown().await;
+            });
+        }
+    });
+    (HubAccess::new(&format!("http://{addr}"), "token").unwrap(), gets)
+}
+
+#[tokio::test]
+async fn two_failed_looks_at_the_hub_in_a_row_do_not_end_the_wait() {
+    let (access, gets) = scripted_hub(vec![("503 Service Unavailable", ""), ("503 Service Unavailable", ""), ("404 Not Found", "no grant")]).await;
+    let b_engine = device("b");
+
+    let result = run_offer(&access, "dev-b", &b_engine, &mut Script::default(), POLL, Duration::from_millis(400)).await;
+
+    assert!(matches!(result, Err(FlowError::TimedOut)), "{result:?}");
+    assert!(gets.load(std::sync::atomic::Ordering::SeqCst) >= 3, "it kept looking after the two failures");
+}
+
+#[tokio::test]
+async fn a_third_failure_in_a_row_ends_the_wait_with_the_hub_error() {
+    let (access, gets) = scripted_hub(vec![("503 Service Unavailable", "")]).await;
+    let b_engine = device("b");
+
+    let result = run_offer(&access, "dev-b", &b_engine, &mut Script::default(), POLL, WAIT).await;
+
+    assert!(matches!(pairing_error(result), PairingError::Hub(_)));
+    assert_eq!(gets.load(std::sync::atomic::Ordering::SeqCst), 3);
+}
+
+#[tokio::test]
+async fn a_token_the_hub_refuses_ends_the_wait_at_the_first_look() {
+    let (access, gets) = scripted_hub(vec![("401 Unauthorized", "")]).await;
+    let b_engine = device("b");
+
+    let result = run_offer(&access, "dev-b", &b_engine, &mut Script::default(), POLL, WAIT).await;
+
+    assert!(matches!(pairing_error(result), PairingError::Unauthorized));
+    assert_eq!(gets.load(std::sync::atomic::Ordering::SeqCst), 1, "a refusal is not retried");
 }
