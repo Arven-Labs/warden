@@ -2,7 +2,19 @@
 
 > **Nota**: Este log foi criado junto com o projeto. As sessões serão registradas aqui conforme o trabalho avança.
 >
-> Última atualização: 2026-11-03 (Sessão 386)
+> Última atualização: 2026-11-03 (Sessão 387)
+
+---
+
+### 2026-11-03 — Sessão 387 (CLI do pareamento da arca, PR 2: `/arca pair offer` e `/arca pair grant` — P182)
+
+- **Pedido**: o PR 2 do P182 item 1 (a interface em que a pessoa confere os dois códigos). Plano aprovado em plan mode. Decisões do dono: **token pedido no comando**, a cada uso (descartados `arca_hub.json` e Hello pelo CLI; **desvio do plano da Sessão 386**, que previa `remote_hub.json`/`RemoteIdentities`, porque o CLI não guarda token de dispositivo do usuário), só CLI neste PR, e o fluxo num **módulo novo no `warden-sync`** (descartado: dependência de `warden-server` como dev-dependency do CLI, e só testar o parse). Espera de B: 10 min, consulta a cada 2 s.
+- **Feito**: `warden-sync/src/arca_pairing_flow.rs` (novo): `run_grant` e `run_offer` sobre o trait `PairingPrompts` (`show` do que o dispositivo calcula, `ask` do que a pessoa digita, `choose_offer`); `Ask` só tem "código do dispositivo novo" e "impressão do antigo", então a interface não tem como preencher o digitado com o que ela mesma calculou. CLI: `/arca pair offer` e `/arca pair grant` (`commands.rs`), `TerminalPrompts` e os comandos em `interactive.rs`, campo mascarado para o token (`LineEditor::new_masked`, sem histórico, nada em disco), textos pt-BR/en. `arca_pairing` não mudou.
+- **Testes primeiro** (revisados pelo dono): 7 de ponta a ponta contra o hub real (`warden-server/tests/arca_pairing_flow.rs`), os 7 falhavam no `todo!()`. O teste do parse foi escrito junto com o código, **sem ver falhar antes**.
+- **Quebra proposital**: `run_grant` passando `chosen.code()` no lugar do digitado derrubou `a_wrong_code_typed_on_the_giving_side_grants_nothing`; revertida.
+- **Verificado localmente**: `cargo test -p warden-sync -p warden-server -p warden-cli --locked` sem falha; `clippy` sem aviso nos arquivos que toquei. `cargo fmt --check` e `clippy --workspace -D warnings` falham no ambiente local em arquivos que não toquei (`activity.rs`, `signing.rs`, toolchain mais novo); o CI não roda `fmt` e roda `clippy` sem `-D warnings`. **No CI**: ver o PR.
+- **Não verificado**: a tela real (campo mascarado, cartões, escolha de oferta com mais de uma) nunca foi rodada; falta passada manual com dois terminais e o hub com `--arca`. Colar o código anula a conferência (a tela avisa, o CLI não impede). Um erro de leitura do campo vira "cancelado".
+- **Fica**: desktop, mobile e web; 2b-4; P182 (a) a (h) e P181.
 
 ---
 
