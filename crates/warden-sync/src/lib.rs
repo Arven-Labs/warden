@@ -14,6 +14,7 @@
 //! `pairing` exactly as `SyncEngine` does (init/pairing/status stay on `SyncEngine`, backend-
 //! agnostic already); only the transport differs.
 
+pub mod arca_pairing;
 pub mod arweave;
 pub mod bundle;
 pub mod diff;
@@ -222,6 +223,22 @@ impl SyncEngine {
     fn load_secrets(&self) -> anyhow::Result<manifest::SyncSecrets> {
         manifest::load_secrets(&self.secrets_path)?
             .ok_or_else(|| anyhow::anyhow!("sync has not been initialized on this device yet — run init_fresh or pair with an existing device first"))
+    }
+
+    /// The vault key of this device, for handing it to another one (the arca pairing). A copy: whoever takes it owns what
+    /// happens to it, and `SyncSecrets` itself does not zero its key either.
+    pub fn export_vault_key(&self) -> anyhow::Result<[u8; 32]> {
+        Ok(self.load_secrets()?.vault_key)
+    }
+
+    /// Makes `vault_key` this device's key, as `pairing_join` does with the one it receives: refuses when the device already
+    /// has sync set up (it would orphan what it pushed), and starts from "nothing applied".
+    ///
+    /// **Never call this with a key that came over the network.** It does no check of its own; the arca pairing goes through
+    /// `arca_pairing::Received::confirm`, which only calls it after the person typed the key's fingerprint.
+    pub fn adopt_vault_key(&self, vault_key: [u8; 32]) -> anyhow::Result<()> {
+        // No `owner_address` and no `last_tx_id`: nothing has been fetched or applied here yet.
+        self.adopt_joined_material(pairing::JoinedKeyMaterial { vault_key, owner_address: None })
     }
 
     fn adopt_joined_material(&self, material: pairing::JoinedKeyMaterial) -> anyhow::Result<()> {

@@ -8591,6 +8591,7 @@ dependencies = [
  "warden-bootstrap",
  "warden-core",
  "warden-server-protocol",
+ "warden-sync",
  "warden-truthid",
 ]
 

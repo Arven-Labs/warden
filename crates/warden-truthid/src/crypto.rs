@@ -79,6 +79,33 @@ pub fn canonical_public_key(hex_str: &str) -> anyhow::Result<String> {
     Ok(hex::encode(parse_public_key(hex_str.trim())?.to_sec1_bytes()))
 }
 
+const PAIRING_CODE_LABEL: &[u8] = b"warden/arca-pairing/v1/code\0";
+const PAIRING_KEY_LABEL: &[u8] = b"warden/arca-pairing/v1/key\0";
+
+/// 64 bits of a digest as four groups of four lowercase hex digits (`"ab12-cd34-ef56-0789"`).
+fn four_groups(digest: &[u8]) -> String {
+    let hex: String = digest[..8].iter().map(|b| format!("{b:02x}")).collect();
+    hex.as_bytes().chunks(4).map(|c| std::str::from_utf8(c).expect("hex is ascii")).collect::<Vec<_>>().join("-")
+}
+
+/// The code a person compares on both devices before A grants the arca `vault_key` to B: SHA-256 over a label, the device id and
+/// the public key in its canonical form, cut to 64 bits. Not shorter: the hub sees B's key before the code is shown, so it
+/// could grind look-alike keys until one matched a short code. The device id is in it so the hub cannot tie B's key to
+/// another id. Compressed or uncompressed, upper or lower case, with or without `0x`: the same key gets the same code (a text
+/// that is no key is compared as lowercase text, so it cannot match one). Lives here, not in the hub, because the hub and the
+/// client must compute exactly the same thing.
+pub fn verification_code(device_id: &str, public_key_hex: &str) -> String {
+    let key = canonical_public_key(public_key_hex).unwrap_or_else(|_| public_key_hex.trim().to_ascii_lowercase());
+    let digest = Sha256::new_with_prefix(PAIRING_CODE_LABEL).chain_update((device_id.len() as u64).to_be_bytes()).chain_update(device_id.as_bytes()).chain_update(key.as_bytes()).finalize();
+    four_groups(&digest)
+}
+
+/// What A and B compare after the grant, to know the key B received is the one A holds. Computed locally from the key each has,
+/// never by the hub. Same shape as `verification_code`, another label.
+pub fn key_fingerprint(vault_key: &[u8; 32]) -> String {
+    four_groups(&Sha256::new_with_prefix(PAIRING_KEY_LABEL).chain_update(vault_key).finalize())
+}
+
 fn derive_aes_key(shared_secret: &[u8]) -> [u8; 32] {
     Sha256::digest(shared_secret).into()
 }
