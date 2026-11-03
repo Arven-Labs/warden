@@ -114,6 +114,8 @@ pub struct Server {
     api_keys: Option<Arc<PathBuf>>,
     /// Where the incoming webhooks' tokens live (P105). `None`: no webhooks on this hub.
     webhook_tokens: Option<Arc<PathBuf>>,
+    /// Where the arca objects live and what they may cost (`arca_api.rs`). `None`: no arca routes on this hub.
+    arca: Option<crate::arca_api::ArcaConfig>,
     /// Scheduled tasks (P92): their conversations, which every device lists, and whether this hub
     /// also runs them on schedule (`--run-tasks`).
     tasks: Option<TaskRunner>,
@@ -184,6 +186,7 @@ impl Server {
             sync_loop: None,
             api_keys: None,
             webhook_tokens: None,
+            arca: None,
             tasks: None,
             agent_tasks: None,
             ssh_audit: warden_bootstrap::default_ssh_audit_log_path().map(Arc::new),
@@ -352,6 +355,18 @@ impl Server {
         self
     }
 
+    /// Serves the arca storage routes (`/arca/v1/`, see `arca_api.rs`) on this same port, keeping the objects under `dir`
+    /// (one folder per owner) with the default limits. Without this the routes answer 404.
+    pub fn with_arca(self, dir: PathBuf) -> Self {
+        self.with_arca_limits(dir, crate::arca_api::ArcaLimits::default())
+    }
+
+    /// `with_arca` with chosen limits (the tests use small ones).
+    pub fn with_arca_limits(mut self, dir: PathBuf, limits: crate::arca_api::ArcaLimits) -> Self {
+        self.arca = Some(crate::arca_api::ArcaConfig { dir, limits });
+        self
+    }
+
     /// Makes this hub TLS-only (P36): `Hello` and everything after it only over `wss://`. The same
     /// port still answers a plain `ws://` upgrade on `DISCOVER_PATH`, and only with `DiscoverAck`
     /// (pointing at the `wss://` URL) — any other plain upgrade gets `426 Upgrade Required` before
@@ -434,6 +449,7 @@ impl Server {
             tokens_path,
             runner: self.tasks.as_ref().map(|tasks| WebhookRunner::new(tasks.store().conversations_dir(), self.changes.clone()).with_activity(self.activity.clone())),
         });
+        let arca = self.arca.map(|config| crate::arca_api::ArcaContext::new(config, self.devices_path.clone()));
         let space_vaults = SpaceVaults::default();
         let member_vaults = MemberVaults::default();
         if let Some(idle) = self.embedding_idle {
@@ -455,6 +471,7 @@ impl Server {
             sync: self.sync,
             api_keys: self.api_keys,
             webhooks,
+            arca,
             tasks: self.tasks,
             agent_tasks: self.agent_tasks,
             ssh_audit: self.ssh_audit,
@@ -557,6 +574,8 @@ struct ConnectionContext {
     api_keys: Option<Arc<PathBuf>>,
     /// Incoming webhooks (P105); `None`: this hub offers none, and `/hooks/` answers 404.
     webhooks: Option<WebhookContext>,
+    /// The arca storage routes; `None`: this hub offers none, and `/arca/v1/` answers 404.
+    arca: Option<crate::arca_api::ArcaContext>,
     /// Scheduled tasks (P92): their conversations are listed next to every device's own.
     tasks: Option<TaskRunner>,
     /// The log of tasks agents delegated to each other (P123).
@@ -905,6 +924,21 @@ async fn serve_web_or_ws<S: Transport>(mut stream: S, peer: SocketAddr, secure: 
         }
         return Ok(());
     }
+    if head.path.starts_with(crate::arca_api::ARCA_PREFIX) {
+        // Not left to the web page either: its fallback would answer a caller's PUT with a 200.
+        match &ctx.arca {
+            Some(arca) => {
+                let Some(attempt) = ctx.attempts.reserve(peer.ip()) else {
+                    return too_many_attempts(&mut stream, &ctx.attempts, &head).await;
+                };
+                if !crate::arca_api::serve(&mut stream, &head, arca, &attempt).await? {
+                    attempt.release();
+                }
+            }
+            None => web_ui::not_found(&mut stream, head.method == "HEAD").await?,
+        }
+        return Ok(());
+    }
     if head.path.starts_with(webhooks::HOOKS_PREFIX) {
         // Not left to the web page: its fallback would answer a caller's POST with a 200.
         match &ctx.webhooks {
@@ -1021,6 +1055,8 @@ async fn handle_connection<S: Transport>(ws: WebSocketStream<S>, peer: SocketAdd
         sync,
         api_keys,
         webhooks,
+        // The arca routes are plain HTTP, served before a connection gets here; a WebSocket session has no use for them.
+        arca: _,
         tasks,
         agent_tasks,
         ssh_audit,

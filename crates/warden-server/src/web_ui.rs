@@ -232,15 +232,20 @@ fn content_type(path: &str) -> &'static str {
     }
 }
 
-pub(crate) async fn write_response<S: AsyncWrite + Unpin>(stream: &mut S, status: &str, extra: &[(&str, &str)], content_type: &str, body: &[u8], head_only: bool) -> io::Result<()> {
+/// The head of an answer with a body of `length` bytes, ending in the blank line. For a caller that writes the body in pieces.
+pub(crate) fn response_head(status: &str, extra: &[(&str, &str)], content_type: &str, length: usize) -> String {
     let mut head = format!(
-        "HTTP/1.1 {status}\r\nContent-Type: {content_type}\r\nContent-Length: {}\r\nX-Content-Type-Options: nosniff\r\nX-Frame-Options: DENY\r\nReferrer-Policy: no-referrer\r\nConnection: close\r\n",
-        body.len()
+        "HTTP/1.1 {status}\r\nContent-Type: {content_type}\r\nContent-Length: {length}\r\nX-Content-Type-Options: nosniff\r\nX-Frame-Options: DENY\r\nReferrer-Policy: no-referrer\r\nConnection: close\r\n",
     );
     for (name, value) in extra {
         head.push_str(&format!("{name}: {value}\r\n"));
     }
     head.push_str("\r\n");
+    head
+}
+
+pub(crate) async fn write_response<S: AsyncWrite + Unpin>(stream: &mut S, status: &str, extra: &[(&str, &str)], content_type: &str, body: &[u8], head_only: bool) -> io::Result<()> {
+    let head = response_head(status, extra, content_type, body.len());
     stream.write_all(head.as_bytes()).await?;
     if !head_only {
         stream.write_all(body).await?;
