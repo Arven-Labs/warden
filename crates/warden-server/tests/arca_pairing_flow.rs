@@ -11,8 +11,8 @@ use warden_core::memory::Vault;
 use warden_core::orchestrator::Orchestrator;
 use warden_server::arca_api::ArcaLimits;
 use warden_server::{PairingProof, PairingStore, Server};
-use warden_sync::arca_pairing::{key_fingerprint, list_offers, HubAccess, PairingError, PendingOffer};
-use warden_sync::arca_pairing_flow::{run_grant, run_offer, Ask, FlowError, PairingPrompts, Shown, Wait};
+use warden_sync::arca_pairing::{key_fingerprint, list_offers, HubAccess, Offer, PairingError, PendingOffer};
+use warden_sync::arca_pairing_flow::{channel_prompts, run_grant, run_offer, Ask, FlowError, PairEvent, PairReply, PairingPrompts, PairingSide, Shown, Wait};
 use warden_sync::SyncEngine;
 
 struct Hub {
@@ -354,4 +354,211 @@ async fn a_token_the_hub_refuses_ends_the_wait_at_the_first_look() {
 
     assert!(matches!(pairing_error(result), PairingError::Unauthorized));
     assert_eq!(gets.load(std::sync::atomic::Ordering::SeqCst), 1, "a refusal is not retried");
+}
+
+// ---- ChannelPrompts: the same conversation for a window that draws events and sends replies ----
+
+async fn next_event(side: &mut PairingSide) -> PairEvent {
+    tokio::time::timeout(WAIT, side.events.recv()).await.expect("the flow sent no event in time").expect("the flow ended without an event")
+}
+
+fn reply(side: &PairingSide, reply: PairReply) {
+    let _ = side.replies.send(reply);
+}
+
+/// B started, published and showed its code: the person reads it off B's screen.
+async fn b_shows_its_code(side: &mut PairingSide) -> String {
+    match next_event(side).await {
+        PairEvent::Show(Shown::OfferCode(code)) => code,
+        other => panic!("expected B to show its code, got {other:?}"),
+    }
+}
+
+#[tokio::test]
+async fn a_window_moves_the_key_when_the_person_types_both_codes_right() {
+    let hub = hub().await;
+    let (a, b) = (hub.approved("dev-a"), hub.approved("dev-b"));
+    let (a_engine, key) = a_device_with_a_key("a");
+    let b_engine = device("b");
+    let (mut b_prompts, mut b_side) = channel_prompts();
+    let (mut a_prompts, mut a_side) = channel_prompts();
+    let b_task = tokio::spawn({
+        let b_engine = b_engine.clone();
+        async move { run_offer(&b, "dev-b", &b_engine, &mut b_prompts, POLL, WAIT).await }
+    });
+    let code = b_shows_its_code(&mut b_side).await;
+
+    let a_task = tokio::spawn(async move { run_grant(&a, &a_engine, &mut a_prompts).await });
+    assert_eq!(next_event(&mut a_side).await, PairEvent::Choose(vec!["dev-b".to_string()]), "A lists the waiting devices by id, never their codes");
+    reply(&a_side, PairReply::Picked(0));
+    assert_eq!(next_event(&mut a_side).await, PairEvent::Ask(Ask::CodeShownByTheNewDevice));
+    reply(&a_side, PairReply::Typed(code));
+    assert_eq!(next_event(&mut a_side).await, PairEvent::Show(Shown::KeyFingerprint(key_fingerprint(&key))));
+    a_task.await.unwrap().unwrap();
+
+    assert_eq!(next_event(&mut b_side).await, PairEvent::Ask(Ask::FingerprintShownByTheOldDevice));
+    reply(&b_side, PairReply::Typed(key_fingerprint(&key)));
+    b_task.await.unwrap().unwrap();
+    assert_eq!(b_engine.export_vault_key().unwrap(), key);
+}
+
+#[tokio::test]
+async fn a_window_that_types_a_wrong_code_on_the_giving_side_grants_nothing() {
+    let hub = hub().await;
+    let (a, b) = (hub.approved("dev-a"), hub.approved("dev-b"));
+    let (a_engine, _key) = a_device_with_a_key("a");
+    let b_engine = device("b");
+    let (mut b_prompts, mut b_side) = channel_prompts();
+    let (mut a_prompts, mut a_side) = channel_prompts();
+    let b_task = tokio::spawn({
+        let b_engine = b_engine.clone();
+        async move { run_offer(&b, "dev-b", &b_engine, &mut b_prompts, POLL, Duration::from_millis(500)).await }
+    });
+    b_shows_its_code(&mut b_side).await;
+
+    let a_task = tokio::spawn(async move { run_grant(&a, &a_engine, &mut a_prompts).await });
+    next_event(&mut a_side).await;
+    reply(&a_side, PairReply::Picked(0));
+    next_event(&mut a_side).await;
+    reply(&a_side, PairReply::Typed(WRONG.into()));
+
+    assert!(matches!(pairing_error(a_task.await.unwrap()), PairingError::CodeMismatch));
+    assert!(a_side.events.try_recv().is_err(), "A shows no fingerprint when it did not grant");
+    assert!(matches!(b_task.await.unwrap(), Err(FlowError::TimedOut)));
+    assert!(!b_engine.is_initialized());
+}
+
+#[tokio::test]
+async fn a_window_that_types_a_wrong_fingerprint_on_the_receiving_side_stores_nothing() {
+    let hub = hub().await;
+    let (a, b) = (hub.approved("dev-a"), hub.approved("dev-b"));
+    let (a_engine, _key) = a_device_with_a_key("a");
+    let b_engine = device("b");
+    let (mut b_prompts, mut b_side) = channel_prompts();
+    let (mut a_prompts, mut a_side) = channel_prompts();
+    let b_task = tokio::spawn({
+        let b_engine = b_engine.clone();
+        async move { run_offer(&b, "dev-b", &b_engine, &mut b_prompts, POLL, WAIT).await }
+    });
+    let code = b_shows_its_code(&mut b_side).await;
+    let a_task = tokio::spawn(async move { run_grant(&a, &a_engine, &mut a_prompts).await });
+    next_event(&mut a_side).await;
+    reply(&a_side, PairReply::Picked(0));
+    next_event(&mut a_side).await;
+    reply(&a_side, PairReply::Typed(code));
+    a_task.await.unwrap().unwrap();
+
+    assert_eq!(next_event(&mut b_side).await, PairEvent::Ask(Ask::FingerprintShownByTheOldDevice));
+    reply(&b_side, PairReply::Typed(WRONG.into()));
+
+    assert!(matches!(pairing_error(b_task.await.unwrap()), PairingError::FingerprintMismatch));
+    assert!(!b_engine.is_initialized());
+}
+
+#[tokio::test]
+async fn giving_up_while_b_waits_ends_the_wait_without_a_key() {
+    let hub = hub().await;
+    let b = hub.approved("dev-b");
+    let b_engine = device("b");
+    let (mut b_prompts, mut b_side) = channel_prompts();
+    let b_task = tokio::spawn({
+        let b_engine = b_engine.clone();
+        async move { run_offer(&b, "dev-b", &b_engine, &mut b_prompts, POLL, WAIT).await }
+    });
+    b_shows_its_code(&mut b_side).await;
+
+    reply(&b_side, PairReply::GiveUp);
+
+    assert!(matches!(b_task.await.unwrap(), Err(FlowError::Cancelled)));
+    assert!(!b_engine.is_initialized());
+}
+
+#[tokio::test]
+async fn closing_the_window_never_leaves_the_flow_hanging() {
+    // While B waits.
+    let b = hub().await.approved("dev-b");
+    let (mut b_prompts, mut b_side) = channel_prompts();
+    let b_engine = device("b");
+    let b_task = tokio::spawn(async move { run_offer(&b, "dev-b", &b_engine, &mut b_prompts, POLL, WAIT).await });
+    b_shows_its_code(&mut b_side).await;
+    drop(b_side);
+    assert!(matches!(tokio::time::timeout(WAIT, b_task).await.expect("the wait never ended").unwrap(), Err(FlowError::Cancelled)));
+
+    // While A is asked for the code.
+    let hub = hub().await;
+    let (a, b) = (hub.approved("dev-a"), hub.approved("dev-b"));
+    let (a_engine, _key) = a_device_with_a_key("a");
+    Offer::publish(&b, "dev-b").await.unwrap();
+    let (mut a_prompts, mut a_side) = channel_prompts();
+    let a_task = tokio::spawn(async move { run_grant(&a, &a_engine, &mut a_prompts).await });
+    next_event(&mut a_side).await;
+    reply(&a_side, PairReply::Picked(0));
+    assert_eq!(next_event(&mut a_side).await, PairEvent::Ask(Ask::CodeShownByTheNewDevice));
+    drop(a_side);
+    assert!(matches!(tokio::time::timeout(WAIT, a_task).await.expect("the question never ended").unwrap(), Err(FlowError::Cancelled)));
+}
+
+#[tokio::test]
+async fn text_sent_while_b_waits_never_answers_the_fingerprint_question() {
+    let hub = hub().await;
+    let (a, b) = (hub.approved("dev-a"), hub.approved("dev-b"));
+    let (a_engine, key) = a_device_with_a_key("a");
+    let b_engine = device("b");
+    let (mut b_prompts, mut b_side) = channel_prompts();
+    let (mut a_prompts, mut a_side) = channel_prompts();
+    let b_task = tokio::spawn({
+        let b_engine = b_engine.clone();
+        async move { run_offer(&b, "dev-b", &b_engine, &mut b_prompts, POLL, WAIT).await }
+    });
+    let code = b_shows_its_code(&mut b_side).await;
+
+    // The person types on B before any question was asked; with the right fingerprint, even: it must still not count.
+    reply(&b_side, PairReply::Typed(key_fingerprint(&key)));
+    tokio::time::sleep(POLL * 3).await;
+    let a_task = tokio::spawn(async move { run_grant(&a, &a_engine, &mut a_prompts).await });
+    next_event(&mut a_side).await;
+    reply(&a_side, PairReply::Picked(0));
+    next_event(&mut a_side).await;
+    reply(&a_side, PairReply::Typed(code));
+    a_task.await.unwrap().unwrap();
+
+    assert_eq!(next_event(&mut b_side).await, PairEvent::Ask(Ask::FingerprintShownByTheOldDevice));
+    // Nothing answered for the person: B is still waiting for what they type now.
+    tokio::time::sleep(POLL * 5).await;
+    assert!(!b_task.is_finished(), "an answer typed before the question was used");
+    assert!(!b_engine.is_initialized());
+    reply(&b_side, PairReply::GiveUp);
+    assert!(matches!(b_task.await.unwrap(), Err(FlowError::Cancelled)));
+}
+
+#[tokio::test]
+async fn a_reply_that_is_already_queued_when_the_question_is_asked_is_not_its_answer() {
+    // The race `wait` cannot cover: the text lands after the last wait ended and before the question starts.
+    let (mut prompts, side) = channel_prompts();
+    reply(&side, PairReply::Typed("early".into()));
+
+    let answered = tokio::time::timeout(POLL * 5, prompts.ask(Ask::FingerprintShownByTheOldDevice)).await;
+
+    assert!(answered.is_err(), "the early text answered the question: {answered:?}");
+    drop(side);
+}
+
+#[tokio::test]
+async fn an_offer_number_outside_the_list_or_giving_up_at_the_choice_grants_nothing() {
+    let hub = hub().await;
+    let (a, b) = (hub.approved("dev-a"), hub.approved("dev-b"));
+    let (a_engine, _key) = a_device_with_a_key("a");
+    Offer::publish(&b, "dev-b").await.unwrap();
+
+    for answer in [PairReply::Picked(7), PairReply::GiveUp] {
+        let (mut a_prompts, mut a_side) = channel_prompts();
+        let a_task = tokio::spawn({
+            let (a, a_engine) = (a.clone(), a_engine.clone());
+            async move { run_grant(&a, &a_engine, &mut a_prompts).await }
+        });
+        assert_eq!(next_event(&mut a_side).await, PairEvent::Choose(vec!["dev-b".to_string()]));
+        reply(&a_side, answer);
+        assert!(matches!(a_task.await.unwrap(), Err(FlowError::Cancelled)));
+        assert!(a_side.events.try_recv().is_err(), "the person was never asked for a code");
+    }
 }
