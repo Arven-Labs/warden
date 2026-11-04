@@ -132,3 +132,90 @@ pub async fn run_offer<P: PairingPrompts>(access: &HubAccess, device_id: &str, e
     received.confirm(&typed, engine)?;
     Ok(())
 }
+
+/// What the flow tells a window to draw. `Ask` carries no value: an interface has nothing to pre-fill the field with.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PairEvent {
+    Show(Shown),
+    Ask(Ask),
+    /// The device ids of the waiting offers, in the order `PairReply::Picked` counts them.
+    Choose(Vec<String>),
+}
+
+/// What a window sends back.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PairReply {
+    Typed(String),
+    Picked(usize),
+    GiveUp,
+}
+
+/// The window's end of a `ChannelPrompts`.
+pub struct PairingSide {
+    pub events: tokio::sync::mpsc::UnboundedReceiver<PairEvent>,
+    pub replies: tokio::sync::mpsc::UnboundedSender<PairReply>,
+}
+
+/// `PairingPrompts` over channels, for an interface that is not a keyboard (a window that draws `PairEvent`s and sends
+/// `PairReply`s). A reply that arrives while nobody is asking is thrown away, and a closed window counts as giving up.
+pub struct ChannelPrompts {
+    events: tokio::sync::mpsc::UnboundedSender<PairEvent>,
+    replies: tokio::sync::mpsc::UnboundedReceiver<PairReply>,
+}
+
+pub fn channel_prompts() -> (ChannelPrompts, PairingSide) {
+    let (events, window_events) = tokio::sync::mpsc::unbounded_channel();
+    let (window_replies, replies) = tokio::sync::mpsc::unbounded_channel();
+    (ChannelPrompts { events, replies }, PairingSide { events: window_events, replies: window_replies })
+}
+
+impl ChannelPrompts {
+    /// Throws away what the window sent while nothing was asked, so an answer typed early never answers a later question.
+    fn discard_stale_replies(&mut self) {
+        while self.replies.try_recv().is_ok() {}
+    }
+
+    /// The next reply `wanted` picks out, skipping the others. `None` when the person gave up or the window is gone.
+    async fn next_reply<T>(&mut self, wanted: impl Fn(PairReply) -> Option<T>) -> Option<T> {
+        loop {
+            match self.replies.recv().await? {
+                PairReply::GiveUp => return None,
+                reply => {
+                    if let Some(found) = wanted(reply) {
+                        return Some(found);
+                    }
+                }
+            }
+        }
+    }
+}
+
+impl PairingPrompts for ChannelPrompts {
+    async fn wait(&mut self, pause: Duration) -> Wait {
+        let deadline = tokio::time::Instant::now() + pause;
+        loop {
+            match tokio::time::timeout_at(deadline, self.replies.recv()).await {
+                Err(_) => return Wait::Continue,
+                Ok(None | Some(PairReply::GiveUp)) => return Wait::Cancelled,
+                // Anything else typed while waiting belongs to no question.
+                Ok(Some(_)) => {}
+            }
+        }
+    }
+
+    fn show(&mut self, shown: Shown) {
+        let _ = self.events.send(PairEvent::Show(shown));
+    }
+
+    async fn choose_offer(&mut self, offers: &[PendingOffer]) -> Option<usize> {
+        self.discard_stale_replies();
+        self.events.send(PairEvent::Choose(offers.iter().map(|offer| offer.device_id.clone()).collect())).ok()?;
+        self.next_reply(|reply| if let PairReply::Picked(index) = reply { Some(index) } else { None }).await
+    }
+
+    async fn ask(&mut self, ask: Ask) -> Option<String> {
+        self.discard_stale_replies();
+        self.events.send(PairEvent::Ask(ask)).ok()?;
+        self.next_reply(|reply| if let PairReply::Typed(text) = reply { Some(text) } else { None }).await
+    }
+}
