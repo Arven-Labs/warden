@@ -68,7 +68,7 @@ export const syncPt: Record<keyof typeof sync, string> = {
   "arcaPair.fingerprintHint": "Impressão da chave entregue. Digite no dispositivo novo. Se ele recusar, o que ele recebeu NÃO é a sua chave: não confie neste hub.",
   "arcaPair.askCode": "Código que o dispositivo novo mostra",
   "arcaPair.askFingerprint": "Impressão que o dispositivo antigo mostra",
-  "arcaPair.typeHint": "Leia na outra tela e digite. Colar está desligado de propósito: anula a conferência.",
+  "arcaPair.typeHint": "Leia na outra tela e digite, para de fato comparar as duas. Colar está desligado para você não pular essa conferência, mas é uma ajuda, não uma garantia.",
   "arcaPair.choose": "Dispositivos esperando a chave:",
   "arcaPair.waiting": "Aguardando o outro dispositivo… (10 minutos no máximo)",
   "arcaPair.doneGrant": "Chave entregue. O dispositivo novo ainda precisa conferir a impressão.",

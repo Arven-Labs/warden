@@ -171,8 +171,13 @@ pub fn channel_prompts() -> (ChannelPrompts, PairingSide) {
 
 impl ChannelPrompts {
     /// Throws away what the window sent while nothing was asked, so an answer typed early never answers a later question.
-    fn discard_stale_replies(&mut self) {
-        while self.replies.try_recv().is_ok() {}
+    /// Giving up is not an answer: it is kept and reported (`true`), so a Cancel clicked during a network call still cancels.
+    fn discard_stale_replies(&mut self) -> bool {
+        let mut gave_up = false;
+        while let Ok(reply) = self.replies.try_recv() {
+            gave_up |= reply == PairReply::GiveUp;
+        }
+        gave_up
     }
 
     /// The next reply `wanted` picks out, skipping the others. `None` when the person gave up or the window is gone.
@@ -208,13 +213,17 @@ impl PairingPrompts for ChannelPrompts {
     }
 
     async fn choose_offer(&mut self, offers: &[PendingOffer]) -> Option<usize> {
-        self.discard_stale_replies();
+        if self.discard_stale_replies() {
+            return None;
+        }
         self.events.send(PairEvent::Choose(offers.iter().map(|offer| offer.device_id.clone()).collect())).ok()?;
         self.next_reply(|reply| if let PairReply::Picked(index) = reply { Some(index) } else { None }).await
     }
 
     async fn ask(&mut self, ask: Ask) -> Option<String> {
-        self.discard_stale_replies();
+        if self.discard_stale_replies() {
+            return None;
+        }
         self.events.send(PairEvent::Ask(ask)).ok()?;
         self.next_reply(|reply| if let PairReply::Typed(text) = reply { Some(text) } else { None }).await
     }

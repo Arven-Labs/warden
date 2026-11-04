@@ -156,7 +156,8 @@ pub async fn arca_pair_run(app: AppHandle, state: State<'_, AppState>, hub_id: S
     let _running = state.arca_pair.begin(replies)?;
     let forwarder = tokio::spawn(async move {
         while let Some(event) = event_stream.recv().await {
-            let _ = app.emit("arca-pair-event", event_json(&event));
+            // Only the main window: an offer code and a fingerprint are not for the hub windows, which load someone else's page.
+            let _ = app.emit_to("main", "arca-pair-event", event_json(&event));
         }
     });
 

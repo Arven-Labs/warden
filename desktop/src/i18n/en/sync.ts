@@ -67,7 +67,7 @@ export const sync = {
   "arcaPair.fingerprintHint": "Fingerprint of the key handed over. Type it on the new device. If it refuses, what it received is NOT your key: do not trust this hub.",
   "arcaPair.askCode": "Code the new device shows",
   "arcaPair.askFingerprint": "Fingerprint the old device shows",
-  "arcaPair.typeHint": "Read it on the other screen and type it. Pasting is off on purpose: it defeats the check.",
+  "arcaPair.typeHint": "Read it on the other screen and type it, so you do compare the two. Pasting is off to keep you from skipping that, but it is a help, not a guarantee.",
   "arcaPair.choose": "Devices waiting for the key:",
   "arcaPair.waiting": "Waiting for the other device… (10 minutes at most)",
   "arcaPair.doneGrant": "Key handed over. The new device still has to check the fingerprint.",

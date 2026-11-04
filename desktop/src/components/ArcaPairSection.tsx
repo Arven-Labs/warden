@@ -40,6 +40,8 @@ function ArcaPairSection() {
   }, []);
 
   async function start() {
+    // The backend refuses a second pairing too, but a second click must not hide the screen of the one that runs.
+    if (runningRef.current) return;
     setResult(null);
     setView(emptyView);
     setTyped("");
@@ -58,7 +60,9 @@ function ArcaPairSection() {
     } finally {
       runningRef.current = false;
       setRunning(false);
-      setView(emptyView);
+      // The view stays: the fingerprint A hands over arrives as the command returns, and the person still has to read it out.
+      // A question cannot outlive the pairing, so only what was shown is kept.
+      setView((current) => ({ ...current, question: null, devices: [] }));
       invoke<Role>("arca_pair_role").then(setRole).catch(() => {});
     }
   }
@@ -107,15 +111,15 @@ function ArcaPairSection() {
           )
         )}
 
+        {view.shown && (
+          <>
+            <p className="settings-hint">{t(view.shown.what === "offerCode" ? "arcaPair.offerCodeHint" : "arcaPair.fingerprintHint")}</p>
+            <p className="sync-pairing-code">{view.shown.value}</p>
+          </>
+        )}
+
         {running && (
           <>
-            {view.shown && (
-              <>
-                <p className="settings-hint">{t(view.shown.what === "offerCode" ? "arcaPair.offerCodeHint" : "arcaPair.fingerprintHint")}</p>
-                <p className="sync-pairing-code">{view.shown.value}</p>
-              </>
-            )}
-
             {view.question === null && !view.shown && <p className="settings-hint">…</p>}
             {view.shown?.what === "offerCode" && <p className="settings-hint">{t("arcaPair.waiting")}</p>}
 
@@ -124,7 +128,7 @@ function ArcaPairSection() {
                 <p className="settings-hint">{t("arcaPair.choose")}</p>
                 <ul>
                   {view.devices.map((device, index) => (
-                    <li key={device}>
+                    <li key={`${index}-${device}`}>
                       <button type="button" className="settings-browse-btn" onClick={() => answer({ kind: "picked", index })}>
                         {device}
                       </button>
@@ -150,9 +154,10 @@ function ArcaPairSection() {
                   autoCapitalize="off"
                   spellCheck={false}
                   autoFocus
-                  onChange={(e) => setTyped(e.target.value)}
-                  onBeforeInput={(e) => {
-                    if (!fieldIsTyped(e.nativeEvent as InputEvent)) e.preventDefault();
+                  onChange={(e) => {
+                    // The native `input` event knows where the text came from; React's `onBeforeInput` does not (it is built from
+                    // keypress and textInput). Text that was not typed is dropped, and React puts the field back as it was.
+                    if (fieldIsTyped(e.nativeEvent as InputEvent)) setTyped(e.target.value);
                   }}
                   onPaste={(e) => e.preventDefault()}
                   onDrop={(e) => e.preventDefault()}

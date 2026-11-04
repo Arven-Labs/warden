@@ -94,6 +94,54 @@ describe("pairing a device with arca on the desktop", () => {
     }
   });
 
+  test("the fingerprint A hands over stays on the screen after the pairing ends, whichever arrives first", { timeout: TIMEOUT }, async () => {
+    // The command returns right after the fingerprint is shown, and the event and the answer travel separately.
+    for (const order of ["event first", "answer first"]) {
+      const run = deferred();
+      const opened = await openSync("grant", run);
+      const { context, page, errors } = opened;
+      try {
+        await page.getByRole("button", { name: "Start", exact: true }).click();
+        const fingerprint = { kind: "show", what: "keyFingerprint", value: "aaaa-bbbb-cccc-dddd" };
+        if (order === "event first") {
+          await send(opened, fingerprint);
+          run.resolve("done");
+        } else {
+          run.resolve("done");
+          await page.getByText("Key handed over. The new device still has to check the fingerprint.").waitFor();
+          await send(opened, fingerprint);
+        }
+        await page.getByText("Key handed over. The new device still has to check the fingerprint.").waitFor();
+        await page.getByText("aaaa-bbbb-cccc-dddd").waitFor({ timeout: 3000 });
+        assert.deepEqual(errors, [], `the page raised no error (${order})`);
+      } finally {
+        await context.close();
+      }
+    }
+  });
+
+  test("text that arrives by autofill or replacement is not taken, only typing is", { timeout: TIMEOUT }, async () => {
+    const run = deferred();
+    const opened = await openSync("grant", run);
+    const { context, page } = opened;
+    try {
+      await page.getByRole("button", { name: "Start", exact: true }).click();
+      await send(opened, { kind: "ask", ask: "codeShownByTheNewDevice" });
+      const field = page.getByLabel("Code the new device shows");
+      await field.waitFor();
+      await page.evaluate(() => {
+        const input = document.getElementById("arca-pair-typed");
+        Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set.call(input, "7f3a-91c2-0b4d-e8a5");
+        input.dispatchEvent(new InputEvent("input", { inputType: "insertReplacementText", data: "7f3a-91c2-0b4d-e8a5", bubbles: true }));
+      });
+      assert.equal(await field.inputValue(), "", "text put in by replacement/autofill is not taken");
+      await field.pressSequentially("7f3a");
+      assert.equal(await field.inputValue(), "7f3a", "typing still works");
+    } finally {
+      await context.close();
+    }
+  });
+
   test("a computer with no key shows its code as text and asks for the fingerprint in an empty field", { timeout: TIMEOUT }, async () => {
     const run = deferred();
     const opened = await openSync("offer", run);
