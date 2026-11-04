@@ -530,6 +530,7 @@ mod tests {
             )),
             lending: std::sync::Mutex::new(None),
             remote: std::sync::Mutex::new(None),
+            arca_pair: Default::default(),
         }
     }
 

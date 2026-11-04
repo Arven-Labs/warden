@@ -1,4 +1,5 @@
 mod api_key_cmds;
+mod arca_pair_cmds;
 mod bot_cmds;
 mod approval;
 mod code_cmds;
@@ -90,6 +91,8 @@ struct AppState {
     /// P102 — the hub whose engine the native screens are using instead of this computer's, while one is picked. See
     /// `remote_cmds.rs`.
     remote: Mutex<Option<remote_cmds::RemoteSession>>,
+    /// P182 — the one arca pairing that may run at a time, and the way the screen answers it. See `arca_pair_cmds.rs`.
+    arca_pair: arca_pair_cmds::PairSlot,
 }
 
 /// Mirrors the frontend's `ChatRole`/`ChatMessage` (`desktop/src/types.ts`) — only the two
@@ -1253,6 +1256,7 @@ pub fn run() {
         sync_runner: sync_runner.clone(),
         lending: Mutex::new(None),
         remote: Mutex::new(None),
+        arca_pair: arca_pair_cmds::PairSlot::default(),
     };
     // The engine goes where `code_task` looks, following the orchestrator the desktop holds; nothing starts until a task asks.
     app_state.code.install_engine(app_state.orchestrator.clone());
@@ -1437,6 +1441,10 @@ pub fn run() {
             hub_cmds::ensure_hub,
             hub_cmds::remove_hub,
             hub_cmds::open_hub_window,
+            arca_pair_cmds::arca_pair_role,
+            arca_pair_cmds::arca_pair_run,
+            arca_pair_cmds::arca_pair_answer,
+            arca_pair_cmds::arca_pair_cancel,
             remote_cmds::remote_connect,
             remote_cmds::remote_disconnect,
             remote_cmds::remote_status,

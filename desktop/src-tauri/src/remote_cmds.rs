@@ -27,7 +27,7 @@ use crate::approval::{ApprovalBroker, ApprovalPayload};
 use crate::AppState;
 
 /// What this app calls itself on the hubs it signs in to.
-const DEVICE_NAME: &str = "Warden desktop";
+pub(crate) const DEVICE_NAME: &str = "Warden desktop";
 
 /// The approvals a hub is waiting on: this app's id → the hub's id.
 #[derive(Default)]
