@@ -2,7 +2,17 @@
 
 > **Nota**: Este log foi criado junto com o projeto. As sessões serão registradas aqui conforme o trabalho avança.
 >
-> Última atualização: 2026-11-03 (Sessão 388)
+> Última atualização: 2026-11-04 (Sessão 389)
+
+---
+
+### 2026-11-04 — Sessão 389 (passada do CLI do pareamento da arca por pty — P182)
+
+- **Pedido**: a passada manual do `/arca pair offer` e `/arca pair grant`, aberta pelo `/projeto arca`. Plano aprovado em plan mode (o dono escolheu driver de pty e um `example` descartável para cunhar tokens). PR só de docs; nenhum código do Warden mudou (o `example` foi apagado, nunca commitado).
+- **Feito**: hub `--arca` em loopback, três `XDG_CONFIG_HOME` temporários, o binário `warden` numa pty (driver de stdlib, que responde ao `ESC[6n`). Oito cenários, todos como esperado; tabela completa na Sessão 48 da arca (arca#54). Tudo apagado no fim.
+- **Não verificado**: terminal real e aparência; tolerância exata de 2 falhas (só se viu o aborto, em 4,8 s); colar nos campos (i3).
+- **Achado**: o CLI pede o token do dispositivo, mas não achei caminho de CLI para obtê-lo; registrado no P182 (i9).
+- **Fica**: desktop, mobile e web (P182 item 2); 2b-4; os abertos (i1) a (i7).
 
 ---
 
