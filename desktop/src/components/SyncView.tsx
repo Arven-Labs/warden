@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { intlTag, t } from "../i18n";
+import ArcaPairSection from "./ArcaPairSection";
 import type { GitPullResult, GitPushResult, SyncPullResult, SyncPushBegin, SyncPushResult, SyncStatus } from "../types";
 
 function formatTimestamp(ms: number | null): string {
@@ -423,6 +424,8 @@ function SyncView() {
           <p className="settings-hint">{t("sync.ipHint")}</p>
         </div>
       </section>
+
+      <ArcaPairSection />
     </div>
   );
 }

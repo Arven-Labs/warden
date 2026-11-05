@@ -127,6 +127,7 @@ pub(crate) fn app_state(dir: &Path) -> crate::AppState {
         )),
         lending: Mutex::new(None),
         remote: Mutex::new(None),
+        arca_pair: Default::default(),
     }
 }
 

@@ -544,6 +544,33 @@ async fn a_reply_that_is_already_queued_when_the_question_is_asked_is_not_its_an
 }
 
 #[tokio::test]
+async fn giving_up_while_nobody_asks_still_counts_when_the_question_comes() {
+    // The person clicks Cancel during a network call, before any question exists: that is not a stale answer, it is giving up.
+    let (mut prompts, side) = channel_prompts();
+    reply(&side, PairReply::GiveUp);
+
+    let answered = tokio::time::timeout(POLL * 5, prompts.ask(Ask::CodeShownByTheNewDevice)).await;
+
+    assert_eq!(answered.expect("the question hung after the person gave up"), None);
+    drop(side);
+}
+
+#[tokio::test]
+async fn giving_up_before_the_choice_is_offered_cancels_the_whole_grant() {
+    let hub = hub().await;
+    let (a, b) = (hub.approved("dev-a"), hub.approved("dev-b"));
+    let (a_engine, _key) = a_device_with_a_key("a");
+    Offer::publish(&b, "dev-b").await.unwrap();
+    let (mut a_prompts, a_side) = channel_prompts();
+    reply(&a_side, PairReply::GiveUp);
+
+    let result = tokio::time::timeout(WAIT, run_grant(&a, &a_engine, &mut a_prompts)).await.expect("the grant hung after the person gave up");
+
+    assert!(matches!(result, Err(FlowError::Cancelled)), "{result:?}");
+    drop(a_side);
+}
+
+#[tokio::test]
 async fn an_offer_number_outside_the_list_or_giving_up_at_the_choice_grants_nothing() {
     let hub = hub().await;
     let (a, b) = (hub.approved("dev-a"), hub.approved("dev-b"));
