@@ -99,7 +99,7 @@ pub fn save_secrets(path: &Path, secrets: &SyncSecrets) -> anyhow::Result<()> {
 
 /// Like `create_dir_all`, but every folder it has to create gets `0o700` on unix (P175d). A folder that already exists is left
 /// as it is: it may be the operator's (`--data-dir`) or a shared one, and only what we create is ours to close.
-fn create_private_dir(dir: &Path) -> std::io::Result<()> {
+pub(crate) fn create_private_dir(dir: &Path) -> std::io::Result<()> {
     #[cfg(unix)]
     {
         use std::os::unix::fs::DirBuilderExt;
@@ -146,7 +146,7 @@ fn close_parent_if_ours(dir: &Path, ours: Option<&Path>) -> anyhow::Result<()> {
 ///
 /// Not synced: the parent directory. Without that, a power cut right after can lose the rename, which leaves the previous file
 /// (or none): a consistent state, not a broken one.
-fn write_atomic(path: &Path, contents: &[u8], owner_only: bool) -> anyhow::Result<()> {
+pub(crate) fn write_atomic(path: &Path, contents: &[u8], owner_only: bool) -> anyhow::Result<()> {
     let tmp = path.with_extension("tmp");
     let result = write_then_swap(&tmp, path, contents, owner_only);
     if result.is_err() {

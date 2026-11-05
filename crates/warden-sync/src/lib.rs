@@ -14,8 +14,11 @@
 //! `pairing` exactly as `SyncEngine` does (init/pairing/status stay on `SyncEngine`, backend-
 //! agnostic already); only the transport differs.
 
+pub mod arca_mode;
 pub mod arca_pairing;
 pub mod arca_pairing_flow;
+#[cfg(feature = "arca")]
+pub mod arca_sync;
 pub mod arweave;
 pub mod bundle;
 pub mod diff;
@@ -140,6 +143,7 @@ impl SyncEngine {
     /// (or ASCII, on the CLI) *before* calling `finish_push` — showing the code and blocking on
     /// the phone are deliberately separate steps.
     pub fn begin_push(&self) -> anyhow::Result<Option<push::BeginPushResult>> {
+        arca_mode::ensure_off(&self.manifest_path)?;
         let secrets = self.load_secrets()?;
         let manifest = manifest::load_manifest(&self.manifest_path)?;
         push::begin_push_with_oauth(&self.vault, &self.config_path, self.oauth_dir.as_deref(), &secrets, &manifest)
@@ -163,6 +167,7 @@ impl SyncEngine {
     /// manifest.
     pub async fn finish_push(&self, begin: push::BeginPushResult) -> anyhow::Result<push::PushOutcome> {
         let _one_sync_at_a_time = self.sync_lock().await?;
+        arca_mode::ensure_off(&self.manifest_path)?;
         let manifest = manifest::load_manifest(&self.manifest_path)?;
         self.ensure_remote_not_newer(&manifest).await?;
         let (outcome, new_manifest) = push::run_push(begin, &self.arweave, manifest).await?;
@@ -179,6 +184,7 @@ impl SyncEngine {
         hosts: Vec<Ipv4Addr>,
     ) -> anyhow::Result<push::PushOutcome> {
         let _one_sync_at_a_time = self.sync_lock().await?;
+        arca_mode::ensure_off(&self.manifest_path)?;
         let manifest = manifest::load_manifest(&self.manifest_path)?;
         self.ensure_remote_not_newer(&manifest).await?;
         let (outcome, new_manifest) = push::run_push_with_hosts(begin, &self.arweave, manifest, hosts).await?;
@@ -188,6 +194,7 @@ impl SyncEngine {
 
     pub async fn pull(&self) -> anyhow::Result<pull::PullOutcome> {
         let _one_sync_at_a_time = self.sync_lock().await?;
+        arca_mode::ensure_off(&self.manifest_path)?;
         let secrets = self.load_secrets()?;
         let manifest = manifest::load_manifest(&self.manifest_path)?;
         let (outcome, new_manifest) =
