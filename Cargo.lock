@@ -8616,6 +8616,7 @@ name = "warden-sync"
 version = "0.1.2"
 dependencies = [
  "anyhow",
+ "arca-core",
  "axum",
  "base64 0.22.1",
  "dirs 5.0.1",

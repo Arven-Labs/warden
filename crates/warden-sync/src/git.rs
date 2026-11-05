@@ -122,6 +122,7 @@ impl GitSyncEngine {
     /// pointing at `pull()` instead of attempting any merge.
     pub async fn push(&self) -> anyhow::Result<Option<GitPushOutcome>> {
         let _one_sync_at_a_time = crate::lock::SyncLock::acquire(&crate::lock::lock_path_for(&self.manifest_path)).await?;
+        crate::arca_mode::ensure_off(&self.manifest_path)?;
         let secrets = self.load_secrets()?;
         let manifest = manifest::load_manifest(&self.manifest_path)?;
 
@@ -188,6 +189,7 @@ impl GitSyncEngine {
     /// latest" — is what resolves the new-device gap Arweave's owner-based discovery has.
     pub async fn pull(&self) -> anyhow::Result<GitPullOutcome> {
         let _one_sync_at_a_time = crate::lock::SyncLock::acquire(&crate::lock::lock_path_for(&self.manifest_path)).await?;
+        crate::arca_mode::ensure_off(&self.manifest_path)?;
         let secrets = self.load_secrets()?;
         let manifest = manifest::load_manifest(&self.manifest_path)?;
 

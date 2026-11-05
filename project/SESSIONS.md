@@ -2,7 +2,19 @@
 
 > **Nota**: Este log foi criado junto com o projeto. As sessões serão registradas aqui conforme o trabalho avança.
 >
-> Última atualização: 2026-11-04 (Sessão 389)
+> Última atualização: 2026-11-05 (Sessão 390)
+
+---
+
+### 2026-11-05 — Sessão 390 (núcleo do modo "arca" no `warden-sync`, 2b-4 fatia 1 — P183)
+
+- **Pedido**: a 2b-4 (modo "arca" com interruptor por Vault, arca ADR 0012), aberta pelo `/projeto arca`. Plano aprovado em plan mode; o dono escolheu a fatia "núcleo no `warden-sync`, sem UI", o interruptor em arquivo novo e só a classe `vault`.
+- **Feito**: `arca_mode.rs` (interruptor `arca_mode.json`, caminhos do armazenamento e do estado da arca; `ensure_off`), `arca_sync.rs` atrás da feature `arca` (`arca_enable`, `arca_sync`: recover, snapshot, pull, merge, apply, push, com `manifests_withheld` tratado como erro). Os motores de Arweave e git recusam o Vault em modo arca. Feature `arca` desligada por padrão: `cargo tree -p warden-mobile-bridge` e `-p warden-sync` sem a feature não têm `arca-core` nem `aws-lc`.
+- **Achado no desenho**: `Engine::snapshot` constrói sobre a ponta, e o `Engine` não guarda qual manifest a pasta reflete. Um ciclo parado entre `merge` e `apply` faria o snapshot seguinte registrar como apagados os arquivos que a pasta ainda não recebeu, e publicar isso. Por isso `arca_folder.txt`; o teste do apply recusado cobre.
+- **Testes primeiro** (tabela aprovada pelo dono): 6 do guarda (sem hub) e 12 de hub (`warden-server/tests/arca_mode.rs`). Antes de implementar: os 11 de hub falharam com `todo!()` e 4 de 6 do guarda falharam por falta da recusa (2 eram regressão e modo `0600`). O 12º (apply recusado) veio depois, junto com a proteção. Quebra de propósito: sem a proteção do snapshot, só o teste do apply recusado falha; sem a recusa no `pull`, só o do `pull` falha. Revertidas.
+- **Resultado**: `warden-sync` 93 unitários + integração verdes; `warden-server` 239 unitários e os de integração verdes, exceto dois do `arca_api` que falharam sob carga e passaram 5 de 5 sozinhos (P183). Clippy sem avisos novos.
+- **Não verificado**: CI do PR; hub real, TLS real, Android, macOS e Windows; `cargo fmt --check` (o repo não passa nele hoje, 367 diferenças só no `warden-sync`, então não formatei nada).
+- **Fica**: P183 (pontos de entrada, `SyncRunner`, `config`/`secret`, HKDF).
 
 ---
 
