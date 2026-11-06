@@ -56,14 +56,24 @@ struct Device {
     engine: SyncEngine,
     vault: PathBuf,
     manifest: PathBuf,
+    /// The MCP OAuth logins folder (`mcp_oauth/`), a sibling of the manifest; the engine only knows it when `device` wired it in.
+    oauth: PathBuf,
 }
 
 fn device(name: &str) -> Device {
+    device_with(name, true)
+}
+
+/// `with_oauth` false is a device whose engine has no logins folder (a host that does not wire `with_oauth_dir`).
+fn device_with(name: &str, with_oauth: bool) -> Device {
     let base = support::unique_temp_dir(&format!("warden-arca-mode-{name}"));
     std::fs::create_dir_all(base.join("vault")).unwrap();
     let manifest = base.join("sync_manifest.json");
-    let engine = SyncEngine::new(base.join("vault"), base.join("config.toml"), base.join("sync_secrets.json"), manifest.clone());
-    Device { engine, vault: base.join("vault"), manifest }
+    let mut engine = SyncEngine::new(base.join("vault"), base.join("config.toml"), base.join("sync_secrets.json"), manifest.clone());
+    if with_oauth {
+        engine = engine.with_oauth_dir(base.join("mcp_oauth"));
+    }
+    Device { engine, vault: base.join("vault"), manifest, oauth: base.join("mcp_oauth") }
 }
 
 /// A device with a key of its own (the first device of a group).
@@ -400,4 +410,206 @@ async fn a_hub_that_is_down_is_not_an_auth_rejection() {
 #[tokio::test]
 async fn an_error_that_did_not_come_from_the_hub_is_not_an_auth_rejection() {
     assert!(!warden_sync::arca_sync::is_auth_rejected(&anyhow::anyhow!("applying what other devices changed to the vault")));
+}
+
+// ---- the `secret` class: the MCP OAuth logins in `mcp_oauth/` (arca ADR 0010) ----
+
+fn write_login(device: &Device, name: &str, contents: &str) {
+    std::fs::create_dir_all(&device.oauth).unwrap();
+    std::fs::write(device.oauth.join(name), contents).unwrap();
+}
+
+/// The logins folder, name to contents; empty when the folder does not exist.
+fn logins(device: &Device) -> BTreeMap<String, String> {
+    if device.oauth.exists() {
+        files(&device.oauth)
+    } else {
+        BTreeMap::new()
+    }
+}
+
+fn map(pairs: &[(&str, &str)]) -> BTreeMap<String, String> {
+    pairs.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect()
+}
+
+#[tokio::test]
+async fn a_login_reaches_the_second_device_and_stays_private() {
+    let hub = hub().await;
+    let (a, key) = first_device("a-login");
+    write_login(&a, "github.json", r#"{"token":"a-token"}"#);
+    a.engine.arca_enable(false, 1).await.unwrap();
+    a.engine.arca_sync(&hub.store("dev-a"), 2).await.unwrap();
+
+    let b = paired_device("b-login", key);
+    b.engine.arca_enable(false, 3).await.unwrap();
+    b.engine.arca_sync(&hub.store("dev-b"), 4).await.unwrap();
+
+    assert_eq!(logins(&b), map(&[("github.json", r#"{"token":"a-token"}"#)]));
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mode = std::fs::metadata(b.oauth.join("github.json")).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode & 0o077, 0, "a login file must not be readable by group or others, got {mode:o}");
+    }
+}
+
+#[tokio::test]
+async fn a_new_login_a_renewed_login_and_a_removed_login_all_travel() {
+    let hub = hub().await;
+    let (a, key) = first_device("a-login-edit");
+    write_login(&a, "keep.json", "keep");
+    write_login(&a, "renew.json", "old");
+    write_login(&a, "gone.json", "bye");
+    a.engine.arca_enable(false, 1).await.unwrap();
+    let (store_a, store_b) = (hub.store("dev-a"), hub.store("dev-b"));
+    a.engine.arca_sync(&store_a, 2).await.unwrap();
+    let b = paired_device("b-login-edit", key);
+    b.engine.arca_enable(false, 3).await.unwrap();
+    b.engine.arca_sync(&store_b, 4).await.unwrap();
+
+    write_login(&a, "renew.json", "new");
+    write_login(&a, "added.json", "added");
+    std::fs::remove_file(a.oauth.join("gone.json")).unwrap();
+    a.engine.arca_sync(&store_a, 10).await.unwrap();
+    b.engine.arca_sync(&store_b, 11).await.unwrap();
+
+    let expected = map(&[("keep.json", "keep"), ("renew.json", "new"), ("added.json", "added")]);
+    assert_eq!(logins(&a), expected);
+    assert_eq!(logins(&b), expected);
+}
+
+#[tokio::test]
+async fn the_same_login_changed_on_both_sides_keeps_the_winner_in_place_and_the_loser_outside_the_logins_folder() {
+    let hub = hub().await;
+    let (a, key) = first_device("a-login-conflict");
+    write_login(&a, "github.json", "start");
+    a.engine.arca_enable(false, 1).await.unwrap();
+    let (store_a, store_b) = (hub.store("dev-a"), hub.store("dev-b"));
+    a.engine.arca_sync(&store_a, 2).await.unwrap();
+    let b = paired_device("b-login-conflict", key);
+    b.engine.arca_enable(false, 3).await.unwrap();
+    b.engine.arca_sync(&store_b, 4).await.unwrap();
+
+    write_login(&a, "github.json", "token by a");
+    write_login(&b, "github.json", "token by b");
+    a.engine.arca_sync(&store_a, 10).await.unwrap();
+    let report = b.engine.arca_sync(&store_b, 11).await.unwrap();
+    a.engine.arca_sync(&store_a, 12).await.unwrap();
+
+    // b's snapshot is the later one, so its version stays in place on both devices.
+    assert_eq!(report.conflicts, 1);
+    assert_eq!(report.secret_losers_saved, 1);
+    assert_eq!(logins(&a), map(&[("github.json", "token by b")]));
+    assert_eq!(logins(&b), map(&[("github.json", "token by b")]));
+
+    // a's version survives on the device that settled the conflict, outside every live folder.
+    let saved = files(&warden_sync::arca_mode::conflicts_dir_for(&b.manifest));
+    assert_eq!(saved.len(), 1, "{saved:?}");
+    let (path, text) = saved.iter().next().unwrap();
+    assert!(path.starts_with("secret/github.json.conflito-"), "{path}");
+    assert_eq!(text, "token by a");
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let file = warden_sync::arca_mode::conflicts_dir_for(&b.manifest).join(path);
+        assert_eq!(std::fs::metadata(file).unwrap().permissions().mode() & 0o077, 0);
+    }
+}
+
+#[tokio::test]
+async fn a_file_that_is_not_a_login_stops_the_cycle_before_anything_is_written_or_sent() {
+    let hub = hub().await;
+    for (case, stray) in [("backup", "github.json.bak"), ("hidden", ".github.json"), ("not-json", "github.txt")] {
+        let (a, _) = first_device(&format!("a-stray-{case}"));
+        write_login(&a, "github.json", "token");
+        a.engine.arca_enable(false, 1).await.unwrap();
+        write_login(&a, stray, "leftover");
+        let err = format!("{:#}", a.engine.arca_sync(&hub.store(&format!("dev-{case}")), 2).await.unwrap_err());
+        assert!(err.contains(stray), "the error names the file: {err}");
+        assert_eq!(logins(&a).len(), 2, "nothing was removed from the folder");
+    }
+}
+
+#[tokio::test]
+async fn a_folder_inside_the_logins_folder_stops_the_cycle_and_turning_the_mode_on() {
+    let (a, _) = first_device("a-stray-dir");
+    std::fs::create_dir_all(a.oauth.join("nested")).unwrap();
+    let err = format!("{:#}", a.engine.arca_enable(false, 1).await.unwrap_err());
+    assert!(err.contains("nested"), "{err}");
+    assert!(!mode_path_for(&a.manifest).exists(), "the mode stays off");
+}
+
+#[tokio::test]
+async fn a_file_that_is_not_a_login_coming_from_another_device_is_not_applied() {
+    let hub = hub().await;
+    let (a, key) = first_device("a-forged");
+    a.engine.arca_enable(false, 1).await.unwrap();
+
+    // A peer with the group's key (so its manifest is accepted) that has a stray file in its `secret` root.
+    let forger_root = support::unique_temp_dir("warden-arca-forger-secret");
+    std::fs::create_dir_all(&forger_root).unwrap();
+    std::fs::write(forger_root.join("x.bak"), "leftover").unwrap();
+    let forger_store = support::unique_temp_dir("warden-arca-forger-store");
+    let forger = Engine::new(DiskStore::open(&forger_store).unwrap(), EpochKeys::derive(&VaultKey::from_bytes(key), 0), "forger").unwrap();
+    let roots = arca_core::engine::Roots { vault: None, config: None, secret: Some(forger_root) };
+    forger.snapshot(&roots, 5).await.unwrap();
+    forger.push(&hub.store("dev-forger")).await.unwrap();
+
+    let err = format!("{:#}", a.engine.arca_sync(&hub.store("dev-a"), 6).await.unwrap_err());
+    assert!(err.contains("x.bak"), "{err}");
+    assert!(logins(&a).is_empty(), "nothing was written: {:?}", logins(&a));
+}
+
+#[tokio::test]
+async fn a_device_without_a_logins_folder_neither_gets_nor_loses_logins() {
+    let hub = hub().await;
+    let (a, key) = first_device("a-with");
+    write_login(&a, "github.json", "token");
+    a.engine.arca_enable(false, 1).await.unwrap();
+    let (store_a, store_c) = (hub.store("dev-a"), hub.store("dev-c"));
+    a.engine.arca_sync(&store_a, 2).await.unwrap();
+
+    let c = {
+        let device = device_with("c-without", false);
+        device.engine.adopt_vault_key(key).unwrap();
+        device
+    };
+    write(&c, "note.md", "from c");
+    c.engine.arca_enable(false, 3).await.unwrap();
+    c.engine.arca_sync(&store_c, 4).await.unwrap();
+    a.engine.arca_sync(&store_a, 5).await.unwrap();
+
+    assert!(!c.oauth.exists(), "c has no logins folder and none was created");
+    assert_eq!(logins(&a), map(&[("github.json", "token")]), "c's manifest did not delete a's login");
+    assert_eq!(files(&a.vault), map(&[("note.md", "from c")]));
+}
+
+#[tokio::test]
+async fn a_logins_folder_that_holds_the_sync_key_is_refused() {
+    // The folder of `sync_secrets.json` (the key) can never be a root: its contents would be sent to the hub as a class.
+    // Only `sync_secrets.json` is in the logins folder, and its name is a valid login name, so without the guard the key would travel.
+    let base = support::unique_temp_dir("warden-arca-bad-root");
+    let logins = base.join("mcp_oauth");
+    std::fs::create_dir_all(base.join("vault")).unwrap();
+    std::fs::create_dir_all(&logins).unwrap();
+    let manifest = base.join("sync_manifest.json");
+    let engine = SyncEngine::new(base.join("vault"), base.join("config.toml"), logins.join("sync_secrets.json"), manifest.clone()).with_oauth_dir(logins);
+    engine.init_fresh().unwrap();
+    let err = format!("{:#}", engine.arca_enable(false, 1).await.unwrap_err());
+    assert!(err.contains("holds"), "{err}");
+    assert!(!mode_path_for(&manifest).exists());
+    assert!(!store_path_for(&manifest).exists());
+}
+
+#[tokio::test]
+async fn a_cycle_with_logins_and_nothing_new_changes_nothing() {
+    let hub = hub().await;
+    let (a, _) = first_device("a-login-idle");
+    write_login(&a, "github.json", "token");
+    a.engine.arca_enable(false, 1).await.unwrap();
+    let store = hub.store("dev-a");
+    a.engine.arca_sync(&store, 2).await.unwrap();
+    let second = a.engine.arca_sync(&store, 3).await.unwrap();
+    assert!(!second.snapshot_created);
+    assert_eq!((second.pulled, second.merges, second.conflicts, second.files_changed, second.secret_losers_saved, second.pushed), (0, 0, 0, 0, 0, 0));
 }
