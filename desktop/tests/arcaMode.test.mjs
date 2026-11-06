@@ -2,7 +2,7 @@
 
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
-import { summaryOf, viewOf } from "../src/lib/arcaMode.ts";
+import { hubChoice, summaryOf, viewOf } from "../src/lib/arcaMode.ts";
 
 const status = (over) => ({ hasKey: true, on: false, pendingSend: false, ...over });
 const report = (over) => ({ snapshotCreated: false, pulled: 0, merges: 0, conflicts: 0, filesChanged: 0, pushed: 0, ...over });
@@ -27,6 +27,29 @@ describe("which controls the section draws", () => {
   test("once it is on, the rest does not matter: the screen only offers to sync", () => {
     assert.equal(viewOf(status({ on: true })), "on");
     assert.equal(viewOf(status({ on: true, hasKey: false, pendingSend: true })), "on");
+  });
+});
+
+describe("which hub the selector shows for the automatic sync", () => {
+  const home = { id: "hub-1", name: "Home hub" };
+  const work = { id: "hub-2", name: "Work hub" };
+
+  test("the hub the backend recorded is the one selected, not the first of the list", () => {
+    assert.deepEqual(hubChoice("hub-2", [home, work]), { selected: "hub-2", removed: false });
+  });
+
+  test("with no hub recorded nothing is selected, even when there is only one saved", () => {
+    assert.deepEqual(hubChoice(null, [home, work]), { selected: "", removed: false });
+    assert.deepEqual(hubChoice(null, [home]), { selected: "", removed: false });
+  });
+
+  test("a recorded hub that is no longer saved selects nothing and says it was removed", () => {
+    assert.deepEqual(hubChoice("hub-9", [home, work]), { selected: "", removed: true });
+    assert.deepEqual(hubChoice("hub-9", []), { selected: "", removed: true });
+  });
+
+  test("before the list of saved hubs arrives there is no warning to give yet", () => {
+    assert.deepEqual(hubChoice("hub-2", null), { selected: "", removed: false });
   });
 });
 

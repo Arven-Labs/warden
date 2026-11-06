@@ -8,6 +8,7 @@ import { deferred, launchBrowser, openApp, serveDist, snap } from "./harness.mjs
 
 const TIMEOUT = 120_000;
 const HUB = { id: "hub-1", name: "Home hub", url: "https://hub.example.test", open: false };
+const WORK = { id: "hub-2", name: "Work hub", url: "https://work.example.test", open: false };
 
 let browser;
 let app;
@@ -113,7 +114,7 @@ describe("the arca mode of the vault on the desktop", () => {
 
   test("sync now sends the hub picked, waits without a second click, and says what happened", { timeout: TIMEOUT }, async () => {
     const running = deferred();
-    const { context, page, calls, errors } = await openSync(() => ({ hasKey: true, on: true, pendingSend: false }), { arca_sync_run: () => running.promise });
+    const { context, page, calls, errors } = await openSync(() => ({ hasKey: true, on: true, pendingSend: false, hubId: HUB.id }), { arca_sync_run: () => running.promise });
     try {
       await page.getByRole("button", { name: "Sync now", exact: true }).click();
       await page.getByRole("button", { name: "Syncing…" }).waitFor();
@@ -135,7 +136,7 @@ describe("the arca mode of the vault on the desktop", () => {
   test("a cycle with nothing new says so, and a refused one shows the reason", { timeout: TIMEOUT }, async () => {
     // A function, so a refusal is only made when the backend is asked (a rejected promise made earlier, with nobody waiting, is an error).
     let answer = () => ({ snapshotCreated: false, pulled: 0, merges: 0, conflicts: 0, filesChanged: 0, pushed: 0 });
-    const { context, page, errors } = await openSync(() => ({ hasKey: true, on: true, pendingSend: false }), { arca_sync_run: () => answer() });
+    const { context, page, errors } = await openSync(() => ({ hasKey: true, on: true, pendingSend: false, hubId: HUB.id }), { arca_sync_run: () => answer() });
     try {
       await page.getByRole("button", { name: "Sync now", exact: true }).click();
       await page.getByText("Nothing new.").waitFor();
@@ -155,6 +156,73 @@ describe("the arca mode of the vault on the desktop", () => {
       await page.getByText("Save a hub and sign in to it first").last().waitFor();
       assert.equal(await page.getByRole("button", { name: "Sync now" }).isDisabled(), true);
       assert.deepEqual(errors, [], "the page raised no error");
+    } finally {
+      await context.close();
+    }
+  });
+
+  test("with the mode on and no hub chosen the selector starts empty, the sync button stays off, and choosing one records it", { timeout: TIMEOUT }, async () => {
+    let current = { hasKey: true, on: true, pendingSend: false, hubId: null };
+    const { context, page, calls, errors } = await openSync(() => current, {
+      arca_mode_set_hub: ({ hubId }) => {
+        current = { ...current, hubId };
+        return null;
+      },
+    }, { hubs: [HUB, WORK] });
+    try {
+      const select = page.getByLabel("Hub for automatic sync");
+      assert.equal(await select.inputValue(), "", "no hub is chosen for the person");
+      assert.equal(await page.getByText("Choose a hub").count() > 0, true);
+      assert.equal(await page.getByRole("button", { name: "Sync now" }).isDisabled(), true);
+      assert.equal(await page.getByText(/Automatic sync uses/).count(), 0);
+      await snap(page, "desktop-arca-mode-no-hub", { focus: heading(page), top: true });
+
+      await select.selectOption(WORK.id);
+      await page.getByText("Automatic sync uses Work hub.").waitFor();
+      assert.deepEqual(asked(calls, "arca_mode_set_hub").map((c) => c.args.hubId), [WORK.id]);
+      assert.equal(await select.inputValue(), WORK.id);
+      assert.equal(await page.getByRole("button", { name: "Sync now" }).isDisabled(), false);
+      assert.deepEqual(errors, [], "the page raised no error");
+    } finally {
+      await context.close();
+    }
+  });
+
+  test("a hub already recorded is the one the selector opens on", { timeout: TIMEOUT }, async () => {
+    const { context, page, calls, errors } = await openSync(() => ({ hasKey: true, on: true, pendingSend: false, hubId: WORK.id }), {}, { hubs: [HUB, WORK] });
+    try {
+      await page.getByText("Automatic sync uses Work hub.").waitFor();
+      assert.equal(await page.getByLabel("Hub for automatic sync").inputValue(), WORK.id, "not the first of the list");
+      assert.equal(asked(calls, "arca_mode_set_hub").length, 0, "opening the screen records nothing");
+      assert.deepEqual(errors, [], "the page raised no error");
+    } finally {
+      await context.close();
+    }
+  });
+
+  test("a recorded hub that was removed is flagged, the selector is empty, and the file is left alone", { timeout: TIMEOUT }, async () => {
+    const { context, page, calls, errors } = await openSync(() => ({ hasKey: true, on: true, pendingSend: false, hubId: "hub-gone" }), {}, { hubs: [HUB, WORK] });
+    try {
+      await page.getByText(/The hub saved for automatic sync was removed/).waitFor();
+      assert.equal(await page.getByLabel("Hub for automatic sync").inputValue(), "");
+      assert.equal(await page.getByRole("button", { name: "Sync now" }).isDisabled(), true);
+      assert.equal(asked(calls, "arca_mode_set_hub").length, 0, "nothing is written until the person chooses");
+      assert.deepEqual(errors, [], "the page raised no error");
+    } finally {
+      await context.close();
+    }
+  });
+
+  test("when recording the hub is refused the reason is shown and the selector goes back to what is recorded", { timeout: TIMEOUT }, async () => {
+    const { context, page, errors } = await openSync(() => ({ hasKey: true, on: true, pendingSend: false, hubId: HUB.id }), {
+      arca_mode_set_hub: () => Promise.reject("there is no saved hub 'hub-2' (it may have been removed)"),
+    }, { hubs: [HUB, WORK] });
+    try {
+      await page.getByLabel("Hub for automatic sync").selectOption(WORK.id);
+      await page.getByText(/Could not choose the hub: there is no saved hub/).waitFor();
+      assert.equal(await page.getByLabel("Hub for automatic sync").inputValue(), HUB.id);
+      await page.getByText("Automatic sync uses Home hub.").waitFor();
+      assert.deepEqual(errors, [], "a refusal is shown, not raised");
     } finally {
       await context.close();
     }

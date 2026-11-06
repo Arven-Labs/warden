@@ -98,7 +98,12 @@ impl SyncEngine {
 
     /// Whether this vault is in arca mode (see `arca_mode`). An unreadable switch is an error, never "off".
     pub fn arca_mode_on(&self) -> anyhow::Result<bool> {
-        Ok(arca_mode::load_mode(&arca_mode::mode_path_for(&self.manifest_path))?.is_some())
+        Ok(self.arca_mode()?.is_some())
+    }
+
+    /// The switch of the arca mode (see `arca_mode`): `None` when the mode is off. Same error rule as `arca_mode_on`.
+    pub fn arca_mode(&self) -> anyhow::Result<Option<arca_mode::ArcaMode>> {
+        arca_mode::load_mode(&arca_mode::mode_path_for(&self.manifest_path))
     }
 
     /// Generates a fresh vault key on this device — the very first device in a sync group calls

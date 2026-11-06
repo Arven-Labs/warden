@@ -28,11 +28,27 @@ pub struct ModeStatus {
     pub on: bool,
     /// A Send is waiting for the phone: it has to finish or be cancelled before the mode can be turned on.
     pub pending_send: bool,
+    /// The saved hub the automatic sync uses (its `hubs.json` id); `None` until the person chooses one. It may name a hub that was
+    /// removed since: the screen checks it against the saved hubs.
+    pub hub_id: Option<String>,
 }
 
 pub fn mode_status(engine: &SyncEngine, pending_send: bool) -> Result<ModeStatus, String> {
-    let on = engine.arca_mode_on().map_err(|e| format!("{e:#}"))?;
-    Ok(ModeStatus { has_key: engine.is_initialized(), on, pending_send })
+    let mode = engine.arca_mode().map_err(|e| format!("{e:#}"))?;
+    let on = mode.is_some();
+    Ok(ModeStatus { has_key: engine.is_initialized(), on, pending_send, hub_id: mode.and_then(|m| m.hub_id) })
+}
+
+/// Chooses the saved hub the automatic sync uses. The hub has to be saved (`hubs.json` is the desktop's, so the check is here and not
+/// in the engine) and the mode has to be on (the engine checks). Lifts a stop a refused token had put on the loop: the person is
+/// choosing on purpose, and choosing the same hub again is how they say they signed in again.
+pub async fn set_hub(engine: &SyncEngine, runner: &SyncRunner, hubs_path: &Path, hub_id: &str) -> Result<(), String> {
+    if saved_hubs::find(hubs_path, hub_id).map_err(|e| format!("{e:#}"))?.is_none() {
+        return Err(format!("there is no saved hub '{hub_id}' (it may have been removed)"));
+    }
+    engine.arca_set_hub(hub_id).await.map_err(|e| format!("{e:#}"))?;
+    runner.resume_arca();
+    Ok(())
 }
 
 /// What turning the mode on changed besides the mode itself.
@@ -150,6 +166,11 @@ pub async fn arca_mode_enable(state: State<'_, AppState>) -> Result<Enabled, Str
 }
 
 #[tauri::command]
+pub async fn arca_mode_set_hub(state: State<'_, AppState>, hub_id: String) -> Result<(), String> {
+    set_hub(&state.sync, &state.sync_runner, &crate::config_paths::saved_hubs_file()?, &hub_id).await
+}
+
+#[tauri::command]
 pub async fn arca_sync_run(state: State<'_, AppState>, hub_id: String) -> Result<SyncPayload, String> {
     let store = saved_hub_store(&crate::config_paths::saved_hubs_file()?, &crate::config_paths::config_file()?, &hub_id)?;
     run_sync_and_adopt(&state.sync, &state.sync_runner, &store, &hub_id, now_ms()).await
@@ -259,9 +280,60 @@ mod tests {
     #[test]
     fn the_status_says_what_the_computer_has() {
         let none = device("status-none");
-        assert_eq!(mode_status(&none.engine, false).unwrap(), ModeStatus { has_key: false, on: false, pending_send: false });
+        assert_eq!(mode_status(&none.engine, false).unwrap(), ModeStatus { has_key: false, on: false, pending_send: false, hub_id: None });
         let keyed = device_with_key("status-key");
-        assert_eq!(mode_status(&keyed.engine, true).unwrap(), ModeStatus { has_key: true, on: false, pending_send: true });
+        assert_eq!(mode_status(&keyed.engine, true).unwrap(), ModeStatus { has_key: true, on: false, pending_send: true, hub_id: None });
+    }
+
+    #[tokio::test]
+    async fn the_status_says_which_hub_the_automatic_sync_uses_once_one_is_chosen() {
+        let device = device_with_key("status-hub");
+        enable(&device.engine, false, 1).await.unwrap();
+        assert_eq!(mode_status(&device.engine, false).unwrap().hub_id, None, "turned on, but no hub chosen yet");
+        device.engine.arca_set_hub("hub-1").await.unwrap();
+        assert_eq!(mode_status(&device.engine, false).unwrap().hub_id.as_deref(), Some("hub-1"));
+    }
+
+    // ---------- choosing the hub of the automatic sync ----------
+
+    fn runner_of(device: &Device) -> SyncRunner {
+        SyncRunner::new(device.base.join("vault"), device.base.join("config.toml"), device.base.join("sync_secrets.json"), device.base.join("sync_manifest.json"), device.base.join("git"))
+    }
+
+    #[tokio::test]
+    async fn choosing_a_saved_hub_records_it() {
+        let device = device_with_key("choose-ok");
+        enable(&device.engine, false, 1).await.unwrap();
+        let hubs = device.base.join("hubs.json");
+        let home = saved_hubs::save(&hubs, None, "Home", "https://hub.example/").unwrap();
+        let work = saved_hubs::save(&hubs, None, "Work", "https://work.example/").unwrap();
+        set_hub(&device.engine, &runner_of(&device), &hubs, &home.id).await.unwrap();
+        assert_eq!(mode_status(&device.engine, false).unwrap().hub_id, Some(home.id.clone()));
+        set_hub(&device.engine, &runner_of(&device), &hubs, &work.id).await.unwrap();
+        assert_eq!(mode_status(&device.engine, false).unwrap().hub_id, Some(work.id), "the person can change their mind");
+    }
+
+    #[tokio::test]
+    async fn a_hub_that_is_not_saved_cannot_be_chosen_and_the_old_choice_stays() {
+        let device = device_with_key("choose-unknown");
+        enable(&device.engine, false, 1).await.unwrap();
+        let hubs = device.base.join("hubs.json");
+        let home = saved_hubs::save(&hubs, None, "Home", "https://hub.example/").unwrap();
+        set_hub(&device.engine, &runner_of(&device), &hubs, &home.id).await.unwrap();
+        let error = set_hub(&device.engine, &runner_of(&device), &hubs, "hub-gone").await.unwrap_err();
+        assert!(error.contains("no saved hub"), "{error}");
+        assert_eq!(mode_status(&device.engine, false).unwrap().hub_id, Some(home.id));
+    }
+
+    #[tokio::test]
+    async fn a_hub_cannot_be_chosen_while_the_mode_is_off_and_nothing_is_created() {
+        let device = device_with_key("choose-off");
+        let hubs = device.base.join("hubs.json");
+        let home = saved_hubs::save(&hubs, None, "Home", "https://hub.example/").unwrap();
+        let error = set_hub(&device.engine, &runner_of(&device), &hubs, &home.id).await.unwrap_err();
+        assert!(error.contains("arca mode"), "{error}");
+        assert!(!device.engine.arca_mode_on().unwrap(), "choosing a hub must not turn the mode on");
+        assert!(!device.base.join("arca_mode.json").exists());
     }
 
     // ---------- turning it on ----------
@@ -325,8 +397,10 @@ mod tests {
 
     #[test]
     fn the_payloads_reach_the_screen_in_camel_case() {
-        let status = serde_json::to_string(&ModeStatus { has_key: true, on: false, pending_send: true }).unwrap();
-        assert_eq!(status, r#"{"hasKey":true,"on":false,"pendingSend":true}"#);
+        let status = serde_json::to_string(&ModeStatus { has_key: true, on: false, pending_send: true, hub_id: None }).unwrap();
+        assert_eq!(status, r#"{"hasKey":true,"on":false,"pendingSend":true,"hubId":null}"#);
+        let chosen = serde_json::to_string(&ModeStatus { has_key: true, on: true, pending_send: false, hub_id: Some("hub-1".into()) }).unwrap();
+        assert_eq!(chosen, r#"{"hasKey":true,"on":true,"pendingSend":false,"hubId":"hub-1"}"#);
         let sync = SyncPayload::from(ArcaSyncReport { snapshot_created: true, pulled: 3, merges: 1, conflicts: 2, files_changed: 4, pushed: 5 });
         assert_eq!(serde_json::to_string(&sync).unwrap(), r#"{"snapshotCreated":true,"pulled":3,"merges":1,"conflicts":2,"filesChanged":4,"pushed":5}"#);
         assert_eq!(serde_json::to_string(&Enabled { needs_reload: false }).unwrap(), r#"{"needsReload":false}"#);

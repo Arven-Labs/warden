@@ -192,7 +192,7 @@ impl SyncRunner {
     /// One round of a vault in arca mode: the cycle on the hub the mode file names, unless that hub already rejected this device.
     async fn arca_round(&self, report: &mut SyncReport, hub_id: Option<String>, cycle: &ArcaCycle) {
         let Some(hub_id) = hub_id else {
-            report.error = Some("the arca mode is on but no hub is chosen: pick a hub and use Sync now once".to_string());
+            report.error = Some("the arca mode is on but no hub is chosen: choose a hub in the Arca mode section of the Sync screen".to_string());
             return;
         };
         let rejected_msg = |detail: &str| format!("the hub does not accept this device ({detail}): sign in to the hub again, then use Sync now");
