@@ -2,7 +2,18 @@
 
 > **Nota**: Este log foi criado junto com o projeto. As sessões serão registradas aqui conforme o trabalho avança.
 >
-> Última atualização: 2026-11-05 (Sessão 390)
+> Última atualização: 2026-11-05 (Sessão 391)
+
+---
+
+### 2026-11-05 — Sessão 391 (modo arca no desktop, PR 1: o backend — 2b-4 fatia 2, P183)
+
+- **Pedido**: a próxima fatia da 2b-4, escolhida depois do Warden#87: ponto de entrada no desktop, só manual. Plano aprovado em plan mode, em 2 PRs (backend, tela). O dono escolheu: desktop, sem loop automático, e o `SyncRunner` passa a pular o Vault em modo arca; na dúvida sobre `SyncBackend::Arca` (espalharia por `warden-server`, protocolo e web), o dono escolheu **sem variante nova**.
+- **Feito**: `arca_mode_cmds.rs` (comandos `arca_mode_status`, `arca_mode_enable`, `arca_sync_run(hub_id)`; as funções puras `mode_status`, `enable`, `hub_store`, `run_sync` ficam testáveis sem janela); `arca_pair_cmds::device_token` extraído do `hub_access` (o pareamento não mudou); feature `arca` ligada no desktop; `HubStore` e `HubError` reexportados por `warden_sync::arca_sync`; `SyncEngine::arca_mode_on`; `SyncRunner::round` volta sem erro e sem rede com o modo ligado. Ligar faz o Pull pelo `warden-sync` primeiro quando o Vault está pareado no Arweave, e não liga se o Pull falhar.
+- **Testes primeiro** (tabela aprovada pelo dono): 11 no desktop e 1 no runner. Antes de implementar, 10 de 11 falharam com `todo!()` (o do formato JSON já passava) e o do runner falhou pelo erro `pull: this vault is in arca mode` a cada ciclo. Quebras de propósito: sem o retorno cedo no runner, só o do runner falha; ignorando a falha do Pull no `enable`, só o do Pull falha. Revertidas.
+- **Resultado local**: `warden-bootstrap` 586, `desktop` 95 e `warden-sync` 93 passam; `cargo tree -p warden-mobile-bridge` sem `arca-core` nem `aws-lc`; clippy sem aviso novo no que escrevi (corrigi um `assert_eq!` com bool literal).
+- **Não verificado**: CI (Windows e macOS compilam `aws-lc-sys` pela primeira vez no desktop); sync de ponta a ponta no desktop (só no `warden-server`); a tela (PR 2); o `SyncRunner` com o Vault em modo arca e Arweave pareado (só o ramo git foi testado, o retorno cedo vem antes dos dois).
+- **Fica**: a tela (PR 2); loop automático da arca; variante `Arca` com protocolo e web; CLI, `warden-server`, mobile; P183.
 
 ---
 

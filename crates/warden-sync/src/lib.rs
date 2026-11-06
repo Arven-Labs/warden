@@ -96,6 +96,11 @@ impl SyncEngine {
         self.secrets_path.exists()
     }
 
+    /// Whether this vault is in arca mode (see `arca_mode`). An unreadable switch is an error, never "off".
+    pub fn arca_mode_on(&self) -> anyhow::Result<bool> {
+        Ok(arca_mode::load_mode(&arca_mode::mode_path_for(&self.manifest_path))?.is_some())
+    }
+
     /// Generates a fresh vault key on this device — the very first device in a sync group calls
     /// this; every other device instead calls `pairing_join`/`pairing_join_with_hosts` to receive
     /// the same key from an already-initialized one.

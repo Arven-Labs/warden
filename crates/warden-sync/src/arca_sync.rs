@@ -14,8 +14,9 @@ use anyhow::Context;
 use arca_core::crypto::{EpochKeys, VaultKey};
 use arca_core::disk::DiskStore;
 use arca_core::engine::{Engine, MergeOutcome, Roots, Snapshot};
-use arca_core::hub::HubStore;
 use arca_core::object::ObjectId;
+// What a caller needs to name the hub it syncs with, so it does not need `arca-core` of its own.
+pub use arca_core::hub::{HubError, HubStore};
 use arca_core::replicate::ReplicateReport;
 
 use crate::arca_mode::{folder_path_for, load_mode, mode_path_for, save_mode, state_path_for, store_path_for, ArcaMode};

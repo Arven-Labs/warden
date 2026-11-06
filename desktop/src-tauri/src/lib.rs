@@ -1,4 +1,5 @@
 mod api_key_cmds;
+mod arca_mode_cmds;
 mod arca_pair_cmds;
 mod bot_cmds;
 mod approval;
@@ -1445,6 +1446,9 @@ pub fn run() {
             arca_pair_cmds::arca_pair_run,
             arca_pair_cmds::arca_pair_answer,
             arca_pair_cmds::arca_pair_cancel,
+            arca_mode_cmds::arca_mode_status,
+            arca_mode_cmds::arca_mode_enable,
+            arca_mode_cmds::arca_sync_run,
             remote_cmds::remote_connect,
             remote_cmds::remote_disconnect,
             remote_cmds::remote_status,
