@@ -125,6 +125,28 @@ struct Hosting {
     next_session: u64,
 }
 
+/// What one arca cycle did, as far as the loop's report needs.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ArcaCycleSummary {
+    /// Files the vault got from other devices (created, updated and removed).
+    pub files_changed: usize,
+}
+
+/// Why an arca cycle failed. The runner stops on the first and retries on the second.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ArcaCycleError {
+    /// The hub does not accept this device's token. Sending it again would only be refused again.
+    AuthRejected(String),
+    /// Anything else (hub down, a refused apply, no saved hub): tried again on the next round.
+    Other(String),
+}
+
+pub type ArcaCycleFuture = std::pin::Pin<Box<dyn std::future::Future<Output = Result<ArcaCycleSummary, ArcaCycleError>> + Send>>;
+
+/// Runs one arca cycle against the saved hub with that id. The host installs it (`with_arca_cycle`): the hub's address and token
+/// live in the host's own files, and this crate knows neither.
+pub type ArcaCycle = Arc<dyn Fn(String) -> ArcaCycleFuture + Send + Sync>;
+
 pub struct SyncRunner {
     vault_path: PathBuf,
     config_path: PathBuf,
@@ -134,11 +156,75 @@ pub struct SyncRunner {
     lock: tokio::sync::Mutex<()>,
     last: Mutex<Option<SyncReport>>,
     hosting: Arc<Mutex<Hosting>>,
+    /// `None` on hosts that do not sync with the arca: a vault in arca mode is then left alone, quietly.
+    arca_cycle: Option<ArcaCycle>,
+    /// The hub whose token was rejected. Kept in memory only, so a restart tries once more.
+    arca_halted: Mutex<Option<String>>,
 }
 
 impl SyncRunner {
     pub fn new(vault_path: PathBuf, config_path: PathBuf, secrets_path: PathBuf, manifest_path: PathBuf, git_repo_path: PathBuf) -> Self {
-        Self { vault_path, config_path, secrets_path, manifest_path, git_repo_path, lock: tokio::sync::Mutex::new(()), last: Mutex::new(None), hosting: Arc::default() }
+        Self {
+            vault_path,
+            config_path,
+            secrets_path,
+            manifest_path,
+            git_repo_path,
+            lock: tokio::sync::Mutex::new(()),
+            last: Mutex::new(None),
+            hosting: Arc::default(),
+            arca_cycle: None,
+            arca_halted: Mutex::new(None),
+        }
+    }
+
+    /// Lets the loop sync a vault that is in arca mode, with `cycle`.
+    pub fn with_arca_cycle(mut self, cycle: ArcaCycle) -> Self {
+        self.arca_cycle = Some(cycle);
+        self
+    }
+
+    /// Lifts the stop a rejected token caused (the person signed in again, or a manual sync worked).
+    pub fn resume_arca(&self) {
+        *self.arca_halted.lock().unwrap() = None;
+    }
+
+    /// One round of a vault in arca mode: the cycle on the hub the mode file names, unless that hub already rejected this device.
+    async fn arca_round(&self, report: &mut SyncReport, hub_id: Option<String>, cycle: &ArcaCycle) {
+        let Some(hub_id) = hub_id else {
+            report.error = Some("the arca mode is on but no hub is chosen: pick a hub and use Sync now once".to_string());
+            return;
+        };
+        let rejected_msg = |detail: &str| format!("the hub does not accept this device ({detail}): sign in to the hub again, then use Sync now");
+        {
+            let mut halted = self.arca_halted.lock().unwrap();
+            match halted.as_deref() {
+                Some(stopped) if stopped == hub_id => {
+                    report.error = Some(rejected_msg("the token was refused earlier"));
+                    return;
+                }
+                // The vault now points at another hub: the earlier stop was about the old one.
+                Some(_) => *halted = None,
+                None => {}
+            }
+        }
+        match cycle(hub_id.clone()).await {
+            Ok(summary) if summary.files_changed > 0 => {
+                report.pulled = Some(PulledSummary {
+                    tx_id: None,
+                    files_written: summary.files_changed,
+                    files_deleted: 0,
+                    config_updated: false,
+                    oauth_logins: Vec::new(),
+                })
+            }
+            Ok(_) => {}
+            Err(ArcaCycleError::AuthRejected(detail)) => {
+                *self.arca_halted.lock().unwrap() = Some(hub_id);
+                report.error = Some(rejected_msg(&detail));
+            }
+            Err(ArcaCycleError::Other(detail)) => report.error = Some(detail),
+        }
     }
 
     /// The paths every Warden install uses under the OS config dir (`warden_sync::paths`).
@@ -181,12 +267,16 @@ impl SyncRunner {
                 return report;
             }
         };
-        // A vault in arca mode is written by the arca alone: leave it be, and quietly (the engines would refuse, and the loop would
-        // log that every round). The backend stays what the config says; a variant of its own needs the hub protocol and the web.
+        // A vault in arca mode is written by the arca alone: the old engines never touch it (they would refuse, and the loop would
+        // log that every round). A host that installed an arca cycle runs it on the saved hub; any other leaves the vault be, quietly.
+        // The backend stays what the config says; a variant of its own needs the hub protocol and the web.
         match warden_sync::arca_mode::load_mode(&warden_sync::arca_mode::mode_path_for(&self.manifest_path)) {
             Ok(None) => {}
-            Ok(Some(_)) => {
+            Ok(Some(mode)) => {
                 report.backend = if git.is_some() { SyncBackend::Git } else { SyncBackend::Arweave };
+                if let Some(cycle) = &self.arca_cycle {
+                    self.arca_round(&mut report, mode.hub_id, cycle).await;
+                }
                 return report;
             }
             Err(err) => {
@@ -504,6 +594,118 @@ mod tests {
         assert_eq!((&report.pulled, &report.pushed, &report.error), (&None, &None, &None), "{report:?}");
         let heads = std::process::Command::new("git").args(["ls-remote", &remote.to_string_lossy()]).output().unwrap();
         assert!(heads.stdout.is_empty(), "nothing may reach the git remote: {}", String::from_utf8_lossy(&heads.stdout));
+    }
+
+    // ---- the automatic loop of the arca mode (arca ADR 0012, Warden P183) ----
+
+    /// A fake arca cycle: remembers the hub each call got and answers from a script, one answer per call.
+    fn fake_cycle(script: Vec<Result<ArcaCycleSummary, ArcaCycleError>>) -> (ArcaCycle, Arc<Mutex<Vec<String>>>) {
+        let calls = Arc::new(Mutex::new(Vec::new()));
+        let script = Arc::new(Mutex::new(std::collections::VecDeque::from(script)));
+        let seen = calls.clone();
+        let cycle: ArcaCycle = Arc::new(move |hub_id: String| {
+            seen.lock().unwrap().push(hub_id);
+            let answer = script.lock().unwrap().pop_front().expect("the script ran out: the cycle ran more often than expected");
+            Box::pin(async move { answer })
+        });
+        (cycle, calls)
+    }
+
+    /// A device in arca mode (switch on, `hub_id` as given) with `cycle` installed.
+    async fn arca_device(name: &str, hub_id: Option<&str>, cycle: ArcaCycle) -> SyncRunner {
+        use warden_sync::arca_mode::{mode_path_for, save_mode, ArcaMode};
+        let dir = temp_dir(name);
+        let runner = device(&dir, "a", None).with_arca_cycle(cycle);
+        runner.init_fresh().await.unwrap();
+        save_mode(&mode_path_for(&runner.manifest_path), &ArcaMode { version: 1, enabled_at_ms: 1, hub_id: hub_id.map(String::from) }).unwrap();
+        runner
+    }
+
+    fn point_at(runner: &SyncRunner, hub_id: &str) {
+        use warden_sync::arca_mode::{load_mode, mode_path_for, save_mode, ArcaMode};
+        let path = mode_path_for(&runner.manifest_path);
+        let mode = load_mode(&path).unwrap().unwrap();
+        save_mode(&path, &ArcaMode { hub_id: Some(hub_id.to_string()), ..mode }).unwrap();
+    }
+
+    fn changed(files: usize) -> Result<ArcaCycleSummary, ArcaCycleError> {
+        Ok(ArcaCycleSummary { files_changed: files })
+    }
+
+    #[tokio::test]
+    async fn an_arca_vault_with_a_hub_runs_one_cycle_per_round_on_that_hub() {
+        let (cycle, calls) = fake_cycle(vec![changed(0), changed(0)]);
+        let a = arca_device("arca-loop-runs", Some("hub-1"), cycle).await;
+        for _ in 0..2 {
+            let report = a.run_once().await;
+            assert_eq!((&report.pulled, &report.pushed, &report.error), (&None, &None, &None), "{report:?}");
+        }
+        assert_eq!(*calls.lock().unwrap(), ["hub-1", "hub-1"]);
+    }
+
+    #[tokio::test]
+    async fn the_files_a_cycle_changed_show_up_as_a_pull_in_the_report() {
+        let (cycle, _) = fake_cycle(vec![changed(3)]);
+        let a = arca_device("arca-loop-report", Some("hub-1"), cycle).await;
+        let report = a.run_once().await;
+        assert_eq!(report.error, None);
+        assert_eq!(report.pulled.map(|p| p.files_written), Some(3));
+        assert!(report.pushed.is_none());
+    }
+
+    #[tokio::test]
+    async fn an_arca_vault_with_no_hub_waits_and_says_so_without_calling_the_cycle() {
+        let (cycle, calls) = fake_cycle(vec![]);
+        let a = arca_device("arca-loop-nohub", None, cycle).await;
+        let report = a.run_once().await;
+        assert!(calls.lock().unwrap().is_empty());
+        assert!(report.error.as_deref().is_some_and(|e| e.contains("hub")), "the report must tell the person to pick a hub: {report:?}");
+    }
+
+    #[tokio::test]
+    async fn a_rejected_token_stops_the_loop_and_says_to_sign_in_again() {
+        let (cycle, calls) = fake_cycle(vec![Err(ArcaCycleError::AuthRejected("the hub does not accept this device".into()))]);
+        let a = arca_device("arca-loop-rejected", Some("hub-1"), cycle).await;
+        let first = a.run_once().await;
+        assert!(first.error.as_deref().is_some_and(|e| e.contains("sign in")), "{first:?}");
+        for _ in 0..2 {
+            let again = a.run_once().await;
+            assert!(again.error.as_deref().is_some_and(|e| e.contains("sign in")), "the stop must stay visible: {again:?}");
+        }
+        assert_eq!(calls.lock().unwrap().len(), 1, "a rejected token must not be sent to the hub again");
+    }
+
+    #[tokio::test]
+    async fn after_resume_the_cycle_runs_again() {
+        let (cycle, calls) = fake_cycle(vec![Err(ArcaCycleError::AuthRejected("no".into())), changed(0)]);
+        let a = arca_device("arca-loop-resume", Some("hub-1"), cycle).await;
+        a.run_once().await;
+        a.resume_arca();
+        let report = a.run_once().await;
+        assert_eq!(report.error, None, "{report:?}");
+        assert_eq!(calls.lock().unwrap().len(), 2);
+    }
+
+    #[tokio::test]
+    async fn pointing_the_vault_at_another_hub_lifts_the_stop() {
+        let (cycle, calls) = fake_cycle(vec![Err(ArcaCycleError::AuthRejected("no".into())), changed(0)]);
+        let a = arca_device("arca-loop-otherhub", Some("hub-1"), cycle).await;
+        a.run_once().await;
+        point_at(&a, "hub-2");
+        let report = a.run_once().await;
+        assert_eq!(report.error, None, "{report:?}");
+        assert_eq!(*calls.lock().unwrap(), ["hub-1", "hub-2"]);
+    }
+
+    #[tokio::test]
+    async fn a_hub_that_is_down_is_an_error_but_does_not_stop_the_loop() {
+        let (cycle, calls) = fake_cycle(vec![Err(ArcaCycleError::Other("pulling from the hub: connection refused".into())), changed(0)]);
+        let a = arca_device("arca-loop-down", Some("hub-1"), cycle).await;
+        let first = a.run_once().await;
+        assert!(first.error.as_deref().is_some_and(|e| e.contains("connection refused")), "{first:?}");
+        let second = a.run_once().await;
+        assert_eq!(second.error, None, "{second:?}");
+        assert_eq!(calls.lock().unwrap().len(), 2);
     }
 
     #[tokio::test]

@@ -1235,7 +1235,21 @@ pub fn run() {
     let generated_files_root = load_config(None)
         .map(|config| resolve_generated_path(&config, &sync_vault_path))
         .unwrap_or_else(|_| sync_vault_path.parent().unwrap_or(std::path::Path::new(".")).join("generated"));
-    let sync_runner = Arc::new(warden_bootstrap::auto_sync::SyncRunner::with_default_paths(sync_vault_path.clone(), sync_config_path.clone()));
+    // The loop's arca cycle gets an engine of its own over the same paths: the lock that keeps two syncs apart is a file, so it also
+    // serializes the loop with the "Sync now" button (`arca_mode_cmds`), which uses `AppState.sync`.
+    let arca_loop_engine = Arc::new(
+        warden_sync::SyncEngine::new(sync_vault_path.clone(), sync_config_path.clone(), sync_secrets_path(), sync_manifest_path())
+            .with_oauth_dir(warden_bootstrap::oauth_credentials_dir()),
+    );
+    let arca_cycle: warden_bootstrap::auto_sync::ArcaCycle = Arc::new(move |hub_id: String| {
+        let engine = arca_loop_engine.clone();
+        Box::pin(async move {
+            let hubs_path = config_paths::saved_hubs_file().map_err(warden_bootstrap::auto_sync::ArcaCycleError::Other)?;
+            let config_file = config_paths::config_file().map_err(warden_bootstrap::auto_sync::ArcaCycleError::Other)?;
+            arca_mode_cmds::loop_cycle(&engine, &hubs_path, &config_file, &hub_id, arca_mode_cmds::now_ms()).await
+        })
+    });
+    let sync_runner = Arc::new(warden_bootstrap::auto_sync::SyncRunner::with_default_paths(sync_vault_path.clone(), sync_config_path.clone()).with_arca_cycle(arca_cycle));
     let sync = warden_sync::SyncEngine::new(sync_vault_path, sync_config_path, sync_secrets_path(), sync_manifest_path())
         .with_oauth_dir(warden_bootstrap::oauth_credentials_dir());
 

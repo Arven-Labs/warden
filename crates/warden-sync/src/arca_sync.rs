@@ -23,6 +23,14 @@ use crate::arca_mode::{folder_path_for, load_mode, mode_path_for, save_mode, sta
 use crate::manifest::{create_private_dir, write_atomic};
 use crate::SyncEngine;
 
+/// Whether a failed cycle failed because the hub does not accept this device: the token is unknown (401) or the device is pending
+/// or revoked (403). The arca's client reports both as the same `PermissionDenied`, so they cannot be told apart here, and need not
+/// be: in both a retry sends the same token to be refused again. A hub that is down or slow is not one of these.
+pub fn is_auth_rejected(err: &anyhow::Error) -> bool {
+    use arca_core::store::StoreError;
+    err.chain().any(|cause| matches!(cause.downcast_ref::<StoreError>(), Some(StoreError::Unavailable(std::io::ErrorKind::PermissionDenied))))
+}
+
 /// The key epoch of the first manifest (ADR 0012, step c). Rotation is a later phase (ADR 0006).
 const FIRST_KEY_EPOCH: u32 = 0;
 
