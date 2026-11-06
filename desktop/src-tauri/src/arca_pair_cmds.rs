@@ -35,16 +35,21 @@ pub fn role_for(has_key: bool) -> Role {
     }
 }
 
+/// The token this computer was issued for `hub`, or the sentence that tells the person to sign in first.
+pub(crate) fn device_token<'a>(hub: &SavedHub, identity: &'a RemoteIdentity) -> Result<&'a str, String> {
+    identity
+        .device_token
+        .as_deref()
+        .filter(|token| !token.is_empty())
+        .ok_or_else(|| format!("not signed in to '{}' yet: sign in to this hub first", hub.name))
+}
+
 /// Where the hub is and the token this computer was issued for it. Never asks the person for either.
 ///
 /// Plain `http` to another machine is refused (the token and the key exchange would travel in the clear); the "insecure" way
 /// in `HubAccess` is deliberately not used here.
 pub fn hub_access(hub: &SavedHub, identity: &RemoteIdentity) -> Result<HubAccess, String> {
-    let token = identity
-        .device_token
-        .as_deref()
-        .filter(|token| !token.is_empty())
-        .ok_or_else(|| format!("not signed in to '{}' yet: sign in to this hub first", hub.name))?;
+    let token = device_token(hub, identity)?;
     HubAccess::new(&hub.url, token).map_err(|e| match e {
         PairingError::InsecureUrl => format!("'{}' is plain http to another machine, so the token would travel in the clear: save the hub with an https address", hub.name),
         PairingError::BadUrl => format!("'{}' is not a hub address the pairing can use (an https address, with nothing after the host)", hub.url),

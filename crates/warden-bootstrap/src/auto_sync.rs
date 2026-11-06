@@ -181,6 +181,19 @@ impl SyncRunner {
                 return report;
             }
         };
+        // A vault in arca mode is written by the arca alone: leave it be, and quietly (the engines would refuse, and the loop would
+        // log that every round). The backend stays what the config says; a variant of its own needs the hub protocol and the web.
+        match warden_sync::arca_mode::load_mode(&warden_sync::arca_mode::mode_path_for(&self.manifest_path)) {
+            Ok(None) => {}
+            Ok(Some(_)) => {
+                report.backend = if git.is_some() { SyncBackend::Git } else { SyncBackend::Arweave };
+                return report;
+            }
+            Err(err) => {
+                report.error = Some(format!("{err:#}"));
+                return report;
+            }
+        }
         match git {
             Some(git) => {
                 report.backend = SyncBackend::Git;
@@ -473,6 +486,24 @@ mod tests {
         let report = runner.run_once().await;
         assert_eq!(report.backend, SyncBackend::Arweave);
         assert_eq!((report.pulled, report.pushed, report.error), (None, None, None));
+    }
+
+    /// A vault in arca mode is written by the arca alone (arca ADR 0012). The loop must leave it be, quietly: the engines refuse it,
+    /// and an error here would be logged every five minutes for as long as the app is open.
+    #[tokio::test]
+    async fn a_vault_in_arca_mode_is_left_alone_and_the_round_is_not_an_error() {
+        use warden_sync::arca_mode::{mode_path_for, save_mode, ArcaMode};
+        let dir = temp_dir("arca-mode");
+        let remote = bare_remote(&dir);
+        let a = device(&dir, "a", Some(&remote));
+        a.init_fresh().await.unwrap();
+        std::fs::write(a.vault_path.join("nota.md"), "oi").unwrap();
+        save_mode(&mode_path_for(&a.manifest_path), &ArcaMode { version: 1, enabled_at_ms: 1 }).unwrap();
+
+        let report = a.run_once().await;
+        assert_eq!((&report.pulled, &report.pushed, &report.error), (&None, &None, &None), "{report:?}");
+        let heads = std::process::Command::new("git").args(["ls-remote", &remote.to_string_lossy()]).output().unwrap();
+        assert!(heads.stdout.is_empty(), "nothing may reach the git remote: {}", String::from_utf8_lossy(&heads.stdout));
     }
 
     #[tokio::test]
