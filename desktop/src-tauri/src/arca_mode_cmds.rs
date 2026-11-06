@@ -4,11 +4,14 @@
 //! Plain functions take the engine and what they need, so they are tested without a window; the `#[tauri::command]`s at the bottom
 //! only read the app's state and call them.
 
+use std::path::Path;
+
 use serde::Serialize;
 use tauri::State;
+use warden_bootstrap::auto_sync::{ArcaCycleError, ArcaCycleSummary, SyncRunner};
 use warden_bootstrap::saved_hubs::{self, SavedHub};
 use warden_server::remote_client::{RemoteIdentities, RemoteIdentity};
-use warden_sync::arca_sync::{ArcaSyncReport, HubError, HubStore};
+use warden_sync::arca_sync::{is_auth_rejected, ArcaSyncReport, HubError, HubStore};
 use warden_sync::SyncEngine;
 
 use crate::arca_pair_cmds::device_token;
@@ -99,7 +102,33 @@ pub async fn run_sync(engine: &SyncEngine, hub: &HubStore, now_ms: u64) -> Resul
     engine.arca_sync(hub, now_ms).await.map(SyncPayload::from).map_err(|e| format!("{e:#}"))
 }
 
-fn now_ms() -> u64 {
+/// The saved hub `hub_id`, with the token this computer holds for it, ready to sync with.
+pub fn saved_hub_store(hubs_path: &Path, config_file: &Path, hub_id: &str) -> Result<HubStore, String> {
+    let hub = saved_hubs::find(hubs_path, hub_id).map_err(|e| format!("{e:#}"))?.ok_or_else(|| format!("there is no saved hub '{hub_id}' (it may have been removed)"))?;
+    let identity = RemoteIdentities::beside(config_file).load_or_create(hub_id, DEVICE_NAME).map_err(|e| format!("{e:#}"))?;
+    hub_store(&hub, &identity)
+}
+
+/// One cycle for the automatic loop (`SyncRunner`, arca ADR 0012). Like the manual one, but the failure says whether the hub refused
+/// this device, because the loop stops on that and only on that. It never touches the token: signing in again is the person's job.
+pub async fn loop_cycle(engine: &SyncEngine, hubs_path: &Path, config_file: &Path, hub_id: &str, now_ms: u64) -> Result<ArcaCycleSummary, ArcaCycleError> {
+    let store = saved_hub_store(hubs_path, config_file, hub_id).map_err(ArcaCycleError::Other)?;
+    match engine.arca_sync(&store, now_ms).await {
+        Ok(report) => Ok(ArcaCycleSummary { files_changed: report.files_changed }),
+        Err(err) if is_auth_rejected(&err) => Err(ArcaCycleError::AuthRejected(format!("{err:#}"))),
+        Err(err) => Err(ArcaCycleError::Other(format!("{err:#}"))),
+    }
+}
+
+/// A manual sync that worked is what chooses the hub for the automatic loop, and it lifts a stop the loop had put on it.
+pub async fn run_sync_and_adopt(engine: &SyncEngine, runner: &SyncRunner, hub: &HubStore, hub_id: &str, now_ms: u64) -> Result<SyncPayload, String> {
+    let payload = run_sync(engine, hub, now_ms).await?;
+    engine.arca_set_hub(hub_id).await.map_err(|e| format!("the sync worked, but the hub could not be recorded for the automatic sync: {e:#}"))?;
+    runner.resume_arca();
+    Ok(payload)
+}
+
+pub fn now_ms() -> u64 {
     std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_millis() as u64)
 }
 
@@ -122,11 +151,8 @@ pub async fn arca_mode_enable(state: State<'_, AppState>) -> Result<Enabled, Str
 
 #[tauri::command]
 pub async fn arca_sync_run(state: State<'_, AppState>, hub_id: String) -> Result<SyncPayload, String> {
-    let hubs_path = crate::config_paths::saved_hubs_file()?;
-    let hub = saved_hubs::find(&hubs_path, &hub_id).map_err(|e| format!("{e:#}"))?.ok_or_else(|| format!("there is no saved hub '{hub_id}' (it may have been removed)"))?;
-    let identity = RemoteIdentities::beside(&crate::config_paths::config_file()?).load_or_create(&hub_id, DEVICE_NAME).map_err(|e| format!("{e:#}"))?;
-    let store = hub_store(&hub, &identity)?;
-    run_sync(&state.sync, &store, now_ms()).await
+    let store = saved_hub_store(&crate::config_paths::saved_hubs_file()?, &crate::config_paths::config_file()?, &hub_id)?;
+    run_sync_and_adopt(&state.sync, &state.sync_runner, &store, &hub_id, now_ms()).await
 }
 
 #[cfg(test)]
@@ -195,6 +221,37 @@ mod tests {
     fn the_error_never_carries_the_token() {
         let error = hub_store(&hub("http://192.168.0.10:7000/"), &identity(Some("secret-token-123"))).unwrap_err();
         assert!(!error.contains("secret-token-123"), "{error}");
+    }
+
+    // ---------- the automatic loop's cycle ----------
+
+    #[tokio::test]
+    async fn the_loop_cycle_on_a_hub_that_is_no_longer_saved_is_a_plain_error_not_a_rejection() {
+        let keyed = device_with_key("loop-nohub");
+        let hubs = keyed.base.join("hubs.json");
+        let error = loop_cycle(&keyed.engine, &hubs, &keyed.base.join("config.toml"), "hub-gone", 1).await.unwrap_err();
+        assert!(matches!(&error, ArcaCycleError::Other(message) if message.contains("no saved hub")), "{error:?}");
+    }
+
+    #[tokio::test]
+    async fn the_loop_cycle_without_a_token_asks_to_sign_in_and_does_not_count_as_a_rejection() {
+        let keyed = device_with_key("loop-notoken");
+        let hubs = keyed.base.join("hubs.json");
+        let saved = saved_hubs::save(&hubs, None, "Home", "https://hub.example/").unwrap();
+        let error = loop_cycle(&keyed.engine, &hubs, &keyed.base.join("config.toml"), &saved.id, 1).await.unwrap_err();
+        assert!(matches!(&error, ArcaCycleError::Other(message) if message.contains("sign in")), "{error:?}");
+    }
+
+    #[tokio::test]
+    async fn a_manual_sync_that_failed_does_not_choose_the_hub() {
+        use warden_sync::arca_mode::{load_mode, mode_path_for};
+        let keyed = device_with_key("adopt-failed");
+        enable(&keyed.engine, false, 1).await.unwrap();
+        let runner = SyncRunner::new(keyed.base.join("vault"), keyed.base.join("config.toml"), keyed.base.join("sync_secrets.json"), keyed.base.join("sync_manifest.json"), keyed.base.join("git"));
+        // A hub nobody listens on.
+        let down = HubStore::new("http://127.0.0.1:1", "tok").unwrap();
+        assert!(run_sync_and_adopt(&keyed.engine, &runner, &down, "hub-1", 2).await.is_err());
+        assert_eq!(load_mode(&mode_path_for(&keyed.base.join("sync_manifest.json"))).unwrap().unwrap().hub_id, None);
     }
 
     // ---------- status ----------

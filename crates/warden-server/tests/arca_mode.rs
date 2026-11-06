@@ -357,3 +357,47 @@ async fn an_empty_hub_id_is_refused() {
     assert!(a.engine.arca_set_hub("").await.is_err());
     assert_eq!(load_mode(&mode_path_for(&a.manifest)).unwrap().unwrap().hub_id, None);
 }
+
+// ---- telling "the hub does not accept this device" from "the hub is not there" (the loop stops on the first only) ----
+
+#[tokio::test]
+async fn a_token_the_hub_does_not_know_is_an_auth_rejection() {
+    let (a, _) = first_device("a-unknown-token");
+    write(&a, "note.md", "hello");
+    a.engine.arca_enable(false, 1).await.unwrap();
+    let hub = hub().await;
+    let stranger = HubStore::new(&format!("http://{}", hub.addr), "a-token-nobody-issued").unwrap();
+    let err = a.engine.arca_sync(&stranger, 2).await.unwrap_err();
+    assert!(warden_sync::arca_sync::is_auth_rejected(&err), "{err:#}");
+}
+
+#[tokio::test]
+async fn a_device_the_owner_has_not_approved_yet_is_an_auth_rejection() {
+    let (a, _) = first_device("a-pending-device");
+    write(&a, "note.md", "hello");
+    a.engine.arca_enable(false, 1).await.unwrap();
+    let hub = hub().await;
+    let token = hub.devices.authenticate_as("dev-p", "dev-p", None, PairingProof::PairingKey).unwrap().unwrap().issued_token.unwrap();
+    let pending = HubStore::new(&format!("http://{}", hub.addr), &token).unwrap();
+    let err = a.engine.arca_sync(&pending, 2).await.unwrap_err();
+    assert!(warden_sync::arca_sync::is_auth_rejected(&err), "{err:#}");
+}
+
+#[tokio::test]
+async fn a_hub_that_is_down_is_not_an_auth_rejection() {
+    let (a, _) = first_device("a-down-not-auth");
+    write(&a, "note.md", "hello");
+    a.engine.arca_enable(false, 1).await.unwrap();
+    let dead = {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        listener.local_addr().unwrap()
+    };
+    let store = HubStore::new(&format!("http://{dead}"), "any-token").unwrap();
+    let err = a.engine.arca_sync(&store, 2).await.unwrap_err();
+    assert!(!warden_sync::arca_sync::is_auth_rejected(&err), "{err:#}");
+}
+
+#[tokio::test]
+async fn an_error_that_did_not_come_from_the_hub_is_not_an_auth_rejection() {
+    assert!(!warden_sync::arca_sync::is_auth_rejected(&anyhow::anyhow!("applying what other devices changed to the vault")));
+}
