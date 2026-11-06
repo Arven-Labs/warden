@@ -66,8 +66,20 @@ impl SyncEngine {
             Snapshot::Unchanged { head, .. } => head,
         };
         save_folder(&folder_path_for(&self.manifest_path), &folder)?;
-        save_mode(&mode_path_for(&self.manifest_path), &ArcaMode { version: 1, enabled_at_ms: now_ms })?;
+        save_mode(&mode_path_for(&self.manifest_path), &ArcaMode { version: 1, enabled_at_ms: now_ms, hub_id: None })?;
         Ok(())
+    }
+
+    /// Records which saved hub the automatic loop syncs with. Needs the mode on (it never turns it on) and keeps the rest of the
+    /// switch. Takes the sync lock, like `arca_enable`, so it cannot interleave with it.
+    pub async fn arca_set_hub(&self, hub_id: &str) -> anyhow::Result<()> {
+        anyhow::ensure!(!hub_id.trim().is_empty(), "the hub id is empty");
+        let _one_sync_at_a_time = self.sync_lock().await?;
+        let path = mode_path_for(&self.manifest_path);
+        let Some(mode) = load_mode(&path)? else {
+            anyhow::bail!("this vault is not in arca mode: turn it on first");
+        };
+        save_mode(&path, &ArcaMode { hub_id: Some(hub_id.to_string()), ..mode })
     }
 
     /// One full cycle against `hub`. Refuses unless the mode is on.
