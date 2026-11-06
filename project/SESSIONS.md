@@ -2,7 +2,20 @@
 
 > **Nota**: Este log foi criado junto com o projeto. As sessões serão registradas aqui conforme o trabalho avança.
 >
-> Última atualização: 2026-11-05 (Sessão 391)
+> Última atualização: 2026-11-05 (Sessão 392)
+
+---
+
+### 2026-11-05 — Sessão 392 (modo arca no desktop, PR 2: a tela — 2b-4 fatia 2, P183)
+
+- **Pedido**: o PR 2 do plano aprovado (a tela do Warden#88). O dono respondeu às duas decisões com as recomendações: confirmação em dois cliques e o aviso "ainda não roda sozinho" (mesclar sem o loop automático).
+- **Feito**: `lib/arcaMode.ts` (`viewOf`, `summaryOf`), `ArcaModeSection.tsx` no fim do `SyncView` (ligar em dois cliques com o aviso de irreversível, escolher o hub, "Sync now" com o botão desligado durante o ciclo, conflitos ao lado da frase), chaves `arca.*` em `en/sync.ts` e `pt-BR/sync.ts`.
+- **Testes primeiro** (tabela aprovada pelo dono): 10 de lógica e 7 de E2E. Antes de implementar: 10 de 10 de lógica falharam e 7 de 7 do E2E deram `TimeoutError`. Quebras de propósito: `viewOf` com a chave antes do "ligado" derrubou só o teste de "ligado"; ligar no primeiro clique derrubou só os 2 testes do segundo clique. Revertidas.
+- **Achado**: o título "Sync with arca" quebrou 3 testes antigos de Sync (`getByRole("heading", {name:"Sync"})` casa por substring e achou dois); o título virou "Arca mode" ("Modo arca"). Também troquei o texto do banner de sucesso porque repetia o começo da dica e o Playwright acusava dois elementos.
+- **Resultado local**: `npm test` 272 de 272; E2E do desktop completo 41 de 41; build sem erro. As 4 fotos (`desktop-arca-mode-ready/-confirm/-synced`, `desktop-pt-arca-mode`) foram olhadas aqui: batem com o resto do app. Só o tema claro foi fotografado.
+- **Deslize de processo**: uma vez usei `cat` com heredoc e `sed -i` no Bash para escrever `arcaMode.ts` e duas linhas dos catálogos; a regra do `CLAUDE.md` é só `Edit`/`Write`. O dono viu o diff e foi avisado; o resto foi feito com `Edit`/`Write`.
+- **Não verificado**: CI; tema escuro e as fotos no CI; um teste de ponta a ponta com o app Tauri de verdade (o E2E usa o backend de mentira do `harness.mjs`).
+- **Fica**: loop automático da arca; variante `Arca` com protocolo e web; CLI, `warden-server`, mobile; P183.
 
 ---
 

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { intlTag, t } from "../i18n";
+import ArcaModeSection from "./ArcaModeSection";
 import ArcaPairSection from "./ArcaPairSection";
 import type { GitPullResult, GitPushResult, SyncPullResult, SyncPushBegin, SyncPushResult, SyncStatus } from "../types";
 
@@ -426,6 +427,7 @@ function SyncView() {
       </section>
 
       <ArcaPairSection />
+      <ArcaModeSection />
     </div>
   );
 }
