@@ -6,6 +6,15 @@ export interface ModeStatus {
   hasKey: boolean;
   on: boolean;
   pendingSend: boolean;
+  /** The saved hub the automatic sync uses; null until the person chooses one. May name a hub that was removed since. */
+  hubId: string | null;
+}
+
+/** What the hub selector shows: the recorded hub if it is still saved (never "the first of the list", which would pretend a choice
+ * was made), and whether the recorded one is gone. Nothing to warn about until the list of saved hubs has arrived. */
+export function hubChoice(recorded: string | null, hubs: { id: string }[] | null): { selected: string; removed: boolean } {
+  if (recorded === null || hubs === null) return { selected: "", removed: false };
+  return hubs.some((hub) => hub.id === recorded) ? { selected: recorded, removed: false } : { selected: "", removed: true };
 }
 
 /** What `arca_sync_run` answers. */

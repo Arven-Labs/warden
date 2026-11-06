@@ -1,15 +1,15 @@
 import { useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { t } from "../i18n";
-import { summaryOf, viewOf, type ModeStatus, type SyncReport } from "../lib/arcaMode";
+import { hubChoice, summaryOf, viewOf, type ModeStatus, type SyncReport } from "../lib/arcaMode";
 import type { SavedHub } from "../types";
 
-/** Warden P183, desktop: turns the arca mode of the vault on (one way, so it takes a second click) and syncs with a saved hub by
- * hand. The work is `warden_sync::arca_sync`, run by the `arca_mode_enable` and `arca_sync_run` commands. */
+/** Warden P183, desktop: turns the arca mode of the vault on (one way, so it takes a second click), chooses the saved hub the automatic
+ * sync uses (recorded as soon as it is picked) and syncs with it by hand. The work is `warden_sync::arca_sync`, run by the
+ * `arca_mode_enable`, `arca_mode_set_hub` and `arca_sync_run` commands. The hub shown is always the one the backend recorded. */
 function ArcaModeSection() {
   const [status, setStatus] = useState<ModeStatus | null>(null);
   const [hubs, setHubs] = useState<SavedHub[] | null>(null);
-  const [hubId, setHubId] = useState("");
   const [confirming, setConfirming] = useState(false);
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<{ ok: boolean; text: string } | null>(null);
@@ -25,12 +25,26 @@ function ArcaModeSection() {
   useEffect(() => {
     refreshStatus();
     invoke<SavedHub[]>("list_hubs")
-      .then((list) => {
-        setHubs(list);
-        setHubId((current) => current || list[0]?.id || "");
-      })
+      .then(setHubs)
       .catch(() => setHubs([]));
   }, []);
+
+  async function chooseHub(id: string) {
+    if (busyRef.current || id === "") return;
+    busyRef.current = true;
+    setBusy(true);
+    setResult(null);
+    try {
+      await invoke("arca_mode_set_hub", { hubId: id });
+    } catch (e) {
+      setResult({ ok: false, text: t("arca.chooseFailed", { message: String(e) }) });
+    } finally {
+      // Whether it worked or not, what the screen shows is what the backend has recorded now.
+      refreshStatus();
+      busyRef.current = false;
+      setBusy(false);
+    }
+  }
 
   async function turnOn() {
     if (busyRef.current) return;
@@ -57,7 +71,7 @@ function ArcaModeSection() {
     setBusy(true);
     setResult(null);
     try {
-      const report = await invoke<SyncReport>("arca_sync_run", { hubId });
+      const report = await invoke<SyncReport>("arca_sync_run", { hubId: selected });
       const summary = summaryOf(report);
       const sentence = t(summary.key, summary.values);
       setResult({ ok: true, text: summary.conflicts > 0 ? `${sentence} ${t("arca.syncConflicts", { count: summary.conflicts })}` : sentence });
@@ -71,6 +85,8 @@ function ArcaModeSection() {
 
   const view = viewOf(status);
   const noHubs = hubs !== null && hubs.length === 0;
+  const { selected, removed } = hubChoice(status?.hubId ?? null, hubs);
+  const chosenName = hubs?.find((hub) => hub.id === selected)?.name;
 
   return (
     <section className="settings-section">
@@ -114,7 +130,10 @@ function ArcaModeSection() {
                 <label className="settings-hint" htmlFor="arca-sync-hub">
                   {t("arca.hub")}
                 </label>
-                <select id="arca-sync-hub" className="settings-input" value={hubId} disabled={busy} onChange={(e) => setHubId(e.target.value)}>
+                <select id="arca-sync-hub" className="settings-input" value={selected} disabled={busy} onChange={(e) => void chooseHub(e.target.value)}>
+                  <option value="" disabled>
+                    {t("arca.chooseHub")}
+                  </option>
                   {(hubs ?? []).map((hub) => (
                     <option key={hub.id} value={hub.id}>
                       {hub.name}
@@ -123,7 +142,9 @@ function ArcaModeSection() {
                 </select>
               </div>
             )}
-            <button type="button" className="settings-save-btn" disabled={busy || hubId === "" || noHubs} onClick={() => void syncNow()}>
+            {removed && <p className="settings-error-banner">{t("arca.hubRemoved")}</p>}
+            {chosenName && <p className="settings-hint">{t("arca.autoHub", { name: chosenName })}</p>}
+            <button type="button" className="settings-save-btn" disabled={busy || selected === "" || noHubs} onClick={() => void syncNow()}>
               {busy ? t("arca.syncing") : t("arca.syncNow")}
             </button>
           </>
