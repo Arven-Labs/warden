@@ -1,5 +1,5 @@
 //! The arca sync cycle for one vault (arca ADR 0012, 0014): turn the mode on, then `snapshot → pull → merge → apply → push`
-//! against a hub. Only the `vault` class goes in; `config` and `secret` stay with the `warden-sync` engines.
+//! against a hub. The `vault` and `secret` (MCP logins) classes go in; `config` stays with the `warden-sync` engines.
 //!
 //! One thing the arca's `Engine` does not track for us is which manifest the folder *reflects*. `Engine::snapshot` builds on the
 //! storage's tip, and `Engine::apply` takes the manifest the folder is at (`from`). Normally they are the same, but when a cycle
@@ -14,13 +14,15 @@ use anyhow::Context;
 use arca_core::crypto::{EpochKeys, VaultKey};
 use arca_core::disk::DiskStore;
 use arca_core::engine::{Engine, MergeOutcome, Roots, Snapshot};
+use arca_core::manifest::Class;
 use arca_core::object::ObjectId;
 // What a caller needs to name the hub it syncs with, so it does not need `arca-core` of its own.
 pub use arca_core::hub::{HubError, HubStore};
 use arca_core::replicate::ReplicateReport;
 
-use crate::arca_mode::{folder_path_for, load_mode, mode_path_for, save_mode, state_path_for, store_path_for, ArcaMode};
+use crate::arca_mode::{conflicts_dir_for, folder_path_for, load_mode, mode_path_for, save_mode, state_path_for, store_path_for, ArcaMode};
 use crate::manifest::{create_private_dir, write_atomic};
+use crate::oauth::is_login_file_name;
 use crate::SyncEngine;
 
 /// Whether a failed cycle failed because the hub does not accept this device: the token is unknown (401) or the device is pending
@@ -46,8 +48,10 @@ pub struct ArcaSyncReport {
     pub pulled: usize,
     /// Merge manifests this cycle wrote.
     pub merges: usize,
-    /// Conflicts those merges settled (the loser is kept as a `.conflito-*` copy in the vault).
+    /// Conflicts those merges settled (in the vault the loser is kept as a `.conflito-*` copy; see `secret_losers_saved`).
     pub conflicts: usize,
+    /// Losers of `config` and `secret` conflicts written now to `conflicts_dir_for`, in clear text (they are not in the manifest).
+    pub secret_losers_saved: usize,
     /// Files the vault got from other devices: created, updated and removed.
     pub files_changed: usize,
     /// Objects copied from the local storage to the hub.
@@ -126,6 +130,13 @@ impl SyncEngine {
                 MergeOutcome::Merged { conflicts, tips_after, .. } => {
                     report.merges += 1;
                     report.conflicts += conflicts.len();
+                    // Saved right away, before any apply that may be refused: the loser is in no manifest.
+                    if !conflicts.is_empty() {
+                        let dir = conflicts_dir_for(&self.manifest_path);
+                        create_private_dir(&dir)?;
+                        let saved = engine.save_conflict_losers(&conflicts, &dir, &roots).await.context("keeping the losers of config and secret conflicts")?;
+                        report.secret_losers_saved += saved.saved;
+                    }
                     if tips_after <= 1 {
                         break;
                     }
@@ -141,6 +152,12 @@ impl SyncEngine {
             anyhow::bail!("after merging the storage has {} tips; expected one", heads.tips.len());
         };
         if tip.id != folder {
+            if self.oauth_dir.is_some() {
+                let stray: Vec<&str> = tip.manifest.files.iter().filter(|f| f.class == Class::Secret && !is_login_file_name(&f.path)).map(|f| f.path.as_str()).collect();
+                if !stray.is_empty() {
+                    anyhow::bail!("another device sent files that are not MCP logins ({}); refusing to apply them", stray.join(", "));
+                }
+            }
             let applied = engine.apply(Some(&folder), &tip.id, &roots).await.context("applying what other devices changed to the vault")?;
             folder = tip.id;
             save_folder(&folder_path, &folder)?;
@@ -158,11 +175,34 @@ impl SyncEngine {
     fn arca_engine(&self) -> anyhow::Result<(Engine<DiskStore>, Roots)> {
         let secrets = self.load_secrets()?;
         std::fs::create_dir_all(self.vault.root())?;
+        let secret_root = self.prepare_logins_root()?;
         let store = DiskStore::open(store_path_for(&self.manifest_path))?;
         let keys = EpochKeys::derive(&VaultKey::from_bytes(secrets.vault_key), FIRST_KEY_EPOCH);
         let engine = Engine::new(store, keys, secrets.device_id)?.with_state(state_path_for(&self.manifest_path));
-        let roots = Roots { vault: Some(self.vault.root().clone()), config: None, secret: None };
+        let roots = Roots { vault: Some(self.vault.root().clone()), config: None, secret: secret_root };
         Ok((engine, roots))
+    }
+
+    /// The `secret` root: the MCP logins folder, when the host wired one in. The arca takes every file of a root, so this refuses
+    /// (a) a folder that holds the sync key, the manifest or the config, which would send them to the hub as a class, and
+    /// (b) anything in it that `oauth.rs` would not have carried: a name other than `[A-Za-z0-9_-]+.json`, a folder, a link.
+    /// A missing folder is created empty and private, because the arca reads a missing root as an error, not as empty.
+    fn prepare_logins_root(&self) -> anyhow::Result<Option<std::path::PathBuf>> {
+        let Some(dir) = self.oauth_dir.as_deref() else { return Ok(None) };
+        for kept_elsewhere in [&self.secrets_path, &self.manifest_path, &self.config_path] {
+            if kept_elsewhere.starts_with(dir) {
+                anyhow::bail!("the logins folder {} holds {}: it cannot be synced as the logins class", dir.display(), kept_elsewhere.display());
+            }
+        }
+        create_private_dir(dir)?;
+        for entry in std::fs::read_dir(dir)? {
+            let entry = entry?;
+            let name = entry.file_name().to_string_lossy().to_string();
+            if !is_login_file_name(&name) || !entry.file_type()?.is_file() {
+                anyhow::bail!("{} in the logins folder is not an MCP login file; move it out of {} so the arca can sync the logins", name, dir.display());
+            }
+        }
+        Ok(Some(dir.to_path_buf()))
     }
 }
 

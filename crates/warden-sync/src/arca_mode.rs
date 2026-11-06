@@ -47,6 +47,12 @@ pub fn folder_path_for(manifest_path: &Path) -> PathBuf {
     manifest_path.with_file_name("arca_folder.txt")
 }
 
+/// Where the cycle keeps the clear-text copy of the loser of a `config` or `secret` conflict (arca ADR 0010, 0014), as
+/// `<dir>/<class>/<path>.conflito-*`. Next to the manifest, so it is never inside the vault or the logins folder.
+pub fn conflicts_dir_for(manifest_path: &Path) -> PathBuf {
+    manifest_path.with_file_name("arca-conflicts")
+}
+
 /// `None` when the mode is off. A file that exists but cannot be read or parsed is an **error**, never "off": reading a broken
 /// switch as off would let the other engines write the vault.
 pub fn load_mode(path: &Path) -> anyhow::Result<Option<ArcaMode>> {
