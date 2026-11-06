@@ -498,7 +498,7 @@ mod tests {
         let a = device(&dir, "a", Some(&remote));
         a.init_fresh().await.unwrap();
         std::fs::write(a.vault_path.join("nota.md"), "oi").unwrap();
-        save_mode(&mode_path_for(&a.manifest_path), &ArcaMode { version: 1, enabled_at_ms: 1 }).unwrap();
+        save_mode(&mode_path_for(&a.manifest_path), &ArcaMode { version: 1, enabled_at_ms: 1, hub_id: None }).unwrap();
 
         let report = a.run_once().await;
         assert_eq!((&report.pulled, &report.pushed, &report.error), (&None, &None, &None), "{report:?}");

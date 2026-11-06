@@ -303,3 +303,57 @@ async fn a_cycle_whose_apply_was_refused_never_turns_the_missing_files_into_dele
     }
     assert_eq!(files(&a.vault), BTreeMap::from([("x/y".to_string(), "inside the folder".to_string())]));
 }
+
+// ---- the hub the automatic loop talks to (arca_mode.json `hub_id`) ----
+
+#[tokio::test]
+async fn a_switch_written_before_the_hub_was_recorded_still_loads_with_no_hub() {
+    let (a, _) = first_device("a-oldswitch");
+    std::fs::write(mode_path_for(&a.manifest), r#"{ "version": 1, "enabled_at_ms": 5 }"#).unwrap();
+    let mode = load_mode(&mode_path_for(&a.manifest)).unwrap().expect("the mode is on");
+    assert_eq!((mode.enabled_at_ms, mode.hub_id), (5, None));
+}
+
+#[tokio::test]
+async fn a_freshly_turned_on_mode_has_no_hub_yet() {
+    let (a, _) = first_device("a-nohub");
+    write(&a, "note.md", "hello");
+    a.engine.arca_enable(false, 1).await.unwrap();
+    assert_eq!(load_mode(&mode_path_for(&a.manifest)).unwrap().unwrap().hub_id, None);
+}
+
+#[tokio::test]
+async fn recording_the_hub_keeps_the_rest_of_the_switch() {
+    let (a, _) = first_device("a-sethub");
+    write(&a, "note.md", "hello");
+    a.engine.arca_enable(false, 1_000).await.unwrap();
+    a.engine.arca_set_hub("hub-1").await.unwrap();
+    let mode = load_mode(&mode_path_for(&a.manifest)).unwrap().unwrap();
+    assert_eq!((mode.version, mode.enabled_at_ms, mode.hub_id.as_deref()), (1, 1_000, Some("hub-1")));
+    a.engine.arca_set_hub("hub-2").await.unwrap();
+    assert_eq!(load_mode(&mode_path_for(&a.manifest)).unwrap().unwrap().hub_id.as_deref(), Some("hub-2"), "the person can point it at another hub");
+}
+
+#[tokio::test]
+async fn the_hub_cannot_be_recorded_while_the_mode_is_off_and_no_switch_appears() {
+    let (a, _) = first_device("a-sethub-off");
+    assert!(a.engine.arca_set_hub("hub-1").await.is_err());
+    assert!(!mode_path_for(&a.manifest).exists(), "recording a hub must not turn the mode on");
+}
+
+#[tokio::test]
+async fn an_unreadable_switch_is_an_error_and_is_not_overwritten() {
+    let (a, _) = first_device("a-sethub-broken");
+    std::fs::write(mode_path_for(&a.manifest), "not json").unwrap();
+    assert!(a.engine.arca_set_hub("hub-1").await.is_err());
+    assert_eq!(std::fs::read_to_string(mode_path_for(&a.manifest)).unwrap(), "not json");
+}
+
+#[tokio::test]
+async fn an_empty_hub_id_is_refused() {
+    let (a, _) = first_device("a-sethub-empty");
+    write(&a, "note.md", "hello");
+    a.engine.arca_enable(false, 1).await.unwrap();
+    assert!(a.engine.arca_set_hub("").await.is_err());
+    assert_eq!(load_mode(&mode_path_for(&a.manifest)).unwrap().unwrap().hub_id, None);
+}

@@ -22,6 +22,9 @@ pub struct ArcaMode {
     pub version: u8,
     /// When the mode was turned on (ms since the epoch), as given by the caller.
     pub enabled_at_ms: u64,
+    /// The saved hub the automatic loop syncs with (its `hubs.json` id). `None` until the person picks one: a switch written before
+    /// this field existed has none (serde reads a missing `Option` as `None`), and the loop then waits instead of guessing.
+    pub hub_id: Option<String>,
 }
 
 /// The switch file of the vault whose tracking manifest is `manifest_path` (`sync_manifest.json` → `arca_mode.json`).
