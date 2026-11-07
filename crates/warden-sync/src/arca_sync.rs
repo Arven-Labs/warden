@@ -52,6 +52,9 @@ pub struct ArcaSyncReport {
     pub conflicts: usize,
     /// Losers of `config` and `secret` conflicts written now to `conflicts_dir_for`, in clear text (they are not in the manifest).
     pub secret_losers_saved: usize,
+    /// Files the recovery of an interrupted apply left alone because the disk no longer matched its journal: the person decides
+    /// (on the `secret` class one can be an old login, still readable).
+    pub recovered_kept: usize,
     /// Files the vault got from other devices: created, updated and removed.
     pub files_changed: usize,
     /// Objects copied from the local storage to the hub.
@@ -104,7 +107,8 @@ impl SyncEngine {
         let folder_path = folder_path_for(&self.manifest_path);
         let mut report = ArcaSyncReport::default();
 
-        engine.recover(&roots).await.context("finishing an interrupted apply")?;
+        let recovered = engine.recover(&roots).await.context("finishing an interrupted apply")?;
+        report.recovered_kept = recovered.kept.len();
         let mut folder = load_folder(&folder_path)?;
 
         // A snapshot builds on the tip. Only take one when the tip is what the folder reflects.
@@ -186,6 +190,9 @@ impl SyncEngine {
     /// The `secret` root: the MCP logins folder, when the host wired one in. The arca takes every file of a root, so this refuses
     /// (a) a folder that holds the sync key, the manifest or the config, which would send them to the hub as a class, and
     /// (b) anything in it that `oauth.rs` would not have carried: a name other than `[A-Za-z0-9_-]+.json`, a folder, a link.
+    /// The one exception to (b) is the arca's own work files (the apply journal, the files it sets aside, a half-written `.tmp-*`),
+    /// by the arca's exact rule: it never snapshots them, and refusing them would stop the very cycle that recovers an interrupted
+    /// apply (I-1). Anything else that looks like them, such as `.tmp-notes`, is still the person's file.
     /// A missing folder is created empty and private, because the arca reads a missing root as an error, not as empty.
     fn prepare_logins_root(&self) -> anyhow::Result<Option<std::path::PathBuf>> {
         let Some(dir) = self.oauth_dir.as_deref() else { return Ok(None) };
@@ -198,7 +205,8 @@ impl SyncEngine {
         for entry in std::fs::read_dir(dir)? {
             let entry = entry?;
             let name = entry.file_name().to_string_lossy().to_string();
-            if !is_login_file_name(&name) || !entry.file_type()?.is_file() {
+            let is_file = entry.file_type()?.is_file();
+            if !is_file || !(is_login_file_name(&name) || arca_core::is_reserved_name(&name)) {
                 anyhow::bail!("{} in the logins folder is not an MCP login file; move it out of {} so the arca can sync the logins", name, dir.display());
             }
         }
