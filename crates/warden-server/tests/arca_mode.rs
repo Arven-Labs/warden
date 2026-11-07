@@ -613,3 +613,115 @@ async fn a_cycle_with_logins_and_nothing_new_changes_nothing() {
     assert!(!second.snapshot_created);
     assert_eq!((second.pulled, second.merges, second.conflicts, second.files_changed, second.secret_losers_saved, second.pushed), (0, 0, 0, 0, 0, 0));
 }
+
+// ---- I-1: a crash in the middle of an apply, and the arca's own work files in the logins folder ----
+
+fn sha256_hex(text: &str) -> String {
+    use sha2::{Digest, Sha256};
+    Sha256::digest(text.as_bytes()).iter().map(|b| format!("{b:02x}")).collect()
+}
+
+/// What the arca leaves in a folder when the process dies in the middle of `Engine::apply` replacing `name` (the journal format is the
+/// arca's own, `journal.rs`, so this test is tied to it): the journal still `open`, the new login in place, the old one set aside.
+/// `on_disk` is what `name` holds now: the new login for an untouched crash, something else when a person edited it afterwards.
+fn plant_interrupted_apply(device: &Device, name: &str, old: &str, new: &str, on_disk: &str) {
+    let journal = format!(
+        r#"{{"version":1,"phase":"open","entries":[{{"n":0,"kind":"update","path":"{name}","from_sha":"{}","to_sha":"{}"}}]}}"#,
+        sha256_hex(old),
+        sha256_hex(new)
+    );
+    let journal_path = device.oauth.join(".arca-apply-journal");
+    std::fs::write(&journal_path, journal).unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&journal_path, std::fs::Permissions::from_mode(0o600)).unwrap();
+    }
+    std::fs::write(device.oauth.join(name), on_disk).unwrap();
+    std::fs::write(device.oauth.join(".arca-old-0"), old).unwrap();
+}
+
+#[tokio::test]
+async fn a_crash_in_the_middle_of_an_apply_of_a_login_is_undone_by_the_next_cycle() {
+    let hub = hub().await;
+    let (a, key) = first_device("a-crash");
+    write_login(&a, "github.json", "old-token");
+    a.engine.arca_enable(false, 1).await.unwrap();
+    a.engine.arca_sync(&hub.store("dev-a"), 2).await.unwrap();
+
+    // Another device adds a note to the vault while a's apply is cut short.
+    let b = paired_device("b-crash", key);
+    b.engine.arca_enable(false, 3).await.unwrap();
+    write(&b, "note.md", "from b");
+    b.engine.arca_sync(&hub.store("dev-b"), 4).await.unwrap();
+
+    plant_interrupted_apply(&a, "github.json", "old-token", "new-token", "new-token");
+    let report = a.engine.arca_sync(&hub.store("dev-a"), 5).await.expect("the cycle finishes the interrupted apply instead of refusing the folder");
+
+    assert_eq!(logins(&a), map(&[("github.json", "old-token")]), "the login went back to what it was, and no work file is left");
+    assert_eq!(files(&a.vault), map(&[("note.md", "from b")]), "the vault was not held back by the logins folder");
+    assert_eq!(report.recovered_kept, 0);
+}
+
+#[tokio::test]
+async fn the_arcas_own_work_files_in_the_logins_folder_neither_stop_the_cycle_nor_travel() {
+    let hub = hub().await;
+    let (a, key) = first_device("a-work-files");
+    write_login(&a, "github.json", "token");
+    a.engine.arca_enable(false, 1).await.unwrap();
+    let work_files = [".tmp-0123456789abcdef", ".arca-kept-0123456789abcdef", ".arca-new-3", ".arca-old-7"];
+    for name in work_files {
+        write_login(&a, name, "left behind");
+    }
+    a.engine.arca_sync(&hub.store("dev-a"), 2).await.expect("work files of the arca are not the person's files");
+
+    let b = paired_device("b-work-files", key);
+    b.engine.arca_enable(false, 3).await.unwrap();
+    b.engine.arca_sync(&hub.store("dev-b"), 4).await.unwrap();
+    assert_eq!(logins(&b), map(&[("github.json", "token")]), "only the login travelled");
+    assert_eq!(logins(&a).len(), 1 + work_files.len(), "the work files stay where they were");
+}
+
+#[tokio::test]
+async fn names_that_only_look_like_the_arcas_work_files_are_still_refused() {
+    let hub = hub().await;
+    for (case, stray) in [("notes", ".tmp-notes"), ("upper", ".tmp-0123456789ABCDEF"), ("short", ".arca-kept-0123"), ("journal-bak", ".arca-apply-journal.bak")] {
+        let (a, _) = first_device(&format!("a-lookalike-{case}"));
+        write_login(&a, "github.json", "token");
+        a.engine.arca_enable(false, 1).await.unwrap();
+        write_login(&a, stray, "leftover");
+        let err = format!("{:#}", a.engine.arca_sync(&hub.store(&format!("dev-{case}")), 2).await.unwrap_err());
+        assert!(err.contains(stray), "the error names the file: {err}");
+    }
+}
+
+#[tokio::test]
+async fn an_apply_whose_login_a_person_edited_afterwards_is_not_overwritten_and_is_reported() {
+    let hub = hub().await;
+    let (a, key) = first_device("a-edited");
+    write_login(&a, "github.json", "old-token");
+    a.engine.arca_enable(false, 1).await.unwrap();
+    a.engine.arca_sync(&hub.store("dev-a"), 2).await.unwrap();
+
+    // The disk no longer matches the journal (neither the old nor the new login), so the recovery must not touch the file.
+    plant_interrupted_apply(&a, "github.json", "old-token", "new-token", "edited by hand");
+    let report = a.engine.arca_sync(&hub.store("dev-a"), 3).await.expect("a kept file does not stop the cycle");
+
+    assert_eq!(std::fs::read_to_string(a.oauth.join("github.json")).unwrap(), "edited by hand", "the person's edit was not overwritten");
+    assert_eq!(report.recovered_kept, 1, "the cycle says it left a file for the person to decide");
+    let b = paired_device("b-edited", key);
+    b.engine.arca_enable(false, 4).await.unwrap();
+    b.engine.arca_sync(&hub.store("dev-b"), 5).await.unwrap();
+    assert_eq!(logins(&b), map(&[("github.json", "edited by hand")]), "the set-aside old login did not travel");
+}
+
+#[tokio::test]
+async fn turning_the_mode_on_with_a_work_file_of_the_arca_in_the_logins_folder_does_not_send_it() {
+    let (a, key) = first_device("a-enable-work-file");
+    write_login(&a, "github.json", "token");
+    write_login(&a, ".tmp-0123456789abcdef", "left behind");
+    a.engine.arca_enable(false, 1).await.expect("the work file does not stop turning the mode on");
+    let heads = arca_view(&a, key).heads().await.unwrap();
+    let paths: Vec<&str> = heads.tips[0].manifest.files.iter().map(|f| f.path.as_str()).collect();
+    assert_eq!(paths, ["github.json"], "the first manifest holds the login and not the work file");
+}

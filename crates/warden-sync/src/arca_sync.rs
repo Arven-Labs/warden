@@ -52,6 +52,9 @@ pub struct ArcaSyncReport {
     pub conflicts: usize,
     /// Losers of `config` and `secret` conflicts written now to `conflicts_dir_for`, in clear text (they are not in the manifest).
     pub secret_losers_saved: usize,
+    /// Files the recovery of an interrupted apply left alone because the disk no longer matched its journal: the person decides
+    /// (on the `secret` class one can be an old login, still readable).
+    pub recovered_kept: usize,
     /// Files the vault got from other devices: created, updated and removed.
     pub files_changed: usize,
     /// Objects copied from the local storage to the hub.
