@@ -52,6 +52,9 @@ pub struct ArcaSyncReport {
     pub conflicts: usize,
     /// Losers of `config` and `secret` conflicts written now to `conflicts_dir_for`, in clear text (they are not in the manifest).
     pub secret_losers_saved: usize,
+    /// `secret` entries of the tip that this device does not apply (a name that is not a login, or a login that is too big): a count,
+    /// never the names. SKELETON for the tests: always 0 for now.
+    pub secret_ignored: usize,
     /// Files the recovery of an interrupted apply left alone because the disk no longer matched its journal: the person decides
     /// (on the `secret` class one can be an old login, still readable).
     pub recovered_kept: usize,

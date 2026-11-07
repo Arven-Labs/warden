@@ -539,25 +539,87 @@ async fn a_folder_inside_the_logins_folder_stops_the_cycle_and_turning_the_mode_
     assert!(!mode_path_for(&a.manifest).exists(), "the mode stays off");
 }
 
+/// A peer with the group's key (so its manifest is accepted) that publishes `vault_files` and `secret_files`, whatever their names
+/// and sizes: the arca takes every file of a root, so a device that is not this Warden can put anything in `secret`.
+async fn publish_as_peer(hub: &Hub, key: [u8; 32], name: &str, vault_files: &[(&str, &str)], secret_files: &[(&str, String)], now: u64) {
+    let (vault_root, secret_root) = (support::unique_temp_dir(&format!("warden-arca-peer-vault-{name}")), support::unique_temp_dir(&format!("warden-arca-peer-secret-{name}")));
+    for (path, contents) in vault_files {
+        let full = vault_root.join(path);
+        std::fs::create_dir_all(full.parent().unwrap()).unwrap();
+        std::fs::write(full, contents).unwrap();
+    }
+    for (path, contents) in secret_files {
+        let full = secret_root.join(path);
+        std::fs::create_dir_all(full.parent().unwrap()).unwrap();
+        std::fs::write(full, contents).unwrap();
+    }
+    let store = support::unique_temp_dir(&format!("warden-arca-peer-store-{name}"));
+    let peer = Engine::new(DiskStore::open(&store).unwrap(), EpochKeys::derive(&VaultKey::from_bytes(key), 0), name).unwrap();
+    let roots = arca_core::engine::Roots { vault: Some(vault_root), config: None, secret: Some(secret_root) };
+    peer.snapshot(&roots, now).await.unwrap();
+    peer.push(&hub.store(&format!("dev-{name}"))).await.unwrap();
+}
+
 #[tokio::test]
-async fn a_file_that_is_not_a_login_coming_from_another_device_is_not_applied() {
+async fn a_file_that_is_not_a_login_coming_from_another_device_is_ignored_and_does_not_stop_the_cycle() {
     let hub = hub().await;
     let (a, key) = first_device("a-forged");
     a.engine.arca_enable(false, 1).await.unwrap();
+    publish_as_peer(&hub, key, "forger", &[], &[("x.bak", "leftover".into())], 5).await;
 
-    // A peer with the group's key (so its manifest is accepted) that has a stray file in its `secret` root.
-    let forger_root = support::unique_temp_dir("warden-arca-forger-secret");
-    std::fs::create_dir_all(&forger_root).unwrap();
-    std::fs::write(forger_root.join("x.bak"), "leftover").unwrap();
-    let forger_store = support::unique_temp_dir("warden-arca-forger-store");
-    let forger = Engine::new(DiskStore::open(&forger_store).unwrap(), EpochKeys::derive(&VaultKey::from_bytes(key), 0), "forger").unwrap();
-    let roots = arca_core::engine::Roots { vault: None, config: None, secret: Some(forger_root) };
-    forger.snapshot(&roots, 5).await.unwrap();
-    forger.push(&hub.store("dev-forger")).await.unwrap();
+    let report = a.engine.arca_sync(&hub.store("dev-a"), 6).await.expect("an entry this device would never write does not stop the cycle");
 
-    let err = format!("{:#}", a.engine.arca_sync(&hub.store("dev-a"), 6).await.unwrap_err());
-    assert!(err.contains("x.bak"), "{err}");
+    assert_eq!(report.secret_ignored, 1);
     assert!(logins(&a).is_empty(), "nothing was written: {:?}", logins(&a));
+}
+
+#[tokio::test]
+async fn the_vault_and_the_valid_logins_of_a_peer_arrive_next_to_entries_that_are_ignored() {
+    let hub = hub().await;
+    let (a, key) = first_device("a-mixed");
+    a.engine.arca_enable(false, 1).await.unwrap();
+    publish_as_peer(&hub, key, "mixed", &[("note.md", "from the peer")], &[("github.json", "token".into()), ("x.bak", "leftover".into()), ("sub/y.json", "{}".into())], 5).await;
+
+    let report = a.engine.arca_sync(&hub.store("dev-a"), 6).await.unwrap();
+
+    assert_eq!(files(&a.vault), map(&[("note.md", "from the peer")]));
+    assert_eq!(logins(&a), map(&[("github.json", "token")]), "only the valid login was written");
+    assert_eq!(report.secret_ignored, 2, "x.bak and sub/y.json");
+}
+
+#[tokio::test]
+async fn a_login_a_peer_publishes_too_big_never_replaces_or_removes_the_local_one() {
+    let hub = hub().await;
+    let (a, key) = first_device("a-too-big");
+    write_login(&a, "github.json", "local-token");
+    a.engine.arca_enable(false, 1).await.unwrap();
+    a.engine.arca_sync(&hub.store("dev-a"), 2).await.unwrap();
+    publish_as_peer(&hub, key, "big", &[], &[("github.json", "x".repeat(2 << 20))], 5).await;
+
+    let report = a.engine.arca_sync(&hub.store("dev-a"), 6).await.expect("a login that is too big does not stop the cycle");
+
+    assert_eq!(logins(&a), map(&[("github.json", "local-token")]), "the local login stayed as it was");
+    assert!(report.secret_ignored >= 1);
+}
+
+#[tokio::test]
+async fn after_an_ignored_entry_this_device_still_snapshots_and_pushes_and_the_others_get_it() {
+    let hub = hub().await;
+    let (a, key) = first_device("a-heals");
+    a.engine.arca_enable(false, 1).await.unwrap();
+    publish_as_peer(&hub, key, "forger-heals", &[], &[("x.bak", "leftover".into())], 5).await;
+    a.engine.arca_sync(&hub.store("dev-a"), 6).await.unwrap();
+
+    write(&a, "note.md", "written after the peer's stray entry");
+    let report = a.engine.arca_sync(&hub.store("dev-a"), 7).await.unwrap();
+    assert!(report.snapshot_created, "the tip no longer holds this device back");
+    assert!(report.pushed > 0);
+
+    let b = paired_device("b-heals", key);
+    b.engine.arca_enable(false, 8).await.unwrap();
+    b.engine.arca_sync(&hub.store("dev-b"), 9).await.unwrap();
+    assert_eq!(files(&b.vault), map(&[("note.md", "written after the peer's stray entry")]));
+    assert!(logins(&b).is_empty(), "the stray entry did not reach b either");
 }
 
 #[tokio::test]
