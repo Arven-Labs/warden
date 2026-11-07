@@ -543,6 +543,8 @@ async fn a_folder_inside_the_logins_folder_stops_the_cycle_and_turning_the_mode_
 /// and sizes: the arca takes every file of a root, so a device that is not this Warden can put anything in `secret`.
 async fn publish_as_peer(hub: &Hub, key: [u8; 32], name: &str, vault_files: &[(&str, &str)], secret_files: &[(&str, String)], now: u64) {
     let (vault_root, secret_root) = (support::unique_temp_dir(&format!("warden-arca-peer-vault-{name}")), support::unique_temp_dir(&format!("warden-arca-peer-secret-{name}")));
+    std::fs::create_dir_all(&vault_root).unwrap();
+    std::fs::create_dir_all(&secret_root).unwrap();
     for (path, contents) in vault_files {
         let full = vault_root.join(path);
         std::fs::create_dir_all(full.parent().unwrap()).unwrap();
