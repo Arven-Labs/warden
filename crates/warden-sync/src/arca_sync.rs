@@ -76,7 +76,6 @@ impl SyncEngine {
             anyhow::bail!("this vault is already in arca mode");
         }
         let (engine, roots) = self.arca_engine()?;
-        self.check_login_names(&roots)?;
         let folder = match engine.snapshot(&roots, now_ms).await.context("writing the first arca manifest")? {
             Snapshot::Created { id, .. } => id,
             Snapshot::Unchanged { head, .. } => head,
@@ -108,11 +107,8 @@ impl SyncEngine {
         let folder_path = folder_path_for(&self.manifest_path);
         let mut report = ArcaSyncReport::default();
 
-        // Before the names in the logins folder are checked: a crash in the middle of an apply leaves the arca's own journal and
-        // set-aside files there, and only the recovery clears them.
         let recovered = engine.recover(&roots).await.context("finishing an interrupted apply")?;
         report.recovered_kept = recovered.kept.len();
-        self.check_login_names(&roots)?;
         let mut folder = load_folder(&folder_path)?;
 
         // A snapshot builds on the tip. Only take one when the tip is what the folder reflects.
@@ -191,10 +187,13 @@ impl SyncEngine {
         Ok((engine, roots))
     }
 
-    /// The `secret` root: the MCP logins folder, when the host wired one in. The arca takes every file of a root, so this refuses a
-    /// folder that holds the sync key, the manifest or the config, which would send them to the hub as a class. A missing folder is
-    /// created empty and private, because the arca reads a missing root as an error, not as empty. The names inside are checked
-    /// later, by `check_login_names`, once an interrupted apply has been recovered.
+    /// The `secret` root: the MCP logins folder, when the host wired one in. The arca takes every file of a root, so this refuses
+    /// (a) a folder that holds the sync key, the manifest or the config, which would send them to the hub as a class, and
+    /// (b) anything in it that `oauth.rs` would not have carried: a name other than `[A-Za-z0-9_-]+.json`, a folder, a link.
+    /// The one exception to (b) is the arca's own work files (the apply journal, the files it sets aside, a half-written `.tmp-*`),
+    /// by the arca's exact rule: it never snapshots them, and refusing them would stop the very cycle that recovers an interrupted
+    /// apply (I-1). Anything else that looks like them, such as `.tmp-notes`, is still the person's file.
+    /// A missing folder is created empty and private, because the arca reads a missing root as an error, not as empty.
     fn prepare_logins_root(&self) -> anyhow::Result<Option<std::path::PathBuf>> {
         let Some(dir) = self.oauth_dir.as_deref() else { return Ok(None) };
         for kept_elsewhere in [&self.secrets_path, &self.manifest_path, &self.config_path] {
@@ -203,15 +202,6 @@ impl SyncEngine {
             }
         }
         create_private_dir(dir)?;
-        Ok(Some(dir.to_path_buf()))
-    }
-
-    /// Refuses anything in the logins folder that `oauth.rs` would not have carried: a name other than `[A-Za-z0-9_-]+.json`, a
-    /// folder, a link. The arca's own work files (the apply journal, the files it sets aside, a half-written `.tmp-*`) are the one
-    /// exception, by the arca's exact rule: the arca never snapshots them, and refusing them would stop the very cycle that
-    /// recovers an interrupted apply. Anything else that looks like them, such as `.tmp-notes`, is still the person's file.
-    fn check_login_names(&self, roots: &Roots) -> anyhow::Result<()> {
-        let Some(dir) = roots.secret.as_deref() else { return Ok(()) };
         for entry in std::fs::read_dir(dir)? {
             let entry = entry?;
             let name = entry.file_name().to_string_lossy().to_string();
@@ -220,7 +210,7 @@ impl SyncEngine {
                 anyhow::bail!("{} in the logins folder is not an MCP login file; move it out of {} so the arca can sync the logins", name, dir.display());
             }
         }
-        Ok(())
+        Ok(Some(dir.to_path_buf()))
     }
 }
 
