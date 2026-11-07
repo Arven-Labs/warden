@@ -111,8 +111,7 @@ impl SyncEngine {
         // Before the names in the logins folder are checked: a crash in the middle of an apply leaves the arca's own journal and
         // set-aside files there, and only the recovery clears them.
         let recovered = engine.recover(&roots).await.context("finishing an interrupted apply")?;
-        let _ = recovered.kept.len();
-        report.recovered_kept = 0;
+        report.recovered_kept = recovered.kept.len();
         self.check_login_names(&roots)?;
         let mut folder = load_folder(&folder_path)?;
 
@@ -217,7 +216,7 @@ impl SyncEngine {
             let entry = entry?;
             let name = entry.file_name().to_string_lossy().to_string();
             let is_file = entry.file_type()?.is_file();
-            if !is_file || !(is_login_file_name(&name) || name.starts_with(".tmp-") || name.starts_with(".arca-")) {
+            if !is_file || !(is_login_file_name(&name) || arca_core::is_reserved_name(&name)) {
                 anyhow::bail!("{} in the logins folder is not an MCP login file; move it out of {} so the arca can sync the logins", name, dir.display());
             }
         }
