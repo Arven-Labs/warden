@@ -162,10 +162,18 @@ jobs:
             done
             free -m; df -h . | tail -1
           ) &
+          set +e
+          echo "=== A: stdin = /dev/null ==="
           timeout -s KILL 90 "$BIN" --exact "$T" --nocapture --test-threads=1 < /dev/null > out.txt 2>&1
-          echo "rc=$?"; tail -n 60 out.txt
+          echo "rc=$?"; tail -n 30 out.txt
           wait
-          grep -q 'test result: ok' out.txt
+          echo "=== B: como na rodada travada (stdin = arquivo lido pelo while, sem --nocapture, timeout -k 10 60) ==="
+          printf '%s\n' "$T" > tests.txt
+          while read -r t; do
+            timeout -k 10 60 "$BIN" --exact "$t" --test-threads=1 > out2.txt 2>&1
+            echo "rc=$?"; tail -n 15 out2.txt
+          done < tests.txt
+          exit 1
 
       # It only LISTS: the name of each test that failed and the panic line, so the pattern (the same test again, or different tests) shows
       # without opening the log. Nothing is re-enabled or hidden: the job stays red (rules 2 and 3 of `project/AUTOMACAO.md`).
