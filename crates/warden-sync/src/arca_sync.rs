@@ -14,7 +14,7 @@ use anyhow::Context;
 use arca_core::crypto::{EpochKeys, VaultKey};
 use arca_core::disk::DiskStore;
 use arca_core::engine::{Engine, MergeOutcome, Roots, Snapshot};
-use arca_core::manifest::Class;
+use arca_core::manifest::{Class, FileEntry};
 use arca_core::object::ObjectId;
 // What a caller needs to name the hub it syncs with, so it does not need `arca-core` of its own.
 pub use arca_core::hub::{HubError, HubStore};
@@ -52,6 +52,9 @@ pub struct ArcaSyncReport {
     pub conflicts: usize,
     /// Losers of `config` and `secret` conflicts written now to `conflicts_dir_for`, in clear text (they are not in the manifest).
     pub secret_losers_saved: usize,
+    /// `secret` entries of the tip that this device does not apply (a name that is not a login, or a login that is too big): a count,
+    /// never the names.
+    pub secret_ignored: usize,
     /// Files the recovery of an interrupted apply left alone because the disk no longer matched its journal: the person decides
     /// (on the `secret` class one can be an old login, still readable).
     pub recovered_kept: usize,
@@ -157,10 +160,8 @@ impl SyncEngine {
         };
         if tip.id != folder {
             if self.oauth_dir.is_some() {
-                let stray: Vec<&str> = tip.manifest.files.iter().filter(|f| f.class == Class::Secret && !is_login_file_name(&f.path)).map(|f| f.path.as_str()).collect();
-                if !stray.is_empty() {
-                    anyhow::bail!("another device sent files that are not MCP logins ({}); refusing to apply them", stray.join(", "));
-                }
+                // The engine skips these in `apply` (the filter in `arca_engine`); here they are only counted, never named.
+                report.secret_ignored = tip.manifest.files.iter().filter(|f| f.class == Class::Secret && !is_login_entry(f)).count();
             }
             let applied = engine.apply(Some(&folder), &tip.id, &roots).await.context("applying what other devices changed to the vault")?;
             folder = tip.id;
@@ -182,7 +183,9 @@ impl SyncEngine {
         let secret_root = self.prepare_logins_root()?;
         let store = DiskStore::open(store_path_for(&self.manifest_path))?;
         let keys = EpochKeys::derive(&VaultKey::from_bytes(secrets.vault_key), FIRST_KEY_EPOCH);
-        let engine = Engine::new(store, keys, secrets.device_id)?.with_state(state_path_for(&self.manifest_path));
+        let engine = Engine::new(store, keys, secrets.device_id)?
+            .with_state(state_path_for(&self.manifest_path))
+            .with_entry_filter(Class::Secret, is_login_entry);
         let roots = Roots { vault: Some(self.vault.root().clone()), config: None, secret: secret_root };
         Ok((engine, roots))
     }
@@ -212,6 +215,15 @@ impl SyncEngine {
         }
         Ok(Some(dir.to_path_buf()))
     }
+}
+
+/// The largest login this device applies from another one. A real login is a few KiB; the cap stops a peer from filling the disk.
+const MAX_LOGIN_BYTES: u64 = 1 << 20;
+
+/// Whether a `secret` entry from the tip is something this device would write itself: a login name (`oauth.rs`) up to
+/// `MAX_LOGIN_BYTES`. The engine skips the others in `apply` and `restore` without touching the local file of that name.
+fn is_login_entry(entry: &FileEntry) -> bool {
+    is_login_file_name(&entry.path) && entry.size <= MAX_LOGIN_BYTES
 }
 
 /// `Ok` from a replication with `manifests_withheld` is not a success: a blob could not be read, so the manifests that cite it were
