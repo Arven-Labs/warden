@@ -151,28 +151,25 @@ jobs:
           timeout 600 cargo test -p warden-server --test arca_mode --no-run 2>&1 | tee cargo-test.log
           BIN=$(ls -t target/debug/deps/arca_mode-* | grep -v '\.d$' | head -1)
           echo "binário: $BIN"
-          T=a_login_of_exactly_one_mib_is_applied_and_one_byte_more_is_ignored
-          (
-            sleep 40
-            echo "=== VIGIA aos 40s ==="
-            ps -eo pid,ppid,stat,wchan:30,etime,pcpu,rss,args | grep -E 'arca_mode|timeout' | grep -v grep
-            for p in $(pgrep -f 'arca_mode-.*--exact'); do
-              echo "--- pid $p"; grep -E 'State|Threads|VmRSS' /proc/$p/status
-              for t in /proc/$p/task/*; do echo "$(cat $t/comm) $(cat $t/wchan 2>/dev/null)"; done | sort | uniq -c
-            done
-            free -m; df -h . | tail -1
-          ) &
           set +e
-          echo "=== A: stdin = /dev/null ==="
-          timeout -s KILL 90 "$BIN" --exact "$T" --nocapture --test-threads=1 < /dev/null > out.txt 2>&1
-          echo "rc=$?"; tail -n 30 out.txt
-          wait
-          echo "=== B: como na rodada travada (stdin = arquivo lido pelo while, sem --nocapture, timeout -k 10 60) ==="
-          printf '%s\n' "$T" > tests.txt
+          (
+            while sleep 30; do
+              echo "=== VIGIA ==="
+              ps -eo pid,ppid,stat,wchan:30,etime,pcpu,rss,args | grep -E 'arca_mode|timeout' | grep -v grep
+              free -m | sed -n 2p
+            done
+          ) &
+          WATCH=$!
+          timeout 30 "$BIN" --list < /dev/null 2>/dev/null | grep ': test$' | sed 's/: test$//' > tests.txt
+          wc -l tests.txt
           while read -r t; do
-            timeout -k 10 60 "$BIN" --exact "$t" --test-threads=1 > out2.txt 2>&1
-            echo "rc=$?"; tail -n 15 out2.txt
+            echo "START $t"
+            timeout -k 10 60 "$BIN" --exact "$t" --test-threads=1 < /dev/null > out.txt 2>&1
+            rc=$?
+            echo "END rc=$rc $t"
+            if [ "$rc" != 0 ] && [ "$rc" != 101 ]; then tail -n 20 out.txt; fi
           done < tests.txt
+          kill $WATCH
           exit 1
 
       # It only LISTS: the name of each test that failed and the panic line, so the pattern (the same test again, or different tests) shows
