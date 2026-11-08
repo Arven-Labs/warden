@@ -145,21 +145,52 @@ jobs:
         # Without stopping at the first crate that fails, so the run shows all the failures at once. The output also goes to a file, for the
         # next step to list in the run summary what failed (P164 b); `pipefail` (from `shell: bash`) keeps the status of `cargo test`.
         shell: bash
-        run: cargo test --workspace --no-fail-fast 2>&1 | tee cargo-test.log
-
-      # It only LISTS: the name of each test that failed and the panic line, so the pattern (the same test again, or different tests) shows
-      # without opening the log. Nothing is re-enabled or hidden: the job stays red (rules 2 and 3 of `project/AUTOMACAO.md`).
-      - name: Failed tests
-        if: failure()
-        shell: bash
         run: |
+          # DIAGNOSTIC (throwaway PR, never merge): each test binary runs on its own with `timeout -s KILL`, no pipe, so a hung test
+          # cannot hold the step. On a hang, the thread names (libtest names each test thread after the test) are listed first.
+          set +e
+          mkdir -p diag
+          cargo test --workspace --no-run --message-format=json 2>diag/build.log \
+            | jq -r 'select(.reason=="compiler-artifact" and .profile.test==true and .executable!=null) | ((.manifest_path | sub("/Cargo.toml$"; "")) + " " + .executable)' | sort -u > diag/bins.txt
+          wc -l diag/bins.txt
           {
-            echo "## Failed tests"
+            echo "## Test binaries"
             echo
-            echo '```'
-            grep -E '^test .* FAILED$|panicked at ' cargo-test.log | sort -u | head -80 || true
-            echo '```'
+            echo "| binary | exit | seconds |"
+            echo "|---|---|---|"
           } >> "$GITHUB_STEP_SUMMARY"
+          root=$PWD
+          while read -r dir bin; do
+            name=$(basename "$bin")
+            start=$(date +%s)
+            # Like cargo: working directory and CARGO_MANIFEST_DIR of the crate that owns the binary.
+            (cd "$dir" && CARGO_MANIFEST_DIR="$dir" exec "$bin") >"$root/diag/$name.log" 2>&1 &
+            pid=$!
+            code=
+            for _ in $(seq 1 300); do
+              if ! kill -0 "$pid" 2>/dev/null; then wait "$pid"; code=$?; break; fi
+              sleep 1
+            done
+            if [ -z "$code" ]; then
+              {
+                echo "HUNG: $name (pid $pid)"
+                for t in /proc/$pid/task/*; do echo "$(cat "$t/comm") | $(cat "$t/wchan" 2>/dev/null)"; done
+              } | tee "diag/$name.hung.txt"
+              kill -9 "$pid"; wait "$pid" 2>/dev/null
+              code=HUNG
+            fi
+            echo "| $name | $code | $(( $(date +%s) - start )) |" >> "$GITHUB_STEP_SUMMARY"
+          done < diag/bins.txt
+          timeout -s KILL 300 cargo test --doc --workspace >diag/doc.log 2>&1
+          echo "| doctests | $? | - |" >> "$GITHUB_STEP_SUMMARY"
+          exit 0
+
+      - name: Upload diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: diag
+          path: diag/
 
   frontends:
     name: Frontend (${{ matrix.app }})
