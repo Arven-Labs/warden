@@ -605,6 +605,21 @@ async fn a_login_a_peer_publishes_too_big_never_replaces_or_removes_the_local_on
 }
 
 #[tokio::test]
+async fn a_login_of_exactly_one_mib_is_applied_and_one_byte_more_is_ignored() {
+    let hub = hub().await;
+    let (a, key) = first_device("a-limit");
+    a.engine.arca_enable(false, 1).await.unwrap();
+    publish_as_peer(&hub, key, "limit", &[], &[("exact.json", "x".repeat(1 << 20)), ("over.json", "x".repeat((1 << 20) + 1))], 5).await;
+
+    let report = a.engine.arca_sync(&hub.store("dev-a"), 6).await.unwrap();
+
+    let got = logins(&a);
+    assert_eq!(got.len(), 1, "only the login at the limit was written: {:?}", got.keys().collect::<Vec<_>>());
+    assert!(got.contains_key("exact.json"));
+    assert_eq!(report.secret_ignored, 1);
+}
+
+#[tokio::test]
 async fn after_an_ignored_entry_this_device_still_snapshots_and_pushes_and_the_others_get_it() {
     let hub = hub().await;
     let (a, key) = first_device("a-heals");
