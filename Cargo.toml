@@ -6,6 +6,9 @@ members = ["crates/warden-core", "crates/warden-bootstrap", "crates/warden-cli",
 # Só tabelas de linha: backtraces e panics seguem com arquivo:linha, mas cada binário
 # de teste/debug deixa de pesar ~450 MB (o target/ chegou a 53 GB com debug info completo).
 debug = "line-tables-only"
+# Sem cache incremental: ele só acelera quem recompila a mesma árvore e chegou a 14 GB em target/debug/incremental.
+# O CI já roda com CARGO_INCREMENTAL=0.
+incremental = false
 
 # P84: Argon2 sem otimização leva ~1 s por senha, o que arrasta os testes de login.
 [profile.dev.package.argon2]
