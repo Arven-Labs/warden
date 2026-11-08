@@ -160,15 +160,11 @@ jobs:
             done
           ) &
           WATCH=$!
-          timeout 30 "$BIN" --list < /dev/null 2>/dev/null | grep ': test$' | sed 's/: test$//' > tests.txt
-          wc -l tests.txt
-          while read -r t; do
-            echo "START $t"
-            timeout -k 10 60 "$BIN" --exact "$t" --test-threads=1 < /dev/null > out.txt 2>&1
-            rc=$?
-            echo "END rc=$rc $t"
-            if [ "$rc" != 0 ] && [ "$rc" != 101 ]; then tail -n 20 out.txt; fi
-          done < tests.txt
+          echo "=== binário inteiro, paralelismo normal ==="
+          timeout -s KILL 150 "$BIN" < /dev/null > out.txt 2>&1
+          echo "rc=$?"
+          grep -E '^test .* \.\.\. ' out.txt | sed 's/ \.\.\. / => /' | sort | cut -c1-150
+          grep -E '^running|^test result' out.txt
           kill $WATCH
           exit 1
 
