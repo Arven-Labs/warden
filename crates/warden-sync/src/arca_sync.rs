@@ -184,8 +184,7 @@ impl SyncEngine {
         let store = DiskStore::open(store_path_for(&self.manifest_path))?;
         let keys = EpochKeys::derive(&VaultKey::from_bytes(secrets.vault_key), FIRST_KEY_EPOCH);
         let engine = Engine::new(store, keys, secrets.device_id)?
-            .with_state(state_path_for(&self.manifest_path))
-            .with_entry_filter(Class::Secret, is_login_entry);
+            .with_state(state_path_for(&self.manifest_path));
         let roots = Roots { vault: Some(self.vault.root().clone()), config: None, secret: secret_root };
         Ok((engine, roots))
     }
