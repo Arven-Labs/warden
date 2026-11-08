@@ -223,7 +223,7 @@ const MAX_LOGIN_BYTES: u64 = 1 << 20;
 /// Whether a `secret` entry from the tip is something this device would write itself: a login name (`oauth.rs`) up to
 /// `MAX_LOGIN_BYTES`. The engine skips the others in `apply` and `restore` without touching the local file of that name.
 fn is_login_entry(entry: &FileEntry) -> bool {
-    is_login_file_name(&entry.path) && entry.size <= MAX_LOGIN_BYTES
+    is_login_file_name(&entry.path) && entry.size < MAX_LOGIN_BYTES
 }
 
 /// `Ok` from a replication with `manifests_withheld` is not a success: a blob could not be read, so the manifests that cite it were
