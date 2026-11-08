@@ -145,25 +145,27 @@ jobs:
         # Without stopping at the first crate that fails, so the run shows all the failures at once. The output also goes to a file, for the
         # next step to list in the run summary what failed (P164 b); `pipefail` (from `shell: bash`) keeps the status of `cargo test`.
         shell: bash
+        timeout-minutes: 12
         run: |
-          # DIAGNÓSTICO DESCARTÁVEL (não mesclar): um teste de arca_mode por processo, com timeout -k, para achar o que trava.
-          cargo test -p warden-server --test arca_mode --no-run 2>&1 | tee cargo-test.log
+          # DIAGNÓSTICO DESCARTÁVEL (não mesclar): só o teste de fronteira de 1 MiB, com vigia que descreve o processo antes de matar.
+          timeout 600 cargo test -p warden-server --test arca_mode --no-run 2>&1 | tee cargo-test.log
           BIN=$(ls -t target/debug/deps/arca_mode-* | grep -v '\.d$' | head -1)
           echo "binário: $BIN"
-          "$BIN" --list 2>/dev/null | grep ': test$' | sed 's/: test$//' > tests.txt
-          wc -l tests.txt
-          : > result.txt
-          while read -r t; do
-            if timeout -k 10 60 "$BIN" --exact "$t" --test-threads=1 > "out.txt" 2>&1; then
-              echo "PASS $t" | tee -a result.txt
-            else
-              rc=$?
-              if [ "$rc" = 124 ] || [ "$rc" = 137 ]; then echo "TRAVOU $t" | tee -a result.txt; else echo "FAIL $t" | tee -a result.txt; fi
-              tail -n 15 out.txt
-            fi
-          done < tests.txt
-          echo "=== RESUMO ==="; sort result.txt | cut -d' ' -f1 | uniq -c
-          grep -E '^(TRAVOU|FAIL)' result.txt || true
+          T=a_login_of_exactly_one_mib_is_applied_and_one_byte_more_is_ignored
+          (
+            sleep 40
+            echo "=== VIGIA aos 40s ==="
+            ps -eo pid,ppid,stat,wchan:30,etime,pcpu,rss,args | grep -E 'arca_mode|timeout' | grep -v grep
+            for p in $(pgrep -f 'arca_mode-.*--exact'); do
+              echo "--- pid $p"; grep -E 'State|Threads|VmRSS' /proc/$p/status
+              for t in /proc/$p/task/*; do echo "$(cat $t/comm) $(cat $t/wchan 2>/dev/null)"; done | sort | uniq -c
+            done
+            free -m; df -h . | tail -1
+          ) &
+          timeout -s KILL 90 "$BIN" --exact "$T" --nocapture --test-threads=1 < /dev/null > out.txt 2>&1
+          echo "rc=$?"; tail -n 60 out.txt
+          wait
+          grep -q 'test result: ok' out.txt
 
       # It only LISTS: the name of each test that failed and the panic line, so the pattern (the same test again, or different tests) shows
       # without opening the log. Nothing is re-enabled or hidden: the job stays red (rules 2 and 3 of `project/AUTOMACAO.md`).
