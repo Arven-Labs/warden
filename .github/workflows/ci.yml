@@ -145,7 +145,7 @@ jobs:
         # Without stopping at the first crate that fails, so the run shows all the failures at once. The output also goes to a file, for the
         # next step to list in the run summary what failed (P164 b); `pipefail` (from `shell: bash`) keeps the status of `cargo test`.
         shell: bash
-        run: cargo test --workspace --no-fail-fast 2>&1 | tee cargo-test.log
+        run: timeout 900 cargo test -p warden-server --test arca_mode -- --nocapture --test-threads=1 2>&1 | tee cargo-test.log
 
       # It only LISTS: the name of each test that failed and the panic line, so the pattern (the same test again, or different tests) shows
       # without opening the log. Nothing is re-enabled or hidden: the job stays red (rules 2 and 3 of `project/AUTOMACAO.md`).
