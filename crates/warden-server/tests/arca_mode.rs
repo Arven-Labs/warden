@@ -516,6 +516,46 @@ async fn the_same_login_changed_on_both_sides_keeps_the_winner_in_place_and_the_
     }
 }
 
+/// M-1: the loser of a `secret` conflict is saved BEFORE the merge manifest is stored. With a conflicts folder the arca refuses, the
+/// cycle fails and nothing of the merge is kept, so the next cycle (folder fixed) still sees the conflict and keeps the loser.
+#[cfg(unix)]
+#[tokio::test]
+async fn a_refused_conflicts_folder_stops_the_merge_and_the_next_cycle_still_keeps_the_loser() {
+    use std::os::unix::fs::PermissionsExt;
+    let hub = hub().await;
+    let (a, key) = first_device("a-refused-losers");
+    write_login(&a, "github.json", "start");
+    a.engine.arca_enable(false, 1).await.unwrap();
+    let (store_a, store_b) = (hub.store("dev-a"), hub.store("dev-b"));
+    a.engine.arca_sync(&store_a, 2).await.unwrap();
+    let b = paired_device("b-refused-losers", key);
+    b.engine.arca_enable(false, 3).await.unwrap();
+    b.engine.arca_sync(&store_b, 4).await.unwrap();
+
+    write_login(&a, "github.json", "token by a");
+    write_login(&b, "github.json", "token by b");
+    a.engine.arca_sync(&store_a, 10).await.unwrap();
+
+    // The folder others can write to: the arca refuses to keep a clear-text loser there.
+    let dir = warden_sync::arca_mode::conflicts_dir_for(&b.manifest);
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o777)).unwrap();
+    assert!(b.engine.arca_sync(&store_b, 11).await.is_err());
+
+    std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o700)).unwrap();
+    let report = b.engine.arca_sync(&store_b, 12).await.unwrap();
+
+    // b's snapshot is the later one, so its version stays in place; a's version is kept outside every live folder.
+    assert_eq!(report.conflicts, 1);
+    assert_eq!(report.secret_losers_saved, 1);
+    assert_eq!(logins(&b), map(&[("github.json", "token by b")]));
+    let saved = files(&dir);
+    assert_eq!(saved.len(), 1, "{saved:?}");
+    let (path, text) = saved.iter().next().unwrap();
+    assert!(path.starts_with("secret/github.json.conflito-"), "{path}");
+    assert_eq!(text, "token by a");
+}
+
 #[tokio::test]
 async fn a_file_that_is_not_a_login_stops_the_cycle_before_anything_is_written_or_sent() {
     let hub = hub().await;
