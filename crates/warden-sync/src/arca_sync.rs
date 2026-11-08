@@ -131,19 +131,18 @@ impl SyncEngine {
         ensure_complete(&pulled, "pull")?;
         report.pulled = pulled.copied;
 
+        // The folder has to exist (and be private) before the first merge: the arca saves the losers of config and secret conflicts
+        // BEFORE it stores the merge manifest, so a refused folder stops the merge and the next cycle still sees the conflict (M-1).
+        let conflicts_dir = conflicts_dir_for(&self.manifest_path);
+        create_private_dir(&conflicts_dir)?;
         loop {
-            match engine.merge(now_ms).await? {
+            let (outcome, saved) = engine.merge_with_losers(now_ms, &conflicts_dir, &roots).await.context("merging, and keeping the losers of config and secret conflicts")?;
+            match outcome {
                 MergeOutcome::Nothing { .. } => break,
                 MergeOutcome::Merged { conflicts, tips_after, .. } => {
                     report.merges += 1;
                     report.conflicts += conflicts.len();
-                    // Saved right away, before any apply that may be refused: the loser is in no manifest.
-                    if !conflicts.is_empty() {
-                        let dir = conflicts_dir_for(&self.manifest_path);
-                        create_private_dir(&dir)?;
-                        let saved = engine.save_conflict_losers(&conflicts, &dir, &roots).await.context("keeping the losers of config and secret conflicts")?;
-                        report.secret_losers_saved += saved.saved;
-                    }
+                    report.secret_losers_saved += saved.saved;
                     if tips_after <= 1 {
                         break;
                     }
