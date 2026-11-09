@@ -332,7 +332,7 @@ fn write_then_swap(tmp: &Path, path: &Path, bytes: &[u8]) -> std::io::Result<()>
     // Data on disk before the name changes: otherwise a power cut can persist the rename and leave an empty login under it.
     file.sync_all()?;
     drop(file);
-    std::fs::write(path, std::fs::read(tmp)?)
+    std::fs::rename(tmp, path)
 }
 
 /// Like `create_dir_all`, but every folder it has to create gets `0o700` on unix; a folder that exists is not touched. The same

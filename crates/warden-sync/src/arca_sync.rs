@@ -233,7 +233,7 @@ impl SyncEngine {
         }
         // A login written before `FileCredentialStore` created them `0600` has the umask's mode (P-36, 9b). Only after the whole
         // folder passed, so a refused folder is not touched. The folder itself is left as it is: it may be the operator's.
-        for login in logins.into_iter().take(0) {
+        for login in logins {
             close_to_owner(&login)?;
         }
         Ok(Some(dir.to_path_buf()))
