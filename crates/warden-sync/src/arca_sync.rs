@@ -136,12 +136,13 @@ impl SyncEngine {
         let conflicts_dir = conflicts_dir_for(&self.manifest_path);
         create_private_dir(&conflicts_dir)?;
         loop {
-            let (outcome, saved) = engine.merge_with_losers(now_ms, &conflicts_dir, &roots).await.context("merging, and keeping the losers of config and secret conflicts")?;
+            let outcome = engine.merge(now_ms).await?;
             match outcome {
                 MergeOutcome::Nothing { .. } => break,
                 MergeOutcome::Merged { conflicts, tips_after, .. } => {
                     report.merges += 1;
                     report.conflicts += conflicts.len();
+                    let saved = engine.save_conflict_losers(&conflicts, &conflicts_dir, &roots).await?;
                     report.secret_losers_saved += saved.saved;
                     if tips_after <= 1 {
                         break;
