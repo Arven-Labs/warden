@@ -751,6 +751,124 @@ async fn a_logins_folder_that_holds_the_sync_key_is_refused() {
     assert!(!store_path_for(&manifest).exists());
 }
 
+/// An engine whose five paths are all given, to put each one where a guard test needs it. `base` has to exist.
+fn guard_engine(vault: &Path, config: &Path, secrets: &Path, manifest: &Path, logins: &Path) -> SyncEngine {
+    std::fs::create_dir_all(vault).unwrap();
+    SyncEngine::new(vault.to_path_buf(), config.to_path_buf(), secrets.to_path_buf(), manifest.to_path_buf()).with_oauth_dir(logins.to_path_buf())
+}
+
+/// Turning the mode on has to fail with `needle` in the error, before anything of the arca is created next to the manifest.
+async fn assert_refused(engine: &SyncEngine, manifest: &Path, needle: &str) {
+    let err = format!("{:#}", engine.arca_enable(false, 1).await.unwrap_err());
+    assert!(err.contains(needle), "expected {needle:?} in: {err}");
+    assert!(!mode_path_for(manifest).exists());
+    assert!(!store_path_for(manifest).exists());
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn a_link_on_the_way_to_the_logins_folder_cannot_hide_the_sync_key() {
+    // The key is in `base/mcp_oauth`, and the logins folder is spelled `base/data/mcp_oauth` with `data -> base`: the text
+    // of the two paths shares no prefix, but they are the same folder.
+    let base = support::unique_temp_dir("warden-arca-link-way");
+    let logins = base.join("mcp_oauth");
+    std::fs::create_dir_all(&logins).unwrap();
+    std::os::unix::fs::symlink(&base, base.join("data")).unwrap();
+    let manifest = base.join("sync_manifest.json");
+    let engine = guard_engine(&base.join("vault"), &base.join("config.toml"), &logins.join("sync_secrets.json"), &manifest, &base.join("data").join("mcp_oauth"));
+    engine.init_fresh().unwrap();
+    assert_refused(&engine, &manifest, "holds").await;
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn a_manifest_reached_through_a_link_inside_the_logins_folder_is_refused() {
+    // `via -> mcp_oauth`, and the manifest is `base/via/sync_manifest.json`: it lives in the logins folder.
+    let base = support::unique_temp_dir("warden-arca-link-manifest");
+    let logins = base.join("mcp_oauth");
+    std::fs::create_dir_all(&logins).unwrap();
+    std::os::unix::fs::symlink(&logins, base.join("via")).unwrap();
+    let manifest = base.join("via").join("sync_manifest.json");
+    let engine = guard_engine(&base.join("vault"), &base.join("config.toml"), &base.join("sync_secrets.json"), &manifest, &logins);
+    engine.init_fresh().unwrap();
+    assert_refused(&engine, &manifest, "holds").await;
+}
+
+#[tokio::test]
+async fn a_parent_step_in_the_logins_folder_cannot_hide_the_sync_key() {
+    let base = support::unique_temp_dir("warden-arca-dotdot-key");
+    let logins = base.join("mcp_oauth");
+    std::fs::create_dir_all(&logins).unwrap();
+    let manifest = base.join("sync_manifest.json");
+    let engine = guard_engine(&base.join("vault"), &base.join("config.toml"), &logins.join("sync_secrets.json"), &manifest, &logins.join("..").join("mcp_oauth"));
+    engine.init_fresh().unwrap();
+    assert_refused(&engine, &manifest, "holds").await;
+}
+
+#[tokio::test]
+async fn a_parent_step_that_leaves_the_logins_folder_is_not_a_false_alarm() {
+    // `mcp_oauth/../sync_secrets.json` is `base/sync_secrets.json`: outside the logins folder, so the mode turns on.
+    let base = support::unique_temp_dir("warden-arca-dotdot-fine");
+    let logins = base.join("mcp_oauth");
+    std::fs::create_dir_all(&logins).unwrap();
+    let manifest = base.join("sync_manifest.json");
+    let engine = guard_engine(&base.join("vault"), &base.join("config.toml"), &logins.join("..").join("sync_secrets.json"), &manifest, &logins);
+    engine.init_fresh().unwrap();
+    engine.arca_enable(false, 1).await.unwrap();
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn a_logins_folder_that_is_itself_a_link_is_refused() {
+    let base = support::unique_temp_dir("warden-arca-link-root");
+    let elsewhere = base.join("elsewhere");
+    std::fs::create_dir_all(&elsewhere).unwrap();
+    let logins = base.join("mcp_oauth");
+    std::os::unix::fs::symlink(&elsewhere, &logins).unwrap();
+    let manifest = base.join("sync_manifest.json");
+    let engine = guard_engine(&base.join("vault"), &base.join("config.toml"), &base.join("sync_secrets.json"), &manifest, &logins);
+    engine.init_fresh().unwrap();
+    assert_refused(&engine, &manifest, "is a link").await;
+}
+
+#[tokio::test]
+async fn a_logins_folder_that_overlaps_the_vault_is_refused() {
+    // The vault is `base/data/vault`; the key, the manifest and the config are in `base/keys`, so only the vault can trip the guard.
+    for (case, logins_of) in [("same", "data/vault"), ("inside", "data/vault/logins"), ("around", "data")] {
+        let base = support::unique_temp_dir(&format!("warden-arca-overlap-{case}"));
+        let keys = base.join("keys");
+        std::fs::create_dir_all(&keys).unwrap();
+        let manifest = keys.join("sync_manifest.json");
+        let engine = guard_engine(&base.join("data").join("vault"), &keys.join("config.toml"), &keys.join("sync_secrets.json"), &manifest, &base.join(logins_of));
+        engine.init_fresh().unwrap();
+        assert_refused(&engine, &manifest, "vault").await;
+    }
+}
+
+#[tokio::test]
+async fn a_logins_folder_with_a_parent_step_through_a_missing_folder_is_refused() {
+    // `missing` does not exist, so nothing says where `missing/..` leads: the guard does not guess.
+    let base = support::unique_temp_dir("warden-arca-dotdot-missing");
+    std::fs::create_dir_all(&base).unwrap();
+    let manifest = base.join("sync_manifest.json");
+    let engine = guard_engine(&base.join("vault"), &base.join("config.toml"), &base.join("sync_secrets.json"), &manifest, &base.join("missing").join("..").join("mcp_oauth"));
+    engine.init_fresh().unwrap();
+    assert_refused(&engine, &manifest, "..").await;
+}
+
+#[tokio::test]
+async fn a_missing_logins_folder_is_still_created_empty() {
+    let base = support::unique_temp_dir("warden-arca-missing-root");
+    std::fs::create_dir_all(&base).unwrap();
+    let logins = base.join("deep").join("er").join("mcp_oauth");
+    let manifest = base.join("sync_manifest.json");
+    let engine = guard_engine(&base.join("vault"), &base.join("config.toml"), &base.join("sync_secrets.json"), &manifest, &logins);
+    engine.init_fresh().unwrap();
+    engine.arca_enable(false, 1).await.unwrap();
+    assert!(logins.is_dir());
+    assert_eq!(std::fs::read_dir(&logins).unwrap().count(), 0);
+}
+
 #[tokio::test]
 async fn a_cycle_with_logins_and_nothing_new_changes_nothing() {
     let hub = hub().await;
