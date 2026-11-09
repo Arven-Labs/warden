@@ -182,7 +182,7 @@ fn write_then_swap(tmp: &Path, path: &Path, contents: &[u8], owner_only: bool) -
 }
 
 /// Sets `0o600` when the file is open to its group or to others; leaves one that is already closed untouched.
-fn close_to_owner(path: &Path) -> anyhow::Result<()> {
+pub(crate) fn close_to_owner(path: &Path) -> anyhow::Result<()> {
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
