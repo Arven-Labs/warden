@@ -587,27 +587,97 @@ async fn a_refused_conflicts_folder_stops_the_merge_and_the_next_cycle_still_kee
     assert_eq!(text, "token by a");
 }
 
+/// What the report says this device left out of the logins class, as `(path, reason)`.
+fn skipped_logins(report: &warden_sync::arca_sync::ArcaSyncReport) -> Vec<(&str, &str)> {
+    report.secret_skipped.iter().map(|s| (s.path.as_str(), s.reason)).collect()
+}
+
 #[tokio::test]
-async fn a_file_that_is_not_a_login_stops_the_cycle_before_anything_is_written_or_sent() {
+async fn a_file_that_is_not_a_login_is_left_alone_reported_and_never_sent() {
     let hub = hub().await;
     for (case, stray) in [("backup", "github.json.bak"), ("hidden", ".github.json"), ("not-json", "github.txt")] {
-        let (a, _) = first_device(&format!("a-stray-{case}"));
+        let (a, key) = first_device(&format!("a-stray-{case}"));
         write_login(&a, "github.json", "token");
         a.engine.arca_enable(false, 1).await.unwrap();
-        write_login(&a, stray, "leftover");
-        let err = format!("{:#}", a.engine.arca_sync(&hub.store(&format!("dev-{case}")), 2).await.unwrap_err());
-        assert!(err.contains(stray), "the error names the file: {err}");
+        write_login(&a, stray, "old-token-leftover");
+
+        let report = a.engine.arca_sync(&hub.store(&format!("dev-a-{case}")), 2).await.expect("a stray file does not stop the cycle");
+
+        assert_eq!(skipped_logins(&report), [(stray, "not accepted by this device")]);
         assert_eq!(logins(&a).len(), 2, "nothing was removed from the folder");
+        let b = paired_device(&format!("b-stray-{case}"), key);
+        b.engine.arca_enable(false, 3).await.unwrap();
+        b.engine.arca_sync(&hub.store(&format!("dev-b-{case}")), 4).await.unwrap();
+        assert_eq!(logins(&b), map(&[("github.json", "token")]), "the stray never reached the other device");
     }
 }
 
 #[tokio::test]
-async fn a_folder_inside_the_logins_folder_stops_the_cycle_and_turning_the_mode_on() {
+async fn a_stray_file_does_not_stop_the_vault_from_syncing() {
+    let hub = hub().await;
+    let (a, key) = first_device("a-stray-vault");
+    write(&a, "note.md", "hello");
+    write_login(&a, "github.json", "token");
+    a.engine.arca_enable(false, 1).await.unwrap();
+    write_login(&a, "github.json.bak", "old-token-leftover");
+    a.engine.arca_sync(&hub.store("dev-a-vault"), 2).await.unwrap();
+
+    let b = paired_device("b-stray-vault", key);
+    b.engine.arca_enable(false, 3).await.unwrap();
+    b.engine.arca_sync(&hub.store("dev-b-vault"), 4).await.unwrap();
+    assert_eq!(files(&b.vault).get("note.md").map(String::as_str), Some("hello"));
+}
+
+#[tokio::test]
+async fn a_folder_inside_the_logins_folder_is_ignored_and_the_mode_turns_on() {
+    let hub = hub().await;
     let (a, _) = first_device("a-stray-dir");
+    write_login(&a, "github.json", "token");
     std::fs::create_dir_all(a.oauth.join("nested")).unwrap();
-    let err = format!("{:#}", a.engine.arca_enable(false, 1).await.unwrap_err());
-    assert!(err.contains("nested"), "{err}");
-    assert!(!mode_path_for(&a.manifest).exists(), "the mode stays off");
+    std::fs::write(a.oauth.join("nested").join("other.json"), "inner").unwrap();
+
+    a.engine.arca_enable(false, 1).await.expect("a folder inside does not stop the mode from turning on");
+    let report = a.engine.arca_sync(&hub.store("dev-a-dir"), 2).await.unwrap();
+
+    assert!(mode_path_for(&a.manifest).exists());
+    assert_eq!(skipped_logins(&report), [("nested/other.json", "not accepted by this device")]);
+    assert_eq!(logins(&a), map(&[("github.json", "token"), ("nested/other.json", "inner")]), "nothing was touched");
+}
+
+#[tokio::test]
+async fn a_login_named_like_a_windows_device_is_not_sent_and_is_reported() {
+    let hub = hub().await;
+    let (a, key) = first_device("a-con");
+    write_login(&a, "github.json", "token");
+    write_login(&a, "con.json", "unsendable");
+    a.engine.arca_enable(false, 1).await.unwrap();
+
+    let report = a.engine.arca_sync(&hub.store("dev-a-con"), 2).await.unwrap();
+
+    assert_eq!(skipped_logins(&report), [("con.json", "reserved name")]);
+    let b = paired_device("b-con", key);
+    b.engine.arca_enable(false, 3).await.unwrap();
+    b.engine.arca_sync(&hub.store("dev-b-con"), 4).await.unwrap();
+    assert_eq!(logins(&b), map(&[("github.json", "token")]));
+}
+
+#[cfg(target_os = "linux")]
+#[tokio::test]
+async fn two_logins_that_differ_only_by_case_send_one_and_report_the_other() {
+    let hub = hub().await;
+    let (a, key) = first_device("a-case");
+    write_login(&a, "GitHub.json", "upper");
+    write_login(&a, "github.json", "lower");
+    a.engine.arca_enable(false, 1).await.unwrap();
+
+    let report = a.engine.arca_sync(&hub.store("dev-a-case"), 2).await.unwrap();
+
+    assert_eq!(skipped_logins(&report), [("github.json", "differs only by case from another file")]);
+    assert_eq!(logins(&a).len(), 2, "both stay on this device");
+    let b = paired_device("b-case", key);
+    b.engine.arca_enable(false, 3).await.unwrap();
+    b.engine.arca_sync(&hub.store("dev-b-case"), 4).await.unwrap();
+    assert_eq!(logins(&b), map(&[("GitHub.json", "upper")]));
 }
 
 /// A peer with the group's key (so its manifest is accepted) that publishes `vault_files` and `secret_files`, whatever their names
@@ -941,7 +1011,8 @@ async fn the_arcas_own_work_files_in_the_logins_folder_neither_stop_the_cycle_no
     for name in work_files {
         write_login(&a, name, "left behind");
     }
-    a.engine.arca_sync(&hub.store("dev-a"), 2).await.expect("work files of the arca are not the person's files");
+    let report = a.engine.arca_sync(&hub.store("dev-a"), 2).await.expect("work files of the arca are not the person's files");
+    assert!(report.secret_skipped.is_empty(), "the arca's own work files are not reported as the person's: {:?}", report.secret_skipped);
 
     let b = paired_device("b-work-files", key);
     b.engine.arca_enable(false, 3).await.unwrap();
@@ -969,15 +1040,15 @@ async fn a_login_written_before_with_the_umasks_mode_is_closed_to_its_owner_when
 }
 
 #[tokio::test]
-async fn names_that_only_look_like_the_arcas_work_files_are_still_refused() {
+async fn names_that_only_look_like_the_arcas_work_files_are_the_persons_files_so_they_are_reported() {
     let hub = hub().await;
     for (case, stray) in [("notes", ".tmp-notes"), ("upper", ".tmp-0123456789ABCDEF"), ("short", ".arca-kept-0123"), ("journal-bak", ".arca-apply-journal.bak")] {
         let (a, _) = first_device(&format!("a-lookalike-{case}"));
         write_login(&a, "github.json", "token");
         a.engine.arca_enable(false, 1).await.unwrap();
         write_login(&a, stray, "leftover");
-        let err = format!("{:#}", a.engine.arca_sync(&hub.store(&format!("dev-{case}")), 2).await.unwrap_err());
-        assert!(err.contains(stray), "the error names the file: {err}");
+        let report = a.engine.arca_sync(&hub.store(&format!("dev-{case}")), 2).await.expect("a lookalike does not stop the cycle");
+        assert_eq!(skipped_logins(&report), [(stray, "not accepted by this device")]);
     }
 }
 

@@ -39,6 +39,14 @@ const FIRST_KEY_EPOCH: u32 = 0;
 /// A cycle that needs more merges than this is not converging: each merge joins one pair of tips.
 const MAX_MERGES_PER_CYCLE: usize = 64;
 
+/// A file of the logins folder that the snapshot left out, and why (the arca's own reason text).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SkippedLogin {
+    /// Relative to the logins folder, `/` as separator.
+    pub path: String,
+    pub reason: &'static str,
+}
+
 /// What one cycle did, for the caller to show. A cycle that returns `Ok` has replicated everything: an incomplete round is an error.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct ArcaSyncReport {
@@ -55,6 +63,9 @@ pub struct ArcaSyncReport {
     /// `secret` entries of the tip that this device does not apply (a name that is not a login, or a login that is too big): a count,
     /// never the names.
     pub secret_ignored: usize,
+    /// Files of the logins folder this device left out of the snapshot, with the arca's reason (a stray `.bak`, a reserved or
+    /// case-colliding name). They stay on disk and are never sent. Local names, so unlike `secret_ignored` they are listed.
+    pub secret_skipped: Vec<SkippedLogin>,
     /// Files the recovery of an interrupted apply left alone because the disk no longer matched its journal: the person decides
     /// (on the `secret` class one can be an old login, still readable).
     pub recovered_kept: usize,
