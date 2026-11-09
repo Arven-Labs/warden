@@ -210,7 +210,7 @@ impl SyncEngine {
         }
         let real_dir = resolve_for_guard(dir)?;
         for kept_elsewhere in [&self.secrets_path, &self.manifest_path, &self.config_path] {
-            if resolve_for_guard(kept_elsewhere)?.starts_with(&real_dir) {
+            if kept_elsewhere.starts_with(dir) {
                 anyhow::bail!("the logins folder {} holds {}: it cannot be synced as the logins class", dir.display(), kept_elsewhere.display());
             }
         }
