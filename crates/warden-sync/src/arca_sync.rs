@@ -162,6 +162,11 @@ impl SyncEngine {
                 // The engine skips these in `apply` (the filter in `arca_engine`); here they are only counted, never named.
                 report.secret_ignored = tip.manifest.files.iter().filter(|f| f.class == Class::Secret && !is_login_entry(f)).count();
             }
+            // The merges this device did not make: if it lost a config or secret conflict there, the apply below overwrites its file, so its
+            // text is saved first, derived from the merge manifest (M-1 b). Idempotent: the merging device's copy has the same name.
+            let derived = engine.conflicts_between(Some(&folder), &tip.id).await.context("finding the conflicts other devices settled")?;
+            let saved = engine.save_conflict_losers(&derived, &conflicts_dir, &roots).await.context("keeping the losers of conflicts other devices settled")?;
+            report.secret_losers_saved += saved.saved;
             let applied = engine.apply(Some(&folder), &tip.id, &roots).await.context("applying what other devices changed to the vault")?;
             folder = tip.id;
             save_folder(&folder_path, &folder)?;

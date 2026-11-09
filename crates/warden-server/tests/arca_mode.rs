@@ -516,6 +516,37 @@ async fn the_same_login_changed_on_both_sides_keeps_the_winner_in_place_and_the_
     }
 }
 
+/// M-1 (b): the device that LOST a conflict without merging keeps its own text. b merges and publishes; a only pulls and applies, and the
+/// apply overwrites a's login, so a's text has to be saved first, from the merge manifest.
+#[tokio::test]
+async fn the_device_that_lost_a_login_conflict_without_merging_keeps_its_own_version() {
+    let hub = hub().await;
+    let (a, key) = first_device("a-lost-without-merging");
+    write_login(&a, "github.json", "start");
+    a.engine.arca_enable(false, 1).await.unwrap();
+    let (store_a, store_b) = (hub.store("dev-a"), hub.store("dev-b"));
+    a.engine.arca_sync(&store_a, 2).await.unwrap();
+    let b = paired_device("b-lost-without-merging", key);
+    b.engine.arca_enable(false, 3).await.unwrap();
+    b.engine.arca_sync(&store_b, 4).await.unwrap();
+
+    write_login(&a, "github.json", "token by a");
+    write_login(&b, "github.json", "token by b");
+    a.engine.arca_sync(&store_a, 10).await.unwrap();
+    b.engine.arca_sync(&store_b, 11).await.unwrap();
+    let report = a.engine.arca_sync(&store_a, 12).await.unwrap();
+
+    // b's snapshot is the later one: its version wins on both devices, and a did not merge.
+    assert_eq!(report.merges, 0);
+    assert_eq!(logins(&a), map(&[("github.json", "token by b")]));
+    assert_eq!(report.secret_losers_saved, 1);
+    let saved = files(&warden_sync::arca_mode::conflicts_dir_for(&a.manifest));
+    assert_eq!(saved.len(), 1, "{saved:?}");
+    let (path, text) = saved.iter().next().unwrap();
+    assert!(path.starts_with("secret/github.json.conflito-"), "{path}");
+    assert_eq!(text, "token by a");
+}
+
 /// M-1: the loser of a `secret` conflict is saved BEFORE the merge manifest is stored. With a conflicts folder the arca refuses, the
 /// cycle fails and nothing of the merge is kept, so the next cycle (folder fixed) still sees the conflict and keeps the loser.
 #[cfg(unix)]
