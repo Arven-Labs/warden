@@ -201,12 +201,22 @@ impl SyncEngine {
     /// by the arca's exact rule: it never snapshots them, and refusing them would stop the very cycle that recovers an interrupted
     /// apply (I-1). Anything else that looks like them, such as `.tmp-notes`, is still the person's file.
     /// A missing folder is created empty and private, because the arca reads a missing root as an error, not as empty.
+    /// Paths are compared by where they really lead (`resolve_for_guard`), not by their text, so a link or a `..` cannot hide
+    /// the key (P-36, B-1). The folder itself cannot be a link, and it cannot overlap the vault, which is another class.
     fn prepare_logins_root(&self) -> anyhow::Result<Option<std::path::PathBuf>> {
         let Some(dir) = self.oauth_dir.as_deref() else { return Ok(None) };
+        if std::fs::symlink_metadata(dir).is_ok_and(|meta| meta.file_type().is_symlink()) {
+            anyhow::bail!("the logins folder {} is a link; point the host at the real folder", dir.display());
+        }
+        let real_dir = resolve_for_guard(dir)?;
         for kept_elsewhere in [&self.secrets_path, &self.manifest_path, &self.config_path] {
-            if kept_elsewhere.starts_with(dir) {
+            if resolve_for_guard(kept_elsewhere)?.starts_with(&real_dir) {
                 anyhow::bail!("the logins folder {} holds {}: it cannot be synced as the logins class", dir.display(), kept_elsewhere.display());
             }
+        }
+        let real_vault = resolve_for_guard(self.vault.root())?;
+        if real_vault.starts_with(&real_dir) || real_dir.starts_with(&real_vault) {
+            anyhow::bail!("the logins folder {} overlaps the vault {}: the two are different classes", dir.display(), self.vault.root().display());
         }
         create_private_dir(dir)?;
         for entry in std::fs::read_dir(dir)? {
@@ -219,6 +229,32 @@ impl SyncEngine {
         }
         Ok(Some(dir.to_path_buf()))
     }
+}
+
+/// Where `path` really leads: the longest existing ancestor is canonicalized (links followed) and the part that does not exist
+/// yet is appended as it is. `canonicalize` alone fails on a path that is not there, and the manifest, the config or the logins
+/// folder itself may not exist yet. A `..` in the part that does not exist cannot be resolved without guessing, so it is refused.
+fn resolve_for_guard(path: &Path) -> anyhow::Result<std::path::PathBuf> {
+    let absolute = std::path::absolute(path).with_context(|| format!("making {} absolute", path.display()))?;
+    let mut missing = Vec::new();
+    let mut head = absolute.as_path();
+    let mut real = loop {
+        match head.canonicalize() {
+            Ok(real) => break real,
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
+                let (Some(parent), Some(name)) = (head.parent(), head.file_name()) else {
+                    anyhow::bail!("cannot tell where {} leads: it goes through a folder that is not there and a `..`", path.display());
+                };
+                missing.push(name);
+                head = parent;
+            }
+            Err(err) => return Err(err).with_context(|| format!("resolving {}", head.display())),
+        }
+    };
+    for name in missing.iter().rev() {
+        real.push(name);
+    }
+    Ok(real)
 }
 
 /// The largest login this device applies from another one. A real login is a few KiB; the cap stops a peer from filling the disk.
