@@ -21,7 +21,7 @@ pub use arca_core::hub::{HubError, HubStore};
 use arca_core::replicate::ReplicateReport;
 
 use crate::arca_mode::{conflicts_dir_for, folder_path_for, load_mode, mode_path_for, save_mode, state_path_for, store_path_for, ArcaMode};
-use crate::manifest::{create_private_dir, write_atomic};
+use crate::manifest::{close_to_owner, create_private_dir, write_atomic};
 use crate::oauth::is_login_file_name;
 use crate::SyncEngine;
 
@@ -219,6 +219,7 @@ impl SyncEngine {
             anyhow::bail!("the logins folder {} overlaps the vault {}: the two are different classes", dir.display(), self.vault.root().display());
         }
         create_private_dir(dir)?;
+        let mut logins = Vec::new();
         for entry in std::fs::read_dir(dir)? {
             let entry = entry?;
             let name = entry.file_name().to_string_lossy().to_string();
@@ -226,6 +227,14 @@ impl SyncEngine {
             if !is_file || !(is_login_file_name(&name) || arca_core::is_reserved_name(&name)) {
                 anyhow::bail!("{} in the logins folder is not an MCP login file; move it out of {} so the arca can sync the logins", name, dir.display());
             }
+            if is_login_file_name(&name) {
+                logins.push(entry.path());
+            }
+        }
+        // A login written before `FileCredentialStore` created them `0600` has the umask's mode (P-36, 9b). Only after the whole
+        // folder passed, so a refused folder is not touched. The folder itself is left as it is: it may be the operator's.
+        for login in logins {
+            close_to_owner(&login)?;
         }
         Ok(Some(dir.to_path_buf()))
     }

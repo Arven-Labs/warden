@@ -296,17 +296,64 @@ impl CredentialStore for FileCredentialStore {
     }
 }
 
-/// SKELETON (tests first): the old behaviour, so the new tests fail for the right reason before the real one lands.
+/// Writes a login so that nobody sees it half written and nobody but its owner can read it (P-36, 9a and 9b): the bytes go to a
+/// temporary file in the same folder (the same filesystem, so the `rename` is atomic) that is born `0600`, and the `rename` swaps it
+/// in. A reader that already had the old file open keeps reading the old one whole; a failure leaves the old login as it was. A
+/// folder that is missing is created `0700`; one that exists is left as it is (it may be the operator's).
 fn write_login_atomically(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
-    let _unused = temp_login_name();
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent)?;
+    let parent = path.parent().filter(|parent| !parent.as_os_str().is_empty()).unwrap_or_else(|| Path::new("."));
+    create_private_dir(parent)?;
+    let tmp = parent.join(temp_login_name());
+    let result = write_then_swap(&tmp, path, bytes);
+    if result.is_err() {
+        // Best effort: if the write never created it this fails too, and the original error is the one that matters.
+        let _ = std::fs::remove_file(&tmp);
     }
-    std::fs::write(path, bytes)
+    result
 }
 
+fn write_then_swap(tmp: &Path, path: &Path, bytes: &[u8]) -> std::io::Result<()> {
+    use std::io::Write;
+    let mut options = std::fs::OpenOptions::new();
+    // `create_new`: never open a file that is already there, so a planted link at the temporary name is not followed.
+    options.write(true).create_new(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600);
+    }
+    let mut file = options.open(tmp)?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        file.set_permissions(std::fs::Permissions::from_mode(0o600))?;
+    }
+    file.write_all(bytes)?;
+    // Data on disk before the name changes: otherwise a power cut can persist the rename and leave an empty login under it.
+    file.sync_all()?;
+    drop(file);
+    std::fs::rename(tmp, path)
+}
+
+/// Like `create_dir_all`, but every folder it has to create gets `0o700` on unix; a folder that exists is not touched. The same
+/// rule as `warden-sync`'s `create_private_dir`, which this crate cannot use (`warden-sync` depends on `warden-core`).
+fn create_private_dir(dir: &Path) -> std::io::Result<()> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::DirBuilderExt;
+        std::fs::DirBuilder::new().recursive(true).mode(0o700).create(dir)
+    }
+    #[cfg(not(unix))]
+    {
+        std::fs::create_dir_all(dir)
+    }
+}
+
+/// `.tmp-` and 16 lowercase hex: the name the arca takes for its own work file (`arca_core::is_reserved_name`). The arca never
+/// snapshots such a file and the Warden's guard of the logins folder lets it stay, so a snapshot that lands between the write and the
+/// `rename` does not stop the sync cycle. A name that looked like a login (`github.json.tmp`) would be refused there.
 fn temp_login_name() -> String {
-    String::from("tmp")
+    format!(".tmp-{:016x}", rand::random::<u64>())
 }
 
 #[cfg(test)]
