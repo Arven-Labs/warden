@@ -950,6 +950,24 @@ async fn the_arcas_own_work_files_in_the_logins_folder_neither_stop_the_cycle_no
     assert_eq!(logins(&a).len(), 1 + work_files.len(), "the work files stay where they were");
 }
 
+#[cfg(unix)]
+#[tokio::test]
+async fn a_login_written_before_with_the_umasks_mode_is_closed_to_its_owner_when_the_mode_turns_on() {
+    use std::os::unix::fs::PermissionsExt;
+    let (a, _) = first_device("a-old-mode");
+    write_login(&a, "github.json", r#"{"token":"t"}"#);
+    write_login(&a, "closed.json", "c");
+    let open = a.oauth.join("github.json");
+    let closed = a.oauth.join("closed.json");
+    std::fs::set_permissions(&open, std::fs::Permissions::from_mode(0o644)).unwrap();
+    std::fs::set_permissions(&closed, std::fs::Permissions::from_mode(0o400)).unwrap();
+    a.engine.arca_enable(false, 1).await.unwrap();
+    let mode = |path: &Path| std::fs::metadata(path).unwrap().permissions().mode() & 0o777;
+    assert_eq!(mode(&open), 0o600, "a login open to group and others is closed");
+    assert_eq!(std::fs::read_to_string(&open).unwrap(), r#"{"token":"t"}"#, "the content is the same");
+    assert_eq!(mode(&closed), 0o400, "a file already closed is left as it is");
+}
+
 #[tokio::test]
 async fn names_that_only_look_like_the_arcas_work_files_are_still_refused() {
     let hub = hub().await;

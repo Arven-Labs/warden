@@ -278,15 +278,12 @@ impl CredentialStore for FileCredentialStore {
     }
 
     async fn save(&self, credentials: StoredCredentials) -> Result<(), AuthError> {
-        if let Some(parent) = self.path.parent() {
-            tokio::fs::create_dir_all(parent)
-                .await
-                .map_err(|err| AuthError::InternalError(format!("failed to create {}: {err}", parent.display())))?;
-        }
         let bytes = serde_json::to_vec_pretty(&credentials)
             .map_err(|err| AuthError::InternalError(format!("failed to serialize OAuth credentials: {err}")))?;
-        tokio::fs::write(&self.path, bytes)
+        let path = self.path.clone();
+        tokio::task::spawn_blocking(move || write_login_atomically(&path, &bytes))
             .await
+            .map_err(|err| AuthError::InternalError(format!("the write of {} did not finish: {err}", self.path.display())))?
             .map_err(|err| AuthError::InternalError(format!("failed to write {}: {err}", self.path.display())))
     }
 
@@ -296,5 +293,110 @@ impl CredentialStore for FileCredentialStore {
             Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(()),
             Err(err) => Err(AuthError::InternalError(format!("failed to remove {}: {err}", self.path.display()))),
         }
+    }
+}
+
+/// SKELETON (tests first): the old behaviour, so the new tests fail for the right reason before the real one lands.
+fn write_login_atomically(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
+    let _unused = temp_login_name();
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    std::fs::write(path, bytes)
+}
+
+fn temp_login_name() -> String {
+    String::from("tmp")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A path no other test shares (pid, a process-wide counter and the clock). It is not created.
+    fn unique_dir(name: &str) -> PathBuf {
+        static COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+        let nanos = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
+        std::env::temp_dir().join(format!("warden-login-write-{name}-{}-{}-{nanos}", std::process::id(), COUNTER.fetch_add(1, std::sync::atomic::Ordering::SeqCst)))
+    }
+
+    #[cfg(unix)]
+    fn mode_of(path: &Path) -> u32 {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::metadata(path).unwrap().permissions().mode() & 0o777
+    }
+
+    #[test]
+    fn a_new_login_is_complete_private_and_leaves_nothing_behind() {
+        let dir = unique_dir("new");
+        let path = dir.join("github.json");
+        write_login_atomically(&path, br#"{"token":"t1"}"#).unwrap();
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), r#"{"token":"t1"}"#);
+        #[cfg(unix)]
+        assert_eq!(mode_of(&path), 0o600, "a token is for its owner only, from the moment the file exists");
+        let names: Vec<_> = std::fs::read_dir(&dir).unwrap().map(|e| e.unwrap().file_name()).collect();
+        assert_eq!(names, ["github.json"], "no temporary file is left in the logins folder");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn saving_over_an_old_open_login_gives_it_the_new_content_and_closes_it() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = unique_dir("old-mode");
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("github.json");
+        std::fs::write(&path, "old").unwrap();
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644)).unwrap();
+        write_login_atomically(&path, b"new").unwrap();
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "new");
+        assert_eq!(mode_of(&path), 0o600);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_reader_holding_the_old_login_still_reads_it_whole() {
+        use std::io::Read;
+        let dir = unique_dir("reader");
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("github.json");
+        std::fs::write(&path, "old and complete").unwrap();
+        let mut reader = std::fs::File::open(&path).unwrap();
+        write_login_atomically(&path, b"new").unwrap();
+        let mut seen = String::new();
+        reader.read_to_string(&mut seen).unwrap();
+        assert_eq!(seen, "old and complete", "the file was swapped, not truncated and rewritten in place");
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "new");
+    }
+
+    #[test]
+    fn a_destination_that_cannot_be_replaced_fails_and_leaves_no_temporary_file() {
+        let dir = unique_dir("blocked");
+        let path = dir.join("github.json");
+        std::fs::create_dir_all(&path).unwrap();
+        assert!(write_login_atomically(&path, b"new").is_err());
+        assert!(path.is_dir(), "the destination is untouched");
+        let names: Vec<_> = std::fs::read_dir(&dir).unwrap().map(|e| e.unwrap().file_name()).collect();
+        assert_eq!(names, ["github.json"], "no temporary file is left behind");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_missing_folder_is_created_private() {
+        let dir = unique_dir("missing");
+        let path = dir.join("deep").join("mcp_oauth").join("github.json");
+        write_login_atomically(&path, b"t").unwrap();
+        assert_eq!(mode_of(path.parent().unwrap()), 0o700);
+        assert_eq!(mode_of(&dir.join("deep")), 0o700);
+    }
+
+    #[test]
+    fn the_temporary_name_is_one_the_arca_takes_for_its_own_work_file() {
+        // `arca_core::is_reserved_name`: `.tmp-` and 16 lowercase hex. warden-core cannot depend on the arca, so the rule is
+        // pinned here by text; `warden-server/tests/arca_mode.rs` shows the arca tolerates such a name in the logins folder.
+        let name = temp_login_name();
+        let hex = name.strip_prefix(".tmp-").unwrap_or_else(|| panic!("{name:?} does not start with .tmp-"));
+        assert_eq!(hex.len(), 16, "{name:?}");
+        assert!(hex.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f')), "{name:?}");
+        assert_ne!(name, temp_login_name(), "two writes at once must not share a temporary file");
     }
 }
