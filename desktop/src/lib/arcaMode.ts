@@ -25,6 +25,11 @@ export interface SyncReport {
   conflicts: number;
   filesChanged: number;
   pushed: number;
+  secretLosersSaved: number;
+  secretIgnored: number;
+  /** Empty also when the cycle made no snapshot: empty is not "nothing was skipped". */
+  secretSkipped: { path: string; reason: string }[];
+  recoveredKept: number;
 }
 
 /** Which controls the section draws. */
@@ -38,6 +43,33 @@ export function viewOf(status: ModeStatus | null): ModeView {
   if (!status.hasKey) return "needsKey";
   if (status.pendingSend) return "pendingSend";
   return "ready";
+}
+
+export type NoticeKey = "arca.noticeIgnored" | "arca.noticeKept" | "arca.noticeLosers";
+export type SkipKey = "arca.skipNotAccepted" | "arca.skipReserved" | "arca.skipCase";
+
+// The reasons `arca-core` gives for leaving a login out, in its own words (the screen translates the ones it knows).
+const SKIP_REASONS = new Map<string, SkipKey>([
+  ["not accepted by this device", "arca.skipNotAccepted"],
+  ["reserved name", "arca.skipReserved"],
+  ["differs only by case from another file", "arca.skipCase"],
+]);
+
+/** What a cycle says about the logins, apart from the sentence: counters that are not zero, and each file left out with its reason.
+ * `reasonKey` is null for a reason this screen does not know, so the screen shows `reason` as it came instead of hiding it. */
+export function noticesOf(report: SyncReport): {
+  counts: { key: NoticeKey; count: number }[];
+  skipped: { path: string; reasonKey: SkipKey | null; reason: string }[];
+} {
+  const counts: { key: NoticeKey; count: number }[] = [
+    { key: "arca.noticeIgnored", count: report.secretIgnored },
+    { key: "arca.noticeKept", count: report.recoveredKept },
+    { key: "arca.noticeLosers", count: report.secretLosersSaved },
+  ];
+  return {
+    counts: counts.filter((c) => c.count > 0),
+    skipped: report.secretSkipped.map((s) => ({ path: s.path, reasonKey: SKIP_REASONS.get(s.reason) ?? null, reason: s.reason })),
+  };
 }
 
 /** The sentence a finished cycle gets, as a catalog key and its values; `conflicts` is told apart, to be shown beside it. */

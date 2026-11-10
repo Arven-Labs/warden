@@ -99,6 +99,22 @@ pub struct SyncPayload {
     pub conflicts: usize,
     pub files_changed: usize,
     pub pushed: usize,
+    /// Login (and config) conflict losers this cycle kept as plaintext copies.
+    pub secret_losers_saved: usize,
+    /// Login entries from other devices this one refused to apply (only the count: their names are not trusted).
+    pub secret_ignored: usize,
+    /// Local files left out of the snapshot. Empty also when the cycle made no snapshot, so empty is not "nothing skipped".
+    pub secret_skipped: Vec<SkippedLoginPayload>,
+    /// Files an interrupted update left in the logins folder, kept for the person to decide.
+    pub recovered_kept: usize,
+}
+
+/// A local login file the cycle did not send, and why (the arca's own words; the screen translates the ones it knows).
+#[derive(Serialize, Debug, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct SkippedLoginPayload {
+    pub path: String,
+    pub reason: String,
 }
 
 impl From<ArcaSyncReport> for SyncPayload {
@@ -110,6 +126,10 @@ impl From<ArcaSyncReport> for SyncPayload {
             conflicts: report.conflicts,
             files_changed: report.files_changed,
             pushed: report.pushed,
+            secret_losers_saved: report.secret_losers_saved,
+            secret_ignored: report.secret_ignored,
+            secret_skipped: report.secret_skipped.into_iter().map(|s| SkippedLoginPayload { path: s.path, reason: s.reason.to_string() }).collect(),
+            recovered_kept: report.recovered_kept,
         }
     }
 }
@@ -180,6 +200,7 @@ pub async fn arca_sync_run(state: State<'_, AppState>, hub_id: String) -> Result
 mod tests {
     use super::*;
     use std::path::PathBuf;
+    use warden_sync::arca_sync::SkippedLogin;
     use warden_sync::manifest::{save_manifest, SyncManifest};
     use warden_sync::ArweaveClient;
 
@@ -402,7 +423,21 @@ mod tests {
         let chosen = serde_json::to_string(&ModeStatus { has_key: true, on: true, pending_send: false, hub_id: Some("hub-1".into()) }).unwrap();
         assert_eq!(chosen, r#"{"hasKey":true,"on":true,"pendingSend":false,"hubId":"hub-1"}"#);
         let sync = SyncPayload::from(ArcaSyncReport { snapshot_created: true, pulled: 3, merges: 1, conflicts: 2, files_changed: 4, pushed: 5, ..Default::default() });
-        assert_eq!(serde_json::to_string(&sync).unwrap(), r#"{"snapshotCreated":true,"pulled":3,"merges":1,"conflicts":2,"filesChanged":4,"pushed":5}"#);
+        assert_eq!(
+            serde_json::to_string(&sync).unwrap(),
+            r#"{"snapshotCreated":true,"pulled":3,"merges":1,"conflicts":2,"filesChanged":4,"pushed":5,"secretLosersSaved":0,"secretIgnored":0,"secretSkipped":[],"recoveredKept":0}"#
+        );
+        let notices = SyncPayload::from(ArcaSyncReport {
+            secret_losers_saved: 1,
+            secret_ignored: 2,
+            secret_skipped: vec![SkippedLogin { path: "notes.txt".into(), reason: "not accepted by this device" }],
+            recovered_kept: 3,
+            ..Default::default()
+        });
+        assert_eq!(
+            serde_json::to_string(&notices).unwrap(),
+            r#"{"snapshotCreated":false,"pulled":0,"merges":0,"conflicts":0,"filesChanged":0,"pushed":0,"secretLosersSaved":1,"secretIgnored":2,"secretSkipped":[{"path":"notes.txt","reason":"not accepted by this device"}],"recoveredKept":3}"#
+        );
         assert_eq!(serde_json::to_string(&Enabled { needs_reload: false }).unwrap(), r#"{"needsReload":false}"#);
     }
 }
