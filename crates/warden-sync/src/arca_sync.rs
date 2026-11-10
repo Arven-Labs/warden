@@ -19,6 +19,7 @@ use arca_core::object::ObjectId;
 // What a caller needs to name the hub it syncs with, so it does not need `arca-core` of its own.
 pub use arca_core::hub::{HubError, HubStore};
 use arca_core::replicate::ReplicateReport;
+use arca_core::scan::Skipped;
 
 use crate::arca_mode::{conflicts_dir_for, folder_path_for, load_mode, mode_path_for, save_mode, state_path_for, store_path_for, ArcaMode};
 use crate::manifest::{close_to_owner, create_private_dir, write_atomic};
@@ -39,6 +40,14 @@ const FIRST_KEY_EPOCH: u32 = 0;
 /// A cycle that needs more merges than this is not converging: each merge joins one pair of tips.
 const MAX_MERGES_PER_CYCLE: usize = 64;
 
+/// A file of the logins folder that the snapshot left out, and why (the arca's own reason text).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SkippedLogin {
+    /// Relative to the logins folder, `/` as separator.
+    pub path: String,
+    pub reason: &'static str,
+}
+
 /// What one cycle did, for the caller to show. A cycle that returns `Ok` has replicated everything: an incomplete round is an error.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct ArcaSyncReport {
@@ -55,6 +64,9 @@ pub struct ArcaSyncReport {
     /// `secret` entries of the tip that this device does not apply (a name that is not a login, or a login that is too big): a count,
     /// never the names.
     pub secret_ignored: usize,
+    /// Files of the logins folder this device left out of the snapshot, with the arca's reason (a stray `.bak`, a reserved or
+    /// case-colliding name). They stay on disk and are never sent. Local names, so unlike `secret_ignored` they are listed.
+    pub secret_skipped: Vec<SkippedLogin>,
     /// Files the recovery of an interrupted apply left alone because the disk no longer matched its journal: the person decides
     /// (on the `secret` class one can be an old login, still readable).
     pub recovered_kept: usize,
@@ -120,7 +132,12 @@ impl SyncEngine {
             anyhow::bail!("{} manifests in the local arca storage cannot be read; refusing to build on them", heads.rejected.len());
         }
         if heads.tips.len() == 1 && heads.tips[0].id == folder {
-            if let Snapshot::Created { id, .. } = engine.snapshot(&roots, now_ms).await? {
+            let (created, skipped) = match engine.snapshot(&roots, now_ms).await? {
+                Snapshot::Created { id, skipped, .. } => (Some(id), skipped),
+                Snapshot::Unchanged { skipped, .. } => (None, skipped),
+            };
+            report.secret_skipped = skipped_logins(skipped);
+            if let Some(id) = created {
                 folder = id;
                 save_folder(&folder_path, &folder)?;
                 report.snapshot_created = true;
@@ -189,17 +206,20 @@ impl SyncEngine {
         let keys = EpochKeys::derive(&VaultKey::from_bytes(secrets.vault_key), FIRST_KEY_EPOCH);
         let engine = Engine::new(store, keys, secrets.device_id)?
             .with_state(state_path_for(&self.manifest_path))
-            .with_entry_filter(Class::Secret, is_login_entry);
+            .with_entry_filter(Class::Secret, is_login_entry)
+            .with_scan_filter(Class::Secret, is_login_file_name);
         let roots = Roots { vault: Some(self.vault.root().clone()), config: None, secret: secret_root };
         Ok((engine, roots))
     }
 
     /// The `secret` root: the MCP logins folder, when the host wired one in. The arca takes every file of a root, so this refuses
-    /// (a) a folder that holds the sync key, the manifest or the config, which would send them to the hub as a class, and
-    /// (b) anything in it that `oauth.rs` would not have carried: a name other than `[A-Za-z0-9_-]+.json`, a folder, a link.
-    /// The one exception to (b) is the arca's own work files (the apply journal, the files it sets aside, a half-written `.tmp-*`),
-    /// by the arca's exact rule: it never snapshots them, and refusing them would stop the very cycle that recovers an interrupted
-    /// apply (I-1). Anything else that looks like them, such as `.tmp-notes`, is still the person's file.
+    /// a folder that holds the sync key, the manifest or the config, which would send them to the hub as a class.
+    /// A file that `oauth.rs` would not have carried (a name other than `[A-Za-z0-9_-]+.json`, a file in a subfolder, a link, a
+    /// `.bak`) does NOT stop the cycle: `arca_engine` gives the engine `is_login_file_name` as a scan filter, so the arca leaves it
+    /// out of the snapshot (never read, never sent, never removed) and the report lists it in `secret_skipped` (P-36, 4). That
+    /// only holds because of the filter: loosening this guard without it would send a forgotten `.bak` to the hub.
+    /// The arca's own work files (the apply journal, the files it sets aside, a half-written `.tmp-*`) keep their own reason in
+    /// the arca and are not listed; a name that only looks like them, such as `.tmp-notes`, is the person's file and is.
     /// A missing folder is created empty and private, because the arca reads a missing root as an error, not as empty.
     /// Paths are compared by where they really lead (`resolve_for_guard`), not by their text, so a link or a `..` cannot hide
     /// the key (P-36, B-1). The folder itself cannot be a link, and it cannot overlap the vault, which is another class.
@@ -223,16 +243,13 @@ impl SyncEngine {
         for entry in std::fs::read_dir(dir)? {
             let entry = entry?;
             let name = entry.file_name().to_string_lossy().to_string();
-            let is_file = entry.file_type()?.is_file();
-            if !is_file || !(is_login_file_name(&name) || arca_core::is_reserved_name(&name)) {
-                anyhow::bail!("{} in the logins folder is not an MCP login file; move it out of {} so the arca can sync the logins", name, dir.display());
-            }
-            if is_login_file_name(&name) {
+            // Anything else (a `.bak`, a folder, a link) stays where it is: the engine's scan filter keeps it out of the snapshot.
+            if is_login_file_name(&name) && entry.file_type()?.is_file() {
                 logins.push(entry.path());
             }
         }
-        // A login written before `FileCredentialStore` created them `0600` has the umask's mode (P-36, 9b). Only after the whole
-        // folder passed, so a refused folder is not touched. The folder itself is left as it is: it may be the operator's.
+        // A login written before `FileCredentialStore` created them `0600` has the umask's mode (P-36, 9b). Only after the folder
+        // passed the guards above. The folder itself is left as it is: it may be the operator's.
         for login in logins {
             close_to_owner(&login)?;
         }
@@ -273,6 +290,17 @@ const MAX_LOGIN_BYTES: u64 = 1 << 20;
 /// `MAX_LOGIN_BYTES`. The engine skips the others in `apply` and `restore` without touching the local file of that name.
 fn is_login_entry(entry: &FileEntry) -> bool {
     is_login_file_name(&entry.path) && entry.size <= MAX_LOGIN_BYTES
+}
+
+/// The files of the `secret` class the snapshot left out, for the report. The arca's work files are dropped: they are its own
+/// leftovers, not something the person has to look at.
+fn skipped_logins(skipped: Vec<Skipped>) -> Vec<SkippedLogin> {
+    skipped
+        .into_iter()
+        .filter(|s| s.class == Class::Secret)
+        .filter(|s| !arca_core::is_reserved_name(s.path.rsplit('/').next().unwrap_or(&s.path)))
+        .map(|s| SkippedLogin { path: s.path, reason: s.reason })
+        .collect()
 }
 
 /// `Ok` from a replication with `manifests_withheld` is not a success: a blob could not be read, so the manifests that cite it were
