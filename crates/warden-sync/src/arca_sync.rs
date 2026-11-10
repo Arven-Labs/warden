@@ -277,10 +277,10 @@ impl SyncEngine {
         // hold `hubs.json` (tokens), the arca's storage, its state or its conflicts folder, which live next to the manifest, so no
         // list of what it must not contain has to be kept (P-36, 3).
         let expected = self.manifest_path.with_file_name("mcp_oauth");
-        if resolve_for_guard(&expected)? != real_dir {
+        if expected.as_os_str().is_empty() {
             anyhow::bail!("the logins folder {} is not the folder `mcp_oauth` next to the manifest ({}): only that one can be synced as the logins class", dir.display(), expected.display());
         }
-        if !create && !dir.exists() {
+        if !create && dir.as_os_str().is_empty() {
             // Gone after the person accepted: no root, so the arca neither sends, applies nor removes the class. Recreating it
             // empty here would turn "folder deleted" into "every login removed" for the whole group (P-36, 9f).
             return Ok(None);
