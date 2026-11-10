@@ -16,6 +16,7 @@ const report = (over) => ({
   secretIgnored: 0,
   secretSkipped: [],
   recoveredKept: 0,
+  secretFolderMissing: false,
   ...over,
 });
 
@@ -105,7 +106,14 @@ describe("what a finished cycle says", () => {
 
 describe("what a cycle says about the logins (the secret class)", () => {
   test("a clean cycle has nothing to warn about", () => {
-    assert.deepEqual(noticesOf(report({})), { counts: [], skipped: [] });
+    assert.deepEqual(noticesOf(report({})), { counts: [], skipped: [], folderMissing: false });
+  });
+
+  test("a logins folder that is gone is told apart: the logins are not syncing and nothing was removed", () => {
+    const r = report({ secretFolderMissing: true });
+    assert.equal(noticesOf(r).folderMissing, true);
+    assert.deepEqual(noticesOf(r).counts, [], "it is not a counter");
+    assert.equal(summaryOf(r).key, "arca.syncNothing", "it does not change the sentence either");
   });
 
   test("a cycle that only has notices is still 'nothing new' for the sentence, so the notices are told apart", () => {

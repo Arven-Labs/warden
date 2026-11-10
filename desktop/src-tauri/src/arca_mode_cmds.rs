@@ -453,18 +453,19 @@ mod tests {
         let sync = SyncPayload::from(ArcaSyncReport { snapshot_created: true, pulled: 3, merges: 1, conflicts: 2, files_changed: 4, pushed: 5, ..Default::default() });
         assert_eq!(
             serde_json::to_string(&sync).unwrap(),
-            r#"{"snapshotCreated":true,"pulled":3,"merges":1,"conflicts":2,"filesChanged":4,"pushed":5,"secretLosersSaved":0,"secretIgnored":0,"secretSkipped":[],"recoveredKept":0}"#
+            r#"{"snapshotCreated":true,"pulled":3,"merges":1,"conflicts":2,"filesChanged":4,"pushed":5,"secretLosersSaved":0,"secretIgnored":0,"secretSkipped":[],"recoveredKept":0,"secretFolderMissing":false}"#
         );
         let notices = SyncPayload::from(ArcaSyncReport {
             secret_losers_saved: 1,
             secret_ignored: 2,
             secret_skipped: vec![SkippedLogin { path: "notes.txt".into(), reason: "not accepted by this device" }],
             recovered_kept: 3,
+            secret_folder_missing: true,
             ..Default::default()
         });
         assert_eq!(
             serde_json::to_string(&notices).unwrap(),
-            r#"{"snapshotCreated":false,"pulled":0,"merges":0,"conflicts":0,"filesChanged":0,"pushed":0,"secretLosersSaved":1,"secretIgnored":2,"secretSkipped":[{"path":"notes.txt","reason":"not accepted by this device"}],"recoveredKept":3}"#
+            r#"{"snapshotCreated":false,"pulled":0,"merges":0,"conflicts":0,"filesChanged":0,"pushed":0,"secretLosersSaved":1,"secretIgnored":2,"secretSkipped":[{"path":"notes.txt","reason":"not accepted by this device"}],"recoveredKept":3,"secretFolderMissing":true}"#
         );
         assert_eq!(serde_json::to_string(&Enabled { needs_reload: false }).unwrap(), r#"{"needsReload":false}"#);
     }
