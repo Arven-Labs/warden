@@ -40,6 +40,8 @@ export interface SyncReport {
   /** Empty also when the cycle made no snapshot: empty is not "nothing was skipped". */
   secretSkipped: { path: string; reason: string }[];
   recoveredKept: number;
+  /** The logins were accepted but their folder is gone: the class was left out of the cycle and nothing was removed. */
+  secretFolderMissing: boolean;
 }
 
 /** Which controls the section draws. */
@@ -70,6 +72,7 @@ const SKIP_REASONS = new Map<string, SkipKey>([
 export function noticesOf(report: SyncReport): {
   counts: { key: NoticeKey; count: number }[];
   skipped: { path: string; reasonKey: SkipKey | null; reason: string }[];
+  folderMissing: boolean;
 } {
   const counts: { key: NoticeKey; count: number }[] = [
     { key: "arca.noticeIgnored", count: report.secretIgnored },
@@ -79,6 +82,7 @@ export function noticesOf(report: SyncReport): {
   return {
     counts: counts.filter((c) => c.count > 0),
     skipped: report.secretSkipped.map((s) => ({ path: s.path, reasonKey: SKIP_REASONS.get(s.reason) ?? null, reason: s.reason })),
+    folderMissing: report.secretFolderMissing,
   };
 }
 

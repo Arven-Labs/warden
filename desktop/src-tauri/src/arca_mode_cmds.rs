@@ -117,6 +117,8 @@ pub struct SyncPayload {
     pub secret_skipped: Vec<SkippedLoginPayload>,
     /// Files an interrupted update left in the logins folder, kept for the person to decide.
     pub recovered_kept: usize,
+    /// The logins were accepted but their folder is gone: the class was left out of the cycle and nothing was removed.
+    pub secret_folder_missing: bool,
 }
 
 /// A local login file the cycle did not send, and why (the arca's own words; the screen translates the ones it knows).
@@ -140,6 +142,7 @@ impl From<ArcaSyncReport> for SyncPayload {
             secret_ignored: report.secret_ignored,
             secret_skipped: report.secret_skipped.into_iter().map(|s| SkippedLoginPayload { path: s.path, reason: s.reason.to_string() }).collect(),
             recovered_kept: report.recovered_kept,
+            secret_folder_missing: report.secret_folder_missing,
         }
     }
 }

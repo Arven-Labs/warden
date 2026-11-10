@@ -205,6 +205,7 @@ function ArcaModeSection() {
         )}
 
         {result && <p className={result.ok ? "settings-success-banner" : "settings-error-banner"}>{result.text}</p>}
+        {result?.notices?.folderMissing && <p className="settings-error-banner">{t("arca.noticeFolderMissing")}</p>}
         {result?.notices?.counts.map((notice) => (
           <p key={notice.key} className="settings-hint">
             {t(notice.key, { count: notice.count })}

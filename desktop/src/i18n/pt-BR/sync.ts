@@ -106,6 +106,7 @@ export const syncPt: Record<keyof typeof sync, string> = {
   "arca.loginsConfirm": "Os tokens OAuth da pasta mcp_oauth serão cifrados com a chave do vault e enviados ao seu hub, e os logins que seus outros dispositivos sincronizam serão gravados aqui. Nesta versão não há volta. Continuar?",
   "arca.loginsConfirmYes": "Sim, sincronizar",
   "arca.loginsFailed": "Não foi possível começar a sincronizar os logins: {message}",
+  "arca.noticeFolderMissing": "A pasta dos logins MCP não existe, então os logins não estão sincronizando (nada foi removido nos seus outros dispositivos). Restaure a pasta com os arquivos para voltar. Se você criar uma pasta vazia, os logins serão removidos em todos os dispositivos.",
   "arca.noticeIgnored": "Arquivos de login de outros dispositivos ignorados: {count}.",
   "arca.noticeKept": "Arquivos deixados por uma atualização interrompida: {count}. Ficam na pasta de logins para você conferir.",
   "arca.noticeLosers": "Conflitos de login guardados como cópias: {count}.",

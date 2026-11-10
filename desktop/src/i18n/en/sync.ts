@@ -105,6 +105,7 @@ export const sync = {
   "arca.loginsConfirm": "The OAuth tokens in the mcp_oauth folder will be encrypted with the vault key and sent to your hub, and the logins your other devices sync will be written here. There is no way back in this version. Go ahead?",
   "arca.loginsConfirmYes": "Yes, sync them",
   "arca.loginsFailed": "Could not start syncing the logins: {message}",
+  "arca.noticeFolderMissing": "The MCP logins folder is missing, so the logins are not syncing (nothing was removed on your other devices). Restore the folder with its files to resume. If you create an empty folder instead, the logins will be removed on all devices.",
   "arca.noticeIgnored": "Login files from other devices ignored: {count}.",
   "arca.noticeKept": "Files left by an interrupted update: {count}. They stay in the logins folder for you to check.",
   "arca.noticeLosers": "Login conflicts kept as copies: {count}.",

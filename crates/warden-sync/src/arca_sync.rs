@@ -70,6 +70,9 @@ pub struct ArcaSyncReport {
     /// Files the recovery of an interrupted apply left alone because the disk no longer matched its journal: the person decides
     /// (on the `secret` class one can be an old login, still readable).
     pub recovered_kept: usize,
+    /// The person accepted the logins but their folder is gone: the class was left out of this cycle (nothing sent, applied or
+    /// removed) and the folder was not recreated empty, which would have removed every login for the group (P-36, 9f).
+    pub secret_folder_missing: bool,
     /// Files the vault got from other devices: created, updated and removed.
     pub files_changed: usize,
     /// Objects copied from the local storage to the hub.
@@ -100,7 +103,7 @@ impl SyncEngine {
         if load_mode(&mode_path_for(&self.manifest_path))?.is_some() {
             anyhow::bail!("this vault is already in arca mode");
         }
-        let (engine, roots) = self.arca_engine(sync_logins)?;
+        let (engine, roots) = self.arca_engine(sync_logins, true)?;
         let folder = match engine.snapshot(&roots, now_ms).await.context("writing the first arca manifest")? {
             Snapshot::Created { id, .. } => id,
             Snapshot::Unchanged { head, .. } => head,
@@ -120,7 +123,7 @@ impl SyncEngine {
             anyhow::bail!("this vault is not in arca mode: turn it on first");
         };
         anyhow::ensure!(self.oauth_dir.is_some(), "this computer has no MCP logins folder to sync");
-        self.prepare_logins_root()?;
+        self.prepare_logins_root(true)?;
         save_mode(&path, &ArcaMode { secret_accepted: true, ..mode })
     }
 
@@ -142,9 +145,9 @@ impl SyncEngine {
         let Some(mode) = load_mode(&mode_path_for(&self.manifest_path))? else {
             anyhow::bail!("this vault is not in arca mode: turn it on first");
         };
-        let (engine, roots) = self.arca_engine(mode.secret_accepted)?;
+        let (engine, roots) = self.arca_engine(mode.secret_accepted, false)?;
         let folder_path = folder_path_for(&self.manifest_path);
-        let mut report = ArcaSyncReport::default();
+        let mut report = ArcaSyncReport { secret_folder_missing: mode.secret_accepted && self.oauth_dir.is_some() && roots.secret.is_none(), ..Default::default() };
 
         let recovered = engine.recover(&roots).await.context("finishing an interrupted apply")?;
         report.recovered_kept = recovered.kept.len();
@@ -226,10 +229,13 @@ impl SyncEngine {
     /// The `secret` class (the MCP logins) is a root only when `secret_accepted`: the person said yes (P-36, 1 and 8). Otherwise it
     /// has no root, so the arca neither sends nor applies it, never removes a login because of it, and the logins folder is not
     /// even guarded or created.
-    fn arca_engine(&self, secret_accepted: bool) -> anyhow::Result<(Engine<DiskStore>, Roots)> {
+    ///
+    /// `create_logins` is true only where the person is turning the logins on (`arca_enable_with`): the logins folder is created
+    /// there if it is not. In a normal cycle it is false, and a folder that is gone gives no root (P-36, 9f).
+    fn arca_engine(&self, secret_accepted: bool, create_logins: bool) -> anyhow::Result<(Engine<DiskStore>, Roots)> {
         let secrets = self.load_secrets()?;
         std::fs::create_dir_all(self.vault.root())?;
-        let secret_root = if secret_accepted { self.prepare_logins_root()? } else { None };
+        let secret_root = if secret_accepted { self.prepare_logins_root(create_logins)? } else { None };
         let store = DiskStore::open(store_path_for(&self.manifest_path))?;
         let keys = EpochKeys::derive(&VaultKey::from_bytes(secrets.vault_key), FIRST_KEY_EPOCH);
         let engine = Engine::new(store, keys, secrets.device_id)?
@@ -248,10 +254,11 @@ impl SyncEngine {
     /// only holds because of the filter: loosening this guard without it would send a forgotten `.bak` to the hub.
     /// The arca's own work files (the apply journal, the files it sets aside, a half-written `.tmp-*`) keep their own reason in
     /// the arca and are not listed; a name that only looks like them, such as `.tmp-notes`, is the person's file and is.
-    /// A missing folder is created empty and private, because the arca reads a missing root as an error, not as empty.
+    /// A missing folder is created empty and private only when `create` (the person is turning the logins on): the arca reads a
+    /// missing root as an error, not as empty, on purpose, so in a normal cycle a missing folder means no root (`None`).
     /// Paths are compared by where they really lead (`resolve_for_guard`), not by their text, so a link or a `..` cannot hide
     /// the key (P-36, B-1). The folder itself cannot be a link, and it cannot overlap the vault, which is another class.
-    fn prepare_logins_root(&self) -> anyhow::Result<Option<std::path::PathBuf>> {
+    fn prepare_logins_root(&self, create: bool) -> anyhow::Result<Option<std::path::PathBuf>> {
         let Some(dir) = self.oauth_dir.as_deref() else { return Ok(None) };
         if std::fs::symlink_metadata(dir).is_ok_and(|meta| meta.file_type().is_symlink()) {
             anyhow::bail!("the logins folder {} is a link; point the host at the real folder", dir.display());
@@ -265,6 +272,18 @@ impl SyncEngine {
         let real_vault = resolve_for_guard(self.vault.root())?;
         if real_vault.starts_with(&real_dir) || real_dir.starts_with(&real_vault) {
             anyhow::bail!("the logins folder {} overlaps the vault {}: the two are different classes", dir.display(), self.vault.root().display());
+        }
+        // The only folder that can be the logins class: `mcp_oauth` beside the manifest. A leaf folder with that fixed place cannot
+        // hold `hubs.json` (tokens), the arca's storage, its state or its conflicts folder, which live next to the manifest, so no
+        // list of what it must not contain has to be kept (P-36, 3).
+        let expected = self.manifest_path.with_file_name("mcp_oauth");
+        if resolve_for_guard(&expected)? != real_dir {
+            anyhow::bail!("the logins folder {} is not the folder `mcp_oauth` next to the manifest ({}): only that one can be synced as the logins class", dir.display(), expected.display());
+        }
+        if !create && !dir.exists() {
+            // Gone after the person accepted: no root, so the arca neither sends, applies nor removes the class. Recreating it
+            // empty here would turn "folder deleted" into "every login removed" for the whole group (P-36, 9f).
+            return Ok(None);
         }
         create_private_dir(dir)?;
         let mut logins = Vec::new();
