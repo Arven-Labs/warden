@@ -25,6 +25,11 @@ pub struct ArcaMode {
     /// The saved hub the automatic loop syncs with (its `hubs.json` id). `None` until the person picks one: a switch written before
     /// this field existed has none (serde reads a missing `Option` as `None`), and the loop then waits instead of guessing.
     pub hub_id: Option<String>,
+    /// The person accepted that the MCP logins (class `secret`, the `mcp_oauth` folder) travel through the arca. Without it that class
+    /// is neither sent nor applied (P-36, 1 and 8). A switch written before this field existed reads as `false`, so whoever turned the
+    /// mode on earlier is asked instead of having their logins start moving by themselves.
+    #[serde(default)]
+    pub secret_accepted: bool,
 }
 
 /// The switch file of the vault whose tracking manifest is `manifest_path` (`sync_manifest.json` → `arca_mode.json`).

@@ -82,7 +82,17 @@ impl SyncEngine {
     /// says whether a Send is waiting for the phone (`pending_push`), because that one cannot be undone once the switch is on.
     ///
     /// The switch is written last: if anything before it fails, the mode is still off and the vault is untouched.
+    ///
+    /// This one turns it on WITHOUT the MCP logins (class `secret`): they only travel after the person accepted, see
+    /// `arca_enable_with` and `arca_accept_logins` (P-36, 1 and 8).
     pub async fn arca_enable(&self, pending_push: bool, now_ms: u64) -> anyhow::Result<()> {
+        self.arca_enable_with(pending_push, false, now_ms).await
+    }
+
+    /// `arca_enable`, saying whether the person accepted the MCP logins in the same step. With `sync_logins` the logins folder is
+    /// guarded and read for the first manifest and the acceptance is written with the switch; if the guard refuses, nothing is
+    /// written and the mode stays off. Without it the folder is neither touched nor created.
+    pub async fn arca_enable_with(&self, pending_push: bool, sync_logins: bool, now_ms: u64) -> anyhow::Result<()> {
         if pending_push {
             anyhow::bail!("a Send is waiting for the phone: finish or cancel it before turning the arca mode on");
         }
@@ -90,14 +100,28 @@ impl SyncEngine {
         if load_mode(&mode_path_for(&self.manifest_path))?.is_some() {
             anyhow::bail!("this vault is already in arca mode");
         }
-        let (engine, roots) = self.arca_engine()?;
+        let (engine, roots) = self.arca_engine(sync_logins)?;
         let folder = match engine.snapshot(&roots, now_ms).await.context("writing the first arca manifest")? {
             Snapshot::Created { id, .. } => id,
             Snapshot::Unchanged { head, .. } => head,
         };
         save_folder(&folder_path_for(&self.manifest_path), &folder)?;
-        save_mode(&mode_path_for(&self.manifest_path), &ArcaMode { version: 1, enabled_at_ms: now_ms, hub_id: None })?;
+        save_mode(&mode_path_for(&self.manifest_path), &ArcaMode { version: 1, enabled_at_ms: now_ms, hub_id: None, secret_accepted: sync_logins })?;
         Ok(())
+    }
+
+    /// The person accepts that the MCP logins travel (P-36, 1 and 8). Needs the mode on, keeps the rest of the switch and takes the
+    /// sync lock, like `arca_set_hub`. The logins folder goes through the same guard first, so a folder that cannot be a root is
+    /// refused here and nothing is recorded. From the next cycle the class is sent and applied; before that nothing moved.
+    pub async fn arca_accept_logins(&self) -> anyhow::Result<()> {
+        let _one_sync_at_a_time = self.sync_lock().await?;
+        let path = mode_path_for(&self.manifest_path);
+        let Some(mode) = load_mode(&path)? else {
+            anyhow::bail!("this vault is not in arca mode: turn it on first");
+        };
+        anyhow::ensure!(self.oauth_dir.is_some(), "this computer has no MCP logins folder to sync");
+        self.prepare_logins_root()?;
+        save_mode(&path, &ArcaMode { secret_accepted: true, ..mode })
     }
 
     /// Records which saved hub the automatic loop syncs with. Needs the mode on (it never turns it on) and keeps the rest of the
@@ -115,10 +139,10 @@ impl SyncEngine {
     /// One full cycle against `hub`. Refuses unless the mode is on.
     pub async fn arca_sync(&self, hub: &HubStore, now_ms: u64) -> anyhow::Result<ArcaSyncReport> {
         let _one_sync_at_a_time = self.sync_lock().await?;
-        if load_mode(&mode_path_for(&self.manifest_path))?.is_none() {
+        let Some(mode) = load_mode(&mode_path_for(&self.manifest_path))? else {
             anyhow::bail!("this vault is not in arca mode: turn it on first");
-        }
-        let (engine, roots) = self.arca_engine()?;
+        };
+        let (engine, roots) = self.arca_engine(mode.secret_accepted)?;
         let folder_path = folder_path_for(&self.manifest_path);
         let mut report = ArcaSyncReport::default();
 
@@ -175,7 +199,7 @@ impl SyncEngine {
             anyhow::bail!("after merging the storage has {} tips; expected one", heads.tips.len());
         };
         if tip.id != folder {
-            if self.oauth_dir.is_some() {
+            if roots.secret.is_some() {
                 // The engine skips these in `apply` (the filter in `arca_engine`); here they are only counted, never named.
                 report.secret_ignored = tip.manifest.files.iter().filter(|f| f.class == Class::Secret && !is_login_entry(f)).count();
             }
@@ -198,10 +222,14 @@ impl SyncEngine {
 
     /// The arca engine of this vault: storage, anti-rollback state and the vault folder as the only root, with the key this device
     /// already has for the `warden-sync` (ADR 0012: same key, separate HKDF domains) at epoch 0.
-    fn arca_engine(&self) -> anyhow::Result<(Engine<DiskStore>, Roots)> {
+    ///
+    /// The `secret` class (the MCP logins) is a root only when `secret_accepted`: the person said yes (P-36, 1 and 8). Otherwise it
+    /// has no root, so the arca neither sends nor applies it, never removes a login because of it, and the logins folder is not
+    /// even guarded or created.
+    fn arca_engine(&self, secret_accepted: bool) -> anyhow::Result<(Engine<DiskStore>, Roots)> {
         let secrets = self.load_secrets()?;
         std::fs::create_dir_all(self.vault.root())?;
-        let secret_root = self.prepare_logins_root()?;
+        let secret_root = if secret_accepted { self.prepare_logins_root()? } else { None };
         let store = DiskStore::open(store_path_for(&self.manifest_path))?;
         let keys = EpochKeys::derive(&VaultKey::from_bytes(secrets.vault_key), FIRST_KEY_EPOCH);
         let engine = Engine::new(store, keys, secrets.device_id)?
