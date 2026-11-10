@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { t } from "../i18n";
-import { hubChoice, noticesOf, summaryOf, viewOf, type ModeStatus, type SyncReport } from "../lib/arcaMode";
+import { hubChoice, loginsView, noticesOf, summaryOf, viewOf, type ModeStatus, type SyncReport } from "../lib/arcaMode";
 import type { SavedHub } from "../types";
 
 /** Warden P183, desktop: turns the arca mode of the vault on (one way, so it takes a second click), chooses the saved hub the automatic
@@ -11,6 +11,9 @@ function ArcaModeSection() {
   const [status, setStatus] = useState<ModeStatus | null>(null);
   const [hubs, setHubs] = useState<SavedHub[] | null>(null);
   const [confirming, setConfirming] = useState(false);
+  // The box of the confirmation: the MCP logins travel too. Off every time the confirmation opens.
+  const [syncLogins, setSyncLogins] = useState(false);
+  const [confirmingLogins, setConfirmingLogins] = useState(false);
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<{ ok: boolean; text: string; notices?: ReturnType<typeof noticesOf> } | null>(null);
   // A second click must not start a second cycle: the state below is only read after a render, this one at once.
@@ -52,7 +55,7 @@ function ArcaModeSection() {
     setBusy(true);
     setResult(null);
     try {
-      await invoke("arca_mode_enable");
+      await invoke("arca_mode_enable", { syncLogins });
       setResult({ ok: true, text: t("arca.enabled") });
       setConfirming(false);
       refreshStatus();
@@ -60,6 +63,24 @@ function ArcaModeSection() {
       setResult({ ok: false, text: t("arca.enableFailed", { message: String(e) }) });
       setConfirming(false);
     } finally {
+      busyRef.current = false;
+      setBusy(false);
+    }
+  }
+
+  async function acceptLogins() {
+    if (busyRef.current) return;
+    busyRef.current = true;
+    setBusy(true);
+    setResult(null);
+    try {
+      await invoke("arca_mode_accept_logins");
+    } catch (e) {
+      setResult({ ok: false, text: t("arca.loginsFailed", { message: String(e) }) });
+    } finally {
+      // Whether it worked or not, what the screen shows is what the backend has recorded now.
+      setConfirmingLogins(false);
+      refreshStatus();
       busyRef.current = false;
       setBusy(false);
     }
@@ -103,6 +124,9 @@ function ArcaModeSection() {
             {confirming ? (
               <>
                 <p className="settings-hint">{t("arca.confirmWarning")}</p>
+                <label className="settings-hint">
+                  <input type="checkbox" checked={syncLogins} disabled={busy} onChange={(e) => setSyncLogins(e.target.checked)} /> {t("arca.loginsOption")}
+                </label>
                 <div className="sync-join-form">
                   <button type="button" className="settings-save-btn" disabled={busy} onClick={() => void turnOn()}>
                     {t("arca.confirmYes")}
@@ -113,7 +137,14 @@ function ArcaModeSection() {
                 </div>
               </>
             ) : (
-              <button type="button" className="settings-save-btn" onClick={() => setConfirming(true)}>
+              <button
+                type="button"
+                className="settings-save-btn"
+                onClick={() => {
+                  setSyncLogins(false);
+                  setConfirming(true);
+                }}
+              >
                 {t("arca.turnOn")}
               </button>
             )}
@@ -141,6 +172,29 @@ function ArcaModeSection() {
                   ))}
                 </select>
               </div>
+            )}
+            {loginsView(status) === "syncing" && <p className="settings-hint">{t("arca.loginsOnHint")}</p>}
+            {loginsView(status) === "offer" && (
+              <>
+                <p className="settings-hint">{t("arca.loginsOffHint")}</p>
+                {confirmingLogins ? (
+                  <>
+                    <p className="settings-hint">{t("arca.loginsConfirm")}</p>
+                    <div className="sync-join-form">
+                      <button type="button" className="settings-save-btn" disabled={busy} onClick={() => void acceptLogins()}>
+                        {t("arca.loginsConfirmYes")}
+                      </button>
+                      <button type="button" className="settings-browse-btn" disabled={busy} onClick={() => setConfirmingLogins(false)}>
+                        {t("arca.cancel")}
+                      </button>
+                    </div>
+                  </>
+                ) : (
+                  <button type="button" className="settings-browse-btn" disabled={busy} onClick={() => setConfirmingLogins(true)}>
+                    {t("arca.loginsAccept")}
+                  </button>
+                )}
+              </>
             )}
             {removed && <p className="settings-error-banner">{t("arca.hubRemoved")}</p>}
             {chosenName && <p className="settings-hint">{t("arca.autoHub", { name: chosenName })}</p>}

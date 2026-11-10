@@ -588,7 +588,7 @@ mod tests {
         let a = device(&dir, "a", Some(&remote));
         a.init_fresh().await.unwrap();
         std::fs::write(a.vault_path.join("nota.md"), "oi").unwrap();
-        save_mode(&mode_path_for(&a.manifest_path), &ArcaMode { version: 1, enabled_at_ms: 1, hub_id: None }).unwrap();
+        save_mode(&mode_path_for(&a.manifest_path), &ArcaMode { version: 1, enabled_at_ms: 1, hub_id: None, secret_accepted: false }).unwrap();
 
         let report = a.run_once().await;
         assert_eq!((&report.pulled, &report.pushed, &report.error), (&None, &None, &None), "{report:?}");
@@ -617,7 +617,7 @@ mod tests {
         let dir = temp_dir(name);
         let runner = device(&dir, "a", None).with_arca_cycle(cycle);
         runner.init_fresh().await.unwrap();
-        save_mode(&mode_path_for(&runner.manifest_path), &ArcaMode { version: 1, enabled_at_ms: 1, hub_id: hub_id.map(String::from) }).unwrap();
+        save_mode(&mode_path_for(&runner.manifest_path), &ArcaMode { version: 1, enabled_at_ms: 1, hub_id: hub_id.map(String::from), secret_accepted: false }).unwrap();
         runner
     }
 

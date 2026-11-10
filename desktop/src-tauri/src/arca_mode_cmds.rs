@@ -31,12 +31,15 @@ pub struct ModeStatus {
     /// The saved hub the automatic sync uses (its `hubs.json` id); `None` until the person chooses one. It may name a hub that was
     /// removed since: the screen checks it against the saved hubs.
     pub hub_id: Option<String>,
+    /// The person accepted that the MCP logins travel; until then they are not sent or applied.
+    pub logins_accepted: bool,
 }
 
 pub fn mode_status(engine: &SyncEngine, pending_send: bool) -> Result<ModeStatus, String> {
     let mode = engine.arca_mode().map_err(|e| format!("{e:#}"))?;
     let on = mode.is_some();
-    Ok(ModeStatus { has_key: engine.is_initialized(), on, pending_send, hub_id: mode.and_then(|m| m.hub_id) })
+    let logins_accepted = mode.as_ref().is_some_and(|m| m.secret_accepted);
+    Ok(ModeStatus { has_key: engine.is_initialized(), on, pending_send, hub_id: mode.and_then(|m| m.hub_id), logins_accepted })
 }
 
 /// Chooses the saved hub the automatic sync uses. The hub has to be saved (`hubs.json` is the desktop's, so the check is here and not
@@ -61,7 +64,8 @@ pub struct Enabled {
 
 /// Turns the mode on: needs the key and no Send waiting for the phone; does the Pull through `warden-sync` first when the vault is
 /// paired there (so the first arca manifest is not made from a vault that is behind), and stops if that Pull fails.
-pub async fn enable(engine: &SyncEngine, pending_send: bool, now_ms: u64) -> Result<Enabled, String> {
+/// `sync_logins` is the box of the confirmation: whether the MCP logins travel too (off unless the person ticked it).
+pub async fn enable(engine: &SyncEngine, pending_send: bool, sync_logins: bool, now_ms: u64) -> Result<Enabled, String> {
     if !engine.is_initialized() {
         return Err("this computer has no vault key yet: set up sync or pair this computer first".to_string());
     }
@@ -73,8 +77,14 @@ pub async fn enable(engine: &SyncEngine, pending_send: bool, now_ms: u64) -> Res
         let pulled = engine.pull().await.map_err(|e| format!("the Pull before turning the arca mode on failed, so it was not turned on: {e:#}"))?;
         needs_reload = pulled.needs_reload();
     }
-    engine.arca_enable(false, now_ms).await.map_err(|e| format!("{e:#}"))?;
+    engine.arca_enable_with(false, sync_logins, now_ms).await.map_err(|e| format!("{e:#}"))?;
     Ok(Enabled { needs_reload })
+}
+
+/// The person accepts that the MCP logins travel (for a mode that was turned on without them). The engine checks the mode is on
+/// and that the logins folder can be a root.
+pub async fn accept_logins(engine: &SyncEngine) -> Result<(), String> {
+    engine.arca_accept_logins().await.map_err(|e| format!("{e:#}"))
 }
 
 /// The hub the sync talks to, with the token this computer was issued for it. Never asks the person for either, and refuses plain
@@ -175,14 +185,19 @@ pub fn arca_mode_status(state: State<'_, AppState>) -> Result<ModeStatus, String
 }
 
 #[tauri::command]
-pub async fn arca_mode_enable(state: State<'_, AppState>) -> Result<Enabled, String> {
+pub async fn arca_mode_enable(state: State<'_, AppState>, sync_logins: bool) -> Result<Enabled, String> {
     // Read before the `await` and let the guard go: the lock is a `std` one and must not be held across it.
     let pending_send = state.pending_push.lock().unwrap().is_some();
-    let enabled = enable(&state.sync, pending_send, now_ms()).await?;
+    let enabled = enable(&state.sync, pending_send, sync_logins, now_ms()).await?;
     if enabled.needs_reload {
         crate::reload_orchestrator(&state).await;
     }
     Ok(enabled)
+}
+
+#[tauri::command]
+pub async fn arca_mode_accept_logins(state: State<'_, AppState>) -> Result<(), String> {
+    accept_logins(&state.sync).await
 }
 
 #[tauri::command]

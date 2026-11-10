@@ -29,7 +29,7 @@ fn device(name: &str) -> Device {
 }
 
 fn switch_on(device: &Device) {
-    save_mode(&mode_path_for(&device.manifest), &ArcaMode { version: 1, enabled_at_ms: 1, hub_id: None }).unwrap();
+    save_mode(&mode_path_for(&device.manifest), &ArcaMode { version: 1, enabled_at_ms: 1, hub_id: None, secret_accepted: false }).unwrap();
 }
 
 fn refusal(err: anyhow::Error) -> String {

@@ -8,6 +8,16 @@ export interface ModeStatus {
   pendingSend: boolean;
   /** The saved hub the automatic sync uses; null until the person chooses one. May name a hub that was removed since. */
   hubId: string | null;
+  /** The person accepted that the MCP logins travel; until then they are neither sent nor applied. */
+  loginsAccepted: boolean;
+}
+
+/** What the section says about the MCP logins: nothing before the mode is on (the choice is a box in the confirmation); once on,
+ * either that they are not syncing yet (with the offer to take them, the case of a mode turned on before the consent existed) or
+ * that they are. */
+export function loginsView(status: ModeStatus | null): "hidden" | "offer" | "syncing" {
+  if (status === null || !status.on) return "hidden";
+  return status.loginsAccepted ? "syncing" : "offer";
 }
 
 /** What the hub selector shows: the recorded hub if it is still saved (never "the first of the list", which would pretend a choice

@@ -1462,6 +1462,7 @@ pub fn run() {
             arca_pair_cmds::arca_pair_cancel,
             arca_mode_cmds::arca_mode_status,
             arca_mode_cmds::arca_mode_enable,
+            arca_mode_cmds::arca_mode_accept_logins,
             arca_mode_cmds::arca_mode_set_hub,
             arca_mode_cmds::arca_sync_run,
             remote_cmds::remote_connect,
