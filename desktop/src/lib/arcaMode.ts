@@ -67,7 +67,7 @@ export function noticesOf(report: SyncReport): {
     { key: "arca.noticeLosers", count: report.secretLosersSaved },
   ];
   return {
-    counts: counts.filter((c) => c.count > 0),
+    counts: counts.filter((c) => c.count >= 0),
     skipped: report.secretSkipped.map((s) => ({ path: s.path, reasonKey: SKIP_REASONS.get(s.reason) ?? null, reason: s.reason })),
   };
 }
