@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { t } from "../i18n";
-import { hubChoice, summaryOf, viewOf, type ModeStatus, type SyncReport } from "../lib/arcaMode";
+import { hubChoice, noticesOf, summaryOf, viewOf, type ModeStatus, type SyncReport } from "../lib/arcaMode";
 import type { SavedHub } from "../types";
 
 /** Warden P183, desktop: turns the arca mode of the vault on (one way, so it takes a second click), chooses the saved hub the automatic
@@ -12,7 +12,7 @@ function ArcaModeSection() {
   const [hubs, setHubs] = useState<SavedHub[] | null>(null);
   const [confirming, setConfirming] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [result, setResult] = useState<{ ok: boolean; text: string } | null>(null);
+  const [result, setResult] = useState<{ ok: boolean; text: string; notices?: ReturnType<typeof noticesOf> } | null>(null);
   // A second click must not start a second cycle: the state below is only read after a render, this one at once.
   const busyRef = useRef(false);
 
@@ -74,7 +74,7 @@ function ArcaModeSection() {
       const report = await invoke<SyncReport>("arca_sync_run", { hubId: selected });
       const summary = summaryOf(report);
       const sentence = t(summary.key, summary.values);
-      setResult({ ok: true, text: summary.conflicts > 0 ? `${sentence} ${t("arca.syncConflicts", { count: summary.conflicts })}` : sentence });
+      setResult({ ok: true, text: summary.conflicts > 0 ? `${sentence} ${t("arca.syncConflicts", { count: summary.conflicts })}` : sentence, notices: noticesOf(report) });
     } catch (e) {
       setResult({ ok: false, text: t("arca.syncFailed", { message: String(e) }) });
     } finally {
@@ -151,6 +151,23 @@ function ArcaModeSection() {
         )}
 
         {result && <p className={result.ok ? "settings-success-banner" : "settings-error-banner"}>{result.text}</p>}
+        {result?.notices?.counts.map((notice) => (
+          <p key={notice.key} className="settings-hint">
+            {t(notice.key, { count: notice.count })}
+          </p>
+        ))}
+        {result?.notices && result.notices.skipped.length > 0 && (
+          <>
+            <p className="settings-hint">{t("arca.skippedTitle")}</p>
+            <ul>
+              {result.notices.skipped.map((file) => (
+                <li key={file.path} className="settings-hint">
+                  {t("arca.skipItem", { path: file.path, reason: file.reasonKey ? t(file.reasonKey) : file.reason })}
+                </li>
+              ))}
+            </ul>
+          </>
+        )}
       </div>
     </section>
   );

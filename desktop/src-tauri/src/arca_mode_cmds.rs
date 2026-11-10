@@ -99,6 +99,22 @@ pub struct SyncPayload {
     pub conflicts: usize,
     pub files_changed: usize,
     pub pushed: usize,
+    /// Login (and config) conflict losers this cycle kept as plaintext copies.
+    pub secret_losers_saved: usize,
+    /// Login entries from other devices this one refused to apply (only the count: their names are not trusted).
+    pub secret_ignored: usize,
+    /// Local files left out of the snapshot. Empty also when the cycle made no snapshot, so empty is not "nothing skipped".
+    pub secret_skipped: Vec<SkippedLoginPayload>,
+    /// Files an interrupted update left in the logins folder, kept for the person to decide.
+    pub recovered_kept: usize,
+}
+
+/// A local login file the cycle did not send, and why (the arca's own words; the screen translates the ones it knows).
+#[derive(Serialize, Debug, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct SkippedLoginPayload {
+    pub path: String,
+    pub reason: String,
 }
 
 impl From<ArcaSyncReport> for SyncPayload {
@@ -110,6 +126,10 @@ impl From<ArcaSyncReport> for SyncPayload {
             conflicts: report.conflicts,
             files_changed: report.files_changed,
             pushed: report.pushed,
+            secret_losers_saved: report.secret_losers_saved,
+            secret_ignored: report.secret_ignored,
+            secret_skipped: report.secret_skipped.into_iter().map(|s| SkippedLoginPayload { path: s.path, reason: s.reason.to_string() }).collect(),
+            recovered_kept: report.recovered_kept,
         }
     }
 }

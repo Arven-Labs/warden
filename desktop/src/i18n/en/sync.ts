@@ -98,4 +98,12 @@ export const sync = {
   "arca.syncDone": "Synced: {received} files changed here, {sent} objects sent to the hub.",
   "arca.syncConflicts": "Conflicts settled: {count}. Both versions were kept (look for files with .conflito- in the name).",
   "arca.syncFailed": "Sync failed: {message}",
+  "arca.noticeIgnored": "Login files from other devices ignored: {count}.",
+  "arca.noticeKept": "Files left by an interrupted update: {count}. They stay in the logins folder for you to check.",
+  "arca.noticeLosers": "Login conflicts kept as copies: {count}.",
+  "arca.skippedTitle": "Left out of the sync (still on this computer):",
+  "arca.skipItem": "{path}: {reason}",
+  "arca.skipNotAccepted": "this file is not a login this device syncs",
+  "arca.skipReserved": "its name is reserved by the system",
+  "arca.skipCase": "another file differs from it only by letter case",
 } as const;

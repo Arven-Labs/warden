@@ -99,4 +99,12 @@ export const syncPt: Record<keyof typeof sync, string> = {
   "arca.syncDone": "Sincronizado: {received} arquivos mudaram aqui, {sent} objetos enviados ao hub.",
   "arca.syncConflicts": "Conflitos resolvidos: {count}. As duas versões foram guardadas (procure arquivos com .conflito- no nome).",
   "arca.syncFailed": "A sincronização falhou: {message}",
+  "arca.noticeIgnored": "Arquivos de login de outros dispositivos ignorados: {count}.",
+  "arca.noticeKept": "Arquivos deixados por uma atualização interrompida: {count}. Ficam na pasta de logins para você conferir.",
+  "arca.noticeLosers": "Conflitos de login guardados como cópias: {count}.",
+  "arca.skippedTitle": "Fora da sincronização (continuam neste computador):",
+  "arca.skipItem": "{path}: {reason}",
+  "arca.skipNotAccepted": "este arquivo não é um login que este dispositivo sincroniza",
+  "arca.skipReserved": "o nome é reservado pelo sistema",
+  "arca.skipCase": "outro arquivo difere dele só por maiúsculas e minúsculas",
 };
