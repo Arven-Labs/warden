@@ -7,6 +7,8 @@ import { after, before, describe, test } from "node:test";
 import { deferred, launchBrowser, openApp, serveDist, snap } from "./harness.mjs";
 
 const TIMEOUT = 120_000;
+// What `arca_sync_run` answers when nothing moved and nothing needs a warning (the shape of `SyncPayload`).
+const CLEAN_CYCLE = { snapshotCreated: false, pulled: 0, merges: 0, conflicts: 0, filesChanged: 0, pushed: 0, secretLosersSaved: 0, secretIgnored: 0, secretSkipped: [], recoveredKept: 0 };
 const HUB = { id: "hub-1", name: "Home hub", url: "https://hub.example.test", open: false };
 const WORK = { id: "hub-2", name: "Work hub", url: "https://work.example.test", open: false };
 
@@ -121,21 +123,55 @@ describe("the arca mode of the vault on the desktop", () => {
       assert.equal(await page.getByRole("button", { name: "Syncing…" }).isDisabled(), true, "a second click cannot start a second cycle");
       assert.deepEqual(asked(calls, "arca_sync_run").map((c) => c.args.hubId), [HUB.id]);
 
-      running.resolve({ snapshotCreated: true, pulled: 4, merges: 1, conflicts: 2, filesChanged: 2, pushed: 5 });
+      running.resolve({ ...CLEAN_CYCLE, snapshotCreated: true, pulled: 4, merges: 1, conflicts: 2, filesChanged: 2, pushed: 5 });
       await page.getByText("Synced: 2 files changed here, 5 objects sent to the hub.").waitFor();
       await page.getByText(/Conflicts settled: 2/).waitFor();
       await snap(page, "desktop-arca-mode-synced", { focus: heading(page), top: true });
       await page.getByRole("button", { name: "Sync now", exact: true }).waitFor();
       assert.deepEqual(errors, [], "the page raised no error");
     } finally {
-      running.resolve({ snapshotCreated: false, pulled: 0, merges: 0, conflicts: 0, filesChanged: 0, pushed: 0 });
+      running.resolve(CLEAN_CYCLE);
+      await context.close();
+    }
+  });
+
+  test("the logins a cycle left out or ignored are listed under the sentence, with the reason in plain words", { timeout: TIMEOUT }, async () => {
+    const { context, page, errors } = await openSync(() => ({ hasKey: true, on: true, pendingSend: false, hubId: HUB.id }), {
+      arca_sync_run: () => ({
+        snapshotCreated: false,
+        pulled: 0,
+        merges: 0,
+        conflicts: 0,
+        filesChanged: 0,
+        pushed: 0,
+        secretLosersSaved: 1,
+        secretIgnored: 2,
+        recoveredKept: 3,
+        secretSkipped: [
+          { path: "notes.txt", reason: "not accepted by this device" },
+          { path: "GitHub.json", reason: "differs only by case from another file" },
+          { path: "x.json", reason: "something new" },
+        ],
+      }),
+    });
+    try {
+      await page.getByRole("button", { name: "Sync now", exact: true }).click();
+      await page.getByText("Nothing new.").waitFor();
+      await page.getByText(/Login files from other devices ignored: 2/).waitFor();
+      await page.getByText(/Files left by an interrupted update: 3/).waitFor();
+      await page.getByText(/Login conflicts kept as copies: 1/).waitFor();
+      await page.getByText("notes.txt: this file is not a login this device syncs").waitFor();
+      await page.getByText("GitHub.json: another file differs from it only by letter case").waitFor();
+      await page.getByText("x.json: something new").waitFor();
+      assert.deepEqual(errors, [], "the page raised no error");
+    } finally {
       await context.close();
     }
   });
 
   test("a cycle with nothing new says so, and a refused one shows the reason", { timeout: TIMEOUT }, async () => {
     // A function, so a refusal is only made when the backend is asked (a rejected promise made earlier, with nobody waiting, is an error).
-    let answer = () => ({ snapshotCreated: false, pulled: 0, merges: 0, conflicts: 0, filesChanged: 0, pushed: 0 });
+    let answer = () => CLEAN_CYCLE;
     const { context, page, errors } = await openSync(() => ({ hasKey: true, on: true, pendingSend: false, hubId: HUB.id }), { arca_sync_run: () => answer() });
     try {
       await page.getByRole("button", { name: "Sync now", exact: true }).click();

@@ -2,10 +2,22 @@
 
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
-import { hubChoice, summaryOf, viewOf } from "../src/lib/arcaMode.ts";
+import { hubChoice, noticesOf, summaryOf, viewOf } from "../src/lib/arcaMode.ts";
 
 const status = (over) => ({ hasKey: true, on: false, pendingSend: false, ...over });
-const report = (over) => ({ snapshotCreated: false, pulled: 0, merges: 0, conflicts: 0, filesChanged: 0, pushed: 0, ...over });
+const report = (over) => ({
+  snapshotCreated: false,
+  pulled: 0,
+  merges: 0,
+  conflicts: 0,
+  filesChanged: 0,
+  pushed: 0,
+  secretLosersSaved: 0,
+  secretIgnored: 0,
+  secretSkipped: [],
+  recoveredKept: 0,
+  ...over,
+});
 
 describe("which controls the section draws", () => {
   test("until the backend answers there is nothing to press", () => {
@@ -72,5 +84,47 @@ describe("what a finished cycle says", () => {
 
   test("conflicts are told apart, so the screen can show them beside the sentence", () => {
     assert.equal(summaryOf(report({ merges: 1, conflicts: 2, filesChanged: 1, pushed: 1 })).conflicts, 2);
+  });
+});
+
+describe("what a cycle says about the logins (the secret class)", () => {
+  test("a clean cycle has nothing to warn about", () => {
+    assert.deepEqual(noticesOf(report({})), { counts: [], skipped: [] });
+  });
+
+  test("a cycle that only has notices is still 'nothing new' for the sentence, so the notices are told apart", () => {
+    const r = report({ secretIgnored: 1 });
+    assert.equal(summaryOf(r).key, "arca.syncNothing");
+    assert.equal(noticesOf(r).counts.length, 1);
+  });
+
+  test("each counter that is not zero gets its own line, with its number, and zero ones are left out", () => {
+    const r = report({ secretIgnored: 2, recoveredKept: 1, secretLosersSaved: 3 });
+    assert.deepEqual(noticesOf(r).counts, [
+      { key: "arca.noticeIgnored", count: 2 },
+      { key: "arca.noticeKept", count: 1 },
+      { key: "arca.noticeLosers", count: 3 },
+    ]);
+    assert.deepEqual(noticesOf(report({ recoveredKept: 1 })).counts, [{ key: "arca.noticeKept", count: 1 }]);
+  });
+
+  test("the three reasons the arca gives for leaving a login out are translated, keeping the path", () => {
+    const r = report({
+      secretSkipped: [
+        { path: "notes.txt", reason: "not accepted by this device" },
+        { path: "con.json", reason: "reserved name" },
+        { path: "GitHub.json", reason: "differs only by case from another file" },
+      ],
+    });
+    assert.deepEqual(noticesOf(r).skipped, [
+      { path: "notes.txt", reasonKey: "arca.skipNotAccepted", reason: "not accepted by this device" },
+      { path: "con.json", reasonKey: "arca.skipReserved", reason: "reserved name" },
+      { path: "GitHub.json", reasonKey: "arca.skipCase", reason: "differs only by case from another file" },
+    ]);
+  });
+
+  test("a reason the arca may add later is shown as it came, never hidden", () => {
+    const r = report({ secretSkipped: [{ path: "x.json", reason: "something new" }] });
+    assert.deepEqual(noticesOf(r).skipped, [{ path: "x.json", reasonKey: null, reason: "something new" }]);
   });
 });
