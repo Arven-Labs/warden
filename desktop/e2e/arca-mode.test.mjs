@@ -83,6 +83,72 @@ describe("the arca mode of the vault on the desktop", () => {
     }
   });
 
+  test("the confirmation has a box for the MCP logins, off by default, and what it says is what the backend gets", { timeout: TIMEOUT }, async () => {
+    for (const ticked of [false, true]) {
+      let current = { hasKey: true, on: false, pendingSend: false, loginsAccepted: false };
+      const { context, page, calls, errors } = await openSync(() => current, {
+        arca_mode_enable: () => {
+          current = { hasKey: true, on: true, pendingSend: false, loginsAccepted: ticked };
+          return { needsReload: false };
+        },
+      });
+      try {
+        await page.getByRole("button", { name: "Turn on arca mode", exact: true }).click();
+        const box = page.getByRole("checkbox", { name: /Also sync the MCP logins/ });
+        assert.equal(await box.isChecked(), false, "the logins are never on by default");
+        if (ticked) await box.check();
+        await page.getByRole("button", { name: "Yes, turn it on", exact: true }).click();
+        await page.getByText("Done: this vault is now synced by the arca.").waitFor();
+        assert.deepEqual(asked(calls, "arca_mode_enable").map((c) => c.args.syncLogins), [ticked]);
+        assert.deepEqual(errors, [], "the page raised no error");
+      } finally {
+        await context.close();
+      }
+    }
+  });
+
+  test("a mode that was turned on before the consent says the logins are not syncing, and accepting takes a second click", { timeout: TIMEOUT }, async () => {
+    let current = { hasKey: true, on: true, pendingSend: false, hubId: HUB.id, loginsAccepted: false };
+    const { context, page, calls, errors } = await openSync(() => current, {
+      arca_mode_accept_logins: () => {
+        current = { ...current, loginsAccepted: true };
+        return null;
+      },
+    });
+    try {
+      await page.getByText(/MCP logins are not being synced/).waitFor();
+      await page.getByRole("button", { name: "Sync MCP logins", exact: true }).click();
+      await page.getByText(/There is no way back in this version/).waitFor();
+      assert.equal(asked(calls, "arca_mode_accept_logins").length, 0, "one click does not accept");
+
+      await page.getByRole("button", { name: "Cancel", exact: true }).click();
+      assert.equal(asked(calls, "arca_mode_accept_logins").length, 0);
+      await page.getByRole("button", { name: "Sync MCP logins", exact: true }).click();
+      await page.getByRole("button", { name: "Yes, sync them", exact: true }).click();
+      await page.getByText("MCP logins are being synced.").waitFor();
+      assert.equal(asked(calls, "arca_mode_accept_logins").length, 1);
+      assert.equal(await page.getByRole("button", { name: "Sync MCP logins" }).count(), 0, "nothing left to accept");
+      assert.deepEqual(errors, [], "the page raised no error");
+    } finally {
+      await context.close();
+    }
+  });
+
+  test("a refused acceptance shows why and leaves the logins not syncing", { timeout: TIMEOUT }, async () => {
+    const { context, page, errors } = await openSync(() => ({ hasKey: true, on: true, pendingSend: false, hubId: HUB.id, loginsAccepted: false }), {
+      arca_mode_accept_logins: () => Promise.reject("the logins folder /x/mcp_oauth is a link"),
+    });
+    try {
+      await page.getByRole("button", { name: "Sync MCP logins", exact: true }).click();
+      await page.getByRole("button", { name: "Yes, sync them", exact: true }).click();
+      await page.getByText(/Could not start syncing the logins: the logins folder \/x\/mcp_oauth is a link/).waitFor();
+      await page.getByText(/MCP logins are not being synced/).waitFor();
+      assert.deepEqual(errors, [], "a refusal is shown, not raised");
+    } finally {
+      await context.close();
+    }
+  });
+
   test("a computer without the key, or with a Send waiting, is told why and has nothing to turn on", { timeout: TIMEOUT }, async () => {
     for (const [status, text] of [
       [{ hasKey: false, on: false, pendingSend: false }, "This computer has no vault key yet"],

@@ -52,8 +52,26 @@ impl Hub {
     }
 }
 
+/// The engine of a test device. `arca_enable` here turns the mode on WITH the logins accepted, which is what the tests of the logins
+/// (written before the consent existed) were about; the real `arca_enable` (no logins) is `.0.arca_enable`, and the tests of the
+/// consent call it that way. Everything else goes straight to the `SyncEngine`.
+struct TestEngine(SyncEngine);
+
+impl TestEngine {
+    async fn arca_enable(&self, pending_push: bool, now_ms: u64) -> anyhow::Result<()> {
+        self.0.arca_enable_with(pending_push, true, now_ms).await
+    }
+}
+
+impl std::ops::Deref for TestEngine {
+    type Target = SyncEngine;
+    fn deref(&self) -> &SyncEngine {
+        &self.0
+    }
+}
+
 struct Device {
-    engine: SyncEngine,
+    engine: TestEngine,
     vault: PathBuf,
     manifest: PathBuf,
     /// The MCP OAuth logins folder (`mcp_oauth/`), a sibling of the manifest; the engine only knows it when `device` wired it in.
@@ -73,7 +91,7 @@ fn device_with(name: &str, with_oauth: bool) -> Device {
     if with_oauth {
         engine = engine.with_oauth_dir(base.join("mcp_oauth"));
     }
-    Device { engine, vault: base.join("vault"), manifest, oauth: base.join("mcp_oauth") }
+    Device { engine: TestEngine(engine), vault: base.join("vault"), manifest, oauth: base.join("mcp_oauth") }
 }
 
 /// A device with a key of its own (the first device of a group).
@@ -815,7 +833,7 @@ async fn a_logins_folder_that_holds_the_sync_key_is_refused() {
     let manifest = base.join("sync_manifest.json");
     let engine = SyncEngine::new(base.join("vault"), base.join("config.toml"), logins.join("sync_secrets.json"), manifest.clone()).with_oauth_dir(logins);
     engine.init_fresh().unwrap();
-    let err = format!("{:#}", engine.arca_enable(false, 1).await.unwrap_err());
+    let err = format!("{:#}", engine.arca_enable_with(false, true, 1).await.unwrap_err());
     assert!(err.contains("holds"), "{err}");
     assert!(!mode_path_for(&manifest).exists());
     assert!(!store_path_for(&manifest).exists());
@@ -829,7 +847,7 @@ fn guard_engine(vault: &Path, config: &Path, secrets: &Path, manifest: &Path, lo
 
 /// Turning the mode on has to fail with `needle` in the error, before anything of the arca is created next to the manifest.
 async fn assert_refused(engine: &SyncEngine, manifest: &Path, needle: &str) {
-    let err = format!("{:#}", engine.arca_enable(false, 1).await.unwrap_err());
+    let err = format!("{:#}", engine.arca_enable_with(false, true, 1).await.unwrap_err());
     assert!(err.contains(needle), "expected {needle:?} in: {err}");
     assert!(!mode_path_for(manifest).exists());
     assert!(!store_path_for(manifest).exists());
@@ -934,7 +952,7 @@ async fn a_missing_logins_folder_is_still_created_empty() {
     let manifest = base.join("sync_manifest.json");
     let engine = guard_engine(&base.join("vault"), &base.join("config.toml"), &base.join("sync_secrets.json"), &manifest, &logins);
     engine.init_fresh().unwrap();
-    engine.arca_enable(false, 1).await.unwrap();
+    engine.arca_enable_with(false, true, 1).await.unwrap();
     assert!(logins.is_dir());
     assert_eq!(std::fs::read_dir(&logins).unwrap().count(), 0);
 }
@@ -950,6 +968,110 @@ async fn a_cycle_with_logins_and_nothing_new_changes_nothing() {
     let second = a.engine.arca_sync(&store, 3).await.unwrap();
     assert!(!second.snapshot_created);
     assert_eq!((second.pulled, second.merges, second.conflicts, second.files_changed, second.secret_losers_saved, second.pushed), (0, 0, 0, 0, 0, 0));
+}
+
+// ---- P-36 (1, 8): the logins (class `secret`) travel only after the person accepted ----
+
+#[tokio::test]
+async fn a_switch_written_before_the_consent_existed_reads_as_not_accepted() {
+    let (a, _) = first_device("a-oldconsent");
+    std::fs::write(mode_path_for(&a.manifest), r#"{ "version": 1, "enabled_at_ms": 5, "hub_id": "hub-1" }"#).unwrap();
+    let mode = load_mode(&mode_path_for(&a.manifest)).unwrap().expect("the mode is on");
+    assert!(!mode.secret_accepted);
+}
+
+#[tokio::test]
+async fn turning_the_mode_on_records_whether_the_logins_were_accepted() {
+    let (with, _) = first_device("a-consent-yes");
+    with.engine.0.arca_enable_with(false, true, 1).await.unwrap();
+    assert!(load_mode(&mode_path_for(&with.manifest)).unwrap().unwrap().secret_accepted);
+
+    let (without, _) = first_device("a-consent-no");
+    without.engine.0.arca_enable(false, 1).await.unwrap();
+    assert!(!load_mode(&mode_path_for(&without.manifest)).unwrap().unwrap().secret_accepted, "the plain enable asks for no logins");
+}
+
+#[tokio::test]
+async fn a_mode_turned_on_without_the_logins_neither_sends_them_nor_creates_their_folder() {
+    let hub = hub().await;
+    let (a, key) = first_device("a-noconsent");
+    write(&a, "note.md", "vault stays in sync");
+    write_login(&a, "github.json", r#"{"token":"secret"}"#);
+    a.engine.0.arca_enable(false, 1).await.unwrap();
+    a.engine.arca_sync(&hub.store("dev-a"), 2).await.unwrap();
+
+    let b = paired_device("b-noconsent", key);
+    b.engine.arca_enable(false, 3).await.unwrap();
+    b.engine.arca_sync(&hub.store("dev-b"), 4).await.unwrap();
+
+    assert_eq!(files(&b.vault), map(&[("note.md", "vault stays in sync")]), "the vault still syncs");
+    assert!(logins(&b).is_empty(), "a's login was never sent");
+    assert_eq!(logins(&a), map(&[("github.json", r#"{"token":"secret"}"#)]), "and a's own login is untouched");
+}
+
+#[tokio::test]
+async fn a_device_that_did_not_accept_does_not_write_the_logins_a_peer_sends() {
+    let hub = hub().await;
+    let (a, key) = first_device("a-sends");
+    write_login(&a, "github.json", "token");
+    a.engine.arca_enable(false, 1).await.unwrap();
+    a.engine.arca_sync(&hub.store("dev-a"), 2).await.unwrap();
+
+    let b = paired_device("b-declines", key);
+    write(&b, "note.md", "from b");
+    b.engine.0.arca_enable(false, 3).await.unwrap();
+    let report = b.engine.arca_sync(&hub.store("dev-b"), 4).await.unwrap();
+
+    assert!(!b.oauth.exists(), "b has not accepted: no logins folder was created or filled");
+    assert_eq!(report.secret_ignored, 0, "not accepting is not 'ignoring a bad entry'");
+    a.engine.arca_sync(&hub.store("dev-a"), 5).await.unwrap();
+    assert_eq!(logins(&a), map(&[("github.json", "token")]), "b's manifest did not delete a's login");
+}
+
+#[tokio::test]
+async fn accepting_later_starts_sending_the_logins_in_the_next_cycle_and_keeps_the_hub() {
+    let hub = hub().await;
+    let (a, key) = first_device("a-later");
+    a.engine.0.arca_enable(false, 1).await.unwrap();
+    a.engine.arca_set_hub("hub-1").await.unwrap();
+    let store_a = hub.store("dev-a");
+    a.engine.arca_sync(&store_a, 2).await.unwrap();
+    write_login(&a, "github.json", "token");
+    a.engine.arca_sync(&store_a, 3).await.unwrap();
+
+    let b = paired_device("b-later", key);
+    b.engine.arca_enable(false, 4).await.unwrap();
+    b.engine.arca_sync(&hub.store("dev-b"), 5).await.unwrap();
+    assert!(logins(&b).is_empty(), "nothing before the consent");
+
+    a.engine.arca_accept_logins().await.unwrap();
+    let mode = load_mode(&mode_path_for(&a.manifest)).unwrap().unwrap();
+    assert!((mode.secret_accepted, mode.hub_id.as_deref(), mode.enabled_at_ms) == (true, Some("hub-1"), 1), "{mode:?}");
+    a.engine.arca_sync(&store_a, 6).await.unwrap();
+    b.engine.arca_sync(&hub.store("dev-b"), 7).await.unwrap();
+    assert_eq!(logins(&b), map(&[("github.json", "token")]));
+}
+
+#[tokio::test]
+async fn accepting_needs_the_mode_on() {
+    let (a, _) = first_device("a-accept-off");
+    assert!(a.engine.arca_accept_logins().await.is_err());
+    assert!(!mode_path_for(&a.manifest).exists(), "no switch was created by accepting");
+}
+
+#[tokio::test]
+async fn accepting_a_logins_folder_that_holds_the_sync_key_is_refused_and_nothing_is_recorded() {
+    let base = support::unique_temp_dir("warden-arca-accept-bad-root");
+    let logins = base.join("mcp_oauth");
+    std::fs::create_dir_all(base.join("vault")).unwrap();
+    std::fs::create_dir_all(&logins).unwrap();
+    let manifest = base.join("sync_manifest.json");
+    let engine = guard_engine(&base.join("vault"), &base.join("config.toml"), &logins.join("sync_secrets.json"), &manifest, &logins);
+    engine.init_fresh().unwrap();
+    engine.arca_enable(false, 1).await.unwrap();
+    let err = format!("{:#}", engine.arca_accept_logins().await.unwrap_err());
+    assert!(err.contains("holds"), "{err}");
+    assert!(!load_mode(&mode_path_for(&manifest)).unwrap().unwrap().secret_accepted);
 }
 
 // ---- I-1: a crash in the middle of an apply, and the arca's own work files in the logins folder ----

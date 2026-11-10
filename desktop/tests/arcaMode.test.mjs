@@ -2,9 +2,9 @@
 
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
-import { hubChoice, noticesOf, summaryOf, viewOf } from "../src/lib/arcaMode.ts";
+import { hubChoice, loginsView, noticesOf, summaryOf, viewOf } from "../src/lib/arcaMode.ts";
 
-const status = (over) => ({ hasKey: true, on: false, pendingSend: false, ...over });
+const status = (over) => ({ hasKey: true, on: false, pendingSend: false, loginsAccepted: false, ...over });
 const report = (over) => ({
   snapshotCreated: false,
   pulled: 0,
@@ -39,6 +39,22 @@ describe("which controls the section draws", () => {
   test("once it is on, the rest does not matter: the screen only offers to sync", () => {
     assert.equal(viewOf(status({ on: true })), "on");
     assert.equal(viewOf(status({ on: true, hasKey: false, pendingSend: true })), "on");
+  });
+});
+
+describe("what the screen says about the MCP logins (class secret), which travel only after the person accepted", () => {
+  test("before the mode is on there is nothing to say: the choice is made in the confirmation", () => {
+    assert.equal(loginsView(null), "hidden");
+    assert.equal(loginsView(status({})), "hidden");
+    assert.equal(loginsView(status({ loginsAccepted: true })), "hidden");
+  });
+
+  test("a mode that is on and was never told to take the logins offers to take them (the case of whoever turned it on before)", () => {
+    assert.equal(loginsView(status({ on: true, loginsAccepted: false })), "offer");
+  });
+
+  test("once accepted it says they are syncing, and offers nothing", () => {
+    assert.equal(loginsView(status({ on: true, loginsAccepted: true })), "syncing");
   });
 });
 
