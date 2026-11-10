@@ -945,16 +945,82 @@ async fn a_logins_folder_with_a_parent_step_through_a_missing_folder_is_refused(
 }
 
 #[tokio::test]
-async fn a_missing_logins_folder_is_still_created_empty() {
+async fn a_missing_logins_folder_is_created_empty_when_the_person_accepts() {
     let base = support::unique_temp_dir("warden-arca-missing-root");
     std::fs::create_dir_all(&base).unwrap();
-    let logins = base.join("deep").join("er").join("mcp_oauth");
+    let logins = base.join("mcp_oauth");
     let manifest = base.join("sync_manifest.json");
     let engine = guard_engine(&base.join("vault"), &base.join("config.toml"), &base.join("sync_secrets.json"), &manifest, &logins);
     engine.init_fresh().unwrap();
     engine.arca_enable_with(false, true, 1).await.unwrap();
     assert!(logins.is_dir());
     assert_eq!(std::fs::read_dir(&logins).unwrap().count(), 0);
+}
+
+#[tokio::test]
+async fn only_the_folder_beside_the_manifest_can_be_the_logins_folder_and_nothing_is_created_or_recorded() {
+    // P-36 (3): a folder that is not `<manifest folder>/mcp_oauth` could hold `hubs.json` (tokens), the arca's storage or its state.
+    for (case, logins_of) in [("renamed", "logins"), ("elsewhere", "other/mcp_oauth"), ("deep", "deep/er/mcp_oauth")] {
+        let base = support::unique_temp_dir(&format!("warden-arca-rigid-{case}"));
+        std::fs::create_dir_all(&base).unwrap();
+        let logins = base.join(logins_of);
+        let manifest = base.join("sync_manifest.json");
+        let engine = guard_engine(&base.join("vault"), &base.join("config.toml"), &base.join("sync_secrets.json"), &manifest, &logins);
+        engine.init_fresh().unwrap();
+        assert_refused(&engine, &manifest, "next to the manifest").await;
+        assert!(!logins.exists(), "{case}: the refused folder was not created");
+
+        // Turned on without the logins, then asked to accept them: the same refusal, and nothing is recorded.
+        engine.arca_enable(false, 1).await.unwrap();
+        let err = format!("{:#}", engine.arca_accept_logins().await.unwrap_err());
+        assert!(err.contains("next to the manifest"), "{case}: {err}");
+        assert!(!load_mode(&mode_path_for(&manifest)).unwrap().unwrap().secret_accepted, "{case}");
+        assert!(!logins.exists(), "{case}: accepting did not create it");
+    }
+}
+
+#[tokio::test]
+async fn a_logins_folder_that_was_deleted_is_left_out_with_a_warning_not_recreated_empty_and_nobody_loses_the_logins() {
+    // P-36 (9f): the arca reads a missing root as an error so that a vanished folder does not erase the class; recreating it
+    // empty every cycle used to turn "folder deleted" into "every login removed" for the whole group.
+    let hub = hub().await;
+    let (a, key) = first_device("a-folder-gone");
+    write_login(&a, "github.json", r#"{"token":"a"}"#);
+    a.engine.arca_enable(false, 1).await.unwrap();
+    let (store_a, store_b) = (hub.store("dev-a"), hub.store("dev-b"));
+    a.engine.arca_sync(&store_a, 2).await.unwrap();
+    let b = paired_device("b-folder-gone", key);
+    b.engine.arca_enable(false, 3).await.unwrap();
+    b.engine.arca_sync(&store_b, 4).await.unwrap();
+    assert_eq!(logins(&b), map(&[("github.json", r#"{"token":"a"}"#)]));
+
+    std::fs::remove_dir_all(&a.oauth).unwrap();
+    write(&a, "note.md", "written while the logins folder is gone");
+    let report = a.engine.arca_sync(&store_a, 5).await.unwrap();
+    assert!(report.secret_folder_missing, "the cycle says why the logins are not syncing");
+    assert!(!a.oauth.exists(), "the folder was not recreated empty");
+    assert!(report.snapshot_created, "the vault still syncs");
+
+    b.engine.arca_sync(&store_b, 6).await.unwrap();
+    assert_eq!(files(&b.vault), map(&[("note.md", "written while the logins folder is gone")]));
+    assert_eq!(logins(&b), map(&[("github.json", r#"{"token":"a"}"#)]), "b kept the login: nothing was removed for the group");
+
+    // The person restores the folder with its files: the warning goes away and the logins sync as before.
+    write_login(&a, "github.json", r#"{"token":"a"}"#);
+    let again = a.engine.arca_sync(&store_a, 7).await.unwrap();
+    assert!(!again.secret_folder_missing);
+    b.engine.arca_sync(&store_b, 8).await.unwrap();
+    assert_eq!(logins(&b), map(&[("github.json", r#"{"token":"a"}"#)]));
+}
+
+#[tokio::test]
+async fn a_device_that_never_accepted_the_logins_has_no_missing_folder_to_report() {
+    let hub = hub().await;
+    let (a, _) = first_device("a-no-accept-no-warning");
+    a.engine.0.arca_enable(false, 1).await.unwrap();
+    let report = a.engine.arca_sync(&hub.store("dev-a"), 2).await.unwrap();
+    assert!(!report.secret_folder_missing, "not accepting is a choice, not a missing folder");
+    assert!(!a.oauth.exists());
 }
 
 #[tokio::test]
