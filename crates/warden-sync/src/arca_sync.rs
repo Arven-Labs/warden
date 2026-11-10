@@ -229,7 +229,7 @@ impl SyncEngine {
     fn arca_engine(&self, secret_accepted: bool) -> anyhow::Result<(Engine<DiskStore>, Roots)> {
         let secrets = self.load_secrets()?;
         std::fs::create_dir_all(self.vault.root())?;
-        let secret_root = if secret_accepted { self.prepare_logins_root()? } else { None };
+        let secret_root = if secret_accepted || self.oauth_dir.is_some() { self.prepare_logins_root()? } else { None };
         let store = DiskStore::open(store_path_for(&self.manifest_path))?;
         let keys = EpochKeys::derive(&VaultKey::from_bytes(secrets.vault_key), FIRST_KEY_EPOCH);
         let engine = Engine::new(store, keys, secrets.device_id)?
