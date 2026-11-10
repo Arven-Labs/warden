@@ -232,7 +232,7 @@ mod tests {
         std::fs::create_dir_all(base.join("vault")).unwrap();
         // A gateway nobody listens on: a Pull that reaches for it fails at once instead of going to the real network.
         let dead = ArweaveClient::new("http://127.0.0.1:1/graphql", "http://127.0.0.1:1");
-        let engine = SyncEngine::new(base.join("vault"), base.join("config.toml"), base.join("sync_secrets.json"), base.join("sync_manifest.json")).with_arweave_client(dead);
+        let engine = SyncEngine::new(base.join("vault"), base.join("config.toml"), base.join("sync_secrets.json"), base.join("sync_manifest.json")).with_arweave_client(dead).with_oauth_dir(base.join("mcp_oauth"));
         Device { base, engine }
     }
 
