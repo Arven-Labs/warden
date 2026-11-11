@@ -168,6 +168,7 @@ impl SyncEngine {
             // The arca refuses a snapshot that would leave a whole class with no entry (arca#80): a folder emptied by hand would
             // otherwise tell every device "everything was removed". The class is left out of the rest of the cycle, as a missing
             // folder is (nothing sent, applied or removed), and the report says so. Each retry drops one root, so this ends.
+            let full = Roots { vault: roots.vault.clone(), config: None, secret: roots.secret.clone() };
             let snapshot = loop {
                 match engine.snapshot(&roots, now_ms).await {
                     Ok(snapshot) => break snapshot,
@@ -182,6 +183,7 @@ impl SyncEngine {
                     Err(error) => return Err(error.into()),
                 }
             };
+            roots = full;
             let (created, skipped) = match snapshot {
                 Snapshot::Created { id, skipped, .. } => (Some(id), skipped),
                 Snapshot::Unchanged { skipped, .. } => (None, skipped),
