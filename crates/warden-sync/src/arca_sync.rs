@@ -13,7 +13,7 @@ use std::path::Path;
 use anyhow::Context;
 use arca_core::crypto::{EpochKeys, VaultKey};
 use arca_core::disk::DiskStore;
-use arca_core::engine::{Engine, MergeOutcome, Roots, Snapshot};
+use arca_core::engine::{Engine, EngineError, MergeOutcome, Roots, Snapshot};
 use arca_core::manifest::{Class, FileEntry};
 use arca_core::object::ObjectId;
 // What a caller needs to name the hub it syncs with, so it does not need `arca-core` of its own.
@@ -74,9 +74,10 @@ pub struct ArcaSyncReport {
     /// removed) and the folder was not recreated empty, which would have removed every login for the group (P-36, 9f).
     pub secret_folder_missing: bool,
     /// Every file of the vault is gone from this computer: the arca refuses a snapshot that empties a whole class (arca#80), so the
-    /// vault was left out of this cycle (nothing sent, applied or removed) until the files are back. Skeleton: always false for now.
+    /// vault was left out of this cycle (nothing sent, applied or removed) until the files are back. Emptying it on purpose is not
+    /// supported yet: that needs the person's confirmation (a later change).
     pub vault_emptied: bool,
-    /// Same for the logins: the folder exists but has no login left (or only files the arca does not take). Skeleton: always false.
+    /// Same for the logins: the folder exists but has no login left that this device would apply (the arca counts only those).
     pub secret_emptied: bool,
     /// Files the vault got from other devices: created, updated and removed.
     pub files_changed: usize,
@@ -150,7 +151,7 @@ impl SyncEngine {
         let Some(mode) = load_mode(&mode_path_for(&self.manifest_path))? else {
             anyhow::bail!("this vault is not in arca mode: turn it on first");
         };
-        let (engine, roots) = self.arca_engine(mode.secret_accepted, false)?;
+        let (engine, mut roots) = self.arca_engine(mode.secret_accepted, false)?;
         let folder_path = folder_path_for(&self.manifest_path);
         let mut report = ArcaSyncReport { secret_folder_missing: mode.secret_accepted && self.oauth_dir.is_some() && roots.secret.is_none(), ..Default::default() };
 
@@ -164,7 +165,24 @@ impl SyncEngine {
             anyhow::bail!("{} manifests in the local arca storage cannot be read; refusing to build on them", heads.rejected.len());
         }
         if heads.tips.len() == 1 && heads.tips[0].id == folder {
-            let (created, skipped) = match engine.snapshot(&roots, now_ms).await? {
+            // The arca refuses a snapshot that would leave a whole class with no entry (arca#80): a folder emptied by hand would
+            // otherwise tell every device "everything was removed". The class is left out of the rest of the cycle, as a missing
+            // folder is (nothing sent, applied or removed), and the report says so. Each retry drops one root, so this ends.
+            let snapshot = loop {
+                match engine.snapshot(&roots, now_ms).await {
+                    Ok(snapshot) => break snapshot,
+                    Err(EngineError::ClassEmptied { class: Class::Vault, .. }) if roots.vault.is_some() => {
+                        report.vault_emptied = true;
+                        roots.vault = None;
+                    }
+                    Err(EngineError::ClassEmptied { class: Class::Secret, .. }) if roots.secret.is_some() => {
+                        report.secret_emptied = true;
+                        roots.secret = None;
+                    }
+                    Err(error) => return Err(error.into()),
+                }
+            };
+            let (created, skipped) = match snapshot {
                 Snapshot::Created { id, skipped, .. } => (Some(id), skipped),
                 Snapshot::Unchanged { skipped, .. } => (None, skipped),
             };
