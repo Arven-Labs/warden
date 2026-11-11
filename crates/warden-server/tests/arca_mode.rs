@@ -1111,6 +1111,22 @@ async fn the_emptied_warning_goes_away_when_the_files_are_back() {
 }
 
 #[tokio::test]
+async fn a_change_another_device_made_to_an_emptied_class_is_not_applied_onto_the_empty_folder_and_the_cycle_does_not_fail() {
+    // The class is left out of the whole cycle, not only of the snapshot: applying B's new tip would try to rewrite a login that is
+    // gone from A's folder, and the arca's apply refuses a file that no longer matches (`LocalChanges`), which would fail the cycle.
+    let (_hub, a, b, store_a, store_b) = two_synced_devices("logins-emptied-peer-edit", &[], &[("github.json", "old")]).await;
+
+    write_login(&b, "github.json", "new");
+    b.engine.arca_sync(&store_b, 5).await.unwrap();
+    remove_every_file(&a.oauth);
+    let report = a.engine.arca_sync(&store_a, 6).await.expect("the cycle does not fail");
+
+    assert!(report.secret_emptied);
+    assert!(logins(&a).is_empty(), "nothing was written back onto the emptied folder");
+    assert_eq!(logins(&b), map(&[("github.json", "new")]), "b keeps its own edit");
+}
+
+#[tokio::test]
 async fn a_device_that_never_accepted_the_logins_has_no_missing_folder_to_report() {
     let hub = hub().await;
     let (a, _) = first_device("a-no-accept-no-warning");
