@@ -8,7 +8,7 @@ import { deferred, launchBrowser, openApp, serveDist, snap } from "./harness.mjs
 
 const TIMEOUT = 120_000;
 // What `arca_sync_run` answers when nothing moved and nothing needs a warning (the shape of `SyncPayload`).
-const CLEAN_CYCLE = { snapshotCreated: false, pulled: 0, merges: 0, conflicts: 0, filesChanged: 0, pushed: 0, secretLosersSaved: 0, secretIgnored: 0, secretSkipped: [], recoveredKept: 0, secretFolderMissing: false };
+const CLEAN_CYCLE = { snapshotCreated: false, pulled: 0, merges: 0, conflicts: 0, filesChanged: 0, pushed: 0, secretLosersSaved: 0, secretIgnored: 0, secretSkipped: [], recoveredKept: 0, secretFolderMissing: false, vaultEmptied: false, secretEmptied: false };
 const HUB = { id: "hub-1", name: "Home hub", url: "https://hub.example.test", open: false };
 const WORK = { id: "hub-2", name: "Work hub", url: "https://work.example.test", open: false };
 
@@ -242,6 +242,26 @@ describe("the arca mode of the vault on the desktop", () => {
     ]) {
       const { context, page, errors } = await openSync(() => ({ hasKey: true, on: true, pendingSend: false, hubId: HUB.id, loginsAccepted: true }), {
         arca_sync_run: () => ({ ...CLEAN_CYCLE, secretFolderMissing: true }),
+      }, { locale });
+      try {
+        await page.getByRole("button", { name: button, exact: true }).click();
+        await page.getByText(warning).waitFor();
+        assert.deepEqual(errors, [], "the page raised no error");
+      } finally {
+        await context.close();
+      }
+    }
+  });
+
+  test("an emptied vault or logins folder is warned about, in both languages", { timeout: TIMEOUT }, async () => {
+    for (const [locale, button, over, warning] of [
+      ["en-US", "Sync now", { vaultEmptied: true }, /Every file of the vault is gone from this computer/],
+      ["en-US", "Sync now", { secretEmptied: true }, /The MCP logins folder has no login left/],
+      ["pt-BR", "Sincronizar agora", { vaultEmptied: true }, /Todos os arquivos do cofre sumiram deste computador/],
+      ["pt-BR", "Sincronizar agora", { secretEmptied: true }, /A pasta dos logins MCP não tem mais nenhum login/],
+    ]) {
+      const { context, page, errors } = await openSync(() => ({ hasKey: true, on: true, pendingSend: false, hubId: HUB.id, loginsAccepted: true }), {
+        arca_sync_run: () => ({ ...CLEAN_CYCLE, ...over }),
       }, { locale });
       try {
         await page.getByRole("button", { name: button, exact: true }).click();

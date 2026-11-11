@@ -42,6 +42,10 @@ export interface SyncReport {
   recoveredKept: number;
   /** The logins were accepted but their folder is gone: the class was left out of the cycle and nothing was removed. */
   secretFolderMissing: boolean;
+  /** Every file of the vault is gone from this computer: the vault was left out of the cycle, nothing was removed elsewhere. */
+  vaultEmptied: boolean;
+  /** The logins folder has no login left to send: the class was left out of the cycle, nothing was removed elsewhere. */
+  secretEmptied: boolean;
 }
 
 /** Which controls the section draws. */
@@ -73,6 +77,8 @@ export function noticesOf(report: SyncReport): {
   counts: { key: NoticeKey; count: number }[];
   skipped: { path: string; reasonKey: SkipKey | null; reason: string }[];
   folderMissing: boolean;
+  vaultEmptied: boolean;
+  loginsEmptied: boolean;
 } {
   const counts: { key: NoticeKey; count: number }[] = [
     { key: "arca.noticeIgnored", count: report.secretIgnored },
@@ -83,6 +89,8 @@ export function noticesOf(report: SyncReport): {
     counts: counts.filter((c) => c.count > 0),
     skipped: report.secretSkipped.map((s) => ({ path: s.path, reasonKey: SKIP_REASONS.get(s.reason) ?? null, reason: s.reason })),
     folderMissing: report.secretFolderMissing,
+    vaultEmptied: report.vaultEmptied,
+    loginsEmptied: report.secretEmptied,
   };
 }
 
