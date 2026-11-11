@@ -171,10 +171,6 @@ impl SyncEngine {
             let snapshot = loop {
                 match engine.snapshot(&roots, now_ms).await {
                     Ok(snapshot) => break snapshot,
-                    Err(EngineError::ClassEmptied { class: Class::Vault, .. }) if roots.vault.is_some() => {
-                        report.vault_emptied = true;
-                        roots.vault = None;
-                    }
                     Err(EngineError::ClassEmptied { class: Class::Secret, .. }) if roots.secret.is_some() => {
                         report.secret_emptied = true;
                         roots.secret = None;
