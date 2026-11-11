@@ -1013,6 +1013,103 @@ async fn a_logins_folder_that_was_deleted_is_left_out_with_a_warning_not_recreat
     assert_eq!(logins(&b), map(&[("github.json", r#"{"token":"a"}"#)]));
 }
 
+/// Two devices in sync on `logins` (written on A) and `vault` files (written on A); A enabled with the logins accepted.
+async fn two_synced_devices(name: &str, vault: &[(&str, &str)], logins_on_a: &[(&str, &str)]) -> (Hub, Device, Device, HubStore, HubStore) {
+    let hub = hub().await;
+    let (a, key) = first_device(&format!("a-{name}"));
+    for (path, contents) in vault {
+        write(&a, path, contents);
+    }
+    for (path, contents) in logins_on_a {
+        write_login(&a, path, contents);
+    }
+    a.engine.arca_enable(false, 1).await.unwrap();
+    let (store_a, store_b) = (hub.store("dev-a"), hub.store("dev-b"));
+    a.engine.arca_sync(&store_a, 2).await.unwrap();
+    let b = paired_device(&format!("b-{name}"), key);
+    b.engine.arca_enable(false, 3).await.unwrap();
+    b.engine.arca_sync(&store_b, 4).await.unwrap();
+    (hub, a, b, store_a, store_b)
+}
+
+fn remove_every_file(root: &Path) {
+    for entry in std::fs::read_dir(root).unwrap() {
+        std::fs::remove_file(entry.unwrap().path()).unwrap();
+    }
+}
+
+#[tokio::test]
+async fn logins_all_deleted_with_the_folder_kept_are_left_out_with_a_warning_and_the_vault_still_syncs() {
+    // arca#80: a class that would end up with no entry is refused by the snapshot. A kept-but-empty logins folder used to publish
+    // "every login removed" to the whole group; now the class is skipped for the cycle, like a missing folder.
+    let (_hub, a, b, store_a, store_b) = two_synced_devices("logins-emptied", &[], &[("github.json", "g"), ("slack.json", "s")]).await;
+
+    remove_every_file(&a.oauth);
+    write(&a, "note.md", "written while the logins are gone");
+    let report = a.engine.arca_sync(&store_a, 5).await.expect("the cycle does not fail");
+    assert!(report.secret_emptied, "the cycle says why the logins are not syncing");
+    assert!(!report.vault_emptied);
+    assert!(report.snapshot_created, "the vault still syncs");
+
+    b.engine.arca_sync(&store_b, 6).await.unwrap();
+    assert_eq!(files(&b.vault), map(&[("note.md", "written while the logins are gone")]));
+    assert_eq!(logins(&b), map(&[("github.json", "g"), ("slack.json", "s")]), "b kept every login: nothing was removed for the group");
+}
+
+#[tokio::test]
+async fn a_vault_with_every_file_deleted_is_left_out_with_a_warning_and_the_other_device_keeps_its_files() {
+    let (_hub, a, b, store_a, store_b) = two_synced_devices("vault-emptied", &[("one.md", "1"), ("two.md", "2")], &[("github.json", "g")]).await;
+
+    remove_every_file(&a.vault);
+    let report = a.engine.arca_sync(&store_a, 5).await.expect("the cycle does not fail");
+    assert!(report.vault_emptied);
+    assert!(!report.secret_emptied);
+
+    b.engine.arca_sync(&store_b, 6).await.unwrap();
+    assert_eq!(files(&b.vault), map(&[("one.md", "1"), ("two.md", "2")]), "b kept the vault");
+    assert!(files(&a.vault).is_empty(), "nothing was applied back onto the emptied folder");
+}
+
+#[tokio::test]
+async fn both_classes_emptied_in_the_same_cycle_give_both_warnings_and_no_error() {
+    let (_hub, a, b, store_a, store_b) = two_synced_devices("both-emptied", &[("one.md", "1")], &[("github.json", "g")]).await;
+
+    remove_every_file(&a.vault);
+    remove_every_file(&a.oauth);
+    let report = a.engine.arca_sync(&store_a, 5).await.expect("the cycle does not fail");
+    assert!(report.vault_emptied && report.secret_emptied);
+
+    b.engine.arca_sync(&store_b, 6).await.unwrap();
+    assert_eq!(files(&b.vault), map(&[("one.md", "1")]));
+    assert_eq!(logins(&b), map(&[("github.json", "g")]));
+}
+
+#[tokio::test]
+async fn removing_only_some_logins_is_not_an_emptied_class_and_still_reaches_the_group() {
+    let (_hub, a, b, store_a, store_b) = two_synced_devices("logins-partial", &[], &[("github.json", "g"), ("slack.json", "s")]).await;
+
+    std::fs::remove_file(a.oauth.join("slack.json")).unwrap();
+    let report = a.engine.arca_sync(&store_a, 5).await.unwrap();
+    assert!(!report.secret_emptied && !report.vault_emptied);
+
+    b.engine.arca_sync(&store_b, 6).await.unwrap();
+    assert_eq!(logins(&b), map(&[("github.json", "g")]));
+}
+
+#[tokio::test]
+async fn the_emptied_warning_goes_away_when_the_files_are_back() {
+    let (_hub, a, b, store_a, store_b) = two_synced_devices("logins-restored", &[], &[("github.json", "g")]).await;
+
+    remove_every_file(&a.oauth);
+    assert!(a.engine.arca_sync(&store_a, 5).await.unwrap().secret_emptied);
+
+    write_login(&a, "github.json", "g");
+    let again = a.engine.arca_sync(&store_a, 6).await.unwrap();
+    assert!(!again.secret_emptied);
+    b.engine.arca_sync(&store_b, 7).await.unwrap();
+    assert_eq!(logins(&b), map(&[("github.json", "g")]));
+}
+
 #[tokio::test]
 async fn a_device_that_never_accepted_the_logins_has_no_missing_folder_to_report() {
     let hub = hub().await;

@@ -73,6 +73,11 @@ pub struct ArcaSyncReport {
     /// The person accepted the logins but their folder is gone: the class was left out of this cycle (nothing sent, applied or
     /// removed) and the folder was not recreated empty, which would have removed every login for the group (P-36, 9f).
     pub secret_folder_missing: bool,
+    /// Every file of the vault is gone from this computer: the arca refuses a snapshot that empties a whole class (arca#80), so the
+    /// vault was left out of this cycle (nothing sent, applied or removed) until the files are back. Skeleton: always false for now.
+    pub vault_emptied: bool,
+    /// Same for the logins: the folder exists but has no login left (or only files the arca does not take). Skeleton: always false.
+    pub secret_emptied: bool,
     /// Files the vault got from other devices: created, updated and removed.
     pub files_changed: usize,
     /// Objects copied from the local storage to the hub.
