@@ -176,7 +176,6 @@ impl SyncEngine {
                         roots.vault = None;
                     }
                     Err(EngineError::ClassEmptied { class: Class::Secret, .. }) if roots.secret.is_some() => {
-                        report.secret_emptied = true;
                         roots.secret = None;
                     }
                     Err(error) => return Err(error.into()),
