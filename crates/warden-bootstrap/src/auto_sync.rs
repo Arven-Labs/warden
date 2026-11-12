@@ -189,6 +189,12 @@ impl SyncRunner {
         *self.arca_halted.lock().unwrap() = None;
     }
 
+    /// The hub the loop stopped on because it refused this device's token, until `resume_arca` or another hub is chosen. The screen
+    /// asks this (a stopped loop no longer runs the cycle, so the last cycle's report cannot say it is stopped).
+    pub fn arca_halted(&self) -> Option<String> {
+        self.arca_halted.lock().unwrap().clone()
+    }
+
     /// One round of a vault in arca mode: the cycle on the hub the mode file names, unless that hub already rejected this device.
     async fn arca_round(&self, report: &mut SyncReport, hub_id: Option<String>, cycle: &ArcaCycle) {
         let Some(hub_id) = hub_id else {
@@ -673,6 +679,39 @@ mod tests {
             assert!(again.error.as_deref().is_some_and(|e| e.contains("sign in")), "the stop must stay visible: {again:?}");
         }
         assert_eq!(calls.lock().unwrap().len(), 1, "a rejected token must not be sent to the hub again");
+    }
+
+    #[tokio::test]
+    async fn the_runner_says_which_hub_it_stopped_on_until_it_resumes() {
+        let (cycle, _) = fake_cycle(vec![Err(ArcaCycleError::AuthRejected("no".into()))]);
+        let a = arca_device("arca-loop-halted-getter", Some("hub-1"), cycle).await;
+        assert_eq!(a.arca_halted(), None, "nothing ran yet");
+        a.run_once().await;
+        assert_eq!(a.arca_halted().as_deref(), Some("hub-1"));
+        a.run_once().await;
+        assert_eq!(a.arca_halted().as_deref(), Some("hub-1"), "a stopped round keeps it stopped");
+        a.resume_arca();
+        assert_eq!(a.arca_halted(), None);
+    }
+
+    #[tokio::test]
+    async fn the_runner_is_not_stopped_by_a_hub_that_is_only_down_nor_by_a_good_cycle() {
+        let (cycle, _) = fake_cycle(vec![Err(ArcaCycleError::Other("connection refused".into())), changed(0)]);
+        let a = arca_device("arca-loop-not-halted", Some("hub-1"), cycle).await;
+        a.run_once().await;
+        assert_eq!(a.arca_halted(), None, "a hub that is down does not stop the loop");
+        a.run_once().await;
+        assert_eq!(a.arca_halted(), None);
+    }
+
+    #[tokio::test]
+    async fn pointing_at_another_hub_clears_the_stop_the_runner_reports() {
+        let (cycle, _) = fake_cycle(vec![Err(ArcaCycleError::AuthRejected("no".into())), changed(0)]);
+        let a = arca_device("arca-loop-halted-otherhub", Some("hub-1"), cycle).await;
+        a.run_once().await;
+        point_at(&a, "hub-2");
+        a.run_once().await;
+        assert_eq!(a.arca_halted(), None);
     }
 
     #[tokio::test]

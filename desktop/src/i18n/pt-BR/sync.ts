@@ -114,6 +114,8 @@ export const syncPt: Record<keyof typeof sync, string> = {
   "arca.emptyVaultConfirm": "Todos os arquivos do cofre serão removidos nos outros dispositivos também, na próxima vez que cada um sincronizar. O hub guarda o histórico, mas esta tela não tem como desfazer. Continuar?",
   "arca.emptyLoginsConfirm": "Todos os logins MCP serão removidos nos outros dispositivos também, na próxima vez que cada um sincronizar, e essas ferramentas vão precisar entrar de novo. O hub guarda o histórico, mas esta tela não tem como desfazer. Continuar?",
   "arca.emptyYes": "Sim, remover",
+  "arca.loopStopped": "Sync automático parado: o hub não aceita este dispositivo. Entre de novo no hub e use Sincronizar agora. Detalhe: {message}",
+  "arca.loopFailed": "O último sync automático falhou: {message}",
   "arca.noticeIgnored": "Arquivos de login de outros dispositivos ignorados: {count}.",
   "arca.noticeKept": "Arquivos deixados por uma atualização interrompida: {count}. Ficam na pasta de logins para você conferir.",
   "arca.noticeLosers": "Conflitos de login guardados como cópias: {count}.",

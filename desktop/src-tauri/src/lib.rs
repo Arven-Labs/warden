@@ -1241,13 +1241,22 @@ pub fn run() {
         warden_sync::SyncEngine::new(sync_vault_path.clone(), sync_config_path.clone(), sync_secrets_path(), sync_manifest_path())
             .with_oauth_dir(warden_bootstrap::oauth_credentials_dir()),
     );
-    let arca_cycle: warden_bootstrap::auto_sync::ArcaCycle = Arc::new(move |hub_id: String| {
-        let engine = arca_loop_engine.clone();
-        Box::pin(async move {
-            let hubs_path = config_paths::saved_hubs_file().map_err(warden_bootstrap::auto_sync::ArcaCycleError::Other)?;
-            let config_file = config_paths::config_file().map_err(warden_bootstrap::auto_sync::ArcaCycleError::Other)?;
-            arca_mode_cmds::loop_cycle(&engine, &hubs_path, &config_file, &hub_id, arca_mode_cmds::now_ms()).await
-        })
+    // What each cycle of the loop did, kept for the screen (`arca_loop_last`); the loop used to throw the report away.
+    let arca_loop_last = Arc::new(arca_mode_cmds::ArcaLoopLast::default());
+    let arca_cycle: warden_bootstrap::auto_sync::ArcaCycle = Arc::new({
+        let arca_loop_last = arca_loop_last.clone();
+        move |hub_id: String| {
+            let engine = arca_loop_engine.clone();
+            let last = arca_loop_last.clone();
+            Box::pin(async move {
+                let now = arca_mode_cmds::now_ms();
+                let paths = config_paths::saved_hubs_file().and_then(|hubs| config_paths::config_file().map(|config| (hubs, config)));
+                match paths {
+                    Ok((hubs_path, config_file)) => arca_mode_cmds::loop_cycle_recording(&engine, &hubs_path, &config_file, &hub_id, now, &last).await,
+                    Err(message) => Err(arca_mode_cmds::record_failure(&last, now, message)),
+                }
+            })
+        }
     });
     let sync_runner = Arc::new(warden_bootstrap::auto_sync::SyncRunner::with_default_paths(sync_vault_path.clone(), sync_config_path.clone()).with_arca_cycle(arca_cycle));
     let sync = warden_sync::SyncEngine::new(sync_vault_path, sync_config_path, sync_secrets_path(), sync_manifest_path())
@@ -1309,6 +1318,7 @@ pub fn run() {
             Ok(())
         })
         .manage(app_state)
+        .manage(arca_loop_last)
         .manage(mcp_login_cmds::McpLoginListener::default())
         .invoke_handler(tauri::generate_handler![
             send_message,
@@ -1461,6 +1471,7 @@ pub fn run() {
             arca_pair_cmds::arca_pair_answer,
             arca_pair_cmds::arca_pair_cancel,
             arca_mode_cmds::arca_mode_status,
+            arca_mode_cmds::arca_loop_last,
             arca_mode_cmds::arca_mode_enable,
             arca_mode_cmds::arca_mode_accept_logins,
             arca_mode_cmds::arca_mode_set_hub,

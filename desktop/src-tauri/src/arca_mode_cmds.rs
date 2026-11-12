@@ -5,6 +5,7 @@
 //! only read the app's state and call them.
 
 use std::path::Path;
+use std::sync::{Arc, Mutex};
 
 use serde::Serialize;
 use tauri::State;
@@ -100,7 +101,7 @@ pub fn hub_store(hub: &SavedHub, identity: &RemoteIdentity) -> Result<HubStore, 
 }
 
 /// What one cycle did, in the shape the screen gets.
-#[derive(Serialize, Debug, PartialEq, Eq)]
+#[derive(Serialize, Debug, PartialEq, Eq, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct SyncPayload {
     pub snapshot_created: bool,
@@ -126,7 +127,7 @@ pub struct SyncPayload {
 }
 
 /// A local login file the cycle did not send, and why (the arca's own words; the screen translates the ones it knows).
-#[derive(Serialize, Debug, PartialEq, Eq)]
+#[derive(Serialize, Debug, PartialEq, Eq, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct SkippedLoginPayload {
     pub path: String,
@@ -191,12 +192,103 @@ pub fn saved_hub_store(hubs_path: &Path, config_file: &Path, hub_id: &str) -> Re
 /// One cycle for the automatic loop (`SyncRunner`, arca ADR 0012). Like the manual one, but the failure says whether the hub refused
 /// this device, because the loop stops on that and only on that. It never touches the token: signing in again is the person's job.
 pub async fn loop_cycle(engine: &SyncEngine, hubs_path: &Path, config_file: &Path, hub_id: &str, now_ms: u64) -> Result<ArcaCycleSummary, ArcaCycleError> {
+    loop_cycle_report(engine, hubs_path, config_file, hub_id, now_ms).await.map(|report| ArcaCycleSummary { files_changed: report.files_changed })
+}
+
+/// The cycle of `loop_cycle`, with the whole report.
+pub async fn loop_cycle_report(engine: &SyncEngine, hubs_path: &Path, config_file: &Path, hub_id: &str, now_ms: u64) -> Result<ArcaSyncReport, ArcaCycleError> {
     let store = saved_hub_store(hubs_path, config_file, hub_id).map_err(ArcaCycleError::Other)?;
     match engine.arca_sync(&store, now_ms).await {
-        Ok(report) => Ok(ArcaCycleSummary { files_changed: report.files_changed }),
+        Ok(report) => Ok(report),
         Err(err) if is_auth_rejected(&err) => Err(ArcaCycleError::AuthRejected(format!("{err:#}"))),
         Err(err) => Err(ArcaCycleError::Other(format!("{err:#}"))),
     }
+}
+
+/// Why the last automatic cycle failed. `AuthRejected` is the one that stops the loop.
+#[derive(Serialize, Debug, PartialEq, Eq, Clone, Copy)]
+#[serde(rename_all = "camelCase")]
+pub enum LoopErrorKind {
+    AuthRejected,
+    Other,
+}
+
+#[derive(Serialize, Debug, PartialEq, Eq, Clone)]
+pub struct LoopError {
+    pub kind: LoopErrorKind,
+    pub message: String,
+}
+
+/// What the last automatic cycle did, kept in memory for the screen (the loop used to throw the report away).
+#[derive(Serialize, Debug, PartialEq, Eq, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct LoopReport {
+    pub at_ms: u64,
+    pub report: Option<SyncPayload>,
+    pub error: Option<LoopError>,
+}
+
+impl LoopReport {
+    pub fn from_cycle(at_ms: u64, result: &Result<ArcaSyncReport, ArcaCycleError>) -> Self {
+        match result {
+            Ok(report) => Self { at_ms, report: Some(SyncPayload::from(report.clone())), error: None },
+            Err(ArcaCycleError::AuthRejected(message)) => Self { at_ms, report: None, error: Some(LoopError { kind: LoopErrorKind::AuthRejected, message: message.clone() }) },
+            Err(ArcaCycleError::Other(message)) => Self { at_ms, report: None, error: Some(LoopError { kind: LoopErrorKind::Other, message: message.clone() }) },
+        }
+    }
+}
+
+/// The last automatic cycle's report. Shared between the loop's cycle (which writes it) and the `arca_loop_last` command.
+#[derive(Default)]
+pub struct ArcaLoopLast(Mutex<Option<LoopReport>>);
+
+impl ArcaLoopLast {
+    pub fn record(&self, report: LoopReport) {
+        *self.0.lock().unwrap() = Some(report);
+    }
+
+    pub fn get(&self) -> Option<LoopReport> {
+        self.0.lock().unwrap().clone()
+    }
+}
+
+/// A cycle that failed before it could even start (the paths of the hubs file or the config could not be resolved): kept like any
+/// other failure, and handed back as the loop's error.
+pub fn record_failure(last: &ArcaLoopLast, now_ms: u64, message: String) -> ArcaCycleError {
+    let failed: Result<ArcaSyncReport, ArcaCycleError> = Err(ArcaCycleError::Other(message.clone()));
+    last.record(LoopReport::from_cycle(now_ms, &failed));
+    ArcaCycleError::Other(message)
+}
+
+/// What `arca_loop_last` answers: the last cycle and whether the loop is stopped now.
+#[derive(Serialize, Debug, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct LoopStatus {
+    pub at_ms: u64,
+    pub report: Option<SyncPayload>,
+    pub error: Option<LoopError>,
+    pub stopped: bool,
+}
+
+impl LoopStatus {
+    /// `halted` is what the runner says now. A rejection is only told while the loop is still stopped: signing in again or a manual
+    /// sync lifts the stop, and the old rejection must not outlive it. Any other error stays until the next cycle replaces it.
+    pub fn of(last: Option<LoopReport>, halted: bool) -> Option<LoopStatus> {
+        let last = last?;
+        let error = last.error.filter(|error| halted || error.kind != LoopErrorKind::AuthRejected);
+        Some(LoopStatus { at_ms: last.at_ms, report: last.report, error, stopped: halted })
+    }
+}
+
+pub fn loop_status(last: &ArcaLoopLast, runner: &SyncRunner) -> Option<LoopStatus> {
+    LoopStatus::of(last.get(), runner.arca_halted().is_some())
+}
+
+/// `loop_cycle` that also keeps the whole report (or the error) in `last` for the screen.
+pub async fn loop_cycle_recording(engine: &SyncEngine, hubs_path: &Path, config_file: &Path, hub_id: &str, now_ms: u64, last: &ArcaLoopLast) -> Result<ArcaCycleSummary, ArcaCycleError> {
+    let result = loop_cycle_report(engine, hubs_path, config_file, hub_id, now_ms).await;
+    last.record(LoopReport::from_cycle(now_ms, &result));
+    result.map(|report| ArcaCycleSummary { files_changed: report.files_changed })
 }
 
 /// A manual sync that worked is what chooses the hub for the automatic loop, and it lifts a stop the loop had put on it.
@@ -236,6 +328,13 @@ pub async fn arca_mode_accept_logins(state: State<'_, AppState>) -> Result<(), S
 #[tauri::command]
 pub async fn arca_mode_set_hub(state: State<'_, AppState>, hub_id: String) -> Result<(), String> {
     set_hub(&state.sync, &state.sync_runner, &crate::config_paths::saved_hubs_file()?, &hub_id).await
+}
+
+/// What the last automatic cycle did, and whether the loop is stopped. The screen asks when it opens and again at each
+/// `arca-loop-report` (an event with no data, emitted after every round of the loop).
+#[tauri::command]
+pub fn arca_loop_last(state: State<'_, AppState>, last: State<'_, Arc<ArcaLoopLast>>) -> Option<LoopStatus> {
+    loop_status(&last, &state.sync_runner)
 }
 
 #[tauri::command]
@@ -485,6 +584,114 @@ mod tests {
         let store = HubStore::new("http://127.0.0.1:9", "tok").unwrap();
         let error = run_sync(&device.engine, &store, 1).await.unwrap_err();
         assert!(error.contains("arca mode"), "{error}");
+    }
+
+    // ---------- what the screen learns about the automatic cycle ----------
+
+    fn rejected(message: &str) -> Result<ArcaSyncReport, ArcaCycleError> {
+        Err(ArcaCycleError::AuthRejected(message.to_string()))
+    }
+
+    #[test]
+    fn a_clean_cycle_is_kept_with_its_report_and_no_error() {
+        let kept = LoopReport::from_cycle(7, &Ok(ArcaSyncReport::default()));
+        assert_eq!(kept, LoopReport { at_ms: 7, report: Some(SyncPayload::from(ArcaSyncReport::default())), error: None });
+    }
+
+    #[test]
+    fn the_warnings_of_a_cycle_are_kept_as_the_screen_gets_them() {
+        let report = ArcaSyncReport { vault_emptied: true, secret_folder_missing: true, recovered_kept: 2, ..Default::default() };
+        let kept = LoopReport::from_cycle(8, &Ok(report)).report.expect("the report is kept");
+        assert!(kept.vault_emptied && kept.secret_folder_missing && !kept.secret_emptied);
+        assert_eq!(kept.recovered_kept, 2);
+    }
+
+    #[test]
+    fn a_rejected_cycle_is_kept_as_an_error_of_its_own_kind_and_without_a_report() {
+        let kept = LoopReport::from_cycle(9, &rejected("the hub does not accept this device"));
+        assert_eq!(kept.report, None);
+        assert_eq!(kept.error, Some(LoopError { kind: LoopErrorKind::AuthRejected, message: "the hub does not accept this device".to_string() }));
+    }
+
+    #[test]
+    fn a_cycle_that_failed_for_another_reason_is_kept_as_another_kind() {
+        let kept = LoopReport::from_cycle(10, &Err(ArcaCycleError::Other("connection refused".to_string())));
+        assert_eq!(kept.error, Some(LoopError { kind: LoopErrorKind::Other, message: "connection refused".to_string() }));
+    }
+
+    #[test]
+    fn the_last_cycle_is_empty_until_one_runs_and_then_the_latest_one_wins() {
+        let last = ArcaLoopLast::default();
+        assert_eq!(last.get(), None);
+        last.record(LoopReport::from_cycle(1, &Ok(ArcaSyncReport { vault_emptied: true, ..Default::default() })));
+        last.record(LoopReport::from_cycle(2, &Ok(ArcaSyncReport::default())));
+        let kept = last.get().expect("a cycle ran");
+        assert_eq!(kept.at_ms, 2);
+        assert!(!kept.report.unwrap().vault_emptied, "the clean cycle replaced the warning");
+    }
+
+    #[test]
+    fn a_stop_the_runner_still_has_is_told_and_a_stop_it_lifted_is_not() {
+        let at = |error: Result<ArcaSyncReport, ArcaCycleError>| Some(LoopReport::from_cycle(5, &error));
+        assert_eq!(LoopStatus::of(None, false), None, "no cycle yet: nothing to say");
+        assert_eq!(LoopStatus::of(None, true), None);
+
+        let stopped = LoopStatus::of(at(rejected("no")), true).unwrap();
+        assert!(stopped.stopped);
+        assert_eq!(stopped.error.map(|e| e.kind), Some(LoopErrorKind::AuthRejected));
+
+        let lifted = LoopStatus::of(at(rejected("no")), false).unwrap();
+        assert!(!lifted.stopped);
+        assert_eq!(lifted.error, None, "the person signed in again or synced by hand: the old rejection is not shown");
+    }
+
+    #[test]
+    fn a_hub_that_was_only_down_keeps_being_told_and_never_counts_as_stopped() {
+        let down = Some(LoopReport::from_cycle(5, &Err(ArcaCycleError::Other("connection refused".to_string()))));
+        let status = LoopStatus::of(down, false).unwrap();
+        assert!(!status.stopped);
+        assert_eq!(status.error.map(|e| e.message), Some("connection refused".to_string()));
+    }
+
+    #[test]
+    fn a_report_goes_through_the_status_with_its_time() {
+        let kept = Some(LoopReport::from_cycle(11, &Ok(ArcaSyncReport { secret_emptied: true, ..Default::default() })));
+        let status = LoopStatus::of(kept, false).unwrap();
+        assert_eq!(status.at_ms, 11);
+        assert!(status.report.unwrap().secret_emptied);
+        assert_eq!(status.error, None);
+    }
+
+    #[test]
+    fn the_status_reaches_the_screen_in_camel_case() {
+        let status = LoopStatus::of(Some(LoopReport::from_cycle(7, &rejected("no"))), true).unwrap();
+        assert_eq!(serde_json::to_string(&status).unwrap(), r#"{"atMs":7,"report":null,"error":{"kind":"authRejected","message":"no"},"stopped":true}"#);
+        let other = LoopStatus::of(Some(LoopReport::from_cycle(8, &Err(ArcaCycleError::Other("x".to_string())))), false).unwrap();
+        assert_eq!(serde_json::to_string(&other).unwrap(), r#"{"atMs":8,"report":null,"error":{"kind":"other","message":"x"},"stopped":false}"#);
+    }
+
+    #[test]
+    fn the_command_reads_the_stop_from_the_runner_so_a_rejection_it_no_longer_has_is_not_shown() {
+        let keyed = device_with_key("loop-status");
+        let runner = SyncRunner::new(keyed.base.join("vault"), keyed.base.join("config.toml"), keyed.base.join("sync_secrets.json"), keyed.base.join("sync_manifest.json"), keyed.base.join("git"));
+        let last = ArcaLoopLast::default();
+        assert_eq!(loop_status(&last, &runner), None);
+        last.record(LoopReport::from_cycle(1, &rejected("no")));
+        let status = loop_status(&last, &runner).expect("a cycle ran");
+        assert!(!status.stopped, "this runner was never stopped");
+        assert_eq!(status.error, None);
+    }
+
+    #[tokio::test]
+    async fn a_cycle_the_loop_runs_is_kept_even_when_it_fails_and_still_answers_as_before() {
+        let keyed = device_with_key("loop-records");
+        let hubs = keyed.base.join("hubs.json");
+        let last = ArcaLoopLast::default();
+        let error = loop_cycle_recording(&keyed.engine, &hubs, &keyed.base.join("config.toml"), "hub-gone", 42, &last).await.unwrap_err();
+        assert!(matches!(&error, ArcaCycleError::Other(message) if message.contains("no saved hub")), "{error:?}");
+        let kept = last.get().expect("the failed cycle is kept");
+        assert_eq!(kept.at_ms, 42);
+        assert!(matches!(&kept.error, Some(LoopError { kind: LoopErrorKind::Other, message }) if message.contains("no saved hub")), "{kept:?}");
     }
 
     #[test]

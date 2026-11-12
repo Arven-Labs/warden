@@ -2,7 +2,7 @@
 
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
-import { hubChoice, loginsView, noticesOf, summaryOf, viewOf } from "../src/lib/arcaMode.ts";
+import { hubChoice, loginsView, loopView, noticesOf, summaryOf, viewOf } from "../src/lib/arcaMode.ts";
 
 const status = (over) => ({ hasKey: true, on: false, pendingSend: false, loginsAccepted: false, ...over });
 const report = (over) => ({
@@ -161,5 +161,40 @@ describe("what a cycle says about the logins (the secret class)", () => {
   test("a reason the arca may add later is shown as it came, never hidden", () => {
     const r = report({ secretSkipped: [{ path: "x.json", reason: "something new" }] });
     assert.deepEqual(noticesOf(r).skipped, [{ path: "x.json", reasonKey: null, reason: "something new" }]);
+  });
+});
+
+describe("what the section says about the last automatic cycle", () => {
+  const loop = (over) => ({ atMs: 1000, report: report({}), error: null, stopped: false, ...over });
+
+  test("before any cycle ran there is nothing to say", () => {
+    assert.deepEqual(loopView(null), { notices: null, error: null });
+  });
+
+  test("a clean cycle says nothing, so it clears an older warning", () => {
+    assert.deepEqual(loopView(loop({})), { notices: null, error: null });
+  });
+
+  test("a cycle with a warning hands over the same notices the manual sync shows", () => {
+    const view = loopView(loop({ report: report({ vaultEmptied: true, recoveredKept: 2 }) }));
+    assert.equal(view.notices.vaultEmptied, true);
+    assert.deepEqual(view.notices.counts, [{ key: "arca.noticeKept", count: 2 }]);
+    assert.equal(view.error, null);
+  });
+
+  test("every kind of notice counts as something to say: a folder gone, logins emptied, a counter, a file left out", () => {
+    for (const over of [{ secretFolderMissing: true }, { secretEmptied: true }, { secretLosersSaved: 1 }, { secretSkipped: [{ path: "a.bak", reason: "not accepted by this device" }] }]) {
+      assert.notEqual(loopView(loop({ report: report(over) })).notices, null, JSON.stringify(over));
+    }
+  });
+
+  test("a rejected token says the automatic sync stopped, with the detail", () => {
+    const view = loopView(loop({ report: null, error: { kind: "authRejected", message: "401" }, stopped: true }));
+    assert.deepEqual(view, { notices: null, error: { key: "arca.loopStopped", message: "401" } });
+  });
+
+  test("a hub that was only down says the last automatic sync failed, not that it stopped", () => {
+    const view = loopView(loop({ report: null, error: { kind: "other", message: "connection refused" } }));
+    assert.deepEqual(view, { notices: null, error: { key: "arca.loopFailed", message: "connection refused" } });
   });
 });

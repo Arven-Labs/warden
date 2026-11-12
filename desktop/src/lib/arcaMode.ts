@@ -48,6 +48,34 @@ export interface SyncReport {
   secretEmptied: boolean;
 }
 
+/** Why the last automatic cycle failed; `authRejected` is the one that stops the loop. */
+export interface LoopError {
+  kind: "authRejected" | "other";
+  message: string;
+}
+
+/** What `arca_loop_last` answers: the last automatic cycle, or null while none has run (nothing is kept across a restart). */
+export interface LoopStatus {
+  /** When the cycle ran, in ms since the epoch. */
+  atMs: number;
+  report: SyncReport | null;
+  error: LoopError | null;
+  /** The loop is stopped now (the hub refused the token and nothing signed in again). */
+  stopped: boolean;
+}
+
+export type LoopErrorView = { key: "arca.loopStopped" | "arca.loopFailed"; message: string };
+
+/** What the section says about the last automatic cycle: its notices (only when there is something to say, so a clean cycle clears
+ * an old warning) and its error. */
+export function loopView(status: LoopStatus | null): { notices: ReturnType<typeof noticesOf> | null; error: LoopErrorView | null } {
+  if (status === null) return { notices: null, error: null };
+  const notices = status.report ? noticesOf(status.report) : null;
+  const hasNotice = notices !== null && (notices.counts.length > 0 || notices.skipped.length > 0 || notices.folderMissing || notices.vaultEmptied || notices.loginsEmptied);
+  const error: LoopErrorView | null = status.error ? { key: status.error.kind === "authRejected" ? "arca.loopStopped" : "arca.loopFailed", message: status.error.message } : null;
+  return { notices: hasNotice ? notices : null, error };
+}
+
 /** Which controls the section draws. */
 export type ModeView = "loading" | "needsKey" | "pendingSend" | "ready" | "on";
 
