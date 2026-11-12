@@ -61,6 +61,9 @@ export function viewOf(status: ModeStatus | null): ModeView {
   return "ready";
 }
 
+/** The classes the person can empty on purpose, as the backend names them (`arca_sync_allow_empty`). */
+export type EmptyableClass = "vault" | "secret";
+
 export type NoticeKey = "arca.noticeIgnored" | "arca.noticeKept" | "arca.noticeLosers";
 export type SkipKey = "arca.skipNotAccepted" | "arca.skipReserved" | "arca.skipCase";
 

@@ -75,8 +75,8 @@ pub struct ArcaSyncReport {
     /// removed) and the folder was not recreated empty, which would have removed every login for the group (P-36, 9f).
     pub secret_folder_missing: bool,
     /// Every file of the vault is gone from this computer: the arca refuses a snapshot that empties a whole class (arca#80), so the
-    /// vault was left out of this cycle (nothing sent, applied or removed) until the files are back. Emptying it on purpose is not
-    /// supported yet: that needs the person's confirmation (a later change).
+    /// vault was left out of this cycle (nothing sent, applied or removed) until the files are back or the person confirms the
+    /// removal (`arca_sync_allowing_empty`), which sends it to the group.
     pub vault_emptied: bool,
     /// Same for the logins: the folder exists but has no login left that this device would apply (the arca counts only those).
     pub secret_emptied: bool,
@@ -154,7 +154,7 @@ impl SyncEngine {
     /// `arca_sync`, where the person confirmed that the classes in `allow_empty` may end up with no file: for those the snapshot
     /// does not refuse an emptied class (arca#80), so the removal reaches the group. Only the caller that asked the person passes
     /// a class here; the automatic loop never does, and the permission is for this one cycle (nothing is saved).
-    pub async fn arca_sync_allowing_empty(&self, hub: &HubStore, now_ms: u64, _allow_empty: &[Class]) -> anyhow::Result<ArcaSyncReport> {
+    pub async fn arca_sync_allowing_empty(&self, hub: &HubStore, now_ms: u64, allow_empty: &[Class]) -> anyhow::Result<ArcaSyncReport> {
         let _one_sync_at_a_time = self.sync_lock().await?;
         let Some(mode) = load_mode(&mode_path_for(&self.manifest_path))? else {
             anyhow::bail!("this vault is not in arca mode: turn it on first");
@@ -177,7 +177,7 @@ impl SyncEngine {
             // otherwise tell every device "everything was removed". The class is left out of the rest of the cycle, as a missing
             // folder is (nothing sent, applied or removed), and the report says so. Each retry drops one root, so this ends.
             let snapshot = loop {
-                match engine.snapshot(&roots, now_ms).await {
+                match engine.snapshot_allowing_empty(&roots, now_ms, allow_empty).await {
                     Ok(snapshot) => break snapshot,
                     Err(EngineError::ClassEmptied { class: Class::Vault, .. }) if roots.vault.is_some() => {
                         report.vault_emptied = true;

@@ -160,13 +160,25 @@ pub async fn run_sync(engine: &SyncEngine, hub: &HubStore, now_ms: u64) -> Resul
 /// The class the screen asks to empty on purpose. Only `vault` and `secret` have the warning and the button; `config` is not on the
 /// screen and anything else is a mistake, so none of them may reach the engine as a permission.
 pub fn emptyable_class(class: &str) -> Result<Class, String> {
-    Ok(Class::Vault)
+    match class {
+        "vault" => Ok(Class::Vault),
+        "secret" => Ok(Class::Secret),
+        other => Err(format!("'{other}' cannot be emptied on purpose: only 'vault' and 'secret' can")),
+    }
 }
 
 /// A manual sync where the person confirmed that `class` may end up with no file (see `SyncEngine::arca_sync_allowing_empty`).
 pub async fn run_sync_allowing_empty(engine: &SyncEngine, hub: &HubStore, now_ms: u64, class: &str) -> Result<SyncPayload, String> {
     let class = emptyable_class(class)?;
     engine.arca_sync_allowing_empty(hub, now_ms, &[class]).await.map(SyncPayload::from).map_err(|e| format!("{e:#}"))
+}
+
+/// `run_sync_and_adopt` for a confirmed emptying: a manual sync that worked also chooses the hub for the automatic loop.
+pub async fn run_sync_allowing_empty_and_adopt(engine: &SyncEngine, runner: &SyncRunner, hub: &HubStore, hub_id: &str, now_ms: u64, class: &str) -> Result<SyncPayload, String> {
+    let payload = run_sync_allowing_empty(engine, hub, now_ms, class).await?;
+    engine.arca_set_hub(hub_id).await.map_err(|e| format!("the sync worked, but the hub could not be recorded for the automatic sync: {e:#}"))?;
+    runner.resume_arca();
+    Ok(payload)
 }
 
 /// The saved hub `hub_id`, with the token this computer holds for it, ready to sync with.
@@ -230,6 +242,16 @@ pub async fn arca_mode_set_hub(state: State<'_, AppState>, hub_id: String) -> Re
 pub async fn arca_sync_run(state: State<'_, AppState>, hub_id: String) -> Result<SyncPayload, String> {
     let store = saved_hub_store(&crate::config_paths::saved_hubs_file()?, &crate::config_paths::config_file()?, &hub_id)?;
     run_sync_and_adopt(&state.sync, &state.sync_runner, &store, &hub_id, now_ms()).await
+}
+
+/// The person confirmed on the screen that `class` (`vault` or `secret`) may end up with no file: one sync that sends the removal to
+/// the group. Only this command passes a class; the automatic loop (`loop_cycle`) never does.
+#[tauri::command]
+pub async fn arca_sync_allow_empty(state: State<'_, AppState>, hub_id: String, class: String) -> Result<SyncPayload, String> {
+    // Checked before the hub is looked up, so a wrong class is refused whatever the state of the hubs.
+    emptyable_class(&class)?;
+    let store = saved_hub_store(&crate::config_paths::saved_hubs_file()?, &crate::config_paths::config_file()?, &hub_id)?;
+    run_sync_allowing_empty_and_adopt(&state.sync, &state.sync_runner, &store, &hub_id, now_ms(), &class).await
 }
 
 #[cfg(test)]

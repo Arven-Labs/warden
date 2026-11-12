@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { t } from "../i18n";
-import { hubChoice, loginsView, noticesOf, summaryOf, viewOf, type ModeStatus, type SyncReport } from "../lib/arcaMode";
+import { t, type Key } from "../i18n";
+import { hubChoice, loginsView, noticesOf, summaryOf, viewOf, type EmptyableClass, type ModeStatus, type SyncReport } from "../lib/arcaMode";
 import type { SavedHub } from "../types";
 
 /** Warden P183, desktop: turns the arca mode of the vault on (one way, so it takes a second click), chooses the saved hub the automatic
@@ -14,6 +14,8 @@ function ArcaModeSection() {
   // The box of the confirmation: the MCP logins travel too. Off every time the confirmation opens.
   const [syncLogins, setSyncLogins] = useState(false);
   const [confirmingLogins, setConfirmingLogins] = useState(false);
+  // The class whose removal on purpose is waiting for the second click. Only one at a time.
+  const [confirmingEmpty, setConfirmingEmpty] = useState<EmptyableClass | null>(null);
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<{ ok: boolean; text: string; notices?: ReturnType<typeof noticesOf> } | null>(null);
   // A second click must not start a second cycle: the state below is only read after a render, this one at once.
@@ -86,13 +88,17 @@ function ArcaModeSection() {
     }
   }
 
-  async function syncNow() {
+  /** One sync cycle. With `emptyClass` the person confirmed that this class may end up with no file, and the cycle sends that removal. */
+  async function syncNow(emptyClass?: EmptyableClass) {
     if (busyRef.current) return;
     busyRef.current = true;
     setBusy(true);
     setResult(null);
+    setConfirmingEmpty(null);
     try {
-      const report = await invoke<SyncReport>("arca_sync_run", { hubId: selected });
+      const report = emptyClass
+        ? await invoke<SyncReport>("arca_sync_allow_empty", { hubId: selected, class: emptyClass })
+        : await invoke<SyncReport>("arca_sync_run", { hubId: selected });
       const summary = summaryOf(report);
       const sentence = t(summary.key, summary.values);
       setResult({ ok: true, text: summary.conflicts > 0 ? `${sentence} ${t("arca.syncConflicts", { count: summary.conflicts })}` : sentence, notices: noticesOf(report) });
@@ -102,6 +108,34 @@ function ArcaModeSection() {
       busyRef.current = false;
       setBusy(false);
     }
+  }
+
+  /** The warning of an emptied class and its button: the first click only asks (and says it reaches the other devices). */
+  function emptyOnPurpose(which: EmptyableClass, warningKey: Key, buttonKey: Key, confirmKey: Key) {
+    return (
+      <>
+        <p className="settings-error-banner">{t(warningKey)}</p>
+        {view === "on" && confirmingEmpty === which ? (
+          <>
+            <p className="settings-hint">{t(confirmKey)}</p>
+            <div className="sync-join-form">
+              <button type="button" className="settings-save-btn" disabled={busy} onClick={() => void syncNow(which)}>
+                {t("arca.emptyYes")}
+              </button>
+              <button type="button" className="settings-browse-btn" disabled={busy} onClick={() => setConfirmingEmpty(null)}>
+                {t("arca.cancel")}
+              </button>
+            </div>
+          </>
+        ) : (
+          view === "on" && (
+            <button type="button" className="settings-browse-btn" disabled={busy || selected === ""} onClick={() => setConfirmingEmpty(which)}>
+              {t(buttonKey)}
+            </button>
+          )
+        )}
+      </>
+    );
   }
 
   const view = viewOf(status);
@@ -206,8 +240,8 @@ function ArcaModeSection() {
 
         {result && <p className={result.ok ? "settings-success-banner" : "settings-error-banner"}>{result.text}</p>}
         {result?.notices?.folderMissing && <p className="settings-error-banner">{t("arca.noticeFolderMissing")}</p>}
-        {result?.notices?.vaultEmptied && <p className="settings-error-banner">{t("arca.noticeVaultEmptied")}</p>}
-        {result?.notices?.loginsEmptied && <p className="settings-error-banner">{t("arca.noticeLoginsEmptied")}</p>}
+        {result?.notices?.vaultEmptied && emptyOnPurpose("vault", "arca.noticeVaultEmptied", "arca.emptyVault", "arca.emptyVaultConfirm")}
+        {result?.notices?.loginsEmptied && emptyOnPurpose("secret", "arca.noticeLoginsEmptied", "arca.emptyLogins", "arca.emptyLoginsConfirm")}
         {result?.notices?.counts.map((notice) => (
           <p key={notice.key} className="settings-hint">
             {t(notice.key, { count: notice.count })}
