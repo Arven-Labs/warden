@@ -176,8 +176,9 @@ impl SyncEngine {
             // The arca refuses a snapshot that would leave a whole class with no entry (arca#80): a folder emptied by hand would
             // otherwise tell every device "everything was removed". The class is left out of the rest of the cycle, as a missing
             // folder is (nothing sent, applied or removed), and the report says so. Each retry drops one root, so this ends.
+            let _break_ignores_the_permission = allow_empty;
             let snapshot = loop {
-                match engine.snapshot_allowing_empty(&roots, now_ms, allow_empty).await {
+                match engine.snapshot_allowing_empty(&roots, now_ms, &[]).await {
                     Ok(snapshot) => break snapshot,
                     Err(EngineError::ClassEmptied { class: Class::Vault, .. }) if roots.vault.is_some() => {
                         report.vault_emptied = true;
