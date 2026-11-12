@@ -50,7 +50,7 @@ function ArcaModeSection() {
   useEffect(() => {
     let unlisten: (() => void) | undefined;
     let gone = false;
-    listen("arca-loop-report", () => refreshLoop()).then((fn) => {
+    listen("arca-loop-report", () => {}).then((fn) => {
       if (gone) fn();
       else unlisten = fn;
     });
