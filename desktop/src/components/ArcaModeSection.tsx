@@ -129,7 +129,7 @@ function ArcaModeSection() {
           </>
         ) : (
           view === "on" && (
-            <button type="button" className="settings-browse-btn" disabled={busy || selected === ""} onClick={() => setConfirmingEmpty(which)}>
+            <button type="button" className="settings-browse-btn" disabled={busy || selected === ""} onClick={() => void syncNow(which)}>
               {t(buttonKey)}
             </button>
           )
