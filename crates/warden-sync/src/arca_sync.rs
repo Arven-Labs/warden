@@ -86,6 +86,42 @@ pub struct ArcaSyncReport {
     pub pushed: usize,
 }
 
+/// A copy of the loser of a conflict, as the screen sees it: no absolute path and never the text (it is a login in clear text).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LoserItem {
+    /// The copy's path inside `arca-conflicts/`, with `/`. Opaque to the caller: it only hands it back to `arca_clear_losers`.
+    pub id: String,
+    pub class: Class,
+    /// The file that was in conflict (the login's file name).
+    pub path: String,
+    /// The device whose version lost.
+    pub device: String,
+    /// The first 8 bytes of the text's sha256, in hex, as in the copy's name.
+    pub sha_prefix: String,
+    /// The person edited the copy: it is never deleted.
+    pub edited: bool,
+    pub size_bytes: Option<u64>,
+    pub modified_at_ms: Option<u64>,
+}
+
+/// Why a copy was not deleted.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NotCleared {
+    Edited,
+    NotACopy,
+    Gone,
+    Failed,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct LosersCleared {
+    pub removed: usize,
+    /// Each id asked for that was not deleted, with why. An id that is not in the list is `Gone`.
+    pub not_removed: Vec<(String, NotCleared)>,
+    /// Work files (`.tmp-*`) the arca could neither give back nor delete: they may hold a login and the list does not show them.
+    pub kept_tmp: usize,
+}
+
 impl SyncEngine {
     /// Turns the arca mode on for this vault: the first manifest is written from the vault as it is now (`base_version` none,
     /// key epoch 0), then the switch file. The caller must have done the Pull through `warden-sync` first (ADR 0012, step a) and
@@ -144,6 +180,18 @@ impl SyncEngine {
             anyhow::bail!("this vault is not in arca mode: turn it on first");
         };
         save_mode(&path, &ArcaMode { hub_id: Some(hub_id.to_string()), ..mode })
+    }
+
+    /// The copies of the losers of conflicts (the version that lost, in clear text) the arca kept in `arca-conflicts/`, for the screen.
+    /// With the mode off there are none. Under the sync lock, so it never reads while a cycle is writing a copy.
+    pub async fn arca_list_losers(&self) -> anyhow::Result<Vec<LoserItem>> {
+        Ok(Vec::new())
+    }
+
+    /// Deletes the copies whose `id` (as `arca_list_losers` gave it) is in `ids`. The ids are only looked up in a fresh list: nothing
+    /// a caller sends is ever used as a path. A copy the person edited is kept (the arca refuses it). Needs the mode on.
+    pub async fn arca_clear_losers(&self, _ids: &[String]) -> anyhow::Result<LosersCleared> {
+        Ok(LosersCleared::default())
     }
 
     /// One full cycle against `hub`. Refuses unless the mode is on.

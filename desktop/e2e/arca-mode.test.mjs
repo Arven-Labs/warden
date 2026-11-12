@@ -331,6 +331,163 @@ describe("the arca mode of the vault on the desktop", () => {
     }
   });
 
+  describe("the copies of the losers of conflicts", () => {
+    const ON = () => ({ hasKey: true, on: true, pendingSend: false, hubId: HUB.id, loginsAccepted: true });
+    const copy = (path, over = {}) => ({ id: `secret/${path}.conflito-dev-a-0011223344556677`, class: "secret", path, device: "dev-a", shaPrefix: "0011223344556677", edited: false, sizeBytes: 10, modifiedAtMs: Date.UTC(2026, 10, 12, 12, 0, 0), ...over });
+    const row = (page, path) => page.getByRole("listitem").filter({ hasText: path });
+
+    async function emit(page, calls, event) {
+      let listener;
+      for (let i = 0; i < 100 && !listener; i++) {
+        listener = calls.find((c) => c.cmd === "plugin:event|listen" && c.args.event === event);
+        if (!listener) await page.waitForTimeout(100);
+      }
+      assert.ok(listener, `the section listens to ${event}`);
+      await page.evaluate(({ handler, event }) => window.__TAURI_INTERNALS__.runCallback(handler, { event, id: 1, payload: null }), { handler: listener.args.handler, event });
+    }
+
+    test("the copies are listed when the section opens, with name, device and size and never the text, in both languages", { timeout: TIMEOUT }, async () => {
+      for (const [locale, title, hint, tail] of [
+        ["en-US", "Conflict copies", /Deleting does not overwrite the disk/, /dev-a.*10 B/],
+        ["pt-BR", "Cópias de conflito", /Apagar não sobrescreve o disco/, /dev-a.*10 B/],
+      ]) {
+        const { context, page, errors } = await openSync(ON, { arca_losers_list: () => [copy("github.json"), copy("slack.json")] }, { locale });
+        try {
+          await page.getByRole("heading", { name: title }).waitFor();
+          await page.getByText(hint).waitFor();
+          await row(page, "github.json").getByText(tail).waitFor();
+          await row(page, "slack.json").waitFor();
+          assert.deepEqual(errors, [], "the page raised no error");
+        } finally {
+          await context.close();
+        }
+      }
+    });
+
+    test("deleting one copy takes a second click that says it cannot be undone, and sends only that copy", { timeout: TIMEOUT }, async () => {
+      let items = [copy("github.json"), copy("slack.json")];
+      const { context, page, calls, errors } = await openSync(ON, {
+        arca_losers_list: () => items,
+        arca_losers_clear: ({ ids }) => {
+          items = items.filter((i) => !ids.includes(i.id));
+          return { removed: ids.length, skipped: [], keptTmp: 0 };
+        },
+      });
+      try {
+        await row(page, "slack.json").getByRole("button", { name: "Delete this copy", exact: true }).click();
+        await page.getByText(/will be deleted and cannot be recovered from here/).waitFor();
+        assert.equal(asked(calls, "arca_losers_clear").length, 0, "one click does not delete anything");
+
+        await page.getByRole("button", { name: "Cancel", exact: true }).click();
+        assert.equal(asked(calls, "arca_losers_clear").length, 0, "cancelling deletes nothing");
+
+        await row(page, "slack.json").getByRole("button", { name: "Delete this copy", exact: true }).click();
+        await page.getByRole("button", { name: "Yes, delete", exact: true }).click();
+        await page.getByText("Deleted: 1.").waitFor();
+        assert.deepEqual(asked(calls, "arca_losers_clear").map((c) => c.args), [{ ids: [copy("slack.json").id] }]);
+        await row(page, "slack.json").waitFor({ state: "detached" });
+        await row(page, "github.json").waitFor();
+        assert.deepEqual(errors, [], "the page raised no error");
+      } finally {
+        await context.close();
+      }
+    });
+
+    test("'delete all' asks first and sends every copy but the edited one", { timeout: TIMEOUT }, async () => {
+      let items = [copy("github.json"), copy("notion.json", { edited: true }), copy("slack.json")];
+      const { context, page, calls, errors } = await openSync(ON, {
+        arca_losers_list: () => items,
+        arca_losers_clear: ({ ids }) => {
+          items = items.filter((i) => !ids.includes(i.id));
+          return { removed: ids.length, skipped: [], keptTmp: 0 };
+        },
+      });
+      try {
+        await page.getByRole("button", { name: "Delete all copies", exact: true }).click();
+        await page.getByText(/Every copy you did not edit will be deleted/).waitFor();
+        assert.equal(asked(calls, "arca_losers_clear").length, 0, "one click does not delete anything");
+
+        await page.getByRole("button", { name: "Yes, delete all", exact: true }).click();
+        await page.getByText("Deleted: 2.").waitFor();
+        assert.deepEqual(asked(calls, "arca_losers_clear").map((c) => c.args), [{ ids: [copy("github.json").id, copy("slack.json").id] }]);
+        await row(page, "notion.json").waitFor();
+        assert.deepEqual(errors, [], "the page raised no error");
+      } finally {
+        await context.close();
+      }
+    });
+
+    test("a copy the person edited is marked, has no delete button, and a list of only edited ones offers no 'delete all'", { timeout: TIMEOUT }, async () => {
+      const { context, page, errors } = await openSync(ON, { arca_losers_list: () => [copy("github.json", { edited: true })] });
+      try {
+        await row(page, "github.json").getByText("You edited this copy: it is kept").waitFor();
+        assert.equal(await page.getByRole("button", { name: "Delete this copy", exact: true }).count(), 0);
+        assert.equal(await page.getByRole("button", { name: "Delete all copies", exact: true }).count(), 0);
+        assert.deepEqual(errors, [], "the page raised no error");
+      } finally {
+        await context.close();
+      }
+    });
+
+    test("what stayed after deleting is told with its reason, and a work file that may hold a login is warned about", { timeout: TIMEOUT }, async () => {
+      const { context, page, errors } = await openSync(ON, {
+        arca_losers_list: () => [copy("github.json"), copy("slack.json")],
+        arca_losers_clear: () => ({ removed: 1, skipped: [{ id: copy("slack.json").id, reason: "edited" }], keptTmp: 1 }),
+      });
+      try {
+        await page.getByRole("button", { name: "Delete all copies", exact: true }).click();
+        await page.getByRole("button", { name: "Yes, delete all", exact: true }).click();
+        await page.getByText("Deleted: 1.").waitFor();
+        await page.getByText(/slack\.json.*you edited this copy, so it was kept/).waitFor();
+        await page.getByText(/A temporary file that may still hold a login was left in the conflicts folder/).waitFor();
+        assert.deepEqual(errors, [], "the page raised no error");
+      } finally {
+        await context.close();
+      }
+    });
+
+    test("a refused deletion shows the reason, in Portuguese too, and is not an error of the page", { timeout: TIMEOUT }, async () => {
+      const { context, page, errors } = await openSync(ON, {
+        arca_losers_list: () => [copy("github.json")],
+        arca_losers_clear: () => Promise.reject("this vault is not in arca mode"),
+      }, { locale: "pt-BR" });
+      try {
+        await row(page, "github.json").getByRole("button", { name: "Apagar esta cópia", exact: true }).click();
+        await page.getByRole("button", { name: "Sim, apagar", exact: true }).click();
+        await page.getByText(/Não foi possível apagar as cópias: this vault is not in arca mode/).waitFor();
+        assert.deepEqual(errors, [], "a refusal is shown, not raised");
+      } finally {
+        await context.close();
+      }
+    });
+
+    test("the list follows the loop: a copy saved by an automatic cycle shows up by itself", { timeout: TIMEOUT }, async () => {
+      let items = [];
+      const { context, page, calls, errors } = await openSync(ON, { arca_losers_list: () => items });
+      try {
+        await page.getByRole("button", { name: "Sync now", exact: true }).waitFor();
+        assert.equal(await page.getByRole("heading", { name: "Conflict copies" }).count(), 0, "nothing to list: no section");
+
+        items = [copy("github.json")];
+        await emit(page, calls, "arca-loop-report");
+        await row(page, "github.json").waitFor();
+        assert.deepEqual(errors, [], "the page raised no error");
+      } finally {
+        await context.close();
+      }
+    });
+
+    test("with the mode off there is no section of copies (a guard: it also holds before the change)", { timeout: TIMEOUT }, async () => {
+      const off = await openSync(() => ({ hasKey: true, on: false, pendingSend: false }), { arca_losers_list: () => [copy("github.json")] });
+      try {
+        await off.page.getByRole("button", { name: "Turn on arca mode", exact: true }).waitFor();
+        assert.equal(await off.page.getByRole("heading", { name: "Conflict copies" }).count(), 0);
+      } finally {
+        await off.context.close();
+      }
+    });
+  });
+
   describe("what the automatic cycle says without a click", () => {
     const ON = () => ({ hasKey: true, on: true, pendingSend: false, hubId: HUB.id, loginsAccepted: true });
     const loopOf = (over, atMs = Date.now() + 60_000) => ({ atMs, report: CLEAN_CYCLE, error: null, stopped: false, ...over });

@@ -12,7 +12,7 @@ use tauri::State;
 use warden_bootstrap::auto_sync::{ArcaCycleError, ArcaCycleSummary, SyncRunner};
 use warden_bootstrap::saved_hubs::{self, SavedHub};
 use warden_server::remote_client::{RemoteIdentities, RemoteIdentity};
-use warden_sync::arca_sync::{is_auth_rejected, ArcaSyncReport, Class, HubError, HubStore};
+use warden_sync::arca_sync::{is_auth_rejected, ArcaSyncReport, Class, HubError, HubStore, LoserItem, LosersCleared};
 use warden_sync::SyncEngine;
 
 use crate::arca_pair_cmds::device_token;
@@ -180,6 +180,57 @@ pub async fn run_sync_allowing_empty_and_adopt(engine: &SyncEngine, runner: &Syn
     engine.arca_set_hub(hub_id).await.map_err(|e| format!("the sync worked, but the hub could not be recorded for the automatic sync: {e:#}"))?;
     runner.resume_arca();
     Ok(payload)
+}
+
+/// A copy of a conflict's loser as the screen gets it: the file name, the device, the size and the date, never the text (a login in
+/// clear text) nor the absolute path. `id` is only meant to be handed back to `arca_losers_clear`.
+#[derive(Serialize, Debug, PartialEq, Eq, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct LoserPayload {
+    pub id: String,
+    pub class: &'static str,
+    pub path: String,
+    pub device: String,
+    pub sha_prefix: String,
+    pub edited: bool,
+    pub size_bytes: Option<u64>,
+    pub modified_at_ms: Option<u64>,
+}
+
+impl From<LoserItem> for LoserPayload {
+    fn from(item: LoserItem) -> Self {
+        Self { id: String::new(), class: "vault", path: item.path, device: item.device, sha_prefix: item.sha_prefix, edited: item.edited, size_bytes: item.size_bytes, modified_at_ms: item.modified_at_ms }
+    }
+}
+
+#[derive(Serialize, Debug, PartialEq, Eq, Clone)]
+pub struct NotClearedPayload {
+    pub id: String,
+    pub reason: &'static str,
+}
+
+/// What deleting copies did, for the screen.
+#[derive(Serialize, Debug, PartialEq, Eq, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct ClearPayload {
+    pub removed: usize,
+    pub skipped: Vec<NotClearedPayload>,
+    /// Work files that may still hold a login and that the list does not show: only the count, the person looks in the folder.
+    pub kept_tmp: usize,
+}
+
+impl From<LosersCleared> for ClearPayload {
+    fn from(_cleared: LosersCleared) -> Self {
+        Self { removed: 0, skipped: Vec::new(), kept_tmp: 0 }
+    }
+}
+
+pub async fn losers_list(engine: &SyncEngine) -> Result<Vec<LoserPayload>, String> {
+    engine.arca_list_losers().await.map(|items| items.into_iter().map(LoserPayload::from).collect()).map_err(|e| format!("{e:#}"))
+}
+
+pub async fn losers_clear(engine: &SyncEngine, ids: &[String]) -> Result<ClearPayload, String> {
+    engine.arca_clear_losers(ids).await.map(ClearPayload::from).map_err(|e| format!("{e:#}"))
 }
 
 /// The saved hub `hub_id`, with the token this computer holds for it, ready to sync with.
@@ -357,7 +408,7 @@ pub async fn arca_sync_allow_empty(state: State<'_, AppState>, hub_id: String, c
 mod tests {
     use super::*;
     use std::path::PathBuf;
-    use warden_sync::arca_sync::SkippedLogin;
+    use warden_sync::arca_sync::{NotCleared, SkippedLogin};
     use warden_sync::manifest::{save_manifest, SyncManifest};
     use warden_sync::ArweaveClient;
 
@@ -692,6 +743,75 @@ mod tests {
         let kept = last.get().expect("the failed cycle is kept");
         assert_eq!(kept.at_ms, 42);
         assert!(matches!(&kept.error, Some(LoopError { kind: LoopErrorKind::Other, message }) if message.contains("no saved hub")), "{kept:?}");
+    }
+
+    // ---------- the copies of the losers of conflicts ----------
+
+    fn item(over: impl FnOnce(&mut LoserItem)) -> LoserItem {
+        let mut item = LoserItem {
+            id: "secret/github.json.conflito-dev-a-0011223344556677".to_string(),
+            class: Class::Secret,
+            path: "github.json".to_string(),
+            device: "dev-a".to_string(),
+            sha_prefix: "0011223344556677".to_string(),
+            edited: false,
+            size_bytes: Some(10),
+            modified_at_ms: Some(5),
+        };
+        over(&mut item);
+        item
+    }
+
+    #[test]
+    fn a_copy_reaches_the_screen_without_its_text_or_its_absolute_path() {
+        let json = serde_json::to_string(&LoserPayload::from(item(|_| {}))).unwrap();
+        assert_eq!(
+            json,
+            r#"{"id":"secret/github.json.conflito-dev-a-0011223344556677","class":"secret","path":"github.json","device":"dev-a","shaPrefix":"0011223344556677","edited":false,"sizeBytes":10,"modifiedAtMs":5}"#
+        );
+        assert!(!json.contains("file") && !json.contains("text"), "{json}");
+    }
+
+    #[test]
+    fn a_copy_without_a_size_or_a_date_says_so() {
+        let json = serde_json::to_string(&LoserPayload::from(item(|i| (i.size_bytes, i.modified_at_ms) = (None, None)))).unwrap();
+        assert!(json.contains(r#""sizeBytes":null,"modifiedAtMs":null"#), "{json}");
+    }
+
+    #[test]
+    fn the_class_goes_to_the_screen_by_its_name() {
+        for (class, name) in [(Class::Config, "config"), (Class::Secret, "secret"), (Class::Vault, "vault")] {
+            assert_eq!(LoserPayload::from(item(|i| i.class = class)).class, name);
+        }
+    }
+
+    #[test]
+    fn what_deleting_did_reaches_the_screen_with_a_reason_for_each_copy_that_stayed() {
+        let cleared = LosersCleared {
+            removed: 2,
+            not_removed: vec![("a".to_string(), NotCleared::Edited), ("b".to_string(), NotCleared::NotACopy), ("c".to_string(), NotCleared::Gone), ("d".to_string(), NotCleared::Failed)],
+            kept_tmp: 1,
+        };
+        assert_eq!(
+            serde_json::to_string(&ClearPayload::from(cleared)).unwrap(),
+            r#"{"removed":2,"skipped":[{"id":"a","reason":"edited"},{"id":"b","reason":"notACopy"},{"id":"c","reason":"gone"},{"id":"d","reason":"failed"}],"keptTmp":1}"#
+        );
+    }
+
+    #[tokio::test]
+    async fn with_the_mode_off_the_list_of_copies_is_empty_and_deleting_says_the_mode_is_off() {
+        let device = device_with_key("losers-off");
+        assert_eq!(losers_list(&device.engine).await, Ok(Vec::new()));
+        let error = losers_clear(&device.engine, &["secret/x.json.conflito-d-0011223344556677".to_string()]).await.unwrap_err();
+        assert!(error.contains("arca mode"), "{error}");
+    }
+
+    #[tokio::test]
+    async fn a_vault_in_arca_mode_with_no_conflict_has_no_copies_and_deleting_nothing_deletes_nothing() {
+        let device = device_with_key("losers-none");
+        enable(&device.engine, false, false, 1).await.unwrap();
+        assert_eq!(losers_list(&device.engine).await, Ok(Vec::new()));
+        assert_eq!(losers_clear(&device.engine, &[]).await, Ok(ClearPayload { removed: 0, skipped: Vec::new(), kept_tmp: 0 }));
     }
 
     #[test]

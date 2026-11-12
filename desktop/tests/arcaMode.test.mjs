@@ -2,7 +2,7 @@
 
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
-import { hubChoice, loginsView, loopView, noticesOf, summaryOf, viewOf } from "../src/lib/arcaMode.ts";
+import { clearSummary, deletableIds, hubChoice, loginsView, loopView, noticesOf, sizeLabel, summaryOf, viewOf } from "../src/lib/arcaMode.ts";
 
 const status = (over) => ({ hasKey: true, on: false, pendingSend: false, loginsAccepted: false, ...over });
 const report = (over) => ({
@@ -161,6 +161,53 @@ describe("what a cycle says about the logins (the secret class)", () => {
   test("a reason the arca may add later is shown as it came, never hidden", () => {
     const r = report({ secretSkipped: [{ path: "x.json", reason: "something new" }] });
     assert.deepEqual(noticesOf(r).skipped, [{ path: "x.json", reasonKey: null, reason: "something new" }]);
+  });
+});
+
+describe("the copies of the losers of conflicts", () => {
+  const copy = (id, over) => ({ id, class: "secret", path: "github.json", device: "dev-a", shaPrefix: "0011223344556677", edited: false, sizeBytes: 10, modifiedAtMs: 5, ...over });
+
+  test("'delete all' sends every copy but the edited ones", () => {
+    const items = [copy("a"), copy("b", { edited: true }), copy("c")];
+    assert.deepEqual(deletableIds(items), ["a", "c"]);
+    assert.deepEqual(deletableIds([]), []);
+    assert.deepEqual(deletableIds([copy("x", { edited: true })]), [], "a list with only edited copies sends nothing");
+  });
+
+  test("what deleting did: the count, each copy that stayed with its translated reason, and the work files that may hold a login", () => {
+    const summary = clearSummary({
+      removed: 2,
+      skipped: [
+        { id: "a", reason: "edited" },
+        { id: "b", reason: "notACopy" },
+        { id: "c", reason: "gone" },
+        { id: "d", reason: "failed" },
+      ],
+      keptTmp: 1,
+    });
+    assert.deepEqual(summary, {
+      removed: 2,
+      notRemoved: [
+        { id: "a", reasonKey: "arca.loserSkipEdited" },
+        { id: "b", reasonKey: "arca.loserSkipNotACopy" },
+        { id: "c", reasonKey: "arca.loserSkipGone" },
+        { id: "d", reasonKey: "arca.loserSkipFailed" },
+      ],
+      keptTmp: 1,
+    });
+  });
+
+  test("a clean deletion has nothing that stayed and no work file", () => {
+    assert.deepEqual(clearSummary({ removed: 1, skipped: [], keptTmp: 0 }), { removed: 1, notRemoved: [], keptTmp: 0 });
+  });
+
+  test("a size reads in bytes below 1 KB and with one decimal above, and an unknown size is a dash", () => {
+    assert.equal(sizeLabel(0), "0 B");
+    assert.equal(sizeLabel(10), "10 B");
+    assert.equal(sizeLabel(1023), "1023 B");
+    assert.equal(sizeLabel(1536), "1.5 KB");
+    assert.equal(sizeLabel(1048576), "1.0 MB");
+    assert.equal(sizeLabel(null), "—");
   });
 });
 

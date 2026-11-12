@@ -19,6 +19,7 @@ use warden_core::orchestrator::Orchestrator;
 use warden_server::arca_api::ArcaLimits;
 use warden_server::{PairingProof, PairingStore, Server};
 use warden_sync::arca_mode::{load_mode, mode_path_for, state_path_for, store_path_for};
+use warden_sync::arca_sync::NotCleared;
 use warden_sync::SyncEngine;
 
 struct Hub {
@@ -564,6 +565,153 @@ async fn the_device_that_lost_a_login_conflict_without_merging_keeps_its_own_ver
     let (path, text) = saved.iter().next().unwrap();
     assert!(path.starts_with("secret/github.json.conflito-"), "{path}");
     assert_eq!(text, "token by a");
+}
+
+/// Two devices in sync on `logins`, both of which then edit every one of them: `a` ends up with the version of `b` and keeps its own
+/// as a loser copy in its conflicts folder, one per login (the setup of the test above, for the screen that lists and clears them).
+async fn device_with_losers(name: &str, logins: &[&str]) -> (Hub, Device, Device, HubStore, HubStore) {
+    let hub = hub().await;
+    let (a, key) = first_device(&format!("a-{name}"));
+    for login in logins {
+        write_login(&a, login, "start");
+    }
+    a.engine.arca_enable(false, 1).await.unwrap();
+    let (store_a, store_b) = (hub.store("dev-a"), hub.store("dev-b"));
+    a.engine.arca_sync(&store_a, 2).await.unwrap();
+    let b = paired_device(&format!("b-{name}"), key);
+    b.engine.arca_enable(false, 3).await.unwrap();
+    b.engine.arca_sync(&store_b, 4).await.unwrap();
+    for login in logins {
+        write_login(&a, login, "token by a");
+        write_login(&b, login, "token by b");
+    }
+    a.engine.arca_sync(&store_a, 10).await.unwrap();
+    b.engine.arca_sync(&store_b, 11).await.unwrap();
+    let report = a.engine.arca_sync(&store_a, 12).await.unwrap();
+    assert_eq!(report.secret_losers_saved, logins.len(), "the setup must leave one loser copy per login");
+    (hub, a, b, store_a, store_b)
+}
+
+fn conflict_copies(device: &Device) -> BTreeMap<String, String> {
+    files(&warden_sync::arca_mode::conflicts_dir_for(&device.manifest))
+}
+
+#[tokio::test]
+async fn a_saved_loser_is_listed_with_its_name_device_and_size_and_never_its_text_or_absolute_path() {
+    let (_hub, a, _b, _store_a, _store_b) = device_with_losers("losers-list", &["github.json"]).await;
+
+    let listed = a.engine.arca_list_losers().await.unwrap();
+    assert_eq!(listed.len(), 1, "{listed:?}");
+    let copy = &listed[0];
+    assert_eq!((copy.class, copy.path.as_str()), (Class::Secret, "github.json"));
+    assert!(copy.id.starts_with("secret/github.json.conflito-"), "{}", copy.id);
+    assert!(!copy.id.starts_with('/') && !copy.id.contains(".."), "the id is relative to the conflicts folder: {}", copy.id);
+    assert!(!copy.device.is_empty());
+    assert_eq!(copy.sha_prefix.len(), 16);
+    assert!(!copy.edited);
+    assert_eq!(copy.size_bytes, Some("token by a".len() as u64));
+    assert!(copy.modified_at_ms.is_some_and(|ms| ms > 0));
+}
+
+#[tokio::test]
+async fn deleting_a_copy_by_id_removes_that_copy_and_only_that_one() {
+    let (_hub, a, _b, _store_a, _store_b) = device_with_losers("losers-delete-one", &["github.json", "slack.json"]).await;
+    let listed = a.engine.arca_list_losers().await.unwrap();
+    assert_eq!(listed.len(), 2);
+    let github = listed.iter().find(|c| c.path == "github.json").unwrap().id.clone();
+
+    let cleared = a.engine.arca_clear_losers(std::slice::from_ref(&github)).await.unwrap();
+    assert_eq!((cleared.removed, cleared.not_removed.len(), cleared.kept_tmp), (1, 0, 0), "{cleared:?}");
+
+    let left = conflict_copies(&a);
+    assert_eq!(left.len(), 1, "{left:?}");
+    assert!(left.keys().next().unwrap().starts_with("secret/slack.json.conflito-"));
+    assert_eq!(a.engine.arca_list_losers().await.unwrap().len(), 1);
+}
+
+#[tokio::test]
+async fn deleting_every_listed_copy_leaves_none() {
+    let (_hub, a, _b, _store_a, _store_b) = device_with_losers("losers-delete-all", &["github.json", "slack.json"]).await;
+    let ids: Vec<String> = a.engine.arca_list_losers().await.unwrap().into_iter().map(|c| c.id).collect();
+
+    let cleared = a.engine.arca_clear_losers(&ids).await.unwrap();
+    assert_eq!(cleared.removed, 2, "{cleared:?}");
+    assert!(conflict_copies(&a).is_empty());
+    assert!(a.engine.arca_list_losers().await.unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn an_id_that_is_not_in_the_list_deletes_nothing_even_when_it_points_outside_the_folder() {
+    let (_hub, a, _b, _store_a, _store_b) = device_with_losers("losers-foreign-id", &["github.json"]).await;
+    let conflicts = warden_sync::arca_mode::conflicts_dir_for(&a.manifest);
+    let victim = conflicts.parent().unwrap().join("victim.txt");
+    std::fs::write(&victim, "not a copy").unwrap();
+    let before = conflict_copies(&a);
+
+    let asked = ["../victim.txt", "secret/../../victim.txt", "secret/other.json.conflito-dev-0123456789abcdef", "secret/github.json", "/etc/hostname", ""].map(String::from);
+    let cleared = a.engine.arca_clear_losers(&asked).await.unwrap();
+
+    assert_eq!(cleared.removed, 0, "{cleared:?}");
+    assert_eq!(cleared.not_removed.len(), asked.len(), "every id asked for is answered: {cleared:?}");
+    assert!(cleared.not_removed.iter().all(|(_, why)| *why == NotCleared::Gone), "{cleared:?}");
+    assert!(victim.exists(), "a file outside the conflicts folder was touched");
+    assert_eq!(conflict_copies(&a), before, "the real copy was touched");
+}
+
+#[tokio::test]
+async fn a_copy_the_person_edited_is_marked_and_never_deleted() {
+    let (_hub, a, _b, _store_a, _store_b) = device_with_losers("losers-edited", &["github.json"]).await;
+    let id = a.engine.arca_list_losers().await.unwrap().remove(0).id;
+    let file = warden_sync::arca_mode::conflicts_dir_for(&a.manifest).join(&id);
+    std::fs::write(&file, "token by a, fixed by hand").unwrap();
+
+    let listed = a.engine.arca_list_losers().await.unwrap();
+    assert!(listed[0].edited, "{listed:?}");
+    let cleared = a.engine.arca_clear_losers(&[id.clone()]).await.unwrap();
+    assert_eq!(cleared.removed, 0);
+    assert_eq!(cleared.not_removed, vec![(id, NotCleared::Edited)]);
+    assert_eq!(std::fs::read_to_string(&file).unwrap(), "token by a, fixed by hand", "the edited copy was changed or deleted");
+}
+
+#[tokio::test]
+async fn deleting_every_copy_keeps_the_edited_one_and_says_so() {
+    let (_hub, a, _b, _store_a, _store_b) = device_with_losers("losers-all-with-edited", &["github.json", "slack.json"]).await;
+    let listed = a.engine.arca_list_losers().await.unwrap();
+    let slack = listed.iter().find(|c| c.path == "slack.json").unwrap().id.clone();
+    std::fs::write(warden_sync::arca_mode::conflicts_dir_for(&a.manifest).join(&slack), "edited").unwrap();
+    let ids: Vec<String> = listed.into_iter().map(|c| c.id).collect();
+
+    let cleared = a.engine.arca_clear_losers(&ids).await.unwrap();
+    assert_eq!(cleared.removed, 1, "{cleared:?}");
+    assert_eq!(cleared.not_removed, vec![(slack, NotCleared::Edited)]);
+    assert_eq!(conflict_copies(&a).len(), 1);
+}
+
+#[tokio::test]
+async fn deleting_twice_is_harmless_and_the_second_time_says_it_is_gone() {
+    let (_hub, a, _b, _store_a, _store_b) = device_with_losers("losers-twice", &["github.json"]).await;
+    let id = a.engine.arca_list_losers().await.unwrap().remove(0).id;
+    assert_eq!(a.engine.arca_clear_losers(&[id.clone()]).await.unwrap().removed, 1);
+
+    let again = a.engine.arca_clear_losers(&[id.clone()]).await.unwrap();
+    assert_eq!(again.removed, 0);
+    assert_eq!(again.not_removed, vec![(id, NotCleared::Gone)]);
+}
+
+#[tokio::test]
+async fn clearing_nothing_is_fine_and_before_any_conflict_the_list_is_empty() {
+    let (_hub, a, _b, _store_a, _store_b) = two_synced_devices("losers-none", &[("one.md", "1")], &[("github.json", "g")]).await;
+    assert!(!warden_sync::arca_mode::conflicts_dir_for(&a.manifest).join("secret").exists(), "the setup must have no loser");
+    assert!(a.engine.arca_list_losers().await.unwrap().is_empty());
+    assert_eq!(a.engine.arca_clear_losers(&[]).await.unwrap(), warden_sync::arca_sync::LosersCleared::default());
+}
+
+#[tokio::test]
+async fn with_the_mode_off_the_list_is_empty_and_clearing_says_the_mode_is_off() {
+    let (a, _) = first_device("losers-mode-off");
+    assert!(a.engine.arca_list_losers().await.unwrap().is_empty());
+    let error = a.engine.arca_clear_losers(&["secret/x.json.conflito-d-0123456789abcdef".to_string()]).await.unwrap_err();
+    assert!(format!("{error:#}").contains("arca mode"), "{error:#}");
 }
 
 /// M-1: the loser of a `secret` conflict is saved BEFORE the merge manifest is stored. With a conflicts folder the arca refuses, the
