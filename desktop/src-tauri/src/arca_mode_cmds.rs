@@ -275,7 +275,7 @@ impl LoopStatus {
     /// sync lifts the stop, and the old rejection must not outlive it. Any other error stays until the next cycle replaces it.
     pub fn of(last: Option<LoopReport>, halted: bool) -> Option<LoopStatus> {
         let last = last?;
-        let error = last.error.filter(|error| halted || error.kind != LoopErrorKind::AuthRejected);
+        let error = last.error;
         Some(LoopStatus { at_ms: last.at_ms, report: last.report, error, stopped: halted })
     }
 }
