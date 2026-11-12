@@ -106,6 +106,8 @@ export const sync = {
   "arca.loginsConfirmYes": "Yes, sync them",
   "arca.loginsFailed": "Could not start syncing the logins: {message}",
   "arca.noticeFolderMissing": "The MCP logins folder is missing, so the logins are not syncing (nothing was removed on your other devices). Restore the folder with its files to resume. If you create an empty folder instead, the logins will be removed on all devices.",
+  "arca.noticeVaultEmptied": "Every file of the vault is gone from this computer, so the vault is not syncing (nothing was removed on your other devices). Restore the files to resume. Removing everything on purpose is not supported yet.",
+  "arca.noticeLoginsEmptied": "The MCP logins folder has no login left, so the logins are not syncing (nothing was removed on your other devices). Restore the login files to resume. Removing every login on purpose is not supported yet.",
   "arca.noticeIgnored": "Login files from other devices ignored: {count}.",
   "arca.noticeKept": "Files left by an interrupted update: {count}. They stay in the logins folder for you to check.",
   "arca.noticeLosers": "Login conflicts kept as copies: {count}.",

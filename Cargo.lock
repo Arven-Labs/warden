@@ -298,7 +298,7 @@ checksum = "c3d036a3c4ab069c7b410a2ce876bd74808d2d0888a82667669f8e783a898bf1"
 [[package]]
 name = "arca-core"
 version = "0.0.0"
-source = "git+https://github.com/Arven-Labs/arca?rev=a30971cc90c3658761ac1e1bbad6cfae26d8d553#a30971cc90c3658761ac1e1bbad6cfae26d8d553"
+source = "git+https://github.com/Arven-Labs/arca?rev=a8e267757a5a2f3fb1e26af0fc31ecd4a4cfe498#a8e267757a5a2f3fb1e26af0fc31ecd4a4cfe498"
 dependencies = [
  "bip39",
  "chacha20poly1305",

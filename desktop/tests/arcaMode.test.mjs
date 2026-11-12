@@ -17,6 +17,8 @@ const report = (over) => ({
   secretSkipped: [],
   recoveredKept: 0,
   secretFolderMissing: false,
+  vaultEmptied: false,
+  secretEmptied: false,
   ...over,
 });
 
@@ -106,7 +108,16 @@ describe("what a finished cycle says", () => {
 
 describe("what a cycle says about the logins (the secret class)", () => {
   test("a clean cycle has nothing to warn about", () => {
-    assert.deepEqual(noticesOf(report({})), { counts: [], skipped: [], folderMissing: false });
+    assert.deepEqual(noticesOf(report({})), { counts: [], skipped: [], folderMissing: false, vaultEmptied: false, loginsEmptied: false });
+  });
+
+  test("an emptied class is told apart, per class: it is not a counter and does not change the sentence", () => {
+    const vault = report({ vaultEmptied: true });
+    assert.deepEqual([noticesOf(vault).vaultEmptied, noticesOf(vault).loginsEmptied], [true, false]);
+    const logins = report({ secretEmptied: true });
+    assert.deepEqual([noticesOf(logins).vaultEmptied, noticesOf(logins).loginsEmptied], [false, true]);
+    assert.deepEqual(noticesOf(logins).counts, []);
+    assert.equal(summaryOf(logins).key, "arca.syncNothing");
   });
 
   test("a logins folder that is gone is told apart: the logins are not syncing and nothing was removed", () => {

@@ -107,6 +107,8 @@ export const syncPt: Record<keyof typeof sync, string> = {
   "arca.loginsConfirmYes": "Sim, sincronizar",
   "arca.loginsFailed": "Não foi possível começar a sincronizar os logins: {message}",
   "arca.noticeFolderMissing": "A pasta dos logins MCP não existe, então os logins não estão sincronizando (nada foi removido nos seus outros dispositivos). Restaure a pasta com os arquivos para voltar. Se você criar uma pasta vazia, os logins serão removidos em todos os dispositivos.",
+  "arca.noticeVaultEmptied": "Todos os arquivos do cofre sumiram deste computador, então o cofre não está sincronizando (nada foi removido nos seus outros dispositivos). Restaure os arquivos para voltar. Apagar tudo de propósito ainda não é suportado.",
+  "arca.noticeLoginsEmptied": "A pasta dos logins MCP não tem mais nenhum login, então os logins não estão sincronizando (nada foi removido nos seus outros dispositivos). Restaure os arquivos de login para voltar. Apagar todos os logins de propósito ainda não é suportado.",
   "arca.noticeIgnored": "Arquivos de login de outros dispositivos ignorados: {count}.",
   "arca.noticeKept": "Arquivos deixados por uma atualização interrompida: {count}. Ficam na pasta de logins para você conferir.",
   "arca.noticeLosers": "Conflitos de login guardados como cópias: {count}.",

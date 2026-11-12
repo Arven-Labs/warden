@@ -119,6 +119,10 @@ pub struct SyncPayload {
     pub recovered_kept: usize,
     /// The logins were accepted but their folder is gone: the class was left out of the cycle and nothing was removed.
     pub secret_folder_missing: bool,
+    /// Every file of the vault is gone from this computer: the arca refuses to publish that, so the vault was left out of the cycle.
+    pub vault_emptied: bool,
+    /// The logins folder has no login left to send: the class was left out of the cycle and nothing was removed.
+    pub secret_emptied: bool,
 }
 
 /// A local login file the cycle did not send, and why (the arca's own words; the screen translates the ones it knows).
@@ -143,6 +147,8 @@ impl From<ArcaSyncReport> for SyncPayload {
             secret_skipped: report.secret_skipped.into_iter().map(|s| SkippedLoginPayload { path: s.path, reason: s.reason.to_string() }).collect(),
             recovered_kept: report.recovered_kept,
             secret_folder_missing: report.secret_folder_missing,
+            vault_emptied: report.vault_emptied,
+            secret_emptied: report.secret_emptied,
         }
     }
 }
@@ -456,7 +462,7 @@ mod tests {
         let sync = SyncPayload::from(ArcaSyncReport { snapshot_created: true, pulled: 3, merges: 1, conflicts: 2, files_changed: 4, pushed: 5, ..Default::default() });
         assert_eq!(
             serde_json::to_string(&sync).unwrap(),
-            r#"{"snapshotCreated":true,"pulled":3,"merges":1,"conflicts":2,"filesChanged":4,"pushed":5,"secretLosersSaved":0,"secretIgnored":0,"secretSkipped":[],"recoveredKept":0,"secretFolderMissing":false}"#
+            r#"{"snapshotCreated":true,"pulled":3,"merges":1,"conflicts":2,"filesChanged":4,"pushed":5,"secretLosersSaved":0,"secretIgnored":0,"secretSkipped":[],"recoveredKept":0,"secretFolderMissing":false,"vaultEmptied":false,"secretEmptied":false}"#
         );
         let notices = SyncPayload::from(ArcaSyncReport {
             secret_losers_saved: 1,
@@ -464,11 +470,13 @@ mod tests {
             secret_skipped: vec![SkippedLogin { path: "notes.txt".into(), reason: "not accepted by this device" }],
             recovered_kept: 3,
             secret_folder_missing: true,
+            vault_emptied: true,
+            secret_emptied: true,
             ..Default::default()
         });
         assert_eq!(
             serde_json::to_string(&notices).unwrap(),
-            r#"{"snapshotCreated":false,"pulled":0,"merges":0,"conflicts":0,"filesChanged":0,"pushed":0,"secretLosersSaved":1,"secretIgnored":2,"secretSkipped":[{"path":"notes.txt","reason":"not accepted by this device"}],"recoveredKept":3,"secretFolderMissing":true}"#
+            r#"{"snapshotCreated":false,"pulled":0,"merges":0,"conflicts":0,"filesChanged":0,"pushed":0,"secretLosersSaved":1,"secretIgnored":2,"secretSkipped":[{"path":"notes.txt","reason":"not accepted by this device"}],"recoveredKept":3,"secretFolderMissing":true,"vaultEmptied":true,"secretEmptied":true}"#
         );
         assert_eq!(serde_json::to_string(&Enabled { needs_reload: false }).unwrap(), r#"{"needsReload":false}"#);
     }
