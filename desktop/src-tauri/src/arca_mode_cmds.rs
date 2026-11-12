@@ -243,9 +243,7 @@ impl LoopReport {
 pub struct ArcaLoopLast(Mutex<Option<LoopReport>>);
 
 impl ArcaLoopLast {
-    pub fn record(&self, report: LoopReport) {
-        *self.0.lock().unwrap() = Some(report);
-    }
+    pub fn record(&self, _report: LoopReport) {}
 
     pub fn get(&self) -> Option<LoopReport> {
         self.0.lock().unwrap().clone()
