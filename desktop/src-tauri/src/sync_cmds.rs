@@ -219,6 +219,9 @@ impl From<&PushedSummary> for AutoSyncPushedPayload {
 /// brings another device's `config.toml` rebuilds the orchestrator, as a Settings save does.
 pub fn spawn_auto_sync(app: AppHandle, runner: Arc<SyncRunner>) {
     tauri::async_runtime::spawn(runner.run_loop(AUTO_SYNC_INTERVAL, move |report| {
+        // After every round, the stopped ones included: the arca section asks again what the last cycle did (`arca_loop_last`). The
+        // event carries nothing, so the command stays the one place that says it.
+        let _ = app.emit("arca-loop-report", ());
         if let Some(pulled) = &report.pulled {
             let _ = app.emit("auto-sync-pulled", AutoSyncPulledPayload::from(pulled));
         }

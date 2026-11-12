@@ -68,8 +68,12 @@ export type LoopErrorView = { key: "arca.loopStopped" | "arca.loopFailed"; messa
 
 /** What the section says about the last automatic cycle: its notices (only when there is something to say, so a clean cycle clears
  * an old warning) and its error. */
-export function loopView(_status: LoopStatus | null): { notices: ReturnType<typeof noticesOf> | null; error: LoopErrorView | null } {
-  return { notices: null, error: null };
+export function loopView(status: LoopStatus | null): { notices: ReturnType<typeof noticesOf> | null; error: LoopErrorView | null } {
+  if (status === null) return { notices: null, error: null };
+  const notices = status.report ? noticesOf(status.report) : null;
+  const hasNotice = notices !== null && (notices.counts.length > 0 || notices.skipped.length > 0 || notices.folderMissing || notices.vaultEmptied || notices.loginsEmptied);
+  const error: LoopErrorView | null = status.error ? { key: status.error.kind === "authRejected" ? "arca.loopStopped" : "arca.loopFailed", message: status.error.message } : null;
+  return { notices: hasNotice ? notices : null, error };
 }
 
 /** Which controls the section draws. */

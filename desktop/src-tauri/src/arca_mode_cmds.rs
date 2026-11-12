@@ -5,7 +5,7 @@
 //! only read the app's state and call them.
 
 use std::path::Path;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 use serde::Serialize;
 use tauri::State;
@@ -229,8 +229,12 @@ pub struct LoopReport {
 }
 
 impl LoopReport {
-    pub fn from_cycle(at_ms: u64, _result: &Result<ArcaSyncReport, ArcaCycleError>) -> Self {
-        Self { at_ms, report: None, error: None }
+    pub fn from_cycle(at_ms: u64, result: &Result<ArcaSyncReport, ArcaCycleError>) -> Self {
+        match result {
+            Ok(report) => Self { at_ms, report: Some(SyncPayload::from(report.clone())), error: None },
+            Err(ArcaCycleError::AuthRejected(message)) => Self { at_ms, report: None, error: Some(LoopError { kind: LoopErrorKind::AuthRejected, message: message.clone() }) },
+            Err(ArcaCycleError::Other(message)) => Self { at_ms, report: None, error: Some(LoopError { kind: LoopErrorKind::Other, message: message.clone() }) },
+        }
     }
 }
 
@@ -239,11 +243,21 @@ impl LoopReport {
 pub struct ArcaLoopLast(Mutex<Option<LoopReport>>);
 
 impl ArcaLoopLast {
-    pub fn record(&self, _report: LoopReport) {}
+    pub fn record(&self, report: LoopReport) {
+        *self.0.lock().unwrap() = Some(report);
+    }
 
     pub fn get(&self) -> Option<LoopReport> {
-        None
+        self.0.lock().unwrap().clone()
     }
+}
+
+/// A cycle that failed before it could even start (the paths of the hubs file or the config could not be resolved): kept like any
+/// other failure, and handed back as the loop's error.
+pub fn record_failure(last: &ArcaLoopLast, now_ms: u64, message: String) -> ArcaCycleError {
+    let failed: Result<ArcaSyncReport, ArcaCycleError> = Err(ArcaCycleError::Other(message.clone()));
+    last.record(LoopReport::from_cycle(now_ms, &failed));
+    ArcaCycleError::Other(message)
 }
 
 /// What `arca_loop_last` answers: the last cycle and whether the loop is stopped now.
@@ -257,8 +271,12 @@ pub struct LoopStatus {
 }
 
 impl LoopStatus {
-    pub fn of(_last: Option<LoopReport>, _halted: bool) -> Option<LoopStatus> {
-        None
+    /// `halted` is what the runner says now. A rejection is only told while the loop is still stopped: signing in again or a manual
+    /// sync lifts the stop, and the old rejection must not outlive it. Any other error stays until the next cycle replaces it.
+    pub fn of(last: Option<LoopReport>, halted: bool) -> Option<LoopStatus> {
+        let last = last?;
+        let error = last.error.filter(|error| halted || error.kind != LoopErrorKind::AuthRejected);
+        Some(LoopStatus { at_ms: last.at_ms, report: last.report, error, stopped: halted })
     }
 }
 
@@ -310,6 +328,13 @@ pub async fn arca_mode_accept_logins(state: State<'_, AppState>) -> Result<(), S
 #[tauri::command]
 pub async fn arca_mode_set_hub(state: State<'_, AppState>, hub_id: String) -> Result<(), String> {
     set_hub(&state.sync, &state.sync_runner, &crate::config_paths::saved_hubs_file()?, &hub_id).await
+}
+
+/// What the last automatic cycle did, and whether the loop is stopped. The screen asks when it opens and again at each
+/// `arca-loop-report` (an event with no data, emitted after every round of the loop).
+#[tauri::command]
+pub fn arca_loop_last(state: State<'_, AppState>, last: State<'_, Arc<ArcaLoopLast>>) -> Option<LoopStatus> {
+    loop_status(&last, &state.sync_runner)
 }
 
 #[tauri::command]

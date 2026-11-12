@@ -192,7 +192,7 @@ impl SyncRunner {
     /// The hub the loop stopped on because it refused this device's token, until `resume_arca` or another hub is chosen. The screen
     /// asks this (a stopped loop no longer runs the cycle, so the last cycle's report cannot say it is stopped).
     pub fn arca_halted(&self) -> Option<String> {
-        None
+        self.arca_halted.lock().unwrap().clone()
     }
 
     /// One round of a vault in arca mode: the cycle on the hub the mode file names, unless that hub already rejected this device.
