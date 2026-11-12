@@ -14,10 +14,11 @@ use anyhow::Context;
 use arca_core::crypto::{EpochKeys, VaultKey};
 use arca_core::disk::DiskStore;
 use arca_core::engine::{Engine, EngineError, MergeOutcome, Roots, Snapshot};
-use arca_core::manifest::{Class, FileEntry};
+use arca_core::manifest::FileEntry;
 use arca_core::object::ObjectId;
-// What a caller needs to name the hub it syncs with, so it does not need `arca-core` of its own.
+// What a caller needs to name the hub it syncs with, and the class it may let be emptied, so it does not need `arca-core` of its own.
 pub use arca_core::hub::{HubError, HubStore};
+pub use arca_core::manifest::Class;
 use arca_core::replicate::ReplicateReport;
 use arca_core::scan::Skipped;
 
@@ -147,6 +148,13 @@ impl SyncEngine {
 
     /// One full cycle against `hub`. Refuses unless the mode is on.
     pub async fn arca_sync(&self, hub: &HubStore, now_ms: u64) -> anyhow::Result<ArcaSyncReport> {
+        self.arca_sync_allowing_empty(hub, now_ms, &[]).await
+    }
+
+    /// `arca_sync`, where the person confirmed that the classes in `allow_empty` may end up with no file: for those the snapshot
+    /// does not refuse an emptied class (arca#80), so the removal reaches the group. Only the caller that asked the person passes
+    /// a class here; the automatic loop never does, and the permission is for this one cycle (nothing is saved).
+    pub async fn arca_sync_allowing_empty(&self, hub: &HubStore, now_ms: u64, _allow_empty: &[Class]) -> anyhow::Result<ArcaSyncReport> {
         let _one_sync_at_a_time = self.sync_lock().await?;
         let Some(mode) = load_mode(&mode_path_for(&self.manifest_path))? else {
             anyhow::bail!("this vault is not in arca mode: turn it on first");
