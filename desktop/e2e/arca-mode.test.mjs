@@ -331,6 +331,115 @@ describe("the arca mode of the vault on the desktop", () => {
     }
   });
 
+  describe("what the automatic cycle says without a click", () => {
+    const ON = () => ({ hasKey: true, on: true, pendingSend: false, hubId: HUB.id, loginsAccepted: true });
+    const loopOf = (over, atMs = Date.now() + 60_000) => ({ atMs, report: CLEAN_CYCLE, error: null, stopped: false, ...over });
+
+    /** Sends the event the backend emits after each round of the automatic loop (it carries nothing: the screen asks again). */
+    async function loopEvent(page, calls) {
+      let listener;
+      for (let i = 0; i < 100 && !listener; i++) {
+        listener = calls.find((c) => c.cmd === "plugin:event|listen" && c.args.event === "arca-loop-report");
+        if (!listener) await page.waitForTimeout(100);
+      }
+      assert.ok(listener, "the section listens to arca-loop-report");
+      await page.evaluate(({ handler }) => window.__TAURI_INTERNALS__.runCallback(handler, { event: "arca-loop-report", id: 1, payload: null }), { handler: listener.args.handler });
+    }
+
+    test("a warning the automatic cycle left is there when the section opens, in both languages, with no click", { timeout: TIMEOUT }, async () => {
+      for (const [locale, warning] of [
+        ["en-US", /The MCP logins folder is missing/],
+        ["pt-BR", /A pasta dos logins MCP não existe/],
+      ]) {
+        const { context, page, errors } = await openSync(ON, { arca_loop_last: () => loopOf({ report: { ...CLEAN_CYCLE, secretFolderMissing: true } }) }, { locale });
+        try {
+          await page.getByText(warning).waitFor();
+          assert.deepEqual(errors, [], "the page raised no error");
+        } finally {
+          await context.close();
+        }
+      }
+    });
+
+    test("a warning that arrives while the section is open appears by itself, and a clean cycle after it takes it away", { timeout: TIMEOUT }, async () => {
+      let current = null;
+      const { context, page, calls, errors } = await openSync(ON, { arca_loop_last: () => current });
+      try {
+        await page.getByRole("button", { name: "Sync now", exact: true }).waitFor();
+        assert.equal(await page.getByText(/Every file of the vault is gone/).count(), 0);
+
+        current = loopOf({ report: { ...CLEAN_CYCLE, vaultEmptied: true } });
+        await loopEvent(page, calls);
+        await page.getByText(/Every file of the vault is gone from this computer/).waitFor();
+        // The same button as after "Sync now": it asks first and sends nothing.
+        await page.getByRole("button", { name: "Remove the vault files on purpose", exact: true }).waitFor();
+
+        current = loopOf({}, Date.now() + 120_000);
+        await loopEvent(page, calls);
+        await page.getByText(/Every file of the vault is gone/).waitFor({ state: "detached" });
+        assert.deepEqual(errors, [], "the page raised no error");
+      } finally {
+        await context.close();
+      }
+    });
+
+    test("a loop the hub stopped says so, with how to start it again, and a hub that was only down says it failed", { timeout: TIMEOUT }, async () => {
+      let current = loopOf({ report: null, error: { kind: "authRejected", message: "401 from the hub" }, stopped: true });
+      const { context, page, calls, errors } = await openSync(ON, { arca_loop_last: () => current });
+      try {
+        await page.getByText(/Automatic sync stopped: the hub does not accept this device\. Sign in to it again and press Sync now\. Detail: 401 from the hub/).waitFor();
+
+        current = loopOf({ report: null, error: { kind: "other", message: "connection refused" } });
+        await loopEvent(page, calls);
+        await page.getByText("The last automatic sync failed: connection refused").waitFor();
+        assert.equal(await page.getByText(/Automatic sync stopped/).count(), 0, "a hub that is down is not a stop");
+        assert.deepEqual(errors, [], "the page raised no error");
+      } finally {
+        await context.close();
+      }
+    });
+
+    test("the stop is told in Portuguese too", { timeout: TIMEOUT }, async () => {
+      const { context, page, errors } = await openSync(ON, { arca_loop_last: () => loopOf({ report: null, error: { kind: "authRejected", message: "401" }, stopped: true }) }, { locale: "pt-BR" });
+      try {
+        await page.getByText(/Sync automático parado: o hub não aceita este dispositivo\. Entre de novo no hub e use Sincronizar agora\. Detalhe: 401/).waitFor();
+        assert.deepEqual(errors, [], "the page raised no error");
+      } finally {
+        await context.close();
+      }
+    });
+
+    test("a manual sync made after the automatic cycle is not overwritten by that older cycle", { timeout: TIMEOUT }, async () => {
+      // The automatic cycle ran a minute ago and warned; the person synced by hand afterwards and nothing is wrong any more.
+      const oldWarning = loopOf({ report: { ...CLEAN_CYCLE, secretFolderMissing: true } }, Date.now() - 60_000);
+      const { context, page, calls, errors } = await openSync(ON, { arca_loop_last: () => oldWarning, arca_sync_run: () => CLEAN_CYCLE });
+      try {
+        await page.getByText(/The MCP logins folder is missing/).waitFor();
+        await page.getByRole("button", { name: "Sync now", exact: true }).click();
+        await page.getByText("Nothing new.").waitFor();
+        await page.getByText(/The MCP logins folder is missing/).waitFor({ state: "detached" });
+
+        // The loop reports again, still with that same old cycle: it must not bring the warning back over the newer manual result.
+        await loopEvent(page, calls);
+        await page.waitForTimeout(500);
+        assert.equal(await page.getByText(/The MCP logins folder is missing/).count(), 0);
+        assert.deepEqual(errors, [], "the page raised no error");
+      } finally {
+        await context.close();
+      }
+    });
+
+    test("a section whose mode is off shows nothing of the automatic cycle (a guard: it also holds before the change)", { timeout: TIMEOUT }, async () => {
+      const { context, page } = await openSync(() => ({ hasKey: true, on: false, pendingSend: false }), { arca_loop_last: () => loopOf({ report: { ...CLEAN_CYCLE, vaultEmptied: true } }) });
+      try {
+        await page.getByRole("button", { name: "Turn on arca mode", exact: true }).waitFor();
+        assert.equal(await page.getByText(/Every file of the vault is gone/).count(), 0, "nothing automatic runs before the mode is on");
+      } finally {
+        await context.close();
+      }
+    });
+  });
+
   test("a cycle with nothing new says so, and a refused one shows the reason", { timeout: TIMEOUT }, async () => {
     // A function, so a refusal is only made when the backend is asked (a rejected promise made earlier, with nobody waiting, is an error).
     let answer = () => CLEAN_CYCLE;
