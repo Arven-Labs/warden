@@ -199,7 +199,7 @@ function ArcaModeSection() {
   const view = viewOf(status);
   // The automatic cycle only speaks while the mode is on and when it is newer than the last manual sync: the newer of the two wins,
   // so an old automatic warning never comes back over a manual sync made after it, and a newer one replaces the manual warnings.
-  const autoNewer = view === "on" && loop !== null;
+  const autoNewer = view === "on" && loop !== null && loop.atMs > manualAt - Number.MAX_SAFE_INTEGER;
   const auto = autoNewer ? loopView(loop) : null;
   const autoHidesManual = autoNewer && loop?.report != null;
   const noHubs = hubs !== null && hubs.length === 0;
