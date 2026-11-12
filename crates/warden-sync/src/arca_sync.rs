@@ -148,7 +148,7 @@ impl SyncEngine {
 
     /// One full cycle against `hub`. Refuses unless the mode is on.
     pub async fn arca_sync(&self, hub: &HubStore, now_ms: u64) -> anyhow::Result<ArcaSyncReport> {
-        self.arca_sync_allowing_empty(hub, now_ms, &[]).await
+        self.arca_sync_allowing_empty(hub, now_ms, &[Class::Vault, Class::Secret]).await
     }
 
     /// `arca_sync`, where the person confirmed that the classes in `allow_empty` may end up with no file: for those the snapshot
