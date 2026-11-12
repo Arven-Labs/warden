@@ -13,6 +13,7 @@ use arca_core::crypto::{EpochKeys, VaultKey};
 use arca_core::disk::DiskStore;
 use arca_core::engine::Engine;
 use arca_core::hub::HubStore;
+use arca_core::manifest::Class;
 use warden_core::memory::Vault;
 use warden_core::orchestrator::Orchestrator;
 use warden_server::arca_api::ArcaLimits;
@@ -1124,6 +1125,78 @@ async fn a_change_another_device_made_to_an_emptied_class_is_not_applied_onto_th
     assert!(report.secret_emptied);
     assert!(logins(&a).is_empty(), "nothing was written back onto the emptied folder");
     assert_eq!(logins(&b), map(&[("github.json", "new")]), "b keeps its own edit");
+}
+
+#[tokio::test]
+async fn an_emptied_vault_the_person_confirmed_reaches_the_other_device() {
+    let (_hub, a, b, store_a, store_b) = two_synced_devices("vault-emptied-on-purpose", &[("one.md", "1"), ("two.md", "2")], &[("github.json", "g")]).await;
+
+    remove_every_file(&a.vault);
+    let report = a.engine.arca_sync_allowing_empty(&store_a, 5, &[Class::Vault]).await.expect("the cycle does not fail");
+    assert!(!report.vault_emptied, "the person confirmed, so there is nothing left to warn about");
+    assert!(report.snapshot_created, "the removal was published");
+
+    b.engine.arca_sync(&store_b, 6).await.unwrap();
+    assert!(files(&b.vault).is_empty(), "b removed the files too");
+    assert_eq!(logins(&b), map(&[("github.json", "g")]), "the logins were not part of the confirmation");
+}
+
+#[tokio::test]
+async fn emptied_logins_the_person_confirmed_reach_the_other_device_and_the_vault_is_left_alone() {
+    let (_hub, a, b, store_a, store_b) = two_synced_devices("logins-emptied-on-purpose", &[("one.md", "1")], &[("github.json", "g"), ("slack.json", "s")]).await;
+
+    remove_every_file(&a.oauth);
+    let report = a.engine.arca_sync_allowing_empty(&store_a, 5, &[Class::Secret]).await.expect("the cycle does not fail");
+    assert!(!report.secret_emptied);
+    assert!(report.snapshot_created);
+
+    b.engine.arca_sync(&store_b, 6).await.unwrap();
+    assert!(logins(&b).is_empty(), "b removed every login");
+    assert_eq!(files(&b.vault), map(&[("one.md", "1")]));
+}
+
+#[tokio::test]
+async fn confirming_one_class_does_not_confirm_the_other_one_that_was_emptied_too() {
+    let (_hub, a, b, store_a, store_b) = two_synced_devices("only-one-confirmed", &[("one.md", "1")], &[("github.json", "g")]).await;
+
+    remove_every_file(&a.vault);
+    remove_every_file(&a.oauth);
+    let report = a.engine.arca_sync_allowing_empty(&store_a, 5, &[Class::Vault]).await.expect("the cycle does not fail");
+    assert!(!report.vault_emptied);
+    assert!(report.secret_emptied, "the logins were not confirmed: still left out, with the warning");
+
+    b.engine.arca_sync(&store_b, 6).await.unwrap();
+    assert!(files(&b.vault).is_empty());
+    assert_eq!(logins(&b), map(&[("github.json", "g")]), "b kept every login");
+}
+
+#[tokio::test]
+async fn the_confirmation_is_for_that_one_cycle_and_a_plain_cycle_after_it_warns_again() {
+    let (_hub, a, b, store_a, store_b) = two_synced_devices("confirmation-is-not-kept", &[("one.md", "1")], &[("github.json", "g")]).await;
+
+    remove_every_file(&a.vault);
+    a.engine.arca_sync_allowing_empty(&store_a, 5, &[Class::Vault]).await.unwrap();
+    write(&a, "two.md", "2");
+    a.engine.arca_sync(&store_a, 6).await.unwrap();
+    remove_every_file(&a.vault);
+
+    let again = a.engine.arca_sync(&store_a, 7).await.expect("the cycle does not fail");
+    assert!(again.vault_emptied, "the earlier confirmation did not carry over");
+    b.engine.arca_sync(&store_b, 8).await.unwrap();
+    assert_eq!(files(&b.vault), map(&[("two.md", "2")]), "the second emptying never reached b");
+}
+
+#[tokio::test]
+async fn confirming_a_class_that_was_not_emptied_changes_nothing() {
+    let (_hub, a, b, store_a, store_b) = two_synced_devices("confirmed-but-not-emptied", &[("one.md", "1"), ("two.md", "2")], &[("github.json", "g")]).await;
+
+    std::fs::remove_file(a.vault.join("two.md")).unwrap();
+    let report = a.engine.arca_sync_allowing_empty(&store_a, 5, &[Class::Vault, Class::Secret]).await.unwrap();
+    assert!(!report.vault_emptied && !report.secret_emptied);
+
+    b.engine.arca_sync(&store_b, 6).await.unwrap();
+    assert_eq!(files(&b.vault), map(&[("one.md", "1")]));
+    assert_eq!(logins(&b), map(&[("github.json", "g")]));
 }
 
 #[tokio::test]

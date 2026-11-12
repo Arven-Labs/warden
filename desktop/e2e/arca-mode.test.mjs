@@ -273,6 +273,64 @@ describe("the arca mode of the vault on the desktop", () => {
     }
   });
 
+  test("emptying a class on purpose takes a second click, names what it removes, and sends only that class", { timeout: TIMEOUT }, async () => {
+    for (const [locale, sync, labels] of [
+      ["en-US", "Sync now", { vault: "Remove the vault files on purpose", logins: "Remove the logins on purpose", yes: "Yes, remove them", cancel: "Cancel", others: /on the other devices/ }],
+      ["pt-BR", "Sincronizar agora", { vault: "Remover os arquivos do cofre de propósito", logins: "Remover os logins de propósito", yes: "Sim, remover", cancel: "Cancelar", others: /nos outros dispositivos/ }],
+    ]) {
+      let allowed = false;
+      const { context, page, calls, errors } = await openSync(() => ({ hasKey: true, on: true, pendingSend: false, hubId: HUB.id, loginsAccepted: true }), {
+        arca_sync_run: () => ({ ...CLEAN_CYCLE, vaultEmptied: true, secretEmptied: true }),
+        arca_sync_allow_empty: ({ class: which }) => {
+          allowed = true;
+          return { ...CLEAN_CYCLE, snapshotCreated: true, pushed: 1, vaultEmptied: which !== "vault", secretEmptied: which !== "secret" };
+        },
+      }, { locale });
+      try {
+        await page.getByRole("button", { name: sync, exact: true }).click();
+        // Before the cycle says anything is emptied there is nothing to confirm; once it does, one button per class.
+        await page.getByRole("button", { name: labels.vault, exact: true }).waitFor();
+        await page.getByRole("button", { name: labels.logins, exact: true }).waitFor();
+
+        // The first click only asks, and says it reaches the other devices; nothing is sent.
+        await page.getByRole("button", { name: labels.vault, exact: true }).click();
+        await page.getByText(labels.others).waitFor();
+        assert.equal(asked(calls, "arca_sync_allow_empty").length, 0, "one click does not remove anything");
+        await page.getByRole("button", { name: labels.cancel, exact: true }).click();
+        await page.getByRole("button", { name: labels.vault, exact: true }).waitFor();
+        assert.equal(asked(calls, "arca_sync_allow_empty").length, 0, "cancelling sends nothing");
+
+        // Confirming the vault sends only the vault, with the hub that is chosen; the logins are still warned about and still ask.
+        await page.getByRole("button", { name: labels.vault, exact: true }).click();
+        await page.getByRole("button", { name: labels.yes, exact: true }).click();
+        await page.getByRole("button", { name: labels.logins, exact: true }).waitFor();
+        assert.equal(allowed, true);
+        assert.deepEqual(asked(calls, "arca_sync_allow_empty").map((c) => c.args), [{ hubId: HUB.id, class: "vault" }]);
+        assert.equal(await page.getByRole("button", { name: labels.vault, exact: true }).count(), 0, "the vault was confirmed: no warning and no button");
+        assert.deepEqual(errors, [], "the page raised no error");
+      } finally {
+        await context.close();
+      }
+    }
+  });
+
+  test("a confirmed sync that fails shows the reason, not an error of the page",{ timeout: TIMEOUT }, async () => {
+    const { context, page, calls, errors } = await openSync(() => ({ hasKey: true, on: true, pendingSend: false, hubId: HUB.id, loginsAccepted: true }), {
+      arca_sync_run: () => ({ ...CLEAN_CYCLE, secretEmptied: true }),
+      arca_sync_allow_empty: () => Promise.reject("the hub is not reachable"),
+    });
+    try {
+      await page.getByRole("button", { name: "Sync now", exact: true }).click();
+      await page.getByRole("button", { name: "Remove the logins on purpose", exact: true }).click();
+      await page.getByRole("button", { name: "Yes, remove them", exact: true }).click();
+      await page.getByText(/Sync failed: the hub is not reachable/).waitFor();
+      assert.equal(asked(calls, "arca_sync_allow_empty").length, 1);
+      assert.deepEqual(errors, [], "a refusal is shown, not raised");
+    } finally {
+      await context.close();
+    }
+  });
+
   test("a cycle with nothing new says so, and a refused one shows the reason", { timeout: TIMEOUT }, async () => {
     // A function, so a refusal is only made when the backend is asked (a rejected promise made earlier, with nobody waiting, is an error).
     let answer = () => CLEAN_CYCLE;

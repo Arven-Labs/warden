@@ -1465,6 +1465,7 @@ pub fn run() {
             arca_mode_cmds::arca_mode_accept_logins,
             arca_mode_cmds::arca_mode_set_hub,
             arca_mode_cmds::arca_sync_run,
+            arca_mode_cmds::arca_sync_allow_empty,
             remote_cmds::remote_connect,
             remote_cmds::remote_disconnect,
             remote_cmds::remote_status,

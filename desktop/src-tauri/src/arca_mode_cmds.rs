@@ -11,7 +11,7 @@ use tauri::State;
 use warden_bootstrap::auto_sync::{ArcaCycleError, ArcaCycleSummary, SyncRunner};
 use warden_bootstrap::saved_hubs::{self, SavedHub};
 use warden_server::remote_client::{RemoteIdentities, RemoteIdentity};
-use warden_sync::arca_sync::{is_auth_rejected, ArcaSyncReport, HubError, HubStore};
+use warden_sync::arca_sync::{is_auth_rejected, ArcaSyncReport, Class, HubError, HubStore};
 use warden_sync::SyncEngine;
 
 use crate::arca_pair_cmds::device_token;
@@ -157,6 +157,30 @@ pub async fn run_sync(engine: &SyncEngine, hub: &HubStore, now_ms: u64) -> Resul
     engine.arca_sync(hub, now_ms).await.map(SyncPayload::from).map_err(|e| format!("{e:#}"))
 }
 
+/// The class the screen asks to empty on purpose. Only `vault` and `secret` have the warning and the button; `config` is not on the
+/// screen and anything else is a mistake, so none of them may reach the engine as a permission.
+pub fn emptyable_class(class: &str) -> Result<Class, String> {
+    match class {
+        "vault" => Ok(Class::Vault),
+        "secret" => Ok(Class::Secret),
+        other => Err(format!("'{other}' cannot be emptied on purpose: only 'vault' and 'secret' can")),
+    }
+}
+
+/// A manual sync where the person confirmed that `class` may end up with no file (see `SyncEngine::arca_sync_allowing_empty`).
+pub async fn run_sync_allowing_empty(engine: &SyncEngine, hub: &HubStore, now_ms: u64, class: &str) -> Result<SyncPayload, String> {
+    let class = emptyable_class(class)?;
+    engine.arca_sync_allowing_empty(hub, now_ms, &[class]).await.map(SyncPayload::from).map_err(|e| format!("{e:#}"))
+}
+
+/// `run_sync_and_adopt` for a confirmed emptying: a manual sync that worked also chooses the hub for the automatic loop.
+pub async fn run_sync_allowing_empty_and_adopt(engine: &SyncEngine, runner: &SyncRunner, hub: &HubStore, hub_id: &str, now_ms: u64, class: &str) -> Result<SyncPayload, String> {
+    let payload = run_sync_allowing_empty(engine, hub, now_ms, class).await?;
+    engine.arca_set_hub(hub_id).await.map_err(|e| format!("the sync worked, but the hub could not be recorded for the automatic sync: {e:#}"))?;
+    runner.resume_arca();
+    Ok(payload)
+}
+
 /// The saved hub `hub_id`, with the token this computer holds for it, ready to sync with.
 pub fn saved_hub_store(hubs_path: &Path, config_file: &Path, hub_id: &str) -> Result<HubStore, String> {
     let hub = saved_hubs::find(hubs_path, hub_id).map_err(|e| format!("{e:#}"))?.ok_or_else(|| format!("there is no saved hub '{hub_id}' (it may have been removed)"))?;
@@ -218,6 +242,16 @@ pub async fn arca_mode_set_hub(state: State<'_, AppState>, hub_id: String) -> Re
 pub async fn arca_sync_run(state: State<'_, AppState>, hub_id: String) -> Result<SyncPayload, String> {
     let store = saved_hub_store(&crate::config_paths::saved_hubs_file()?, &crate::config_paths::config_file()?, &hub_id)?;
     run_sync_and_adopt(&state.sync, &state.sync_runner, &store, &hub_id, now_ms()).await
+}
+
+/// The person confirmed on the screen that `class` (`vault` or `secret`) may end up with no file: one sync that sends the removal to
+/// the group. Only this command passes a class; the automatic loop (`loop_cycle`) never does.
+#[tauri::command]
+pub async fn arca_sync_allow_empty(state: State<'_, AppState>, hub_id: String, class: String) -> Result<SyncPayload, String> {
+    // Checked before the hub is looked up, so a wrong class is refused whatever the state of the hubs.
+    emptyable_class(&class)?;
+    let store = saved_hub_store(&crate::config_paths::saved_hubs_file()?, &crate::config_paths::config_file()?, &hub_id)?;
+    run_sync_allowing_empty_and_adopt(&state.sync, &state.sync_runner, &store, &hub_id, now_ms(), &class).await
 }
 
 #[cfg(test)]
@@ -451,6 +485,26 @@ mod tests {
         let store = HubStore::new("http://127.0.0.1:9", "tok").unwrap();
         let error = run_sync(&device.engine, &store, 1).await.unwrap_err();
         assert!(error.contains("arca mode"), "{error}");
+    }
+
+    #[test]
+    fn only_the_vault_and_the_logins_can_be_emptied_on_purpose() {
+        assert_eq!(emptyable_class("vault"), Ok(Class::Vault));
+        assert_eq!(emptyable_class("secret"), Ok(Class::Secret));
+        for wrong in ["config", "", "Vault", "all", "vault "] {
+            let error = emptyable_class(wrong).unwrap_err();
+            assert!(error.contains("vault") && error.contains("secret"), "the error names what is accepted: {error}");
+        }
+    }
+
+    #[tokio::test]
+    async fn a_class_that_cannot_be_emptied_is_refused_before_anything_is_synced() {
+        // A hub nobody listens on: if the class were not checked first, this would fail with a network error instead.
+        let device = device_with_key("empty-wrong-class");
+        enable(&device.engine, false, false, 1).await.unwrap();
+        let store = HubStore::new("http://127.0.0.1:9", "tok").unwrap();
+        let error = run_sync_allowing_empty(&device.engine, &store, 2, "config").await.unwrap_err();
+        assert!(error.contains("vault") && error.contains("secret"), "{error}");
     }
 
     #[test]
