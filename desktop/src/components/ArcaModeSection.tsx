@@ -279,7 +279,7 @@ function ArcaModeSection() {
                   </div>
                 </>
               ) : (
-                <button type="button" className="settings-browse-btn" disabled={busy} onClick={() => setConfirmingLoser({ id: copy.id })}>
+                <button type="button" className="settings-browse-btn" disabled={busy} onClick={() => void clearLosers([copy.id])}>
                   {t("arca.loserDelete")}
                 </button>
               )}
