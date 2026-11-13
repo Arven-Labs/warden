@@ -105,18 +105,27 @@ export type LoserSkipKey = "arca.loserSkipEdited" | "arca.loserSkipNotACopy" | "
 
 /** What the section says after deleting copies: how many went, which stayed and why (translated), and whether a work file may still
  * hold a login. */
-export function clearSummary(_report: ClearReport): { removed: number; notRemoved: { id: string; reasonKey: LoserSkipKey }[]; keptTmp: number } {
-  return { removed: 0, notRemoved: [], keptTmp: 0 };
+export function clearSummary(report: ClearReport): { removed: number; notRemoved: { id: string; reasonKey: LoserSkipKey }[]; keptTmp: number } {
+  const reasons: Record<ClearReport["skipped"][number]["reason"], LoserSkipKey> = {
+    edited: "arca.loserSkipEdited",
+    notACopy: "arca.loserSkipNotACopy",
+    gone: "arca.loserSkipGone",
+    failed: "arca.loserSkipFailed",
+  };
+  return { removed: report.removed, notRemoved: report.skipped.map((s) => ({ id: s.id, reasonKey: reasons[s.reason] })), keptTmp: report.keptTmp };
 }
 
 /** The ids "delete all" sends: every copy but the ones the person edited (the arca would refuse those anyway, and the screen says so). */
-export function deletableIds(_items: LoserItem[]): string[] {
-  return [];
+export function deletableIds(items: LoserItem[]): string[] {
+  return items.filter((item) => !item.edited).map((item) => item.id);
 }
 
-/** A size for a person: bytes below 1 KB, then one decimal. */
-export function sizeLabel(_bytes: number | null): string {
-  return "";
+/** A size for a person: bytes below 1 KB, then one decimal; a dash when it is unknown. */
+export function sizeLabel(bytes: number | null): string {
+  if (bytes === null) return "—";
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
 /** Which controls the section draws. */

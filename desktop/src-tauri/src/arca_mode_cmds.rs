@@ -12,7 +12,7 @@ use tauri::State;
 use warden_bootstrap::auto_sync::{ArcaCycleError, ArcaCycleSummary, SyncRunner};
 use warden_bootstrap::saved_hubs::{self, SavedHub};
 use warden_server::remote_client::{RemoteIdentities, RemoteIdentity};
-use warden_sync::arca_sync::{is_auth_rejected, ArcaSyncReport, Class, HubError, HubStore, LoserItem, LosersCleared};
+use warden_sync::arca_sync::{is_auth_rejected, ArcaSyncReport, Class, HubError, HubStore, LoserItem, LosersCleared, NotCleared};
 use warden_sync::SyncEngine;
 
 use crate::arca_pair_cmds::device_token;
@@ -199,7 +199,12 @@ pub struct LoserPayload {
 
 impl From<LoserItem> for LoserPayload {
     fn from(item: LoserItem) -> Self {
-        Self { id: String::new(), class: "vault", path: item.path, device: item.device, sha_prefix: item.sha_prefix, edited: item.edited, size_bytes: item.size_bytes, modified_at_ms: item.modified_at_ms }
+        let class = match item.class {
+            Class::Vault => "vault",
+            Class::Config => "config",
+            Class::Secret => "secret",
+        };
+        Self { id: item.id, class, path: item.path, device: item.device, sha_prefix: item.sha_prefix, edited: item.edited, size_bytes: item.size_bytes, modified_at_ms: item.modified_at_ms }
     }
 }
 
@@ -220,8 +225,18 @@ pub struct ClearPayload {
 }
 
 impl From<LosersCleared> for ClearPayload {
-    fn from(_cleared: LosersCleared) -> Self {
-        Self { removed: 0, skipped: Vec::new(), kept_tmp: 0 }
+    fn from(cleared: LosersCleared) -> Self {
+        let reason = |why: NotCleared| match why {
+            NotCleared::Edited => "edited",
+            NotCleared::NotACopy => "notACopy",
+            NotCleared::Gone => "gone",
+            NotCleared::Failed => "failed",
+        };
+        Self {
+            removed: cleared.removed,
+            skipped: cleared.not_removed.into_iter().map(|(id, why)| NotClearedPayload { id, reason: reason(why) }).collect(),
+            kept_tmp: cleared.kept_tmp,
+        }
     }
 }
 
@@ -381,6 +396,19 @@ pub async fn arca_mode_set_hub(state: State<'_, AppState>, hub_id: String) -> Re
     set_hub(&state.sync, &state.sync_runner, &crate::config_paths::saved_hubs_file()?, &hub_id).await
 }
 
+/// The copies of the losers of conflicts the arca kept in clear text (names, devices, sizes and dates: never the text). Empty with the
+/// mode off.
+#[tauri::command]
+pub async fn arca_losers_list(state: State<'_, AppState>) -> Result<Vec<LoserPayload>, String> {
+    losers_list(&state.sync).await
+}
+
+/// Deletes the copies the person confirmed on the screen. `ids` are only looked up in a fresh list: no path from the screen is used.
+#[tauri::command]
+pub async fn arca_losers_clear(state: State<'_, AppState>, ids: Vec<String>) -> Result<ClearPayload, String> {
+    losers_clear(&state.sync, &ids).await
+}
+
 /// What the last automatic cycle did, and whether the loop is stopped. The screen asks when it opens and again at each
 /// `arca-loop-report` (an event with no data, emitted after every round of the loop).
 #[tauri::command]
@@ -408,7 +436,7 @@ pub async fn arca_sync_allow_empty(state: State<'_, AppState>, hub_id: String, c
 mod tests {
     use super::*;
     use std::path::PathBuf;
-    use warden_sync::arca_sync::{NotCleared, SkippedLogin};
+    use warden_sync::arca_sync::SkippedLogin;
     use warden_sync::manifest::{save_manifest, SyncManifest};
     use warden_sync::ArweaveClient;
 
