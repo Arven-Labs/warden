@@ -213,7 +213,7 @@ impl SyncEngine {
             [] => {}
             [tip] => {
                 let logins_only = Roots { vault: None, config: None, secret: roots.secret };
-                engine.apply(None, &tip.id, &logins_only).await.map_err(|e| match e {
+                engine.apply(Some(&tip.id), &tip.id, &logins_only).await.map_err(|e| match e {
                     EngineError::LocalChanges => anyhow::anyhow!(
                         "a login in this computer's MCP logins folder differs from the one the group has, so nothing was changed: \
                          move or delete the local one and accept again"
