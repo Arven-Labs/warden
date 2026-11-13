@@ -374,6 +374,13 @@ provedor/modelo, e uma tela pra cadastrar/gerenciar as chaves de API usadas
 (OpenAI, Gemini, etc.). P4 é a parte de backend (onde/como limitar), P10 é a
 parte de produto (o que o usuário vê e configura). Ver P10.
 
+**Cadastro de APIs (ideia, 2026-11-13, pedido do usuário, só registro):** "cadastros de APIs no
+Warden". Pedido curto, escopo ainda não detalhado: pode ser só estender a tela de chaves acima
+(chaves de provedores de IA) para qualquer API de terceiros (redes sociais, ElevenLabs e outras
+ferramentas de áudio, registradas em outras seções), ou um cadastro geral de APIs que o agente
+pode chamar. A definir com o usuário: qual dos dois, onde as chaves ficam guardadas (cofre,
+classe `secret` da arca?) e como o usuário libera cada API para cada agente (como no SSH, P47).
+
 ### Tela de gerenciamento de integrações MCP
 
 Três frentes, não uma só:
@@ -409,6 +416,10 @@ Ver P11 e P15 em `PENDING.md`.
   fecharia a lacuna de teste de ponta a ponta do P66.
 - **Ênfase — redes sociais**: servers MCP pra **gerenciar** redes sociais pelo agente — publicar
   e agendar posts, responder comentários/DMs, acompanhar métricas.
+  - **Redes a investigar (2026-11-13, pedido do usuário, só registro):** X, LinkedIn, Instagram e
+    TikTok, "entre outros" (lista aberta). Por rede, ainda não investigado: se há API oficial para
+    publicar e ler, o que ela exige (conta comercial, app review, plano pago, cotas) e se já existe
+    server MCP pronto (passo 0 de `padrao/dependencias-novas.md`). Sem escopo, prioridade nem desenho.
 - Em aberto: quais servers usar (prontos do mercado vs. próprios), custo/API key de cada serviço,
   OAuth por rede (client OAuth HTTP já existe, P26), e aprovação explícita antes de publicar
   qualquer coisa (efeito externo e público — mesmo espírito da aprovação do SSH, P47).
@@ -536,6 +547,13 @@ terem um lado MCP pronto pra integrar. Ver P13.
 - **TruthID fica de fora da integração MCP** — pouca utilidade e considerado
   perigoso. Os usos não-MCP do TruthID continuam (pagador Arweave do sync, login
   da Fase 10).
+- **Credenciais do TruthID (ideia nova, 2026-11-13, pedido do usuário, só registro):** usar
+  as credenciais do TruthID **no Warden e também fora do TruthID** (em outros serviços). Ainda
+  indefinido: o que "credencial" significa aqui (login, credencial verificável, chave), quem
+  verifica fora do TruthID e onde a credencial fica guardada. **Atenção:** toca autenticação e
+  chaves (AGENTS §4), exige confirmação e desenho próprio antes de qualquer código, e convive com
+  a decisão acima de manter o TruthID fora do MCP por ser "perigoso"; é preciso dizer se isto a
+  revê ou se segue por outro caminho. Sem escopo nem prioridade.
 - **Warden é a única interface conversacional do ecossistema** — o Anchor teve o
   próprio AI chat panel removido por isso. Os outros produtos expõem capacidades
   (via MCP); a conversa acontece no Warden.
@@ -637,6 +655,11 @@ está no P88.
   como ideia de backlog. Se algum dia for retomado, o trabalho maior é abstrair uma trait de voz
   de verdade (tipo `SpeechProvider`, plugável como `ModelProvider` já é) em vez de só trocar o
   endpoint fixo
+  - **Reforço (2026-11-13, pedido do usuário, só registro):** integrar o Warden com o **ElevenLabs**
+    e com **outras ferramentas de áudio** que existem (lista aberta, a investigar: TTS, clonagem e
+    escolha de voz, STT, efeitos e música). Por ferramenta, ainda não investigado: API e preço,
+    se há server MCP pronto (ligaria ao P76, geração de áudio) ou se entra como provedor da trait
+    `SpeechProvider`, e o cuidado com voz clonada (consentimento). Sem escopo nem prioridade.
 
 ### Memória compartilhada entre múltiplos agentes
 
