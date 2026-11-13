@@ -1460,6 +1460,118 @@ async fn accepting_needs_the_mode_on() {
 }
 
 #[tokio::test]
+async fn revoking_the_acceptance_records_it_and_keeps_the_hub_and_the_start_of_the_mode() {
+    let (a, _) = first_device("a-revoke-records");
+    a.engine.arca_enable(false, 1).await.unwrap();
+    a.engine.arca_set_hub("hub-1").await.unwrap();
+    assert!(load_mode(&mode_path_for(&a.manifest)).unwrap().unwrap().secret_accepted, "the setup must have the logins accepted");
+
+    a.engine.arca_revoke_logins().await.unwrap();
+
+    let mode = load_mode(&mode_path_for(&a.manifest)).unwrap().unwrap();
+    assert!((mode.secret_accepted, mode.hub_id.as_deref(), mode.enabled_at_ms) == (false, Some("hub-1"), 1), "{mode:?}");
+}
+
+#[tokio::test]
+async fn revoking_needs_the_mode_on_and_creates_no_switch() {
+    let (a, _) = first_device("a-revoke-off");
+    let error = a.engine.arca_revoke_logins().await.unwrap_err();
+    assert!(format!("{error:#}").contains("arca mode"), "{error:#}");
+    assert!(!mode_path_for(&a.manifest).exists(), "no switch was created by revoking");
+}
+
+#[tokio::test]
+async fn revoking_twice_is_not_an_error_and_a_device_that_never_accepted_can_revoke_too() {
+    let (a, _) = first_device("a-revoke-twice");
+    a.engine.arca_enable(false, 1).await.unwrap();
+    a.engine.arca_revoke_logins().await.unwrap();
+    a.engine.arca_revoke_logins().await.expect("already stopped is fine");
+    assert!(!load_mode(&mode_path_for(&a.manifest)).unwrap().unwrap().secret_accepted);
+
+    let (never, _) = first_device("a-revoke-never");
+    never.engine.0.arca_enable(false, 1).await.unwrap();
+    never.engine.arca_revoke_logins().await.expect("nothing to stop is fine");
+}
+
+#[tokio::test]
+async fn after_revoking_the_cycle_neither_reads_nor_writes_the_logins_folder() {
+    let (_hub, a, b, store_a, store_b) = two_synced_devices("revoked-cycle", &[("note.md", "n")], &[("github.json", "old")]).await;
+    a.engine.arca_revoke_logins().await.unwrap();
+
+    write_login(&a, "local.json", "only here");
+    write_login(&b, "github.json", "new by b");
+    b.engine.arca_sync(&store_b, 5).await.unwrap();
+    let report = a.engine.arca_sync(&store_a, 6).await.unwrap();
+
+    assert_eq!(logins(&a), map(&[("github.json", "old"), ("local.json", "only here")]), "b's change was not written here and the folder was not read");
+    assert!(!report.secret_folder_missing && !report.secret_emptied && report.secret_skipped.is_empty() && report.secret_ignored == 0, "{report:?}");
+    b.engine.arca_sync(&store_b, 7).await.unwrap();
+    assert_eq!(logins(&b), map(&[("github.json", "new by b")]), "local.json was never sent, and b kept its own change");
+}
+
+#[tokio::test]
+async fn a_revoked_device_whose_logins_folder_is_gone_has_nothing_to_report_and_the_folder_is_not_recreated() {
+    let (_hub, a, b, store_a, store_b) = two_synced_devices("revoked-folder-gone", &[], &[("github.json", "g")]).await;
+    a.engine.arca_revoke_logins().await.unwrap();
+    std::fs::remove_dir_all(&a.oauth).unwrap();
+
+    let report = a.engine.arca_sync(&store_a, 5).await.expect("the cycle does not fail");
+    assert!(!report.secret_folder_missing && !report.secret_emptied, "{report:?}");
+    assert!(!a.oauth.exists(), "revoked: the folder is not the arca's business any more");
+    b.engine.arca_sync(&store_b, 6).await.unwrap();
+    assert_eq!(logins(&b), map(&[("github.json", "g")]), "nothing was removed for the group");
+}
+
+#[tokio::test]
+async fn a_device_that_stopped_still_carries_the_logins_of_the_others_so_nothing_is_removed_for_them() {
+    let (_hub, a, b, store_a, store_b) = two_synced_devices("revoked-carries", &[], &[("github.json", "g"), ("slack.json", "s")]).await;
+    a.engine.arca_revoke_logins().await.unwrap();
+
+    write(&a, "note.md", "a keeps working on the vault");
+    let report = a.engine.arca_sync(&store_a, 5).await.unwrap();
+    assert!(report.snapshot_created, "the vault still syncs");
+    b.engine.arca_sync(&store_b, 6).await.unwrap();
+
+    assert_eq!(logins(&b), map(&[("github.json", "g"), ("slack.json", "s")]), "a's snapshot carried the logins instead of dropping them");
+    assert_eq!(files(&b.vault), map(&[("note.md", "a keeps working on the vault")]));
+    assert_eq!(logins(&a), map(&[("github.json", "g"), ("slack.json", "s")]), "and a's own folder is untouched");
+}
+
+#[tokio::test]
+async fn revoking_deletes_nothing_the_logins_folder_the_conflict_copies_and_what_they_list_stay() {
+    let (_hub, a, _b, _store_a, _store_b) = device_with_losers("revoke-keeps", &["github.json"]).await;
+    let (copies, folder) = (conflict_copies(&a), logins(&a));
+    assert_eq!(a.engine.arca_list_losers().await.unwrap().len(), 1);
+
+    a.engine.arca_revoke_logins().await.unwrap();
+
+    assert_eq!(conflict_copies(&a), copies, "the conflict copies were touched");
+    assert_eq!(logins(&a), folder, "the logins folder was touched");
+    assert_eq!(a.engine.arca_list_losers().await.unwrap().len(), 1, "the copies can still be listed and deleted from the screen");
+}
+
+/// MEASUREMENT (P-36, plan of 2026-11-12), written to observe what the code does today, not to bless it. A device stops syncing the
+/// logins, another one adds a login meanwhile, and the first accepts again: its snapshot reads the logins folder as the truth of the
+/// class, the folder lacks the new login, and the removal reaches the group. The same happens with a late first acceptance. When the
+/// acceptance is fixed this test is expected to flip (the login must survive).
+#[tokio::test]
+async fn measured_accepting_again_after_a_peer_added_a_login_removes_it_for_the_group() {
+    let (_hub, a, b, store_a, store_b) = two_synced_devices("reaccept-measured", &[], &[("github.json", "g"), ("slack.json", "s")]).await;
+    a.engine.arca_revoke_logins().await.unwrap();
+
+    write_login(&b, "notion.json", "n");
+    b.engine.arca_sync(&store_b, 5).await.unwrap();
+    a.engine.arca_sync(&store_a, 6).await.unwrap();
+    assert!(!a.oauth.join("notion.json").exists(), "stopped: b's new login was not written here");
+
+    a.engine.arca_accept_logins().await.unwrap();
+    a.engine.arca_sync(&store_a, 7).await.unwrap();
+    b.engine.arca_sync(&store_b, 8).await.unwrap();
+
+    assert_eq!(logins(&b), map(&[("github.json", "g"), ("slack.json", "s")]), "MEASURED: b's own notion.json was removed by a's snapshot");
+}
+
+#[tokio::test]
 async fn accepting_a_logins_folder_that_holds_the_sync_key_is_refused_and_nothing_is_recorded() {
     let base = support::unique_temp_dir("warden-arca-accept-bad-root");
     let logins = base.join("mcp_oauth");

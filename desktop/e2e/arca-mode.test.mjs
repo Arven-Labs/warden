@@ -331,6 +331,79 @@ describe("the arca mode of the vault on the desktop", () => {
     }
   });
 
+  describe("stopping the sync of the MCP logins", () => {
+    const status = (accepted) => ({ hasKey: true, on: true, pendingSend: false, hubId: HUB.id, loginsAccepted: accepted });
+
+    test("the button asks first, says what it does not do, and only the second click stops it; then the screen offers to accept again", { timeout: TIMEOUT }, async () => {
+      let accepted = true;
+      const { context, page, calls, errors } = await openSync(() => status(accepted), {
+        arca_mode_revoke_logins: () => {
+          accepted = false;
+          return null;
+        },
+      });
+      try {
+        await page.getByText("MCP logins are being synced.").waitFor();
+        await page.getByRole("button", { name: "Stop syncing MCP logins", exact: true }).click();
+        await page.getByText(/Nothing is deleted/).waitFor();
+        await page.getByText(/already on the hub and on your other devices stays there/).waitFor();
+        assert.equal(asked(calls, "arca_mode_revoke_logins").length, 0, "one click does not stop it");
+
+        await page.getByRole("button", { name: "Cancel", exact: true }).click();
+        await page.getByRole("button", { name: "Stop syncing MCP logins", exact: true }).waitFor();
+        assert.equal(asked(calls, "arca_mode_revoke_logins").length, 0, "cancelling stops nothing");
+
+        await page.getByRole("button", { name: "Stop syncing MCP logins", exact: true }).click();
+        await page.getByRole("button", { name: "Yes, stop syncing", exact: true }).click();
+        await page.getByText("MCP logins are not being synced. They stay on this computer until you accept.").waitFor();
+        await page.getByRole("button", { name: "Sync MCP logins", exact: true }).waitFor();
+        assert.equal(asked(calls, "arca_mode_revoke_logins").length, 1);
+        assert.equal(await page.getByRole("button", { name: "Stop syncing MCP logins", exact: true }).count(), 0, "once stopped there is nothing to stop");
+        assert.deepEqual(errors, [], "the page raised no error");
+      } finally {
+        await context.close();
+      }
+    });
+
+    test("with the logins not accepted there is no button to stop them (a guard: it also holds before the change)", { timeout: TIMEOUT }, async () => {
+      const { context, page } = await openSync(() => status(false));
+      try {
+        await page.getByRole("button", { name: "Sync MCP logins", exact: true }).waitFor();
+        assert.equal(await page.getByRole("button", { name: "Stop syncing MCP logins", exact: true }).count(), 0);
+      } finally {
+        await context.close();
+      }
+    });
+
+    test("a refusal shows the reason, the logins stay accepted on the screen, and the page raises no error", { timeout: TIMEOUT }, async () => {
+      const { context, page, errors } = await openSync(() => status(true), { arca_mode_revoke_logins: () => Promise.reject("this vault is not in arca mode") });
+      try {
+        await page.getByRole("button", { name: "Stop syncing MCP logins", exact: true }).click();
+        await page.getByRole("button", { name: "Yes, stop syncing", exact: true }).click();
+        await page.getByText(/Could not stop syncing the logins: this vault is not in arca mode/).waitFor();
+        await page.getByText("MCP logins are being synced.").waitFor();
+        assert.deepEqual(errors, [], "a refusal is shown, not raised");
+      } finally {
+        await context.close();
+      }
+    });
+
+    test("the same in Portuguese", { timeout: TIMEOUT }, async () => {
+      let accepted = true;
+      const { context, page, calls, errors } = await openSync(() => status(accepted), { arca_mode_revoke_logins: () => { accepted = false; return null; } }, { locale: "pt-BR" });
+      try {
+        await page.getByRole("button", { name: "Parar de sincronizar logins MCP", exact: true }).click();
+        await page.getByText(/Nada é apagado/).waitFor();
+        await page.getByRole("button", { name: "Sim, parar", exact: true }).click();
+        await page.getByRole("button", { name: "Sincronizar logins MCP", exact: true }).waitFor();
+        assert.equal(asked(calls, "arca_mode_revoke_logins").length, 1);
+        assert.deepEqual(errors, [], "the page raised no error");
+      } finally {
+        await context.close();
+      }
+    });
+  });
+
   describe("the copies of the losers of conflicts", () => {
     const ON = () => ({ hasKey: true, on: true, pendingSend: false, hubId: HUB.id, loginsAccepted: true });
     const copy = (path, over = {}) => ({ id: `secret/${path}.conflito-dev-a-0011223344556677`, class: "secret", path, device: "dev-a", shaPrefix: "0011223344556677", edited: false, sizeBytes: 10, modifiedAtMs: Date.UTC(2026, 10, 12, 12, 0, 0), ...over });
