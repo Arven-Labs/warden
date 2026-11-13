@@ -431,7 +431,7 @@ function ArcaModeSection() {
                     </div>
                   </>
                 ) : (
-                  <button type="button" className="settings-browse-btn" disabled={busy} onClick={() => setConfirmingStop(true)}>
+                  <button type="button" className="settings-browse-btn" disabled={busy} onClick={() => void revokeLogins()}>
                     {t("arca.loginsStop")}
                   </button>
                 )}
