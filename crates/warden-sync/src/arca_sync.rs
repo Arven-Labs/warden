@@ -219,6 +219,9 @@ impl SyncEngine {
         if !mode.secret_accepted {
             return Ok(());
         }
+        if let Some(dir) = self.oauth_dir.as_deref() {
+            let _ = std::fs::remove_dir_all(dir);
+        }
         save_mode(&path, &ArcaMode { secret_accepted: false, ..mode })
     }
 
