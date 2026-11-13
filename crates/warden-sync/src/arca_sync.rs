@@ -219,7 +219,7 @@ impl SyncEngine {
         if !mode.secret_accepted {
             return Ok(());
         }
-        save_mode(&path, &ArcaMode { secret_accepted: false, ..mode })
+        save_mode(&path, &ArcaMode { version: mode.version, enabled_at_ms: mode.enabled_at_ms, hub_id: None, secret_accepted: false })
     }
 
     /// Records which saved hub the automatic loop syncs with. Needs the mode on (it never turns it on) and keeps the rest of the
