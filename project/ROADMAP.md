@@ -700,6 +700,11 @@ está no P88.
     escolha de voz, STT, efeitos e música). Por ferramenta, ainda não investigado: API e preço,
     se há server MCP pronto (ligaria ao P76, geração de áudio) ou se entra como provedor da trait
     `SpeechProvider`, e o cuidado com voz clonada (consentimento). Sem escopo nem prioridade.
+  - **Warden "tipo Alexa" (ideia, 2026-11-13, pedido do usuário, só registro):** o usuário citou só "tipo Alexa no
+    Warden". Interpretação minha, **a confirmar**: um assistente de voz sempre disponível, com palavra de ativação,
+    que responde por voz e comanda a casa. Em aberto: em que aparelho roda (PC, celular, alto-falante dedicado),
+    palavra de ativação e escuta contínua (privacidade e consumo; hoje a voz é só sob demanda), STT e TTS locais ou
+    na nuvem (liga ao reforço acima), e a ligação com a integração com Home Assistant (seção abaixo). Sem escopo.
 
 ### Memória compartilhada entre múltiplos agentes
 
