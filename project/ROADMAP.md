@@ -123,6 +123,11 @@ empresa antes de usar.
   **Agents** (cada agente persistente tem uma conversa principal que continua sozinha, estilo WhatsApp, e o agente pode
   **iniciar mensagens**: monitoramento, alertas, relatórios, lembretes, "me avise a cada 30 minutos") e **Code** (ambiente
   de desenvolvimento sobre o harness/OpenCode, com ou sem um Programming Manager que divide o trabalho entre subagentes).
+  - **Warden como ADE (ideia, 2026-11-13, pedido do usuário, só registro):** o Warden virar também uma boa **ADE**
+    (*Agentic Development Environment*, ambiente para conduzir vários agentes de código em paralelo). O usuário quer
+    **investigar tudo o que o Orca tem** (worktrees por tarefa, terminais, agentes lado a lado, navegador embutido) e
+    avaliar até **usar o Orca por baixo**. Em aberto: o que o Orca cobre e o que o Warden teria de construir, licença e
+    estado do projeto, e se vale embutir, integrar ou só se inspirar (`avaliar-dependencia`, passo 0). Sem escopo.
 - **Comunicação entre agentes, legível.** Quem enviou, para quem, quem respondeu, quem delegou e concluiu, quem trabalha
   agora; hierárquica (delegar, supervisionar, criar, remover, revisar) e lateral (colaborar, consultar, revisar), esta
   liberada por permissão e sempre registrada. Mais um **feed de atividade** e uma **visão de organização** (a árvore, cada
@@ -292,6 +297,20 @@ comandos de terminal (automatizar, explicar, compor comandos do dia a dia).
   isso, a capacidade em si é a tool `shell` (Fase 5.5) exposta globalmente
 - Provável evolução do loop simples stdin/stdout (Fase 1.3) pra algo mais rico
   (histórico, autocomplete, talvez TUI com `ratatui`) — ver P8 em `PENDING.md`
+- **Identificador de contexto por conversa (ideia, 2026-11-13, pedido do usuário, só registro):** cada conversa do
+  Warden ter um identificador de contexto, **principalmente no CLI e no modo Code**, para saber **quando trocar de
+  conversa** (hoje o chamador não tem como dizer "esta é outra conversa"). O usuário quer **verificar a integração com
+  o opencode** por esse identificador (mapear conversa do Warden para sessão do opencode). Em aberto: o formato do
+  identificador, quem o gera (cliente ou hub), como o CLI o carrega entre execuções, e o que o opencode já oferece
+  para sessões (a conferir; não li o código dele). Sem escopo.
+
+### Fluxos visuais estilo n8n
+
+Ideia (2026-11-13, pedido do usuário, só registro): um **"pique n8n"** no Warden, ou seja, montar automações e fluxos
+de forma **visual** (nós e ligações) em vez de só por conversa ou código. O usuário admite **usar a infra do n8n**.
+Em aberto, a investigar: se o n8n pode ser embutido ou ficar ao lado (ele tem a *licença Sustainable Use*, não é
+open source puro; **conferir** antes de qualquer decisão, `avaliar-dependencia`), ou se o Warden constrói o próprio editor
+de fluxos; como isso conversa com as automações e os agentes já previstos. Sem escopo nem prioridade.
 
 ### Visão unificada de conversas entre canais
 
