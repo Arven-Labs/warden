@@ -106,7 +106,7 @@ export const sync = {
   "arca.loginsConfirmYes": "Yes, sync them",
   "arca.loginsFailed": "Could not start syncing the logins: {message}",
   "arca.loginsStop": "Stop syncing MCP logins",
-  "arca.loginsStopConfirm": "From the next sync this computer stops reading and writing the mcp_oauth folder. Nothing is deleted: the folder, the copies in the conflicts folder and what this computer already sent stay as they are. What is already on the hub and on your other devices stays there, and this computer keeps passing along, encrypted, the logins the others sync. To invalidate a login, revoke it in the service itself. Accepting again later can remove logins the other devices added meanwhile. Stop?",
+  "arca.loginsStopConfirm": "From the next sync this computer stops reading and writing the mcp_oauth folder. Nothing is deleted: the folder, the copies in the conflicts folder and what this computer already sent stay as they are. What is already on the hub and on your other devices stays there, and this computer keeps passing along, encrypted, the logins the others sync. To invalidate a login, revoke it in the service itself. Stop?",
   "arca.loginsStopYes": "Yes, stop syncing",
   "arca.loginsStopFailed": "Could not stop syncing the logins: {message}",
   "arca.noticeFolderMissing": "The MCP logins folder is missing, so the logins are not syncing (nothing was removed on your other devices). Restore the folder with its files to resume. If you create an empty folder instead, the logins will be removed on all devices.",
