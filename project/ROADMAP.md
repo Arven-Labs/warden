@@ -385,6 +385,12 @@ do app principal (overlay leve de busca vs janela de chat completa), então
 pode merecer fase própria em vez de virar uma feature a mais da Fase 6.
 Ver P9 em `PENDING.md`.
 
+**agent-desktop (ideia, 2026-11-13, pedido do usuário, só registro):** o usuário citou apenas
+"agent-desktop (warden)". **Não está claro** se é uma ferramenta/projeto existente com esse nome para avaliar
+(por exemplo, para o agente controlar o desktop: janelas, cliques, captura de tela) ou um nome para um modo
+"agente no desktop" do próprio Warden; também não pesquisei. A confirmar com o usuário antes de qualquer
+investigação. Relaciona-se a este app Copilot (IA no SO) e ao "Overlay Super Jarvis". Sem escopo.
+
 ### Dashboard de custo & gerenciamento de chaves de API
 
 Ligado à pendência P4 (controle de custo/rate limit), agora com requisito
