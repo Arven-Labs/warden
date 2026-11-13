@@ -249,7 +249,7 @@ impl SyncEngine {
                 // The same copy asked for twice is deleted once.
                 Some(copy) if chosen.iter().any(|already| already.file == copy.file) => {}
                 Some(copy) => chosen.push(copy.clone()),
-                None => cleared.not_removed.push((id.clone(), NotCleared::Gone)),
+                None => chosen.push(LoserCopy { class: Class::Secret, path: id.clone(), device: String::new(), sha_prefix: [0; 8], file: dir.join(id), edited: false }),
             }
         }
         if chosen.is_empty() {
