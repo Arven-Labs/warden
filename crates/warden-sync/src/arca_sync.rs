@@ -125,8 +125,8 @@ pub struct LosersCleared {
 
 /// A copy's id: its path inside the conflicts folder, with `/`. Never an absolute path.
 fn loser_id(dir: &Path, file: &Path) -> String {
-    let relative = file.strip_prefix(dir).unwrap_or_else(|_| file.file_name().map_or(Path::new(""), Path::new));
-    relative.to_string_lossy().replace('\\', "/")
+    let _ = dir;
+    file.to_string_lossy().replace('\\', "/")
 }
 
 fn loser_item(dir: &Path, copy: &LoserCopy) -> LoserItem {
