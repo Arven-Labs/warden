@@ -391,6 +391,12 @@ Ver P9 em `PENDING.md`.
 "agente no desktop" do próprio Warden; também não pesquisei. A confirmar com o usuário antes de qualquer
 investigação. Relaciona-se a este app Copilot (IA no SO) e ao "Overlay Super Jarvis". Sem escopo.
 
+**OpenBot (ideia, 2026-11-13, pedido do usuário, só registro): "estudar isso" no Warden.** O usuário citou só
+"OpenBot no Warden". **Não está claro** qual OpenBot: o nome é ambíguo (o mais conhecido de que me lembro é o
+projeto open source de robôs controlados por smartphone, mas **não conferi** e pode ser outro projeto). Passo
+um: o usuário dizer qual é (link ou descrição); depois estudar o que ele oferece, a licença e o que o Warden
+aproveitaria (`avaliar-dependencia`, passo 0). Sem escopo nem prioridade.
+
 ### Dashboard de custo & gerenciamento de chaves de API
 
 Ligado à pendência P4 (controle de custo/rate limit), agora com requisito
