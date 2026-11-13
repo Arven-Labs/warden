@@ -88,6 +88,11 @@ pub async fn accept_logins(engine: &SyncEngine) -> Result<(), String> {
     engine.arca_accept_logins().await.map_err(|e| format!("{e:#}"))
 }
 
+/// The person stops syncing the MCP logins. The engine checks the mode is on; nothing on disk is deleted.
+pub async fn revoke_logins(engine: &SyncEngine) -> Result<(), String> {
+    engine.arca_revoke_logins().await.map_err(|e| format!("{e:#}"))
+}
+
 /// The hub the sync talks to, with the token this computer was issued for it. Never asks the person for either, and refuses plain
 /// `http` to another machine (the token would travel in the clear).
 pub fn hub_store(hub: &SavedHub, identity: &RemoteIdentity) -> Result<HubStore, String> {
@@ -392,6 +397,11 @@ pub async fn arca_mode_accept_logins(state: State<'_, AppState>) -> Result<(), S
 }
 
 #[tauri::command]
+pub async fn arca_mode_revoke_logins(state: State<'_, AppState>) -> Result<(), String> {
+    revoke_logins(&state.sync).await
+}
+
+#[tauri::command]
 pub async fn arca_mode_set_hub(state: State<'_, AppState>, hub_id: String) -> Result<(), String> {
     set_hub(&state.sync, &state.sync_runner, &crate::config_paths::saved_hubs_file()?, &hub_id).await
 }
@@ -553,6 +563,26 @@ mod tests {
         let with = device_with_key("status-logins-yes");
         enable(&with.engine, false, true, 1).await.unwrap();
         assert!(mode_status(&with.engine, false).unwrap().logins_accepted, "accepted when turning it on");
+    }
+
+    #[tokio::test]
+    async fn revoking_the_logins_shows_in_the_status_and_asking_again_changes_nothing() {
+        let device = device_with_key("status-revoke");
+        enable(&device.engine, false, true, 1).await.unwrap();
+        assert!(mode_status(&device.engine, false).unwrap().logins_accepted);
+        revoke_logins(&device.engine).await.unwrap();
+        assert!(!mode_status(&device.engine, false).unwrap().logins_accepted, "stopped");
+        revoke_logins(&device.engine).await.unwrap();
+        assert!(mode_status(&device.engine, false).unwrap().on, "the mode itself stays on");
+        accept_logins(&device.engine).await.unwrap();
+        assert!(mode_status(&device.engine, false).unwrap().logins_accepted, "and the person can accept again");
+    }
+
+    #[tokio::test]
+    async fn revoking_with_the_mode_off_says_the_mode_is_off() {
+        let device = device_with_key("revoke-off");
+        let error = revoke_logins(&device.engine).await.unwrap_err();
+        assert!(error.contains("arca mode"), "{error}");
     }
 
     #[tokio::test]
