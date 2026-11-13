@@ -123,6 +123,17 @@ empresa antes de usar.
   **Agents** (cada agente persistente tem uma conversa principal que continua sozinha, estilo WhatsApp, e o agente pode
   **iniciar mensagens**: monitoramento, alertas, relatórios, lembretes, "me avise a cada 30 minutos") e **Code** (ambiente
   de desenvolvimento sobre o harness/OpenCode, com ou sem um Programming Manager que divide o trabalho entre subagentes).
+  - **Warden como ADE (ideia, 2026-11-13, pedido do usuário, só registro):** o Warden virar também uma boa **ADE**
+    (*Agentic Development Environment*, ambiente para conduzir vários agentes de código em paralelo). O usuário quer
+    **investigar tudo o que o Orca tem** (worktrees por tarefa, terminais, agentes lado a lado, navegador embutido) e
+    avaliar até **usar o Orca por baixo**. Em aberto: o que o Orca cobre e o que o Warden teria de construir, licença e
+    estado do projeto, e se vale embutir, integrar ou só se inspirar (`avaliar-dependencia`, passo 0). Sem escopo.
+  - **Editor de código dentro do Warden (ideia, 2026-11-13, pedido do usuário, só registro):** além de ADE, o Warden
+    ter um **editor de código** próprio: **menos avançado que um IDE, mas completo** (abrir, editar, buscar, ver
+    diff, terminal). O usuário admite **usar um editor open source por baixo**. Em aberto, a investigar: quais
+    candidatos existem para embutir (por exemplo, o Monaco, o CodeMirror, o Zed, o VS Code em versão aberta;
+    **citados de memória, não conferi** estado nem licença), como cada um se encaixa no desktop (Tauri + React) e no
+    peso do app, e se o editor serve só ao modo Code ou ao Warden inteiro. Segue `avaliar-dependencia`. Sem escopo.
 - **Comunicação entre agentes, legível.** Quem enviou, para quem, quem respondeu, quem delegou e concluiu, quem trabalha
   agora; hierárquica (delegar, supervisionar, criar, remover, revisar) e lateral (colaborar, consultar, revisar), esta
   liberada por permissão e sempre registrada. Mais um **feed de atividade** e uma **visão de organização** (a árvore, cada
@@ -292,6 +303,20 @@ comandos de terminal (automatizar, explicar, compor comandos do dia a dia).
   isso, a capacidade em si é a tool `shell` (Fase 5.5) exposta globalmente
 - Provável evolução do loop simples stdin/stdout (Fase 1.3) pra algo mais rico
   (histórico, autocomplete, talvez TUI com `ratatui`) — ver P8 em `PENDING.md`
+- **Identificador de contexto por conversa (ideia, 2026-11-13, pedido do usuário, só registro):** cada conversa do
+  Warden ter um identificador de contexto, **principalmente no CLI e no modo Code**, para saber **quando trocar de
+  conversa** (hoje o chamador não tem como dizer "esta é outra conversa"). O usuário quer **verificar a integração com
+  o opencode** por esse identificador (mapear conversa do Warden para sessão do opencode). Em aberto: o formato do
+  identificador, quem o gera (cliente ou hub), como o CLI o carrega entre execuções, e o que o opencode já oferece
+  para sessões (a conferir; não li o código dele). Sem escopo.
+
+### Fluxos visuais estilo n8n
+
+Ideia (2026-11-13, pedido do usuário, só registro): um **"pique n8n"** no Warden, ou seja, montar automações e fluxos
+de forma **visual** (nós e ligações) em vez de só por conversa ou código. O usuário admite **usar a infra do n8n**.
+Em aberto, a investigar: se o n8n pode ser embutido ou ficar ao lado (ele tem a *licença Sustainable Use*, não é
+open source puro; **conferir** antes de qualquer decisão, `avaliar-dependencia`), ou se o Warden constrói o próprio editor
+de fluxos; como isso conversa com as automações e os agentes já previstos. Sem escopo nem prioridade.
 
 ### Visão unificada de conversas entre canais
 
@@ -366,6 +391,21 @@ do app principal (overlay leve de busca vs janela de chat completa), então
 pode merecer fase própria em vez de virar uma feature a mais da Fase 6.
 Ver P9 em `PENDING.md`.
 
+**agent-desktop (ideia, 2026-11-13, pedido do usuário, só registro):** o usuário citou apenas
+"agent-desktop (warden)". **Não está claro** se é uma ferramenta/projeto existente com esse nome para avaliar
+(por exemplo, para o agente controlar o desktop: janelas, cliques, captura de tela) ou um nome para um modo
+"agente no desktop" do próprio Warden; também não pesquisei. A confirmar com o usuário antes de qualquer
+investigação. Relaciona-se a este app Copilot (IA no SO) e ao "Overlay Super Jarvis". Sem escopo.
+
+**OpenBot (ideia, 2026-11-13, pedido do usuário, só registro): estudar.** Esclarecido pelo usuário: é um
+projeto **open source de bot/agente pessoal, da família do "grokbot" e similares** (não o projeto de robôs de
+smartphone, que era o palpite errado de uma versão anterior desta nota). A ideia é **estudar usá-lo por baixo do
+sistema de agentes do Warden**, como motor de execução dos agentes, no lugar de (ou ao lado de) construir tudo
+no Warden. Em aberto: **o link e o nome exato do projeto** (ainda não pesquisei nem li o código dele), o que
+ele cobre que o Warden já tem (canais, memória, ferramentas, agentes), licença e saúde do projeto, e como se
+encaixa com a separação do Warden entre agente, modelo e ferramenta (seção "Sistema operacional de agentes") e
+com o opencode já usado no modo Code. Segue `avaliar-dependencia` (passo 0). Sem escopo nem prioridade.
+
 ### Dashboard de custo & gerenciamento de chaves de API
 
 Ligado à pendência P4 (controle de custo/rate limit), agora com requisito
@@ -373,6 +413,13 @@ explícito de UI: dashboard mostrando consumo de tokens, custo estimado por
 provedor/modelo, e uma tela pra cadastrar/gerenciar as chaves de API usadas
 (OpenAI, Gemini, etc.). P4 é a parte de backend (onde/como limitar), P10 é a
 parte de produto (o que o usuário vê e configura). Ver P10.
+
+**Cadastro de APIs (ideia, 2026-11-13, pedido do usuário, só registro):** "cadastros de APIs no
+Warden". Pedido curto, escopo ainda não detalhado: pode ser só estender a tela de chaves acima
+(chaves de provedores de IA) para qualquer API de terceiros (redes sociais, ElevenLabs e outras
+ferramentas de áudio, registradas em outras seções), ou um cadastro geral de APIs que o agente
+pode chamar. A definir com o usuário: qual dos dois, onde as chaves ficam guardadas (cofre,
+classe `secret` da arca?) e como o usuário libera cada API para cada agente (como no SSH, P47).
 
 ### Tela de gerenciamento de integrações MCP
 
@@ -409,6 +456,10 @@ Ver P11 e P15 em `PENDING.md`.
   fecharia a lacuna de teste de ponta a ponta do P66.
 - **Ênfase — redes sociais**: servers MCP pra **gerenciar** redes sociais pelo agente — publicar
   e agendar posts, responder comentários/DMs, acompanhar métricas.
+  - **Redes a investigar (2026-11-13, pedido do usuário, só registro):** X, LinkedIn, Instagram e
+    TikTok, "entre outros" (lista aberta). Por rede, ainda não investigado: se há API oficial para
+    publicar e ler, o que ela exige (conta comercial, app review, plano pago, cotas) e se já existe
+    server MCP pronto (passo 0 de `padrao/dependencias-novas.md`). Sem escopo, prioridade nem desenho.
 - Em aberto: quais servers usar (prontos do mercado vs. próprios), custo/API key de cada serviço,
   OAuth por rede (client OAuth HTTP já existe, P26), e aprovação explícita antes de publicar
   qualquer coisa (efeito externo e público — mesmo espírito da aprovação do SSH, P47).
@@ -536,6 +587,13 @@ terem um lado MCP pronto pra integrar. Ver P13.
 - **TruthID fica de fora da integração MCP** — pouca utilidade e considerado
   perigoso. Os usos não-MCP do TruthID continuam (pagador Arweave do sync, login
   da Fase 10).
+- **Credenciais do TruthID (ideia nova, 2026-11-13, pedido do usuário, só registro):** usar
+  as credenciais do TruthID **no Warden e também fora do TruthID** (em outros serviços). Ainda
+  indefinido: o que "credencial" significa aqui (login, credencial verificável, chave), quem
+  verifica fora do TruthID e onde a credencial fica guardada. **Atenção:** toca autenticação e
+  chaves (AGENTS §4), exige confirmação e desenho próprio antes de qualquer código, e convive com
+  a decisão acima de manter o TruthID fora do MCP por ser "perigoso"; é preciso dizer se isto a
+  revê ou se segue por outro caminho. Sem escopo nem prioridade.
 - **Warden é a única interface conversacional do ecossistema** — o Anchor teve o
   próprio AI chat panel removido por isso. Os outros produtos expõem capacidades
   (via MCP); a conversa acontece no Warden.
@@ -637,6 +695,16 @@ está no P88.
   como ideia de backlog. Se algum dia for retomado, o trabalho maior é abstrair uma trait de voz
   de verdade (tipo `SpeechProvider`, plugável como `ModelProvider` já é) em vez de só trocar o
   endpoint fixo
+  - **Reforço (2026-11-13, pedido do usuário, só registro):** integrar o Warden com o **ElevenLabs**
+    e com **outras ferramentas de áudio** que existem (lista aberta, a investigar: TTS, clonagem e
+    escolha de voz, STT, efeitos e música). Por ferramenta, ainda não investigado: API e preço,
+    se há server MCP pronto (ligaria ao P76, geração de áudio) ou se entra como provedor da trait
+    `SpeechProvider`, e o cuidado com voz clonada (consentimento). Sem escopo nem prioridade.
+  - **Warden "tipo Alexa" (ideia, 2026-11-13, pedido do usuário, só registro):** o usuário citou só "tipo Alexa no
+    Warden". Interpretação minha, **a confirmar**: um assistente de voz sempre disponível, com palavra de ativação,
+    que responde por voz e comanda a casa. Em aberto: em que aparelho roda (PC, celular, alto-falante dedicado),
+    palavra de ativação e escuta contínua (privacidade e consumo; hoje a voz é só sob demanda), STT e TTS locais ou
+    na nuvem (liga ao reforço acima), e a ligação com a integração com Home Assistant (seção abaixo). Sem escopo.
 
 ### Memória compartilhada entre múltiplos agentes
 
