@@ -391,11 +391,14 @@ Ver P9 em `PENDING.md`.
 "agente no desktop" do próprio Warden; também não pesquisei. A confirmar com o usuário antes de qualquer
 investigação. Relaciona-se a este app Copilot (IA no SO) e ao "Overlay Super Jarvis". Sem escopo.
 
-**OpenBot (ideia, 2026-11-13, pedido do usuário, só registro): "estudar isso" no Warden.** O usuário citou só
-"OpenBot no Warden". **Não está claro** qual OpenBot: o nome é ambíguo (o mais conhecido de que me lembro é o
-projeto open source de robôs controlados por smartphone, mas **não conferi** e pode ser outro projeto). Passo
-um: o usuário dizer qual é (link ou descrição); depois estudar o que ele oferece, a licença e o que o Warden
-aproveitaria (`avaliar-dependencia`, passo 0). Sem escopo nem prioridade.
+**OpenBot (ideia, 2026-11-13, pedido do usuário, só registro): estudar.** Esclarecido pelo usuário: é um
+projeto **open source de bot/agente pessoal, da família do "grokbot" e similares** (não o projeto de robôs de
+smartphone, que era o palpite errado de uma versão anterior desta nota). A ideia é **estudar usá-lo por baixo do
+sistema de agentes do Warden**, como motor de execução dos agentes, no lugar de (ou ao lado de) construir tudo
+no Warden. Em aberto: **o link e o nome exato do projeto** (ainda não pesquisei nem li o código dele), o que
+ele cobre que o Warden já tem (canais, memória, ferramentas, agentes), licença e saúde do projeto, e como se
+encaixa com a separação do Warden entre agente, modelo e ferramenta (seção "Sistema operacional de agentes") e
+com o opencode já usado no modo Code. Segue `avaliar-dependencia` (passo 0). Sem escopo nem prioridade.
 
 ### Dashboard de custo & gerenciamento de chaves de API
 
