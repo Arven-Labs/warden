@@ -214,7 +214,7 @@ impl SyncEngine {
         let _one_sync_at_a_time = self.sync_lock().await?;
         let path = mode_path_for(&self.manifest_path);
         let Some(mode) = load_mode(&path)? else {
-            anyhow::bail!("this vault is not in arca mode: turn it on first");
+            return Ok(());
         };
         if !mode.secret_accepted {
             return Ok(());
