@@ -211,7 +211,15 @@ impl SyncEngine {
     /// not the arca's store, not the conflict copies, and what is already on the hub and on the other devices stays there.
     /// Already stopped is not an error.
     pub async fn arca_revoke_logins(&self) -> anyhow::Result<()> {
-        Ok(())
+        let _one_sync_at_a_time = self.sync_lock().await?;
+        let path = mode_path_for(&self.manifest_path);
+        let Some(mode) = load_mode(&path)? else {
+            anyhow::bail!("this vault is not in arca mode: turn it on first");
+        };
+        if !mode.secret_accepted {
+            return Ok(());
+        }
+        save_mode(&path, &ArcaMode { secret_accepted: false, ..mode })
     }
 
     /// Records which saved hub the automatic loop syncs with. Needs the mode on (it never turns it on) and keeps the rest of the

@@ -32,6 +32,8 @@ function ArcaModeSection() {
   // The box of the confirmation: the MCP logins travel too. Off every time the confirmation opens.
   const [syncLogins, setSyncLogins] = useState(false);
   const [confirmingLogins, setConfirmingLogins] = useState(false);
+  // The second click of "stop syncing the MCP logins".
+  const [confirmingStop, setConfirmingStop] = useState(false);
   // The class whose removal on purpose is waiting for the second click. Only one at a time.
   const [confirmingEmpty, setConfirmingEmpty] = useState<EmptyableClass | null>(null);
   // The last automatic cycle, and when the last manual sync ended (ms; 0 until one did): the newer of the two is what the screen says.
@@ -161,6 +163,25 @@ function ArcaModeSection() {
     } finally {
       // Whether it worked or not, what the screen shows is what the backend has recorded now.
       setConfirmingLogins(false);
+      refreshStatus();
+      busyRef.current = false;
+      setBusy(false);
+    }
+  }
+
+  /** Stops syncing the MCP logins, after the second click. Nothing is deleted anywhere: the next cycle just leaves the folder alone. */
+  async function revokeLogins() {
+    if (busyRef.current) return;
+    busyRef.current = true;
+    setBusy(true);
+    setResult(null);
+    try {
+      await invoke("arca_mode_revoke_logins");
+    } catch (e) {
+      setResult({ ok: false, text: t("arca.loginsStopFailed", { message: String(e) }) });
+    } finally {
+      // Whether it worked or not, what the screen shows is what the backend has recorded now.
+      setConfirmingStop(false);
       refreshStatus();
       busyRef.current = false;
       setBusy(false);
@@ -394,7 +415,28 @@ function ArcaModeSection() {
                 </select>
               </div>
             )}
-            {loginsView(status) === "syncing" && <p className="settings-hint">{t("arca.loginsOnHint")}</p>}
+            {loginsView(status) === "syncing" && (
+              <>
+                <p className="settings-hint">{t("arca.loginsOnHint")}</p>
+                {confirmingStop ? (
+                  <>
+                    <p className="settings-hint">{t("arca.loginsStopConfirm")}</p>
+                    <div className="sync-join-form">
+                      <button type="button" className="settings-save-btn" disabled={busy} onClick={() => void revokeLogins()}>
+                        {t("arca.loginsStopYes")}
+                      </button>
+                      <button type="button" className="settings-browse-btn" disabled={busy} onClick={() => setConfirmingStop(false)}>
+                        {t("arca.cancel")}
+                      </button>
+                    </div>
+                  </>
+                ) : (
+                  <button type="button" className="settings-browse-btn" disabled={busy} onClick={() => setConfirmingStop(true)}>
+                    {t("arca.loginsStop")}
+                  </button>
+                )}
+              </>
+            )}
             {loginsView(status) === "offer" && (
               <>
                 <p className="settings-hint">{t("arca.loginsOffHint")}</p>
