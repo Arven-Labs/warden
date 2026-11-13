@@ -252,6 +252,7 @@ impl SyncEngine {
                 None => cleared.not_removed.push((id.clone(), NotCleared::Gone)),
             }
         }
+        let chosen: Vec<LoserCopy> = listed.clone();
         if chosen.is_empty() {
             return Ok(cleared);
         }
