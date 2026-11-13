@@ -76,6 +76,58 @@ export function loopView(status: LoopStatus | null): { notices: ReturnType<typeo
   return { notices: hasNotice ? notices : null, error };
 }
 
+/** A copy of the loser of a conflict (a login in clear text) that `arca_losers_list` answers: never its text nor its absolute path.
+ * `id` only goes back to `arca_losers_clear`. */
+export interface LoserItem {
+  id: string;
+  class: "config" | "secret";
+  /** The file that was in conflict (the login's file name). */
+  path: string;
+  /** The device whose version lost. */
+  device: string;
+  shaPrefix: string;
+  /** The person edited the copy: the arca never deletes it. */
+  edited: boolean;
+  sizeBytes: number | null;
+  modifiedAtMs: number | null;
+}
+
+/** What `arca_losers_clear` answers. */
+export interface ClearReport {
+  removed: number;
+  /** Each copy asked for that was not deleted, with the arca's reason. */
+  skipped: { id: string; reason: "edited" | "notACopy" | "gone" | "failed" }[];
+  /** Work files that may still hold a login and are not in the list: only the count. */
+  keptTmp: number;
+}
+
+export type LoserSkipKey = "arca.loserSkipEdited" | "arca.loserSkipNotACopy" | "arca.loserSkipGone" | "arca.loserSkipFailed";
+
+/** What the section says after deleting copies: how many went, which stayed and why (translated), and whether a work file may still
+ * hold a login. */
+export function clearSummary(report: ClearReport): { removed: number; notRemoved: { id: string; reasonKey: LoserSkipKey }[]; keptTmp: number } {
+  const reasons: Record<ClearReport["skipped"][number]["reason"], LoserSkipKey> = {
+    edited: "arca.loserSkipEdited",
+    notACopy: "arca.loserSkipNotACopy",
+    gone: "arca.loserSkipGone",
+    failed: "arca.loserSkipFailed",
+  };
+  return { removed: report.removed, notRemoved: report.skipped.map((s) => ({ id: s.id, reasonKey: reasons[s.reason] })), keptTmp: report.keptTmp };
+}
+
+/** The ids "delete all" sends: every copy but the ones the person edited (the arca would refuse those anyway, and the screen says so). */
+export function deletableIds(items: LoserItem[]): string[] {
+  return items.filter((item) => !item.edited).map((item) => item.id);
+}
+
+/** A size for a person: bytes below 1 KB, then one decimal; a dash when it is unknown. */
+export function sizeLabel(bytes: number | null): string {
+  if (bytes === null) return "—";
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
 /** Which controls the section draws. */
 export type ModeView = "loading" | "needsKey" | "pendingSend" | "ready" | "on";
 

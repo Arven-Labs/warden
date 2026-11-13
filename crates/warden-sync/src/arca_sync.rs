@@ -14,6 +14,7 @@ use anyhow::Context;
 use arca_core::crypto::{EpochKeys, VaultKey};
 use arca_core::disk::DiskStore;
 use arca_core::engine::{Engine, EngineError, MergeOutcome, Roots, Snapshot};
+use arca_core::losers::{LoserCopy, Skip};
 use arca_core::manifest::FileEntry;
 use arca_core::object::ObjectId;
 // What a caller needs to name the hub it syncs with, and the class it may let be emptied, so it does not need `arca-core` of its own.
@@ -86,6 +87,76 @@ pub struct ArcaSyncReport {
     pub pushed: usize,
 }
 
+/// A copy of the loser of a conflict, as the screen sees it: no absolute path and never the text (it is a login in clear text).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LoserItem {
+    /// The copy's path inside `arca-conflicts/`, with `/`. Opaque to the caller: it only hands it back to `arca_clear_losers`.
+    pub id: String,
+    pub class: Class,
+    /// The file that was in conflict (the login's file name).
+    pub path: String,
+    /// The device whose version lost.
+    pub device: String,
+    /// The first 8 bytes of the text's sha256, in hex, as in the copy's name.
+    pub sha_prefix: String,
+    /// The person edited the copy: it is never deleted.
+    pub edited: bool,
+    pub size_bytes: Option<u64>,
+    pub modified_at_ms: Option<u64>,
+}
+
+/// Why a copy was not deleted.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NotCleared {
+    Edited,
+    NotACopy,
+    Gone,
+    Failed,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct LosersCleared {
+    pub removed: usize,
+    /// Each id asked for that was not deleted, with why. An id that is not in the list is `Gone`.
+    pub not_removed: Vec<(String, NotCleared)>,
+    /// Work files (`.tmp-*`) the arca could neither give back nor delete: they may hold a login and the list does not show them.
+    pub kept_tmp: usize,
+}
+
+/// A copy's id: its path inside the conflicts folder, with `/`. Never an absolute path.
+fn loser_id(dir: &Path, file: &Path) -> String {
+    let relative = file.strip_prefix(dir).unwrap_or_else(|_| file.file_name().map_or(Path::new(""), Path::new));
+    relative.to_string_lossy().replace('\\', "/")
+}
+
+fn loser_item(dir: &Path, copy: &LoserCopy) -> LoserItem {
+    let meta = std::fs::symlink_metadata(&copy.file).ok();
+    let modified_at_ms = meta
+        .as_ref()
+        .and_then(|meta| meta.modified().ok())
+        .and_then(|modified| modified.duration_since(std::time::UNIX_EPOCH).ok())
+        .map(|since_epoch| since_epoch.as_millis() as u64);
+    LoserItem {
+        id: loser_id(dir, &copy.file),
+        class: copy.class,
+        path: copy.path.clone(),
+        device: copy.device.clone(),
+        sha_prefix: copy.sha_prefix.iter().map(|byte| format!("{byte:02x}")).collect(),
+        edited: copy.edited,
+        size_bytes: meta.as_ref().map(|meta| meta.len()),
+        modified_at_ms,
+    }
+}
+
+fn not_cleared(skip: Skip) -> NotCleared {
+    match skip {
+        Skip::Edited => NotCleared::Edited,
+        Skip::NotACopy => NotCleared::NotACopy,
+        Skip::Gone => NotCleared::Gone,
+        Skip::Failed(_) => NotCleared::Failed,
+    }
+}
+
 impl SyncEngine {
     /// Turns the arca mode on for this vault: the first manifest is written from the vault as it is now (`base_version` none,
     /// key epoch 0), then the switch file. The caller must have done the Pull through `warden-sync` first (ADR 0012, step a) and
@@ -144,6 +215,51 @@ impl SyncEngine {
             anyhow::bail!("this vault is not in arca mode: turn it on first");
         };
         save_mode(&path, &ArcaMode { hub_id: Some(hub_id.to_string()), ..mode })
+    }
+
+    /// The copies of the losers of conflicts (the version that lost, in clear text) the arca kept in `arca-conflicts/`, for the screen.
+    /// With the mode off there are none. Under the sync lock, so it never reads while a cycle is writing a copy.
+    pub async fn arca_list_losers(&self) -> anyhow::Result<Vec<LoserItem>> {
+        let _one_sync_at_a_time = self.sync_lock().await?;
+        let Some(mode) = load_mode(&mode_path_for(&self.manifest_path))? else {
+            return Ok(Vec::new());
+        };
+        let (engine, roots) = self.arca_engine(mode.secret_accepted, false)?;
+        let dir = conflicts_dir_for(&self.manifest_path);
+        let copies = engine.list_conflict_losers(&dir, &roots).await.context("listing the copies of the conflict losers")?;
+        Ok(copies.iter().map(|copy| loser_item(&dir, copy)).collect())
+    }
+
+    /// Deletes the copies whose `id` (as `arca_list_losers` gave it) is in `ids`. The ids are only looked up in a fresh list: nothing
+    /// a caller sends is ever used as a path. A copy the person edited is kept (the arca refuses it). Needs the mode on.
+    pub async fn arca_clear_losers(&self, ids: &[String]) -> anyhow::Result<LosersCleared> {
+        let _one_sync_at_a_time = self.sync_lock().await?;
+        let Some(mode) = load_mode(&mode_path_for(&self.manifest_path))? else {
+            anyhow::bail!("this vault is not in arca mode: turn it on first");
+        };
+        let (engine, roots) = self.arca_engine(mode.secret_accepted, false)?;
+        let dir = conflicts_dir_for(&self.manifest_path);
+        let listed = engine.list_conflict_losers(&dir, &roots).await.context("listing the copies of the conflict losers")?;
+
+        // An id is only a key into what the arca lists now: the arca is handed its own copies, never a path a caller wrote.
+        let mut chosen: Vec<LoserCopy> = Vec::new();
+        let mut cleared = LosersCleared::default();
+        for id in ids {
+            match listed.iter().find(|copy| loser_id(&dir, &copy.file) == *id) {
+                // The same copy asked for twice is deleted once.
+                Some(copy) if chosen.iter().any(|already| already.file == copy.file) => {}
+                Some(copy) => chosen.push(copy.clone()),
+                None => cleared.not_removed.push((id.clone(), NotCleared::Gone)),
+            }
+        }
+        if chosen.is_empty() {
+            return Ok(cleared);
+        }
+        let report = engine.clear_conflict_losers(&dir, &roots, &chosen).await.context("deleting the copies of the conflict losers")?;
+        cleared.removed = report.removed;
+        cleared.not_removed.extend(report.skipped.into_iter().map(|(file, skip)| (loser_id(&dir, &file), not_cleared(skip))));
+        cleared.kept_tmp = report.kept.len();
+        Ok(cleared)
     }
 
     /// One full cycle against `hub`. Refuses unless the mode is on.

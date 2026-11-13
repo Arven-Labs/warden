@@ -1,8 +1,25 @@
 import { useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import { t, type Key } from "../i18n";
-import { hubChoice, loginsView, loopView, noticesOf, summaryOf, viewOf, type EmptyableClass, type LoopStatus, type ModeStatus, type SyncReport } from "../lib/arcaMode";
+import { intlTag, t, type Key } from "../i18n";
+import {
+  clearSummary,
+  deletableIds,
+  hubChoice,
+  loginsView,
+  loopView,
+  noticesOf,
+  sizeLabel,
+  summaryOf,
+  viewOf,
+  type ClearReport,
+  type EmptyableClass,
+  type LoserItem,
+  type LoserSkipKey,
+  type LoopStatus,
+  type ModeStatus,
+  type SyncReport,
+} from "../lib/arcaMode";
 import type { SavedHub } from "../types";
 
 /** Warden P183, desktop: turns the arca mode of the vault on (one way, so it takes a second click), chooses the saved hub the automatic
@@ -20,6 +37,13 @@ function ArcaModeSection() {
   // The last automatic cycle, and when the last manual sync ended (ms; 0 until one did): the newer of the two is what the screen says.
   const [loop, setLoop] = useState<LoopStatus | null>(null);
   const [manualAt, setManualAt] = useState(0);
+  // The copies of the losers of conflicts (logins in clear text; the list never carries the text), the one waiting for its second
+  // click to be deleted (or all of them), and what the last deletion said.
+  const [losers, setLosers] = useState<LoserItem[]>([]);
+  const [confirmingLoser, setConfirmingLoser] = useState<{ id: string } | "all" | null>(null);
+  const [losersResult, setLosersResult] = useState<
+    { kind: "done"; removed: number; notRemoved: { label: string; reasonKey: LoserSkipKey }[]; keptTmp: number } | { kind: "failed"; message: string } | null
+  >(null);
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<{ ok: boolean; text: string; notices?: ReturnType<typeof noticesOf> } | null>(null);
   // A second click must not start a second cycle: the state below is only read after a render, this one at once.
@@ -36,6 +60,34 @@ function ArcaModeSection() {
     invoke<LoopStatus | null>("arca_loop_last")
       .then(setLoop)
       .catch(() => {});
+    // A cycle (the loop's or a manual one) is what saves a copy, so the list is asked again at the same moments.
+    refreshLosers();
+  }
+
+  function refreshLosers() {
+    invoke<LoserItem[] | null>("arca_losers_list")
+      .then((items) => setLosers(items ?? []))
+      .catch(() => {});
+  }
+
+  /** Deletes the copies with these ids, after the second click. The backend looks each id up in a fresh list: no path goes with it. */
+  async function clearLosers(ids: string[]) {
+    if (busyRef.current) return;
+    busyRef.current = true;
+    setBusy(true);
+    setConfirmingLoser(null);
+    setLosersResult(null);
+    const names = new Map(losers.map((copy) => [copy.id, copy.path]));
+    try {
+      const summary = clearSummary(await invoke<ClearReport>("arca_losers_clear", { ids }));
+      setLosersResult({ kind: "done", removed: summary.removed, notRemoved: summary.notRemoved.map((n) => ({ label: names.get(n.id) ?? n.id, reasonKey: n.reasonKey })), keptTmp: summary.keptTmp });
+    } catch (e) {
+      setLosersResult({ kind: "failed", message: String(e) });
+    } finally {
+      refreshLosers();
+      busyRef.current = false;
+      setBusy(false);
+    }
   }
 
   useEffect(() => {
@@ -196,6 +248,78 @@ function ArcaModeSection() {
     );
   }
 
+  /** The list of copies, each with its own second click, and "delete all". An edited copy is marked and has no button: it is kept. */
+  function losersBlock() {
+    const deletable = deletableIds(losers);
+    return (
+      <>
+        <h4 className="settings-hint">{t("arca.losersTitle")}</h4>
+        <p className="settings-hint">{t("arca.losersHint")}</p>
+        <ul>
+          {losers.map((copy) => (
+            <li key={copy.id} className="settings-hint">
+              {t("arca.loserItem", {
+                path: copy.path,
+                device: copy.device,
+                size: sizeLabel(copy.sizeBytes),
+                date: copy.modifiedAtMs === null ? "—" : new Date(copy.modifiedAtMs).toLocaleString(intlTag()),
+              })}{" "}
+              {copy.edited ? (
+                <em>{t("arca.loserEdited")}</em>
+              ) : confirmingLoser !== null && confirmingLoser !== "all" && confirmingLoser.id === copy.id ? (
+                <>
+                  <p className="settings-hint">{t("arca.loserDeleteConfirm", { path: copy.path })}</p>
+                  <div className="sync-join-form">
+                    <button type="button" className="settings-save-btn" disabled={busy} onClick={() => void clearLosers([copy.id])}>
+                      {t("arca.loserDeleteYes")}
+                    </button>
+                    <button type="button" className="settings-browse-btn" disabled={busy} onClick={() => setConfirmingLoser(null)}>
+                      {t("arca.cancel")}
+                    </button>
+                  </div>
+                </>
+              ) : (
+                <button type="button" className="settings-browse-btn" disabled={busy} onClick={() => setConfirmingLoser({ id: copy.id })}>
+                  {t("arca.loserDelete")}
+                </button>
+              )}
+            </li>
+          ))}
+        </ul>
+        {deletable.length > 0 &&
+          (confirmingLoser === "all" ? (
+            <>
+              <p className="settings-hint">{t("arca.losersDeleteAllConfirm")}</p>
+              <div className="sync-join-form">
+                <button type="button" className="settings-save-btn" disabled={busy} onClick={() => void clearLosers(deletable)}>
+                  {t("arca.losersDeleteAllYes")}
+                </button>
+                <button type="button" className="settings-browse-btn" disabled={busy} onClick={() => setConfirmingLoser(null)}>
+                  {t("arca.cancel")}
+                </button>
+              </div>
+            </>
+          ) : (
+            <button type="button" className="settings-browse-btn" disabled={busy} onClick={() => setConfirmingLoser("all")}>
+              {t("arca.losersDeleteAll")}
+            </button>
+          ))}
+        {losersResult?.kind === "failed" && <p className="settings-error-banner">{t("arca.losersFailed", { message: losersResult.message })}</p>}
+        {losersResult?.kind === "done" && (
+          <>
+            <p className="settings-success-banner">{t("arca.losersRemoved", { count: losersResult.removed })}</p>
+            {losersResult.notRemoved.map((kept) => (
+              <p key={`${kept.label}-${kept.reasonKey}`} className="settings-hint">
+                {t("arca.loserNotDeleted", { path: kept.label, reason: t(kept.reasonKey) })}
+              </p>
+            ))}
+            {losersResult.keptTmp > 0 && <p className="settings-error-banner">{t("arca.losersKept")}</p>}
+          </>
+        )}
+      </>
+    );
+  }
+
   const view = viewOf(status);
   // The automatic cycle only speaks while the mode is on and when it is newer than the last manual sync: the newer of the two wins,
   // so an old automatic warning never comes back over a manual sync made after it, and a newer one replaces the manual warnings.
@@ -305,6 +429,7 @@ function ArcaModeSection() {
         {!autoHidesManual && result?.notices && noticesBlock(result.notices)}
         {auto?.error && <p className="settings-error-banner">{t(auto.error.key, { message: auto.error.message })}</p>}
         {auto?.notices && noticesBlock(auto.notices)}
+        {view === "on" && (losers.length > 0 || losersResult !== null) && losersBlock()}
       </div>
     </section>
   );
