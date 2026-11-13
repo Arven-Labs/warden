@@ -107,7 +107,7 @@ export const syncPt: Record<keyof typeof sync, string> = {
   "arca.loginsConfirmYes": "Sim, sincronizar",
   "arca.loginsFailed": "Não foi possível começar a sincronizar os logins: {message}",
   "arca.loginsStop": "Parar de sincronizar logins MCP",
-  "arca.loginsStopConfirm": "A partir do próximo sync este computador deixa de ler e gravar a pasta mcp_oauth. Nada é apagado: a pasta, as cópias da pasta de conflitos e o que este computador já enviou ficam como estão. O que já está no hub e nos seus outros dispositivos continua lá, e este computador segue repassando, cifrados, os logins que os outros sincronizam. Para invalidar um login, revogue-o no próprio serviço. Aceitar de novo depois pode remover logins que os outros dispositivos adicionaram nesse meio-tempo. Parar?",
+  "arca.loginsStopConfirm": "A partir do próximo sync este computador deixa de ler e gravar a pasta mcp_oauth. Nada é apagado: a pasta, as cópias da pasta de conflitos e o que este computador já enviou ficam como estão. O que já está no hub e nos seus outros dispositivos continua lá, e este computador segue repassando, cifrados, os logins que os outros sincronizam. Para invalidar um login, revogue-o no próprio serviço. Parar?",
   "arca.loginsStopYes": "Sim, parar",
   "arca.loginsStopFailed": "Não foi possível parar de sincronizar os logins: {message}",
   "arca.noticeFolderMissing": "A pasta dos logins MCP não existe, então os logins não estão sincronizando (nada foi removido nos seus outros dispositivos). Restaure a pasta com os arquivos para voltar. Se você criar uma pasta vazia, os logins serão removidos em todos os dispositivos.",

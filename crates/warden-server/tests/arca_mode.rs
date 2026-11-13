@@ -1550,13 +1550,12 @@ async fn revoking_deletes_nothing_the_logins_folder_the_conflict_copies_and_what
     assert_eq!(a.engine.arca_list_losers().await.unwrap().len(), 1, "the copies can still be listed and deleted from the screen");
 }
 
-/// MEASUREMENT (P-36, plan of 2026-11-12), written to observe what the code does today, not to bless it. A device stops syncing the
-/// logins, another one adds a login meanwhile, and the first accepts again: its snapshot reads the logins folder as the truth of the
-/// class, the folder lacks the new login, and the removal reaches the group. The same happens with a late first acceptance. When the
-/// acceptance is fixed this test is expected to flip (the login must survive).
+/// P-37 (1). A device stops syncing the logins, another one adds a login meanwhile, and the first accepts again. The acceptance must
+/// bring the group's logins to the folder before the class counts, so the snapshot does not read "the folder lacks notion.json" as a
+/// removal. (Measured in Warden#134, Session 74: before the fix, b's `notion.json` was removed for the group.)
 #[tokio::test]
-async fn measured_accepting_again_after_a_peer_added_a_login_removes_it_for_the_group() {
-    let (_hub, a, b, store_a, store_b) = two_synced_devices("reaccept-measured", &[], &[("github.json", "g"), ("slack.json", "s")]).await;
+async fn accepting_again_after_a_peer_added_a_login_brings_it_here_and_removes_nothing_for_the_group() {
+    let (_hub, a, b, store_a, store_b) = two_synced_devices("reaccept", &[], &[("github.json", "g"), ("slack.json", "s")]).await;
     a.engine.arca_revoke_logins().await.unwrap();
 
     write_login(&b, "notion.json", "n");
@@ -1565,10 +1564,60 @@ async fn measured_accepting_again_after_a_peer_added_a_login_removes_it_for_the_
     assert!(!a.oauth.join("notion.json").exists(), "stopped: b's new login was not written here");
 
     a.engine.arca_accept_logins().await.unwrap();
+    assert_eq!(logins(&a), map(&[("github.json", "g"), ("slack.json", "s"), ("notion.json", "n")]), "accepting brings the group's logins here");
     a.engine.arca_sync(&store_a, 7).await.unwrap();
     b.engine.arca_sync(&store_b, 8).await.unwrap();
 
-    assert_eq!(logins(&b), map(&[("github.json", "g"), ("slack.json", "s")]), "MEASURED: b's own notion.json was removed by a's snapshot");
+    let all = map(&[("github.json", "g"), ("slack.json", "s"), ("notion.json", "n")]);
+    assert_eq!(logins(&b), all, "b's own notion.json survives a's acceptance");
+    assert_eq!(logins(&a), all);
+}
+
+/// The same bug in its other form: a device turned the mode on without the logins, peers already send theirs, and it accepts late.
+#[tokio::test]
+async fn a_late_first_acceptance_brings_the_group_logins_and_removes_nothing_for_the_group() {
+    let hub = hub().await;
+    let (a, key) = first_device("a-late");
+    write_login(&a, "github.json", "g");
+    a.engine.arca_enable(false, 1).await.unwrap();
+    let (store_a, store_b) = (hub.store("dev-a"), hub.store("dev-b"));
+    a.engine.arca_sync(&store_a, 2).await.unwrap();
+
+    let b = paired_device("b-late", key);
+    b.engine.0.arca_enable(false, 3).await.unwrap();
+    b.engine.arca_sync(&store_b, 4).await.unwrap();
+    assert!(logins(&b).is_empty(), "b has not accepted yet");
+
+    b.engine.arca_accept_logins().await.unwrap();
+    assert_eq!(logins(&b), map(&[("github.json", "g")]), "accepting brings a's login here");
+    b.engine.arca_sync(&store_b, 5).await.unwrap();
+    a.engine.arca_sync(&store_a, 6).await.unwrap();
+
+    assert_eq!(logins(&a), map(&[("github.json", "g")]), "a's login was not removed by b's acceptance");
+}
+
+/// A login on this device with the name of one the group has but different contents: the acceptance is refused, saying why, and
+/// nothing is written (no login brought, nothing recorded). Neither side's version is lost.
+#[tokio::test]
+async fn accepting_with_a_local_login_that_differs_from_the_groups_is_refused_and_writes_nothing() {
+    let hub = hub().await;
+    let (a, key) = first_device("a-diverges");
+    write_login(&a, "github.json", "from the group");
+    write_login(&a, "slack.json", "s");
+    a.engine.arca_enable(false, 1).await.unwrap();
+    let (store_a, store_b) = (hub.store("dev-a"), hub.store("dev-b"));
+    a.engine.arca_sync(&store_a, 2).await.unwrap();
+
+    let b = paired_device("b-diverges", key);
+    b.engine.0.arca_enable(false, 3).await.unwrap();
+    b.engine.arca_sync(&store_b, 4).await.unwrap();
+    write_login(&b, "github.json", "mine, different");
+
+    let err = format!("{:#}", b.engine.arca_accept_logins().await.unwrap_err());
+    // the arca's `apply` says "local changes" without naming the file, so the message cannot name it (a later improvement)
+    assert!(err.contains("differs from the one the group has"), "the error says why: {err}");
+    assert_eq!(logins(&b), map(&[("github.json", "mine, different")]), "nothing was written: slack.json was not brought either");
+    assert!(!load_mode(&mode_path_for(&b.manifest)).unwrap().unwrap().secret_accepted, "the acceptance was not recorded");
 }
 
 #[tokio::test]

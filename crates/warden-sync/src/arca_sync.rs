@@ -193,7 +193,13 @@ impl SyncEngine {
 
     /// The person accepts that the MCP logins travel (P-36, 1 and 8). Needs the mode on, keeps the rest of the switch and takes the
     /// sync lock, like `arca_set_hub`. The logins folder goes through the same guard first, so a folder that cannot be a root is
-    /// refused here and nothing is recorded. From the next cycle the class is sent and applied; before that nothing moved.
+    /// refused here and nothing is recorded. From the next cycle the class is sent and applied.
+    ///
+    /// Before recording, the logins the group already has (the tip of the arca's store) are brought to the folder (P-37). While the
+    /// class had no root the cycles moved the folder's manifest forward without writing these logins, so the first snapshot with a
+    /// root would read the folder as the truth of the class and publish the missing ones as removed. The apply only creates what
+    /// is missing: a login here that differs from the group's refuses the acceptance and nothing is written, so neither version is
+    /// lost. Several tips (not merged yet) refuse it too: the merge is the cycle's job, and the truth is not known before it.
     pub async fn arca_accept_logins(&self) -> anyhow::Result<()> {
         let _one_sync_at_a_time = self.sync_lock().await?;
         let path = mode_path_for(&self.manifest_path);
@@ -201,7 +207,22 @@ impl SyncEngine {
             anyhow::bail!("this vault is not in arca mode: turn it on first");
         };
         anyhow::ensure!(self.oauth_dir.is_some(), "this computer has no MCP logins folder to sync");
-        self.prepare_logins_root(true)?;
+        let (engine, roots) = self.arca_engine(true, true)?;
+        let heads = engine.heads().await?;
+        match heads.tips.as_slice() {
+            [] => {}
+            [tip] => {
+                let logins_only = Roots { vault: None, config: None, secret: roots.secret };
+                engine.apply(None, &tip.id, &logins_only).await.map_err(|e| match e {
+                    EngineError::LocalChanges => anyhow::anyhow!(
+                        "a login in this computer's MCP logins folder differs from the one the group has, so nothing was changed: \
+                         move or delete the local one and accept again"
+                    ),
+                    other => anyhow::Error::from(other).context("bringing the group's MCP logins to this computer"),
+                })?;
+            }
+            tips => anyhow::bail!("this device has {} versions that are not merged yet: sync first, then accept the logins", tips.len()),
+        }
         save_mode(&path, &ArcaMode { secret_accepted: true, ..mode })
     }
 
