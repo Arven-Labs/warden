@@ -128,6 +128,12 @@ empresa antes de usar.
     **investigar tudo o que o Orca tem** (worktrees por tarefa, terminais, agentes lado a lado, navegador embutido) e
     avaliar até **usar o Orca por baixo**. Em aberto: o que o Orca cobre e o que o Warden teria de construir, licença e
     estado do projeto, e se vale embutir, integrar ou só se inspirar (`avaliar-dependencia`, passo 0). Sem escopo.
+  - **Editor de código dentro do Warden (ideia, 2026-11-13, pedido do usuário, só registro):** além de ADE, o Warden
+    ter um **editor de código** próprio: **menos avançado que um IDE, mas completo** (abrir, editar, buscar, ver
+    diff, terminal). O usuário admite **usar um editor open source por baixo**. Em aberto, a investigar: quais
+    candidatos existem para embutir (por exemplo, o Monaco, o CodeMirror, o Zed, o VS Code em versão aberta;
+    **citados de memória, não conferi** estado nem licença), como cada um se encaixa no desktop (Tauri + React) e no
+    peso do app, e se o editor serve só ao modo Code ou ao Warden inteiro. Segue `avaliar-dependencia`. Sem escopo.
 - **Comunicação entre agentes, legível.** Quem enviou, para quem, quem respondeu, quem delegou e concluiu, quem trabalha
   agora; hierárquica (delegar, supervisionar, criar, remover, revisar) e lateral (colaborar, consultar, revisar), esta
   liberada por permissão e sempre registrada. Mais um **feed de atividade** e uma **visão de organização** (a árvore, cada
