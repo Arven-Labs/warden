@@ -10,7 +10,7 @@ use std::time::Duration;
 
 use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
 use warden_sync::arca_pairing::{HubAccess, PairingError};
-use warden_sync::arca_pairing_flow::{channel_prompts, run_offer, Ask, FlowError, PairEvent, PairReply, PairingSide, Shown};
+use warden_sync::arca_pairing_flow::{channel_prompts, run_grant, run_offer, Ask, FlowError, PairEvent, PairReply, PairingSide, Shown};
 use warden_sync::SyncEngine;
 
 use super::sync::rt;
@@ -104,21 +104,26 @@ pub enum ArcaPairRole {
 
 /// Which side this phone plays, for the screen to draw before anything starts.
 pub fn arca_pair_role(vault_root: String, config_path: String, secrets_path: String, manifest_path: String) -> ArcaPairRole {
-    let _ = (vault_root, config_path, secrets_path, manifest_path);
-    todo!()
+    // Having the vault key is what makes a device the one that grants (not being paired over Arweave, a different thing).
+    if SyncEngine::new(vault_root.into(), config_path.into(), secrets_path.into(), manifest_path.into()).is_initialized() {
+        ArcaPairRole::Grant
+    } else {
+        ArcaPairRole::Offer
+    }
 }
 
 /// As the device that grants: lists the offers on the hub, lets the person pick one with `arca_pair_pick`, asks for the code the
 /// new device shows (`arca_pair_answer`) and hands the key over. Same slot, `arca_pair_next` and `arca_pair_cancel` as `arca_pair_start`.
 pub fn arca_pair_start_grant(vault_root: String, config_path: String, secrets_path: String, manifest_path: String, hub_url: String, device_token: String) -> Result<(), ArcaPairFailure> {
-    let _ = (vault_root, config_path, secrets_path, manifest_path, hub_url, device_token);
-    todo!()
+    // The vault key is read inside `run_grant`; it never crosses to Dart.
+    begin(Side::Granting, [vault_root, config_path, secrets_path, manifest_path], &hub_url, &device_token)
 }
 
 /// The person picked the offer at `index` of the list `ChooseOffer` carried. An index past the end ends the pairing as cancelled.
 pub fn arca_pair_pick(index: u32) -> Result<(), ArcaPairFailure> {
-    let _ = index;
-    todo!()
+    let running = slot();
+    let session = running.as_ref().ok_or_else(no_session)?;
+    session.replies.send(PairReply::Picked(index as usize)).map_err(|_| ArcaPairFailure { kind: ArcaPairErrorKind::NoSession, detail: "the pairing already ended".into() })
 }
 
 pub fn arca_pair_start(
@@ -130,8 +135,19 @@ pub fn arca_pair_start(
     device_token: String,
     device_id: String,
 ) -> Result<(), ArcaPairFailure> {
-    // The address is checked here, before anything runs: plain `http` to another host is refused and no pairing is left behind.
-    let access = HubAccess::new(&hub_url, &device_token).map_err(|e| failure_of(FlowError::Pairing(e)))?;
+    begin(Side::NewDevice { device_id }, [vault_root, config_path, secrets_path, manifest_path], &hub_url, &device_token)
+}
+
+/// Which half of the pairing a session runs.
+enum Side {
+    NewDevice { device_id: String },
+    Granting,
+}
+
+/// Starts the one pairing in the slot: the address is checked before anything runs (plain `http` to another host is refused and no
+/// pairing is left behind), then `run_offer` or `run_grant` runs on the bridge's runtime behind the same channel and event loop.
+fn begin(side: Side, [vault_root, config_path, secrets_path, manifest_path]: [String; 4], hub_url: &str, device_token: &str) -> Result<(), ArcaPairFailure> {
+    let access = HubAccess::new(hub_url, device_token).map_err(|e| failure_of(FlowError::Pairing(e)))?;
     let engine = SyncEngine::new(vault_root.into(), config_path.into(), secrets_path.into(), manifest_path.into());
 
     let mut running = slot();
@@ -147,12 +163,13 @@ pub fn arca_pair_start(
     let task = rt().spawn(async move {
         let forwarder = tokio::spawn(async move {
             while let Some(event) = flow_events.recv().await {
-                if let Some(event) = screen_event(event) {
-                    let _ = forward_tx.send(event);
-                }
+                let _ = forward_tx.send(screen_event(event));
             }
         });
-        let result = run_offer(&access, &device_id, &engine, &mut prompts, OFFER_POLL, OFFER_TIMEOUT).await;
+        let result = match side {
+            Side::NewDevice { device_id } => run_offer(&access, &device_id, &engine, &mut prompts, OFFER_POLL, OFFER_TIMEOUT).await,
+            Side::Granting => run_grant(&access, &engine, &mut prompts).await,
+        };
         // Closing the prompts ends the forwarder after the last event, so the screen has seen everything before the final one.
         drop(prompts);
         let _ = forwarder.await;
@@ -167,12 +184,14 @@ pub fn arca_pair_start(
     Ok(())
 }
 
-/// B only shows the offer code and asks for the fingerprint the other device shows; the A-side events never happen here.
-fn screen_event(event: PairEvent) -> Option<ArcaPairEvent> {
+/// Every event of either side reaches the screen. `Ask` carries no value on purpose, so the screen has nothing to pre-fill.
+fn screen_event(event: PairEvent) -> ArcaPairEvent {
     match event {
-        PairEvent::Show(Shown::OfferCode(code)) => Some(ArcaPairEvent::OfferCode(code)),
-        PairEvent::Ask(Ask::FingerprintShownByTheOldDevice) => Some(ArcaPairEvent::AskFingerprint),
-        PairEvent::Show(Shown::KeyFingerprint(_)) | PairEvent::Ask(Ask::CodeShownByTheNewDevice) | PairEvent::Choose(_) => None,
+        PairEvent::Show(Shown::OfferCode(code)) => ArcaPairEvent::OfferCode(code),
+        PairEvent::Ask(Ask::FingerprintShownByTheOldDevice) => ArcaPairEvent::AskFingerprint,
+        PairEvent::Choose(device_ids) => ArcaPairEvent::ChooseOffer(device_ids),
+        PairEvent::Ask(Ask::CodeShownByTheNewDevice) => ArcaPairEvent::AskOfferCode,
+        PairEvent::Show(Shown::KeyFingerprint(fingerprint)) => ArcaPairEvent::ShowFingerprint(fingerprint),
     }
 }
 
@@ -213,7 +232,9 @@ impl From<ArcaPairEvent> for ArcaPairStep {
         match event {
             ArcaPairEvent::OfferCode(code) => ArcaPairStep { code, ..step(ArcaPairStepKind::OfferCode) },
             ArcaPairEvent::AskFingerprint => step(ArcaPairStepKind::AskFingerprint),
-            ArcaPairEvent::ChooseOffer(_) | ArcaPairEvent::AskOfferCode | ArcaPairEvent::ShowFingerprint(_) => todo!(),
+            ArcaPairEvent::ChooseOffer(offers) => ArcaPairStep { offers, ..step(ArcaPairStepKind::ChooseOffer) },
+            ArcaPairEvent::AskOfferCode => step(ArcaPairStepKind::AskOfferCode),
+            ArcaPairEvent::ShowFingerprint(fingerprint) => ArcaPairStep { fingerprint, ..step(ArcaPairStepKind::ShowFingerprint) },
             ArcaPairEvent::Done => step(ArcaPairStepKind::Done),
             ArcaPairEvent::Cancelled => step(ArcaPairStepKind::Cancelled),
             ArcaPairEvent::Failed(failure) => ArcaPairStep { failure: Some(failure), ..step(ArcaPairStepKind::Failed) },
@@ -268,10 +289,14 @@ pub(crate) fn failure_of(error: FlowError) -> ArcaPairFailure {
         FlowError::Pairing(PairingError::Conflict) => K::Conflict,
         FlowError::Pairing(PairingError::FingerprintMismatch) => K::FingerprintMismatch,
         FlowError::Pairing(PairingError::Adopt(_)) => K::StoreFailed,
+        FlowError::Pairing(PairingError::CodeMismatch) => K::CodeMismatch,
+        FlowError::Pairing(PairingError::NoOffer) => K::NoOffer,
         FlowError::AlreadyHasKey => K::AlreadyHasKey,
         FlowError::TimedOut => K::TimedOut,
-        // `NoOffer` and `CodeMismatch` are A's; `NoOffers`, `NoKey` and `Cancelled` never end B's flow as a failure.
-        FlowError::Pairing(_) | FlowError::NoOffers | FlowError::NoKey(_) | FlowError::Cancelled => K::Hub,
+        FlowError::NoOffers => K::NoOffers,
+        FlowError::NoKey(_) => K::NoKey,
+        // `Cancelled` is told apart before this is called; a network or hub answer that is not documented is `Hub`.
+        FlowError::Pairing(PairingError::Hub(_)) | FlowError::Cancelled => K::Hub,
     };
     ArcaPairFailure { kind, detail: error.to_string() }
 }

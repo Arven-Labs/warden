@@ -324,15 +324,14 @@ class _SyncScreenState extends State<SyncScreen> {
                     ),
                   ],
                 ),
-                // A new device with no key can also get it from another device through the hub (arca pairing).
-                if (!status.paired) ...[
-                  const SizedBox(height: 16),
-                  OutlinedButton(
-                    key: const Key('open-arca-pair'),
-                    onPressed: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const ArcaPairScreen())),
-                    child: Text(l10n.arcaPairOpen),
-                  ),
-                ],
+                // Arca pairing through the hub, for both sides: a new device gets the key, one that has it hands it over. The
+                // screen finds out which by itself (it has the vault key or not), so the button is always here.
+                const SizedBox(height: 16),
+                OutlinedButton(
+                  key: const Key('open-arca-pair'),
+                  onPressed: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const ArcaPairScreen())),
+                  child: Text(l10n.arcaPairOpen),
+                ),
               ],
             ),
     );

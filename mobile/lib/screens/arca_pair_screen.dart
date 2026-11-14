@@ -19,13 +19,17 @@ class ArcaPairScreen extends StatefulWidget {
   State<ArcaPairScreen> createState() => _ArcaPairScreenState();
 }
 
-enum _Phase { loading, noHub, ready, waiting, asking, done, cancelled, failed }
+enum _Phase { loading, noHub, ready, waiting, asking, choosing, askingCode, done, cancelled, failed }
 
 class _ArcaPairScreenState extends State<ArcaPairScreen> {
   late final ArcaPairBackend _backend = widget.backend ?? BridgeArcaPairBackend();
-  final _fingerprint = TextEditingController();
+  /// What the person types in the current step: the fingerprint (new device) or the offer code (the device that grants).
+  final _typed = TextEditingController();
 
   _Phase _phase = _Phase.loading;
+  bridge.ArcaPairRole _role = bridge.ArcaPairRole.offer;
+  List<String> _offers = const [];
+  String? _grantedFingerprint;
   String? _hubUrl;
   String? _token;
   String? _deviceId;
@@ -43,7 +47,7 @@ class _ArcaPairScreenState extends State<ArcaPairScreen> {
   void dispose() {
     // Leaving the screen is giving up: the bridge frees its one slot.
     if (_running) _backend.cancel();
-    _fingerprint.dispose();
+    _typed.dispose();
     super.dispose();
   }
 
@@ -52,8 +56,10 @@ class _ArcaPairScreenState extends State<ArcaPairScreen> {
     final settings = await store.load();
     final token = settings == null ? null : await store.deviceTokenFor(settings.host, settings.port);
     final deviceId = await store.getOrCreateDeviceId();
+    final role = await _backend.role();
     if (!mounted) return;
     setState(() {
+      _role = role;
       if (settings == null || token == null) {
         _phase = _Phase.noHub;
         return;
@@ -70,10 +76,16 @@ class _ArcaPairScreenState extends State<ArcaPairScreen> {
       _phase = _Phase.waiting;
       _code = null;
       _failure = null;
-      _fingerprint.clear();
+      _offers = const [];
+      _grantedFingerprint = null;
+      _typed.clear();
     });
     try {
-      await _backend.start(hubUrl: _hubUrl!, deviceToken: _token!, deviceId: _deviceId!);
+      if (_role == bridge.ArcaPairRole.grant) {
+        await _backend.startGrant(hubUrl: _hubUrl!, deviceToken: _token!);
+      } else {
+        await _backend.start(hubUrl: _hubUrl!, deviceToken: _token!, deviceId: _deviceId!);
+      }
     } on bridge.ArcaPairFailure catch (failure) {
       if (mounted) {
         setState(() {
@@ -98,9 +110,16 @@ class _ArcaPairScreenState extends State<ArcaPairScreen> {
           setState(() => _code = step.code);
         case bridge.ArcaPairStepKind.askFingerprint:
           setState(() => _phase = _Phase.asking);
-        case bridge.ArcaPairStepKind.chooseOffer || bridge.ArcaPairStepKind.askOfferCode || bridge.ArcaPairStepKind.showFingerprint:
-          // Stub: the granting side comes after its tests are reviewed.
-          break;
+        case bridge.ArcaPairStepKind.chooseOffer:
+          setState(() {
+            _offers = step.offers;
+            _phase = _Phase.choosing;
+          });
+        case bridge.ArcaPairStepKind.askOfferCode:
+          setState(() => _phase = _Phase.askingCode);
+        case bridge.ArcaPairStepKind.showFingerprint:
+          // The flow ends right after this (`done`), so the screen keeps the fingerprint for the person to type on the new device.
+          setState(() => _grantedFingerprint = step.fingerprint);
         case bridge.ArcaPairStepKind.done:
           _finish(_Phase.done, null);
         case bridge.ArcaPairStepKind.cancelled:
@@ -121,8 +140,18 @@ class _ArcaPairScreenState extends State<ArcaPairScreen> {
     });
   }
 
+  Future<void> _pick(int index) async {
+    setState(() => _phase = _Phase.waiting);
+    try {
+      await _backend.pick(index);
+    } on bridge.ArcaPairFailure catch (failure) {
+      _finish(_Phase.failed, failure.kind);
+    }
+  }
+
   Future<void> _confirm() async {
-    final typed = _fingerprint.text;
+    final typed = _typed.text;
+    _typed.clear();
     setState(() => _phase = _Phase.waiting);
     try {
       await _backend.answer(typed);
@@ -139,13 +168,34 @@ class _ArcaPairScreenState extends State<ArcaPairScreen> {
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
-          Text(l10n.arcaPairIntro),
+          Text(_role == bridge.ArcaPairRole.grant ? l10n.arcaPairGrantIntro : l10n.arcaPairIntro),
           const SizedBox(height: 16),
           ..._body(l10n),
         ],
       ),
     );
   }
+
+  /// A step where the person types something the OTHER device shows (the fingerprint on the new device, the offer code on the one
+  /// that grants). Nothing that could bring it in from outside: no paste menu, no suggestions, no autofill.
+  List<Widget> _typedStep(AppLocalizations l10n, Widget cancelButton, {required String prompt, required String fieldKey, required String label}) => [
+        Text(prompt),
+        const SizedBox(height: 8),
+        TextField(
+          key: Key(fieldKey),
+          controller: _typed,
+          decoration: InputDecoration(labelText: label, border: const OutlineInputBorder()),
+          inputFormatters: [TypedOnlyFormatter()],
+          enableSuggestions: false,
+          autocorrect: false,
+          enableInteractiveSelection: false,
+          contextMenuBuilder: (context, editableTextState) => const SizedBox.shrink(),
+        ),
+        const SizedBox(height: 16),
+        FilledButton(key: const Key('arca-pair-confirm'), onPressed: _confirm, child: Text(l10n.arcaPairConfirm)),
+        const SizedBox(height: 8),
+        cancelButton,
+      ];
 
   List<Widget> _body(AppLocalizations l10n) {
     final startButton = FilledButton(key: const Key('arca-pair-start'), onPressed: _start, child: Text(l10n.arcaPairStart));
@@ -172,27 +222,26 @@ class _ArcaPairScreenState extends State<ArcaPairScreen> {
           cancelButton,
         ];
       case _Phase.asking:
+        return _typedStep(l10n, cancelButton, prompt: l10n.arcaPairAskFingerprint, fieldKey: 'arca-pair-fingerprint', label: l10n.arcaPairFingerprintLabel);
+      case _Phase.choosing:
         return [
-          Text(l10n.arcaPairAskFingerprint),
+          Text(l10n.arcaPairChooseOffer),
           const SizedBox(height: 8),
-          TextField(
-            key: const Key('arca-pair-fingerprint'),
-            controller: _fingerprint,
-            decoration: InputDecoration(labelText: l10n.arcaPairFingerprintLabel, border: const OutlineInputBorder()),
-            inputFormatters: [TypedOnlyFormatter()],
-            // Nothing that could bring the fingerprint in from outside: no paste menu, no suggestions, no autofill.
-            enableSuggestions: false,
-            autocorrect: false,
-            enableInteractiveSelection: false,
-            contextMenuBuilder: (context, editableTextState) => const SizedBox.shrink(),
-          ),
+          for (var i = 0; i < _offers.length; i++) ListTile(key: Key('arca-pair-offer-$i'), title: Text(_offers[i]), onTap: () => _pick(i)),
           const SizedBox(height: 16),
-          FilledButton(key: const Key('arca-pair-confirm'), onPressed: _confirm, child: Text(l10n.arcaPairConfirm)),
-          const SizedBox(height: 8),
           cancelButton,
         ];
+      case _Phase.askingCode:
+        return _typedStep(l10n, cancelButton, prompt: l10n.arcaPairAskOfferCode, fieldKey: 'arca-pair-code', label: l10n.arcaPairOfferCodeLabel);
       case _Phase.done:
-        return [Text(l10n.arcaPairDone)];
+        final granted = _grantedFingerprint;
+        return [
+          if (granted == null) Text(l10n.arcaPairDone) else ...[
+            Text(l10n.arcaPairGranted),
+            const SizedBox(height: 8),
+            SelectableText(granted, style: Theme.of(context).textTheme.headlineSmall),
+          ],
+        ];
       case _Phase.cancelled:
         return [Text(l10n.arcaPairCancelled), const SizedBox(height: 16), startButton];
       case _Phase.failed:
