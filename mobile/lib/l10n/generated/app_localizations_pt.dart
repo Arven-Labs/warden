@@ -1570,7 +1570,8 @@ class AppLocalizationsPt extends AppLocalizations {
   String get skillsUpdating => 'Atualizando…';
 
   @override
-  String get skillsUpdateAvailable => 'Há uma versão nova; a sua não foi alterada';
+  String get skillsUpdateAvailable =>
+      'Há uma versão nova; a sua não foi alterada';
 
   @override
   String get skillsReplaceMine => 'Substituir a minha';
@@ -2011,4 +2012,97 @@ class AppLocalizationsPt extends AppLocalizations {
     );
     return '$_temp0';
   }
+
+  @override
+  String get arcaPairTitle => 'Parear com a arca';
+
+  @override
+  String get arcaPairOpen => 'Parear com a arca (dispositivo novo)';
+
+  @override
+  String get arcaPairIntro =>
+      'Dá a este dispositivo a chave do cofre de outro dispositivo que já a tem. Você lê um código aqui e o digita no outro dispositivo; depois digita aqui a impressão digital que ele mostrar.';
+
+  @override
+  String get arcaPairStart => 'Iniciar pareamento';
+
+  @override
+  String get arcaPairNoHub =>
+      'Conecte-se a um hub primeiro (tela de conexão), com um dispositivo que o hub já aprovou.';
+
+  @override
+  String get arcaPairShowCode => 'Digite este código no outro dispositivo:';
+
+  @override
+  String get arcaPairWaiting => 'Aguardando o outro dispositivo…';
+
+  @override
+  String get arcaPairAskFingerprint =>
+      'Agora digite a impressão digital que o outro dispositivo mostra. Não copie e cole: digitar é o que protege você de um hub que troque a chave.';
+
+  @override
+  String get arcaPairFingerprintLabel => 'Impressão digital';
+
+  @override
+  String get arcaPairConfirm => 'Confirmar';
+
+  @override
+  String get arcaPairCancel => 'Cancelar pareamento';
+
+  @override
+  String get arcaPairDone =>
+      'Pareado: este dispositivo agora tem a chave do cofre.';
+
+  @override
+  String get arcaPairCancelled => 'Pareamento cancelado.';
+
+  @override
+  String get arcaPairErrBusy =>
+      'Já há outro pareamento em andamento neste dispositivo.';
+
+  @override
+  String get arcaPairErrNoSession => 'Nenhum pareamento em andamento.';
+
+  @override
+  String get arcaPairErrInsecureUrl =>
+      'O endereço do hub usa http simples. Use https, ou um hub neste dispositivo.';
+
+  @override
+  String get arcaPairErrBadUrl => 'O endereço do hub não é válido.';
+
+  @override
+  String get arcaPairErrNotAvailable =>
+      'Este hub não oferece o pareamento da arca (não foi iniciado com --arca).';
+
+  @override
+  String get arcaPairErrUnauthorized =>
+      'O hub não aceitou o token deste dispositivo. Conecte-se ao hub de novo.';
+
+  @override
+  String get arcaPairErrForbidden =>
+      'Este dispositivo ainda não foi aprovado no hub. Aprove-o no hub primeiro.';
+
+  @override
+  String get arcaPairErrConflict =>
+      'A oferta mudou no hub. Inicie o pareamento de novo.';
+
+  @override
+  String get arcaPairErrFingerprintMismatch =>
+      'Essa impressão digital não confere com a chave recebida. Nada foi salvo. Comece de novo e confira o outro dispositivo.';
+
+  @override
+  String get arcaPairErrAlreadyHasKey =>
+      'Este dispositivo já tem uma chave do cofre. O pareamento é só para um dispositivo novo.';
+
+  @override
+  String get arcaPairErrTimedOut =>
+      'Nenhuma chave chegou a tempo. Inicie o pareamento de novo.';
+
+  @override
+  String get arcaPairErrStoreFailed =>
+      'Não foi possível salvar a chave neste dispositivo.';
+
+  @override
+  String get arcaPairErrHub =>
+      'Não foi possível falar com o hub. Confira a conexão e tente de novo.';
 }

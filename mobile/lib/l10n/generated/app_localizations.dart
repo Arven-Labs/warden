@@ -3301,6 +3301,162 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'{count, plural, one{1 reply} other{{count} replies}}'**
   String threadReplies(int count);
+
+  /// No description provided for @arcaPairTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Pair with arca'**
+  String get arcaPairTitle;
+
+  /// No description provided for @arcaPairOpen.
+  ///
+  /// In en, this message translates to:
+  /// **'Pair with arca (new device)'**
+  String get arcaPairOpen;
+
+  /// No description provided for @arcaPairIntro.
+  ///
+  /// In en, this message translates to:
+  /// **'Gives this device the vault key from another device that already has it. You will read a code here and type it on the other device, then type the fingerprint that device shows back here.'**
+  String get arcaPairIntro;
+
+  /// No description provided for @arcaPairStart.
+  ///
+  /// In en, this message translates to:
+  /// **'Start pairing'**
+  String get arcaPairStart;
+
+  /// No description provided for @arcaPairNoHub.
+  ///
+  /// In en, this message translates to:
+  /// **'Connect to a hub first (Connection screen), using a device the hub has already approved.'**
+  String get arcaPairNoHub;
+
+  /// No description provided for @arcaPairShowCode.
+  ///
+  /// In en, this message translates to:
+  /// **'Type this code on the other device:'**
+  String get arcaPairShowCode;
+
+  /// No description provided for @arcaPairWaiting.
+  ///
+  /// In en, this message translates to:
+  /// **'Waiting for the other device…'**
+  String get arcaPairWaiting;
+
+  /// No description provided for @arcaPairAskFingerprint.
+  ///
+  /// In en, this message translates to:
+  /// **'Now type the fingerprint the other device shows. Do not copy and paste it: typing it is what protects you from a hub that swaps the key.'**
+  String get arcaPairAskFingerprint;
+
+  /// No description provided for @arcaPairFingerprintLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Fingerprint'**
+  String get arcaPairFingerprintLabel;
+
+  /// No description provided for @arcaPairConfirm.
+  ///
+  /// In en, this message translates to:
+  /// **'Confirm'**
+  String get arcaPairConfirm;
+
+  /// No description provided for @arcaPairCancel.
+  ///
+  /// In en, this message translates to:
+  /// **'Cancel pairing'**
+  String get arcaPairCancel;
+
+  /// No description provided for @arcaPairDone.
+  ///
+  /// In en, this message translates to:
+  /// **'Paired: this device now has the vault key.'**
+  String get arcaPairDone;
+
+  /// No description provided for @arcaPairCancelled.
+  ///
+  /// In en, this message translates to:
+  /// **'Pairing cancelled.'**
+  String get arcaPairCancelled;
+
+  /// No description provided for @arcaPairErrBusy.
+  ///
+  /// In en, this message translates to:
+  /// **'Another pairing is already running on this device.'**
+  String get arcaPairErrBusy;
+
+  /// No description provided for @arcaPairErrNoSession.
+  ///
+  /// In en, this message translates to:
+  /// **'No pairing is running.'**
+  String get arcaPairErrNoSession;
+
+  /// No description provided for @arcaPairErrInsecureUrl.
+  ///
+  /// In en, this message translates to:
+  /// **'The hub address uses plain http. Use https, or a hub on this device.'**
+  String get arcaPairErrInsecureUrl;
+
+  /// No description provided for @arcaPairErrBadUrl.
+  ///
+  /// In en, this message translates to:
+  /// **'The hub address is not valid.'**
+  String get arcaPairErrBadUrl;
+
+  /// No description provided for @arcaPairErrNotAvailable.
+  ///
+  /// In en, this message translates to:
+  /// **'This hub does not offer arca pairing (it was not started with --arca).'**
+  String get arcaPairErrNotAvailable;
+
+  /// No description provided for @arcaPairErrUnauthorized.
+  ///
+  /// In en, this message translates to:
+  /// **'The hub did not accept this device\'s token. Connect to the hub again.'**
+  String get arcaPairErrUnauthorized;
+
+  /// No description provided for @arcaPairErrForbidden.
+  ///
+  /// In en, this message translates to:
+  /// **'This device is not approved on the hub yet. Approve it on the hub first.'**
+  String get arcaPairErrForbidden;
+
+  /// No description provided for @arcaPairErrConflict.
+  ///
+  /// In en, this message translates to:
+  /// **'The offer changed on the hub. Start the pairing again.'**
+  String get arcaPairErrConflict;
+
+  /// No description provided for @arcaPairErrFingerprintMismatch.
+  ///
+  /// In en, this message translates to:
+  /// **'That fingerprint does not match the key received. Nothing was saved. Start again and check the other device.'**
+  String get arcaPairErrFingerprintMismatch;
+
+  /// No description provided for @arcaPairErrAlreadyHasKey.
+  ///
+  /// In en, this message translates to:
+  /// **'This device already has a vault key. Pairing is only for a new device.'**
+  String get arcaPairErrAlreadyHasKey;
+
+  /// No description provided for @arcaPairErrTimedOut.
+  ///
+  /// In en, this message translates to:
+  /// **'No key arrived in time. Start the pairing again.'**
+  String get arcaPairErrTimedOut;
+
+  /// No description provided for @arcaPairErrStoreFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'The key could not be saved on this device.'**
+  String get arcaPairErrStoreFailed;
+
+  /// No description provided for @arcaPairErrHub.
+  ///
+  /// In en, this message translates to:
+  /// **'Could not talk to the hub. Check the connection and try again.'**
+  String get arcaPairErrHub;
 }
 
 class _AppLocalizationsDelegate

@@ -1567,7 +1567,8 @@ class AppLocalizationsEn extends AppLocalizations {
   String get skillsUpdating => 'Updating…';
 
   @override
-  String get skillsUpdateAvailable => 'A newer version is available; yours is untouched';
+  String get skillsUpdateAvailable =>
+      'A newer version is available; yours is untouched';
 
   @override
   String get skillsReplaceMine => 'Replace mine';
@@ -2006,4 +2007,96 @@ class AppLocalizationsEn extends AppLocalizations {
     );
     return '$_temp0';
   }
+
+  @override
+  String get arcaPairTitle => 'Pair with arca';
+
+  @override
+  String get arcaPairOpen => 'Pair with arca (new device)';
+
+  @override
+  String get arcaPairIntro =>
+      'Gives this device the vault key from another device that already has it. You will read a code here and type it on the other device, then type the fingerprint that device shows back here.';
+
+  @override
+  String get arcaPairStart => 'Start pairing';
+
+  @override
+  String get arcaPairNoHub =>
+      'Connect to a hub first (Connection screen), using a device the hub has already approved.';
+
+  @override
+  String get arcaPairShowCode => 'Type this code on the other device:';
+
+  @override
+  String get arcaPairWaiting => 'Waiting for the other device…';
+
+  @override
+  String get arcaPairAskFingerprint =>
+      'Now type the fingerprint the other device shows. Do not copy and paste it: typing it is what protects you from a hub that swaps the key.';
+
+  @override
+  String get arcaPairFingerprintLabel => 'Fingerprint';
+
+  @override
+  String get arcaPairConfirm => 'Confirm';
+
+  @override
+  String get arcaPairCancel => 'Cancel pairing';
+
+  @override
+  String get arcaPairDone => 'Paired: this device now has the vault key.';
+
+  @override
+  String get arcaPairCancelled => 'Pairing cancelled.';
+
+  @override
+  String get arcaPairErrBusy =>
+      'Another pairing is already running on this device.';
+
+  @override
+  String get arcaPairErrNoSession => 'No pairing is running.';
+
+  @override
+  String get arcaPairErrInsecureUrl =>
+      'The hub address uses plain http. Use https, or a hub on this device.';
+
+  @override
+  String get arcaPairErrBadUrl => 'The hub address is not valid.';
+
+  @override
+  String get arcaPairErrNotAvailable =>
+      'This hub does not offer arca pairing (it was not started with --arca).';
+
+  @override
+  String get arcaPairErrUnauthorized =>
+      'The hub did not accept this device\'s token. Connect to the hub again.';
+
+  @override
+  String get arcaPairErrForbidden =>
+      'This device is not approved on the hub yet. Approve it on the hub first.';
+
+  @override
+  String get arcaPairErrConflict =>
+      'The offer changed on the hub. Start the pairing again.';
+
+  @override
+  String get arcaPairErrFingerprintMismatch =>
+      'That fingerprint does not match the key received. Nothing was saved. Start again and check the other device.';
+
+  @override
+  String get arcaPairErrAlreadyHasKey =>
+      'This device already has a vault key. Pairing is only for a new device.';
+
+  @override
+  String get arcaPairErrTimedOut =>
+      'No key arrived in time. Start the pairing again.';
+
+  @override
+  String get arcaPairErrStoreFailed =>
+      'The key could not be saved on this device.';
+
+  @override
+  String get arcaPairErrHub =>
+      'Could not talk to the hub. Check the connection and try again.';
 }

@@ -140,7 +140,46 @@ fn no_session() -> ArcaPairFailure {
     ArcaPairFailure { kind: ArcaPairErrorKind::NoSession, detail: "no pairing is running".into() }
 }
 
+/// What `arca_pair_next` tells Dart: a struct and a field-less enum, because an enum with data would make FRB generate `freezed`
+/// classes (a new dev dependency for the whole app) for one screen.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ArcaPairStepKind {
+    OfferCode,
+    AskFingerprint,
+    Done,
+    Cancelled,
+    Failed,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ArcaPairStep {
+    pub kind: ArcaPairStepKind,
+    /// The offer code when `kind` is `OfferCode`; empty otherwise.
+    pub code: String,
+    /// Set when `kind` is `Failed`.
+    pub failure: Option<ArcaPairFailure>,
+}
+
+impl From<ArcaPairEvent> for ArcaPairStep {
+    fn from(event: ArcaPairEvent) -> Self {
+        let (kind, code, failure) = match event {
+            ArcaPairEvent::OfferCode(code) => (ArcaPairStepKind::OfferCode, code, None),
+            ArcaPairEvent::AskFingerprint => (ArcaPairStepKind::AskFingerprint, String::new(), None),
+            ArcaPairEvent::Done => (ArcaPairStepKind::Done, String::new(), None),
+            ArcaPairEvent::Cancelled => (ArcaPairStepKind::Cancelled, String::new(), None),
+            ArcaPairEvent::Failed(failure) => (ArcaPairStepKind::Failed, String::new(), Some(failure)),
+        };
+        ArcaPairStep { kind, code, failure }
+    }
+}
+
+/// Blocks until the next step (see `arca_pair_next_event`); the one Dart calls.
+pub fn arca_pair_next() -> Result<ArcaPairStep, ArcaPairFailure> {
+    arca_pair_next_event().map(ArcaPairStep::from)
+}
+
 /// Blocks until the next event. A final event (`Done`, `Cancelled`, `Failed`) frees the slot for the next pairing.
+#[flutter_rust_bridge::frb(ignore)]
 pub fn arca_pair_next_event() -> Result<ArcaPairEvent, ArcaPairFailure> {
     // The lock is not held while waiting, so `answer` and `cancel` can still get in.
     let events = slot().as_ref().ok_or_else(no_session)?.events.clone();
@@ -459,6 +498,23 @@ mod tests {
         assert_eq!(arca_pair_answer("abcd".into()).unwrap_err().kind, ArcaPairErrorKind::NoSession);
         assert_eq!(arca_pair_next_event().unwrap_err().kind, ArcaPairErrorKind::NoSession);
         arca_pair_cancel(); // not an error
+    }
+
+    // 11: what Dart receives is a plain struct, with the code only where there is one.
+    #[test]
+    fn every_event_reaches_dart_as_a_step_with_the_code_or_the_failure_only_where_it_belongs() {
+        let failure = ArcaPairFailure { kind: ArcaPairErrorKind::Forbidden, detail: "x".into() };
+        let cases = [
+            (ArcaPairEvent::OfferCode("abcd-0000-1111-2222".into()), ArcaPairStepKind::OfferCode, "abcd-0000-1111-2222", None),
+            (ArcaPairEvent::AskFingerprint, ArcaPairStepKind::AskFingerprint, "", None),
+            (ArcaPairEvent::Done, ArcaPairStepKind::Done, "", None),
+            (ArcaPairEvent::Cancelled, ArcaPairStepKind::Cancelled, "", None),
+            (ArcaPairEvent::Failed(failure.clone()), ArcaPairStepKind::Failed, "", Some(failure)),
+        ];
+        for (event, kind, code, failure) in cases {
+            let step = ArcaPairStep::from(event);
+            assert_eq!((step.kind, step.code.as_str(), step.failure), (kind, code, failure));
+        }
     }
 
     // 10: what the screen translates.
