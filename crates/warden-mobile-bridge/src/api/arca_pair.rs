@@ -58,6 +58,14 @@ pub enum ArcaPairErrorKind {
     TimedOut,
     /// The key could not be stored on this phone.
     StoreFailed,
+    /// As the device that grants: no new device is waiting for a key on the hub.
+    NoOffers,
+    /// As the device that grants: this phone has no vault key to hand over.
+    NoKey,
+    /// The typed code is not the chosen offer's: nothing was sent.
+    CodeMismatch,
+    /// The chosen offer is gone from the hub (expired or replaced).
+    NoOffer,
     /// Anything else (network, an answer the hub does not document).
     Hub,
 }
@@ -76,9 +84,41 @@ pub enum ArcaPairEvent {
     OfferCode(String),
     /// Ask for the fingerprint the other device shows now.
     AskFingerprint,
+    /// As the device that grants: the device ids of the offers waiting on the hub, in the order `arca_pair_pick` counts them.
+    ChooseOffer(Vec<String>),
+    /// As the device that grants: ask for the code the new device shows. Carries no value, like `AskFingerprint`.
+    AskOfferCode,
+    /// As the device that grants: the fingerprint of the key it handed over, for the person to type on the new device.
+    ShowFingerprint(String),
     Done,
     Cancelled,
     Failed(ArcaPairFailure),
+}
+
+/// Which side this phone plays: the new device has no key yet, the one that grants has.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ArcaPairRole {
+    Offer,
+    Grant,
+}
+
+/// Which side this phone plays, for the screen to draw before anything starts.
+pub fn arca_pair_role(vault_root: String, config_path: String, secrets_path: String, manifest_path: String) -> ArcaPairRole {
+    let _ = (vault_root, config_path, secrets_path, manifest_path);
+    todo!()
+}
+
+/// As the device that grants: lists the offers on the hub, lets the person pick one with `arca_pair_pick`, asks for the code the
+/// new device shows (`arca_pair_answer`) and hands the key over. Same slot, `arca_pair_next` and `arca_pair_cancel` as `arca_pair_start`.
+pub fn arca_pair_start_grant(vault_root: String, config_path: String, secrets_path: String, manifest_path: String, hub_url: String, device_token: String) -> Result<(), ArcaPairFailure> {
+    let _ = (vault_root, config_path, secrets_path, manifest_path, hub_url, device_token);
+    todo!()
+}
+
+/// The person picked the offer at `index` of the list `ChooseOffer` carried. An index past the end ends the pairing as cancelled.
+pub fn arca_pair_pick(index: u32) -> Result<(), ArcaPairFailure> {
+    let _ = index;
+    todo!()
 }
 
 pub fn arca_pair_start(
@@ -146,6 +186,9 @@ fn no_session() -> ArcaPairFailure {
 pub enum ArcaPairStepKind {
     OfferCode,
     AskFingerprint,
+    ChooseOffer,
+    AskOfferCode,
+    ShowFingerprint,
     Done,
     Cancelled,
     Failed,
@@ -156,20 +199,25 @@ pub struct ArcaPairStep {
     pub kind: ArcaPairStepKind,
     /// The offer code when `kind` is `OfferCode`; empty otherwise.
     pub code: String,
+    /// The device ids of the waiting offers when `kind` is `ChooseOffer`; empty otherwise.
+    pub offers: Vec<String>,
+    /// The fingerprint of the key handed over when `kind` is `ShowFingerprint`; empty otherwise.
+    pub fingerprint: String,
     /// Set when `kind` is `Failed`.
     pub failure: Option<ArcaPairFailure>,
 }
 
 impl From<ArcaPairEvent> for ArcaPairStep {
     fn from(event: ArcaPairEvent) -> Self {
-        let (kind, code, failure) = match event {
-            ArcaPairEvent::OfferCode(code) => (ArcaPairStepKind::OfferCode, code, None),
-            ArcaPairEvent::AskFingerprint => (ArcaPairStepKind::AskFingerprint, String::new(), None),
-            ArcaPairEvent::Done => (ArcaPairStepKind::Done, String::new(), None),
-            ArcaPairEvent::Cancelled => (ArcaPairStepKind::Cancelled, String::new(), None),
-            ArcaPairEvent::Failed(failure) => (ArcaPairStepKind::Failed, String::new(), Some(failure)),
-        };
-        ArcaPairStep { kind, code, failure }
+        let step = |kind| ArcaPairStep { kind, code: String::new(), offers: Vec::new(), fingerprint: String::new(), failure: None };
+        match event {
+            ArcaPairEvent::OfferCode(code) => ArcaPairStep { code, ..step(ArcaPairStepKind::OfferCode) },
+            ArcaPairEvent::AskFingerprint => step(ArcaPairStepKind::AskFingerprint),
+            ArcaPairEvent::ChooseOffer(_) | ArcaPairEvent::AskOfferCode | ArcaPairEvent::ShowFingerprint(_) => todo!(),
+            ArcaPairEvent::Done => step(ArcaPairStepKind::Done),
+            ArcaPairEvent::Cancelled => step(ArcaPairStepKind::Cancelled),
+            ArcaPairEvent::Failed(failure) => ArcaPairStep { failure: Some(failure), ..step(ArcaPairStepKind::Failed) },
+        }
     }
 }
 
@@ -241,10 +289,10 @@ mod tests {
     use axum::http::StatusCode;
     use axum::routing::{get, put};
     use axum::Router;
-    use warden_sync::arca_pairing::{key_fingerprint, PairingError};
+    use warden_sync::arca_pairing::{key_fingerprint, PairingError, PendingOffer};
     use warden_sync::arca_pairing_flow::FlowError;
     use warden_sync::SyncEngine;
-    use warden_truthid::crypto::ecies_encrypt;
+    use warden_truthid::crypto::{ecies_decrypt, ecies_encrypt, generate_ecies_keypair, EciesKeyPair};
 
     // The slot is process-wide (like the sync bridge's `PENDING_*`), so the tests that use it take turns.
     static ONE_AT_A_TIME: Mutex<()> = Mutex::new(());
@@ -293,6 +341,11 @@ mod tests {
         offer_public_key: Option<String>,
         offer_puts: u32,
         grant_key: Option<[u8; 32]>,
+        // The side that grants: the offers the hub lists, how many times it was asked, and the grants left on it.
+        offers: Vec<(String, String)>,
+        offer_lists: u32,
+        grants: Vec<(String, Vec<u8>)>,
+        grant_answer: Option<(u16, &'static str)>,
     }
 
     struct FakeHub {
@@ -327,6 +380,26 @@ mod tests {
                         }
                     }),
                 )
+                .route(
+                    "/arca/v1/pairing/offers",
+                    get(|State(state): State<Arc<Mutex<HubState>>>| async move {
+                        let mut state = state.lock().unwrap();
+                        state.offer_lists += 1;
+                        let offers: Vec<_> = state.offers.iter().map(|(device_id, public_key)| serde_json::json!({ "device_id": device_id, "public_key": public_key })).collect();
+                        axum::Json(serde_json::json!({ "offers": offers }))
+                    }),
+                )
+                .route(
+                    "/arca/v1/pairing/grant/{device_id}",
+                    put(|State(state): State<Arc<Mutex<HubState>>>, axum::extract::Path(device_id): axum::extract::Path<String>, body: Bytes| async move {
+                        let mut state = state.lock().unwrap();
+                        if let Some((status, text)) = state.grant_answer {
+                            return (StatusCode::from_u16(status).unwrap(), text.to_string());
+                        }
+                        state.grants.push((device_id, body.to_vec()));
+                        (StatusCode::NO_CONTENT, String::new())
+                    }),
+                )
                 .with_state(state.clone());
             let (tx, rx) = std::sync::mpsc::channel::<SocketAddr>();
             // The bridge's own runtime does the blocking; the hub lives on a runtime of its own, on its own thread.
@@ -349,6 +422,39 @@ mod tests {
         fn offer_puts(&self) -> u32 {
             self.state.lock().unwrap().offer_puts
         }
+
+        /// A new device waiting on the hub: its offer is listed, and `grants()` later shows what was left for it.
+        fn wait_as(&self, device_id: &str) -> NewDevice {
+            let pair = generate_ecies_keypair();
+            self.state.lock().unwrap().offers.push((device_id.to_string(), pair.public_hex.clone()));
+            NewDevice { offer: PendingOffer { device_id: device_id.to_string(), public_key: pair.public_hex.clone() }, pair }
+        }
+
+        fn offer_lists(&self) -> u32 {
+            self.state.lock().unwrap().offer_lists
+        }
+
+        fn grants(&self) -> Vec<(String, Vec<u8>)> {
+            self.state.lock().unwrap().grants.clone()
+        }
+    }
+
+    /// What a new device keeps to read its own grant and to say what its code is.
+    struct NewDevice {
+        offer: PendingOffer,
+        pair: EciesKeyPair,
+    }
+
+    /// A phone that already has a key (the side that grants), and that key.
+    fn phone_with_key(name: &str) -> (Vec<String>, SyncEngine, [u8; 32]) {
+        let (paths, engine) = phone(name);
+        engine.init_fresh().unwrap();
+        let key = engine.export_vault_key().unwrap();
+        (paths, engine, key)
+    }
+
+    fn start_grant(paths: &[String], hub_url: &str) -> Result<(), ArcaPairFailure> {
+        arca_pair_start_grant(paths[0].clone(), paths[1].clone(), paths[2].clone(), paths[3].clone(), hub_url.to_string(), "token".into())
     }
 
     fn code_shape(code: &str) -> bool {
@@ -517,10 +623,188 @@ mod tests {
         }
     }
 
+    fn role_of(paths: &[String]) -> ArcaPairRole {
+        arca_pair_role(paths[0].clone(), paths[1].clone(), paths[2].clone(), paths[3].clone())
+    }
+
+    // A1: the side comes from having the vault key, not from the Arweave pairing.
+    #[test]
+    fn a_phone_plays_the_side_its_key_says_new_device_without_a_key_and_granting_device_with_one() {
+        let _turn = one_at_a_time();
+        let (fresh, _engine) = phone("role-offer");
+        let (with_key, _engine, _key) = phone_with_key("role-grant");
+
+        assert_eq!(role_of(&fresh), ArcaPairRole::Offer);
+        assert_eq!(role_of(&with_key), ArcaPairRole::Grant);
+    }
+
+    // A2: nothing to hand over, nothing asked of the hub.
+    #[test]
+    fn a_phone_without_a_key_cannot_grant_and_asks_the_hub_nothing() {
+        let _turn = one_at_a_time();
+        let hub = FakeHub::start();
+        let (paths, _engine) = phone("grant-no-key");
+
+        start_grant(&paths, &hub.url).unwrap();
+        let first = arca_pair_next_event().unwrap();
+
+        assert!(matches!(&first, ArcaPairEvent::Failed(f) if f.kind == ArcaPairErrorKind::NoKey), "{first:?}");
+        assert_eq!(hub.offer_lists(), 0);
+    }
+
+    // A3
+    #[test]
+    fn with_no_new_device_waiting_it_says_so() {
+        let _turn = one_at_a_time();
+        let hub = FakeHub::start();
+        let (paths, _engine, _key) = phone_with_key("grant-no-offers");
+
+        start_grant(&paths, &hub.url).unwrap();
+        let first = arca_pair_next_event().unwrap();
+
+        assert!(matches!(&first, ArcaPairEvent::Failed(f) if f.kind == ArcaPairErrorKind::NoOffers), "{first:?}");
+    }
+
+    // A4
+    #[test]
+    fn the_waiting_devices_are_listed_by_id_in_the_hubs_order() {
+        let _turn = one_at_a_time();
+        let hub = FakeHub::start();
+        hub.wait_as("phone-a");
+        hub.wait_as("phone-b");
+        let (paths, _engine, _key) = phone_with_key("grant-list");
+
+        start_grant(&paths, &hub.url).unwrap();
+        let first = arca_pair_next_event().unwrap();
+
+        assert_eq!(first, ArcaPairEvent::ChooseOffer(vec!["phone-a".into(), "phone-b".into()]));
+        arca_pair_cancel();
+    }
+
+    // A5: the code typed is what ties the grant to the offer the person saw.
+    #[test]
+    fn a_wrong_code_sends_nothing_to_the_hub() {
+        let _turn = one_at_a_time();
+        let hub = FakeHub::start();
+        hub.wait_as("phone-a");
+        let (paths, _engine, _key) = phone_with_key("grant-wrong-code");
+
+        start_grant(&paths, &hub.url).unwrap();
+        assert!(matches!(arca_pair_next_event().unwrap(), ArcaPairEvent::ChooseOffer(_)));
+        arca_pair_pick(0).unwrap();
+        assert_eq!(arca_pair_next_event().unwrap(), ArcaPairEvent::AskOfferCode);
+        arca_pair_answer("0000-0000-0000-0000".into()).unwrap();
+
+        let last = arca_pair_next_event().unwrap();
+        assert!(matches!(&last, ArcaPairEvent::Failed(f) if f.kind == ArcaPairErrorKind::CodeMismatch), "{last:?}");
+        assert!(hub.grants().is_empty(), "a key must not be left on the hub for a code that did not match");
+    }
+
+    // A6
+    #[test]
+    fn the_right_code_hands_the_key_to_the_chosen_device_and_shows_its_fingerprint() {
+        let _turn = one_at_a_time();
+        let hub = FakeHub::start();
+        let _other = hub.wait_as("phone-a");
+        let chosen = hub.wait_as("phone-b");
+        let (paths, _engine, key) = phone_with_key("grant-right-code");
+
+        start_grant(&paths, &hub.url).unwrap();
+        assert!(matches!(arca_pair_next_event().unwrap(), ArcaPairEvent::ChooseOffer(_)));
+        arca_pair_pick(1).unwrap();
+        assert_eq!(arca_pair_next_event().unwrap(), ArcaPairEvent::AskOfferCode);
+        arca_pair_answer(chosen.offer.code().to_uppercase().replace('-', " ")).unwrap();
+
+        assert_eq!(arca_pair_next_event().unwrap(), ArcaPairEvent::ShowFingerprint(key_fingerprint(&key)));
+        assert_eq!(arca_pair_next_event().unwrap(), ArcaPairEvent::Done);
+        let grants = hub.grants();
+        assert_eq!(grants.len(), 1);
+        assert_eq!(grants[0].0, "phone-b");
+        assert_eq!(ecies_decrypt(&grants[0].1, &chosen.pair.secret).unwrap(), key.to_vec(), "the chosen device can read the key, and it is this phone's");
+    }
+
+    // A7
+    #[test]
+    fn giving_up_at_the_list_ends_as_cancelled_and_frees_the_slot() {
+        let _turn = one_at_a_time();
+        let hub = FakeHub::start();
+        hub.wait_as("phone-a");
+        let (paths, _engine, _key) = phone_with_key("grant-cancel");
+
+        start_grant(&paths, &hub.url).unwrap();
+        assert!(matches!(arca_pair_next_event().unwrap(), ArcaPairEvent::ChooseOffer(_)));
+        arca_pair_cancel();
+
+        assert_eq!(arca_pair_next_event().unwrap(), ArcaPairEvent::Cancelled);
+        start_grant(&paths, &hub.url).unwrap();
+        assert!(matches!(arca_pair_next_event().unwrap(), ArcaPairEvent::ChooseOffer(_)));
+        arca_pair_cancel();
+    }
+
+    // A8
+    #[test]
+    fn picking_past_the_end_of_the_list_grants_nothing() {
+        let _turn = one_at_a_time();
+        let hub = FakeHub::start();
+        hub.wait_as("phone-a");
+        let (paths, _engine, _key) = phone_with_key("grant-out-of-range");
+
+        start_grant(&paths, &hub.url).unwrap();
+        assert!(matches!(arca_pair_next_event().unwrap(), ArcaPairEvent::ChooseOffer(_)));
+        arca_pair_pick(5).unwrap();
+
+        assert_eq!(arca_pair_next_event().unwrap(), ArcaPairEvent::Cancelled);
+        assert!(hub.grants().is_empty());
+    }
+
+    // A9
+    #[test]
+    fn an_offer_that_vanished_from_the_hub_ends_as_no_offer() {
+        let _turn = one_at_a_time();
+        let hub = FakeHub::start();
+        let chosen = hub.wait_as("phone-a");
+        hub.state.lock().unwrap().grant_answer = Some((404, "no offer"));
+        let (paths, _engine, _key) = phone_with_key("grant-gone");
+
+        start_grant(&paths, &hub.url).unwrap();
+        assert!(matches!(arca_pair_next_event().unwrap(), ArcaPairEvent::ChooseOffer(_)));
+        arca_pair_pick(0).unwrap();
+        assert_eq!(arca_pair_next_event().unwrap(), ArcaPairEvent::AskOfferCode);
+        arca_pair_answer(chosen.offer.code()).unwrap();
+
+        let last = arca_pair_next_event().unwrap();
+        assert!(matches!(&last, ArcaPairEvent::Failed(f) if f.kind == ArcaPairErrorKind::NoOffer), "{last:?}");
+    }
+
+    // A10
+    #[test]
+    fn with_no_pairing_running_there_is_nothing_to_pick() {
+        let _turn = one_at_a_time();
+
+        assert_eq!(arca_pair_pick(0).unwrap_err().kind, ArcaPairErrorKind::NoSession);
+    }
+
+    // A11: the new events reach Dart with the list and the fingerprint only where they belong.
+    #[test]
+    fn the_granting_side_events_reach_dart_with_the_list_or_the_fingerprint_only_where_they_belong() {
+        let choose = ArcaPairStep::from(ArcaPairEvent::ChooseOffer(vec!["phone-a".into(), "phone-b".into()]));
+        assert_eq!((choose.kind, choose.offers, choose.code, choose.fingerprint), (ArcaPairStepKind::ChooseOffer, vec!["phone-a".to_string(), "phone-b".to_string()], String::new(), String::new()));
+
+        let ask = ArcaPairStep::from(ArcaPairEvent::AskOfferCode);
+        assert_eq!((ask.kind, ask.offers.is_empty(), ask.code, ask.fingerprint), (ArcaPairStepKind::AskOfferCode, true, String::new(), String::new()));
+
+        let show = ArcaPairStep::from(ArcaPairEvent::ShowFingerprint("a1b2-c3d4-e5f6-0718".into()));
+        assert_eq!((show.kind, show.offers.is_empty(), show.code, show.fingerprint), (ArcaPairStepKind::ShowFingerprint, true, String::new(), "a1b2-c3d4-e5f6-0718".to_string()));
+    }
+
     // 10: what the screen translates.
     #[test]
     fn every_way_the_flow_can_end_has_a_kind_the_screen_can_translate() {
         let cases: Vec<(FlowError, ArcaPairErrorKind)> = vec![
+            (FlowError::NoOffers, ArcaPairErrorKind::NoOffers),
+            (FlowError::NoKey("none".into()), ArcaPairErrorKind::NoKey),
+            (FlowError::Pairing(PairingError::CodeMismatch), ArcaPairErrorKind::CodeMismatch),
+            (FlowError::Pairing(PairingError::NoOffer), ArcaPairErrorKind::NoOffer),
             (FlowError::Pairing(PairingError::InsecureUrl), ArcaPairErrorKind::InsecureUrl),
             (FlowError::Pairing(PairingError::BadUrl), ArcaPairErrorKind::BadUrl),
             (FlowError::Pairing(PairingError::NotAvailable), ArcaPairErrorKind::NotAvailable),

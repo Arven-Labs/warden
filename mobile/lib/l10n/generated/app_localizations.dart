@@ -3311,8 +3311,62 @@ abstract class AppLocalizations {
   /// No description provided for @arcaPairOpen.
   ///
   /// In en, this message translates to:
-  /// **'Pair with arca (new device)'**
+  /// **'Pair with arca'**
   String get arcaPairOpen;
+
+  /// No description provided for @arcaPairGrantIntro.
+  ///
+  /// In en, this message translates to:
+  /// **'Hands this device\'s vault key to a new device that is waiting for it. Pick the new device, type the code it shows, then type the fingerprint shown here on the new device.'**
+  String get arcaPairGrantIntro;
+
+  /// No description provided for @arcaPairChooseOffer.
+  ///
+  /// In en, this message translates to:
+  /// **'Which device is waiting for the key? Pick the one you are setting up.'**
+  String get arcaPairChooseOffer;
+
+  /// No description provided for @arcaPairAskOfferCode.
+  ///
+  /// In en, this message translates to:
+  /// **'Type the code the new device shows. Do not copy and paste it: typing it is what ties the key to the device you are looking at.'**
+  String get arcaPairAskOfferCode;
+
+  /// No description provided for @arcaPairOfferCodeLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Code'**
+  String get arcaPairOfferCodeLabel;
+
+  /// No description provided for @arcaPairGranted.
+  ///
+  /// In en, this message translates to:
+  /// **'Key sent. Now type this fingerprint on the new device:'**
+  String get arcaPairGranted;
+
+  /// No description provided for @arcaPairErrNoOffers.
+  ///
+  /// In en, this message translates to:
+  /// **'No new device is waiting for a key. Start the pairing on the new device first.'**
+  String get arcaPairErrNoOffers;
+
+  /// No description provided for @arcaPairErrNoKey.
+  ///
+  /// In en, this message translates to:
+  /// **'This device has no vault key to hand over.'**
+  String get arcaPairErrNoKey;
+
+  /// No description provided for @arcaPairErrCodeMismatch.
+  ///
+  /// In en, this message translates to:
+  /// **'That code does not match the device you picked. Nothing was sent. Check the code on the new device.'**
+  String get arcaPairErrCodeMismatch;
+
+  /// No description provided for @arcaPairErrNoOffer.
+  ///
+  /// In en, this message translates to:
+  /// **'The new device\'s offer is gone from the hub. Ask it to start again.'**
+  String get arcaPairErrNoOffer;
 
   /// No description provided for @arcaPairIntro.
   ///

@@ -9,8 +9,43 @@ import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
 // These functions are ignored because they are not marked as `pub`: `failure_of`, `no_session`, `screen_event`, `slot`
 // These types are ignored because they are neither used by any `pub` functions nor (for structs and enums) marked `#[frb(unignore)]`: `ArcaPairEvent`, `Session`
-// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `clone`, `clone`, `clone`, `clone`, `clone`, `eq`, `eq`, `eq`, `eq`, `eq`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `from`
+// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `from`
 // These functions are ignored (category: IgnoreBecauseExplicitAttribute): `arca_pair_next_event`
+
+/// Which side this phone plays, for the screen to draw before anything starts.
+Future<ArcaPairRole> arcaPairRole({
+  required String vaultRoot,
+  required String configPath,
+  required String secretsPath,
+  required String manifestPath,
+}) => RustLib.instance.api.crateApiArcaPairArcaPairRole(
+  vaultRoot: vaultRoot,
+  configPath: configPath,
+  secretsPath: secretsPath,
+  manifestPath: manifestPath,
+);
+
+/// As the device that grants: lists the offers on the hub, lets the person pick one with `arca_pair_pick`, asks for the code the
+/// new device shows (`arca_pair_answer`) and hands the key over. Same slot, `arca_pair_next` and `arca_pair_cancel` as `arca_pair_start`.
+Future<void> arcaPairStartGrant({
+  required String vaultRoot,
+  required String configPath,
+  required String secretsPath,
+  required String manifestPath,
+  required String hubUrl,
+  required String deviceToken,
+}) => RustLib.instance.api.crateApiArcaPairArcaPairStartGrant(
+  vaultRoot: vaultRoot,
+  configPath: configPath,
+  secretsPath: secretsPath,
+  manifestPath: manifestPath,
+  hubUrl: hubUrl,
+  deviceToken: deviceToken,
+);
+
+/// The person picked the offer at `index` of the list `ChooseOffer` carried. An index past the end ends the pairing as cancelled.
+Future<void> arcaPairPick({required int index}) =>
+    RustLib.instance.api.crateApiArcaPairArcaPairPick(index: index);
 
 Future<void> arcaPairStart({
   required String vaultRoot,
@@ -77,6 +112,18 @@ enum ArcaPairErrorKind {
   /// The key could not be stored on this phone.
   storeFailed,
 
+  /// As the device that grants: no new device is waiting for a key on the hub.
+  noOffers,
+
+  /// As the device that grants: this phone has no vault key to hand over.
+  noKey,
+
+  /// The typed code is not the chosen offer's: nothing was sent.
+  codeMismatch,
+
+  /// The chosen offer is gone from the hub (expired or replaced).
+  noOffer,
+
   /// Anything else (network, an answer the hub does not document).
   hub,
 }
@@ -101,19 +148,39 @@ class ArcaPairFailure implements FrbException {
           detail == other.detail;
 }
 
+/// Which side this phone plays: the new device has no key yet, the one that grants has.
+enum ArcaPairRole { offer, grant }
+
 class ArcaPairStep {
   final ArcaPairStepKind kind;
 
   /// The offer code when `kind` is `OfferCode`; empty otherwise.
   final String code;
 
+  /// The device ids of the waiting offers when `kind` is `ChooseOffer`; empty otherwise.
+  final List<String> offers;
+
+  /// The fingerprint of the key handed over when `kind` is `ShowFingerprint`; empty otherwise.
+  final String fingerprint;
+
   /// Set when `kind` is `Failed`.
   final ArcaPairFailure? failure;
 
-  const ArcaPairStep({required this.kind, required this.code, this.failure});
+  const ArcaPairStep({
+    required this.kind,
+    required this.code,
+    required this.offers,
+    required this.fingerprint,
+    this.failure,
+  });
 
   @override
-  int get hashCode => kind.hashCode ^ code.hashCode ^ failure.hashCode;
+  int get hashCode =>
+      kind.hashCode ^
+      code.hashCode ^
+      offers.hashCode ^
+      fingerprint.hashCode ^
+      failure.hashCode;
 
   @override
   bool operator ==(Object other) =>
@@ -122,9 +189,20 @@ class ArcaPairStep {
           runtimeType == other.runtimeType &&
           kind == other.kind &&
           code == other.code &&
+          offers == other.offers &&
+          fingerprint == other.fingerprint &&
           failure == other.failure;
 }
 
 /// What `arca_pair_next` tells Dart: a struct and a field-less enum, because an enum with data would make FRB generate `freezed`
 /// classes (a new dev dependency for the whole app) for one screen.
-enum ArcaPairStepKind { offerCode, askFingerprint, done, cancelled, failed }
+enum ArcaPairStepKind {
+  offerCode,
+  askFingerprint,
+  chooseOffer,
+  askOfferCode,
+  showFingerprint,
+  done,
+  cancelled,
+  failed,
+}
