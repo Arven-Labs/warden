@@ -98,6 +98,9 @@ class _ArcaPairScreenState extends State<ArcaPairScreen> {
           setState(() => _code = step.code);
         case bridge.ArcaPairStepKind.askFingerprint:
           setState(() => _phase = _Phase.asking);
+        case bridge.ArcaPairStepKind.chooseOffer || bridge.ArcaPairStepKind.askOfferCode || bridge.ArcaPairStepKind.showFingerprint:
+          // Stub: the granting side comes after its tests are reviewed.
+          break;
         case bridge.ArcaPairStepKind.done:
           _finish(_Phase.done, null);
         case bridge.ArcaPairStepKind.cancelled:
