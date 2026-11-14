@@ -6,6 +6,17 @@
 
 ---
 
+### 2026-11-14 — Pareamento da arca no mobile, como dispositivo que concede (A) (P182)
+
+- **Pedido**: a outra metade do pareamento no celular (o que já tem a chave a entrega a um dispositivo novo). Plano aprovado em plan mode.
+- **Feito (PR #149)**: no bridge, `arca_pair_role` (pelo `is_initialized()`, não por `status.paired`), `arca_pair_start_grant` e `arca_pair_pick`, sobre o mesmo slot e o mesmo laço `next` do #147; `begin` virou comum aos dois lados (`run_offer` ou `run_grant`). A chave é lida por dentro do `run_grant` e não passa pelo Dart. A tela decide o papel ao abrir: lista de dispositivos esperando (só o id), campo do código que o novo mostra (também só com caracteres digitados, `TypedOnlyFormatter`), e a impressão digital fica na tela depois do `Done` para ser digitada no dispositivo novo. O botão da Sync passou a aparecer sempre (antes só sem `status.paired`). Quatro tipos de falha novos (`NoOffers`, `NoKey`, `CodeMismatch`, `NoOffer`), com texto en e pt-BR.
+- **Testes primeiro**: Rust, 12 falharam antes (11 novos e o de mapeamento ampliado); Dart, 5 dos 6 novos falharam (o de mensagem traduzida já passava, o mapeador entrou no esqueleto). Depois, CI verde (`Rust`, `Mobile`, `Android`, `Browser against a real hub`). Quebra de propósito (PR descartável #150, fechado): `pick` ignorando o índice derrubou 2 testes do Rust (`picking_past_the_end…` e `the_right_code_hands_the_key…`); tirar o `TypedOnlyFormatter` do campo derrubou os 2 testes de "colar" do Dart. Revertidas.
+- **Deslizes**: um `switch` não exaustivo na tela passou no primeiro push (o `flutter analyze` rodou depois do commit); e um parâmetro `side` encoberto no `begin` quebrou a compilação do Rust (corrigido, sem custo além de uma rodada de CI).
+- **Não verificado**: aparelho ou emulador real e hub real (o hub dos testes tem só as rotas do pareamento e não confere o token); iOS; tema escuro; o botão da Sync (a `SyncScreen` carrega o `RustLib`, sem teste de widget); a conferência humana do código e da impressão entre dois aparelhos de verdade.
+- **Fica**: web; uma passada manual com dois dispositivos reais; o `SESSIONS.md` do Warden segue defasado entre 2026-11-06 e 2026-11-13.
+
+---
+
 ### 2026-11-14 — Pareamento da arca no mobile, como dispositivo novo (P182)
 
 - **Pedido**: levar o pareamento da arca ao celular. Plano aprovado em plan mode; o dono escolheu só o dispositivo novo (B), reusando a conexão (host, porta e token) que o app já guarda.
