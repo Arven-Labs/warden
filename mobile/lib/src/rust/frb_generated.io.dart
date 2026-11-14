@@ -3,6 +3,7 @@
 
 // ignore_for_file: unused_import, unused_element, unnecessary_import, duplicate_ignore, invalid_use_of_internal_member, annotate_overrides, non_constant_identifier_names, curly_braces_in_flow_control_structures, prefer_const_literals_to_create_immutables, unused_field
 
+import 'api/arca_pair.dart';
 import 'api/discovery.dart';
 import 'api/simple.dart';
 import 'api/skills.dart';
@@ -28,7 +29,22 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   String dco_decode_String(dynamic raw);
 
   @protected
+  ArcaPairErrorKind dco_decode_arca_pair_error_kind(dynamic raw);
+
+  @protected
+  ArcaPairFailure dco_decode_arca_pair_failure(dynamic raw);
+
+  @protected
+  ArcaPairStep dco_decode_arca_pair_step(dynamic raw);
+
+  @protected
+  ArcaPairStepKind dco_decode_arca_pair_step_kind(dynamic raw);
+
+  @protected
   bool dco_decode_bool(dynamic raw);
+
+  @protected
+  ArcaPairFailure dco_decode_box_autoadd_arca_pair_failure(dynamic raw);
 
   @protected
   PlatformInt64 dco_decode_box_autoadd_i_64(dynamic raw);
@@ -44,6 +60,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   DiscoveredHubDto dco_decode_discovered_hub_dto(dynamic raw);
+
+  @protected
+  int dco_decode_i_32(dynamic raw);
 
   @protected
   PlatformInt64 dco_decode_i_64(dynamic raw);
@@ -68,6 +87,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   String? dco_decode_opt_String(dynamic raw);
+
+  @protected
+  ArcaPairFailure? dco_decode_opt_box_autoadd_arca_pair_failure(dynamic raw);
 
   @protected
   PlatformInt64? dco_decode_opt_box_autoadd_i_64(dynamic raw);
@@ -109,7 +131,26 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   String sse_decode_String(SseDeserializer deserializer);
 
   @protected
+  ArcaPairErrorKind sse_decode_arca_pair_error_kind(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  ArcaPairFailure sse_decode_arca_pair_failure(SseDeserializer deserializer);
+
+  @protected
+  ArcaPairStep sse_decode_arca_pair_step(SseDeserializer deserializer);
+
+  @protected
+  ArcaPairStepKind sse_decode_arca_pair_step_kind(SseDeserializer deserializer);
+
+  @protected
   bool sse_decode_bool(SseDeserializer deserializer);
+
+  @protected
+  ArcaPairFailure sse_decode_box_autoadd_arca_pair_failure(
+    SseDeserializer deserializer,
+  );
 
   @protected
   PlatformInt64 sse_decode_box_autoadd_i_64(SseDeserializer deserializer);
@@ -127,6 +168,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   DiscoveredHubDto sse_decode_discovered_hub_dto(SseDeserializer deserializer);
+
+  @protected
+  int sse_decode_i_32(SseDeserializer deserializer);
 
   @protected
   PlatformInt64 sse_decode_i_64(SseDeserializer deserializer);
@@ -157,6 +201,11 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   String? sse_decode_opt_String(SseDeserializer deserializer);
+
+  @protected
+  ArcaPairFailure? sse_decode_opt_box_autoadd_arca_pair_failure(
+    SseDeserializer deserializer,
+  );
 
   @protected
   PlatformInt64? sse_decode_opt_box_autoadd_i_64(SseDeserializer deserializer);
@@ -197,13 +246,37 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   void sse_decode_unit(SseDeserializer deserializer);
 
   @protected
-  int sse_decode_i_32(SseDeserializer deserializer);
-
-  @protected
   void sse_encode_String(String self, SseSerializer serializer);
 
   @protected
+  void sse_encode_arca_pair_error_kind(
+    ArcaPairErrorKind self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_arca_pair_failure(
+    ArcaPairFailure self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_arca_pair_step(ArcaPairStep self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_arca_pair_step_kind(
+    ArcaPairStepKind self,
+    SseSerializer serializer,
+  );
+
+  @protected
   void sse_encode_bool(bool self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_box_autoadd_arca_pair_failure(
+    ArcaPairFailure self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_box_autoadd_i_64(
@@ -234,6 +307,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
     DiscoveredHubDto self,
     SseSerializer serializer,
   );
+
+  @protected
+  void sse_encode_i_32(int self, SseSerializer serializer);
 
   @protected
   void sse_encode_i_64(PlatformInt64 self, SseSerializer serializer);
@@ -270,6 +346,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   void sse_encode_opt_String(String? self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_opt_box_autoadd_arca_pair_failure(
+    ArcaPairFailure? self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_opt_box_autoadd_i_64(
@@ -312,9 +394,6 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   void sse_encode_unit(void self, SseSerializer serializer);
-
-  @protected
-  void sse_encode_i_32(int self, SseSerializer serializer);
 }
 
 // Section: wire_class

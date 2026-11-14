@@ -3,6 +3,7 @@ import 'package:qr_flutter/qr_flutter.dart';
 
 import '../l10n/generated/app_localizations.dart';
 import '../services/vault_paths.dart';
+import 'arca_pair_screen.dart';
 import '../src/rust/api/sync.dart' as bridge;
 
 /// Phase 4.4 — vault + `config.toml` sync via Arweave (paid through the TruthID app), same engine
@@ -323,6 +324,15 @@ class _SyncScreenState extends State<SyncScreen> {
                     ),
                   ],
                 ),
+                // A new device with no key can also get it from another device through the hub (arca pairing).
+                if (!status.paired) ...[
+                  const SizedBox(height: 16),
+                  OutlinedButton(
+                    key: const Key('open-arca-pair'),
+                    onPressed: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const ArcaPairScreen())),
+                    child: Text(l10n.arcaPairOpen),
+                  ),
+                ],
               ],
             ),
     );

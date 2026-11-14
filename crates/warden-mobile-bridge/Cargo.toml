@@ -14,5 +14,12 @@ warden-core = { path = "../warden-core", default-features = false }
 warden-server-protocol = { path = "../warden-server-protocol" }
 warden-sync = { path = "../warden-sync" }
 
+[dev-dependencies]
+# Só os testes do pareamento da arca: um hub de duas rotas numa thread própria e a cifra do grant.
+axum = "0.8"
+serde_json.workspace = true
+tokio = { workspace = true, features = ["macros", "net", "rt"] }
+warden-truthid = { path = "../warden-truthid" }
+
 [lints.rust]
 unexpected_cfgs = { level = "warn", check-cfg = ['cfg(frb_expand)'] }

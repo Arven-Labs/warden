@@ -24,7 +24,7 @@ use warden_sync::SyncEngine;
 /// already dispatches onto its own background thread pool by default (see `init_app` in
 /// `api::simple` — no `#[frb(sync)]` there either); blocking that worker thread on this runtime
 /// is safe and never touches Dart's UI isolate.
-fn rt() -> &'static tokio::runtime::Runtime {
+pub(crate) fn rt() -> &'static tokio::runtime::Runtime {
     static RT: OnceLock<tokio::runtime::Runtime> = OnceLock::new();
     RT.get_or_init(|| tokio::runtime::Runtime::new().expect("failed to start Tokio runtime for warden_mobile_bridge"))
 }

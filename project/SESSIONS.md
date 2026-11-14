@@ -2,7 +2,19 @@
 
 > **Nota**: Este log foi criado junto com o projeto. As sessões serão registradas aqui conforme o trabalho avança.
 >
-> Última atualização: 2026-11-05 (Sessão 392)
+> Última atualização: 2026-11-14 (pareamento da arca no mobile, P182; este log ficou sem entradas de 2026-11-06 a 2026-11-13, o trabalho desse período está no git e no `SESSIONS.md` da arca)
+
+---
+
+### 2026-11-14 — Pareamento da arca no mobile, como dispositivo novo (P182)
+
+- **Pedido**: levar o pareamento da arca ao celular. Plano aprovado em plan mode; o dono escolheu só o dispositivo novo (B), reusando a conexão (host, porta e token) que o app já guarda.
+- **Feito (PR #147)**: `crates/warden-mobile-bridge/src/api/arca_pair.rs` (`arca_pair_start`, `arca_pair_next`, `arca_pair_answer`, `arca_pair_cancel`) sobre o `run_offer` com `channel_prompts`, como o desktop; a única gravação da chave continua sendo `Received::confirm`, que confere a impressão digitada. Ponte Dart regenerada. Tela `mobile/lib/screens/arca_pair_screen.dart` (campo que só aceita caracteres digitados, um a um: `TypedOnlyFormatter`, sem menu de colar nem sugestões), `services/arca_pair_flow.dart`, textos en e pt-BR, botão na tela de Sync quando o aparelho ainda não está pareado.
+- **Desvio do plano**: no lugar dos 3 passos (`offer_start`, `offer_poll`, `offer_confirm`), 4 funções que reaproveitam o `run_offer` (polling, timeout de 10 min, 3 falhas de rede seguidas e `AlreadyHasKey` já testados). A API para o Dart é struct + enum sem campos porque um enum com dados faria o codegen exigir `freezed`.
+- **Testes primeiro**: Rust, 11 testes, falharam 10 de 10 com `not yet implemented` (o 11º, a conversão para o Dart, entrou depois); Dart, 10 falharam (371 passaram). Depois da implementação, CI verde (`Rust`, `Mobile`, `Android`, `Browser against a real hub`). Quebra de propósito (PR descartável #148, fechado): formatter aceitando 100 caracteres de uma vez derrubou os 2 testes de "colar"; o slot da sessão não liberado no evento final derrubou 2 testes do Rust (`plain_http_…` e `with_no_pairing_running_…`). Revertidas.
+- **Ambiente**: o codegen do frb falhou com `cargo-expand` 1.0.126 (SIGSEGV, rustc 1.98.1); o dono reinstalou para a 1.0.127 e o codegen rodou. Os arquivos gerados entraram no diff.
+- **Não verificado**: o `aws-lc` fora do bridge (o job `Android` compilou, não rodei `cargo tree`); o fluxo num aparelho ou emulador real e contra um hub real (o teste de ponta a ponta usa um hub de duas rotas dentro dos testes do bridge); iOS; tema escuro; o dispositivo estar aprovado no hub (`403` vira a mensagem de "não aprovado"); que o token do servidor seja aceito pelas rotas `/arca/v1/pairing/*` (suposição, o hub de teste não a confere).
+- **Fica**: pareamento no mobile como A (conceder); web; o `SESSIONS.md` do Warden está defasado.
 
 ---
 
