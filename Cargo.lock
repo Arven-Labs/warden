@@ -8697,11 +8697,14 @@ name = "warden_mobile_bridge"
 version = "0.1.2"
 dependencies = [
  "anyhow",
+ "axum",
  "flutter_rust_bridge",
+ "serde_json",
  "tokio",
  "warden-core",
  "warden-server-protocol",
  "warden-sync",
+ "warden-truthid",
 ]
 
 [[package]]
