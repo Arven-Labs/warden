@@ -2,6 +2,7 @@ import 'package:flutter/services.dart';
 
 import '../l10n/generated/app_localizations.dart';
 import '../src/rust/api/arca_pair.dart' as bridge;
+import 'vault_paths.dart';
 
 /// What the pairing screen needs from the Rust bridge, so a test can stand in for it (tests never load `RustLib`).
 abstract class ArcaPairBackend {
@@ -20,13 +21,51 @@ abstract class ArcaPairBackend {
 class TypedOnlyFormatter extends TextInputFormatter {
   @override
   TextEditingValue formatEditUpdate(TextEditingValue oldValue, TextEditingValue newValue) {
-    // Stub: the tests are the contract; the body comes after they are reviewed.
+    // One character more is typing; the same or fewer is deleting or moving. More than one at once is not a person typing.
+    if (newValue.text.length > oldValue.text.length + 1) return oldValue;
     return newValue;
   }
 }
 
 /// The sentence for a failure kind, in the app's language (the Rust text is English and never shown as the main message).
-String arcaPairErrorText(AppLocalizations l10n, bridge.ArcaPairErrorKind kind) {
-  // Stub.
-  return '';
+String arcaPairErrorText(AppLocalizations l10n, bridge.ArcaPairErrorKind kind) => switch (kind) {
+      bridge.ArcaPairErrorKind.busy => l10n.arcaPairErrBusy,
+      bridge.ArcaPairErrorKind.noSession => l10n.arcaPairErrNoSession,
+      bridge.ArcaPairErrorKind.insecureUrl => l10n.arcaPairErrInsecureUrl,
+      bridge.ArcaPairErrorKind.badUrl => l10n.arcaPairErrBadUrl,
+      bridge.ArcaPairErrorKind.notAvailable => l10n.arcaPairErrNotAvailable,
+      bridge.ArcaPairErrorKind.unauthorized => l10n.arcaPairErrUnauthorized,
+      bridge.ArcaPairErrorKind.forbidden => l10n.arcaPairErrForbidden,
+      bridge.ArcaPairErrorKind.conflict => l10n.arcaPairErrConflict,
+      bridge.ArcaPairErrorKind.fingerprintMismatch => l10n.arcaPairErrFingerprintMismatch,
+      bridge.ArcaPairErrorKind.alreadyHasKey => l10n.arcaPairErrAlreadyHasKey,
+      bridge.ArcaPairErrorKind.timedOut => l10n.arcaPairErrTimedOut,
+      bridge.ArcaPairErrorKind.storeFailed => l10n.arcaPairErrStoreFailed,
+      bridge.ArcaPairErrorKind.hub => l10n.arcaPairErrHub,
+    };
+
+/// The real backend: the Rust bridge, over the same four sync paths the Sync screen uses.
+class BridgeArcaPairBackend implements ArcaPairBackend {
+  @override
+  Future<void> start({required String hubUrl, required String deviceToken, required String deviceId}) async {
+    final paths = await VaultPaths.resolve();
+    await bridge.arcaPairStart(
+      vaultRoot: paths.vaultRoot,
+      configPath: paths.configPath,
+      secretsPath: paths.secretsPath,
+      manifestPath: paths.manifestPath,
+      hubUrl: hubUrl,
+      deviceToken: deviceToken,
+      deviceId: deviceId,
+    );
+  }
+
+  @override
+  Future<bridge.ArcaPairStep> next() => bridge.arcaPairNext();
+
+  @override
+  Future<void> answer(String typed) => bridge.arcaPairAnswer(typed: typed);
+
+  @override
+  Future<void> cancel() => bridge.arcaPairCancel();
 }
