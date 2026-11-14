@@ -391,20 +391,28 @@ do app principal (overlay leve de busca vs janela de chat completa), então
 pode merecer fase própria em vez de virar uma feature a mais da Fase 6.
 Ver P9 em `PENDING.md`.
 
-**agent-desktop (ideia, 2026-11-13, pedido do usuário, só registro):** o usuário citou apenas
-"agent-desktop (warden)". **Não está claro** se é uma ferramenta/projeto existente com esse nome para avaliar
-(por exemplo, para o agente controlar o desktop: janelas, cliques, captura de tela) ou um nome para um modo
-"agente no desktop" do próprio Warden; também não pesquisei. A confirmar com o usuário antes de qualquer
-investigação. Relaciona-se a este app Copilot (IA no SO) e ao "Overlay Super Jarvis". Sem escopo.
+**agent-desktop (ideia, 2026-11-13, pedido do usuário, só registro):** a ideia é o Warden conseguir **operar o
+computador da pessoa com precisão** (janelas, cliques, campos). Identificado em 2026-11-13 por busca na web (sem
+ler o repo): quase certamente o **[vercel-labs/agent-desktop](https://github.com/vercel-labs/agent-desktop)**,
+CLI de *computer use* em Rust, Apache-2.0, macOS/Windows/Linux, 1.0 no fim de outubro de 2026, que lê a
+**árvore de acessibilidade** do SO em vez de capturas de tela. Homônimo menor: `lahfir/agent-desktop` (~100
+estrelas, mesma ideia). Alternativas a comparar: Bytebot, Cua, open-computer-use. **Leitura inicial:** encaixa
+como **módulo opcional por contrato** (CLI ou MCP), não como base; o risco é de privilégio (a IA controla
+teclado e mouse), então pede consentimento explícito e AGENTS §4. Próximo passo: `avaliar-dependencia` numa
+sessão do Warden. Relaciona-se a este app Copilot (IA no SO) e ao "Overlay Super Jarvis". Sem escopo.
 
-**OpenBot (ideia, 2026-11-13, pedido do usuário, só registro): estudar.** Esclarecido pelo usuário: é um
-projeto **open source de bot/agente pessoal, da família do "grokbot" e similares** (não o projeto de robôs de
-smartphone, que era o palpite errado de uma versão anterior desta nota). A ideia é **estudar usá-lo por baixo do
-sistema de agentes do Warden**, como motor de execução dos agentes, no lugar de (ou ao lado de) construir tudo
-no Warden. Em aberto: **o link e o nome exato do projeto** (ainda não pesquisei nem li o código dele), o que
-ele cobre que o Warden já tem (canais, memória, ferramentas, agentes), licença e saúde do projeto, e como se
-encaixa com a separação do Warden entre agente, modelo e ferramenta (seção "Sistema operacional de agentes") e
-com o opencode já usado no modo Code. Segue `avaliar-dependencia` (passo 0). Sem escopo nem prioridade.
+**OpenBot → OpenClaw (ideia, 2026-11-13, pedido do usuário, só registro): estudar.** O usuário descreveu um
+projeto **open source de bot/agente pessoal, "tipo grokbot"**. A busca não achou "OpenBot" nesse sentido; é
+quase certamente o **[OpenClaw](https://openclaw.ai)** (antes Clawdbot e Moltbot; o "grokbot" deve vir de
+"Clawdbot"): assistente pessoal self-hosted, MIT, usado por WhatsApp/Telegram/Discord, capacidades em "skills"
+de um marketplace aberto, centenas de milhares de estrelas (fontes divergem). **A confirmar com o usuário.** A
+ideia original era **estudar usá-lo por baixo do sistema de agentes do Warden**. **Leitura inicial (não
+decidida):** ele é um runtime de agente inteiro, que concorre com o Warden; pô-lo por baixo trocaria a fundação
+(lock-in grande), e marketplace aberto de skills é superfície de ataque (relatos de skills maliciosas lembrados
+com confiança baixa, a conferir). Valor provável: **copiar ideias** (modelo de skills, interface por chat,
+agente sempre ligado), não adotar. Em aberto: o que ele cobre que o Warden já tem (canais, memória, ferramentas,
+agentes), saúde do projeto e encaixe com a separação agente/modelo/ferramenta ("Sistema operacional de agentes")
+e com o opencode do modo Code. Segue `avaliar-dependencia` (passo 0). Sem escopo nem prioridade.
 
 ### Dashboard de custo & gerenciamento de chaves de API
 
