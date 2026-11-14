@@ -146,7 +146,7 @@ enum Side {
 
 /// Starts the one pairing in the slot: the address is checked before anything runs (plain `http` to another host is refused and no
 /// pairing is left behind), then `run_offer` or `run_grant` runs on the bridge's runtime behind the same channel and event loop.
-fn begin(side: Side, [vault_root, config_path, secrets_path, manifest_path]: [String; 4], hub_url: &str, device_token: &str) -> Result<(), ArcaPairFailure> {
+fn begin(half: Side, [vault_root, config_path, secrets_path, manifest_path]: [String; 4], hub_url: &str, device_token: &str) -> Result<(), ArcaPairFailure> {
     let access = HubAccess::new(hub_url, device_token).map_err(|e| failure_of(FlowError::Pairing(e)))?;
     let engine = SyncEngine::new(vault_root.into(), config_path.into(), secrets_path.into(), manifest_path.into());
 
@@ -166,7 +166,7 @@ fn begin(side: Side, [vault_root, config_path, secrets_path, manifest_path]: [St
                 let _ = forward_tx.send(screen_event(event));
             }
         });
-        let result = match side {
+        let result = match half {
             Side::NewDevice { device_id } => run_offer(&access, &device_id, &engine, &mut prompts, OFFER_POLL, OFFER_TIMEOUT).await,
             Side::Granting => run_grant(&access, &engine, &mut prompts).await,
         };
