@@ -5,7 +5,32 @@
 //! The phone never plays A (the one that grants) in this slice, and nothing here can store a key by another path: the only writer
 //! is `Received::confirm` inside `run_offer`, which compares the typed fingerprint first.
 
-// Stub: the tests below are the contract; the bodies come after the tests are reviewed.
+use std::sync::{Arc, Mutex};
+use std::time::Duration;
+
+use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
+use warden_sync::arca_pairing::{HubAccess, PairingError};
+use warden_sync::arca_pairing_flow::{channel_prompts, run_offer, Ask, FlowError, PairEvent, PairReply, PairingSide, Shown};
+use warden_sync::SyncEngine;
+
+use super::sync::rt;
+
+/// How long B waits for a grant: the 10 minutes an offer lives on the hub (as the CLI and the desktop do), looking every 2 seconds.
+const OFFER_TIMEOUT: Duration = Duration::from_secs(600);
+const OFFER_POLL: Duration = Duration::from_secs(2);
+
+/// The one pairing in flight, process-wide (FRB has no shared state to hang it off), same shape as the sync bridge's `PENDING_*`.
+struct Session {
+    replies: UnboundedSender<PairReply>,
+    events: Arc<tokio::sync::Mutex<UnboundedReceiver<ArcaPairEvent>>>,
+    task: tokio::task::JoinHandle<()>,
+}
+
+static SESSION: Mutex<Option<Session>> = Mutex::new(None);
+
+fn slot() -> std::sync::MutexGuard<'static, Option<Session>> {
+    SESSION.lock().unwrap_or_else(|e| e.into_inner())
+}
 
 /// Why a pairing did not go through, as something the screen can translate (the Rust text is English and not for the person).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -65,28 +90,103 @@ pub fn arca_pair_start(
     device_token: String,
     device_id: String,
 ) -> Result<(), ArcaPairFailure> {
-    let _ = (vault_root, config_path, secrets_path, manifest_path, hub_url, device_token, device_id);
-    todo!()
+    // The address is checked here, before anything runs: plain `http` to another host is refused and no pairing is left behind.
+    let access = HubAccess::new(&hub_url, &device_token).map_err(|e| failure_of(FlowError::Pairing(e)))?;
+    let engine = SyncEngine::new(vault_root.into(), config_path.into(), secrets_path.into(), manifest_path.into());
+
+    let mut running = slot();
+    // A session whose task ended but was never drained (the screen went away) does not block the next one.
+    if running.as_ref().is_some_and(|s| !s.task.is_finished()) {
+        return Err(ArcaPairFailure { kind: ArcaPairErrorKind::Busy, detail: "a pairing is already running".into() });
+    }
+
+    let (mut prompts, side) = channel_prompts();
+    let PairingSide { events: mut flow_events, replies } = side;
+    let (tx, rx) = unbounded_channel::<ArcaPairEvent>();
+    let forward_tx = tx.clone();
+    let task = rt().spawn(async move {
+        let forwarder = tokio::spawn(async move {
+            while let Some(event) = flow_events.recv().await {
+                if let Some(event) = screen_event(event) {
+                    let _ = forward_tx.send(event);
+                }
+            }
+        });
+        let result = run_offer(&access, &device_id, &engine, &mut prompts, OFFER_POLL, OFFER_TIMEOUT).await;
+        // Closing the prompts ends the forwarder after the last event, so the screen has seen everything before the final one.
+        drop(prompts);
+        let _ = forwarder.await;
+        let last = match result {
+            Ok(()) => ArcaPairEvent::Done,
+            Err(FlowError::Cancelled) => ArcaPairEvent::Cancelled,
+            Err(e) => ArcaPairEvent::Failed(failure_of(e)),
+        };
+        let _ = tx.send(last);
+    });
+    *running = Some(Session { replies, events: Arc::new(tokio::sync::Mutex::new(rx)), task });
+    Ok(())
+}
+
+/// B only shows the offer code and asks for the fingerprint the other device shows; the A-side events never happen here.
+fn screen_event(event: PairEvent) -> Option<ArcaPairEvent> {
+    match event {
+        PairEvent::Show(Shown::OfferCode(code)) => Some(ArcaPairEvent::OfferCode(code)),
+        PairEvent::Ask(Ask::FingerprintShownByTheOldDevice) => Some(ArcaPairEvent::AskFingerprint),
+        PairEvent::Show(Shown::KeyFingerprint(_)) | PairEvent::Ask(Ask::CodeShownByTheNewDevice) | PairEvent::Choose(_) => None,
+    }
+}
+
+fn no_session() -> ArcaPairFailure {
+    ArcaPairFailure { kind: ArcaPairErrorKind::NoSession, detail: "no pairing is running".into() }
 }
 
 /// Blocks until the next event. A final event (`Done`, `Cancelled`, `Failed`) frees the slot for the next pairing.
 pub fn arca_pair_next_event() -> Result<ArcaPairEvent, ArcaPairFailure> {
-    todo!()
+    // The lock is not held while waiting, so `answer` and `cancel` can still get in.
+    let events = slot().as_ref().ok_or_else(no_session)?.events.clone();
+    let event = rt().block_on(async { events.lock().await.recv().await });
+    // The channel closing without a final event means the task is gone: the same as giving up.
+    let event = event.unwrap_or(ArcaPairEvent::Cancelled);
+    if matches!(event, ArcaPairEvent::Done | ArcaPairEvent::Cancelled | ArcaPairEvent::Failed(_)) {
+        let mut running = slot();
+        // Only this pairing's own slot: a newer one (started after this task ended) stays.
+        if running.as_ref().is_some_and(|s| Arc::ptr_eq(&s.events, &events)) {
+            *running = None;
+        }
+    }
+    Ok(event)
 }
 
 pub fn arca_pair_answer(typed: String) -> Result<(), ArcaPairFailure> {
-    let _ = typed;
-    todo!()
+    let running = slot();
+    let session = running.as_ref().ok_or_else(no_session)?;
+    session.replies.send(PairReply::Typed(typed)).map_err(|_| ArcaPairFailure { kind: ArcaPairErrorKind::NoSession, detail: "the pairing already ended".into() })
 }
 
 /// The person gives up. Nothing running is not an error.
 pub fn arca_pair_cancel() {
-    todo!()
+    if let Some(session) = slot().as_ref() {
+        let _ = session.replies.send(PairReply::GiveUp);
+    }
 }
 
-pub(crate) fn failure_of(error: warden_sync::arca_pairing_flow::FlowError) -> ArcaPairFailure {
-    let _ = error;
-    todo!()
+pub(crate) fn failure_of(error: FlowError) -> ArcaPairFailure {
+    use ArcaPairErrorKind as K;
+    let kind = match &error {
+        FlowError::Pairing(PairingError::InsecureUrl) => K::InsecureUrl,
+        FlowError::Pairing(PairingError::BadUrl) => K::BadUrl,
+        FlowError::Pairing(PairingError::NotAvailable) => K::NotAvailable,
+        FlowError::Pairing(PairingError::Unauthorized) => K::Unauthorized,
+        FlowError::Pairing(PairingError::Forbidden) => K::Forbidden,
+        FlowError::Pairing(PairingError::Conflict) => K::Conflict,
+        FlowError::Pairing(PairingError::FingerprintMismatch) => K::FingerprintMismatch,
+        FlowError::Pairing(PairingError::Adopt(_)) => K::StoreFailed,
+        FlowError::AlreadyHasKey => K::AlreadyHasKey,
+        FlowError::TimedOut => K::TimedOut,
+        // `NoOffer` and `CodeMismatch` are A's; `NoOffers`, `NoKey` and `Cancelled` never end B's flow as a failure.
+        FlowError::Pairing(_) | FlowError::NoOffers | FlowError::NoKey(_) | FlowError::Cancelled => K::Hub,
+    };
+    ArcaPairFailure { kind, detail: error.to_string() }
 }
 
 #[cfg(test)]
