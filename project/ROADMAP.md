@@ -401,18 +401,22 @@ como **módulo opcional por contrato** (CLI ou MCP), não como base; o risco é 
 teclado e mouse), então pede consentimento explícito e AGENTS §4. Próximo passo: `avaliar-dependencia` numa
 sessão do Warden. Relaciona-se a este app Copilot (IA no SO) e ao "Overlay Super Jarvis". Sem escopo.
 
-**OpenBot → OpenClaw (ideia, 2026-11-13, pedido do usuário, só registro): estudar.** O usuário descreveu um
-projeto **open source de bot/agente pessoal, "tipo grokbot"**. A busca não achou "OpenBot" nesse sentido; é
-quase certamente o **[OpenClaw](https://openclaw.ai)** (antes Clawdbot e Moltbot; o "grokbot" deve vir de
-"Clawdbot"): assistente pessoal self-hosted, MIT, usado por WhatsApp/Telegram/Discord, capacidades em "skills"
-de um marketplace aberto, centenas de milhares de estrelas (fontes divergem). **A confirmar com o usuário.** A
-ideia original era **estudar usá-lo por baixo do sistema de agentes do Warden**. **Leitura inicial (não
-decidida):** ele é um runtime de agente inteiro, que concorre com o Warden; pô-lo por baixo trocaria a fundação
-(lock-in grande), e marketplace aberto de skills é superfície de ataque (relatos de skills maliciosas lembrados
-com confiança baixa, a conferir). Valor provável: **copiar ideias** (modelo de skills, interface por chat,
-agente sempre ligado), não adotar. Em aberto: o que ele cobre que o Warden já tem (canais, memória, ferramentas,
-agentes), saúde do projeto e encaixe com a separação agente/modelo/ferramenta ("Sistema operacional de agentes")
-e com o opencode do modo Code. Segue `avaliar-dependencia` (passo 0). Sem escopo nem prioridade.
+**OpenBot (ideia, 2026-11-13, pedido do usuário, só registro): estudar.** O usuário descreveu um projeto
+**open source na ideia do "Grok Bot"**. **Não é o OpenClaw** (palpite errado de uma versão anterior desta nota,
+corrigido pelo usuário). O **Grok Bot** é o produto de agentes da xAI (lançado em 2026-08-11): bots com nome,
+cada um com um computador na nuvem (navegador, arquivos, terminal), sem versão self-hosted. Identificado por
+busca na web em 2026-11-13 (sem ler o repo; confiança média-alta, o usuário não tinha certeza): o
+**[CopilotKit/OpenBot](https://github.com/CopilotKit/openbot)**, "colegas de trabalho de IA, cada um com seu
+próprio computador (navegador, arquivos, ferramentas), cada ação decidida antes e registrada depois", aceita
+qualquer agente AG-UI, implantação em Kubernetes com Helm. **Licença a conferir:** o template é MIT, mas
+depende do **CopilotKit Intelligence**, licenciado à parte. Homônimos descartados: `openbot-coder/openbot-ai`,
+`tiagovilasboas/openbot`, OpenBot.AI (robótica). Alternativas citadas como "Grok Bot aberto": Rakazo, OpenMausBot,
+Eigent. A ideia original é **estudar usá-lo por baixo do sistema de agentes do Warden**; **leitura inicial (não
+decidida):** é um runtime de agentes que se sobrepõe ao Warden, então pô-lo por baixo trocaria a fundação
+(lock-in), agravado pela parte de licença separada; o "decidido antes, registrado depois" vale estudar para o
+Warden. Em aberto: o que ele cobre que o Warden já tem, saúde, licença real e encaixe com a separação
+agente/modelo/ferramenta ("Sistema operacional de agentes") e com o opencode do modo Code. Segue
+`avaliar-dependencia` (passo 0). Sem escopo nem prioridade.
 
 ### Dashboard de custo & gerenciamento de chaves de API
 
