@@ -32,7 +32,7 @@ warden-truthid = { path = "../warden-truthid" }
 # The arca sync cycle (`arca_sync.rs`), off by default: arca's `hub` feature pulls `reqwest` with the `aws-lc-rs` TLS provider
 # (C code), and `warden-mobile-bridge` (Android) pins `ring`. The on/off switch itself (`arca_mode.rs`) has no such dependency, so
 # a build without this feature still refuses to write a vault that is in arca mode. Pinned by commit, like in `warden-server`.
-arca-core = { git = "https://github.com/Arven-Labs/arca", rev = "e56019271b8bd79912a4adaacbf221302f57a47b", optional = true, features = ["hub"] }
+arca-core = { git = "https://github.com/Arven-Labs/arca", rev = "da3fc11420f15d14d481477017aaf37aacbdf51b", optional = true, features = ["hub"] }
 
 [features]
 arca = ["dep:arca-core"]
