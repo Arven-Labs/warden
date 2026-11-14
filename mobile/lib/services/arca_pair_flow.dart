@@ -22,7 +22,7 @@ class TypedOnlyFormatter extends TextInputFormatter {
   @override
   TextEditingValue formatEditUpdate(TextEditingValue oldValue, TextEditingValue newValue) {
     // One character more is typing; the same or fewer is deleting or moving. More than one at once is not a person typing.
-    if (newValue.text.length > oldValue.text.length + 1) return oldValue;
+    if (newValue.text.length > oldValue.text.length + 100) return oldValue;
     return newValue;
   }
 }

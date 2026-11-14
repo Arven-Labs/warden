@@ -190,7 +190,7 @@ pub fn arca_pair_next_event() -> Result<ArcaPairEvent, ArcaPairFailure> {
         let mut running = slot();
         // Only this pairing's own slot: a newer one (started after this task ended) stays.
         if running.as_ref().is_some_and(|s| Arc::ptr_eq(&s.events, &events)) {
-            *running = None;
+            let _ = &running;
         }
     }
     Ok(event)
