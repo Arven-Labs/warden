@@ -2012,7 +2012,41 @@ class AppLocalizationsEn extends AppLocalizations {
   String get arcaPairTitle => 'Pair with arca';
 
   @override
-  String get arcaPairOpen => 'Pair with arca (new device)';
+  String get arcaPairOpen => 'Pair with arca';
+
+  @override
+  String get arcaPairGrantIntro =>
+      'Hands this device\'s vault key to a new device that is waiting for it. Pick the new device, type the code it shows, then type the fingerprint shown here on the new device.';
+
+  @override
+  String get arcaPairChooseOffer =>
+      'Which device is waiting for the key? Pick the one you are setting up.';
+
+  @override
+  String get arcaPairAskOfferCode =>
+      'Type the code the new device shows. Do not copy and paste it: typing it is what ties the key to the device you are looking at.';
+
+  @override
+  String get arcaPairOfferCodeLabel => 'Code';
+
+  @override
+  String get arcaPairGranted =>
+      'Key sent. Now type this fingerprint on the new device:';
+
+  @override
+  String get arcaPairErrNoOffers =>
+      'No new device is waiting for a key. Start the pairing on the new device first.';
+
+  @override
+  String get arcaPairErrNoKey => 'This device has no vault key to hand over.';
+
+  @override
+  String get arcaPairErrCodeMismatch =>
+      'That code does not match the device you picked. Nothing was sent. Check the code on the new device.';
+
+  @override
+  String get arcaPairErrNoOffer =>
+      'The new device\'s offer is gone from the hub. Ask it to start again.';
 
   @override
   String get arcaPairIntro =>

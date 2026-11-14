@@ -6,7 +6,17 @@ import 'vault_paths.dart';
 
 /// What the pairing screen needs from the Rust bridge, so a test can stand in for it (tests never load `RustLib`).
 abstract class ArcaPairBackend {
+  /// Which side this phone plays: the new device (no vault key yet) or the one that grants (it has one).
+  Future<bridge.ArcaPairRole> role();
+
+  /// As the new device.
   Future<void> start({required String hubUrl, required String deviceToken, required String deviceId});
+
+  /// As the device that grants: the steps then are `chooseOffer`, `askOfferCode`, `showFingerprint`, `done`.
+  Future<void> startGrant({required String hubUrl, required String deviceToken});
+
+  /// The person picked the offer at [index] of the list `chooseOffer` carried.
+  Future<void> pick(int index);
 
   /// Blocks (off the UI isolate) until the next step.
   Future<bridge.ArcaPairStep> next();
@@ -41,11 +51,37 @@ String arcaPairErrorText(AppLocalizations l10n, bridge.ArcaPairErrorKind kind) =
       bridge.ArcaPairErrorKind.alreadyHasKey => l10n.arcaPairErrAlreadyHasKey,
       bridge.ArcaPairErrorKind.timedOut => l10n.arcaPairErrTimedOut,
       bridge.ArcaPairErrorKind.storeFailed => l10n.arcaPairErrStoreFailed,
+      bridge.ArcaPairErrorKind.noOffers => l10n.arcaPairErrNoOffers,
+      bridge.ArcaPairErrorKind.noKey => l10n.arcaPairErrNoKey,
+      bridge.ArcaPairErrorKind.codeMismatch => l10n.arcaPairErrCodeMismatch,
+      bridge.ArcaPairErrorKind.noOffer => l10n.arcaPairErrNoOffer,
       bridge.ArcaPairErrorKind.hub => l10n.arcaPairErrHub,
     };
 
 /// The real backend: the Rust bridge, over the same four sync paths the Sync screen uses.
 class BridgeArcaPairBackend implements ArcaPairBackend {
+  @override
+  Future<bridge.ArcaPairRole> role() async {
+    final paths = await VaultPaths.resolve();
+    return bridge.arcaPairRole(vaultRoot: paths.vaultRoot, configPath: paths.configPath, secretsPath: paths.secretsPath, manifestPath: paths.manifestPath);
+  }
+
+  @override
+  Future<void> startGrant({required String hubUrl, required String deviceToken}) async {
+    final paths = await VaultPaths.resolve();
+    await bridge.arcaPairStartGrant(
+      vaultRoot: paths.vaultRoot,
+      configPath: paths.configPath,
+      secretsPath: paths.secretsPath,
+      manifestPath: paths.manifestPath,
+      hubUrl: hubUrl,
+      deviceToken: deviceToken,
+    );
+  }
+
+  @override
+  Future<void> pick(int index) => bridge.arcaPairPick(index: index);
+
   @override
   Future<void> start({required String hubUrl, required String deviceToken, required String deviceId}) async {
     final paths = await VaultPaths.resolve();

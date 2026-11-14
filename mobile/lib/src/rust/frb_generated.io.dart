@@ -35,6 +35,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   ArcaPairFailure dco_decode_arca_pair_failure(dynamic raw);
 
   @protected
+  ArcaPairRole dco_decode_arca_pair_role(dynamic raw);
+
+  @protected
   ArcaPairStep dco_decode_arca_pair_step(dynamic raw);
 
   @protected
@@ -137,6 +140,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   ArcaPairFailure sse_decode_arca_pair_failure(SseDeserializer deserializer);
+
+  @protected
+  ArcaPairRole sse_decode_arca_pair_role(SseDeserializer deserializer);
 
   @protected
   ArcaPairStep sse_decode_arca_pair_step(SseDeserializer deserializer);
@@ -259,6 +265,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
     ArcaPairFailure self,
     SseSerializer serializer,
   );
+
+  @protected
+  void sse_encode_arca_pair_role(ArcaPairRole self, SseSerializer serializer);
 
   @protected
   void sse_encode_arca_pair_step(ArcaPairStep self, SseSerializer serializer);

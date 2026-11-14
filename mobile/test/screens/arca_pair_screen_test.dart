@@ -13,7 +13,12 @@ import '../helpers/test_app.dart';
 
 /// A stand-in for the Rust bridge: records what the screen asks and hands out the steps the test pushes.
 class FakeBackend implements ArcaPairBackend {
+  FakeBackend({this.playedRole = bridge.ArcaPairRole.offer});
+
+  final bridge.ArcaPairRole playedRole;
   final started = <Map<String, String>>[];
+  final startedAsGrant = <Map<String, String>>[];
+  final picks = <int>[];
   final answers = <String>[];
   int cancels = 0;
   final _pending = <bridge.ArcaPairStep>[];
@@ -28,6 +33,17 @@ class FakeBackend implements ArcaPairBackend {
       _pending.add(step);
     }
   }
+
+  @override
+  Future<bridge.ArcaPairRole> role() async => playedRole;
+
+  @override
+  Future<void> startGrant({required String hubUrl, required String deviceToken}) async {
+    startedAsGrant.add({'hubUrl': hubUrl, 'deviceToken': deviceToken});
+  }
+
+  @override
+  Future<void> pick(int index) async => picks.add(index);
 
   @override
   Future<void> start({required String hubUrl, required String deviceToken, required String deviceId}) async {
@@ -47,11 +63,16 @@ class FakeBackend implements ArcaPairBackend {
   Future<void> cancel() async => cancels++;
 }
 
-bridge.ArcaPairStep _offerCode(String code) => bridge.ArcaPairStep(kind: bridge.ArcaPairStepKind.offerCode, code: code);
-const _ask = bridge.ArcaPairStep(kind: bridge.ArcaPairStepKind.askFingerprint, code: '');
-const _done = bridge.ArcaPairStep(kind: bridge.ArcaPairStepKind.done, code: '');
-bridge.ArcaPairStep _failed(bridge.ArcaPairErrorKind kind) =>
-    bridge.ArcaPairStep(kind: bridge.ArcaPairStepKind.failed, code: '', failure: bridge.ArcaPairFailure(kind: kind, detail: 'english detail'));
+bridge.ArcaPairStep _step(bridge.ArcaPairStepKind kind, {String code = '', List<String> offers = const [], String fingerprint = '', bridge.ArcaPairFailure? failure}) =>
+    bridge.ArcaPairStep(kind: kind, code: code, offers: offers, fingerprint: fingerprint, failure: failure);
+
+bridge.ArcaPairStep _offerCode(String code) => _step(bridge.ArcaPairStepKind.offerCode, code: code);
+final _ask = _step(bridge.ArcaPairStepKind.askFingerprint);
+final _done = _step(bridge.ArcaPairStepKind.done);
+bridge.ArcaPairStep _failed(bridge.ArcaPairErrorKind kind) => _step(bridge.ArcaPairStepKind.failed, failure: bridge.ArcaPairFailure(kind: kind, detail: 'english detail'));
+bridge.ArcaPairStep _chooseOffer(List<String> ids) => _step(bridge.ArcaPairStepKind.chooseOffer, offers: ids);
+final _askOfferCode = _step(bridge.ArcaPairStepKind.askOfferCode);
+bridge.ArcaPairStep _showFingerprint(String fingerprint) => _step(bridge.ArcaPairStepKind.showFingerprint, fingerprint: fingerprint);
 
 const _fingerprint = 'a1b2-c3d4-e5f6-0718';
 
@@ -219,6 +240,91 @@ void main() {
       await _settle(tester);
 
       expect(backend.cancels, 1);
+    });
+  });
+
+  group('ArcaPairScreen as the device that grants', () {
+    const offerCode = 'abcd-0123-4567-89ef';
+
+    Future<FakeBackend> startedAsGrant(WidgetTester tester, {List<bridge.ArcaPairStep> steps = const []}) async {
+      _savedHub();
+      final backend = FakeBackend(playedRole: bridge.ArcaPairRole.grant);
+      for (final step in steps) {
+        backend.push(step);
+      }
+      await _show(tester, backend);
+      await _startPairing(tester, backend);
+      return backend;
+    }
+
+    testWidgets('starting hands the saved hub and token to the granting side, not the new-device one', (tester) async {
+      final backend = await startedAsGrant(tester, steps: [_chooseOffer(['phone-a'])]);
+
+      expect(backend.startedAsGrant, [
+        {'hubUrl': 'https://hub.local:7420', 'deviceToken': 'tok'},
+      ]);
+      expect(backend.started, isEmpty);
+    });
+
+    testWidgets('lists the waiting devices by id and tells the bridge which one was picked', (tester) async {
+      final backend = await startedAsGrant(tester, steps: [_chooseOffer(['phone-a', 'phone-b'])]);
+
+      expect(find.text('phone-a'), findsOneWidget);
+      expect(find.text('phone-b'), findsOneWidget);
+      await tester.tap(find.byKey(const Key('arca-pair-offer-1')));
+      await _settle(tester);
+
+      expect(backend.picks, [1]);
+    });
+
+    testWidgets('asks for the code the new device shows and sends what was typed', (tester) async {
+      final backend = await startedAsGrant(tester, steps: [_chooseOffer(['phone-a'])]);
+      await tester.tap(find.byKey(const Key('arca-pair-offer-0')));
+      await _settle(tester);
+      backend.push(_askOfferCode);
+      await _settle(tester);
+
+      final field = find.byKey(const Key('arca-pair-code'));
+      expect(field, findsOneWidget);
+      for (var i = 1; i <= offerCode.length; i++) {
+        await tester.enterText(field, offerCode.substring(0, i));
+      }
+      await tester.tap(find.byKey(const Key('arca-pair-confirm')));
+      await _settle(tester);
+
+      expect(backend.answers, [offerCode]);
+    });
+
+    testWidgets('a code pasted in one go does not get into the field', (tester) async {
+      final backend = await startedAsGrant(tester, steps: [_chooseOffer(['phone-a'])]);
+      await tester.tap(find.byKey(const Key('arca-pair-offer-0')));
+      await _settle(tester);
+      backend.push(_askOfferCode);
+      await _settle(tester);
+
+      final field = find.byKey(const Key('arca-pair-code'));
+      await tester.enterText(field, offerCode);
+      await tester.pump();
+
+      expect(tester.widget<TextField>(field).controller!.text, isEmpty);
+      expect(tester.widget<TextField>(field).contextMenuBuilder, isNotNull);
+    });
+
+    testWidgets('after the key is sent it keeps the fingerprint on screen, for the person to type on the new device', (tester) async {
+      await startedAsGrant(tester, steps: [_showFingerprint(_fingerprint), _done]);
+
+      expect(find.text(_fingerprint), findsOneWidget);
+      expect(find.text(AppLocalizationsEn().arcaPairGranted), findsOneWidget);
+    });
+
+    testWidgets('a code that did not match is told in the app\'s language', (tester) async {
+      _savedHub();
+      final backend = FakeBackend(playedRole: bridge.ArcaPairRole.grant)..push(_failed(bridge.ArcaPairErrorKind.codeMismatch));
+      await _show(tester, backend, locale: const Locale('pt'));
+
+      await _startPairing(tester, backend);
+
+      expect(find.text(AppLocalizationsPt().arcaPairErrCodeMismatch), findsOneWidget);
     });
   });
 }

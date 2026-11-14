@@ -2017,7 +2017,42 @@ class AppLocalizationsPt extends AppLocalizations {
   String get arcaPairTitle => 'Parear com a arca';
 
   @override
-  String get arcaPairOpen => 'Parear com a arca (dispositivo novo)';
+  String get arcaPairOpen => 'Parear com a arca';
+
+  @override
+  String get arcaPairGrantIntro =>
+      'Entrega a chave do cofre deste dispositivo a um dispositivo novo que a está esperando. Escolha o dispositivo novo, digite o código que ele mostra e depois digite no dispositivo novo a impressão digital mostrada aqui.';
+
+  @override
+  String get arcaPairChooseOffer =>
+      'Qual dispositivo está esperando a chave? Escolha o que você está configurando.';
+
+  @override
+  String get arcaPairAskOfferCode =>
+      'Digite o código que o dispositivo novo mostra. Não copie e cole: digitar é o que liga a chave ao dispositivo que você está vendo.';
+
+  @override
+  String get arcaPairOfferCodeLabel => 'Código';
+
+  @override
+  String get arcaPairGranted =>
+      'Chave enviada. Agora digite esta impressão digital no dispositivo novo:';
+
+  @override
+  String get arcaPairErrNoOffers =>
+      'Nenhum dispositivo novo está esperando uma chave. Inicie o pareamento no dispositivo novo primeiro.';
+
+  @override
+  String get arcaPairErrNoKey =>
+      'Este dispositivo não tem uma chave do cofre para entregar.';
+
+  @override
+  String get arcaPairErrCodeMismatch =>
+      'Esse código não confere com o dispositivo escolhido. Nada foi enviado. Confira o código no dispositivo novo.';
+
+  @override
+  String get arcaPairErrNoOffer =>
+      'A oferta do dispositivo novo sumiu do hub. Peça para ele começar de novo.';
 
   @override
   String get arcaPairIntro =>

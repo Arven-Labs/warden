@@ -73,7 +73,7 @@ class RustLib extends BaseEntrypoint<RustLibApi, RustLibApiImpl, RustLibWire> {
   String get codegenVersion => '2.13.0';
 
   @override
-  int get rustContentHash => -1483726594;
+  int get rustContentHash => 1909990013;
 
   static const kDefaultExternalLibraryLoaderConfig =
       ExternalLibraryLoaderConfig(
@@ -91,6 +91,15 @@ abstract class RustLibApi extends BaseApi {
 
   Future<ArcaPairStep> crateApiArcaPairArcaPairNext();
 
+  Future<void> crateApiArcaPairArcaPairPick({required int index});
+
+  Future<ArcaPairRole> crateApiArcaPairArcaPairRole({
+    required String vaultRoot,
+    required String configPath,
+    required String secretsPath,
+    required String manifestPath,
+  });
+
   Future<void> crateApiArcaPairArcaPairStart({
     required String vaultRoot,
     required String configPath,
@@ -99,6 +108,15 @@ abstract class RustLibApi extends BaseApi {
     required String hubUrl,
     required String deviceToken,
     required String deviceId,
+  });
+
+  Future<void> crateApiArcaPairArcaPairStartGrant({
+    required String vaultRoot,
+    required String configPath,
+    required String secretsPath,
+    required String manifestPath,
+    required String hubUrl,
+    required String deviceToken,
   });
 
   Future<void> crateApiSkillsBridgeDeleteSkill({
@@ -301,6 +319,73 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       const TaskConstMeta(debugName: "arca_pair_next", argNames: []);
 
   @override
+  Future<void> crateApiArcaPairArcaPairPick({required int index}) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_u_32(index, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 4,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_unit,
+          decodeErrorData: sse_decode_arca_pair_failure,
+        ),
+        constMeta: kCrateApiArcaPairArcaPairPickConstMeta,
+        argValues: [index],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiArcaPairArcaPairPickConstMeta =>
+      const TaskConstMeta(debugName: "arca_pair_pick", argNames: ["index"]);
+
+  @override
+  Future<ArcaPairRole> crateApiArcaPairArcaPairRole({
+    required String vaultRoot,
+    required String configPath,
+    required String secretsPath,
+    required String manifestPath,
+  }) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_String(vaultRoot, serializer);
+          sse_encode_String(configPath, serializer);
+          sse_encode_String(secretsPath, serializer);
+          sse_encode_String(manifestPath, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 5,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_arca_pair_role,
+          decodeErrorData: null,
+        ),
+        constMeta: kCrateApiArcaPairArcaPairRoleConstMeta,
+        argValues: [vaultRoot, configPath, secretsPath, manifestPath],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiArcaPairArcaPairRoleConstMeta =>
+      const TaskConstMeta(
+        debugName: "arca_pair_role",
+        argNames: ["vaultRoot", "configPath", "secretsPath", "manifestPath"],
+      );
+
+  @override
   Future<void> crateApiArcaPairArcaPairStart({
     required String vaultRoot,
     required String configPath,
@@ -324,7 +409,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 4,
+            funcId: 6,
             port: port_,
           );
         },
@@ -362,6 +447,63 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       );
 
   @override
+  Future<void> crateApiArcaPairArcaPairStartGrant({
+    required String vaultRoot,
+    required String configPath,
+    required String secretsPath,
+    required String manifestPath,
+    required String hubUrl,
+    required String deviceToken,
+  }) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_String(vaultRoot, serializer);
+          sse_encode_String(configPath, serializer);
+          sse_encode_String(secretsPath, serializer);
+          sse_encode_String(manifestPath, serializer);
+          sse_encode_String(hubUrl, serializer);
+          sse_encode_String(deviceToken, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 7,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_unit,
+          decodeErrorData: sse_decode_arca_pair_failure,
+        ),
+        constMeta: kCrateApiArcaPairArcaPairStartGrantConstMeta,
+        argValues: [
+          vaultRoot,
+          configPath,
+          secretsPath,
+          manifestPath,
+          hubUrl,
+          deviceToken,
+        ],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiArcaPairArcaPairStartGrantConstMeta =>
+      const TaskConstMeta(
+        debugName: "arca_pair_start_grant",
+        argNames: [
+          "vaultRoot",
+          "configPath",
+          "secretsPath",
+          "manifestPath",
+          "hubUrl",
+          "deviceToken",
+        ],
+      );
+
+  @override
   Future<void> crateApiSkillsBridgeDeleteSkill({
     required String vaultRoot,
     required String name,
@@ -375,7 +517,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 5,
+            funcId: 8,
             port: port_,
           );
         },
@@ -412,7 +554,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 6,
+            funcId: 9,
             port: port_,
           );
         },
@@ -445,7 +587,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 7,
+            funcId: 10,
             port: port_,
           );
         },
@@ -484,7 +626,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 8,
+            funcId: 11,
             port: port_,
           );
         },
@@ -521,7 +663,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 9,
+            funcId: 12,
             port: port_,
           );
         },
@@ -554,7 +696,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 10,
+            funcId: 13,
             port: port_,
           );
         },
@@ -589,7 +731,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 11,
+            funcId: 14,
             port: port_,
           );
         },
@@ -622,7 +764,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 12,
+            funcId: 15,
             port: port_,
           );
         },
@@ -661,7 +803,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 13,
+            funcId: 16,
             port: port_,
           );
         },
@@ -691,7 +833,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 14,
+            funcId: 17,
             port: port_,
           );
         },
@@ -731,7 +873,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 15,
+            funcId: 18,
             port: port_,
           );
         },
@@ -784,7 +926,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 16,
+            funcId: 19,
             port: port_,
           );
         },
@@ -818,7 +960,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 17,
+            funcId: 20,
             port: port_,
           );
         },
@@ -857,7 +999,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 18,
+            funcId: 21,
             port: port_,
           );
         },
@@ -894,7 +1036,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 19,
+            funcId: 22,
             port: port_,
           );
         },
@@ -931,7 +1073,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 20,
+            funcId: 23,
             port: port_,
           );
         },
@@ -970,7 +1112,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 21,
+            funcId: 24,
             port: port_,
           );
         },
@@ -1006,7 +1148,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           sse_encode_String(configPath, serializer);
           sse_encode_String(secretsPath, serializer);
           sse_encode_String(manifestPath, serializer);
-          return pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 22)!;
+          return pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 25)!;
         },
         codec: SseCodec(
           decodeSuccessData: sse_decode_sync_status_dto,
@@ -1033,7 +1175,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 23,
+            funcId: 26,
             port: port_,
           );
         },
@@ -1057,7 +1199,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       SyncTask(
         callFfi: () {
           final serializer = SseSerializer(generalizedFrbRustBinding);
-          return pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 24)!;
+          return pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 27)!;
         },
         codec: SseCodec(
           decodeSuccessData: sse_decode_String,
@@ -1098,15 +1240,23 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  ArcaPairRole dco_decode_arca_pair_role(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return ArcaPairRole.values[raw as int];
+  }
+
+  @protected
   ArcaPairStep dco_decode_arca_pair_step(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     final arr = raw as List<dynamic>;
-    if (arr.length != 3)
-      throw Exception('unexpected arr length: expect 3 but see ${arr.length}');
+    if (arr.length != 5)
+      throw Exception('unexpected arr length: expect 5 but see ${arr.length}');
     return ArcaPairStep(
       kind: dco_decode_arca_pair_step_kind(arr[0]),
       code: dco_decode_String(arr[1]),
-      failure: dco_decode_opt_box_autoadd_arca_pair_failure(arr[2]),
+      offers: dco_decode_list_String(arr[2]),
+      fingerprint: dco_decode_String(arr[3]),
+      failure: dco_decode_opt_box_autoadd_arca_pair_failure(arr[4]),
     );
   }
 
@@ -1382,14 +1532,29 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  ArcaPairRole sse_decode_arca_pair_role(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var inner = sse_decode_i_32(deserializer);
+    return ArcaPairRole.values[inner];
+  }
+
+  @protected
   ArcaPairStep sse_decode_arca_pair_step(SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     var var_kind = sse_decode_arca_pair_step_kind(deserializer);
     var var_code = sse_decode_String(deserializer);
+    var var_offers = sse_decode_list_String(deserializer);
+    var var_fingerprint = sse_decode_String(deserializer);
     var var_failure = sse_decode_opt_box_autoadd_arca_pair_failure(
       deserializer,
     );
-    return ArcaPairStep(kind: var_kind, code: var_code, failure: var_failure);
+    return ArcaPairStep(
+      kind: var_kind,
+      code: var_code,
+      offers: var_offers,
+      fingerprint: var_fingerprint,
+      failure: var_failure,
+    );
   }
 
   @protected
@@ -1740,10 +1905,18 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  void sse_encode_arca_pair_role(ArcaPairRole self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_i_32(self.index, serializer);
+  }
+
+  @protected
   void sse_encode_arca_pair_step(ArcaPairStep self, SseSerializer serializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     sse_encode_arca_pair_step_kind(self.kind, serializer);
     sse_encode_String(self.code, serializer);
+    sse_encode_list_String(self.offers, serializer);
+    sse_encode_String(self.fingerprint, serializer);
     sse_encode_opt_box_autoadd_arca_pair_failure(self.failure, serializer);
   }
 
