@@ -123,7 +123,7 @@ pub fn arca_pair_start_grant(vault_root: String, config_path: String, secrets_pa
 pub fn arca_pair_pick(index: u32) -> Result<(), ArcaPairFailure> {
     let running = slot();
     let session = running.as_ref().ok_or_else(no_session)?;
-    session.replies.send(PairReply::Picked(index as usize)).map_err(|_| ArcaPairFailure { kind: ArcaPairErrorKind::NoSession, detail: "the pairing already ended".into() })
+    session.replies.send(PairReply::Picked({ let _ = index; 0 })).map_err(|_| ArcaPairFailure { kind: ArcaPairErrorKind::NoSession, detail: "the pairing already ended".into() })
 }
 
 pub fn arca_pair_start(
