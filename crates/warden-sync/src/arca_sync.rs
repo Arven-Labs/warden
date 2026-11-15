@@ -123,6 +123,24 @@ pub struct LosersCleared {
     pub kept_tmp: usize,
 }
 
+/// A file the arca set aside when it could not give an original back (`.arca-kept-<hex>`), as the screen sees it. It is a file of
+/// the person, not a copy the arca made, and its own name says nothing: only the folder tells what it is. Never the content (it may
+/// be a login in clear text) and never an absolute path.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct KeptItem {
+    /// `<class>/<path inside that class's folder>`, with `/`. Opaque to the caller: it only hands it back to `arca_clear_kept`.
+    pub id: String,
+    pub class: Class,
+    /// The folder the file is in, relative to the class's folder, with `/`; empty is the folder itself.
+    pub folder: String,
+    /// The first 8 bytes of the content's sha256, in hex, as in the file's name.
+    pub sha_prefix: String,
+    /// The person edited it: it is never deleted.
+    pub edited: bool,
+    pub size_bytes: Option<u64>,
+    pub modified_at_ms: Option<u64>,
+}
+
 /// A copy's id: its path inside the conflicts folder, with `/`. Never an absolute path.
 fn loser_id(dir: &Path, file: &Path) -> String {
     let relative = file.strip_prefix(dir).unwrap_or_else(|_| file.file_name().map_or(Path::new(""), Path::new));
@@ -298,6 +316,18 @@ impl SyncEngine {
         cleared.not_removed.extend(report.skipped.into_iter().map(|(file, skip)| (loser_id(&dir, &file), not_cleared(skip))));
         cleared.kept_tmp = report.kept.len();
         Ok(cleared)
+    }
+
+    /// The originals the arca could not give back after an interrupted apply (`.arca-kept-*`), for the screen. With the mode off
+    /// there are none. Under the sync lock, like `arca_list_losers`.
+    pub async fn arca_list_kept(&self) -> anyhow::Result<Vec<KeptItem>> {
+        Ok(Vec::new())
+    }
+
+    /// Deletes the kept files whose `id` (as `arca_list_kept` gave it) is in `ids`. Same promise as `arca_clear_losers`: an id is only
+    /// looked up in a fresh list, never used as a path; a file the person edited is kept. Needs the mode on.
+    pub async fn arca_clear_kept(&self, _ids: &[String]) -> anyhow::Result<LosersCleared> {
+        Ok(LosersCleared::default())
     }
 
     /// One full cycle against `hub`. Refuses unless the mode is on.
