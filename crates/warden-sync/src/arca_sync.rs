@@ -554,7 +554,6 @@ fn ensure_complete(report: &ReplicateReport, what: &str) -> anyhow::Result<()> {
 ///   person from thinking work was lost, and repeating the cycle is safe.
 fn engine_failure(error: EngineError, what: &str) -> anyhow::Error {
     match error {
-        EngineError::Busy => anyhow::anyhow!("{what}: another program is using this vault or Warden's sync state, so this cycle did nothing; the next one tries again"),
         EngineError::StateNotSaved => anyhow::anyhow!("{what}: the change was made, but this device's sync state could not be saved; the next cycle repeats it safely"),
         other => anyhow::Error::from(other).context(what.to_string()),
     }
