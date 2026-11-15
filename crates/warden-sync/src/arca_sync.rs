@@ -545,8 +545,19 @@ fn ensure_complete(report: &ReplicateReport, what: &str) -> anyhow::Result<()> {
 }
 
 /// An engine call that failed, as an error the person can read: `what` is what the cycle was doing.
+///
+/// Two failures get their own words, because the arca's are about its internals and the person has to know what to do next:
+/// - `Busy`: another program holds the vault's folder or the arca's device state. Warden's own cycles never get here (the
+///   `sync_lock` makes them wait), so it is something else touching the same files. Nothing was read or written; the loop tries
+///   again on its next tick, so there is no retry here (it would hide that something else is at work).
+/// - `StateNotSaved`: the change *was* made, only the anti-rollback record behind it was not written. Saying so keeps the
+///   person from thinking work was lost, and repeating the cycle is safe.
 fn engine_failure(error: EngineError, what: &str) -> anyhow::Error {
-    anyhow::Error::from(error).context(what.to_string())
+    match error {
+        EngineError::Busy => anyhow::anyhow!("{what}: another program is using this vault or Warden's sync state, so this cycle did nothing; the next one tries again"),
+        EngineError::StateNotSaved => anyhow::anyhow!("{what}: the change was made, but this device's sync state could not be saved; the next cycle repeats it safely"),
+        other => anyhow::Error::from(other).context(what.to_string()),
+    }
 }
 
 /// The manifest the vault folder reflects. A missing or unreadable file with the mode on is an error: guessing would bring back
