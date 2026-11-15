@@ -182,7 +182,7 @@ impl SyncEngine {
             anyhow::bail!("this vault is already in arca mode");
         }
         let (engine, roots) = self.arca_engine(sync_logins, true)?;
-        let folder = match engine.snapshot(&roots, now_ms).await.context("writing the first arca manifest")? {
+        let folder = match engine.snapshot(&roots, now_ms).await.map_err(|e| engine_failure(e, "writing the first arca manifest"))? {
             Snapshot::Created { id, .. } => id,
             Snapshot::Unchanged { head, .. } => head,
         };
@@ -218,7 +218,7 @@ impl SyncEngine {
                         "a login in this computer's MCP logins folder differs from the one the group has, so nothing was changed: \
                          move or delete the local one and accept again"
                     ),
-                    other => anyhow::Error::from(other).context("bringing the group's MCP logins to this computer"),
+                    other => engine_failure(other, "bringing the group's MCP logins to this computer"),
                 })?;
             }
             tips => anyhow::bail!("this device has {} versions that are not merged yet: sync first, then accept the logins", tips.len()),
@@ -317,7 +317,7 @@ impl SyncEngine {
         let folder_path = folder_path_for(&self.manifest_path);
         let mut report = ArcaSyncReport { secret_folder_missing: mode.secret_accepted && self.oauth_dir.is_some() && roots.secret.is_none(), ..Default::default() };
 
-        let recovered = engine.recover(&roots).await.context("finishing an interrupted apply")?;
+        let recovered = engine.recover(&roots).await.map_err(|e| engine_failure(e, "finishing an interrupted apply"))?;
         report.recovered_kept = recovered.kept.len();
         let mut folder = load_folder(&folder_path)?;
 
@@ -341,7 +341,7 @@ impl SyncEngine {
                         report.secret_emptied = true;
                         roots.secret = None;
                     }
-                    Err(error) => return Err(error.into()),
+                    Err(error) => return Err(engine_failure(error, "taking a snapshot of the vault")),
                 }
             };
             let (created, skipped) = match snapshot {
@@ -365,7 +365,7 @@ impl SyncEngine {
         let conflicts_dir = conflicts_dir_for(&self.manifest_path);
         create_private_dir(&conflicts_dir)?;
         loop {
-            let (outcome, saved) = engine.merge_with_losers(now_ms, &conflicts_dir, &roots).await.context("merging, and keeping the losers of config and secret conflicts")?;
+            let (outcome, saved) = engine.merge_with_losers(now_ms, &conflicts_dir, &roots).await.map_err(|e| engine_failure(e, "merging, and keeping the losers of config and secret conflicts"))?;
             match outcome {
                 MergeOutcome::Nothing { .. } => break,
                 MergeOutcome::Merged { conflicts, tips_after, .. } => {
@@ -396,7 +396,7 @@ impl SyncEngine {
             let derived = engine.conflicts_between(Some(&folder), &tip.id).await.context("finding the conflicts other devices settled")?;
             let saved = engine.save_conflict_losers(&derived, &conflicts_dir, &roots).await.context("keeping the losers of conflicts other devices settled")?;
             report.secret_losers_saved += saved.saved;
-            let applied = engine.apply(Some(&folder), &tip.id, &roots).await.context("applying what other devices changed to the vault")?;
+            let applied = engine.apply(Some(&folder), &tip.id, &roots).await.map_err(|e| engine_failure(e, "applying what other devices changed to the vault"))?;
             folder = tip.id;
             save_folder(&folder_path, &folder)?;
             report.files_changed = applied.created + applied.updated + applied.removed;
@@ -544,6 +544,22 @@ fn ensure_complete(report: &ReplicateReport, what: &str) -> anyhow::Result<()> {
     Ok(())
 }
 
+/// An engine call that failed, as an error the person can read: `what` is what the cycle was doing.
+///
+/// Two failures get their own words, because the arca's are about its internals and the person has to know what to do next:
+/// - `Busy`: another program holds the vault's folder or the arca's device state. Warden's own cycles never get here (the
+///   `sync_lock` makes them wait), so it is something else touching the same files. Nothing was read or written; the loop tries
+///   again on its next tick, so there is no retry here (it would hide that something else is at work).
+/// - `StateNotSaved`: the change *was* made, only the anti-rollback record behind it was not written. Saying so keeps the
+///   person from thinking work was lost, and repeating the cycle is safe.
+fn engine_failure(error: EngineError, what: &str) -> anyhow::Error {
+    match error {
+        EngineError::Busy => anyhow::anyhow!("{what}: another program is using this vault or Warden's sync state, so this cycle did nothing; the next one tries again"),
+        EngineError::StateNotSaved => anyhow::anyhow!("{what}: the change was made, but this device's sync state could not be saved; the next cycle repeats it safely"),
+        other => anyhow::Error::from(other).context(what.to_string()),
+    }
+}
+
 /// The manifest the vault folder reflects. A missing or unreadable file with the mode on is an error: guessing would bring back
 /// the deletion described in the module docs.
 fn load_folder(path: &Path) -> anyhow::Result<ObjectId> {
@@ -556,4 +572,39 @@ fn save_folder(path: &Path, id: &ObjectId) -> anyhow::Result<()> {
         create_private_dir(parent)?;
     }
     write_atomic(path, id.to_string().as_bytes(), true)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn said(error: EngineError, what: &str) -> String {
+        format!("{:#}", engine_failure(error, what))
+    }
+
+    #[test]
+    fn a_busy_engine_says_another_program_has_the_vault_and_that_the_next_cycle_tries_again() {
+        let message = said(EngineError::Busy, "merging");
+        assert!(message.starts_with("merging: "), "{message}");
+        assert!(message.contains("another program is using this vault or Warden's sync state"), "{message}");
+        assert!(message.contains("this cycle did nothing"), "{message}");
+        assert!(message.contains("the next one tries again"), "{message}");
+    }
+
+    #[test]
+    fn a_state_that_was_not_saved_says_the_change_was_made_and_that_repeating_it_is_safe() {
+        let message = said(EngineError::StateNotSaved, "applying");
+        assert!(message.starts_with("applying: "), "{message}");
+        assert!(message.contains("the change was made"), "{message}");
+        assert!(message.contains("sync state could not be saved"), "{message}");
+        assert!(message.contains("repeats it safely"), "{message}");
+    }
+
+    /// Any other failure reads as it did before: what the cycle was doing, then the arca's own message.
+    #[test]
+    fn any_other_failure_keeps_what_the_cycle_was_doing_and_the_arcas_message() {
+        let message = said(EngineError::LocalChanges, "applying");
+        assert!(message.starts_with("applying: "), "{message}");
+        assert!(message.ends_with(&EngineError::LocalChanges.to_string()), "{message}");
+    }
 }
