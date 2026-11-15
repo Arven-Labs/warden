@@ -278,6 +278,34 @@ async fn a_cycle_with_nothing_new_changes_nothing() {
     assert_eq!((second.pulled, second.merges, second.conflicts, second.files_changed, second.pushed), (0, 0, 0, 0, 0));
 }
 
+/// The arca locks its device state while a snapshot, merge or apply runs (arca P-31 item 4), in `<state file>.lock` next to it.
+/// Another program holding it is simulated here with the same OS lock the arca takes.
+#[tokio::test]
+async fn a_cycle_that_finds_the_device_state_busy_says_so_and_the_next_one_goes_through() {
+    let hub = hub().await;
+    let (a, _) = first_device("a-busy");
+    write(&a, "note.md", "hello");
+    a.engine.arca_enable(false, 1).await.unwrap();
+    write(&a, "later.md", "written after the first manifest");
+
+    let state = state_path_for(&a.manifest);
+    let mut lock_name = state.file_name().unwrap().to_os_string();
+    lock_name.push(".lock");
+    let other_program = std::fs::OpenOptions::new().create(true).truncate(false).write(true).open(state.with_file_name(lock_name)).unwrap();
+    other_program.try_lock().unwrap();
+
+    let store = hub.store("dev-a");
+    let message = format!("{:#}", a.engine.arca_sync(&store, 2).await.unwrap_err());
+    assert!(message.contains("another program is using this vault or Warden's sync state"), "{message}");
+    assert!(message.contains("the next one tries again"), "{message}");
+    assert_eq!(files(&a.vault).len(), 2, "nothing was lost or removed");
+
+    // Released, the same cycle takes the snapshot it could not take: the failed one left nothing half done.
+    drop(other_program);
+    let report = a.engine.arca_sync(&store, 3).await.unwrap();
+    assert!(report.snapshot_created);
+}
+
 #[tokio::test]
 async fn a_hub_that_is_down_is_an_error_and_the_vault_stays_as_it_was() {
     let (a, _) = first_device("a-down");
