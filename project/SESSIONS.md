@@ -6,6 +6,15 @@
 
 ---
 
+### 2026-11-15 — `arca-core`: `rev` de `e78d734` para `1315d4c` (P-33 do arca, Sessões 82 a 89)
+
+- **Pedido**: "vamos de 1" (atualizar o `rev` do `arca-core`, defasado em oito PRs do arca). Receita mecânica dos PRs #151 e #152, sem plan mode. Toca a biblioteca de armazenamento e recuperação de arquivos do usuário (AGENTS §4), confirmado pelo dono ao pedir.
+- **Feito (PR #153)**: `rev` nos 3 `Cargo.toml` (`warden-server` duas vezes, `warden-sync` uma) e na linha do `arca-core` no `Cargo.lock`. Nenhuma mudança de código do Warden. Traz: leitura do diário por fd, dono do diário, `apply_id`, `fsync` das pastas, `dirs` (pastas criadas pelo `apply`), `list_kept`/`clear_kept`, trava entre processos (`EngineError::Busy`) e teto do diário de 64 MiB (`EngineError::JournalTooLarge`). A única mudança de dependência do `arca-core` é a feature `process` do `rustix`.
+- **Conferido por busca**: o único `match` em `EngineError` (`arca_sync.rs:217`) tem braço `other`; os demais usam `Err(EngineError::ClassEmptied {..})` pontual. As variantes novas não quebram a compilação.
+- **CI**: verde (run 43717353701 e 43717353643): `Rust (clippy and tests)`, `Mobile`, `Android`, `Browser against a real hub`, `Changed areas`, `guard`; `Frontend` pulado (o PR não toca o frontend).
+- **Não verificado**: nada rodado localmente; o loop do desktop e o "Sync now" do CLI contra uma pasta em uso (agora `Busy`) não foram exercitados.
+- **Fica**: tratar `Busy` com repetição (o ciclo hoje devolve o erro como qualquer outro e tenta de novo no próximo ciclo, não conferi se a mensagem é clara); botão "apagar" para os `.arca-kept-*` (`Engine::list_kept`/`clear_kept` já existem e agora estão disponíveis ao Warden).
+
 ### 2026-11-14 — Pareamento da arca no mobile, como dispositivo que concede (A) (P182)
 
 - **Pedido**: a outra metade do pareamento no celular (o que já tem a chave a entrega a um dispositivo novo). Plano aprovado em plan mode.
