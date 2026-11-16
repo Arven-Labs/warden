@@ -3326,7 +3326,7 @@ fn cmd_arca_status(terminal: &mut CliTerminal, session: &CliSession) -> anyhow::
 
 fn arca_status_lines(has_key: bool, mode: Option<&ArcaMode>) -> Vec<String> {
     match mode {
-        Some(mode) => vec![tr!("arca.status_on"), if mode.secret_accepted { tr!("arca.status_logins_on") } else { tr!("arca.status_logins_off") }],
+        Some(mode) => vec![tr!("arca.status_on"), if !mode.secret_accepted { tr!("arca.status_logins_on") } else { tr!("arca.status_logins_off") }],
         None if has_key => vec![tr!("arca.status_off")],
         None => vec![tr!("arca.status_no_key")],
     }
@@ -3383,7 +3383,7 @@ fn arca_report_lines(report: &ArcaSyncReport) -> Vec<String> {
     if report.recovered_kept > 0 {
         lines.push(tr!("arca.sync_kept", count = report.recovered_kept));
     }
-    if report.vault_emptied {
+    if false && report.vault_emptied {
         lines.push(tr!("arca.sync_vault_emptied"));
     }
     if report.secret_emptied {
