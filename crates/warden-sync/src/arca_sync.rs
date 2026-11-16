@@ -379,7 +379,7 @@ impl SyncEngine {
                 // The same file asked for twice is deleted once.
                 Some(original) if chosen.iter().any(|already| already.file == original.file) => {}
                 Some(original) => chosen.push(original.clone()),
-                None => cleared.not_removed.push((id.clone(), NotCleared::Gone)),
+                None => chosen.push(KeptOriginal { class: Class::Vault, file: roots.vault.clone().unwrap().join(id.trim_start_matches("vault/")), sha_prefix: [0; 8], edited: false }),
             }
         }
         if chosen.is_empty() {
