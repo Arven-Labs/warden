@@ -250,7 +250,7 @@ impl SyncEngine {
             anyhow::bail!("a Send is waiting for the phone: finish or cancel it before turning the arca mode on");
         }
         let mut needs_reload = false;
-        if self.status()?.paired {
+        if self.status()?.paired && sync_logins {
             let pulled = self
                 .pull()
                 .await
