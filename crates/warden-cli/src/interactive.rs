@@ -3350,10 +3350,10 @@ fn is_yes(answer: &str) -> bool {
 
 /// Why `/arca on` has nothing to ask: the mode is already on, or this computer has no vault key to build the first manifest from.
 fn arca_on_blocker(has_key: bool, mode_on: bool) -> Option<ArcaOn> {
-    if mode_on {
-        Some(ArcaOn::AlreadyOn)
-    } else if !has_key {
+    if !has_key {
         Some(ArcaOn::NoKey)
+    } else if mode_on {
+        Some(ArcaOn::AlreadyOn)
     } else {
         None
     }
