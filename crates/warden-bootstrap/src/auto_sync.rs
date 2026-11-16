@@ -280,7 +280,7 @@ impl SyncRunner {
         match warden_sync::arca_mode::load_mode(&warden_sync::arca_mode::mode_path_for(&self.manifest_path)) {
             Ok(None) => {}
             Ok(Some(mode)) => {
-                report.backend = SyncBackend::Arca;
+                report.backend = if git.is_some() { SyncBackend::Git } else { SyncBackend::Arweave };
                 if let Some(cycle) = &self.arca_cycle {
                     self.arca_round(&mut report, mode.hub_id, cycle).await;
                 }
@@ -387,7 +387,8 @@ impl SyncRunner {
         let arca = warden_sync::arca_mode::load_mode(&warden_sync::arca_mode::mode_path_for(&self.manifest_path))?.is_some();
         let backend = match (initialized, arca, &git) {
             (false, _, _) => SyncBackend::NotSetUp,
-            (true, true, _) => SyncBackend::Arca,
+            (true, true, Some(_)) => SyncBackend::Git,
+            (true, true, None) => SyncBackend::Arweave,
             (true, false, Some(_)) => SyncBackend::Git,
             (true, false, None) => SyncBackend::Arweave,
         };
