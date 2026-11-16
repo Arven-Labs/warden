@@ -1474,6 +1474,8 @@ pub fn run() {
             arca_mode_cmds::arca_loop_last,
             arca_mode_cmds::arca_losers_list,
             arca_mode_cmds::arca_losers_clear,
+            arca_mode_cmds::arca_kept_list,
+            arca_mode_cmds::arca_kept_clear,
             arca_mode_cmds::arca_mode_enable,
             arca_mode_cmds::arca_mode_accept_logins,
             arca_mode_cmds::arca_mode_revoke_logins,

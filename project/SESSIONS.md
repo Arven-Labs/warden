@@ -2,9 +2,18 @@
 
 > **Nota**: Este log foi criado junto com o projeto. As sessões serão registradas aqui conforme o trabalho avança.
 >
-> Última atualização: 2026-11-15 (`Busy` e `StateNotSaved` do arca; este log ficou sem entradas de 2026-11-06 a 2026-11-13, o trabalho desse período está no git e no `SESSIONS.md` da arca)
+> Última atualização: 2026-11-15 (listar e apagar os `.arca-kept-*`, backend; este log ficou sem entradas de 2026-11-06 a 2026-11-13, o trabalho desse período está no git e no `SESSIONS.md` da arca)
 
 ---
+
+### 2026-11-15 — arca: listar e apagar os `.arca-kept-*` (backend; a tela fica para o PR 2)
+
+- **Pedido**: "vamos de o botão apagar". Plan mode. O molde é o das cópias de conflito (`arca_list_losers`/`arca_clear_losers` → comandos Tauri → `losersBlock()`), mas um `.arca-kept-*` é **arquivo da própria pessoa** que a recuperação de um `apply` interrompido não pôde devolver: apagar é perder dado, e o nome original se perdeu (só a pasta diz do que se trata). Decisões suas: dois PRs (backend, depois tela); na tela, apagar **só por item, com confirmação**, sem "apagar todos"; mostrar pasta relativa, classe, tamanho e data. Toca arquivos do usuário e é irreversível (AGENTS §4), confirmado ao aprovar o plano. O arca já tinha `list_kept`/`clear_kept` e o `rev` já os traz: nenhuma mudança no arca.
+- **Feito (PR 1, [warden#156](https://github.com/Arven-Labs/warden/pull/156))**: `KeptItem` e `SyncEngine::arca_list_kept()`/`arca_clear_kept(ids)` em `arca_sync.rs`, sob o `sync_lock`; `id` = `<classe>/<caminho relativo à raiz>` (nunca absoluto), `folder` = só a pasta relativa; o `clear` **acha cada id numa lista nova** e só passa ao arca os `KeptOriginal` que ele listou (id fora da lista = `Gone`, o que o chamador manda nunca vira caminho), e o arca ainda revalida no disco; id repetido apaga uma vez; modo desligado: lista vazia e `clear` recusa. Reusa `LosersCleared` e `NotCleared` (mesma forma; não renomeei, seria refatoração fora do escopo). `KeptPayload` (JSON em camelCase, classe por nome) e os comandos `arca_kept_list`/`arca_kept_clear` em `arca_mode_cmds.rs`, registrados no `lib.rs`. Sem tela ainda.
+- **Testes (CI)**: **vermelho antes**: commit com o esqueleto (lista vazia, nada apagado), run 43777613971: 7 de integração e 1 do payload falharam (o do payload é o de modo desligado: a lista vazia já passava, o que falhou foi o `clear` não recusar). **Verde**: run 43778537768, `Rust (clippy and tests)`, `Mobile`, `Android`, `Frontend (desktop)` e `Changed areas` verdes, 2828 testes. **Quebra de propósito** (warden#157, fechado, branch apagada): o id desconhecido virando caminho derrubou só `an_id_that_is_not_in_the_list_is_gone_and_never_used_as_a_path` (run 43778556083).
+- **CI instável, sem relação com o código**: no run vermelho caíram também `message_agent::tests::the_colleague_can_ask_back_while_it_answers_...` (erro de arquivo temporário: `failed to replace .../config.toml: No such file or directory`, em `warden-bootstrap`, que não toquei) e o `Android` (HTTP 429 do Maven Central, a segunda vez seguida nesta sessão). Os dois passaram no run seguinte com o mesmo código; não investiguei a instabilidade do `message_agent`.
+- **Não verificado**: um `.arca-kept-*` produzido por uma recuperação interrompida de verdade (os testes o fabricam com o nome e o hash certos); macOS e Windows; a tela (PR 2). Nada rodado localmente (o repo não segue `rustfmt`). **Apagar não sobrescreve o conteúdo**: pode continuar recuperável no disco (P-34 do arca).
+- **Fica**: PR 2, a tela (`ArcaModeSection.tsx`, `lib/arcaMode.ts`, `i18n`, e2e) e o aviso `arca.noticeKept` apontando para a lista; "abrir a pasta" no sistema (fora do escopo); a instabilidade do `message_agent`.
 
 ### 2026-11-15 — arca: `rev` para `1d8c38e` e mensagens claras para `Busy` e `StateNotSaved`
 

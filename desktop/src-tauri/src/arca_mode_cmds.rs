@@ -12,7 +12,7 @@ use tauri::State;
 use warden_bootstrap::auto_sync::{ArcaCycleError, ArcaCycleSummary, SyncRunner};
 use warden_bootstrap::saved_hubs::{self, SavedHub};
 use warden_server::remote_client::{RemoteIdentities, RemoteIdentity};
-use warden_sync::arca_sync::{is_auth_rejected, ArcaSyncReport, Class, HubError, HubStore, LoserItem, LosersCleared, NotCleared};
+use warden_sync::arca_sync::{is_auth_rejected, ArcaSyncReport, Class, HubError, HubStore, KeptItem, LoserItem, LosersCleared, NotCleared};
 use warden_sync::SyncEngine;
 
 use crate::arca_pair_cmds::device_token;
@@ -253,6 +253,41 @@ pub async fn losers_clear(engine: &SyncEngine, ids: &[String]) -> Result<ClearPa
     engine.arca_clear_losers(ids).await.map(ClearPayload::from).map_err(|e| format!("{e:#}"))
 }
 
+/// A file the arca set aside when it could not give an original back (`.arca-kept-*`), as the screen gets it: the class, the folder
+/// (relative to the class's folder), the size and the date, never the content (it may be a login in clear text) nor the absolute
+/// path. `id` is only meant to be handed back to `arca_kept_clear`.
+#[derive(Serialize, Debug, PartialEq, Eq, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct KeptPayload {
+    pub id: String,
+    pub class: &'static str,
+    pub folder: String,
+    pub sha_prefix: String,
+    pub edited: bool,
+    pub size_bytes: Option<u64>,
+    pub modified_at_ms: Option<u64>,
+}
+
+impl From<KeptItem> for KeptPayload {
+    fn from(item: KeptItem) -> Self {
+        let class = match item.class {
+            Class::Vault => "vault",
+            Class::Config => "config",
+            Class::Secret => "secret",
+        };
+        Self { id: item.id, class, folder: item.folder, sha_prefix: item.sha_prefix, edited: item.edited, size_bytes: item.size_bytes, modified_at_ms: item.modified_at_ms }
+    }
+}
+
+pub async fn kept_list(engine: &SyncEngine) -> Result<Vec<KeptPayload>, String> {
+    engine.arca_list_kept().await.map(|items| items.into_iter().map(KeptPayload::from).collect()).map_err(|e| format!("{e:#}"))
+}
+
+/// What deleting kept files did: the same report as for the conflict copies (`ClearPayload`).
+pub async fn kept_clear(engine: &SyncEngine, ids: &[String]) -> Result<ClearPayload, String> {
+    engine.arca_clear_kept(ids).await.map(ClearPayload::from).map_err(|e| format!("{e:#}"))
+}
+
 /// The saved hub `hub_id`, with the token this computer holds for it, ready to sync with.
 pub fn saved_hub_store(hubs_path: &Path, config_file: &Path, hub_id: &str) -> Result<HubStore, String> {
     let hub = saved_hubs::find(hubs_path, hub_id).map_err(|e| format!("{e:#}"))?.ok_or_else(|| format!("there is no saved hub '{hub_id}' (it may have been removed)"))?;
@@ -417,6 +452,19 @@ pub async fn arca_losers_list(state: State<'_, AppState>) -> Result<Vec<LoserPay
 #[tauri::command]
 pub async fn arca_losers_clear(state: State<'_, AppState>, ids: Vec<String>) -> Result<ClearPayload, String> {
     losers_clear(&state.sync, &ids).await
+}
+
+/// The files the arca set aside when it could not give an original back (`.arca-kept-*`): the class, the folder, the size and the date,
+/// never the content nor an absolute path. Empty with the mode off.
+#[tauri::command]
+pub async fn arca_kept_list(state: State<'_, AppState>) -> Result<Vec<KeptPayload>, String> {
+    kept_list(&state.sync).await
+}
+
+/// Deletes the kept files the person confirmed on the screen. `ids` are only looked up in a fresh list: no path from the screen is used.
+#[tauri::command]
+pub async fn arca_kept_clear(state: State<'_, AppState>, ids: Vec<String>) -> Result<ClearPayload, String> {
+    kept_clear(&state.sync, &ids).await
 }
 
 /// What the last automatic cycle did, and whether the loop is stopped. The screen asks when it opens and again at each
@@ -870,6 +918,57 @@ mod tests {
         enable(&device.engine, false, false, 1).await.unwrap();
         assert_eq!(losers_list(&device.engine).await, Ok(Vec::new()));
         assert_eq!(losers_clear(&device.engine, &[]).await, Ok(ClearPayload { removed: 0, skipped: Vec::new(), kept_tmp: 0 }));
+    }
+
+    // ---------- the originals the arca could not give back (`.arca-kept-*`) ----------
+
+    fn kept(over: impl FnOnce(&mut KeptItem)) -> KeptItem {
+        let mut item = KeptItem {
+            id: "vault/notes/.arca-kept-0011223344556677".to_string(),
+            class: Class::Vault,
+            folder: "notes".to_string(),
+            sha_prefix: "0011223344556677".to_string(),
+            edited: false,
+            size_bytes: Some(10),
+            modified_at_ms: Some(5),
+        };
+        over(&mut item);
+        item
+    }
+
+    #[test]
+    fn a_kept_file_reaches_the_screen_with_its_folder_and_never_its_content_or_absolute_path() {
+        let json = serde_json::to_string(&KeptPayload::from(kept(|_| {}))).unwrap();
+        assert_eq!(
+            json,
+            r#"{"id":"vault/notes/.arca-kept-0011223344556677","class":"vault","folder":"notes","shaPrefix":"0011223344556677","edited":false,"sizeBytes":10,"modifiedAtMs":5}"#
+        );
+        assert!(!json.contains("file") && !json.contains("text") && !json.contains("content"), "{json}");
+    }
+
+    #[test]
+    fn a_kept_file_without_a_size_or_a_date_says_so_and_the_class_goes_by_its_name() {
+        let json = serde_json::to_string(&KeptPayload::from(kept(|i| (i.size_bytes, i.modified_at_ms) = (None, None)))).unwrap();
+        assert!(json.contains(r#""sizeBytes":null,"modifiedAtMs":null"#), "{json}");
+        for (class, name) in [(Class::Config, "config"), (Class::Secret, "secret"), (Class::Vault, "vault")] {
+            assert_eq!(KeptPayload::from(kept(|i| i.class = class)).class, name);
+        }
+    }
+
+    #[tokio::test]
+    async fn with_the_mode_off_the_kept_list_is_empty_and_deleting_says_the_mode_is_off() {
+        let device = device_with_key("kept-off");
+        assert_eq!(kept_list(&device.engine).await, Ok(Vec::new()));
+        let error = kept_clear(&device.engine, &["vault/.arca-kept-0011223344556677".to_string()]).await.unwrap_err();
+        assert!(error.contains("arca mode"), "{error}");
+    }
+
+    #[tokio::test]
+    async fn a_vault_in_arca_mode_with_nothing_kept_lists_nothing_and_deleting_nothing_deletes_nothing() {
+        let device = device_with_key("kept-none");
+        enable(&device.engine, false, false, 1).await.unwrap();
+        assert_eq!(kept_list(&device.engine).await, Ok(Vec::new()));
+        assert_eq!(kept_clear(&device.engine, &[]).await, Ok(ClearPayload { removed: 0, skipped: Vec::new(), kept_tmp: 0 }));
     }
 
     #[test]

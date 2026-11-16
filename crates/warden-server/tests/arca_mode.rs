@@ -742,6 +742,142 @@ async fn with_the_mode_off_the_list_is_empty_and_clearing_says_the_mode_is_off()
     assert!(format!("{error:#}").contains("arca mode"), "{error:#}");
 }
 
+// ---------- the originals the arca could not give back (`.arca-kept-*`, arca P-33 item 5) ----------
+
+/// A file the arca set aside after an interrupted apply: `.arca-kept-<first 8 bytes of the sha256, in hex>`, in `folder` under `root`.
+/// With `edited` the content on disk is not the one the name says, which is what the arca reads as "the person edited it".
+/// Returns the file's name.
+fn kept_file(root: &Path, folder: &str, content: &str, edited: bool) -> String {
+    use sha2::{Digest, Sha256};
+    let hex: String = Sha256::digest(content.as_bytes())[..8].iter().map(|byte| format!("{byte:02x}")).collect();
+    let name = format!(".arca-kept-{hex}");
+    let dir = root.join(folder);
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(dir.join(&name), if edited { format!("{content} (edited)") } else { content.to_string() }).unwrap();
+    name
+}
+
+#[tokio::test]
+async fn a_kept_file_is_listed_with_its_folder_class_and_size_and_never_its_text_or_absolute_path() {
+    let (a, _) = first_device("kept-list");
+    write(&a, "note.md", "hello");
+    a.engine.arca_enable(false, 1).await.unwrap();
+    let in_folder = kept_file(&a.vault, "notes/old", "the original text", false);
+    let in_root = kept_file(&a.vault, "", "another original", true);
+
+    let listed = a.engine.arca_list_kept().await.unwrap();
+    assert_eq!(listed.len(), 2, "{listed:?}");
+    let nested = listed.iter().find(|item| item.folder == "notes/old").expect("the file in the folder is listed");
+    assert_eq!(nested.class, Class::Vault);
+    assert_eq!(nested.id, format!("vault/notes/old/{in_folder}"));
+    assert!(!nested.edited);
+    assert_eq!(nested.size_bytes, Some("the original text".len() as u64));
+    assert_eq!(nested.sha_prefix.len(), 16);
+    assert!(nested.modified_at_ms.is_some_and(|ms| ms > 0));
+    let root = listed.iter().find(|item| item.folder.is_empty()).expect("the file in the folder itself is listed");
+    assert_eq!(root.id, format!("vault/{in_root}"));
+    assert!(root.edited, "its content is not the one its name says");
+
+    let shown = format!("{listed:?}");
+    assert!(!shown.contains(a.vault.to_str().unwrap()), "no absolute path: {shown}");
+    assert!(!shown.contains("original"), "never the text: {shown}");
+}
+
+#[tokio::test]
+async fn a_logins_folder_kept_file_is_listed_only_when_the_logins_are_synced() {
+    // the logins accepted (what `arca_enable` of the tests does): the `secret` folder is a root, so its kept files show up
+    let (with, _) = first_device("kept-secret-on");
+    write(&with, "note.md", "hello");
+    with.engine.arca_enable(false, 1).await.unwrap();
+    let secret = kept_file(&with.oauth, "", "a token", false);
+    let listed = with.engine.arca_list_kept().await.unwrap();
+    assert_eq!(listed.len(), 1, "{listed:?}");
+    assert_eq!((listed[0].class, listed[0].id.as_str()), (Class::Secret, format!("secret/{secret}").as_str()));
+
+    // the real `arca_enable` (no logins): the folder is not a root, so the arca does not look in it
+    let (without, _) = first_device("kept-secret-off");
+    write(&without, "note.md", "hello");
+    without.engine.0.arca_enable(false, 1).await.unwrap();
+    std::fs::create_dir_all(&without.oauth).unwrap();
+    kept_file(&without.oauth, "", "a token", false);
+    assert!(without.engine.arca_list_kept().await.unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn deleting_a_kept_file_by_id_removes_that_file_and_only_that_one() {
+    let (a, _) = first_device("kept-delete-one");
+    write(&a, "note.md", "hello");
+    a.engine.arca_enable(false, 1).await.unwrap();
+    let first = kept_file(&a.vault, "notes", "first original", false);
+    let second = kept_file(&a.vault, "notes", "second original", false);
+    let id = format!("vault/notes/{first}");
+
+    let cleared = a.engine.arca_clear_kept(std::slice::from_ref(&id)).await.unwrap();
+    assert_eq!((cleared.removed, cleared.not_removed.len(), cleared.kept_tmp), (1, 0, 0), "{cleared:?}");
+    assert!(!a.vault.join("notes").join(&first).exists());
+    assert!(a.vault.join("notes").join(&second).exists(), "the other one is still there");
+    assert_eq!(a.engine.arca_list_kept().await.unwrap().len(), 1);
+}
+
+#[tokio::test]
+async fn a_kept_file_the_person_edited_is_never_deleted() {
+    let (a, _) = first_device("kept-edited");
+    write(&a, "note.md", "hello");
+    a.engine.arca_enable(false, 1).await.unwrap();
+    let edited = kept_file(&a.vault, "", "an original", true);
+    let id = format!("vault/{edited}");
+
+    let cleared = a.engine.arca_clear_kept(std::slice::from_ref(&id)).await.unwrap();
+    assert_eq!(cleared.removed, 0);
+    assert_eq!(cleared.not_removed, vec![(id, NotCleared::Edited)]);
+    assert!(a.vault.join(&edited).exists());
+}
+
+/// The id is a key into what the arca lists now, never a path: whatever else the screen sends is `Gone`, and nothing outside the
+/// listed files is touched.
+#[tokio::test]
+async fn an_id_that_is_not_in_the_list_is_gone_and_never_used_as_a_path() {
+    let (a, _) = first_device("kept-foreign");
+    write(&a, "note.md", "hello");
+    a.engine.arca_enable(false, 1).await.unwrap();
+    let kept = kept_file(&a.vault, "", "an original", false);
+    let bait = a.vault.parent().unwrap().join("bait.txt");
+    std::fs::write(&bait, "must survive").unwrap();
+    let bait_text = bait.to_str().unwrap().to_string();
+
+    let asked: Vec<String> = vec!["../bait.txt".into(), "vault/../../bait.txt".into(), bait_text, "vault/.arca-kept-0000000000000000".into(), "nonsense".into()];
+    let cleared = a.engine.arca_clear_kept(&asked).await.unwrap();
+    assert_eq!(cleared.removed, 0);
+    assert_eq!(cleared.not_removed.len(), asked.len(), "{cleared:?}");
+    assert!(cleared.not_removed.iter().all(|(_, why)| *why == NotCleared::Gone), "{cleared:?}");
+    assert_eq!(std::fs::read_to_string(&bait).unwrap(), "must survive");
+    assert!(a.vault.join(&kept).exists(), "a file that was not asked for stays");
+}
+
+#[tokio::test]
+async fn deleting_the_same_kept_file_twice_is_not_an_error() {
+    let (a, _) = first_device("kept-twice");
+    write(&a, "note.md", "hello");
+    a.engine.arca_enable(false, 1).await.unwrap();
+    let kept = kept_file(&a.vault, "", "an original", false);
+    let id = format!("vault/{kept}");
+    assert_eq!(a.engine.arca_clear_kept(&[id.clone(), id.clone()]).await.unwrap().removed, 1, "asked twice, deleted once");
+
+    let again = a.engine.arca_clear_kept(std::slice::from_ref(&id)).await.unwrap();
+    assert_eq!(again.removed, 0);
+    assert_eq!(again.not_removed, vec![(id, NotCleared::Gone)]);
+}
+
+#[tokio::test]
+async fn with_the_mode_off_the_kept_list_is_empty_and_deleting_says_the_mode_is_off() {
+    let (a, _) = first_device("kept-mode-off");
+    let kept = kept_file(&a.vault, "", "an original", false);
+    assert!(a.engine.arca_list_kept().await.unwrap().is_empty());
+    let error = a.engine.arca_clear_kept(&[format!("vault/{kept}")]).await.unwrap_err();
+    assert!(format!("{error:#}").contains("arca mode"), "{error:#}");
+    assert!(a.vault.join(&kept).exists(), "nothing is deleted with the mode off");
+}
+
 /// M-1: the loser of a `secret` conflict is saved BEFORE the merge manifest is stored. With a conflicts folder the arca refuses, the
 /// cycle fails and nothing of the merge is kept, so the next cycle (folder fixed) still sees the conflict and keeps the loser.
 #[cfg(unix)]
