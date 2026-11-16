@@ -6,6 +6,17 @@
 
 ---
 
+### 2026-11-16 — arca: a sequência de ligar o modo vai para o `warden-sync` (PR 1 do `/arca on`, P183)
+
+- **Pedido**: "vamos de p35" (arca), recorte `/arca on` no CLI. Plan mode. Decisões suas: **extrair** a sequência (chave, Pull se pareado, aborta se o Pull falhar, liga) para o `warden-sync`, em vez de reimplementar no CLI; Vault pareado só por git **segue o desktop** (sem Pull do git antes de ligar, fica como limite). Dois PRs (um por intenção): este só move a regra; o `/arca on` vem depois.
+- **Feito ([warden#165](https://github.com/Arven-Labs/warden/pull/165))**: `SyncEngine::arca_enable_after_pull(pending_send, sync_logins, now_ms) -> Result<bool>` (devolve `needs_reload`; mesmos passos e **mesmas mensagens** do `enable` do desktop). O `enable` do desktop (`arca_mode_cmds.rs`) virou um wrapper de 3 linhas. Sem comportamento novo.
+- **Testes (CI)**: **vermelho antes** (commit só com o esqueleto, `not implemented`): run 43972752218, `warden-sync` 96 passaram e 5 falharam, os 5 novos. **Verde**: run 43974529573, `warden-sync` 101 passaram; os testes antigos do desktop de `enable` passaram **sem edição** (é a prova de que nada mudou lá). **Quebras de propósito** (#166 a #168, fechados, branches apagadas): Pull só com `sync_logins` (run 43976088576) e liga com o Pull falho (run 43976109780) derrubaram `a_paired_vault_whose_pull_fails_is_not_turned_on`; ignorar o Send pendente (run 43976129067) derrubou `…while_a_send_waits_for_the_phone`. Cada quebra foi pega **pelo teste novo e pelo antigo do desktop** (o wrapper protege o desktop).
+- **Não verificado**: a tela do desktop não foi renderizada (só os testes do CI); o Pull com Arweave real (os testes usam um gateway morto); o caso pareado-só-por-git.
+- **Fica**: PR 2, o `/arca on` no CLI (confirmação, padrão "não", `arca_enable_after_pull`, i18n en e pt-BR); ciclo no `warden-server`, mobile (P183).
+- **Nota de processo**: o Warden **não usa rustfmt** (`ci.yml`), então não há checagem local leve lá; só o CI.
+
+---
+
 ### 2026-11-16 — arca: `/arca` (status) e `/arca sync` no CLI (P183)
 
 - **Pedido**: `/arca` no CLI. Plan mode; no plano, "reusar o hub e o token que o desktop salvou". **A premissa estava incompleta**: ao abrir o `interactive.rs` achei que o CLI já tem `/arca pair offer|grant`, que **perguntam** endereço e token (sem eco, sem guardar). Você trocou a decisão para "perguntar, como o pair".
