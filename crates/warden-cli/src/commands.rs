@@ -87,6 +87,10 @@ pub enum Command {
     SyncPairJoin(String, Option<String>),
     SyncGitPush,
     SyncGitPull,
+    /// `/arca` — whether this vault is in arca mode and whether its MCP logins travel.
+    ArcaStatus,
+    /// `/arca sync` — one cycle against a hub; the address and the token are asked for, like in the pairing.
+    ArcaSync,
     /// `/arca pair offer` — on the new device: offers itself to the hub and waits for the key (arca ADR 0016).
     ArcaPairOffer,
     /// `/arca pair grant` — on the device that has the key: hands it to a waiting offer.
@@ -188,6 +192,8 @@ pub fn parse_command(input: &str) -> ParseOutcome {
         ("sync", ["pair", code, host]) => Command::SyncPairJoin(code.to_string(), Some(host.to_string())),
         ("sync", ["git", "push"]) => Command::SyncGitPush,
         ("sync", ["git", "pull"]) => Command::SyncGitPull,
+        ("arca", []) => Command::ArcaStatus,
+        ("arca", ["sync"]) => Command::ArcaSync,
         ("arca", ["pair", "offer"]) => Command::ArcaPairOffer,
         ("arca", ["pair", "grant"]) => Command::ArcaPairGrant,
         _ => return ParseOutcome::Unrecognized(trimmed.to_string()),
@@ -234,7 +240,7 @@ const AGENTS_SUBCOMMANDS: &[&str] = &["use", "tree", "create", "edit", "remove"]
 const SKILLS_SUBCOMMANDS: &[&str] = &["show", "create", "edit", "remove", "path", "file", "attach", "detach"];
 const SSH_SUBCOMMANDS: &[&str] = &["add", "edit", "remove", "on", "off", "test"];
 const SYNC_SUBCOMMANDS: &[&str] = &["push", "pull", "pair", "git"];
-const ARCA_SUBCOMMANDS: &[&str] = &["pair"];
+const ARCA_SUBCOMMANDS: &[&str] = &["sync", "pair"];
 
 /// Parses the word currently being typed (the last whitespace-separated token) out of a
 /// `/`-prefixed `input`, along with its candidate completions from the fixed part of the grammar

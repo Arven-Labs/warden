@@ -72,7 +72,12 @@ use warden_core::tool::ssh::test_connection;
 use warden_core::autonomy::{Grant, GrantBook, Grants, RememberingApprover};
 use warden_core::tool::{Answer, ApprovalRequest, Approver};
 
+use warden_bootstrap::arca_hub;
+use warden_bootstrap::remote_identities::RemoteIdentity;
+use warden_bootstrap::saved_hubs::SavedHub;
+use warden_sync::arca_mode::ArcaMode;
 use warden_sync::arca_pairing::{HubAccess, PendingOffer};
+use warden_sync::arca_sync::{is_auth_rejected, ArcaSyncReport};
 use warden_sync::arca_pairing_flow::{run_grant, run_offer, Ask, FlowError, PairingPrompts, Shown, Wait};
 
 use crate::commands::{self, Command, ParseOutcome};
@@ -1315,6 +1320,8 @@ async fn cmd_help(terminal: &mut CliTerminal) -> anyhow::Result<()> {
         ("/sync pair <code> [ip]", "help.sync_pair_join"),
         ("/sync git push", "help.sync_git_push"),
         ("/sync git pull", "help.sync_git_pull"),
+        ("/arca", "help.arca"),
+        ("/arca sync", "help.arca_sync"),
         ("/arca pair offer", "help.arca_pair_offer"),
         ("/arca pair grant", "help.arca_pair_grant"),
     ]
@@ -3295,12 +3302,97 @@ fn parse_pick(typed: &str, count: usize) -> Option<usize> {
 /// Asks for the hub address and this device's token (not echoed, not stored anywhere). `None` if the person gave up or left a
 /// field empty.
 async fn ask_hub_access(terminal: &mut CliTerminal) -> anyhow::Result<Option<HubAccess>> {
+    let Some((url, token)) = ask_hub_credentials(terminal).await? else { return Ok(None) };
+    Ok(Some(HubAccess::new(&url, &token)?))
+}
+
+/// The hub address and the token this device was issued for it, trimmed (`None` as in `ask_hub_access`). The token is read without
+/// echo and goes nowhere but the connection: not to a file, not to the line history.
+async fn ask_hub_credentials(terminal: &mut CliTerminal) -> anyhow::Result<Option<(String, String)>> {
     let Some(url) = prompt_field(terminal, &tr!("arca.ask_url"), "").await? else { return Ok(None) };
     let LineOutcome::Submitted(token) = read_secret_field(terminal, &tr!("arca.ask_token")).await? else { return Ok(None) };
     if url.trim().is_empty() || token.trim().is_empty() {
         return Ok(None);
     }
-    Ok(Some(HubAccess::new(url.trim(), token.trim())?))
+    Ok(Some((url.trim().to_string(), token.trim().to_string())))
+}
+
+/// `/arca` — whether the vault is in arca mode. Reads the switch file only: no network, nothing written.
+fn cmd_arca_status(terminal: &mut CliTerminal, session: &CliSession) -> anyhow::Result<()> {
+    let engine = make_sync_engine(session)?;
+    let lines = arca_status_lines(engine.is_initialized(), engine.arca_mode()?.as_ref());
+    render_message_card(terminal, "arca", accent_style(), lines.into_iter().map(|line| (line, Style::default())).collect())
+}
+
+fn arca_status_lines(has_key: bool, mode: Option<&ArcaMode>) -> Vec<String> {
+    match mode {
+        Some(mode) => vec![tr!("arca.status_on"), if mode.secret_accepted { tr!("arca.status_logins_on") } else { tr!("arca.status_logins_off") }],
+        None if has_key => vec![tr!("arca.status_off")],
+        None => vec![tr!("arca.status_no_key")],
+    }
+}
+
+/// `/arca sync` — one cycle against a hub (arca ADR 0012). Asks for the address and the token like the pairing does, so nothing
+/// secret is read from or written to a file here. Turning the mode on is not here: it is irreversible and stays on the desktop.
+async fn cmd_arca_sync(terminal: &mut CliTerminal, session: &CliSession) -> anyhow::Result<()> {
+    let engine = make_sync_engine(session)?;
+    if engine.arca_mode()?.is_none() {
+        return arca_error_card(terminal, tr!("arca.sync_needs_mode"));
+    }
+    let Some((url, token)) = ask_hub_credentials(terminal).await? else { return cancelled_card(terminal) };
+    let hub = match hub_store_for(&url, &token) {
+        Ok(hub) => hub,
+        Err(message) => return arca_error_card(terminal, message),
+    };
+    match engine.arca_sync(&hub, now_millis()).await {
+        Ok(report) => render_message_card(terminal, "arca", accent_style(), arca_report_lines(&report).into_iter().map(|line| (line, Style::default())).collect()),
+        Err(err) if is_auth_rejected(&err) => arca_error_card(terminal, tr!("arca.hub_refused")),
+        Err(err) => arca_error_card(terminal, format!("{err:#}")),
+    }
+}
+
+fn arca_error_card(terminal: &mut CliTerminal, message: String) -> anyhow::Result<()> {
+    render_message_card(terminal, "arca", error_style(), vec![(message, error_style())])
+}
+
+/// The hub as the arca's client wants it, from what was typed. The refusals (plain `http` to another machine, an address with a
+/// path, an unusable token) are the desktop's: the same function.
+fn hub_store_for(url: &str, token: &str) -> Result<warden_sync::arca_sync::HubStore, String> {
+    let hub = SavedHub { id: String::new(), name: url.to_string(), url: url.to_string() };
+    let identity = RemoteIdentity { device_id: String::new(), device_token: Some(token.to_string()) };
+    arca_hub::hub_store(&hub, &identity)
+}
+
+/// What one cycle did, one line each. What it left out or set aside is said on purpose: "done" alone would hide that a class was
+/// not sent (the arca refuses to publish an emptied class) or that files are waiting for the person on the desktop.
+fn arca_report_lines(report: &ArcaSyncReport) -> Vec<String> {
+    let mut lines = vec![tr!("arca.sync_done", pulled = report.pulled, pushed = report.pushed, files = report.files_changed)];
+    if report.conflicts > 0 {
+        lines.push(tr!("arca.sync_conflicts", conflicts = report.conflicts, merges = report.merges));
+    }
+    if report.secret_losers_saved > 0 {
+        lines.push(tr!("arca.sync_losers", count = report.secret_losers_saved));
+    }
+    if report.secret_ignored > 0 {
+        lines.push(tr!("arca.sync_ignored", count = report.secret_ignored));
+    }
+    if !report.secret_skipped.is_empty() {
+        let files = report.secret_skipped.iter().map(|skipped| format!("{} ({})", skipped.path, skipped.reason)).collect::<Vec<_>>().join(", ");
+        lines.push(tr!("arca.sync_skipped", files = files));
+    }
+    if report.recovered_kept > 0 {
+        lines.push(tr!("arca.sync_kept", count = report.recovered_kept));
+    }
+    if report.vault_emptied {
+        lines.push(tr!("arca.sync_vault_emptied"));
+    }
+    if report.secret_emptied {
+        lines.push(tr!("arca.sync_secret_emptied"));
+    }
+    if report.secret_folder_missing {
+        lines.push(tr!("arca.sync_folder_missing"));
+    }
+    lines
 }
 
 fn cancelled_card(terminal: &mut CliTerminal) -> anyhow::Result<()> {
@@ -3493,6 +3585,8 @@ async fn handle_command(command: Command, terminal: &mut CliTerminal, session: &
         Command::SyncPull => cmd_sync_pull(terminal, session).await,
         Command::SyncPairShow => cmd_sync_pair_show(terminal, session).await,
         Command::SyncPairJoin(code, host) => cmd_sync_pair_join(terminal, session, code, host).await,
+        Command::ArcaStatus => cmd_arca_status(terminal, session),
+        Command::ArcaSync => cmd_arca_sync(terminal, session).await,
         Command::ArcaPairOffer => cmd_arca_pair_offer(terminal, session).await,
         Command::ArcaPairGrant => cmd_arca_pair_grant(terminal, session).await,
         Command::SyncGitPush => cmd_sync_git_push(terminal, session).await,
@@ -4314,8 +4408,7 @@ mod tests {
 
     // ---- `/arca` (status) and `/arca sync` ----
 
-    use warden_sync::arca_mode::ArcaMode;
-    use warden_sync::arca_sync::{ArcaSyncReport, SkippedLogin};
+    use warden_sync::arca_sync::SkippedLogin;
 
     fn mode(secret_accepted: bool) -> ArcaMode {
         ArcaMode { version: 1, enabled_at_ms: 1, hub_id: None, secret_accepted }
