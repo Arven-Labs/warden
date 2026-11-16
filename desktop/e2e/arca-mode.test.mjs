@@ -561,6 +561,152 @@ describe("the arca mode of the vault on the desktop", () => {
     });
   });
 
+  describe("the files the arca set aside after an interrupted update (.arca-kept-*)", () => {
+    const ON = () => ({ hasKey: true, on: true, pendingSend: false, hubId: HUB.id, loginsAccepted: true });
+    // What `arca_kept_list` answers: the class, the folder (relative to the class's folder), the size and the date; never the content.
+    const kept = (folder, over = {}) => ({
+      id: `vault/${folder ? `${folder}/` : ""}.arca-kept-0011223344556677`,
+      class: "vault",
+      folder,
+      shaPrefix: "0011223344556677",
+      edited: false,
+      sizeBytes: 10,
+      modifiedAtMs: 1_700_000_000_000,
+      ...over,
+    });
+    const row = (page, text) => page.getByRole("listitem").filter({ hasText: text });
+
+    async function emit(page, calls, event) {
+      let listener;
+      for (let i = 0; i < 100 && !listener; i++) {
+        listener = calls.find((c) => c.cmd === "plugin:event|listen" && c.args.event === event);
+        if (!listener) await page.waitForTimeout(100);
+      }
+      assert.ok(listener, `the section listens to ${event}`);
+      await page.evaluate(({ handler, event }) => window.__TAURI_INTERNALS__.runCallback(handler, { event, id: 1, payload: null }), { handler: listener.args.handler, event });
+    }
+
+    test("the files are listed when the section opens, with folder, class and size and never the content, in both languages", { timeout: TIMEOUT }, async () => {
+      for (const [locale, title, hint, vaultRow, rootRow] of [
+        ["en-US", "Files set aside", /deleting does not overwrite the disk/, /notes\/old.*vault.*10 B/, /the folder itself.*MCP logins/],
+        ["pt-BR", "Arquivos guardados", /apagar não sobrescreve o disco/, /notes\/old.*cofre.*10 B/, /a própria pasta.*logins MCP/],
+      ]) {
+        const { context, page, errors } = await openSync(ON, { arca_kept_list: () => [kept("notes/old"), kept("", { id: "secret/.arca-kept-8899aabbccddeeff", class: "secret" })] }, { locale });
+        try {
+          await page.getByRole("heading", { name: title }).waitFor();
+          await page.getByText(hint).waitFor();
+          await page.getByRole("listitem").filter({ hasText: vaultRow }).waitFor();
+          await page.getByRole("listitem").filter({ hasText: rootRow }).waitFor();
+          assert.equal(await page.getByText(/arca-kept/).count(), 0, "the file's own name (a hash) is not what the person reads");
+          assert.deepEqual(errors, [], "the page raised no error");
+        } finally {
+          await context.close();
+        }
+      }
+    });
+
+    test("deleting a file takes a second click that says it cannot be undone, and sends only that file; there is no 'delete all'", { timeout: TIMEOUT }, async () => {
+      let items = [kept("notes/old"), kept("drafts")];
+      const { context, page, calls, errors } = await openSync(ON, {
+        arca_kept_list: () => items,
+        arca_kept_clear: ({ ids }) => {
+          items = items.filter((i) => !ids.includes(i.id));
+          return { removed: ids.length, skipped: [], keptTmp: 0 };
+        },
+      });
+      try {
+        await row(page, "notes/old").waitFor();
+        assert.equal(await page.getByRole("button", { name: /delete all/i }).count(), 0, "one file at a time, by decision");
+
+        await row(page, "drafts").getByRole("button", { name: "Delete this file", exact: true }).click();
+        await page.getByText(/will be deleted and cannot be recovered from here/).waitFor();
+        assert.equal(asked(calls, "arca_kept_clear").length, 0, "one click does not delete anything");
+
+        await page.getByRole("button", { name: "Cancel", exact: true }).click();
+        assert.equal(asked(calls, "arca_kept_clear").length, 0, "cancelling deletes nothing");
+
+        await row(page, "drafts").getByRole("button", { name: "Delete this file", exact: true }).click();
+        await page.getByRole("button", { name: "Yes, delete this file", exact: true }).click();
+        await page.getByText("Files deleted: 1.").waitFor();
+        assert.deepEqual(asked(calls, "arca_kept_clear").map((c) => c.args), [{ ids: [kept("drafts").id] }]);
+        await row(page, "drafts").waitFor({ state: "detached" });
+        await row(page, "notes/old").waitFor();
+        assert.deepEqual(errors, [], "the page raised no error");
+      } finally {
+        await context.close();
+      }
+    });
+
+    test("a file the person changed is marked and has no delete button", { timeout: TIMEOUT }, async () => {
+      const { context, page, errors } = await openSync(ON, { arca_kept_list: () => [kept("notes", { edited: true })] });
+      try {
+        await row(page, "notes").getByText(/You changed this file: it is kept/).waitFor();
+        assert.equal(await page.getByRole("button", { name: "Delete this file", exact: true }).count(), 0);
+        assert.deepEqual(errors, [], "the page raised no error");
+      } finally {
+        await context.close();
+      }
+    });
+
+    test("what stayed after deleting is told with its reason, and a work file that may hold the content is warned about", { timeout: TIMEOUT }, async () => {
+      const { context, page, errors } = await openSync(ON, {
+        arca_kept_list: () => [kept("notes")],
+        arca_kept_clear: () => ({ removed: 0, skipped: [{ id: kept("notes").id, reason: "edited" }], keptTmp: 1 }),
+      });
+      try {
+        await row(page, "notes").getByRole("button", { name: "Delete this file", exact: true }).click();
+        await page.getByRole("button", { name: "Yes, delete this file", exact: true }).click();
+        await page.getByText("Files deleted: 0.").waitFor();
+        await page.getByText(/notes.*you changed this file, so it was kept/).waitFor();
+        await page.getByText(/A temporary file that may still hold its content was left/).waitFor();
+        assert.deepEqual(errors, [], "the page raised no error");
+      } finally {
+        await context.close();
+      }
+    });
+
+    test("a refused deletion shows the reason, in Portuguese too, and is not an error of the page", { timeout: TIMEOUT }, async () => {
+      const { context, page, errors } = await openSync(ON, {
+        arca_kept_list: () => [kept("notes")],
+        arca_kept_clear: () => Promise.reject("this vault is not in arca mode"),
+      }, { locale: "pt-BR" });
+      try {
+        await row(page, "notes").getByRole("button", { name: "Apagar este arquivo", exact: true }).click();
+        await page.getByRole("button", { name: "Sim, apagar este arquivo", exact: true }).click();
+        await page.getByText(/Não foi possível apagar o arquivo: this vault is not in arca mode/).waitFor();
+        assert.deepEqual(errors, [], "a refusal is shown, not raised");
+      } finally {
+        await context.close();
+      }
+    });
+
+    test("the list follows the loop: a file set aside by an automatic cycle shows up by itself", { timeout: TIMEOUT }, async () => {
+      let items = [];
+      const { context, page, calls, errors } = await openSync(ON, { arca_kept_list: () => items });
+      try {
+        await page.getByRole("button", { name: "Sync now", exact: true }).waitFor();
+        assert.equal(await page.getByRole("heading", { name: "Files set aside" }).count(), 0, "nothing to list: no section");
+
+        items = [kept("notes")];
+        await emit(page, calls, "arca-loop-report");
+        await row(page, "notes").waitFor();
+        assert.deepEqual(errors, [], "the page raised no error");
+      } finally {
+        await context.close();
+      }
+    });
+
+    test("with the mode off there is no section of files set aside (a guard: it also holds before the change)", { timeout: TIMEOUT }, async () => {
+      const off = await openSync(() => ({ hasKey: true, on: false, pendingSend: false }), { arca_kept_list: () => [kept("notes")] });
+      try {
+        await off.page.getByRole("button", { name: "Turn on arca mode", exact: true }).waitFor();
+        assert.equal(await off.page.getByRole("heading", { name: "Files set aside" }).count(), 0);
+      } finally {
+        await off.context.close();
+      }
+    });
+  });
+
   describe("what the automatic cycle says without a click", () => {
     const ON = () => ({ hasKey: true, on: true, pendingSend: false, hubId: HUB.id, loginsAccepted: true });
     const loopOf = (over, atMs = Date.now() + 60_000) => ({ atMs, report: CLEAN_CYCLE, error: null, stopped: false, ...over });

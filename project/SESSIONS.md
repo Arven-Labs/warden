@@ -2,9 +2,17 @@
 
 > **Nota**: Este log foi criado junto com o projeto. As sessões serão registradas aqui conforme o trabalho avança.
 >
-> Última atualização: 2026-11-15 (listar e apagar os `.arca-kept-*`, backend; este log ficou sem entradas de 2026-11-06 a 2026-11-13, o trabalho desse período está no git e no `SESSIONS.md` da arca)
+> Última atualização: 2026-11-15 (a tela para apagar os `.arca-kept-*`; este log ficou sem entradas de 2026-11-06 a 2026-11-13, o trabalho desse período está no git e no `SESSIONS.md` da arca)
 
 ---
+
+### 2026-11-15 — arca: a tela para apagar os `.arca-kept-*` (PR 2; fecha o botão "apagar")
+
+- **Pedido**: o PR 2 do plano aprovado ("vamos de o botão apagar"): a tela sobre os comandos `arca_kept_list`/`arca_kept_clear` do PR 1 (warden#156). Decisões suas, mantidas: apagar **só por item, com confirmação** (sem "apagar todos"); mostrar pasta relativa, classe, tamanho e data. Só desktop: nenhum Rust tocado.
+- **Feito ([warden#158](https://github.com/Arven-Labs/warden/pull/158))**: `keptBlock()` em `ArcaModeSection.tsx`, que aparece com o modo ligado e há itens (ou um resultado a mostrar): por item, "pasta (classe) — tamanho, data" (a pasta da raiz aparece como "a própria pasta"; o nome `.arca-kept-<hash>` nunca é mostrado, porque é só um código), botão "Apagar este arquivo" → confirmação que diz que não dá para desfazer por aqui e que apagar não sobrescreve o disco → `arca_kept_clear { ids: [id] }`; item `edited` sem botão e com a explicação de que a arca nunca apaga um arquivo que a pessoa mudou; resultado (apagados, o que ficou e por quê, aviso de arquivo temporário, falha). A lista é pedida de novo nos mesmos momentos da de cópias (abertura, ciclo manual e evento do loop). `lib/arcaMode.ts`: `KeptItem`, `keptClassKey`, `keptClearSummary`. Textos em en e pt-BR (o `tsc` exige as duas). O aviso `arca.noticeKept` dizia que os arquivos "ficam na pasta de logins", mas eles também aparecem no cofre: passou a apontar para a lista "Arquivos guardados".
+- **Testes (CI)**: 7 novos no `desktop/e2e/arca-mode.test.mjs` (lista nas duas línguas sem o nome-código; um clique não apaga e cancelar não apaga; confirmar manda só o id do item e não há "apagar todos"; editado sem botão; resultado parcial e aviso do temporário; recusa em pt-BR sem erro da página; a lista segue o loop; modo desligado sem seção). **Vermelho antes**: commit só com o e2e, run 43785106446: 6 falharam (os 6 que dependem da seção; o do modo desligado já passa de propósito, como o das cópias, é uma guarda). **Verde**: run 43785575260, 78 de 78; `CI` verde (`Frontend (desktop)` e `Changed areas`; Rust, Mobile e Android pulados, o PR não os toca). **Quebra de propósito** (warden#159, fechado, branch apagada): o "Sim" mandando os ids de todos os arquivos não editados em vez de só o do item derrubou só o teste 2 (run 43785593787), 77 de 78.
+- **Não verificado**: a tela no app Tauri de verdade (o e2e roda contra um backend de mentira, `harness.mjs`; prova a tela e o que ela pede, não os comandos); a aparência (não olhei as capturas de tela do e2e); muitos itens na lista; macOS e Windows. Nada rodado localmente. Apagar não sobrescreve o conteúdo (P-34 do arca), e a tela avisa.
+- **Fica**: nada deste botão. Sem "apagar todos" e sem "abrir a pasta" no sistema, por decisão e por escopo. A instabilidade do teste `message_agent` (arquivo temporário, ver a entrada anterior) segue sem investigação.
 
 ### 2026-11-15 — arca: listar e apagar os `.arca-kept-*` (backend; a tela fica para o PR 2)
 
