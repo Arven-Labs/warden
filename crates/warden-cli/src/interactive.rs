@@ -4311,4 +4311,66 @@ mod tests {
     fn agent_ids_match_exactly_without_case_folding() {
         assert_eq!(unknown_agent_ids(&ids(&["Research"]), &ids(&["research"])), ids(&["Research"]));
     }
+
+    // ---- `/arca` (status) and `/arca sync` ----
+
+    use warden_sync::arca_mode::ArcaMode;
+    use warden_sync::arca_sync::{ArcaSyncReport, SkippedLogin};
+
+    fn mode(secret_accepted: bool) -> ArcaMode {
+        ArcaMode { version: 1, enabled_at_ms: 1, hub_id: None, secret_accepted }
+    }
+
+    #[test]
+    fn the_status_of_a_vault_in_arca_mode_says_it_is_on_and_whether_the_logins_travel() {
+        speak(i18n::Locale::En);
+        let accepted = arca_status_lines(true, Some(&mode(true))).join("\n");
+        assert!(accepted.contains("arca mode: on"), "{accepted}");
+        assert!(accepted.contains("/arca sync"), "{accepted}");
+        assert!(accepted.contains("MCP logins: synced"), "{accepted}");
+        let not_accepted = arca_status_lines(true, Some(&mode(false))).join("\n");
+        assert!(not_accepted.contains("MCP logins: not synced"), "{not_accepted}");
+    }
+
+    #[test]
+    fn the_status_of_a_vault_that_is_not_in_arca_mode_says_how_to_get_there() {
+        speak(i18n::Locale::En);
+        let with_key = arca_status_lines(true, None).join("\n");
+        assert!(with_key.contains("arca mode: off"), "{with_key}");
+        assert!(with_key.contains("desktop"), "{with_key}");
+        let without_key = arca_status_lines(false, None).join("\n");
+        assert!(without_key.contains("no vault key"), "{without_key}");
+        assert!(without_key.contains("/arca pair offer"), "{without_key}");
+    }
+
+    #[test]
+    fn a_cycle_that_changed_nothing_else_is_one_plain_line_with_the_counts() {
+        speak(i18n::Locale::En);
+        let report = ArcaSyncReport { pulled: 2, pushed: 1, files_changed: 3, ..Default::default() };
+        assert_eq!(arca_report_lines(&report), ["cycle done: 2 received, 1 sent, 3 file(s) changed here"]);
+        speak(i18n::Locale::PtBr);
+        assert_eq!(arca_report_lines(&report), ["ciclo concluído: 2 recebido(s), 1 enviado(s), 3 arquivo(s) alterado(s) aqui"]);
+    }
+
+    /// What the cycle left out or set aside on purpose must reach the person: a quiet "done" would hide that nothing was sent.
+    #[test]
+    fn everything_the_cycle_left_out_or_set_aside_is_said() {
+        speak(i18n::Locale::En);
+        let report = ArcaSyncReport {
+            merges: 1,
+            conflicts: 2,
+            secret_losers_saved: 3,
+            secret_ignored: 4,
+            secret_skipped: vec![SkippedLogin { path: "github.bak".into(), reason: "not accepted by this device" }],
+            recovered_kept: 5,
+            secret_folder_missing: true,
+            vault_emptied: true,
+            secret_emptied: true,
+            ..Default::default()
+        };
+        let text = arca_report_lines(&report).join("\n");
+        for needle in ["2 conflict(s)", "3 login conflict loser(s)", "4 login(s) from other devices", "github.bak", "5 file(s) left aside", "every vault file is gone", "no login left to send", "logins folder is gone"] {
+            assert!(text.contains(needle), "missing {needle:?} in:\n{text}");
+        }
+    }
 }

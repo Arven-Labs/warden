@@ -460,9 +460,24 @@ mod tests {
         assert!(matches!(assert_recognized("/arca pair offer"), Command::ArcaPairOffer));
         assert!(matches!(assert_recognized("/arca pair grant"), Command::ArcaPairGrant));
         // The hub address and the token are asked for in the terminal, never taken from the line (it would stay in the history).
-        for line in ["/arca", "/arca pair", "/arca pair offer https://hub", "/arca pair grant token123", "/arca pair other"] {
+        for line in ["/arca pair", "/arca pair offer https://hub", "/arca pair grant token123", "/arca pair other"] {
             assert!(matches!(parse_command(line), ParseOutcome::Unrecognized(_)), "{line}");
         }
+    }
+
+    #[test]
+    fn arca_status_and_sync_parse_and_take_no_arguments() {
+        assert!(matches!(assert_recognized("/arca"), Command::ArcaStatus));
+        assert!(matches!(assert_recognized("/arca sync"), Command::ArcaSync));
+        // Same rule as the pairing: the hub address and the token are asked for in the terminal, never taken from the line.
+        for line in ["/arca sync https://hub", "/arca sync token123", "/arca status", "/arca on"] {
+            assert!(matches!(parse_command(line), ParseOutcome::Unrecognized(_)), "{line}");
+        }
+    }
+
+    #[test]
+    fn ghost_suggestion_knows_the_arca_sync_subcommand() {
+        assert_eq!(ghost_suggestion("/arca s").as_deref(), Some("ync"));
     }
 
     #[test]
