@@ -6,6 +6,8 @@ import {
   clearSummary,
   deletableIds,
   hubChoice,
+  keptClassKey,
+  keptClearSummary,
   loginsView,
   loopView,
   noticesOf,
@@ -14,6 +16,8 @@ import {
   viewOf,
   type ClearReport,
   type EmptyableClass,
+  type KeptItem,
+  type KeptSkipKey,
   type LoserItem,
   type LoserSkipKey,
   type LoopStatus,
@@ -46,6 +50,13 @@ function ArcaModeSection() {
   const [losersResult, setLosersResult] = useState<
     { kind: "done"; removed: number; notRemoved: { label: string; reasonKey: LoserSkipKey }[]; keptTmp: number } | { kind: "failed"; message: string } | null
   >(null);
+  // The files an interrupted update could not put back (`.arca-kept-*`, files of the person), the one waiting for its second click, and
+  // what the last deletion said. One at a time, by decision: there is no "delete all" here.
+  const [kept, setKept] = useState<KeptItem[]>([]);
+  const [confirmingKept, setConfirmingKept] = useState<string | null>(null);
+  const [keptResult, setKeptResult] = useState<
+    { kind: "done"; removed: number; notRemoved: { label: string; reasonKey: KeptSkipKey }[]; keptTmp: number } | { kind: "failed"; message: string } | null
+  >(null);
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<{ ok: boolean; text: string; notices?: ReturnType<typeof noticesOf> } | null>(null);
   // A second click must not start a second cycle: the state below is only read after a render, this one at once.
@@ -62,8 +73,41 @@ function ArcaModeSection() {
     invoke<LoopStatus | null>("arca_loop_last")
       .then(setLoop)
       .catch(() => {});
-    // A cycle (the loop's or a manual one) is what saves a copy, so the list is asked again at the same moments.
+    // A cycle (the loop's or a manual one) is what saves a copy, so the list is asked again at the same moments. The same goes for the
+    // files set aside: they come from the recovery a cycle starts with.
     refreshLosers();
+    refreshKept();
+  }
+
+  function refreshKept() {
+    invoke<KeptItem[] | null>("arca_kept_list")
+      .then((items) => setKept(items ?? []))
+      .catch(() => {});
+  }
+
+  /** The folder a kept file is in, as the person reads it (the class's folder itself has no name of its own). */
+  function keptFolder(item: KeptItem): string {
+    return item.folder === "" ? t("arca.keptRoot") : item.folder;
+  }
+
+  /** Deletes one kept file, after the second click. The backend looks the id up in a fresh list: no path goes with it. */
+  async function clearKept(id: string) {
+    if (busyRef.current) return;
+    busyRef.current = true;
+    setBusy(true);
+    setConfirmingKept(null);
+    setKeptResult(null);
+    const labels = new Map(kept.map((item) => [item.id, keptFolder(item)]));
+    try {
+      const summary = keptClearSummary(await invoke<ClearReport>("arca_kept_clear", { ids: [id] }));
+      setKeptResult({ kind: "done", removed: summary.removed, notRemoved: summary.notRemoved.map((n) => ({ label: labels.get(n.id) ?? n.id, reasonKey: n.reasonKey })), keptTmp: summary.keptTmp });
+    } catch (e) {
+      setKeptResult({ kind: "failed", message: String(e) });
+    } finally {
+      refreshKept();
+      busyRef.current = false;
+      setBusy(false);
+    }
   }
 
   function refreshLosers() {
@@ -341,6 +385,59 @@ function ArcaModeSection() {
     );
   }
 
+  /** The files set aside, each with its own second click. A file the person changed is marked and has no button: it is kept. */
+  function keptBlock() {
+    return (
+      <>
+        <h4 className="settings-hint">{t("arca.keptTitle")}</h4>
+        <p className="settings-hint">{t("arca.keptHint")}</p>
+        <ul>
+          {kept.map((item) => (
+            <li key={item.id} className="settings-hint">
+              {t("arca.keptItem", {
+                folder: keptFolder(item),
+                class: t(keptClassKey(item)),
+                size: sizeLabel(item.sizeBytes),
+                date: item.modifiedAtMs === null ? "—" : new Date(item.modifiedAtMs).toLocaleString(intlTag()),
+              })}{" "}
+              {item.edited ? (
+                <em>{t("arca.keptEdited")}</em>
+              ) : confirmingKept === item.id ? (
+                <>
+                  <p className="settings-hint">{t("arca.keptDeleteConfirm", { folder: keptFolder(item) })}</p>
+                  <div className="sync-join-form">
+                    <button type="button" className="settings-save-btn" disabled={busy} onClick={() => void clearKept(item.id)}>
+                      {t("arca.keptDeleteYes")}
+                    </button>
+                    <button type="button" className="settings-browse-btn" disabled={busy} onClick={() => setConfirmingKept(null)}>
+                      {t("arca.cancel")}
+                    </button>
+                  </div>
+                </>
+              ) : (
+                <button type="button" className="settings-browse-btn" disabled={busy} onClick={() => setConfirmingKept(item.id)}>
+                  {t("arca.keptDelete")}
+                </button>
+              )}
+            </li>
+          ))}
+        </ul>
+        {keptResult?.kind === "failed" && <p className="settings-error-banner">{t("arca.keptFailed", { message: keptResult.message })}</p>}
+        {keptResult?.kind === "done" && (
+          <>
+            <p className="settings-success-banner">{t("arca.keptRemoved", { count: keptResult.removed })}</p>
+            {keptResult.notRemoved.map((stayed) => (
+              <p key={`${stayed.label}-${stayed.reasonKey}`} className="settings-hint">
+                {t("arca.keptNotDeleted", { folder: stayed.label, reason: t(stayed.reasonKey) })}
+              </p>
+            ))}
+            {keptResult.keptTmp > 0 && <p className="settings-error-banner">{t("arca.keptTmp")}</p>}
+          </>
+        )}
+      </>
+    );
+  }
+
   const view = viewOf(status);
   // The automatic cycle only speaks while the mode is on and when it is newer than the last manual sync: the newer of the two wins,
   // so an old automatic warning never comes back over a manual sync made after it, and a newer one replaces the manual warnings.
@@ -472,6 +569,7 @@ function ArcaModeSection() {
         {auto?.error && <p className="settings-error-banner">{t(auto.error.key, { message: auto.error.message })}</p>}
         {auto?.notices && noticesBlock(auto.notices)}
         {view === "on" && (losers.length > 0 || losersResult !== null) && losersBlock()}
+        {view === "on" && (kept.length > 0 || keptResult !== null) && keptBlock()}
       </div>
     </section>
   );

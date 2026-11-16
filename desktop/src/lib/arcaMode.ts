@@ -115,6 +115,40 @@ export function clearSummary(report: ClearReport): { removed: number; notRemoved
   return { removed: report.removed, notRemoved: report.skipped.map((s) => ({ id: s.id, reasonKey: reasons[s.reason] })), keptTmp: report.keptTmp };
 }
 
+/** A file the arca set aside when an interrupted update could not put it back (`.arca-kept-*`), as `arca_kept_list` answers it: never its
+ * content nor its absolute path. It is a file of the person, and its own name (a hash) says nothing, so the folder is what tells what it
+ * is (empty: the class's folder itself). `id` only goes back to `arca_kept_clear`. */
+export interface KeptItem {
+  id: string;
+  class: "vault" | "config" | "secret";
+  folder: string;
+  shaPrefix: string;
+  /** The person changed the file: the arca never deletes it. */
+  edited: boolean;
+  sizeBytes: number | null;
+  modifiedAtMs: number | null;
+}
+
+export type KeptClassKey = "arca.keptClassVault" | "arca.keptClassConfig" | "arca.keptClassSecret";
+export type KeptSkipKey = "arca.keptSkipEdited" | "arca.keptSkipNotACopy" | "arca.keptSkipGone" | "arca.keptSkipFailed";
+
+/** The words for the folder a kept file belongs to. */
+export function keptClassKey(item: KeptItem): KeptClassKey {
+  const keys: Record<KeptItem["class"], KeptClassKey> = { vault: "arca.keptClassVault", config: "arca.keptClassConfig", secret: "arca.keptClassSecret" };
+  return keys[item.class];
+}
+
+/** What the section says after deleting a kept file: the same report as for the copies (`ClearReport`), told with words about files. */
+export function keptClearSummary(report: ClearReport): { removed: number; notRemoved: { id: string; reasonKey: KeptSkipKey }[]; keptTmp: number } {
+  const reasons: Record<ClearReport["skipped"][number]["reason"], KeptSkipKey> = {
+    edited: "arca.keptSkipEdited",
+    notACopy: "arca.keptSkipNotACopy",
+    gone: "arca.keptSkipGone",
+    failed: "arca.keptSkipFailed",
+  };
+  return { removed: report.removed, notRemoved: report.skipped.map((s) => ({ id: s.id, reasonKey: reasons[s.reason] })), keptTmp: report.keptTmp };
+}
+
 /** The ids "delete all" sends: every copy but the ones the person edited (the arca would refuse those anyway, and the screen says so). */
 export function deletableIds(items: LoserItem[]): string[] {
   return items.filter((item) => !item.edited).map((item) => item.id);
