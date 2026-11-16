@@ -40,7 +40,8 @@ qrcode = "0.14"
 tokio = { workspace = true, features = ["sync"] }
 # `CancellationToken`: the Stop button ends an ordinary turn where it is (`Orchestrator::with_stop`).
 tokio-util = "0.7"
-warden-bootstrap = { path = "../../crates/warden-bootstrap" }
+# `arca`: the saved hub and its token for the arca mode (`warden_bootstrap::arca_hub`), same switch as `warden-sync` below.
+warden-bootstrap = { path = "../../crates/warden-bootstrap", features = ["arca"] }
 warden-core = { path = "../../crates/warden-core" }
 warden-server = { path = "../../crates/warden-server" }
 # `LimitStatusDto` (P78): the Usage screen shows spending limits in the same shape the web UI gets.

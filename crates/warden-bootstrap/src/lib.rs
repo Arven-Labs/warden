@@ -62,6 +62,9 @@ pub mod risk;
 pub mod node_model;
 pub mod message_agent;
 pub mod project_scope;
+#[cfg(feature = "arca")]
+pub mod arca_hub;
+pub mod remote_identities;
 pub mod saved_hubs;
 pub mod settings;
 pub mod skill_gen;

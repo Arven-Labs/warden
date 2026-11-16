@@ -8,6 +8,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use tauri::{AppHandle, Emitter, State};
 use tokio::sync::mpsc::UnboundedSender;
+use warden_bootstrap::arca_hub::device_token;
 use warden_bootstrap::saved_hubs::{self, SavedHub};
 use warden_server::remote_client::{RemoteIdentities, RemoteIdentity};
 use warden_sync::arca_pairing::{HubAccess, PairingError};
@@ -33,15 +34,6 @@ pub fn role_for(has_key: bool) -> Role {
     } else {
         Role::Offer
     }
-}
-
-/// The token this computer was issued for `hub`, or the sentence that tells the person to sign in first.
-pub(crate) fn device_token<'a>(hub: &SavedHub, identity: &'a RemoteIdentity) -> Result<&'a str, String> {
-    identity
-        .device_token
-        .as_deref()
-        .filter(|token| !token.is_empty())
-        .ok_or_else(|| format!("not signed in to '{}' yet: sign in to this hub first", hub.name))
 }
 
 /// Where the hub is and the token this computer was issued for it. Never asks the person for either.

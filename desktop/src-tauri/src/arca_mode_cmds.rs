@@ -10,12 +10,10 @@ use std::sync::{Arc, Mutex};
 use serde::Serialize;
 use tauri::State;
 use warden_bootstrap::auto_sync::{ArcaCycleError, ArcaCycleSummary, SyncRunner};
-use warden_bootstrap::saved_hubs::{self, SavedHub};
-use warden_server::remote_client::{RemoteIdentities, RemoteIdentity};
-use warden_sync::arca_sync::{is_auth_rejected, ArcaSyncReport, Class, HubError, HubStore, KeptItem, LoserItem, LosersCleared, NotCleared};
+use warden_bootstrap::saved_hubs;
+use warden_sync::arca_sync::{is_auth_rejected, ArcaSyncReport, Class, HubStore, KeptItem, LoserItem, LosersCleared, NotCleared};
 use warden_sync::SyncEngine;
 
-use crate::arca_pair_cmds::device_token;
 use crate::remote_cmds::DEVICE_NAME;
 use crate::AppState;
 
@@ -91,18 +89,6 @@ pub async fn accept_logins(engine: &SyncEngine) -> Result<(), String> {
 /// The person stops syncing the MCP logins. The engine checks the mode is on; nothing on disk is deleted.
 pub async fn revoke_logins(engine: &SyncEngine) -> Result<(), String> {
     engine.arca_revoke_logins().await.map_err(|e| format!("{e:#}"))
-}
-
-/// The hub the sync talks to, with the token this computer was issued for it. Never asks the person for either, and refuses plain
-/// `http` to another machine (the token would travel in the clear).
-pub fn hub_store(hub: &SavedHub, identity: &RemoteIdentity) -> Result<HubStore, String> {
-    let token = device_token(hub, identity)?;
-    HubStore::new(&hub.url, token).map_err(|e| match e {
-        HubError::InsecureUrl => format!("'{}' is plain http to another machine, so the token would travel in the clear: save the hub with an https address", hub.name),
-        HubError::InvalidUrl => format!("'{}' is not a hub address the sync can use (an https address, with nothing after the host)", hub.url),
-        HubError::InvalidToken => format!("the token saved for '{}' cannot be used: sign in to this hub again", hub.name),
-        other => other.to_string(),
-    })
 }
 
 /// What one cycle did, in the shape the screen gets.
@@ -290,9 +276,7 @@ pub async fn kept_clear(engine: &SyncEngine, ids: &[String]) -> Result<ClearPayl
 
 /// The saved hub `hub_id`, with the token this computer holds for it, ready to sync with.
 pub fn saved_hub_store(hubs_path: &Path, config_file: &Path, hub_id: &str) -> Result<HubStore, String> {
-    let hub = saved_hubs::find(hubs_path, hub_id).map_err(|e| format!("{e:#}"))?.ok_or_else(|| format!("there is no saved hub '{hub_id}' (it may have been removed)"))?;
-    let identity = RemoteIdentities::beside(config_file).load_or_create(hub_id, DEVICE_NAME).map_err(|e| format!("{e:#}"))?;
-    hub_store(&hub, &identity)
+    warden_bootstrap::arca_hub::saved_hub_store(hubs_path, config_file, hub_id, DEVICE_NAME)
 }
 
 /// One cycle for the automatic loop (`SyncRunner`, arca ADR 0012). Like the manual one, but the failure says whether the hub refused
@@ -525,38 +509,6 @@ mod tests {
     fn pair_on_arweave(device: &Device) {
         let manifest = SyncManifest { version: 1, owner_address: Some("some-owner".into()), ..Default::default() };
         save_manifest(&device.base.join("sync_manifest.json"), &manifest).unwrap();
-    }
-
-    fn hub(url: &str) -> SavedHub {
-        SavedHub { id: "hub-00000001".into(), name: "Home".into(), url: url.into() }
-    }
-
-    fn identity(token: Option<&str>) -> RemoteIdentity {
-        RemoteIdentity { device_id: "dev-1".into(), device_token: token.map(String::from) }
-    }
-
-    // ---------- the hub and its token ----------
-
-    #[test]
-    fn a_hub_the_computer_never_signed_in_to_is_refused_with_a_sentence_that_says_what_to_do() {
-        for token in [None, Some("")] {
-            let error = hub_store(&hub("https://hub.example/"), &identity(token)).unwrap_err();
-            assert!(error.contains("sign in"), "{error}");
-        }
-    }
-
-    #[test]
-    fn plain_http_to_another_machine_is_refused_and_https_and_loopback_are_not() {
-        let error = hub_store(&hub("http://192.168.0.10:7000/"), &identity(Some("tok"))).unwrap_err();
-        assert!(error.contains("https"), "{error}");
-        assert!(hub_store(&hub("https://hub.example/"), &identity(Some("tok"))).is_ok());
-        assert!(hub_store(&hub("http://127.0.0.1:7000/"), &identity(Some("tok"))).is_ok());
-    }
-
-    #[test]
-    fn the_error_never_carries_the_token() {
-        let error = hub_store(&hub("http://192.168.0.10:7000/"), &identity(Some("secret-token-123"))).unwrap_err();
-        assert!(!error.contains("secret-token-123"), "{error}");
     }
 
     // ---------- the automatic loop's cycle ----------
