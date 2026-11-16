@@ -6,6 +6,16 @@
 
 ---
 
+### 2026-11-16 — arca: `/arca` (status) e `/arca sync` no CLI (P183)
+
+- **Pedido**: `/arca` no CLI. Plan mode; no plano, "reusar o hub e o token que o desktop salvou". **A premissa estava incompleta**: ao abrir o `interactive.rs` achei que o CLI já tem `/arca pair offer|grant`, que **perguntam** endereço e token (sem eco, sem guardar). Você trocou a decisão para "perguntar, como o pair".
+- **Feito**: [warden#162](https://github.com/Arven-Labs/warden/pull/162) (mudança de lugar, sem comportamento novo: `RemoteIdentities` e `hub_store`/`device_token`/`saved_hub_store` para o `warden-bootstrap`, feature `arca`; **ficou sem uso no CLI** com a decisão nova, segue usado pelo desktop e `hub_store` é reaproveitado pelo CLI) e [warden#163](https://github.com/Arven-Labs/warden/pull/163): `/arca` (lê só o arquivo do modo) e `/arca sync` (pergunta URL e token, roda um ciclo, diz o que ficou de fora: cofre esvaziado, logins fora, perdedores, `.arca-kept`), i18n en e pt-BR, feature `arca` ligada no `warden-cli`.
+- **Testes (CI)**: **vermelho antes** (#163, só testes): erros de compilação `E0425`/`E0599` (comandos e funções inexistentes), então prova dependência, não asserção. Verde depois. **Quebra de propósito** (#164, fechado, branch apagada): relatório calando o cofre esvaziado e rótulo dos logins invertido derrubaram 2 testes.
+- **Não verificado**: nenhum comando rodou contra um hub real (nem o terminal interativo); o ciclo em si (`arca_sync`) só tem os testes do motor; as mensagens de `hub_store` são só em inglês (como no desktop). O CLI não recarrega o orquestrador depois de um ciclo que muda logins.
+- **Fica**: `/arca on` no CLI (irreversível; pull antes de ligar), ciclo no `warden-server`, mobile, `pending_push` do mobile (P183). Chaves de i18n e `get` somente-leitura em `RemoteIdentities` do plano original **não** foram feitos (o `get` não é mais preciso).
+
+---
+
 ### 2026-11-16 — arca: a variante `Arca` no `backend` do relatório e do status (P183)
 
 - **Pedido**: "a variante" (o que o P183 listava como falta). Plan mode; decisão sua: a web do hub só informa (rótulo, nota, esconde o que não vale).
