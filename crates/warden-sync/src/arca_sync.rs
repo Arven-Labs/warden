@@ -14,6 +14,7 @@ use anyhow::Context;
 use arca_core::crypto::{EpochKeys, VaultKey};
 use arca_core::disk::DiskStore;
 use arca_core::engine::{Engine, EngineError, MergeOutcome, Roots, Snapshot};
+use arca_core::kept::KeptOriginal;
 use arca_core::losers::{LoserCopy, Skip};
 use arca_core::manifest::FileEntry;
 use arca_core::object::ObjectId;
@@ -139,6 +140,36 @@ pub struct KeptItem {
     pub edited: bool,
     pub size_bytes: Option<u64>,
     pub modified_at_ms: Option<u64>,
+}
+
+/// The kept file as the screen sees it. The id is the class and the path inside that class's folder, with `/` (never absolute: when the
+/// file is not under the folder the arca gave, only its name is used, and the lookup of `arca_clear_kept` then fails safe).
+fn kept_item(roots: &Roots, original: &KeptOriginal) -> KeptItem {
+    let (class, root) = match original.class {
+        Class::Vault => ("vault", roots.vault.as_ref()),
+        Class::Config => ("config", roots.config.as_ref()),
+        Class::Secret => ("secret", roots.secret.as_ref()),
+    };
+    let relative = root
+        .and_then(|root| original.file.strip_prefix(root).ok())
+        .unwrap_or_else(|| original.file.file_name().map_or(Path::new(""), Path::new));
+    let relative_text = relative.to_string_lossy().replace('\\', "/");
+    let folder = relative.parent().map_or_else(String::new, |parent| parent.to_string_lossy().replace('\\', "/"));
+    let meta = std::fs::symlink_metadata(&original.file).ok();
+    let modified_at_ms = meta
+        .as_ref()
+        .and_then(|meta| meta.modified().ok())
+        .and_then(|modified| modified.duration_since(std::time::UNIX_EPOCH).ok())
+        .map(|since_epoch| since_epoch.as_millis() as u64);
+    KeptItem {
+        id: format!("{class}/{relative_text}"),
+        class: original.class,
+        folder,
+        sha_prefix: original.sha_prefix.iter().map(|byte| format!("{byte:02x}")).collect(),
+        edited: original.edited,
+        size_bytes: meta.as_ref().map(|meta| meta.len()),
+        modified_at_ms,
+    }
 }
 
 /// A copy's id: its path inside the conflicts folder, with `/`. Never an absolute path.
@@ -321,13 +352,47 @@ impl SyncEngine {
     /// The originals the arca could not give back after an interrupted apply (`.arca-kept-*`), for the screen. With the mode off
     /// there are none. Under the sync lock, like `arca_list_losers`.
     pub async fn arca_list_kept(&self) -> anyhow::Result<Vec<KeptItem>> {
-        Ok(Vec::new())
+        let _one_sync_at_a_time = self.sync_lock().await?;
+        let Some(mode) = load_mode(&mode_path_for(&self.manifest_path))? else {
+            return Ok(Vec::new());
+        };
+        let (engine, roots) = self.arca_engine(mode.secret_accepted, false)?;
+        let kept = engine.list_kept(&roots).await.map_err(|e| engine_failure(e, "listing the files the arca set aside"))?;
+        Ok(kept.iter().map(|original| kept_item(&roots, original)).collect())
     }
 
     /// Deletes the kept files whose `id` (as `arca_list_kept` gave it) is in `ids`. Same promise as `arca_clear_losers`: an id is only
     /// looked up in a fresh list, never used as a path; a file the person edited is kept. Needs the mode on.
-    pub async fn arca_clear_kept(&self, _ids: &[String]) -> anyhow::Result<LosersCleared> {
-        Ok(LosersCleared::default())
+    pub async fn arca_clear_kept(&self, ids: &[String]) -> anyhow::Result<LosersCleared> {
+        let _one_sync_at_a_time = self.sync_lock().await?;
+        let Some(mode) = load_mode(&mode_path_for(&self.manifest_path))? else {
+            anyhow::bail!("this vault is not in arca mode: turn it on first");
+        };
+        let (engine, roots) = self.arca_engine(mode.secret_accepted, false)?;
+        let listed = engine.list_kept(&roots).await.map_err(|e| engine_failure(e, "listing the files the arca set aside"))?;
+
+        // An id is only a key into what the arca lists now: the arca is handed its own `KeptOriginal`s, never a path a caller wrote.
+        let mut chosen: Vec<KeptOriginal> = Vec::new();
+        let mut cleared = LosersCleared::default();
+        for id in ids {
+            match listed.iter().find(|original| kept_item(&roots, original).id == *id) {
+                // The same file asked for twice is deleted once.
+                Some(original) if chosen.iter().any(|already| already.file == original.file) => {}
+                Some(original) => chosen.push(original.clone()),
+                None => cleared.not_removed.push((id.clone(), NotCleared::Gone)),
+            }
+        }
+        if chosen.is_empty() {
+            return Ok(cleared);
+        }
+        let report = engine.clear_kept(&roots, &chosen).await.map_err(|e| engine_failure(e, "deleting the files the arca set aside"))?;
+        cleared.removed = report.removed;
+        cleared.not_removed.extend(report.skipped.into_iter().map(|(file, skip)| {
+            let id = chosen.iter().find(|original| original.file == file).map_or_else(|| file.file_name().map_or_else(String::new, |name| name.to_string_lossy().into_owned()), |original| kept_item(&roots, original).id);
+            (id, not_cleared(skip))
+        }));
+        cleared.kept_tmp = report.kept.len();
+        Ok(cleared)
     }
 
     /// One full cycle against `hub`. Refuses unless the mode is on.
