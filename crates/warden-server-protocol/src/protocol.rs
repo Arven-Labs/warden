@@ -1264,14 +1264,15 @@ pub struct GitSyncEditDto {
     pub token: SecretEdit,
 }
 
-/// Where the hub's vault syncs to (P61): nowhere until it has a vault key, then git when
-/// `[git_sync]` is set, Arweave otherwise.
+/// Where the hub's vault syncs to (P61): nowhere until it has a vault key, then the arca when
+/// the vault is in arca mode, git when `[git_sync]` is set, Arweave otherwise.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum SyncBackendDto {
     NotSetUp,
     Git,
     Arweave,
+    Arca,
 }
 
 /// One sync round the hub ran (its 5-minute loop or a "sync now"). `pulled`/`pushed` are only

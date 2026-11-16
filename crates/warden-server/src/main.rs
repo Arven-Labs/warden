@@ -777,6 +777,7 @@ async fn run_sync_command(args: SyncArgs) -> anyhow::Result<()> {
         SyncBackend::NotSetUp => "not set up (no vault key yet: `warden-server sync init` or `sync pair <code>`)",
         SyncBackend::Git => "git",
         SyncBackend::Arweave => "Arweave (pull only here; pushing needs the TruthID phone)",
+        SyncBackend::Arca => "arca (the vault is in arca mode; the cycle runs on the desktop, not on this hub)",
     };
     println!("backend: {backend}");
     if let Some(remote) = &state.git_remote {

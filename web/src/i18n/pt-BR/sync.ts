@@ -3,6 +3,8 @@ import type { sync } from "../en/sync.ts";
 export const syncPt: Record<keyof typeof sync, string> = {
   "sync.notSetUp": "Ainda não configurada",
   "sync.arweave": "Arweave (TruthID)",
+  "sync.arca": "Arca",
+  "sync.arcaNote": "Este cofre está em modo arca: quem o escreve é a arca, e o ciclo de sync dela roda no desktop, não neste hub. Pendências, \"Sync now\" e o pareamento do Arweave não valem aqui.",
   "sync.received": "recebeu {count} arquivo(s)",
   "sync.removed": ", removeu {count}",
   "sync.configUpdated": "configurações atualizadas",

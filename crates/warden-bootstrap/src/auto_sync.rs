@@ -34,6 +34,8 @@ pub enum SyncBackend {
     NotSetUp,
     Git,
     Arweave,
+    /// The vault is in arca mode (arca ADR 0012): the arca writes it, whatever `[git_sync]` says.
+    Arca,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -275,11 +277,10 @@ impl SyncRunner {
         };
         // A vault in arca mode is written by the arca alone: the old engines never touch it (they would refuse, and the loop would
         // log that every round). A host that installed an arca cycle runs it on the saved hub; any other leaves the vault be, quietly.
-        // The backend stays what the config says; a variant of its own needs the hub protocol and the web.
         match warden_sync::arca_mode::load_mode(&warden_sync::arca_mode::mode_path_for(&self.manifest_path)) {
             Ok(None) => {}
             Ok(Some(mode)) => {
-                report.backend = if git.is_some() { SyncBackend::Git } else { SyncBackend::Arweave };
+                report.backend = SyncBackend::Arca;
                 if let Some(cycle) = &self.arca_cycle {
                     self.arca_round(&mut report, mode.hub_id, cycle).await;
                 }
@@ -383,10 +384,12 @@ impl SyncRunner {
         let initialized = self.secrets_path.exists();
         let git = self.git_config()?;
         let status = self.arweave_engine().status()?;
-        let backend = match (initialized, &git) {
-            (false, _) => SyncBackend::NotSetUp,
-            (true, Some(_)) => SyncBackend::Git,
-            (true, None) => SyncBackend::Arweave,
+        let arca = warden_sync::arca_mode::load_mode(&warden_sync::arca_mode::mode_path_for(&self.manifest_path))?.is_some();
+        let backend = match (initialized, arca, &git) {
+            (false, _, _) => SyncBackend::NotSetUp,
+            (true, true, _) => SyncBackend::Arca,
+            (true, false, Some(_)) => SyncBackend::Git,
+            (true, false, None) => SyncBackend::Arweave,
         };
         Ok(SyncState {
             backend,

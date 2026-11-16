@@ -12,7 +12,8 @@ import { rich } from "../i18n/rich";
 // (P88); the code only comes back to the request that asked for it, so it lives in this screen's
 // state and nowhere else.
 
-const backendLabel = (backend: SyncStatus["backend"]) => (backend === "notSetUp" ? t("sync.notSetUp") : backend === "git" ? "Git" : t("sync.arweave"));
+const backendLabel = (backend: SyncStatus["backend"]) =>
+  backend === "notSetUp" ? t("sync.notSetUp") : backend === "git" ? "Git" : backend === "arca" ? t("sync.arca") : t("sync.arweave");
 
 const dateFormatter = { format: (date: Date) => new Intl.DateTimeFormat(intlTag(), { dateStyle: "short", timeStyle: "short" }).format(date) };
 
@@ -166,7 +167,7 @@ export default function SyncView({ conn }: { conn: ServerConnection | null }) {
         <section className="usage-section settings-card">
           <h2 className="usage-heading">{t("sync.target", { backend: backendLabel(status.backend) })}</h2>
           {status.gitRemote && <p className="skills-item-description">{rich("sync.repository", { remote: <code>{status.gitRemote}</code> })}</p>}
-          {status.backend !== "notSetUp" && (
+          {status.backend !== "notSetUp" && status.backend !== "arca" && (
             <p className="skills-item-description">
               {status.pendingVaultChanges === 0 && !status.pendingConfigChanged && !status.pendingOauthChanges
                 ? t("sync.nothingWaiting")
@@ -185,7 +186,9 @@ export default function SyncView({ conn }: { conn: ServerConnection | null }) {
           )}
           {status.lastRound?.error && <p className="error-banner">{status.lastRound.error}</p>}
           {status.backend === "arweave" && <p className="skills-hint">{t("sync.arweaveNote")}</p>}
+          {status.backend === "arca" && <p className="skills-hint">{t("sync.arcaNote")}</p>}
           {status.backend !== "notSetUp" &&
+            status.backend !== "arca" &&
             (pending?.action.kind === "syncNow" ? (
               keyPrompt
             ) : (
@@ -203,7 +206,7 @@ export default function SyncView({ conn }: { conn: ServerConnection | null }) {
         </section>
       )}
 
-      {status && status.backend !== "notSetUp" && (
+      {status && status.backend !== "notSetUp" && status.backend !== "arca" && (
         <section className="usage-section settings-card">
           <h2 className="usage-heading">{t("sync.pairTitle")}</h2>
           {hosting && status.hostingUntilMs ? (
