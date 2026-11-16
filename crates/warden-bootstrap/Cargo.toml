@@ -40,6 +40,11 @@ warden-core = { path = "../warden-core" }
 warden-server-protocol = { path = "../warden-server-protocol" }
 warden-sync = { path = "../warden-sync" }
 
+[features]
+# The hub of a vault in arca mode (`arca_hub.rs`): arca's HTTP client pulls `aws-lc-rs` (C code), so the front ends that do
+# not run the arca (the mobile bridge builds `ring`) leave this off. Same switch as `warden-sync`'s.
+arca = ["warden-sync/arca"]
+
 [dev-dependencies]
 tokio.workspace = true
 # A model that goes quiet after some words and a token to stop its turn (the Stop button, `Orchestrator::with_stop`).
