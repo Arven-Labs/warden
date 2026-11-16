@@ -18,9 +18,11 @@ ratatui = { version = "0.30", default-features = false, features = ["crossterm"]
 tokio = { workspace = true, features = ["sync"] }
 unicode-width = "0.2"
 qrcode = "0.14"
-warden-bootstrap = { path = "../warden-bootstrap" }
+# `arca`: `/arca sync` talks to a hub with the arca's HTTP client, whose TLS provider is `aws-lc-rs` (C code), the same as the
+# desktop and `warden-server` already build. The CLI has no mobile build, so it is on without a switch of its own.
+warden-bootstrap = { path = "../warden-bootstrap", features = ["arca"] }
 warden-core = { path = "../warden-core" }
-warden-sync = { path = "../warden-sync" }
+warden-sync = { path = "../warden-sync", features = ["arca"] }
 
 [dev-dependencies]
 serde_json.workspace = true
