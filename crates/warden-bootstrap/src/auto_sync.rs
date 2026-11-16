@@ -602,6 +602,30 @@ mod tests {
         assert!(heads.stdout.is_empty(), "nothing may reach the git remote: {}", String::from_utf8_lossy(&heads.stdout));
     }
 
+    /// The report and the status name the engine that runs the vault, not what the config says: with `[git_sync]` set, a vault in
+    /// arca mode is still an arca vault (the web would otherwise show Git or Arweave for a vault neither of them touches).
+    #[tokio::test]
+    async fn a_vault_in_arca_mode_reports_the_arca_backend_even_with_git_configured_and_no_cycle() {
+        use warden_sync::arca_mode::{mode_path_for, save_mode, ArcaMode};
+        let dir = temp_dir("arca-backend-git");
+        let remote = bare_remote(&dir);
+        let a = device(&dir, "a", Some(&remote));
+        a.init_fresh().await.unwrap();
+        assert_eq!(a.state().unwrap().backend, SyncBackend::Git, "before the switch, the config decides");
+        save_mode(&mode_path_for(&a.manifest_path), &ArcaMode { version: 1, enabled_at_ms: 1, hub_id: None, secret_accepted: false }).unwrap();
+
+        assert_eq!(a.state().unwrap().backend, SyncBackend::Arca);
+        assert_eq!(a.run_once().await.backend, SyncBackend::Arca);
+    }
+
+    #[tokio::test]
+    async fn a_vault_in_arca_mode_without_git_reports_the_arca_backend_with_a_cycle_running() {
+        let (cycle, _) = fake_cycle(vec![changed(0)]);
+        let a = arca_device("arca-backend-cycle", Some("hub-1"), cycle).await;
+        assert_eq!(a.state().unwrap().backend, SyncBackend::Arca);
+        assert_eq!(a.run_once().await.backend, SyncBackend::Arca);
+    }
+
     // ---- the automatic loop of the arca mode (arca ADR 0012, Warden P183) ----
 
     /// A fake arca cycle: remembers the hub each call got and answers from a script, one answer per call.

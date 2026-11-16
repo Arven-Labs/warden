@@ -4980,6 +4980,13 @@ mod tests {
     }
 
     #[test]
+    fn the_arca_backend_is_spelled_arca_on_the_wire() {
+        assert_eq!(serde_json::to_value(SyncBackendDto::Arca).unwrap(), serde_json::json!("arca"));
+        let status: SyncStatusDto = serde_json::from_str(r#"{"backend":"arca","pendingVaultChanges":0,"pendingConfigChanged":false}"#).unwrap();
+        assert_eq!(status.backend, SyncBackendDto::Arca);
+    }
+
+    #[test]
     fn pairing_host_messages_use_the_web_shapes() {
         let host: ClientMessage = serde_json::from_str(r#"{"type":"syncAction","requestId":7,"pairingKey":"k","action":{"kind":"pairHost"}}"#).unwrap();
         assert!(matches!(host, ClientMessage::SyncAction { action: SyncActionDto::PairHost, .. }));
