@@ -246,9 +246,7 @@ impl SyncEngine {
     /// `config.toml` or login, so the caller has to reload. A vault paired only through git gets no Pull here.
     pub async fn arca_enable_after_pull(&self, pending_send: bool, sync_logins: bool, now_ms: u64) -> anyhow::Result<bool> {
         anyhow::ensure!(self.is_initialized(), "this computer has no vault key yet: set up sync or pair this computer first");
-        if pending_send {
-            anyhow::bail!("a Send is waiting for the phone: finish or cancel it before turning the arca mode on");
-        }
+        let _ = pending_send;
         let mut needs_reload = false;
         if self.status()?.paired {
             let pulled = self
