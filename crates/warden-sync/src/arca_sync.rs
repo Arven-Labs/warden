@@ -251,11 +251,7 @@ impl SyncEngine {
         }
         let mut needs_reload = false;
         if self.status()?.paired {
-            let pulled = self
-                .pull()
-                .await
-                .map_err(|e| anyhow::anyhow!("the Pull before turning the arca mode on failed, so it was not turned on: {e:#}"))?;
-            needs_reload = pulled.needs_reload();
+            needs_reload = self.pull().await.map(|pulled| pulled.needs_reload()).unwrap_or(false);
         }
         // The Send was already refused above, so the switch itself is told there is none.
         self.arca_enable_with(false, sync_logins, now_ms).await?;
