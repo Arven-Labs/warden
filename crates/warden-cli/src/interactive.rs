@@ -3344,23 +3344,42 @@ enum ArcaOn {
 }
 
 /// Only an explicit yes confirms (the same words as every other confirmation here); an empty line, `n` or anything else does not.
-fn is_yes(_answer: &str) -> bool {
-    false
+fn is_yes(answer: &str) -> bool {
+    matches!(answer.trim().to_lowercase().as_str(), "s" | "sim" | "y" | "yes")
 }
 
 /// Why `/arca on` has nothing to ask: the mode is already on, or this computer has no vault key to build the first manifest from.
-fn arca_on_blocker(_has_key: bool, _mode_on: bool) -> Option<ArcaOn> {
-    None
+fn arca_on_blocker(has_key: bool, mode_on: bool) -> Option<ArcaOn> {
+    if mode_on {
+        Some(ArcaOn::AlreadyOn)
+    } else if !has_key {
+        Some(ArcaOn::NoKey)
+    } else {
+        None
+    }
 }
 
 /// The part of `/arca on` that cannot be undone: it turns the mode on only after a typed yes, and through the same sequence as the
-/// desktop (the Pull first, nothing turned on if it fails).
-async fn arca_on_run(_engine: &warden_sync::SyncEngine, _answer: Option<&str>, _now_ms: u64) -> ArcaOn {
-    ArcaOn::Cancelled
+/// desktop (the Pull first, nothing turned on if it fails). No Send can be waiting here (the CLI has no such state), and the MCP
+/// logins stay out: the person accepts them later.
+async fn arca_on_run(engine: &warden_sync::SyncEngine, answer: Option<&str>, now_ms: u64) -> ArcaOn {
+    if !answer.is_some_and(is_yes) {
+        return ArcaOn::Cancelled;
+    }
+    match engine.arca_enable_after_pull(false, false, now_ms).await {
+        Ok(needs_reload) => ArcaOn::Done { needs_reload },
+        Err(err) => ArcaOn::Failed(format!("{err:#}")),
+    }
 }
 
-fn arca_on_lines(_outcome: &ArcaOn) -> Vec<String> {
-    Vec::new()
+fn arca_on_lines(outcome: &ArcaOn) -> Vec<String> {
+    match outcome {
+        ArcaOn::AlreadyOn => vec![tr!("arca.already_on")],
+        ArcaOn::NoKey => vec![tr!("arca.status_no_key")],
+        ArcaOn::Cancelled => vec![tr!("arca.cancelled")],
+        ArcaOn::Done { needs_reload } => std::iter::once(tr!("arca.on_done")).chain(pull_reload_note(*needs_reload)).collect(),
+        ArcaOn::Failed(message) => vec![message.clone()],
+    }
 }
 
 /// `/arca on` — turns the arca mode on for this vault. One way only (arca ADR 0012), so it explains that and asks to confirm; the
