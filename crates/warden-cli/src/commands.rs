@@ -89,6 +89,8 @@ pub enum Command {
     SyncGitPull,
     /// `/arca` — whether this vault is in arca mode and whether its MCP logins travel.
     ArcaStatus,
+    /// `/arca on` — turns the arca mode on for this vault (arca ADR 0012). One way only, so it asks to confirm.
+    ArcaOn,
     /// `/arca sync` — one cycle against a hub; the address and the token are asked for, like in the pairing.
     ArcaSync,
     /// `/arca pair offer` — on the new device: offers itself to the hub and waits for the key (arca ADR 0016).
@@ -472,13 +474,20 @@ mod tests {
     }
 
     #[test]
-    fn arca_status_and_sync_parse_and_take_no_arguments() {
+    fn arca_status_sync_and_on_parse_and_take_no_arguments() {
         assert!(matches!(assert_recognized("/arca"), Command::ArcaStatus));
         assert!(matches!(assert_recognized("/arca sync"), Command::ArcaSync));
+        assert!(matches!(assert_recognized("/arca on"), Command::ArcaOn));
         // Same rule as the pairing: the hub address and the token are asked for in the terminal, never taken from the line.
-        for line in ["/arca sync https://hub", "/arca sync token123", "/arca status", "/arca on"] {
+        // `/arca on` takes nothing either (no `--yes`): the confirmation is always typed, and there is no `/arca off`.
+        for line in ["/arca sync https://hub", "/arca sync token123", "/arca status", "/arca on now", "/arca on --yes", "/arca off"] {
             assert!(matches!(parse_command(line), ParseOutcome::Unrecognized(_)), "{line}");
         }
+    }
+
+    #[test]
+    fn ghost_suggestion_knows_the_arca_on_subcommand() {
+        assert_eq!(ghost_suggestion("/arca o").as_deref(), Some("n"));
     }
 
     #[test]

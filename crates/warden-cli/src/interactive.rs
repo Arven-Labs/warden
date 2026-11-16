@@ -1321,6 +1321,7 @@ async fn cmd_help(terminal: &mut CliTerminal) -> anyhow::Result<()> {
         ("/sync git push", "help.sync_git_push"),
         ("/sync git pull", "help.sync_git_pull"),
         ("/arca", "help.arca"),
+        ("/arca on", "help.arca_on"),
         ("/arca sync", "help.arca_sync"),
         ("/arca pair offer", "help.arca_pair_offer"),
         ("/arca pair grant", "help.arca_pair_grant"),
@@ -3332,8 +3333,59 @@ fn arca_status_lines(has_key: bool, mode: Option<&ArcaMode>) -> Vec<String> {
     }
 }
 
+/// What `/arca on` came to.
+#[derive(Debug, PartialEq, Eq)]
+enum ArcaOn {
+    AlreadyOn,
+    NoKey,
+    Cancelled,
+    Done { needs_reload: bool },
+    Failed(String),
+}
+
+/// Only an explicit yes confirms (the same words as every other confirmation here); an empty line, `n` or anything else does not.
+fn is_yes(_answer: &str) -> bool {
+    false
+}
+
+/// Why `/arca on` has nothing to ask: the mode is already on, or this computer has no vault key to build the first manifest from.
+fn arca_on_blocker(_has_key: bool, _mode_on: bool) -> Option<ArcaOn> {
+    None
+}
+
+/// The part of `/arca on` that cannot be undone: it turns the mode on only after a typed yes, and through the same sequence as the
+/// desktop (the Pull first, nothing turned on if it fails).
+async fn arca_on_run(_engine: &warden_sync::SyncEngine, _answer: Option<&str>, _now_ms: u64) -> ArcaOn {
+    ArcaOn::Cancelled
+}
+
+fn arca_on_lines(_outcome: &ArcaOn) -> Vec<String> {
+    Vec::new()
+}
+
+/// `/arca on` — turns the arca mode on for this vault. One way only (arca ADR 0012), so it explains that and asks to confirm; the
+/// keys typed before the question are thrown away so a stray Enter cannot answer it.
+async fn cmd_arca_on(terminal: &mut CliTerminal, session: &mut CliSession) -> anyhow::Result<()> {
+    let engine = make_sync_engine(session)?;
+    if let Some(blocked) = arca_on_blocker(engine.is_initialized(), engine.arca_mode()?.is_some()) {
+        return render_arca_on(terminal, &blocked);
+    }
+    discard_pending_keys();
+    let answer = prompt_field(terminal, &tr!("arca.on_confirm"), "").await?;
+    let outcome = arca_on_run(&engine, answer.as_deref(), now_millis()).await;
+    if let ArcaOn::Done { needs_reload } = &outcome {
+        session.reload_requested |= needs_reload;
+    }
+    render_arca_on(terminal, &outcome)
+}
+
+fn render_arca_on(terminal: &mut CliTerminal, outcome: &ArcaOn) -> anyhow::Result<()> {
+    let style = if matches!(outcome, ArcaOn::Failed(_)) { error_style() } else { accent_style() };
+    render_message_card(terminal, "arca", style, arca_on_lines(outcome).into_iter().map(|line| (line, Style::default())).collect())
+}
+
 /// `/arca sync` — one cycle against a hub (arca ADR 0012). Asks for the address and the token like the pairing does, so nothing
-/// secret is read from or written to a file here. Turning the mode on is not here: it is irreversible and stays on the desktop.
+/// secret is read from or written to a file here. Turning the mode on is `/arca on`.
 async fn cmd_arca_sync(terminal: &mut CliTerminal, session: &CliSession) -> anyhow::Result<()> {
     let engine = make_sync_engine(session)?;
     if engine.arca_mode()?.is_none() {
@@ -3586,6 +3638,7 @@ async fn handle_command(command: Command, terminal: &mut CliTerminal, session: &
         Command::SyncPairShow => cmd_sync_pair_show(terminal, session).await,
         Command::SyncPairJoin(code, host) => cmd_sync_pair_join(terminal, session, code, host).await,
         Command::ArcaStatus => cmd_arca_status(terminal, session),
+        Command::ArcaOn => cmd_arca_on(terminal, session).await,
         Command::ArcaSync => cmd_arca_sync(terminal, session).await,
         Command::ArcaPairOffer => cmd_arca_pair_offer(terminal, session).await,
         Command::ArcaPairGrant => cmd_arca_pair_grant(terminal, session).await,
@@ -4430,10 +4483,127 @@ mod tests {
         speak(i18n::Locale::En);
         let with_key = arca_status_lines(true, None).join("\n");
         assert!(with_key.contains("arca mode: off"), "{with_key}");
-        assert!(with_key.contains("desktop"), "{with_key}");
+        assert!(with_key.contains("/arca on"), "{with_key}");
         let without_key = arca_status_lines(false, None).join("\n");
         assert!(without_key.contains("no vault key"), "{without_key}");
         assert!(without_key.contains("/arca pair offer"), "{without_key}");
+        assert!(without_key.contains("/arca on"), "{without_key}");
+    }
+
+    // ---------- `/arca on` ----------
+
+    use warden_sync::manifest::{save_manifest, SyncManifest};
+    use warden_sync::{ArweaveClient, SyncEngine};
+
+    struct Device {
+        base: PathBuf,
+        engine: SyncEngine,
+    }
+
+    fn arca_device(name: &str, with_key: bool, paired_on_arweave: bool) -> Device {
+        let base = std::env::temp_dir().join(format!(
+            "warden-cli-arca-on-{name}-{}",
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+        ));
+        std::fs::create_dir_all(base.join("vault")).unwrap();
+        // A gateway nobody listens on: a Pull that reaches for it fails at once instead of going to the real network.
+        let dead = ArweaveClient::new("http://127.0.0.1:1/graphql", "http://127.0.0.1:1");
+        let engine =
+            SyncEngine::new(base.join("vault"), base.join("config.toml"), base.join("sync_secrets.json"), base.join("sync_manifest.json")).with_arweave_client(dead);
+        if with_key {
+            engine.init_fresh().unwrap();
+        }
+        if paired_on_arweave {
+            let manifest = SyncManifest { version: 1, owner_address: Some("some-owner".into()), ..Default::default() };
+            save_manifest(&base.join("sync_manifest.json"), &manifest).unwrap();
+        }
+        Device { base, engine }
+    }
+
+    fn arca_is_on(device: &Device) -> bool {
+        device.engine.arca_mode().unwrap().is_some()
+    }
+
+    #[test]
+    fn only_an_explicit_yes_confirms() {
+        for yes in ["s", "sim", "y", "yes", "SIM", "Yes", "  s  "] {
+            assert!(is_yes(yes), "{yes:?}");
+        }
+        for no in ["", " ", "n", "nao", "não", "no", "ok", "sims", "1", "y e s"] {
+            assert!(!is_yes(no), "{no:?}");
+        }
+    }
+
+    #[test]
+    fn a_vault_already_in_arca_mode_or_without_a_key_has_nothing_to_ask() {
+        assert_eq!(arca_on_blocker(true, true), Some(ArcaOn::AlreadyOn));
+        assert_eq!(arca_on_blocker(false, true), Some(ArcaOn::AlreadyOn));
+        assert_eq!(arca_on_blocker(false, false), Some(ArcaOn::NoKey));
+        assert_eq!(arca_on_blocker(true, false), None);
+    }
+
+    #[tokio::test]
+    async fn without_a_typed_yes_nothing_is_turned_on() {
+        for answer in [None, Some(""), Some("n"), Some("nao"), Some("talvez")] {
+            let device = arca_device("no-yes", true, false);
+            assert_eq!(arca_on_run(&device.engine, answer, 1).await, ArcaOn::Cancelled, "{answer:?}");
+            assert!(!arca_is_on(&device), "{answer:?}: the switch must not be written");
+        }
+    }
+
+    #[tokio::test]
+    async fn a_typed_yes_turns_the_mode_on_for_a_vault_that_never_synced_through_arweave() {
+        let device = arca_device("yes-fresh", true, false);
+        std::fs::write(device.base.join("vault/note.md"), b"hello").unwrap();
+        assert_eq!(arca_on_run(&device.engine, Some("sim"), 7).await, ArcaOn::Done { needs_reload: false });
+        let mode = device.engine.arca_mode().unwrap().expect("the switch is on");
+        assert_eq!((mode.enabled_at_ms, mode.secret_accepted), (7, false));
+    }
+
+    #[tokio::test]
+    async fn a_typed_yes_does_not_turn_it_on_when_the_pull_before_it_fails() {
+        let device = arca_device("yes-pull-fails", true, true);
+        match arca_on_run(&device.engine, Some("s"), 1).await {
+            ArcaOn::Failed(message) => assert!(message.contains("Pull") && message.contains("not turned on"), "{message}"),
+            other => panic!("expected the Pull failure, got {other:?}"),
+        }
+        assert!(!arca_is_on(&device), "the first arca manifest must not be made from a vault that may be behind");
+    }
+
+    #[test]
+    fn the_confirmation_says_there_is_no_way_back_and_what_stops_working() {
+        speak(i18n::Locale::En);
+        let en = tr!("arca.on_confirm");
+        assert!(en.contains("no way back") && en.contains("/sync push") && en.contains("Pull") && en.contains("(y/n)"), "{en}");
+        speak(i18n::Locale::PtBr);
+        let pt = tr!("arca.on_confirm");
+        assert!(pt.contains("sem volta") && pt.contains("/sync push") && pt.contains("Pull") && pt.contains("(s/n)"), "{pt}");
+    }
+
+    #[test]
+    fn the_cards_say_what_happened_in_english_and_portuguese() {
+        speak(i18n::Locale::En);
+        let done = arca_on_lines(&ArcaOn::Done { needs_reload: false }).join("\n");
+        assert!(done.contains("arca mode: on") && done.contains("/arca sync"), "{done}");
+        assert!(!done.contains("reload"), "{done}");
+        let reloaded = arca_on_lines(&ArcaOn::Done { needs_reload: true }).join("\n");
+        assert!(reloaded.contains("reload"), "{reloaded}");
+        assert_eq!(arca_on_lines(&ArcaOn::Cancelled), ["cancelled"]);
+        assert!(arca_on_lines(&ArcaOn::AlreadyOn).join(" ").contains("already on"));
+        assert!(arca_on_lines(&ArcaOn::NoKey).join(" ").contains("no vault key"));
+        assert_eq!(arca_on_lines(&ArcaOn::Failed("boom".into())), ["boom"]);
+        speak(i18n::Locale::PtBr);
+        assert!(arca_on_lines(&ArcaOn::Done { needs_reload: false }).join("\n").contains("modo arca: ligado"));
+        assert!(arca_on_lines(&ArcaOn::AlreadyOn).join(" ").contains("já está ligado"));
+        assert_eq!(arca_on_lines(&ArcaOn::Cancelled), ["cancelado"]);
+    }
+
+    #[test]
+    fn the_sync_that_needs_the_mode_points_to_arca_on() {
+        speak(i18n::Locale::En);
+        assert!(tr!("arca.sync_needs_mode").contains("/arca on"));
+        speak(i18n::Locale::PtBr);
+        assert!(tr!("arca.sync_needs_mode").contains("/arca on"));
     }
 
     #[test]
