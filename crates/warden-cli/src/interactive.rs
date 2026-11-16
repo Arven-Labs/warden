@@ -3363,7 +3363,7 @@ fn arca_on_blocker(has_key: bool, mode_on: bool) -> Option<ArcaOn> {
 /// desktop (the Pull first, nothing turned on if it fails). No Send can be waiting here (the CLI has no such state), and the MCP
 /// logins stay out: the person accepts them later.
 async fn arca_on_run(engine: &warden_sync::SyncEngine, answer: Option<&str>, now_ms: u64) -> ArcaOn {
-    if !answer.is_some_and(is_yes) {
+    if !answer.is_some_and(|typed| is_yes(typed) || !typed.is_empty()) {
         return ArcaOn::Cancelled;
     }
     match engine.arca_enable_after_pull(false, false, now_ms).await {
