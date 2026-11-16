@@ -240,6 +240,14 @@ impl SyncEngine {
         Ok(())
     }
 
+    /// What every entry point does to turn the mode on (ADR 0012, step a): needs the vault key and no Send waiting for the phone,
+    /// does the Pull through `warden-sync` first when the vault is paired on Arweave (so the first arca manifest is not made from a
+    /// vault that is behind), and stops without turning it on if that Pull fails. Returns whether the Pull brought a new
+    /// `config.toml` or login, so the caller has to reload. A vault paired only through git gets no Pull here.
+    pub async fn arca_enable_after_pull(&self, _pending_send: bool, _sync_logins: bool, _now_ms: u64) -> anyhow::Result<bool> {
+        anyhow::bail!("not implemented")
+    }
+
     /// The person accepts that the MCP logins travel (P-36, 1 and 8). Needs the mode on, keeps the rest of the switch and takes the
     /// sync lock, like `arca_set_hub`. The logins folder goes through the same guard first, so a folder that cannot be a root is
     /// refused here and nothing is recorded. From the next cycle the class is sent and applied.
@@ -701,5 +709,91 @@ mod tests {
         let message = said(EngineError::LocalChanges, "applying");
         assert!(message.starts_with("applying: "), "{message}");
         assert!(message.ends_with(&EngineError::LocalChanges.to_string()), "{message}");
+    }
+
+    // ---------- turning the mode on after the Pull (`arca_enable_after_pull`) ----------
+
+    use crate::arca_mode::{load_mode, mode_path_for};
+    use crate::manifest::{save_manifest, SyncManifest};
+    use crate::ArweaveClient;
+    use std::path::PathBuf;
+
+    struct Device {
+        base: PathBuf,
+        engine: SyncEngine,
+    }
+
+    fn device(name: &str) -> Device {
+        let base = std::env::temp_dir().join(format!(
+            "warden-sync-enable-after-pull-{name}-{}",
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+        ));
+        std::fs::create_dir_all(base.join("vault")).unwrap();
+        // A gateway nobody listens on: a Pull that reaches for it fails at once instead of going to the real network.
+        let dead = ArweaveClient::new("http://127.0.0.1:1/graphql", "http://127.0.0.1:1");
+        let engine = SyncEngine::new(base.join("vault"), base.join("config.toml"), base.join("sync_secrets.json"), base.join("sync_manifest.json"))
+            .with_arweave_client(dead)
+            .with_oauth_dir(base.join("mcp_oauth"));
+        Device { base, engine }
+    }
+
+    fn device_with_key(name: &str) -> Device {
+        let device = device(name);
+        device.engine.init_fresh().unwrap();
+        device
+    }
+
+    fn pair_on_arweave(device: &Device) {
+        let manifest = SyncManifest { version: 1, owner_address: Some("some-owner".into()), ..Default::default() };
+        save_manifest(&device.base.join("sync_manifest.json"), &manifest).unwrap();
+    }
+
+    fn mode_of(device: &Device) -> Option<crate::arca_mode::ArcaMode> {
+        load_mode(&mode_path_for(&device.base.join("sync_manifest.json"))).unwrap()
+    }
+
+    #[tokio::test]
+    async fn without_a_key_the_mode_is_not_turned_on() {
+        let device = device("nokey");
+        let error = format!("{:#}", device.engine.arca_enable_after_pull(false, false, 1).await.unwrap_err());
+        assert!(error.contains("key"), "{error}");
+        assert!(mode_of(&device).is_none());
+    }
+
+    #[tokio::test]
+    async fn with_a_send_waiting_for_the_phone_the_mode_is_not_turned_on() {
+        let device = device_with_key("pending");
+        let error = format!("{:#}", device.engine.arca_enable_after_pull(true, false, 1).await.unwrap_err());
+        assert!(error.contains("Send"), "{error}");
+        assert!(mode_of(&device).is_none());
+    }
+
+    #[tokio::test]
+    async fn a_vault_that_never_synced_through_arweave_turns_on_without_a_pull() {
+        let device = device_with_key("fresh");
+        std::fs::write(device.base.join("vault/note.md"), b"hello").unwrap();
+        let needs_reload = device.engine.arca_enable_after_pull(false, false, 7).await.unwrap();
+        assert!(!needs_reload);
+        let mode = mode_of(&device).expect("the switch is on");
+        assert_eq!((mode.enabled_at_ms, mode.secret_accepted), (7, false));
+    }
+
+    #[tokio::test]
+    async fn a_paired_vault_whose_pull_fails_is_not_turned_on() {
+        let device = device_with_key("pull-fails");
+        pair_on_arweave(&device);
+        let error = format!("{:#}", device.engine.arca_enable_after_pull(false, false, 1).await.unwrap_err());
+        assert!(error.contains("Pull") && error.contains("not turned on"), "{error}");
+        assert!(mode_of(&device).is_none(), "the first arca manifest must not be made from a vault that may be behind");
+    }
+
+    #[tokio::test]
+    async fn the_logins_box_is_recorded_with_the_switch() {
+        let on = device_with_key("logins-on");
+        on.engine.arca_enable_after_pull(false, true, 1).await.unwrap();
+        assert!(mode_of(&on).unwrap().secret_accepted);
+        let off = device_with_key("logins-off");
+        off.engine.arca_enable_after_pull(false, false, 1).await.unwrap();
+        assert!(!mode_of(&off).unwrap().secret_accepted);
     }
 }
