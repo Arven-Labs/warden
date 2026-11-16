@@ -99,7 +99,7 @@ function ArcaModeSection() {
     setKeptResult(null);
     const labels = new Map(kept.map((item) => [item.id, keptFolder(item)]));
     try {
-      const summary = keptClearSummary(await invoke<ClearReport>("arca_kept_clear", { ids: [id] }));
+      const summary = keptClearSummary(await invoke<ClearReport>("arca_kept_clear", { ids: kept.filter((item) => !item.edited || item.id === id).map((item) => item.id) }));
       setKeptResult({ kind: "done", removed: summary.removed, notRemoved: summary.notRemoved.map((n) => ({ label: labels.get(n.id) ?? n.id, reasonKey: n.reasonKey })), keptTmp: summary.keptTmp });
     } catch (e) {
       setKeptResult({ kind: "failed", message: String(e) });
