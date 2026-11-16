@@ -3366,7 +3366,7 @@ async fn arca_on_run(engine: &warden_sync::SyncEngine, answer: Option<&str>, now
     if !answer.is_some_and(is_yes) {
         return ArcaOn::Cancelled;
     }
-    match engine.arca_enable_after_pull(false, false, now_ms).await {
+    match engine.arca_enable_with(false, false, now_ms).await.map(|()| false) {
         Ok(needs_reload) => ArcaOn::Done { needs_reload },
         Err(err) => ArcaOn::Failed(format!("{err:#}")),
     }
