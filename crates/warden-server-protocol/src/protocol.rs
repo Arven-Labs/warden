@@ -1264,14 +1264,15 @@ pub struct GitSyncEditDto {
     pub token: SecretEdit,
 }
 
-/// Where the hub's vault syncs to (P61): nowhere until it has a vault key, then git when
-/// `[git_sync]` is set, Arweave otherwise.
+/// Where the hub's vault syncs to (P61): nowhere until it has a vault key, then the arca when
+/// the vault is in arca mode, git when `[git_sync]` is set, Arweave otherwise.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum SyncBackendDto {
     NotSetUp,
     Git,
     Arweave,
+    Arca,
 }
 
 /// One sync round the hub ran (its 5-minute loop or a "sync now"). `pulled`/`pushed` are only
@@ -4977,6 +4978,13 @@ mod tests {
         let error: ServerMessage = serde_json::from_str(r#"{"type":"syncError","requestId":5,"message":"m","authRejected":true}"#).unwrap();
         assert_eq!(error, ServerMessage::SyncError { request_id: 5, message: "m".into(), auth_rejected: true });
         assert!(json.get("pairingCode").is_none());
+    }
+
+    #[test]
+    fn the_arca_backend_is_spelled_arca_on_the_wire() {
+        assert_eq!(serde_json::to_value(SyncBackendDto::Arca).unwrap(), serde_json::json!("arca"));
+        let status: SyncStatusDto = serde_json::from_str(r#"{"backend":"arca","pendingVaultChanges":0,"pendingConfigChanged":false}"#).unwrap();
+        assert_eq!(status.backend, SyncBackendDto::Arca);
     }
 
     #[test]

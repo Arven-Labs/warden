@@ -33,6 +33,7 @@ fn status_dto(state: SyncState) -> SyncStatusDto {
             SyncBackend::NotSetUp => SyncBackendDto::NotSetUp,
             SyncBackend::Git => SyncBackendDto::Git,
             SyncBackend::Arweave => SyncBackendDto::Arweave,
+            SyncBackend::Arca => SyncBackendDto::Arca,
         },
         git_remote: state.git_remote,
         last_synced_at_ms: state.last_synced_at_ms,

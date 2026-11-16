@@ -6,6 +6,16 @@
 
 ---
 
+### 2026-11-16 — arca: a variante `Arca` no `backend` do relatório e do status (P183)
+
+- **Pedido**: "a variante" (o que o P183 listava como falta). Plan mode; decisão sua: a web do hub só informa (rótulo, nota, esconde o que não vale).
+- **Feito ([warden#160](https://github.com/Arven-Labs/warden/pull/160))**: `SyncBackend::Arca` em `auto_sync.rs` (`round()` e `state()` via `load_mode`; o modo vence o `[git_sync]`), `SyncBackendDto::Arca`, os dois `match` do `warden-server`, e a `SyncView` da web (rótulo, `sync.arcaNote` em en e pt-BR; sem pendências, "Sync now" nem pareamento).
+- **Testes (CI)**: **vermelho antes**: commit só com os testes (run 43871336495), falhou por compilação (`E0599`, sem a variante), então prova dependência da variante, não das asserções. Verde: Rust, web, Browser e Android. **Quebra de propósito** (warden#161, fechado, branch apagada): `round()`/`state()` voltando a Git/Arweave derrubaram 3 testes (2 em `auto_sync`, 1 no hub).
+- **Não verificado**: a tela da web não foi renderizada (só `tsc` e o CI); `state()` agora lê o arquivo do modo, e um erro de leitura vira erro de status; o `cargo fmt --check` local acusa o repo inteiro (formatador diferente do CI).
+- **Fica**: `/arca on|sync` no CLI, ciclo no `warden-server`, mobile, `pending_push` do mobile (P183).
+
+---
+
 ### 2026-11-15 — arca: a tela para apagar os `.arca-kept-*` (PR 2; fecha o botão "apagar")
 
 - **Pedido**: o PR 2 do plano aprovado ("vamos de o botão apagar"): a tela sobre os comandos `arca_kept_list`/`arca_kept_clear` do PR 1 (warden#156). Decisões suas, mantidas: apagar **só por item, com confirmação** (sem "apagar todos"); mostrar pasta relativa, classe, tamanho e data. Só desktop: nenhum Rust tocado.

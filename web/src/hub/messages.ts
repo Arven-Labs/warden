@@ -908,7 +908,7 @@ export interface SyncRound {
 
 /** Mirrors `SyncStatusDto`: where the hub's vault syncs to and how the last round went. */
 export interface SyncStatus {
-  backend: "notSetUp" | "git" | "arweave";
+  backend: "notSetUp" | "git" | "arweave" | "arca";
   gitRemote?: string;
   lastSyncedAtMs?: number;
   pendingVaultChanges: number;

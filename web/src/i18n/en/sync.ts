@@ -2,6 +2,8 @@
 export const sync = {
   "sync.notSetUp": "Not set up yet",
   "sync.arweave": "Arweave (TruthID)",
+  "sync.arca": "Arca",
+  "sync.arcaNote": "This vault is in arca mode: the arca writes it, and its sync cycle runs on the desktop, not on this hub. Pending changes, Sync now and Arweave pairing do not apply here.",
   "sync.received": "received {count} file(s)",
   "sync.removed": ", removed {count}",
   "sync.configUpdated": "settings updated",

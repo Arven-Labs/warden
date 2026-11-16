@@ -89,6 +89,28 @@ fn action(pairing_key: &str, action: SyncActionDto) -> ClientMessage {
     ClientMessage::SyncAction { request_id: 2, pairing_key: pairing_key.into(), action }
 }
 
+/// A hub whose vault is in arca mode tells the web so, instead of the Git its config still names.
+#[tokio::test]
+async fn the_web_sees_the_arca_backend_when_the_hub_vault_is_in_arca_mode() {
+    use warden_sync::arca_mode::{mode_path_for, save_mode, ArcaMode};
+    let dir = temp_dir();
+    let remote = bare_remote(&dir);
+    let hub_runner = Arc::new(device(&dir, "hub", &remote, ""));
+    hub_runner.init_fresh().await.unwrap();
+    save_mode(&mode_path_for(&dir.join("hub").join("manifest.json")), &ArcaMode { version: 1, enabled_at_ms: 1, hub_id: None, secret_accepted: false }).unwrap();
+    let server = Server::bind("127.0.0.1:0".parse().unwrap(), "test-key", "Test Hub", Arc::new(orchestrator(&dir)), dir.join("conversations"), dir.join("devices.json"))
+        .await
+        .unwrap()
+        .with_open_key_pairing()
+        .with_sync(hub_runner, None);
+    let addr = server.local_addr().unwrap();
+    tokio::spawn(server.serve());
+    let mut conn = ServerConnection::connect(&format!("ws://{addr}"), "web-1", "Browser", "test-key").await.unwrap();
+
+    let reply = status(&mut conn, ClientMessage::RequestSyncStatus { request_id: 1 }).await.unwrap();
+    assert_eq!(reply.backend, SyncBackendDto::Arca);
+}
+
 #[tokio::test]
 async fn the_web_sets_up_the_hub_and_its_notes_reach_another_device() {
     let dir = temp_dir();
