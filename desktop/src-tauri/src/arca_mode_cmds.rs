@@ -65,18 +65,7 @@ pub struct Enabled {
 /// paired there (so the first arca manifest is not made from a vault that is behind), and stops if that Pull fails.
 /// `sync_logins` is the box of the confirmation: whether the MCP logins travel too (off unless the person ticked it).
 pub async fn enable(engine: &SyncEngine, pending_send: bool, sync_logins: bool, now_ms: u64) -> Result<Enabled, String> {
-    if !engine.is_initialized() {
-        return Err("this computer has no vault key yet: set up sync or pair this computer first".to_string());
-    }
-    if pending_send {
-        return Err("a Send is waiting for the phone: finish or cancel it before turning the arca mode on".to_string());
-    }
-    let mut needs_reload = false;
-    if engine.status().map_err(|e| format!("{e:#}"))?.paired {
-        let pulled = engine.pull().await.map_err(|e| format!("the Pull before turning the arca mode on failed, so it was not turned on: {e:#}"))?;
-        needs_reload = pulled.needs_reload();
-    }
-    engine.arca_enable_with(false, sync_logins, now_ms).await.map_err(|e| format!("{e:#}"))?;
+    let needs_reload = engine.arca_enable_after_pull(pending_send, sync_logins, now_ms).await.map_err(|e| format!("{e:#}"))?;
     Ok(Enabled { needs_reload })
 }
 

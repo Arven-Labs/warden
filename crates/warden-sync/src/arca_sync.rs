@@ -244,8 +244,22 @@ impl SyncEngine {
     /// does the Pull through `warden-sync` first when the vault is paired on Arweave (so the first arca manifest is not made from a
     /// vault that is behind), and stops without turning it on if that Pull fails. Returns whether the Pull brought a new
     /// `config.toml` or login, so the caller has to reload. A vault paired only through git gets no Pull here.
-    pub async fn arca_enable_after_pull(&self, _pending_send: bool, _sync_logins: bool, _now_ms: u64) -> anyhow::Result<bool> {
-        anyhow::bail!("not implemented")
+    pub async fn arca_enable_after_pull(&self, pending_send: bool, sync_logins: bool, now_ms: u64) -> anyhow::Result<bool> {
+        anyhow::ensure!(self.is_initialized(), "this computer has no vault key yet: set up sync or pair this computer first");
+        if pending_send {
+            anyhow::bail!("a Send is waiting for the phone: finish or cancel it before turning the arca mode on");
+        }
+        let mut needs_reload = false;
+        if self.status()?.paired {
+            let pulled = self
+                .pull()
+                .await
+                .map_err(|e| anyhow::anyhow!("the Pull before turning the arca mode on failed, so it was not turned on: {e:#}"))?;
+            needs_reload = pulled.needs_reload();
+        }
+        // The Send was already refused above, so the switch itself is told there is none.
+        self.arca_enable_with(false, sync_logins, now_ms).await?;
+        Ok(needs_reload)
     }
 
     /// The person accepts that the MCP logins travel (P-36, 1 and 8). Needs the mode on, keeps the rest of the switch and takes the
