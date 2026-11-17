@@ -6,6 +6,14 @@
 
 ---
 
+### 2026-11-17 — CI: `Rust (clippy and tests)` obrigatório no `protect-main`
+
+- **Pedido**: vindo da sessão 96 da arca (P-35): o ruleset exigia só o `guard`, e os PRs #165 e #169 foram mesclados com o `Rust` do commit final sem rodar.
+- **Achado**: o `ci.yml` tinha `paths-ignore` (`project/**`, `**/*.md`, `LICENSE`) no workflow. Um PR só de docs não dispara o CI, e um check obrigatório ficaria "Expected" para sempre. Por isso só o `guard` (sem filtro de caminho) era obrigatório.
+- **Feito**: [warden#173](https://github.com/Arven-Labs/warden/pull/173) tira o `paths-ignore` (os jobs já têm `if` por área; job pulado conta como passou). [warden#174](https://github.com/Arven-Labs/warden/pull/174) versiona `.github/ruleset-protect-main.json` (`guard` e `Rust (clippy and tests)`). O dono mesclou os dois e aplicou o ruleset (id 26167705) com `gh api -X PUT` em 2026-11-17 (09:38 -03:00).
+- **Verificação**: CI do #173 verde (`Rust` 8m17s, `Android`, `Mobile`, 4 `Frontend`, `guard`). No #174 (só um JSON) os jobs de área apareceram como "skipping". O teste de um PR só de `.md` com o `rust` obrigatório é este próprio PR.
+- **Fica**: o Warden não tem job `audit` (no arca ele é obrigatório); o alerta 36 do Dependabot (moderado) não foi triado.
+
 ### 2026-11-16 — arca: `/arca on` no CLI (PR 2, P183)
 
 - **Pedido**: continuar o P-35 da arca: o comando que faltava no CLI, depois do PR 1 (warden#165, a sequência no `warden-sync`).
