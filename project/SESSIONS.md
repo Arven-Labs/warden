@@ -6,6 +6,17 @@
 
 ---
 
+### 2026-11-16 — arca: `/arca on` no CLI (PR 2, P183)
+
+- **Pedido**: continuar o P-35 da arca: o comando que faltava no CLI, depois do PR 1 (warden#165, a sequência no `warden-sync`).
+- **Feito ([warden#169](https://github.com/Arven-Labs/warden/pull/169))**: `/arca on` (`commands.rs`, `interactive.rs`, i18n en e pt-BR). `arca_on_blocker` (já ligado ou sem chave: nem pergunta), `is_yes` (só `s`, `sim`, `y`, `yes`), `arca_on_run` (só liga com um sim digitado, via `arca_enable_after_pull`, sem logins MCP), `cmd_arca_on` (descarta as teclas pendentes antes da pergunta, `session.reload_requested` se o Pull trouxe config ou login). Os textos de `/arca` (status) e `/arca sync` agora dizem "ligue com `/arca on`" em vez de "pelo desktop".
+- **Testes (CI)**: **vermelho antes** (só testes e esqueleto): run 43982035379, `warden-cli` 93 passaram e 10 falharam, **todos por asserção** (sem erro de compilação). **Verde**: run 43983402618, `warden-cli` 103 passaram. **Quebras de propósito** (#170 a #172, fechados, branches apagadas), cada uma derrubou **só** o teste esperado: qualquer resposta não vazia confirma derrubou `without_a_typed_yes_nothing_is_turned_on` (run 43983416950); ligar sem o Pull derrubou `a_typed_yes_does_not_turn_it_on_when_the_pull_before_it_fails` (run 43983435011); "sem chave" vencendo "já ligado" derrubou `a_vault_already_in_arca_mode_or_without_a_key_has_nothing_to_ask` (run 43983456352).
+- **Observação**: o teste do gate de confirmação **passava no vermelho** (o esqueleto sempre cancelava), então só a quebra A prova que ele testa algo.
+- **Não verificado**: o comando não foi rodado num terminal real (só as funções puras e o motor com um gateway morto); o Pull com Arweave real; Windows e macOS.
+- **Fica**: ciclo no `warden-server` e mobile (P183); Vault pareado só por git sem Pull do git; o `ruleset protect-main` do Warden só exige o `guard` (o #165 foi mesclado com o `Rust` do commit final pendente; decisão sua).
+
+---
+
 ### 2026-11-16 — arca: a sequência de ligar o modo vai para o `warden-sync` (PR 1 do `/arca on`, P183)
 
 - **Pedido**: "vamos de p35" (arca), recorte `/arca on` no CLI. Plan mode. Decisões suas: **extrair** a sequência (chave, Pull se pareado, aborta se o Pull falhar, liga) para o `warden-sync`, em vez de reimplementar no CLI; Vault pareado só por git **segue o desktop** (sem Pull do git antes de ligar, fica como limite). Dois PRs (um por intenção): este só move a regra; o `/arca on` vem depois.
