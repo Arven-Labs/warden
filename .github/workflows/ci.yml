@@ -2,7 +2,9 @@ name: CI
 
 # The full suite runs here, not on the development machine (Session 223): on the machine only `cargo check`
 # and a one-off test stay. It runs on every push to main, on PRs and from the "Run workflow" button.
-# A commit that only touches the documentation does not trigger the run, and each job only runs if its area changed (job `changes`):
+# The workflow has no path filter, so the `rust` check always reports (the `main` ruleset requires it; a workflow that does not start
+# leaves a required check "Expected" forever, as `guard` already avoids in ci-private-files.yml). A commit that only touches the
+# documentation runs just the `changes` job, and each other job only runs if its area changed (a skipped job counts as passed):
 #   rust       <- crates/**, community/** (the first source's index is checked by a test), desktop/src-tauri/**, Cargo.toml, Cargo.lock
 #   web        <- web/**
 #   desktop    <- desktop/**
@@ -15,12 +17,7 @@ name: CI
 on:
   push:
     branches: [main]
-    paths-ignore: &docs
-      - 'project/**'
-      - '**/*.md'
-      - 'LICENSE'
   pull_request:
-    paths-ignore: *docs
   workflow_dispatch:
 
 # A new push to the same branch cancels the run that is still in progress.
