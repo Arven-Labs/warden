@@ -13,7 +13,7 @@ use std::path::Path;
 use anyhow::Context;
 use arca_core::crypto::{EpochKeys, VaultKey};
 use arca_core::disk::DiskStore;
-use arca_core::engine::{Engine, EngineError, MergeOutcome, Roots, Snapshot};
+use arca_core::engine::{Engine, EngineError, MergeOutcome, Roots, Snapshot, VerifyMode};
 use arca_core::kept::KeptOriginal;
 use arca_core::losers::{LoserCopy, Skip};
 use arca_core::manifest::FileEntry;
@@ -24,7 +24,9 @@ pub use arca_core::manifest::Class;
 use arca_core::replicate::ReplicateReport;
 use arca_core::scan::Skipped;
 
-use crate::arca_mode::{conflicts_dir_for, folder_path_for, load_mode, mode_path_for, save_mode, state_path_for, store_path_for, ArcaMode};
+use crate::arca_mode::{
+    conflicts_dir_for, folder_path_for, load_mode, load_verify_state, mode_path_for, save_mode, save_verify_state, state_path_for, store_path_for, verify_state_path_for, ArcaMode, ArcaVerifyState,
+};
 use crate::manifest::{close_to_owner, create_private_dir, write_atomic};
 use crate::oauth::is_login_file_name;
 use crate::SyncEngine;
@@ -49,6 +51,24 @@ pub struct SkippedLogin {
     /// Relative to the logins folder, `/` as separator.
     pub path: String,
     pub reason: &'static str,
+}
+
+/// How many blobs of the hub copy one `arca_verify` round reads whole. Fixed until the real cost on a big vault is measured.
+pub const VERIFY_SAMPLE_BLOBS: usize = 64;
+
+/// What one `arca_verify` round found. Ids only (`blob/<hex>`), never a path or a file name. `clean == false` is not a success:
+/// something is wrong, or something could not be checked (`unreadable`: try again).
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct ArcaVerifyReport {
+    pub manifests_ok: usize,
+    pub rejected: Vec<String>,
+    pub referenced_blobs: usize,
+    pub missing: Vec<String>,
+    pub corrupt: Vec<String>,
+    pub unreadable: Vec<String>,
+    pub sampled: usize,
+    pub next_offset: usize,
+    pub clean: bool,
 }
 
 /// What one cycle did, for the caller to show. A cycle that returns `Ok` has replicated everything: an incomplete round is an error.
@@ -523,6 +543,50 @@ impl SyncEngine {
         ensure_complete(&pushed, "push")?;
         report.pushed = pushed.copied;
         Ok(report)
+    }
+
+    /// One integrity round of the copy the hub holds (arca `Engine::verify`): every blob a readable manifest cites exists there
+    /// and a window of them has the bytes its id says. Read-only. Refuses unless the mode is on. The window starts where the
+    /// last finished round stopped (`arca_verify.json`), so repeated rounds read the whole copy.
+    pub async fn arca_verify(&self, hub: &HubStore, now_ms: u64) -> anyhow::Result<ArcaVerifyReport> {
+        self.arca_verify_with(hub, VERIFY_SAMPLE_BLOBS, now_ms).await
+    }
+
+    /// `arca_verify` with the window size given (the tests use a small one to see the rounds chain).
+    ///
+    /// The engine here is built on the **hub** as its store (`arca_engine` builds one on the local disk): `verify` only looks at the
+    /// store of the engine it is called on. It needs the key to open the manifests, and no anti-rollback state (it reads, never
+    /// accepts). One call does the presence of every cited blob and reads one window of them whole. The place of the next window
+    /// is saved only when the round finished: a failure (hub down, token refused) leaves the state as it was.
+    pub async fn arca_verify_with(&self, hub: &HubStore, sample_blobs: usize, now_ms: u64) -> anyhow::Result<ArcaVerifyReport> {
+        let _one_sync_at_a_time = self.sync_lock().await?;
+        if load_mode(&mode_path_for(&self.manifest_path))?.is_none() {
+            anyhow::bail!("this vault is not in arca mode: turn it on first");
+        }
+        let secrets = self.load_secrets()?;
+        let keys = EpochKeys::derive(&VaultKey::from_bytes(secrets.vault_key), FIRST_KEY_EPOCH);
+        let engine = Engine::new(hub.clone(), keys, secrets.device_id)?;
+        let state_path = verify_state_path_for(&self.manifest_path);
+        let state = load_verify_state(&state_path);
+
+        let found = engine
+            .verify(VerifyMode::Sample { max_blobs: sample_blobs, offset: state.next_offset })
+            .await
+            .map_err(|e| engine_failure(e, "checking the copy the hub holds"))?;
+        save_verify_state(&state_path, &ArcaVerifyState { next_offset: found.next_offset, last_at_ms: now_ms, last_clean: found.clean })?;
+
+        let ids = |ids: &[ObjectId]| ids.iter().map(ToString::to_string).collect::<Vec<_>>();
+        Ok(ArcaVerifyReport {
+            manifests_ok: found.manifests_ok,
+            rejected: ids(&found.rejected),
+            referenced_blobs: found.referenced_blobs,
+            missing: ids(&found.missing),
+            corrupt: ids(&found.corrupt),
+            unreadable: ids(&found.unreadable),
+            sampled: found.sampled,
+            next_offset: found.next_offset,
+            clean: found.clean,
+        })
     }
 
     /// The arca engine of this vault: storage, anti-rollback state and the vault folder as the only root, with the key this device
