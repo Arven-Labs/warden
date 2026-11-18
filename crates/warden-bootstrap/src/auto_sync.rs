@@ -242,7 +242,7 @@ impl SyncRunner {
         {
             let mut halted = self.arca_halted.lock().unwrap();
             match halted.as_deref() {
-                Some(stopped) if stopped == hub_id => return VerifyRound::NotRun,
+                Some(stopped) if stopped == hub_id => {}
                 // The vault now points at another hub: the earlier stop was about the old one.
                 Some(_) => *halted = None,
                 None => {}
