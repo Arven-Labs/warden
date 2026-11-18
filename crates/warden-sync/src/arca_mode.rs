@@ -74,12 +74,15 @@ pub struct ArcaVerifyState {
 }
 
 /// A missing or unreadable file is the start (`Default`), not an error: this state is only a place to resume from.
-pub fn load_verify_state(_path: &Path) -> ArcaVerifyState {
-    unimplemented!("arca_verify state: draft for the tests")
+pub fn load_verify_state(path: &Path) -> ArcaVerifyState {
+    std::fs::read_to_string(path).ok().and_then(|contents| serde_json::from_str(&contents).ok()).unwrap_or_default()
 }
 
-pub fn save_verify_state(_path: &Path, _state: &ArcaVerifyState) -> anyhow::Result<()> {
-    unimplemented!("arca_verify state: draft for the tests")
+pub fn save_verify_state(path: &Path, state: &ArcaVerifyState) -> anyhow::Result<()> {
+    if let Some(parent) = path.parent() {
+        create_private_dir(parent)?;
+    }
+    write_atomic(path, serde_json::to_string_pretty(state)?.as_bytes(), true)
 }
 
 /// `None` when the mode is off. A file that exists but cannot be read or parsed is an **error**, never "off": reading a broken
