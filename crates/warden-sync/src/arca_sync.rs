@@ -569,10 +569,13 @@ impl SyncEngine {
         let state_path = verify_state_path_for(&self.manifest_path);
         let state = load_verify_state(&state_path);
 
-        let found = engine
-            .verify(VerifyMode::Sample { max_blobs: sample_blobs, offset: state.next_offset })
-            .await
-            .map_err(|e| engine_failure(e, "checking the copy the hub holds"))?;
+        let found = match engine.verify(VerifyMode::Sample { max_blobs: sample_blobs, offset: state.next_offset }).await {
+            Ok(found) => found,
+            Err(e) => {
+                save_verify_state(&state_path, &ArcaVerifyState { next_offset: state.next_offset + 1, ..state })?;
+                return Err(engine_failure(e, "checking the copy the hub holds"));
+            }
+        };
         save_verify_state(&state_path, &ArcaVerifyState { next_offset: found.next_offset, last_at_ms: now_ms, last_clean: found.clean })?;
 
         let ids = |ids: &[ObjectId]| ids.iter().map(ToString::to_string).collect::<Vec<_>>();
