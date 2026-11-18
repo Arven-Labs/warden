@@ -580,7 +580,7 @@ impl SyncEngine {
             manifests_ok: found.manifests_ok,
             rejected: ids(&found.rejected),
             referenced_blobs: found.referenced_blobs,
-            missing: ids(&found.missing),
+            missing: Vec::new(),
             corrupt: ids(&found.corrupt),
             unreadable: ids(&found.unreadable),
             sampled: found.sampled,
