@@ -1241,6 +1241,7 @@ pub fn run() {
         warden_sync::SyncEngine::new(sync_vault_path.clone(), sync_config_path.clone(), sync_secrets_path(), sync_manifest_path())
             .with_oauth_dir(warden_bootstrap::oauth_credentials_dir()),
     );
+    let arca_verify_engine = arca_loop_engine.clone();
     // What each cycle of the loop did, kept for the screen (`arca_loop_last`); the loop used to throw the report away.
     let arca_loop_last = Arc::new(arca_mode_cmds::ArcaLoopLast::default());
     let arca_cycle: warden_bootstrap::auto_sync::ArcaCycle = Arc::new({
@@ -1258,7 +1259,30 @@ pub fn run() {
             })
         }
     });
-    let sync_runner = Arc::new(warden_bootstrap::auto_sync::SyncRunner::with_default_paths(sync_vault_path.clone(), sync_config_path.clone()).with_arca_cycle(arca_cycle));
+    // The integrity round of the copy the hub holds (`ARCA_VERIFY_EVERY`): same engine paths as the cycle, its own loop and its own record.
+    let arca_verify_last = Arc::new(arca_mode_cmds::ArcaVerifyLast::default());
+    let arca_verify: warden_bootstrap::auto_sync::ArcaVerify = Arc::new({
+        let engine = arca_verify_engine;
+        let arca_verify_last = arca_verify_last.clone();
+        move |hub_id: String| {
+            let engine = engine.clone();
+            let last = arca_verify_last.clone();
+            Box::pin(async move {
+                let now = arca_mode_cmds::now_ms();
+                let paths = config_paths::saved_hubs_file().and_then(|hubs| config_paths::config_file().map(|config| (hubs, config)));
+                match paths {
+                    Ok((hubs_path, config_file)) => arca_mode_cmds::verify_cycle_recording(&engine, &hubs_path, &config_file, &hub_id, now, &last).await,
+                    Err(message) => {
+                        last.record(arca_mode_cmds::VerifyReport::from_round(now, &Err(warden_bootstrap::auto_sync::ArcaCycleError::Other(message.clone()))));
+                        Err(warden_bootstrap::auto_sync::ArcaCycleError::Other(message))
+                    }
+                }
+            })
+        }
+    });
+    let sync_runner = Arc::new(
+        warden_bootstrap::auto_sync::SyncRunner::with_default_paths(sync_vault_path.clone(), sync_config_path.clone()).with_arca_cycle(arca_cycle).with_arca_verify(arca_verify),
+    );
     let sync = warden_sync::SyncEngine::new(sync_vault_path, sync_config_path, sync_secrets_path(), sync_manifest_path())
         .with_oauth_dir(warden_bootstrap::oauth_credentials_dir());
 
@@ -1312,6 +1336,7 @@ pub fn run() {
             // P71 — pulls (and, for the git backend, pushes) the vault automatically every few
             // minutes instead of requiring a manual click, for as long as the app stays open. See
             // `sync_cmds::spawn_auto_sync`'s own doc comment for what this does and doesn't cover.
+            sync_cmds::spawn_arca_verify(app.handle().clone(), sync_runner.clone());
             sync_cmds::spawn_auto_sync(app.handle().clone(), sync_runner);
             // P87 — a conversation another process writes (the CLI leaving a note for an agent) reaches the window too.
             conversation_watch::spawn(app.handle().clone());
@@ -1319,6 +1344,7 @@ pub fn run() {
         })
         .manage(app_state)
         .manage(arca_loop_last)
+        .manage(arca_verify_last)
         .manage(mcp_login_cmds::McpLoginListener::default())
         .invoke_handler(tauri::generate_handler![
             send_message,
@@ -1472,6 +1498,7 @@ pub fn run() {
             arca_pair_cmds::arca_pair_cancel,
             arca_mode_cmds::arca_mode_status,
             arca_mode_cmds::arca_loop_last,
+            arca_mode_cmds::arca_verify_last,
             arca_mode_cmds::arca_losers_list,
             arca_mode_cmds::arca_losers_clear,
             arca_mode_cmds::arca_kept_list,

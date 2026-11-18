@@ -178,8 +178,7 @@ pub enum VerifyRound {
 /// Whether a round is due: `last_at_ms` is when the last finished one ran (0 before any). A clock that went back (`last_at_ms` in the
 /// future) counts as due, so a wrong clock cannot silence the check until the time catches up.
 pub fn verify_is_due(last_at_ms: u64, now_ms: u64) -> bool {
-    let _ = (last_at_ms, now_ms);
-    unimplemented!("verify_is_due")
+    last_at_ms > now_ms || now_ms - last_at_ms >= ARCA_VERIFY_EVERY.as_millis() as u64 || last_at_ms == 0
 }
 
 pub struct SyncRunner {
@@ -231,8 +230,29 @@ impl SyncRunner {
     /// Runs one integrity round on the hub the mode file names if one is due (`verify_is_due` on the state `arca_verify.json` keeps).
     /// It shares the stop of `arca_round`: a hub that refused this device's token is not asked again until `resume_arca`.
     pub async fn verify_if_due(&self, now_ms: u64) -> VerifyRound {
-        let _ = (now_ms, &self.arca_verify);
-        unimplemented!("verify_if_due")
+        use warden_sync::arca_mode::{load_mode, load_verify_state, mode_path_for, verify_state_path_for};
+        let Some(verify) = &self.arca_verify else { return VerifyRound::NotRun };
+        // A broken mode file is not "off" for the other engines, but here it only means there is nothing safe to ask: stay quiet,
+        // the sync round already reports it.
+        let Ok(Some(mode)) = load_mode(&mode_path_for(&self.manifest_path)) else { return VerifyRound::NotRun };
+        let Some(hub_id) = mode.hub_id else { return VerifyRound::NotRun };
+        if !verify_is_due(load_verify_state(&verify_state_path_for(&self.manifest_path)).last_at_ms, now_ms) {
+            return VerifyRound::NotRun;
+        }
+        {
+            let mut halted = self.arca_halted.lock().unwrap();
+            match halted.as_deref() {
+                Some(stopped) if stopped == hub_id => return VerifyRound::NotRun,
+                // The vault now points at another hub: the earlier stop was about the old one.
+                Some(_) => *halted = None,
+                None => {}
+            }
+        }
+        let result = verify(hub_id.clone()).await;
+        if matches!(result, Err(ArcaCycleError::AuthRejected(_))) {
+            *self.arca_halted.lock().unwrap() = Some(hub_id);
+        }
+        VerifyRound::Ran(result)
     }
 
     /// Looks every `check_every` whether a round is due and runs it, handing each round that ran to `on_round`. The caller spawns it.
@@ -241,8 +261,18 @@ impl SyncRunner {
         F: Fn(&VerifyRound) -> Fut,
         Fut: std::future::Future<Output = ()>,
     {
-        let _ = (check_every, on_round);
-        unimplemented!("run_verify_loop")
+        let mut ticker = tokio::time::interval(check_every);
+        loop {
+            ticker.tick().await;
+            let round = self.verify_if_due(now_ms().max(0) as u64).await;
+            match &round {
+                VerifyRound::NotRun => continue,
+                VerifyRound::Ran(Err(err)) => tracing::warn!("arca verify: {err:?}"),
+                VerifyRound::Ran(Ok(summary)) if !summary.clean => tracing::warn!("arca verify: the copy the hub holds has a problem"),
+                VerifyRound::Ran(Ok(_)) => {}
+            }
+            on_round(&round).await;
+        }
     }
 
     /// Lifts the stop a rejected token caused (the person signed in again, or a manual sync worked).

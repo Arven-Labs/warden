@@ -76,6 +76,51 @@ export function loopView(status: LoopStatus | null): { notices: ReturnType<typeo
   return { notices: hasNotice ? notices : null, error };
 }
 
+/** What one integrity round of the copy the hub holds found: counts only. `damaged` is corrupt and unreadable together (the Warden hub
+ * answers 500 to a blob whose bytes changed, so the two cannot be told apart). */
+export interface VerifyCounts {
+  manifestsOk: number;
+  rejected: number;
+  referencedBlobs: number;
+  missing: number;
+  damaged: number;
+  sampled: number;
+}
+
+/** What `arca_verify_last` answers: the last finished round (from this launch, or remembered on disk, then without counts), or null
+ * while none ever ran. A failure is shown beside the last finished round, not in place of it. */
+export interface VerifyStatus {
+  /** When the last finished round ran, in ms since the epoch; 0 when none ever finished. */
+  atMs: number;
+  clean: boolean;
+  counts: VerifyCounts | null;
+  error: LoopError | null;
+  stopped: boolean;
+}
+
+export type VerifyView =
+  | { key: "arca.verifyClean"; params: { date: string } }
+  | { key: "arca.verifyProblem"; params: { date: string; missing: number; damaged: number; rejected: number } }
+  | { key: "arca.verifyProblemNoCounts"; params: { date: string } }
+  | { key: "arca.verifyNever"; params: Record<string, never> };
+
+/** What the section says about the integrity of the copy: the last finished round, in words. `formatDate` is the screen's own. */
+export function verifyView(status: VerifyStatus | null, formatDate: (ms: number) => string): VerifyView | null {
+  if (status === null) return null;
+  if (status.atMs === 0) return { key: "arca.verifyNever", params: {} };
+  const date = formatDate(status.atMs);
+  if (status.clean) return { key: "arca.verifyClean", params: { date } };
+  if (status.counts === null) return { key: "arca.verifyProblemNoCounts", params: { date } };
+  return { key: "arca.verifyProblem", params: { date, missing: status.counts.missing, damaged: status.counts.damaged, rejected: status.counts.rejected } };
+}
+
+/** The failure of the last round, if there is one worth saying. A refused token says nothing here: it stops the sync cycle too, and
+ * that banner (`arca.loopStopped`) already tells the person to sign in again. */
+export function verifyErrorMessage(status: VerifyStatus | null): string | null {
+  if (status === null || status.error === null || status.error.kind === "authRejected") return null;
+  return status.error.message;
+}
+
 /** A copy of the loser of a conflict (a login in clear text) that `arca_losers_list` answers: never its text nor its absolute path.
  * `id` only goes back to `arca_losers_clear`. */
 export interface LoserItem {

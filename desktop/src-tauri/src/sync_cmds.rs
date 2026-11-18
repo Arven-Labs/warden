@@ -237,6 +237,15 @@ pub fn spawn_auto_sync(app: AppHandle, runner: Arc<SyncRunner>) {
     }));
 }
 
+/// The integrity check of the copy the hub holds, for a vault in arca mode: looks every `ARCA_VERIFY_CHECK` whether `ARCA_VERIFY_EVERY`
+/// has passed since the last round, and runs one if so (arca ADR 0017). The event carries nothing; the screen asks `arca_verify_last`.
+pub fn spawn_arca_verify(app: AppHandle, runner: Arc<SyncRunner>) {
+    tauri::async_runtime::spawn(runner.run_verify_loop(warden_bootstrap::auto_sync::ARCA_VERIFY_CHECK, move |_round| {
+        let _ = app.emit("arca-verify-report", ());
+        std::future::ready(())
+    }));
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

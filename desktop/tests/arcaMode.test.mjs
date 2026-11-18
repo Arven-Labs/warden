@@ -2,7 +2,7 @@
 
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
-import { clearSummary, deletableIds, hubChoice, loginsView, loopView, noticesOf, sizeLabel, summaryOf, viewOf } from "../src/lib/arcaMode.ts";
+import { clearSummary, deletableIds, hubChoice, loginsView, loopView, noticesOf, sizeLabel, summaryOf, verifyErrorMessage, verifyView, viewOf } from "../src/lib/arcaMode.ts";
 
 const status = (over) => ({ hasKey: true, on: false, pendingSend: false, loginsAccepted: false, ...over });
 const report = (over) => ({
@@ -243,5 +243,38 @@ describe("what the section says about the last automatic cycle", () => {
   test("a hub that was only down says the last automatic sync failed, not that it stopped", () => {
     const view = loopView(loop({ report: null, error: { kind: "other", message: "connection refused" } }));
     assert.deepEqual(view, { notices: null, error: { key: "arca.loopFailed", message: "connection refused" } });
+  });
+});
+
+describe("what the section says about the integrity of the copy on the hub", () => {
+  const counts = { manifestsOk: 2, rejected: 1, referencedBlobs: 9, missing: 2, damaged: 3, sampled: 9 };
+  const verify = (over) => ({ atMs: 5000, clean: true, counts, error: null, stopped: false, ...over });
+  const date = (ms) => `D${ms}`;
+
+  test("nothing is said before the first answer", () => {
+    assert.equal(verifyView(null, date), null);
+  });
+
+  test("a copy that was never checked says so", () => {
+    assert.deepEqual(verifyView(verify({ atMs: 0, clean: false, counts: null }), date), { key: "arca.verifyNever", params: {} });
+  });
+
+  test("a clean round says all good, with its date", () => {
+    assert.deepEqual(verifyView(verify(), date), { key: "arca.verifyClean", params: { date: "D5000" } });
+  });
+
+  test("a round with a problem gives the counts", () => {
+    assert.deepEqual(verifyView(verify({ clean: false }), date), { key: "arca.verifyProblem", params: { date: "D5000", missing: 2, damaged: 3, rejected: 1 } });
+  });
+
+  test("a problem remembered from before this launch has no counts and does not invent them", () => {
+    assert.deepEqual(verifyView(verify({ clean: false, counts: null }), date), { key: "arca.verifyProblemNoCounts", params: { date: "D5000" } });
+  });
+
+  test("a failed check says why, but a refused token is left to the sync banner", () => {
+    assert.equal(verifyErrorMessage(verify({ error: { kind: "other", message: "connection refused" } })), "connection refused");
+    assert.equal(verifyErrorMessage(verify({ error: { kind: "authRejected", message: "401" }, stopped: true })), null);
+    assert.equal(verifyErrorMessage(verify()), null);
+    assert.equal(verifyErrorMessage(null), null);
   });
 });
