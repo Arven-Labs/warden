@@ -9,9 +9,10 @@ use std::sync::{Arc, Mutex};
 
 use serde::Serialize;
 use tauri::State;
-use warden_bootstrap::auto_sync::{ArcaCycleError, ArcaCycleSummary, SyncRunner};
+use warden_bootstrap::auto_sync::{ArcaCycleError, ArcaCycleSummary, ArcaVerifySummary, SyncRunner};
 use warden_bootstrap::saved_hubs;
-use warden_sync::arca_sync::{is_auth_rejected, ArcaSyncReport, Class, HubStore, KeptItem, LoserItem, LosersCleared, NotCleared};
+use warden_sync::arca_mode::ArcaVerifyState;
+use warden_sync::arca_sync::{is_auth_rejected, ArcaSyncReport, ArcaVerifyReport, Class, HubStore, KeptItem, LoserItem, LosersCleared, NotCleared};
 use warden_sync::SyncEngine;
 
 use crate::remote_cmds::DEVICE_NAME;
@@ -370,6 +371,113 @@ pub async fn loop_cycle_recording(engine: &SyncEngine, hubs_path: &Path, config_
     result.map(|report| ArcaCycleSummary { files_changed: report.files_changed })
 }
 
+/// What one integrity round of the copy the hub holds found, as the screen gets it: counts only. The ids of the blobs that failed
+/// stay in `ArcaVerifyReport` (hashes, no names), but the screen has nothing to do with them.
+#[derive(Serialize, Debug, PartialEq, Eq, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct VerifyCounts {
+    pub manifests_ok: usize,
+    pub rejected: usize,
+    pub referenced_blobs: usize,
+    pub missing: usize,
+    /// `corrupt` and `unreadable` together: the Warden hub answers 500 to a blob whose bytes changed, which the client reads as
+    /// `unreadable`, so the two cannot be told apart here.
+    pub damaged: usize,
+    pub sampled: usize,
+}
+
+impl From<&ArcaVerifyReport> for VerifyCounts {
+    fn from(report: &ArcaVerifyReport) -> Self {
+        Self {
+            manifests_ok: report.manifests_ok,
+            rejected: report.rejected.len(),
+            referenced_blobs: report.referenced_blobs,
+            missing: report.missing.len(),
+            damaged: report.corrupt.len() + report.unreadable.len(),
+            sampled: report.sampled,
+        }
+    }
+}
+
+/// The last integrity round the loop ran, kept in memory for the screen.
+#[derive(Serialize, Debug, PartialEq, Eq, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct VerifyReport {
+    pub at_ms: u64,
+    pub clean: bool,
+    pub counts: Option<VerifyCounts>,
+    pub error: Option<LoopError>,
+}
+
+impl VerifyReport {
+    pub fn from_round(at_ms: u64, result: &Result<ArcaVerifyReport, ArcaCycleError>) -> Self {
+        match result {
+            Ok(report) => Self { at_ms, clean: report.clean, counts: Some(VerifyCounts::from(report)), error: None },
+            Err(ArcaCycleError::AuthRejected(message)) => Self { at_ms, clean: false, counts: None, error: Some(LoopError { kind: LoopErrorKind::AuthRejected, message: message.clone() }) },
+            Err(ArcaCycleError::Other(message)) => Self { at_ms, clean: false, counts: None, error: Some(LoopError { kind: LoopErrorKind::Other, message: message.clone() }) },
+        }
+    }
+}
+
+/// The last integrity round, shared between the loop (which writes it) and the `arca_verify_last` command.
+#[derive(Default)]
+pub struct ArcaVerifyLast(Mutex<Option<VerifyReport>>);
+
+impl ArcaVerifyLast {
+    pub fn record(&self, report: VerifyReport) {
+        *self.0.lock().unwrap() = Some(report);
+    }
+
+    pub fn get(&self) -> Option<VerifyReport> {
+        self.0.lock().unwrap().clone()
+    }
+}
+
+/// What `arca_verify_last` answers.
+#[derive(Serialize, Debug, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct VerifyStatus {
+    /// When the last finished round ran; 0 only for a failed round (a failure saves nothing).
+    pub at_ms: u64,
+    pub clean: bool,
+    /// `None` for a round from before this launch: only `arca_verify.json` remembers it, and it keeps no counts.
+    pub counts: Option<VerifyCounts>,
+    pub error: Option<LoopError>,
+    pub stopped: bool,
+}
+
+impl VerifyStatus {
+    /// `last` is what this launch ran; `saved` is `arca_verify.json` (so a round from before the launch still shows). `halted` is
+    /// what the runner says now: a rejection is only told while the loop is still stopped, as in `LoopStatus::of`.
+    pub fn of(last: Option<VerifyReport>, saved: &ArcaVerifyState, halted: bool) -> Option<VerifyStatus> {
+        if let Some(VerifyReport { at_ms, clean, counts: Some(counts), .. }) = last {
+            return Some(VerifyStatus { at_ms, clean, counts: Some(counts), error: None, stopped: halted });
+        }
+        // No round this launch, or one that failed: a failure does not replace the last finished round (`arca_verify.json`), it is
+        // shown beside it.
+        let error = last.and_then(|last| last.error).filter(|error| halted || error.kind != LoopErrorKind::AuthRejected);
+        if saved.last_at_ms == 0 && error.is_none() {
+            return None;
+        }
+        Some(VerifyStatus { at_ms: saved.last_at_ms, clean: saved.last_clean, counts: None, error, stopped: halted })
+    }
+}
+
+/// One integrity round for the loop: like `loop_cycle`, the failure says whether the hub refused this device. The result is kept in
+/// `last` for the screen. `arca_verify` saves its own place (`arca_verify.json`) only when the round finished.
+pub async fn verify_cycle_recording(engine: &SyncEngine, hubs_path: &Path, config_file: &Path, hub_id: &str, now_ms: u64, last: &ArcaVerifyLast) -> Result<ArcaVerifySummary, ArcaCycleError> {
+    let result = match saved_hub_store(hubs_path, config_file, hub_id) {
+        Err(message) => Err(ArcaCycleError::Other(message)),
+        Ok(store) => match engine.arca_verify(&store, now_ms).await {
+            Ok(report) => Ok(report),
+            Err(err) if is_auth_rejected(&err) => Err(ArcaCycleError::AuthRejected(format!("{err:#}"))),
+            Err(err) => Err(ArcaCycleError::Other(format!("{err:#}"))),
+        },
+    };
+    last.record(VerifyReport::from_round(now_ms, &result));
+    result.map(|report| ArcaVerifySummary { clean: report.clean })
+}
+
 /// A manual sync that worked is what chooses the hub for the automatic loop, and it lifts a stop the loop had put on it.
 pub async fn run_sync_and_adopt(engine: &SyncEngine, runner: &SyncRunner, hub: &HubStore, hub_id: &str, now_ms: u64) -> Result<SyncPayload, String> {
     let payload = run_sync(engine, hub, now_ms).await?;
@@ -445,6 +553,16 @@ pub async fn arca_kept_clear(state: State<'_, AppState>, ids: Vec<String>) -> Re
 #[tauri::command]
 pub fn arca_loop_last(state: State<'_, AppState>, last: State<'_, Arc<ArcaLoopLast>>) -> Option<LoopStatus> {
     loop_status(&last, &state.sync_runner)
+}
+
+/// What the last integrity round of the copy the hub holds found, and whether the loop is stopped. The screen asks when it opens and
+/// again at each `arca-verify-report` (an event with no data, emitted after every round that ran).
+#[tauri::command]
+pub fn arca_verify_last(state: State<'_, AppState>, last: State<'_, Arc<ArcaVerifyLast>>) -> Option<VerifyStatus> {
+    let saved = warden_sync::paths::default_sync_manifest_path()
+        .map(|manifest| warden_sync::arca_mode::load_verify_state(&warden_sync::arca_mode::verify_state_path_for(&manifest)))
+        .unwrap_or_default();
+    VerifyStatus::of(last.get(), &saved, state.sync_runner.arca_halted().is_some())
 }
 
 #[tauri::command]
@@ -790,6 +908,102 @@ mod tests {
         let kept = last.get().expect("the failed cycle is kept");
         assert_eq!(kept.at_ms, 42);
         assert!(matches!(&kept.error, Some(LoopError { kind: LoopErrorKind::Other, message }) if message.contains("no saved hub")), "{kept:?}");
+    }
+
+    // ---------- the integrity round of the copy the hub holds ----------
+
+    fn verified(at_ms: u64, clean: bool) -> VerifyReport {
+        VerifyReport { at_ms, clean, counts: Some(VerifyCounts { manifests_ok: 2, rejected: 0, referenced_blobs: 5, missing: 0, damaged: 0, sampled: 5 }), error: None }
+    }
+
+    fn saved(last_at_ms: u64, last_clean: bool) -> ArcaVerifyState {
+        ArcaVerifyState { next_offset: 0, last_at_ms, last_clean }
+    }
+
+    #[test]
+    fn the_counts_never_carry_a_blob_id_and_join_corrupt_with_unreadable() {
+        let report = ArcaVerifyReport {
+            manifests_ok: 3,
+            rejected: vec!["manifest/aa".to_string()],
+            referenced_blobs: 9,
+            missing: vec!["blob/bb".to_string(), "blob/cc".to_string()],
+            corrupt: vec!["blob/dd".to_string()],
+            unreadable: vec!["blob/ee".to_string(), "blob/ff".to_string()],
+            sampled: 4,
+            next_offset: 4,
+            clean: false,
+        };
+        let counts = VerifyCounts::from(&report);
+        assert_eq!((counts.rejected, counts.missing, counts.damaged), (1, 2, 3));
+        let json = serde_json::to_string(&counts).unwrap();
+        assert_eq!(json, r#"{"manifestsOk":3,"rejected":1,"referencedBlobs":9,"missing":2,"damaged":3,"sampled":4}"#);
+        assert!(!json.contains("blob/") && !json.contains("manifest/"), "{json}");
+    }
+
+    #[test]
+    fn a_finished_round_this_launch_is_shown_with_its_counts() {
+        let status = VerifyStatus::of(Some(verified(50, true)), &saved(10, false), false).unwrap();
+        assert_eq!((status.at_ms, status.clean, status.stopped), (50, true, false));
+        assert!(status.counts.is_some() && status.error.is_none());
+    }
+
+    #[test]
+    fn a_round_that_found_a_problem_is_shown_as_not_clean() {
+        let status = VerifyStatus::of(Some(verified(50, false)), &saved(50, false), false).unwrap();
+        assert!(!status.clean);
+    }
+
+    #[test]
+    fn before_any_round_this_launch_the_saved_one_is_shown_without_counts() {
+        let status = VerifyStatus::of(None, &saved(10, true), false).unwrap();
+        assert_eq!((status.at_ms, status.clean, status.counts, status.error), (10, true, None, None));
+    }
+
+    #[test]
+    fn with_nothing_run_ever_there_is_nothing_to_show() {
+        assert_eq!(VerifyStatus::of(None, &saved(0, false), false), None);
+    }
+
+    #[test]
+    fn a_failed_round_shows_the_last_finished_one_with_the_failure_beside_it() {
+        let failed = VerifyReport::from_round(90, &Err(ArcaCycleError::Other("connection refused".to_string())));
+        let status = VerifyStatus::of(Some(failed), &saved(10, true), false).unwrap();
+        assert_eq!((status.at_ms, status.clean), (10, true), "the failure must not pass for a finished round");
+        assert!(matches!(&status.error, Some(LoopError { kind: LoopErrorKind::Other, message }) if message.contains("refused")), "{status:?}");
+    }
+
+    #[test]
+    fn a_failure_with_no_round_ever_finished_still_says_so() {
+        let failed = VerifyReport::from_round(90, &Err(ArcaCycleError::Other("down".to_string())));
+        let status = VerifyStatus::of(Some(failed), &saved(0, false), false).unwrap();
+        assert_eq!(status.at_ms, 0);
+        assert!(status.error.is_some());
+    }
+
+    #[test]
+    fn a_rejection_is_only_told_while_the_loop_is_stopped() {
+        let rejected = VerifyReport::from_round(90, &Err(ArcaCycleError::AuthRejected("no".to_string())));
+        let stopped = VerifyStatus::of(Some(rejected.clone()), &saved(10, true), true).unwrap();
+        assert!(matches!(&stopped.error, Some(LoopError { kind: LoopErrorKind::AuthRejected, .. })) && stopped.stopped, "{stopped:?}");
+        let resumed = VerifyStatus::of(Some(rejected), &saved(10, true), false).unwrap();
+        assert_eq!(resumed.error, None, "signing in again lifts the stop, and the old rejection must not outlive it");
+    }
+
+    #[test]
+    fn the_verify_status_reaches_the_screen_in_camel_case() {
+        let status = VerifyStatus::of(None, &saved(10, true), false).unwrap();
+        assert_eq!(serde_json::to_string(&status).unwrap(), r#"{"atMs":10,"clean":true,"counts":null,"error":null,"stopped":false}"#);
+    }
+
+    #[tokio::test]
+    async fn a_round_that_could_not_start_is_kept_and_answers_as_a_failure() {
+        let keyed = device_with_key("verify-records");
+        let last = ArcaVerifyLast::default();
+        let error = verify_cycle_recording(&keyed.engine, &keyed.base.join("hubs.json"), &keyed.base.join("config.toml"), "hub-gone", 42, &last).await.unwrap_err();
+        assert!(matches!(&error, ArcaCycleError::Other(message) if message.contains("no saved hub")), "{error:?}");
+        let kept = last.get().expect("the failed round is kept");
+        assert_eq!(kept.at_ms, 42);
+        assert!(!kept.clean && kept.counts.is_none());
     }
 
     // ---------- the copies of the losers of conflicts ----------

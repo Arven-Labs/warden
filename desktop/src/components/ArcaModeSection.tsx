@@ -13,6 +13,8 @@ import {
   noticesOf,
   sizeLabel,
   summaryOf,
+  verifyErrorMessage,
+  verifyView,
   viewOf,
   type ClearReport,
   type EmptyableClass,
@@ -23,6 +25,7 @@ import {
   type LoopStatus,
   type ModeStatus,
   type SyncReport,
+  type VerifyStatus,
 } from "../lib/arcaMode";
 import type { SavedHub } from "../types";
 
@@ -43,6 +46,8 @@ function ArcaModeSection() {
   // The last automatic cycle, and when the last manual sync ended (ms; 0 until one did): the newer of the two is what the screen says.
   const [loop, setLoop] = useState<LoopStatus | null>(null);
   const [manualAt, setManualAt] = useState(0);
+  // The last integrity round of the copy the hub holds (its own loop, about every 6 hours).
+  const [verify, setVerify] = useState<VerifyStatus | null>(null);
   // The copies of the losers of conflicts (logins in clear text; the list never carries the text), the one waiting for its second
   // click to be deleted (or all of them), and what the last deletion said.
   const [losers, setLosers] = useState<LoserItem[]>([]);
@@ -136,9 +141,17 @@ function ArcaModeSection() {
     }
   }
 
+  // Best effort, like `refreshLoop`: if the question fails the screen keeps what it had.
+  function refreshVerify() {
+    invoke<VerifyStatus | null>("arca_verify_last")
+      .then(setVerify)
+      .catch(() => {});
+  }
+
   useEffect(() => {
     refreshStatus();
     refreshLoop();
+    refreshVerify();
     invoke<SavedHub[]>("list_hubs")
       .then(setHubs)
       .catch(() => setHubs([]));
@@ -149,6 +162,20 @@ function ArcaModeSection() {
     let unlisten: (() => void) | undefined;
     let gone = false;
     listen("arca-loop-report", () => refreshLoop()).then((fn) => {
+      if (gone) fn();
+      else unlisten = fn;
+    });
+    return () => {
+      gone = true;
+      unlisten?.();
+    };
+  }, []);
+
+  // After every integrity round that ran, with no data: the answer is asked of `arca_verify_last`.
+  useEffect(() => {
+    let unlisten: (() => void) | undefined;
+    let gone = false;
+    listen("arca-verify-report", () => refreshVerify()).then((fn) => {
       if (gone) fn();
       else unlisten = fn;
     });
@@ -444,6 +471,8 @@ function ArcaModeSection() {
   const autoNewer = view === "on" && loop !== null && loop.atMs > manualAt;
   const auto = autoNewer ? loopView(loop) : null;
   const autoHidesManual = autoNewer && loop?.report != null;
+  const integrity = view === "on" ? verifyView(verify, (ms) => new Date(ms).toLocaleString(intlTag())) : null;
+  const integrityError = view === "on" ? verifyErrorMessage(verify) : null;
   const noHubs = hubs !== null && hubs.length === 0;
   const { selected, removed } = hubChoice(status?.hubId ?? null, hubs);
   const chosenName = hubs?.find((hub) => hub.id === selected)?.name;
@@ -568,6 +597,12 @@ function ArcaModeSection() {
         {!autoHidesManual && result?.notices && noticesBlock(result.notices)}
         {auto?.error && <p className="settings-error-banner">{t(auto.error.key, { message: auto.error.message })}</p>}
         {auto?.notices && noticesBlock(auto.notices)}
+        {integrity && (
+          <p className={integrity.key === "arca.verifyProblem" || integrity.key === "arca.verifyProblemNoCounts" ? "settings-error-banner" : "settings-hint"}>
+            {t(integrity.key, integrity.params)}
+          </p>
+        )}
+        {integrityError && <p className="settings-error-banner">{t("arca.verifyFailed", { message: integrityError })}</p>}
         {view === "on" && (losers.length > 0 || losersResult !== null) && losersBlock()}
         {view === "on" && (kept.length > 0 || keptResult !== null) && keptBlock()}
       </div>

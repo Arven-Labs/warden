@@ -28,6 +28,13 @@ use crate::load_config_from_path;
 /// being away".
 pub const AUTO_SYNC_INTERVAL: Duration = Duration::from_secs(5 * 60);
 
+/// How long after the last finished integrity round of the arca copy the next one is due (arca ADR 0017: the consumer schedules it).
+pub const ARCA_VERIFY_EVERY: Duration = Duration::from_secs(6 * 60 * 60);
+
+/// How often the verify loop looks at the clock. A round runs only when `ARCA_VERIFY_EVERY` has passed since the last one, so this
+/// is the delay a due round can have, and the way an app opened after being away verifies soon.
+pub const ARCA_VERIFY_CHECK: Duration = Duration::from_secs(15 * 60);
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SyncBackend {
     /// No vault key on this device yet.
@@ -149,6 +156,31 @@ pub type ArcaCycleFuture = std::pin::Pin<Box<dyn std::future::Future<Output = Re
 /// live in the host's own files, and this crate knows neither.
 pub type ArcaCycle = Arc<dyn Fn(String) -> ArcaCycleFuture + Send + Sync>;
 
+/// What one integrity round of the copy the hub holds found, as far as the loop needs. The host keeps the details for its screen.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ArcaVerifySummary {
+    pub clean: bool,
+}
+
+pub type ArcaVerifyFuture = std::pin::Pin<Box<dyn std::future::Future<Output = Result<ArcaVerifySummary, ArcaCycleError>> + Send>>;
+
+/// Runs one integrity round against the saved hub with that id (`SyncEngine::arca_verify`). Installed by the host, like `ArcaCycle`.
+pub type ArcaVerify = Arc<dyn Fn(String) -> ArcaVerifyFuture + Send + Sync>;
+
+/// What `verify_if_due` did.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum VerifyRound {
+    /// Nothing ran: not due yet, no host callback, the mode is off, no hub chosen, or the hub already refused this device.
+    NotRun,
+    Ran(Result<ArcaVerifySummary, ArcaCycleError>),
+}
+
+/// Whether a round is due: `last_at_ms` is when the last finished one ran (0 before any). A clock that went back (`last_at_ms` in the
+/// future) counts as due, so a wrong clock cannot silence the check until the time catches up.
+pub fn verify_is_due(last_at_ms: u64, now_ms: u64) -> bool {
+    last_at_ms > now_ms || now_ms - last_at_ms >= ARCA_VERIFY_EVERY.as_millis() as u64 || last_at_ms == 0
+}
+
 pub struct SyncRunner {
     vault_path: PathBuf,
     config_path: PathBuf,
@@ -160,6 +192,8 @@ pub struct SyncRunner {
     hosting: Arc<Mutex<Hosting>>,
     /// `None` on hosts that do not sync with the arca: a vault in arca mode is then left alone, quietly.
     arca_cycle: Option<ArcaCycle>,
+    /// `None` on hosts that do not check the arca copy.
+    arca_verify: Option<ArcaVerify>,
     /// The hub whose token was rejected. Kept in memory only, so a restart tries once more.
     arca_halted: Mutex<Option<String>>,
 }
@@ -176,6 +210,7 @@ impl SyncRunner {
             last: Mutex::new(None),
             hosting: Arc::default(),
             arca_cycle: None,
+            arca_verify: None,
             arca_halted: Mutex::new(None),
         }
     }
@@ -184,6 +219,60 @@ impl SyncRunner {
     pub fn with_arca_cycle(mut self, cycle: ArcaCycle) -> Self {
         self.arca_cycle = Some(cycle);
         self
+    }
+
+    /// Lets `verify_if_due` check the copy of a vault in arca mode, with `verify`.
+    pub fn with_arca_verify(mut self, verify: ArcaVerify) -> Self {
+        self.arca_verify = Some(verify);
+        self
+    }
+
+    /// Runs one integrity round on the hub the mode file names if one is due (`verify_is_due` on the state `arca_verify.json` keeps).
+    /// It shares the stop of `arca_round`: a hub that refused this device's token is not asked again until `resume_arca`.
+    pub async fn verify_if_due(&self, now_ms: u64) -> VerifyRound {
+        use warden_sync::arca_mode::{load_mode, load_verify_state, mode_path_for, verify_state_path_for};
+        let Some(verify) = &self.arca_verify else { return VerifyRound::NotRun };
+        // A broken mode file is not "off" for the other engines, but here it only means there is nothing safe to ask: stay quiet,
+        // the sync round already reports it.
+        let Ok(Some(mode)) = load_mode(&mode_path_for(&self.manifest_path)) else { return VerifyRound::NotRun };
+        let Some(hub_id) = mode.hub_id else { return VerifyRound::NotRun };
+        if !verify_is_due(load_verify_state(&verify_state_path_for(&self.manifest_path)).last_at_ms, now_ms) {
+            return VerifyRound::NotRun;
+        }
+        {
+            let mut halted = self.arca_halted.lock().unwrap();
+            match halted.as_deref() {
+                Some(stopped) if stopped == hub_id => return VerifyRound::NotRun,
+                // The vault now points at another hub: the earlier stop was about the old one.
+                Some(_) => *halted = None,
+                None => {}
+            }
+        }
+        let result = verify(hub_id.clone()).await;
+        if matches!(result, Err(ArcaCycleError::AuthRejected(_))) {
+            *self.arca_halted.lock().unwrap() = Some(hub_id);
+        }
+        VerifyRound::Ran(result)
+    }
+
+    /// Looks every `check_every` whether a round is due and runs it, handing each round that ran to `on_round`. The caller spawns it.
+    pub async fn run_verify_loop<F, Fut>(self: Arc<Self>, check_every: Duration, on_round: F)
+    where
+        F: Fn(&VerifyRound) -> Fut,
+        Fut: std::future::Future<Output = ()>,
+    {
+        let mut ticker = tokio::time::interval(check_every);
+        loop {
+            ticker.tick().await;
+            let round = self.verify_if_due(now_ms().max(0) as u64).await;
+            match &round {
+                VerifyRound::NotRun => continue,
+                VerifyRound::Ran(Err(err)) => tracing::warn!("arca verify: {err:?}"),
+                VerifyRound::Ran(Ok(summary)) if !summary.clean => tracing::warn!("arca verify: the copy the hub holds has a problem"),
+                VerifyRound::Ran(Ok(_)) => {}
+            }
+            on_round(&round).await;
+        }
     }
 
     /// Lifts the stop a rejected token caused (the person signed in again, or a manual sync worked).
@@ -851,5 +940,164 @@ mod tests {
         let joined = tokio::time::timeout(Duration::from_secs(3), b.pair_join(&shown.code, Some(Ipv4Addr::LOCALHOST))).await;
         assert!(!matches!(joined, Ok(Ok(()))), "{joined:?}");
         assert_eq!(b.state().unwrap().backend, SyncBackend::NotSetUp);
+    }
+
+    // ---- the integrity loop of the copy the hub holds (arca ADR 0017, Warden P183) ----
+
+    const SIX_HOURS_MS: u64 = 6 * 60 * 60 * 1000;
+    const NOW: u64 = 100 * SIX_HOURS_MS;
+
+    /// A fake verify: remembers the hub each call got and answers from a script, one answer per call.
+    fn fake_verify(script: Vec<Result<ArcaVerifySummary, ArcaCycleError>>) -> (ArcaVerify, Arc<Mutex<Vec<String>>>) {
+        let calls = Arc::new(Mutex::new(Vec::new()));
+        let script = Arc::new(Mutex::new(std::collections::VecDeque::from(script)));
+        let seen = calls.clone();
+        let verify: ArcaVerify = Arc::new(move |hub_id: String| {
+            seen.lock().unwrap().push(hub_id);
+            let answer = script.lock().unwrap().pop_front().expect("the script ran out: the verify ran more often than expected");
+            Box::pin(async move { answer })
+        });
+        (verify, calls)
+    }
+
+    fn clean() -> Result<ArcaVerifySummary, ArcaCycleError> {
+        Ok(ArcaVerifySummary { clean: true })
+    }
+
+    /// A device in arca mode with a verify installed (and a cycle that is never expected to run), whose last finished round was at `last_at_ms`.
+    async fn verify_device(name: &str, hub_id: Option<&str>, verify: ArcaVerify, last_at_ms: u64) -> SyncRunner {
+        use warden_sync::arca_mode::{save_verify_state, verify_state_path_for, ArcaVerifyState};
+        let (cycle, _) = fake_cycle(vec![]);
+        let runner = arca_device(name, hub_id, cycle).await.with_arca_verify(verify);
+        save_verify_state(&verify_state_path_for(&runner.manifest_path), &ArcaVerifyState { next_offset: 0, last_at_ms, last_clean: true }).unwrap();
+        runner
+    }
+
+    #[test]
+    fn a_round_is_due_when_there_was_none_or_six_hours_have_passed() {
+        assert!(verify_is_due(0, NOW), "no round yet");
+        assert!(verify_is_due(NOW - SIX_HOURS_MS, NOW), "exactly six hours");
+        assert!(verify_is_due(NOW - SIX_HOURS_MS - 1, NOW));
+        assert!(!verify_is_due(NOW - SIX_HOURS_MS + 1, NOW), "one millisecond short");
+        assert!(!verify_is_due(NOW - 1, NOW));
+    }
+
+    #[test]
+    fn a_clock_that_went_back_counts_as_due() {
+        assert!(verify_is_due(NOW + 1, NOW), "a last round in the future must not silence the check");
+    }
+
+    #[tokio::test]
+    async fn a_due_round_runs_once_on_the_hub_the_mode_names() {
+        let (verify, calls) = fake_verify(vec![clean()]);
+        let a = verify_device("verify-due", Some("hub-1"), verify, NOW - SIX_HOURS_MS).await;
+        assert_eq!(a.verify_if_due(NOW).await, VerifyRound::Ran(clean()));
+        assert_eq!(*calls.lock().unwrap(), ["hub-1"]);
+    }
+
+    #[tokio::test]
+    async fn a_first_ever_round_runs_at_once() {
+        let (verify, calls) = fake_verify(vec![clean()]);
+        let a = verify_device("verify-first", Some("hub-1"), verify, 0).await;
+        assert_eq!(a.verify_if_due(NOW).await, VerifyRound::Ran(clean()));
+        assert_eq!(calls.lock().unwrap().len(), 1);
+    }
+
+    #[tokio::test]
+    async fn a_recent_round_is_not_repeated() {
+        let (verify, calls) = fake_verify(vec![]);
+        let a = verify_device("verify-recent", Some("hub-1"), verify, NOW - 60_000).await;
+        assert_eq!(a.verify_if_due(NOW).await, VerifyRound::NotRun);
+        assert!(calls.lock().unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn an_unreadable_state_counts_as_never_run() {
+        use warden_sync::arca_mode::verify_state_path_for;
+        let (verify, calls) = fake_verify(vec![clean()]);
+        let a = verify_device("verify-badstate", Some("hub-1"), verify, NOW).await;
+        std::fs::write(verify_state_path_for(&a.manifest_path), b"{ not json").unwrap();
+        assert_eq!(a.verify_if_due(NOW).await, VerifyRound::Ran(clean()));
+        assert_eq!(calls.lock().unwrap().len(), 1);
+    }
+
+    #[tokio::test]
+    async fn without_the_arca_mode_nothing_is_verified() {
+        let (verify, calls) = fake_verify(vec![]);
+        let dir = temp_dir("verify-off");
+        let a = device(&dir, "a", None).with_arca_verify(verify);
+        a.init_fresh().await.unwrap();
+        assert_eq!(a.verify_if_due(NOW).await, VerifyRound::NotRun);
+        assert!(calls.lock().unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn with_no_hub_chosen_nothing_is_verified() {
+        let (verify, calls) = fake_verify(vec![]);
+        let a = verify_device("verify-nohub", None, verify, 0).await;
+        assert_eq!(a.verify_if_due(NOW).await, VerifyRound::NotRun);
+        assert!(calls.lock().unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn a_host_without_a_verify_installed_does_nothing() {
+        let (cycle, _) = fake_cycle(vec![]);
+        let a = arca_device("verify-none", Some("hub-1"), cycle).await;
+        assert_eq!(a.verify_if_due(NOW).await, VerifyRound::NotRun);
+    }
+
+    #[tokio::test]
+    async fn a_rejected_token_stops_the_verify_until_the_runner_resumes() {
+        let (verify, calls) = fake_verify(vec![Err(ArcaCycleError::AuthRejected("no".into())), clean()]);
+        let a = verify_device("verify-rejected", Some("hub-1"), verify, 0).await;
+        assert!(matches!(a.verify_if_due(NOW).await, VerifyRound::Ran(Err(ArcaCycleError::AuthRejected(_)))));
+        assert_eq!(a.arca_halted().as_deref(), Some("hub-1"));
+        assert_eq!(a.verify_if_due(NOW).await, VerifyRound::NotRun, "a refused token must not be sent again");
+        assert_eq!(calls.lock().unwrap().len(), 1);
+        a.resume_arca();
+        assert_eq!(a.verify_if_due(NOW).await, VerifyRound::Ran(clean()));
+        assert_eq!(calls.lock().unwrap().len(), 2);
+    }
+
+    #[tokio::test]
+    async fn a_stop_the_sync_cycle_put_on_the_hub_also_stops_the_verify() {
+        let (cycle, _) = fake_cycle(vec![Err(ArcaCycleError::AuthRejected("no".into()))]);
+        let (verify, calls) = fake_verify(vec![]);
+        let a = arca_device("verify-shared-stop", Some("hub-1"), cycle).await.with_arca_verify(verify);
+        a.run_once().await;
+        assert_eq!(a.verify_if_due(NOW).await, VerifyRound::NotRun);
+        assert!(calls.lock().unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn a_hub_that_is_down_is_an_error_that_does_not_stop_the_verify() {
+        let (verify, calls) = fake_verify(vec![Err(ArcaCycleError::Other("connection refused".into())), clean()]);
+        let a = verify_device("verify-down", Some("hub-1"), verify, 0).await;
+        assert!(matches!(a.verify_if_due(NOW).await, VerifyRound::Ran(Err(ArcaCycleError::Other(_)))));
+        assert_eq!(a.arca_halted(), None);
+        // The failed round saved nothing, so it is still due at the next look.
+        assert_eq!(a.verify_if_due(NOW).await, VerifyRound::Ran(clean()));
+        assert_eq!(calls.lock().unwrap().len(), 2);
+    }
+
+    #[tokio::test]
+    async fn a_round_that_found_a_problem_is_reported_as_such() {
+        let (verify, _) = fake_verify(vec![Ok(ArcaVerifySummary { clean: false })]);
+        let a = verify_device("verify-dirty", Some("hub-1"), verify, 0).await;
+        assert_eq!(a.verify_if_due(NOW).await, VerifyRound::Ran(Ok(ArcaVerifySummary { clean: false })));
+    }
+
+    #[tokio::test]
+    async fn the_loop_runs_a_due_round_at_once_and_hands_it_to_the_callback() {
+        let (verify, _) = fake_verify(vec![clean(), clean()]);
+        let a = Arc::new(verify_device("verify-loop", Some("hub-1"), verify, 0).await);
+        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+        let task = tokio::spawn(a.clone().run_verify_loop(Duration::from_millis(10), move |round| {
+            let _ = tx.send(round.clone());
+            std::future::ready(())
+        }));
+        let first = tokio::time::timeout(Duration::from_secs(5), rx.recv()).await.expect("the loop never ran a round").unwrap();
+        task.abort();
+        assert_eq!(first, VerifyRound::Ran(clean()));
     }
 }
