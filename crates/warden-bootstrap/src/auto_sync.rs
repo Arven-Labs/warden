@@ -178,7 +178,7 @@ pub enum VerifyRound {
 /// Whether a round is due: `last_at_ms` is when the last finished one ran (0 before any). A clock that went back (`last_at_ms` in the
 /// future) counts as due, so a wrong clock cannot silence the check until the time catches up.
 pub fn verify_is_due(last_at_ms: u64, now_ms: u64) -> bool {
-    last_at_ms > now_ms || now_ms - last_at_ms >= ARCA_VERIFY_EVERY.as_millis() as u64 || last_at_ms == 0
+    last_at_ms > now_ms || now_ms - last_at_ms > ARCA_VERIFY_EVERY.as_millis() as u64 || last_at_ms == 0
 }
 
 pub struct SyncRunner {
