@@ -58,6 +58,30 @@ pub fn conflicts_dir_for(manifest_path: &Path) -> PathBuf {
     manifest_path.with_file_name("arca-conflicts")
 }
 
+/// Where the integrity check of the hub copy (`arca_verify`) keeps its place. A file of its own, never part of the switch: an
+/// unreadable switch makes every engine refuse the vault (`ensure_off`), and a lost counter must not be able to do that.
+pub fn verify_state_path_for(manifest_path: &Path) -> PathBuf {
+    manifest_path.with_file_name("arca_verify.json")
+}
+
+/// Where the next sampled round of `arca_verify` starts, and what the last round found.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub struct ArcaVerifyState {
+    pub next_offset: usize,
+    /// When the last finished round ran (ms since the epoch, as given by the caller); 0 before any.
+    pub last_at_ms: u64,
+    pub last_clean: bool,
+}
+
+/// A missing or unreadable file is the start (`Default`), not an error: this state is only a place to resume from.
+pub fn load_verify_state(_path: &Path) -> ArcaVerifyState {
+    unimplemented!("arca_verify state: draft for the tests")
+}
+
+pub fn save_verify_state(_path: &Path, _state: &ArcaVerifyState) -> anyhow::Result<()> {
+    unimplemented!("arca_verify state: draft for the tests")
+}
+
 /// `None` when the mode is off. A file that exists but cannot be read or parsed is an **error**, never "off": reading a broken
 /// switch as off would let the other engines write the vault.
 pub fn load_mode(path: &Path) -> anyhow::Result<Option<ArcaMode>> {

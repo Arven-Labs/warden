@@ -51,6 +51,24 @@ pub struct SkippedLogin {
     pub reason: &'static str,
 }
 
+/// How many blobs of the hub copy one `arca_verify` round reads whole. Fixed until the real cost on a big vault is measured.
+pub const VERIFY_SAMPLE_BLOBS: usize = 64;
+
+/// What one `arca_verify` round found. Ids only (`blob/<hex>`), never a path or a file name. `clean == false` is not a success:
+/// something is wrong, or something could not be checked (`unreadable`: try again).
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct ArcaVerifyReport {
+    pub manifests_ok: usize,
+    pub rejected: Vec<String>,
+    pub referenced_blobs: usize,
+    pub missing: Vec<String>,
+    pub corrupt: Vec<String>,
+    pub unreadable: Vec<String>,
+    pub sampled: usize,
+    pub next_offset: usize,
+    pub clean: bool,
+}
+
 /// What one cycle did, for the caller to show. A cycle that returns `Ok` has replicated everything: an incomplete round is an error.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct ArcaSyncReport {
@@ -523,6 +541,18 @@ impl SyncEngine {
         ensure_complete(&pushed, "push")?;
         report.pushed = pushed.copied;
         Ok(report)
+    }
+
+    /// One integrity round of the copy the hub holds (arca `Engine::verify`): every blob a readable manifest cites exists there
+    /// and a window of them has the bytes its id says. Read-only. Refuses unless the mode is on. The window starts where the
+    /// last finished round stopped (`arca_verify.json`), so repeated rounds read the whole copy.
+    pub async fn arca_verify(&self, hub: &HubStore, now_ms: u64) -> anyhow::Result<ArcaVerifyReport> {
+        self.arca_verify_with(hub, VERIFY_SAMPLE_BLOBS, now_ms).await
+    }
+
+    /// `arca_verify` with the window size given (the tests use a small one to see the rounds chain).
+    pub async fn arca_verify_with(&self, _hub: &HubStore, _sample_blobs: usize, _now_ms: u64) -> anyhow::Result<ArcaVerifyReport> {
+        unimplemented!("arca_verify: draft for the tests")
     }
 
     /// The arca engine of this vault: storage, anti-rollback state and the vault folder as the only root, with the key this device
