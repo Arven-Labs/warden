@@ -6,6 +6,15 @@
 
 ---
 
+### 2026-11-17 — arca: `rev` do `arca-core` para `6e66603` (Fase 3 da arca; prepara o `verify`)
+
+- **Pedido**: "vamos seguir na parada do warden" (o que falta do lado do Warden depois da Sessão 101 da arca). Plan mode. Decisão sua: começar subindo só o `rev` (descartados: ir direto ao S3 no Warden; outra pendência do P183).
+- **Achado**: o Warden só usa o arca com o backend **hub** (`HubStore`); o `S3Store` fica atrás da feature `s3` do `arca-core`, desligada, e nada no Warden a liga. O `verify` é genérico em `BlobStore`, então dá para integrá-lo contra o hub sem o S3 (a config e o cofre da chave S3 são outra frente).
+- **Feito ([warden#177](https://github.com/Arven-Labs/warden/pull/177))**: só o `rev` (`1d8c38e` para `6e66603`) em `warden-server/Cargo.toml` (2 linhas) e `warden-sync/Cargo.toml`, e a linha `source` do `Cargo.lock`. Nenhum código. O `cargo update -p arca-core` também reescrevia `windows-sys`, `syn` e `base64` sem relação; descartei e editei só a linha do `arca-core` (as dependências novas dele, `object_store` e `futures-util`, são opcionais da feature `s3`). `cargo metadata --locked` aceitou o lock.
+- **Teste (CI)**: Rust (clippy e testes) **verde em 26m24s**, Android, Mobile, Browser contra hub real e `guard` verdes; Frontend pulado (não toca frontend). Run 44215748266.
+- **Não verificado**: nada buildado nem testado localmente (ADR 0009); o sync com a fusão e a leitura do aceito pelo id novas só foi provado pelos testes existentes, não por um teste novo.
+- **Fica**: PR 2, `SyncEngine::arca_verify` no `warden-sync` (guardar o `next_offset` em `arca_mode.json`, loop próprio no `SyncRunner` do desktop, `clean` na tela; decisões de periodicidade, modo e onde mostrar ficam para lá); config e cofre da chave S3 (frente à parte).
+
 ### 2026-11-17 — CI: `Rust (clippy and tests)` obrigatório no `protect-main`
 
 - **Pedido**: vindo da sessão 96 da arca (P-35): o ruleset exigia só o `guard`, e os PRs #165 e #169 foram mesclados com o `Rust` do commit final sem rodar.
