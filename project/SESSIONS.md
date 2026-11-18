@@ -6,6 +6,15 @@
 
 ---
 
+### 2026-11-18 — arca: o loop de integridade no desktop e o resultado na tela (PR 3 de 3, P183)
+
+- **Pedido**: "vamos terminar a fase 3" na arca (fechada sem GC, arca#161, ADR 0017) e, no Warden, o PR 3 do `arca_verify`. Plan mode. Decisões suas: **a cada 6 h** e o loop **no `SyncRunner`** (descartados: tarefa solta em `lib.rs`; 24 h; 1 h).
+- **Feito ([warden#181](https://github.com/Arven-Labs/warden/pull/181))**: `auto_sync.rs` (`verify_is_due`, `SyncRunner::verify_if_due`, `run_verify_loop`, `ArcaVerify`), desktop (`arca_verify_last`, `ArcaVerifyLast`, `VerifyStatus`, evento `arca-verify-report`, `spawn_arca_verify`), tela (`verifyView`, bloco de integridade, i18n en e pt-BR).
+- **Decisões minhas, a confirmar**: o loop olha o relógio a cada 15 min em vez de dormir 6 h (um app aberto depois de dias fora verifica logo); estado ilegível conta como "nunca rodou"; um token recusado não aparece no bloco de integridade (o banner do sync já o diz); sem botão "Verificar agora".
+- **Testes (CI)**: **vermelho antes**: no `warden-bootstrap`, 604 passaram e **14 falharam**, todos os novos, por `unimplemented!` (run 44316640945). **Verde depois**: 618 no `warden-bootstrap`, 135 no desktop, 40 de frontend, `Rust`, `Frontend`, "Desktop screens in a browser", "Browser against a real hub" e `guard` verdes (run 44319106877). **Quebras de propósito** (warden#182 a #184, fechados, branches apagadas): `>` no lugar de `>=` no limite de 6 h derrubou 2; verify ignorando a parada por token recusado derrubou 2; relógio que voltou fora do "devido" derrubou 1. Todas compilaram limpas e caíram nos testes.
+- **Não verificado**: os testes do desktop (`VerifyStatus`, `VerifyCounts`, `verify_cycle_recording`) foram escritos junto com a implementação, sem vermelho próprio; o loop contra um hub real; a tela renderizada por mim (só a foto do CI); o custo real do `has` por blob em B2. Só rodei local `tsc --noEmit` e os testes de frontend.
+- **Fica**: `/arca verify` no CLI, `verify_restore`, config e cofre da chave S3, P-05 já decidida na arca (ADR 0017, sem GC).
+
 ### 2026-11-18 — arca: `SyncEngine::arca_verify`, a integridade da cópia do hub (PR 2 de 3, P183)
 
 - **Pedido**: "siga a recomendação" para as três decisões: loop **espaçado e próprio** (não no ciclo de 5 min), **Presença sempre mais Amostra encadeada**, mostrar o `clean` no **desktop e no CLI**. Plan mode. O consumidor agenda (decisão da Sessão 101 da arca).
