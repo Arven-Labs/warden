@@ -6,6 +6,17 @@
 
 ---
 
+### 2026-11-18 — arca: `SyncEngine::arca_verify`, a integridade da cópia do hub (PR 2 de 3, P183)
+
+- **Pedido**: "siga a recomendação" para as três decisões: loop **espaçado e próprio** (não no ciclo de 5 min), **Presença sempre mais Amostra encadeada**, mostrar o `clean` no **desktop e no CLI**. Plan mode. O consumidor agenda (decisão da Sessão 101 da arca).
+- **Achado de desenho**: `arca_engine` monta `Engine<DiskStore>`, e o `verify` só olha o store do engine em que é chamado; para verificar a cópia remota o método monta um `Engine<HubStore>` (mesma chave, mesmo `device_id`, sem `with_state`). O disco local ficou de fora.
+- **Decisão minha, a confirmar**: o ponto de retomada (`next_offset`, `last_at_ms`, `last_clean`) fica em **`arca_verify.json`**, arquivo próprio, e não no `arca_mode.json` (um interruptor ilegível faz todo engine recusar o Vault, e um contador perdido não pode causar isso). Estado ilegível recomeça do 0, sem erro. A janela é a constante `VERIFY_SAMPLE_BLOBS = 64`, sem configuração até medir o custo.
+- **Feito ([warden#178](https://github.com/Arven-Labs/warden/pull/178))**: `arca_verify` e `arca_verify_with` em `arca_sync.rs` (refuso sem o modo ligado; pega o `sync_lock`; o estado só é gravado se a rodada terminou), `ArcaVerifyReport` (só ids `blob/<hex>`, nunca caminho ou nome) e `ArcaVerifyState` com `load/save_verify_state` em `arca_mode.rs`. 8 testes contra o hub real em `warden-server/tests/arca_verify.rs`.
+- **Achado**: o hub do Warden roda `verified_get` no servidor e responde **500** a um blob cujos bytes mudaram no disco; o cliente do arca lê isso como `unreadable`, não `corrupt`. `corrupt` só aparece num hub que mente (200 com bytes errados). O teste afirma "exatamente 1 acusado, em `corrupt` ou `unreadable`, nenhum em `missing`". Então a Amostra sozinha não pega a adulteração: quem a pega é o hub.
+- **Testes (CI)**: **vermelho antes**: 8 de 8 falharam, todos no `unimplemented!` do esboço, sem erro de compilação (run 44223804148). **Verde depois**: 8 de 8 passaram, Rust, Android, Mobile, Browser contra hub real e `guard` verdes (run 44226260709). **Quebras de propósito** (warden#179 e #180, fechados e branches apagadas): o estado avançar mesmo com a rodada falha derrubou só `a_round_that_fails_does_not_move_the_window...` (7 passaram, 1 falhou, run 44227983723); o relatório nunca listar blob ausente derrubou só `a_blob_that_left_the_hub_is_missing...` (run 44227989614).
+- **Não verificado**: custo real do `has` por blob num Vault de tamanho real e contra B2/S3; `verify` contra um hub que mente (200 com bytes errados), que só o arca testa; nada rodado localmente (ADR 0009). O caminho do blob no disco do hub (`arca/owner/blob/<hex>`) é suposição do teste, confirmada só pelo CI.
+- **Fica**: PR 3, o loop próprio no `SyncRunner` do desktop (periodicidade, e parar no token recusado como o ciclo), o `clean` na seção "Arca mode" e o comando Tauri; `/arca verify` e a linha no `/arca` do CLI; `verify_restore` (baixa o Vault inteiro, só se pedido); config e cofre da chave S3 (frente à parte); P-05.
+
 ### 2026-11-17 — arca: `rev` do `arca-core` para `6e66603` (Fase 3 da arca; prepara o `verify`)
 
 - **Pedido**: "vamos seguir na parada do warden" (o que falta do lado do Warden depois da Sessão 101 da arca). Plan mode. Decisão sua: começar subindo só o `rev` (descartados: ir direto ao S3 no Warden; outra pendência do P183).
