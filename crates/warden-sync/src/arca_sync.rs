@@ -40,12 +40,10 @@ pub fn is_auth_rejected(err: &anyhow::Error) -> bool {
     err.chain().any(|cause| matches!(cause.downcast_ref::<StoreError>(), Some(StoreError::Unavailable(std::io::ErrorKind::PermissionDenied))))
 }
 
-/// The key epoch of the first manifest (ADR 0012, step c). Rotation is a later phase (ADR 0006).
-const FIRST_KEY_EPOCH: u32 = 0;
-
-/// The subkeys the arca uses for this vault: `vault_key` at the epoch saved with it.
+/// The subkeys the arca uses for this vault: `vault_key` at the epoch saved with it (warden ADR 0002). A vault that never rotated
+/// has epoch 0, the epoch of its first manifest (ADR 0012, step c).
 fn epoch_keys(secrets: &crate::manifest::SyncSecrets) -> EpochKeys {
-    EpochKeys::derive(&VaultKey::from_bytes(secrets.vault_key), FIRST_KEY_EPOCH)
+    EpochKeys::derive(&VaultKey::from_bytes(secrets.vault_key), secrets.key_epoch)
 }
 
 /// A cycle that needs more merges than this is not converging: each merge joins one pair of tips.
