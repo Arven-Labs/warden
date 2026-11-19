@@ -9,17 +9,20 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
+use arca_core::backend::Backend;
 use arca_core::crypto::{EpochKeys, VaultKey};
 use arca_core::disk::DiskStore;
-use arca_core::engine::Engine;
+use arca_core::engine::{Engine, Roots, Snapshot};
 use arca_core::hub::HubStore;
 use arca_core::manifest::Class;
+use arca_core::object::ObjectId;
+use arca_core::store::BlobStore;
 use warden_core::memory::Vault;
 use warden_core::orchestrator::Orchestrator;
 use warden_server::arca_api::ArcaLimits;
 use warden_server::{PairingProof, PairingStore, Server};
 use warden_sync::arca_mode::{load_mode, mode_path_for, state_path_for, store_path_for};
-use warden_sync::arca_sync::NotCleared;
+use warden_sync::arca_sync::{NotCleared, PendingEpoch};
 use warden_sync::SyncEngine;
 
 struct Hub {
@@ -1928,4 +1931,105 @@ async fn turning_the_mode_on_with_a_work_file_of_the_arca_in_the_logins_folder_d
     let heads = arca_view(&a, key).heads().await.unwrap();
     let paths: Vec<&str> = heads.tips[0].manifest.files.iter().map(|f| f.path.as_str()).collect();
     assert_eq!(paths, ["github.json"], "the first manifest holds the login and not the work file");
+}
+
+// ---------- a newer key epoch (arca ADR 0018, P-49 A1) ----------
+
+/// Another device of the group that rotated the key: it holds the old key, starts epoch 1 with a new one (`begin_epoch`) and pushes
+/// that to the hub. Returns the id of the epoch-1 manifest. Each `name` publishes a different manifest (its own file).
+async fn rotate_elsewhere(hub: &Hub, name: &str, old_key: [u8; 32], new_key: [u8; 32]) -> ObjectId {
+    let base = support::unique_temp_dir(&format!("warden-arca-rotator-{name}"));
+    let vault = base.join("vault");
+    std::fs::create_dir_all(&vault).unwrap();
+    std::fs::write(vault.join("rotated.md"), name).unwrap();
+    let local = Backend::Disk(DiskStore::open(base.join("store")).unwrap());
+    let old = Engine::new(local, EpochKeys::derive(&VaultKey::from_bytes(old_key), 0), name).unwrap();
+    let roots = Roots { vault: Some(vault), ..Roots::default() };
+    let (next, snapshot) = old.begin_epoch(&VaultKey::from_bytes(new_key), &roots, 10).await.unwrap();
+    let Snapshot::Created { id, .. } = snapshot else { panic!("the first manifest of the new epoch is created") };
+    next.push(&hub.store(name)).await.unwrap();
+    id
+}
+
+const NEW_KEY: [u8; 32] = [7u8; 32];
+
+/// A device in arca mode that already completed one cycle against `hub`.
+async fn synced_device(hub: &Hub, name: &str) -> (Device, [u8; 32]) {
+    let (a, key) = first_device(name);
+    write(&a, "note.md", "hello");
+    a.engine.arca_enable(false, 1).await.unwrap();
+    a.engine.arca_sync(&hub.store(&format!("dev-{name}")), 2).await.unwrap();
+    (a, key)
+}
+
+#[tokio::test]
+async fn a_newer_key_epoch_on_the_hub_stops_the_cycle_in_words_and_the_object_never_reaches_the_device() {
+    let hub = hub().await;
+    let (a, key) = synced_device(&hub, "a-rotated").await;
+    let rotated = rotate_elsewhere(&hub, "rot-1", key, NEW_KEY).await;
+
+    let stopped = a.engine.arca_sync(&hub.store("dev-a-rotated"), 3).await.expect_err("a newer epoch stops the cycle");
+    let message = format!("{stopped:#}");
+    assert!(message.contains("another device switched this vault to a newer key"), "{message}");
+    assert!(message.contains("pair this device again"), "{message}");
+    assert!(!message.contains(&rotated.to_string()), "the object id is not shown: {message}");
+    let local = DiskStore::open(store_path_for(&a.manifest)).unwrap();
+    assert_eq!(local.has(&rotated).await, Ok(false), "the pull does not write the object of another epoch");
+}
+
+#[tokio::test]
+async fn what_blocks_the_vault_is_listed_before_anything_is_acknowledged() {
+    let hub = hub().await;
+    let (a, key) = synced_device(&hub, "a-listed").await;
+    assert_eq!(a.engine.arca_pending_epochs().await.unwrap(), vec![], "a healthy vault has nothing pending");
+    let rotated = rotate_elsewhere(&hub, "rot-2", key, NEW_KEY).await;
+    a.engine.arca_sync(&hub.store("dev-a-listed"), 3).await.expect_err("stopped");
+
+    assert_eq!(a.engine.arca_pending_epochs().await.unwrap(), vec![PendingEpoch { epoch: 1, id: rotated }]);
+}
+
+#[tokio::test]
+async fn acknowledging_the_epoch_the_person_saw_lets_the_cycle_go_on() {
+    let hub = hub().await;
+    let (a, key) = synced_device(&hub, "a-acked").await;
+    rotate_elsewhere(&hub, "rot-3", key, NEW_KEY).await;
+    a.engine.arca_sync(&hub.store("dev-a-acked"), 3).await.expect_err("stopped");
+
+    let seen = a.engine.arca_pending_epochs().await.unwrap();
+    a.engine.arca_acknowledge_epochs(&seen).await.unwrap();
+    a.engine.arca_sync(&hub.store("dev-a-acked"), 4).await.expect("acknowledged, the cycle goes on");
+    assert_eq!(a.engine.arca_pending_epochs().await.unwrap(), vec![]);
+}
+
+#[tokio::test]
+async fn acknowledging_nothing_releases_nothing() {
+    let hub = hub().await;
+    let (a, key) = synced_device(&hub, "a-empty-ack").await;
+    rotate_elsewhere(&hub, "rot-4", key, NEW_KEY).await;
+    a.engine.arca_sync(&hub.store("dev-a-empty-ack"), 3).await.expect_err("stopped");
+
+    a.engine.arca_acknowledge_epochs(&[]).await.unwrap();
+    a.engine.arca_sync(&hub.store("dev-a-empty-ack"), 4).await.expect_err("still stopped");
+}
+
+#[tokio::test]
+async fn a_new_manifest_of_the_same_epoch_stops_the_cycle_again_after_the_first_was_acknowledged() {
+    let hub = hub().await;
+    let (a, key) = synced_device(&hub, "a-again").await;
+    rotate_elsewhere(&hub, "rot-5", key, NEW_KEY).await;
+    a.engine.arca_sync(&hub.store("dev-a-again"), 3).await.expect_err("stopped");
+    let seen = a.engine.arca_pending_epochs().await.unwrap();
+    a.engine.arca_acknowledge_epochs(&seen).await.unwrap();
+    a.engine.arca_sync(&hub.store("dev-a-again"), 4).await.unwrap();
+
+    // the next epoch is predictable, so acknowledging "epoch 1" must not hide the real rotation: it has other ids
+    let real = rotate_elsewhere(&hub, "rot-6", key, [8u8; 32]).await;
+    a.engine.arca_sync(&hub.store("dev-a-again"), 5).await.expect_err("stopped again");
+    assert_eq!(a.engine.arca_pending_epochs().await.unwrap(), vec![PendingEpoch { epoch: 1, id: real }]);
+}
+
+#[tokio::test]
+async fn with_the_mode_off_nothing_is_pending() {
+    let (a, _) = first_device("a-off");
+    assert_eq!(a.engine.arca_pending_epochs().await.unwrap(), vec![]);
 }
