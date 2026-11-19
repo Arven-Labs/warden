@@ -263,7 +263,9 @@ impl SyncEngine {
         if self.is_initialized() {
             anyhow::bail!("this device already has sync set up — pairing now would overwrite the existing key");
         }
-        let secrets = manifest::SyncSecrets { version: 1, device_id: manifest::generate_device_id(), vault_key: material.vault_key };
+        // Epoch 0 is right only while Warden has no rotation (warden ADR 0002): the step that creates one must find the epoch
+        // here with `arca_core::discover::discover_epoch`.
+        let secrets = manifest::SyncSecrets { version: 1, device_id: manifest::generate_device_id(), vault_key: material.vault_key, key_epoch: 0 };
         manifest::save_secrets(&self.secrets_path, &secrets)?;
 
         let mut new_manifest = manifest::SyncManifest { version: 1, ..Default::default() };

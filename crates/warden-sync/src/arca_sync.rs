@@ -43,6 +43,11 @@ pub fn is_auth_rejected(err: &anyhow::Error) -> bool {
 /// The key epoch of the first manifest (ADR 0012, step c). Rotation is a later phase (ADR 0006).
 const FIRST_KEY_EPOCH: u32 = 0;
 
+/// The subkeys the arca uses for this vault: `vault_key` at the epoch saved with it.
+fn epoch_keys(secrets: &crate::manifest::SyncSecrets) -> EpochKeys {
+    EpochKeys::derive(&VaultKey::from_bytes(secrets.vault_key), FIRST_KEY_EPOCH)
+}
+
 /// A cycle that needs more merges than this is not converging: each merge joins one pair of tips.
 const MAX_MERGES_PER_CYCLE: usize = 64;
 
@@ -591,7 +596,7 @@ impl SyncEngine {
             anyhow::bail!("this vault is not in arca mode: turn it on first");
         }
         let secrets = self.load_secrets()?;
-        let keys = EpochKeys::derive(&VaultKey::from_bytes(secrets.vault_key), FIRST_KEY_EPOCH);
+        let keys = epoch_keys(&secrets);
         let engine = Engine::new(hub.clone(), keys, secrets.device_id)?;
         let state_path = verify_state_path_for(&self.manifest_path);
         let state = load_verify_state(&state_path);
@@ -630,7 +635,7 @@ impl SyncEngine {
         std::fs::create_dir_all(self.vault.root())?;
         let secret_root = if secret_accepted { self.prepare_logins_root(create_logins)? } else { None };
         let store = DiskStore::open(store_path_for(&self.manifest_path))?;
-        let keys = EpochKeys::derive(&VaultKey::from_bytes(secrets.vault_key), FIRST_KEY_EPOCH);
+        let keys = epoch_keys(&secrets);
         let engine = Engine::new(store, keys, secrets.device_id)?
             .with_state(state_path_for(&self.manifest_path))
             .with_entry_filter(Class::Secret, is_login_entry)
@@ -860,6 +865,54 @@ mod tests {
         let device = device(name);
         device.engine.init_fresh().unwrap();
         device
+    }
+
+    // ---------- the key epoch saved with the key (warden ADR 0002) ----------
+
+    /// The epoch every manifest in the arca's own store says in its header (the clear-text part, before the cipher text).
+    async fn epochs_in_store(device: &Device) -> Vec<u32> {
+        use arca_core::envelope::Header;
+        use arca_core::object::ObjectKind;
+        use arca_core::store::BlobStore;
+        let store = DiskStore::open(store_path_for(&device.base.join("sync_manifest.json"))).unwrap();
+        let mut epochs = Vec::new();
+        for id in store.list(ObjectKind::Manifest).await.unwrap() {
+            let bytes = store.get(&id).await.unwrap().expect("a listed manifest is there");
+            epochs.push(Header::decode(&bytes).unwrap().0.key_epoch);
+        }
+        epochs
+    }
+
+    fn save_epoch(device: &Device, epoch: u32) {
+        let path = device.base.join("sync_secrets.json");
+        let mut secrets = crate::manifest::load_secrets(&path).unwrap().unwrap();
+        secrets.key_epoch = epoch;
+        crate::manifest::save_secrets(&path, &secrets).unwrap();
+    }
+
+    #[test]
+    fn the_arca_subkeys_come_from_the_epoch_saved_with_the_key() {
+        let mut secrets = crate::manifest::generate_secrets();
+        assert_eq!(epoch_keys(&secrets).epoch(), 0);
+        secrets.key_epoch = 2;
+        assert_eq!(epoch_keys(&secrets).epoch(), 2);
+    }
+
+    #[tokio::test]
+    async fn turning_the_mode_on_writes_the_first_manifest_at_the_saved_epoch() {
+        let device = device_with_key("epoch-two");
+        save_epoch(&device, 2);
+        std::fs::write(device.base.join("vault/note.md"), b"hello").unwrap();
+        device.engine.arca_enable_after_pull(false, false, 7).await.unwrap();
+        assert_eq!(epochs_in_store(&device).await, vec![2]);
+    }
+
+    #[tokio::test]
+    async fn a_vault_with_no_saved_epoch_still_writes_epoch_zero() {
+        let device = device_with_key("epoch-zero");
+        std::fs::write(device.base.join("vault/note.md"), b"hello").unwrap();
+        device.engine.arca_enable_after_pull(false, false, 7).await.unwrap();
+        assert_eq!(epochs_in_store(&device).await, vec![0]);
     }
 
     fn pair_on_arweave(device: &Device) {
