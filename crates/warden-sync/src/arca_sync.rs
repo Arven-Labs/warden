@@ -493,7 +493,7 @@ impl SyncEngine {
             }
         }
 
-        let pulled = engine.pull(hub).await.context("pulling from the hub")?;
+        let pulled = engine.pull(hub).await.map_err(|e| engine_failure(e, "pulling from the hub"))?;
         ensure_complete(&pulled, "pull")?;
         report.pulled = pulled.copied;
 
