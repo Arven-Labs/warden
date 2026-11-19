@@ -347,14 +347,30 @@ impl SyncEngine {
         save_mode(&path, &ArcaMode { hub_id: Some(hub_id.to_string()), ..mode })
     }
 
-    /// Sketch of P-49 A1: the epochs that block this vault.
+    /// The manifests of a newer key epoch that stop this vault until the person decides (arca ADR 0018): another device switched the
+    /// group to a new key, or someone who holds the old key forged an object to say so (the epoch in an object is not authenticated).
+    /// The pull never writes such an object; it only notes it, and every snapshot, merge and apply refuses until it is acknowledged
+    /// or this device is paired again. The caller shows the list to the person BEFORE `arca_acknowledge_epochs`. With the mode off
+    /// there is none. Under the sync lock.
     pub async fn arca_pending_epochs(&self) -> anyhow::Result<Vec<PendingEpoch>> {
-        Ok(Vec::new())
+        let _one_sync_at_a_time = self.sync_lock().await?;
+        let Some(mode) = load_mode(&mode_path_for(&self.manifest_path))? else {
+            return Ok(Vec::new());
+        };
+        let (engine, _roots) = self.arca_engine(mode.secret_accepted, false)?;
+        engine.foreign_epochs().await.map_err(|e| engine_failure(e, "listing the newer key epochs"))
     }
 
-    /// Sketch of P-49 A1: acknowledge what the person saw in `arca_pending_epochs`.
-    pub async fn arca_acknowledge_epochs(&self, _seen: &[PendingEpoch]) -> anyhow::Result<()> {
-        Ok(())
+    /// Acknowledges `seen`, the list the person was shown by `arca_pending_epochs`: each `(epoch, id)` pair, never the epoch alone
+    /// (the next epoch is predictable, so acknowledging "epoch 2" would hide the real rotation, whose objects have other ids). It
+    /// deletes nothing. Needs the mode on, and the sync lock.
+    pub async fn arca_acknowledge_epochs(&self, seen: &[PendingEpoch]) -> anyhow::Result<()> {
+        let _one_sync_at_a_time = self.sync_lock().await?;
+        let Some(mode) = load_mode(&mode_path_for(&self.manifest_path))? else {
+            anyhow::bail!("this vault is not in arca mode: turn it on first");
+        };
+        let (engine, _roots) = self.arca_engine(mode.secret_accepted, false)?;
+        engine.acknowledge_foreign(seen).await.map_err(|e| engine_failure(e, "acknowledging the newer key epochs"))
     }
 
     /// The copies of the losers of conflicts (the version that lost, in clear text) the arca kept in `arca-conflicts/`, for the screen.
@@ -748,6 +764,9 @@ fn engine_failure(error: EngineError, what: &str) -> anyhow::Error {
     match error {
         EngineError::Busy => anyhow::anyhow!("{what}: another program is using this vault or Warden's sync state, so this cycle did nothing; the next one tries again"),
         EngineError::StateNotSaved => anyhow::anyhow!("{what}: the change was made, but this device's sync state could not be saved; the next cycle repeats it safely"),
+        EngineError::NeedsNewKey { have, found } => anyhow::anyhow!(
+            "{what}: another device switched this vault to a newer key (epoch {found}; this device has {have}), so this cycle did nothing. If it was you or a device you trust, pair this device again to get the new key. If you do not recognise it, look at the pending epochs first and only then acknowledge them: the epoch of an object is not authenticated, so anyone who holds the old key can forge one"
+        ),
         other => anyhow::Error::from(other).context(what.to_string()),
     }
 }
