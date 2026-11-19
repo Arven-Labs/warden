@@ -21,12 +21,9 @@ pub struct SyncSecrets {
     /// The key epoch the arca derives its subkeys for (arca ADR 0018, warden ADR 0002). It is a pair with `vault_key`: both change in
     /// the same atomic save. A file written before it existed reads as 0, and 0 is not written: the file of every install that has
     /// never rotated stays exactly as it was (and an older build, which ignores unknown fields, reads it as before).
-    #[serde(default, skip_serializing_if = "is_zero")]
+    // QUEBRA B: grava sempre
+    #[serde(default)]
     pub key_epoch: u32,
-}
-
-fn is_zero(epoch: &u32) -> bool {
-    *epoch == 0
 }
 
 /// Non-secret sync tracking state, rewritten after every successful push/pull.

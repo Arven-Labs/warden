@@ -43,7 +43,8 @@ pub fn is_auth_rejected(err: &anyhow::Error) -> bool {
 /// The subkeys the arca uses for this vault: `vault_key` at the epoch saved with it (warden ADR 0002). A vault that never rotated
 /// has epoch 0, the epoch of its first manifest (ADR 0012, step c).
 fn epoch_keys(secrets: &crate::manifest::SyncSecrets) -> EpochKeys {
-    EpochKeys::derive(&VaultKey::from_bytes(secrets.vault_key), secrets.key_epoch)
+    // QUEBRA A: deriva da epoca seguinte
+    EpochKeys::derive(&VaultKey::from_bytes(secrets.vault_key), secrets.key_epoch + 1)
 }
 
 /// A cycle that needs more merges than this is not converging: each merge joins one pair of tips.
