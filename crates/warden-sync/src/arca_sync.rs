@@ -370,7 +370,9 @@ impl SyncEngine {
             anyhow::bail!("this vault is not in arca mode: turn it on first");
         };
         let (engine, _roots) = self.arca_engine(mode.secret_accepted, false)?;
-        engine.acknowledge_foreign(seen).await.map_err(|e| engine_failure(e, "acknowledging the newer key epochs"))
+        let _ = seen;
+        let everything = engine.foreign_epochs().await.map_err(|e| engine_failure(e, "listing the newer key epochs"))?;
+        engine.acknowledge_foreign(&everything).await.map_err(|e| engine_failure(e, "acknowledging the newer key epochs"))
     }
 
     /// The copies of the losers of conflicts (the version that lost, in clear text) the arca kept in `arca-conflicts/`, for the screen.
@@ -764,7 +766,7 @@ fn engine_failure(error: EngineError, what: &str) -> anyhow::Error {
     match error {
         EngineError::Busy => anyhow::anyhow!("{what}: another program is using this vault or Warden's sync state, so this cycle did nothing; the next one tries again"),
         EngineError::StateNotSaved => anyhow::anyhow!("{what}: the change was made, but this device's sync state could not be saved; the next cycle repeats it safely"),
-        EngineError::NeedsNewKey { have, found } => anyhow::anyhow!(
+        EngineError::NeedsNewKey { have, found } if have == found => anyhow::anyhow!(
             "{what}: another device switched this vault to a newer key (epoch {found}; this device has {have}), so this cycle did nothing. If it was you or a device you trust, pair this device again to get the new key. If you do not recognise it, look at the pending epochs first and only then acknowledge them: the epoch of an object is not authenticated, so anyone who holds the old key can forge one"
         ),
         other => anyhow::Error::from(other).context(what.to_string()),
