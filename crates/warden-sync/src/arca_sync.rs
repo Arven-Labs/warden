@@ -20,6 +20,7 @@ use arca_core::manifest::FileEntry;
 use arca_core::object::ObjectId;
 // What a caller needs to name the hub it syncs with, and the class it may let be emptied, so it does not need `arca-core` of its own.
 pub use arca_core::hub::{HubError, HubStore};
+pub use arca_core::engine::ForeignEpoch as PendingEpoch;
 pub use arca_core::manifest::Class;
 use arca_core::replicate::ReplicateReport;
 use arca_core::scan::Skipped;
@@ -344,6 +345,16 @@ impl SyncEngine {
             anyhow::bail!("this vault is not in arca mode: turn it on first");
         };
         save_mode(&path, &ArcaMode { hub_id: Some(hub_id.to_string()), ..mode })
+    }
+
+    /// Sketch of P-49 A1: the epochs that block this vault.
+    pub async fn arca_pending_epochs(&self) -> anyhow::Result<Vec<PendingEpoch>> {
+        Ok(Vec::new())
+    }
+
+    /// Sketch of P-49 A1: acknowledge what the person saw in `arca_pending_epochs`.
+    pub async fn arca_acknowledge_epochs(&self, _seen: &[PendingEpoch]) -> anyhow::Result<()> {
+        Ok(())
     }
 
     /// The copies of the losers of conflicts (the version that lost, in clear text) the arca kept in `arca-conflicts/`, for the screen.
@@ -770,6 +781,17 @@ mod tests {
         assert!(message.contains("another program is using this vault or Warden's sync state"), "{message}");
         assert!(message.contains("this cycle did nothing"), "{message}");
         assert!(message.contains("the next one tries again"), "{message}");
+    }
+
+    #[test]
+    fn a_newer_key_epoch_says_another_device_changed_the_key_and_what_the_person_can_do() {
+        let message = said(EngineError::NeedsNewKey { have: 0, found: 3 }, "merging");
+        assert!(message.starts_with("merging: "), "{message}");
+        assert!(message.contains("another device switched this vault to a newer key"), "{message}");
+        assert!(message.contains("this cycle did nothing"), "{message}");
+        assert!(message.contains("pair this device again"), "{message}");
+        assert!(message.contains("only then acknowledge"), "{message}");
+        assert!(message.contains('3'), "the epoch it found is shown: {message}");
     }
 
     #[test]
