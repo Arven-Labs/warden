@@ -34,6 +34,8 @@ pub enum KeySwapError {
     NotInArcaMode,
     /// This device sees no newer key epoch: there is nothing to swap to.
     NothingNewer,
+    /// The key is not a newer one than this device's: the same key, or an epoch that is not higher.
+    NotNewer,
     /// This device has no key to hand over, or no accepted manifest to show.
     NoKey(String),
     /// No device is waiting for a key.

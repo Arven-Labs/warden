@@ -2222,6 +2222,59 @@ async fn with_no_newer_epoch_the_swap_is_refused_and_writes_nothing() {
     assert_eq!(disk_of(&b), before);
 }
 
+#[tokio::test]
+async fn a_head_of_an_earlier_epoch_is_refused_and_writes_nothing() {
+    let hub = hub().await;
+    let g = rotated_group(&hub, "swap-old-head").await;
+    let before = disk_of(&g.b);
+    let (key, epoch, _) = handed_over(&g.a).await;
+    // the manifest b itself accepted before the rotation: the hub holds it, but it is of epoch 0 and `epoch` is 1
+    let old_head = before.state.expect("b accepted a manifest before the rotation").last_accepted;
+    let seed = ObjectId { kind: ObjectKind::Manifest, hash: old_head.0 };
+
+    let result = g.b.engine.arca_replace_key(&g.b_store, key, epoch, seed, 8).await;
+
+    assert!(matches!(result, Err(KeySwapError::HashMismatch)), "{result:?}");
+    assert_eq!(disk_of(&g.b), before, "a device that refused is not left holding a head it can never reach");
+}
+
+#[tokio::test]
+async fn a_head_the_new_key_cannot_open_is_refused_and_writes_nothing() {
+    let hub = hub().await;
+    let g = rotated_group(&hub, "swap-foreign-head").await;
+    let before = disk_of(&g.b);
+    let (key, epoch, _) = handed_over(&g.a).await;
+    // a manifest the hub holds and lists, of another group: it is the right kind and the hub serves it, but the key does not open it
+    let (stranger, _) = first_device("swap-foreign-head-s");
+    write(&stranger, "x.md", "x");
+    stranger.engine.arca_enable(false, 1).await.unwrap();
+    let (_, stranger_store) = hub.pair("dev-swap-foreign-head-s");
+    stranger.engine.arca_sync(&stranger_store, 2).await.unwrap();
+    let seed = stranger.engine.arca_head_id().await.unwrap();
+
+    let result = g.b.engine.arca_replace_key(&g.b_store, key, epoch, seed, 8).await;
+
+    assert!(matches!(result, Err(KeySwapError::HashMismatch)), "{result:?}");
+    assert_eq!(disk_of(&g.b), before);
+}
+
+#[tokio::test]
+async fn a_key_that_is_not_newer_than_the_devices_own_is_refused_and_writes_nothing() {
+    let hub = hub().await;
+    let g = rotated_group(&hub, "swap-not-newer").await;
+    let before = disk_of(&g.b);
+    let (new_key, new_epoch, seed) = handed_over(&g.a).await;
+    let (old_key, old_epoch) = (before.pair.0, before.pair.1);
+
+    // the same key, at a higher epoch
+    let same_key = g.b.engine.arca_replace_key(&g.b_store, old_key, new_epoch, seed, 8).await;
+    assert!(matches!(same_key, Err(KeySwapError::NotNewer)), "{same_key:?}");
+    // another key, at the epoch the device already has
+    let same_epoch = g.b.engine.arca_replace_key(&g.b_store, new_key, old_epoch, seed, 8).await;
+    assert!(matches!(same_epoch, Err(KeySwapError::NotNewer)), "{same_epoch:?}");
+    assert_eq!(disk_of(&g.b), before);
+}
+
 // ---- the conversation between the two devices ----
 
 /// A person at one device: what they type is fixed in advance, and what the flow showed and asked is kept.
