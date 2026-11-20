@@ -75,6 +75,10 @@ it through `warden-bootstrap`, so they all share one agent and one memory model.
 [Flutter](https://flutter.dev) for `mobile/`; a model provider API key (or a local
 [Ollama](https://ollama.com) install).
 
+> **For AI agents:** the commands below are for a human on a personal PC. On the agent's
+> development VM, running tests, builds or `flutter analyze` is forbidden (workspace ADR 0017):
+> tests run only on GitHub (CI) and builds only on the owner's PC, by hand.
+
 ```bash
 # Build and test the whole Rust workspace
 cargo build --workspace
