@@ -265,8 +265,9 @@ impl SyncEngine {
         if self.is_initialized() {
             anyhow::bail!("this device already has sync set up — pairing now would overwrite the existing key");
         }
-        // Epoch 0 is right only while Warden has no rotation (warden ADR 0002): the step that creates one must find the epoch
-        // here with `arca_core::discover::discover_epoch`.
+        // Epoch 0 is right only while no screen calls `arca_rotation::PendingRotation` (warden ADR 0002): a device that pairs
+        // into a vault that was already rotated would get epoch 0 and open nothing. Whoever wires the rotation to a screen must
+        // find the epoch here with `arca_core::discover::discover_epoch`, in the same change.
         let secrets = manifest::SyncSecrets { version: 1, device_id: manifest::generate_device_id(), vault_key: material.vault_key, key_epoch: 0 };
         manifest::save_secrets(&self.secrets_path, &secrets)?;
 
