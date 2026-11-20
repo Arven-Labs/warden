@@ -298,6 +298,25 @@ impl SyncEngine {
         crate::manifest::save_secrets(&self.secrets_path, &secrets).map_err(failed)
     }
 
+    /// The last manifest this device accepted (the head of its arca state), for the head code the old device shows when it hands
+    /// the new key over (`arca_key_swap`). Errors without the mode on or without a state.
+    pub async fn arca_head_id(&self) -> Result<ObjectId, crate::arca_key_swap::KeySwapError> {
+        Err(crate::arca_key_swap::KeySwapError::Failed("not implemented".into()))
+    }
+
+    /// Swaps this device's key for `vault_key` at `key_epoch` (warden ADR 0002, item 4; `arca_key_swap` is the conversation that
+    /// gets the key and the person's confirmations, and the only caller). `seed` is the manifest the person confirmed by the head
+    /// code. Under the sync lock. **Nothing is written** unless the mode is on, a newer epoch is pending, and `hub` holds `seed`.
+    ///
+    /// Then, in this order: the local replica (`arca-store`, `arca_state.json`) is wiped; a first manifest of the new epoch is made
+    /// from the folder as it is (the base of the next merge, as `arca_enable` does); the hub is pulled; the state is seeded with
+    /// `seed`; and **last** the key and the epoch are saved together. A stop before the last step leaves the old pair, and running
+    /// the swap again after a cycle (which notes the newer epoch again) finishes it.
+    pub async fn arca_replace_key(&self, hub: &HubStore, vault_key: [u8; 32], key_epoch: u32, seed: ObjectId, now_ms: u64) -> Result<(), crate::arca_key_swap::KeySwapError> {
+        let _ = (hub, vault_key, key_epoch, seed, now_ms);
+        Err(crate::arca_key_swap::KeySwapError::Failed("not implemented".into()))
+    }
+
     /// What every entry point does to turn the mode on (ADR 0012, step a): needs the vault key and no Send waiting for the phone,
     /// does the Pull through `warden-sync` first when the vault is paired on Arweave (so the first arca manifest is not made from a
     /// vault that is behind), and stops without turning it on if that Pull fails. Returns whether the Pull brought a new
