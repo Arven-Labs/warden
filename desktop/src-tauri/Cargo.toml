@@ -53,3 +53,6 @@ warden-sync = { path = "../../crates/warden-sync", features = ["arca"] }
 [dev-dependencies]
 # P102: `tauri::test::mock_app` — events emitted through a real `AppHandle`, without a window (`remote_cmds.rs` tests).
 tauri = { version = "2", features = ["test"] }
+# Only to build a `PendingEpoch` (an `ObjectId`) in the tests of `arca_mode_cmds.rs`: the code itself never names an arca type. Same pin as
+# `warden-sync` and `warden-server`, so the lock gets no new package.
+arca-core = { git = "https://github.com/Arven-Labs/arca", rev = "16a3bc2a929338832abc7c18106941c0db5f4c48", features = ["hub"] }

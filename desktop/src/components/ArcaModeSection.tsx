@@ -5,6 +5,7 @@ import { intlTag, t, type Key } from "../i18n";
 import {
   clearSummary,
   deletableIds,
+  epochShortId,
   hubChoice,
   keptClassKey,
   keptClearSummary,
@@ -24,6 +25,7 @@ import {
   type LoserSkipKey,
   type LoopStatus,
   type ModeStatus,
+  type PendingEpoch,
   type SyncReport,
   type VerifyStatus,
 } from "../lib/arcaMode";
@@ -62,6 +64,11 @@ function ArcaModeSection() {
   const [keptResult, setKeptResult] = useState<
     { kind: "done"; removed: number; notRemoved: { label: string; reasonKey: KeptSkipKey }[]; keptTmp: number } | { kind: "failed"; message: string } | null
   >(null);
+  // The newer key epochs that stop the vault (arca ADR 0018), the second click of "acknowledge", and what the last acknowledgement said.
+  // Acknowledging sends back exactly the pairs shown here; the backend looks them up in a fresh list.
+  const [epochs, setEpochs] = useState<PendingEpoch[]>([]);
+  const [confirmingEpochs, setConfirmingEpochs] = useState(false);
+  const [epochsResult, setEpochsResult] = useState<{ kind: "done" } | { kind: "failed"; message: string } | null>(null);
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<{ ok: boolean; text: string; notices?: ReturnType<typeof noticesOf> } | null>(null);
   // A second click must not start a second cycle: the state below is only read after a render, this one at once.
@@ -110,6 +117,32 @@ function ArcaModeSection() {
       setKeptResult({ kind: "failed", message: String(e) });
     } finally {
       refreshKept();
+      busyRef.current = false;
+      setBusy(false);
+    }
+  }
+
+  // Best effort: if the question fails the screen keeps what it had. Only asked with the mode on (see the effect below).
+  function refreshEpochs() {
+    invoke<PendingEpoch[] | null>("arca_epochs_pending")
+      .then((items) => setEpochs(items ?? []))
+      .catch(() => {});
+  }
+
+  /** Acknowledges the pairs shown, after the second click. Nothing is deleted and the newer key is not adopted: the cycle just goes on. */
+  async function acknowledgeEpochs() {
+    if (busyRef.current) return;
+    busyRef.current = true;
+    setBusy(true);
+    setConfirmingEpochs(false);
+    setEpochsResult(null);
+    try {
+      await invoke("arca_epochs_acknowledge", { seen: epochs });
+      setEpochsResult({ kind: "done" });
+    } catch (e) {
+      setEpochsResult({ kind: "failed", message: String(e) });
+    } finally {
+      refreshEpochs();
       busyRef.current = false;
       setBusy(false);
     }
@@ -341,6 +374,47 @@ function ArcaModeSection() {
   }
 
   /** The list of copies, each with its own second click, and "delete all". An edited copy is marked and has no button: it is kept. */
+  /** The newer key epochs that stop syncing. It says what they are (an unauthenticated notice), that acknowledging adopts nothing and
+   * deletes nothing, and puts the second click between the person and the acknowledgement. */
+  function epochsBlock() {
+    return (
+      <>
+        {epochs.length > 0 && (
+          <>
+            <h4 className="settings-hint">{t("arca.epochsTitle")}</h4>
+            <p className="settings-hint">{t("arca.epochsHint")}</p>
+            <ul>
+              {epochs.map((item) => (
+                <li key={`${item.epoch}-${item.id}`} className="settings-hint">
+                  {t("arca.epochItem", { epoch: item.epoch, id: epochShortId(item.id) })}
+                </li>
+              ))}
+            </ul>
+            {confirmingEpochs ? (
+              <>
+                <p className="settings-hint">{t("arca.epochsAckConfirm")}</p>
+                <div className="sync-join-form">
+                  <button type="button" className="settings-save-btn" disabled={busy} onClick={() => void acknowledgeEpochs()}>
+                    {t("arca.epochsAckYes")}
+                  </button>
+                  <button type="button" className="settings-browse-btn" disabled={busy} onClick={() => setConfirmingEpochs(false)}>
+                    {t("arca.cancel")}
+                  </button>
+                </div>
+              </>
+            ) : (
+              <button type="button" className="settings-browse-btn" disabled={busy} onClick={() => setConfirmingEpochs(true)}>
+                {t("arca.epochsAck")}
+              </button>
+            )}
+          </>
+        )}
+        {epochsResult?.kind === "failed" && <p className="settings-error-banner">{t("arca.epochsFailed", { message: epochsResult.message })}</p>}
+        {epochsResult?.kind === "done" && <p className="settings-success-banner">{t("arca.epochsDone")}</p>}
+      </>
+    );
+  }
+
   function losersBlock() {
     const deletable = deletableIds(losers);
     return (
@@ -466,6 +540,10 @@ function ArcaModeSection() {
   }
 
   const view = viewOf(status);
+  // A cycle (the loop's or a manual one) is what notes a newer epoch, so the list is asked when the mode shows as on and after each cycle.
+  useEffect(() => {
+    if (view === "on") refreshEpochs();
+  }, [view, loop?.atMs, manualAt]);
   // The automatic cycle only speaks while the mode is on and when it is newer than the last manual sync: the newer of the two wins,
   // so an old automatic warning never comes back over a manual sync made after it, and a newer one replaces the manual warnings.
   const autoNewer = view === "on" && loop !== null && loop.atMs > manualAt;
@@ -603,6 +681,7 @@ function ArcaModeSection() {
           </p>
         )}
         {integrityError && <p className="settings-error-banner">{t("arca.verifyFailed", { message: integrityError })}</p>}
+        {view === "on" && (epochs.length > 0 || epochsResult !== null) && epochsBlock()}
         {view === "on" && (losers.length > 0 || losersResult !== null) && losersBlock()}
         {view === "on" && (kept.length > 0 || keptResult !== null) && keptBlock()}
       </div>

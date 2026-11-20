@@ -7,12 +7,12 @@
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use tauri::State;
 use warden_bootstrap::auto_sync::{ArcaCycleError, ArcaCycleSummary, ArcaVerifySummary, SyncRunner};
 use warden_bootstrap::saved_hubs;
 use warden_sync::arca_mode::ArcaVerifyState;
-use warden_sync::arca_sync::{is_auth_rejected, ArcaSyncReport, ArcaVerifyReport, Class, HubStore, KeptItem, LoserItem, LosersCleared, NotCleared};
+use warden_sync::arca_sync::{is_auth_rejected, ArcaSyncReport, ArcaVerifyReport, Class, HubStore, KeptItem, LoserItem, LosersCleared, NotCleared, PendingEpoch};
 use warden_sync::SyncEngine;
 
 use crate::remote_cmds::DEVICE_NAME;
@@ -262,6 +262,66 @@ pub async fn kept_list(engine: &SyncEngine) -> Result<Vec<KeptPayload>, String> 
 /// What deleting kept files did: the same report as for the conflict copies (`ClearPayload`).
 pub async fn kept_clear(engine: &SyncEngine, ids: &[String]) -> Result<ClearPayload, String> {
     engine.arca_clear_kept(ids).await.map(ClearPayload::from).map_err(|e| format!("{e:#}"))
+}
+
+/// A manifest of a newer key epoch that stops the vault until the person decides (arca ADR 0018), as the screen gets it. `id` is the
+/// object id in text (`manifest/<64 hex>`): it is what tells a real rotation from a forged object of the same epoch, so the screen
+/// hands the pair back to `arca_epochs_acknowledge` and nothing else.
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct PendingEpochPayload {
+    pub epoch: u32,
+    pub id: String,
+}
+
+impl From<&PendingEpoch> for PendingEpochPayload {
+    fn from(pending: &PendingEpoch) -> Self {
+        Self { epoch: pending.epoch, id: pending.id.to_string() }
+    }
+}
+
+/// What `epochs_acknowledge` needs from the engine: the fresh list and the acknowledgement. A seam so the choice of WHICH pairs reach
+/// the engine is tested with real `PendingEpoch`s (only this engine can have one pending, through a hub), not just `positions_seen`.
+#[async_trait::async_trait]
+trait EpochSource {
+    async fn pending(&self) -> Result<Vec<PendingEpoch>, String>;
+    async fn acknowledge(&self, seen: &[PendingEpoch]) -> Result<(), String>;
+}
+
+#[async_trait::async_trait]
+impl EpochSource for SyncEngine {
+    async fn pending(&self) -> Result<Vec<PendingEpoch>, String> {
+        self.arca_pending_epochs().await.map_err(|e| format!("{e:#}"))
+    }
+
+    async fn acknowledge(&self, seen: &[PendingEpoch]) -> Result<(), String> {
+        self.arca_acknowledge_epochs(seen).await.map_err(|e| format!("{e:#}"))
+    }
+}
+
+/// The newer key epochs that stop the vault, for the person to look at BEFORE acknowledging. Empty with the mode off.
+pub async fn epochs_pending(engine: &SyncEngine) -> Result<Vec<PendingEpochPayload>, String> {
+    engine.pending().await.map(|list| list.iter().map(PendingEpochPayload::from).collect())
+}
+
+/// Where, in the fresh list, are the pairs the screen handed back. The comparison is on the whole pair (epoch and id text): the next
+/// epoch is predictable, so the epoch alone would let a forged object hide the real rotation. A pair that is not in the fresh list
+/// (it went away, or the text is not one of the ids listed) is just not found. Each position once, in the order of the fresh list.
+pub fn positions_seen(fresh: &[PendingEpochPayload], seen: &[PendingEpochPayload]) -> Vec<usize> {
+    fresh.iter().enumerate().filter(|(_, pending)| seen.contains(pending)).map(|(position, _)| position).collect()
+}
+
+/// Acknowledges what the person saw. `seen` is only looked up in a fresh list (no id from the screen reaches the engine): whatever
+/// showed up after the person looked stays pending. With nothing to acknowledge it still asks the engine, so the mode off is told.
+pub async fn epochs_acknowledge(engine: &SyncEngine, seen: &[PendingEpochPayload]) -> Result<(), String> {
+    acknowledge_seen(engine, seen).await
+}
+
+async fn acknowledge_seen(source: &impl EpochSource, seen: &[PendingEpochPayload]) -> Result<(), String> {
+    let fresh = source.pending().await?;
+    let listed: Vec<PendingEpochPayload> = fresh.iter().map(PendingEpochPayload::from).collect();
+    let to_acknowledge: Vec<PendingEpoch> = positions_seen(&listed, seen).into_iter().map(|position| fresh[position]).collect();
+    source.acknowledge(&to_acknowledge).await
 }
 
 /// The saved hub `hub_id`, with the token this computer holds for it, ready to sync with.
@@ -548,6 +608,19 @@ pub async fn arca_kept_clear(state: State<'_, AppState>, ids: Vec<String>) -> Re
     kept_clear(&state.sync, &ids).await
 }
 
+/// The manifests of a newer key epoch that stop the vault until the person decides (arca ADR 0018). Empty with the mode off.
+#[tauri::command]
+pub async fn arca_epochs_pending(state: State<'_, AppState>) -> Result<Vec<PendingEpochPayload>, String> {
+    epochs_pending(&state.sync).await
+}
+
+/// Acknowledges the pairs the person saw on the screen. They are only looked up in a fresh list; it deletes nothing and does not adopt
+/// the newer key.
+#[tauri::command]
+pub async fn arca_epochs_acknowledge(state: State<'_, AppState>, seen: Vec<PendingEpochPayload>) -> Result<(), String> {
+    epochs_acknowledge(&state.sync, &seen).await
+}
+
 /// What the last automatic cycle did, and whether the loop is stopped. The screen asks when it opens and again at each
 /// `arca-loop-report` (an event with no data, emitted after every round of the loop).
 #[tauri::command]
@@ -584,6 +657,7 @@ pub async fn arca_sync_allow_empty(state: State<'_, AppState>, hub_id: String, c
 #[cfg(test)]
 mod tests {
     use super::*;
+    use arca_core::object::{ObjectId, ObjectKind};
     use std::path::PathBuf;
     use warden_sync::arca_sync::SkippedLogin;
     use warden_sync::manifest::{save_manifest, SyncManifest};
@@ -1172,5 +1246,129 @@ mod tests {
             r#"{"snapshotCreated":false,"pulled":0,"merges":0,"conflicts":0,"filesChanged":0,"pushed":0,"secretLosersSaved":1,"secretIgnored":2,"secretSkipped":[{"path":"notes.txt","reason":"not accepted by this device"}],"recoveredKept":3,"secretFolderMissing":true,"vaultEmptied":true,"secretEmptied":true}"#
         );
         assert_eq!(serde_json::to_string(&Enabled { needs_reload: false }).unwrap(), r#"{"needsReload":false}"#);
+    }
+
+    // ---------- the newer key epochs that stop the vault ----------
+
+    fn pending(epoch: u32, id: &str) -> PendingEpochPayload {
+        PendingEpochPayload { epoch, id: format!("manifest/{id:0>64}") }
+    }
+
+    #[test]
+    fn only_the_pairs_the_person_saw_and_that_are_still_pending_are_acknowledged() {
+        let fresh = [pending(1, "a"), pending(1, "b"), pending(2, "c")];
+        assert_eq!(positions_seen(&fresh, &[pending(1, "b")]), vec![1], "the one that was shown");
+        assert_eq!(positions_seen(&fresh, &[pending(2, "c"), pending(1, "a")]), vec![0, 2], "in the order of the fresh list, each once");
+        assert_eq!(positions_seen(&fresh, &[pending(1, "b"), pending(1, "b")]), vec![1], "a pair repeated is still one");
+    }
+
+    #[test]
+    fn a_pair_that_is_not_in_the_fresh_list_is_never_acknowledged() {
+        let fresh = [pending(1, "a")];
+        assert_eq!(positions_seen(&fresh, &[]), Vec::<usize>::new(), "nothing seen, nothing acknowledged");
+        assert_eq!(positions_seen(&fresh, &[pending(1, "z")]), Vec::<usize>::new(), "the epoch alone is not enough: another id");
+        assert_eq!(positions_seen(&fresh, &[pending(2, "a")]), Vec::<usize>::new(), "the id alone is not enough: another epoch");
+        assert_eq!(positions_seen(&[], &[pending(1, "a")]), Vec::<usize>::new(), "it went away since the person looked");
+        let garbage = PendingEpochPayload { epoch: 1, id: "../manifest/a".into() };
+        assert_eq!(positions_seen(&fresh, &[garbage]), Vec::<usize>::new(), "an id that is not one of the listed is just not found");
+    }
+
+    #[tokio::test]
+    async fn with_the_mode_off_nothing_is_pending_and_it_is_not_an_error() {
+        let keyed = device_with_key("epochs-off");
+        assert_eq!(epochs_pending(&keyed.engine).await, Ok(Vec::new()));
+    }
+
+    #[tokio::test]
+    async fn a_healthy_vault_in_arca_mode_has_nothing_pending() {
+        let keyed = device_with_key("epochs-healthy");
+        enable(&keyed.engine, false, false, 1).await.unwrap();
+        assert_eq!(epochs_pending(&keyed.engine).await, Ok(Vec::new()));
+    }
+
+    #[tokio::test]
+    async fn acknowledging_with_the_mode_off_says_so_instead_of_pretending() {
+        let keyed = device_with_key("epochs-ack-off");
+        let error = epochs_acknowledge(&keyed.engine, &[pending(1, "a")]).await.unwrap_err();
+        assert!(error.contains("not in arca mode"), "{error}");
+    }
+
+    #[tokio::test]
+    async fn acknowledging_what_is_no_longer_pending_is_not_an_error() {
+        let keyed = device_with_key("epochs-ack-gone");
+        enable(&keyed.engine, false, false, 1).await.unwrap();
+        assert_eq!(epochs_acknowledge(&keyed.engine, &[pending(1, "a")]).await, Ok(()));
+        assert_eq!(epochs_acknowledge(&keyed.engine, &[]).await, Ok(()));
+    }
+
+    /// An engine with a fixed list of pending epochs that remembers what it was told to acknowledge (`None` until it was asked).
+    struct FakeEngine {
+        fresh: Vec<PendingEpoch>,
+        acknowledged: Mutex<Option<Vec<PendingEpoch>>>,
+    }
+
+    impl FakeEngine {
+        fn with(fresh: Vec<PendingEpoch>) -> Self {
+            Self { fresh, acknowledged: Mutex::new(None) }
+        }
+        fn told(&self) -> Option<Vec<PendingEpoch>> {
+            self.acknowledged.lock().unwrap().clone()
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl EpochSource for FakeEngine {
+        async fn pending(&self) -> Result<Vec<PendingEpoch>, String> {
+            Ok(self.fresh.clone())
+        }
+        async fn acknowledge(&self, seen: &[PendingEpoch]) -> Result<(), String> {
+            *self.acknowledged.lock().unwrap() = Some(seen.to_vec());
+            Ok(())
+        }
+    }
+
+    fn manifest(epoch: u32, content: &str) -> PendingEpoch {
+        PendingEpoch { epoch, id: ObjectId::of(ObjectKind::Manifest, content.as_bytes()) }
+    }
+
+    #[tokio::test]
+    async fn only_the_pair_the_person_saw_reaches_the_engine_not_the_forged_one_of_the_same_epoch() {
+        let (real, forged, newer) = (manifest(1, "the real rotation"), manifest(1, "forged with the old key"), manifest(2, "a later one"));
+        let engine = FakeEngine::with(vec![real, forged, newer]);
+        acknowledge_seen(&engine, &[PendingEpochPayload::from(&real)]).await.unwrap();
+        assert_eq!(engine.told(), Some(vec![real]), "the forged object and the later epoch stay pending");
+    }
+
+    #[tokio::test]
+    async fn what_appeared_after_the_person_looked_is_not_acknowledged() {
+        let (shown, appeared_later) = (manifest(1, "what the screen listed"), manifest(1, "showed up after"));
+        let engine = FakeEngine::with(vec![shown, appeared_later]);
+        let gone = PendingEpochPayload::from(&manifest(1, "was listed but went away"));
+        acknowledge_seen(&engine, &[PendingEpochPayload::from(&shown), gone]).await.unwrap();
+        assert_eq!(engine.told(), Some(vec![shown]));
+    }
+
+    #[tokio::test]
+    async fn with_nothing_seen_the_engine_is_still_asked_with_an_empty_list_so_the_mode_off_is_told() {
+        let engine = FakeEngine::with(vec![manifest(1, "pending")]);
+        acknowledge_seen(&engine, &[]).await.unwrap();
+        assert_eq!(engine.told(), Some(Vec::new()));
+    }
+
+    #[test]
+    fn the_payload_carries_the_epoch_and_the_object_id_as_text() {
+        let pending = manifest(3, "some manifest");
+        let payload = PendingEpochPayload::from(&pending);
+        assert_eq!(payload, PendingEpochPayload { epoch: 3, id: pending.id.to_string() });
+        let hex = payload.id.strip_prefix("manifest/").expect("a manifest id");
+        assert!(hex.len() == 64 && hex.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b)), "{hex}");
+        assert_ne!(PendingEpochPayload::from(&manifest(3, "another manifest")).id, payload.id, "two objects, two ids");
+    }
+
+    #[test]
+    fn the_pending_epoch_reaches_the_screen_in_camel_case() {
+        assert_eq!(serde_json::to_string(&pending(1, "a")).unwrap(), format!(r#"{{"epoch":1,"id":"manifest/{:0>64}"}}"#, "a"));
+        let back: PendingEpochPayload = serde_json::from_str(&format!(r#"{{"epoch":2,"id":"manifest/{:0>64}"}}"#, "b")).unwrap();
+        assert_eq!(back, pending(2, "b"));
     }
 }
