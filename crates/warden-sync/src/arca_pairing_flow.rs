@@ -109,13 +109,22 @@ pub async fn run_offer<P: PairingPrompts>(access: &HubAccess, device_id: &str, e
     if engine.is_initialized() {
         return Err(FlowError::AlreadyHasKey);
     }
+    let received = publish_and_await_grant(access, device_id, prompts, poll, timeout).await?;
+    let typed = prompts.ask(Ask::FingerprintShownByTheOldDevice).await.ok_or(FlowError::Cancelled)?;
+    received.confirm(&typed, &access.manifests(), engine).await?;
+    Ok(())
+}
+
+/// B's waiting: publishes an offer, shows its code and polls (every `poll`, up to `timeout`) until a key arrives. Shared by `run_offer`
+/// and the key swap (`arca_key_swap`); the key it returns is not trusted until the person typed the fingerprint.
+pub(crate) async fn publish_and_await_grant<P: PairingPrompts>(access: &HubAccess, device_id: &str, prompts: &mut P, poll: Duration, timeout: Duration) -> Result<crate::arca_pairing::Received, FlowError> {
     let offer = Offer::publish(access, device_id).await?;
     prompts.show(Shown::OfferCode(offer.code()));
     let deadline = tokio::time::Instant::now() + timeout;
     let mut failures_in_a_row = 0;
-    let received = loop {
+    loop {
         match offer.receive(access).await {
-            Ok(Some(received)) => break received,
+            Ok(Some(received)) => return Ok(received),
             Ok(None) => failures_in_a_row = 0,
             // The network or the hub failing is not the end: the offer's key pair lives only here, and dropping it loses the grant.
             Err(PairingError::Hub(_)) if failures_in_a_row + 1 < MAX_FAILURES_IN_A_ROW => failures_in_a_row += 1,
@@ -127,10 +136,7 @@ pub async fn run_offer<P: PairingPrompts>(access: &HubAccess, device_id: &str, e
         if prompts.wait(poll).await == Wait::Cancelled {
             return Err(FlowError::Cancelled);
         }
-    };
-    let typed = prompts.ask(Ask::FingerprintShownByTheOldDevice).await.ok_or(FlowError::Cancelled)?;
-    received.confirm(&typed, &access.manifests(), engine).await?;
-    Ok(())
+    }
 }
 
 /// What the flow tells a window to draw. `Ask` carries no value: an interface has nothing to pre-fill the field with.

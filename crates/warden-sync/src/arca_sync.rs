@@ -16,8 +16,10 @@ use arca_core::disk::DiskStore;
 use arca_core::engine::{Engine, EngineError, MergeOutcome, Roots, Snapshot, VerifyMode};
 use arca_core::kept::KeptOriginal;
 use arca_core::losers::{LoserCopy, Skip};
-use arca_core::manifest::FileEntry;
-use arca_core::object::ObjectId;
+use arca_core::manifest::{FileEntry, Hash32};
+use arca_core::object::{ObjectId, ObjectKind};
+use arca_core::state::DeviceState;
+use arca_core::store::BlobStore;
 // What a caller needs to name the hub it syncs with, and the class it may let be emptied, so it does not need `arca-core` of its own.
 pub use arca_core::hub::{HubError, HubStore};
 pub use arca_core::engine::ForeignEpoch as PendingEpoch;
@@ -25,6 +27,7 @@ pub use arca_core::manifest::Class;
 use arca_core::replicate::ReplicateReport;
 use arca_core::scan::Skipped;
 
+use crate::arca_key_swap::KeySwapError;
 use crate::arca_mode::{
     conflicts_dir_for, folder_path_for, load_mode, load_verify_state, mode_path_for, save_mode, save_verify_state, state_path_for, store_path_for, verify_state_path_for, ArcaMode, ArcaVerifyState,
 };
@@ -300,8 +303,39 @@ impl SyncEngine {
 
     /// The last manifest this device accepted (the head of its arca state), for the head code the old device shows when it hands
     /// the new key over (`arca_key_swap`). Errors without the mode on or without a state.
-    pub async fn arca_head_id(&self) -> Result<ObjectId, crate::arca_key_swap::KeySwapError> {
-        Err(crate::arca_key_swap::KeySwapError::Failed("not implemented".into()))
+    pub async fn arca_head_id(&self) -> Result<ObjectId, KeySwapError> {
+        let failed = |error: anyhow::Error| KeySwapError::Failed(format!("{error:#}"));
+        let _one_sync_at_a_time = self.sync_lock().await.map_err(failed)?;
+        if load_mode(&mode_path_for(&self.manifest_path)).map_err(failed)?.is_none() {
+            return Err(KeySwapError::NotInArcaMode);
+        }
+        match DeviceState::load(&state_path_for(&self.manifest_path)) {
+            Ok(Some(state)) => Ok(ObjectId { kind: ObjectKind::Manifest, hash: state.last_accepted.0 }),
+            Ok(None) => Err(KeySwapError::NoKey("this device has not accepted any manifest yet".into())),
+            Err(error) => Err(failed(engine_failure(error, "reading the accepted manifest"))),
+        }
+    }
+
+    /// What a swap needs before it may write anything: the mode on and a newer key epoch pending (the sign that a rotation happened).
+    /// Caller holds the sync lock. Returns the mode and the secrets as they are now.
+    async fn swap_precondition(&self) -> Result<(ArcaMode, crate::manifest::SyncSecrets), KeySwapError> {
+        let failed = |error: anyhow::Error| KeySwapError::Failed(format!("{error:#}"));
+        let Some(mode) = load_mode(&mode_path_for(&self.manifest_path)).map_err(failed)? else {
+            return Err(KeySwapError::NotInArcaMode);
+        };
+        let secrets = self.load_secrets().map_err(failed)?;
+        let (engine, _roots) = self.arca_engine_with(secrets.clone(), mode.secret_accepted, false).map_err(failed)?;
+        let pending = engine.foreign_epochs().await.map_err(|e| failed(engine_failure(e, "listing the newer key epochs")))?;
+        if pending.is_empty() {
+            return Err(KeySwapError::NothingNewer);
+        }
+        Ok((mode, secrets))
+    }
+
+    /// `swap_precondition` under the sync lock, for the conversation to call before it publishes an offer.
+    pub(crate) async fn arca_swap_precheck(&self) -> Result<(), KeySwapError> {
+        let _one_sync_at_a_time = self.sync_lock().await.map_err(|error| KeySwapError::Failed(format!("{error:#}")))?;
+        self.swap_precondition().await.map(|_| ())
     }
 
     /// Swaps this device's key for `vault_key` at `key_epoch` (warden ADR 0002, item 4; `arca_key_swap` is the conversation that
@@ -312,9 +346,41 @@ impl SyncEngine {
     /// from the folder as it is (the base of the next merge, as `arca_enable` does); the hub is pulled; the state is seeded with
     /// `seed`; and **last** the key and the epoch are saved together. A stop before the last step leaves the old pair, and running
     /// the swap again after a cycle (which notes the newer epoch again) finishes it.
-    pub async fn arca_replace_key(&self, hub: &HubStore, vault_key: [u8; 32], key_epoch: u32, seed: ObjectId, now_ms: u64) -> Result<(), crate::arca_key_swap::KeySwapError> {
-        let _ = (hub, vault_key, key_epoch, seed, now_ms);
-        Err(crate::arca_key_swap::KeySwapError::Failed("not implemented".into()))
+    pub async fn arca_replace_key(&self, hub: &HubStore, vault_key: [u8; 32], key_epoch: u32, seed: ObjectId, now_ms: u64) -> Result<(), KeySwapError> {
+        let failed = |error: anyhow::Error| KeySwapError::Failed(format!("{error:#}"));
+        let _one_sync_at_a_time = self.sync_lock().await.map_err(failed)?;
+        let (mode, old) = self.swap_precondition().await?;
+        // The head the person confirmed has to be a manifest the hub really holds. Checked before the first write.
+        if seed.kind != ObjectKind::Manifest {
+            return Err(KeySwapError::HashMismatch);
+        }
+        match hub.get(&seed).await {
+            Ok(Some(_)) => {}
+            Ok(None) => return Err(KeySwapError::HashMismatch),
+            Err(error) => return Err(KeySwapError::Failed(format!("reading the hub: {error:?}"))),
+        }
+
+        // From here on, a stop leaves the old pair in `sync_secrets.json` (it is saved last): a cycle notes the newer epoch again
+        // and the swap can be run again.
+        let new = crate::manifest::SyncSecrets { vault_key, key_epoch, ..old };
+        let state_path = state_path_for(&self.manifest_path);
+        remove_if_there(&store_path_for(&self.manifest_path), true).map_err(failed)?;
+        remove_if_there(&state_path, false).map_err(failed)?;
+        let (engine, roots) = self.arca_engine_with(new.clone(), mode.secret_accepted, false).map_err(failed)?;
+        // The base of the next merge, as `arca_enable` makes it: the folder as it is, at the new epoch. The state does not exist yet,
+        // so this snapshot is not judged against the old history.
+        let first = match engine.snapshot(&roots, now_ms).await.map_err(|e| failed(engine_failure(e, "writing the first manifest of the new epoch")))? {
+            Snapshot::Created { id, .. } => id,
+            Snapshot::Unchanged { head, .. } => head,
+        };
+        save_folder(&folder_path_for(&self.manifest_path), &first).map_err(failed)?;
+        let pulled = engine.pull(hub).await.map_err(|e| failed(engine_failure(e, "pulling from the hub")))?;
+        ensure_complete(&pulled, "pull").map_err(failed)?;
+        drop(engine);
+        // Seeded after the pull, so the manifests the hub holds can satisfy it; a hub that hides the head leaves the device refusing
+        // (Rollback) instead of accepting an older manifest.
+        DeviceState { key_epoch, last_accepted: Hash32(seed.hash) }.save(&state_path).map_err(|e| failed(engine_failure(e, "seeding the device state")))?;
+        crate::manifest::save_secrets(&self.secrets_path, &new).map_err(failed)
     }
 
     /// What every entry point does to turn the mode on (ADR 0012, step a): needs the vault key and no Send waiting for the phone,
@@ -683,6 +749,12 @@ impl SyncEngine {
     /// there if it is not. In a normal cycle it is false, and a folder that is gone gives no root (P-36, 9f).
     fn arca_engine(&self, secret_accepted: bool, create_logins: bool) -> anyhow::Result<(Engine<DiskStore>, Roots)> {
         let secrets = self.load_secrets()?;
+        self.arca_engine_with(secrets, secret_accepted, create_logins)
+    }
+
+    /// `arca_engine` for secrets that are not (yet) the ones in the file: the key swap builds the engine of the new key before
+    /// it saves the key.
+    fn arca_engine_with(&self, secrets: crate::manifest::SyncSecrets, secret_accepted: bool, create_logins: bool) -> anyhow::Result<(Engine<DiskStore>, Roots)> {
         std::fs::create_dir_all(self.vault.root())?;
         let secret_root = if secret_accepted { self.prepare_logins_root(create_logins)? } else { None };
         let store = DiskStore::open(store_path_for(&self.manifest_path))?;
@@ -801,6 +873,17 @@ fn skipped_logins(skipped: Vec<Skipped>) -> Vec<SkippedLogin> {
 
 /// `Ok` from a replication with `manifests_withheld` is not a success: a blob could not be read, so the manifests that cite it were
 /// held back and the round is incomplete.
+/// Removes `path` (a folder when `dir`) if it is there. A link is removed as a link, never followed.
+fn remove_if_there(path: &Path, dir: bool) -> anyhow::Result<()> {
+    let is_link = std::fs::symlink_metadata(path).is_ok_and(|meta| meta.file_type().is_symlink());
+    let removed = if dir && !is_link { std::fs::remove_dir_all(path) } else { std::fs::remove_file(path) };
+    match removed {
+        Ok(()) => Ok(()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(error).with_context(|| format!("removing {}", path.display())),
+    }
+}
+
 fn ensure_complete(report: &ReplicateReport, what: &str) -> anyhow::Result<()> {
     if report.manifests_withheld {
         anyhow::bail!("the {what} was incomplete: {} corrupt, {} missing and {} unreadable objects held the manifests back", report.corrupt.len(), report.missing.len(), report.unreadable.len());
