@@ -40,8 +40,6 @@ pub enum KeySwapError {
     NoOffers,
     Cancelled,
     TimedOut,
-    /// The typed fingerprint is not the key's.
-    FingerprintMismatch,
     /// The typed head code names no manifest the hub holds.
     HashMismatch,
     Pairing(PairingError),

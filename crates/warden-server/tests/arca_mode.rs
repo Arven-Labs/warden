@@ -2142,6 +2142,9 @@ fn disk_of(device: &Device) -> Disk {
 async fn swapping_the_key_writes_the_pair_whole_wipes_the_replica_and_seeds_the_state() {
     let hub = hub().await;
     let g = rotated_group(&hub, "swap-ok").await;
+    // A file only the old replica has: the wipe is what removes it (what the hub gives back by the pull is another matter).
+    let marker = store_path_for(&g.b.manifest).join("stale-marker");
+    std::fs::write(&marker, "old replica").unwrap();
     let before = disk_of(&g.b);
     let (key, epoch, seed) = handed_over(&g.a).await;
     assert_eq!(epoch, 1, "the group rotated once");
@@ -2151,10 +2154,8 @@ async fn swapping_the_key_writes_the_pair_whole_wipes_the_replica_and_seeds_the_
     let after = disk_of(&g.b);
     assert_eq!(after.pair, (key, 1, before.pair.2.clone()), "the new key and its epoch together, and the same device id");
     assert_eq!(after.state, Some(DeviceState { key_epoch: 1, last_accepted: Hash32(seed.hash) }), "the state holds the head the person confirmed");
-    // object files carry their hash in the name (long); directories do not
-    let old_objects: Vec<&String> = before.store.iter().filter(|name| name.len() > 40).collect();
-    assert!(!old_objects.is_empty(), "the replica had objects before the swap");
-    assert!(old_objects.iter().all(|name| !after.store.contains(name)), "no object of the old replica is left");
+    assert!(before.store.iter().any(|name| name == "stale-marker"), "the marker was in the old replica");
+    assert!(!marker.exists(), "the old replica was wiped");
     assert_ne!(after.folder, before.folder, "the folder points at the first manifest of the new epoch");
     assert_eq!(g.b.engine.arca_pending_epochs().await.unwrap(), vec![], "nothing newer is pending any more");
 
@@ -2320,7 +2321,7 @@ async fn a_wrong_fingerprint_stops_the_swap_and_writes_nothing() {
 
     let (b_result, _, _) = swap_through_the_pairing(&g.a, &g.a_access, &g.b, &g.b_id, &g.b_access, &g.b_store, typed).await;
 
-    assert!(matches!(b_result, Err(KeySwapError::FingerprintMismatch)), "{b_result:?}");
+    assert!(matches!(b_result, Err(KeySwapError::Pairing(PairingError::FingerprintMismatch))), "{b_result:?}");
     assert_eq!(disk_of(&g.b), before);
 }
 
