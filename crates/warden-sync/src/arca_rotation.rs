@@ -78,8 +78,25 @@ impl PendingRotation {
     }
 
     /// Rotates the vault to this key: see the module docs and `SyncEngine::arca_rotate_to` for what is written and in which order.
-    pub async fn confirm(self, _typed_words: &[&str], _revoked_on_hub: bool, _engine: &SyncEngine, _now_ms: u64) -> Result<(), RotationError> {
-        Err(RotationError::Failed("not implemented".into()))
+    ///
+    /// Everything is checked before the first write: the declaration about the lost device's token, then the typed words (as many
+    /// as `positions()` asked for, case and surrounding spaces do not matter). After a stop half way, `from_phrase` with the same
+    /// 24 words finishes it. The caller runs a normal cycle afterwards, which is what sends the new epoch to the hub.
+    pub async fn confirm(self, typed_words: &[&str], revoked_on_hub: bool, engine: &SyncEngine, now_ms: u64) -> Result<(), RotationError> {
+        if !revoked_on_hub {
+            return Err(RotationError::NotDeclared);
+        }
+        if typed_words.len() != self.positions.len() {
+            return Err(RotationError::WordMismatch);
+        }
+        let phrase = self.phrase()?;
+        let words: Vec<&str> = phrase.words().collect();
+        for (typed, position) in typed_words.iter().zip(&self.positions) {
+            if !typed.trim().eq_ignore_ascii_case(words[*position]) {
+                return Err(RotationError::WordMismatch);
+            }
+        }
+        engine.arca_rotate_to(&self.key, now_ms).await
     }
 }
 

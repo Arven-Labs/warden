@@ -264,6 +264,40 @@ impl SyncEngine {
         Ok(())
     }
 
+    /// Rotates the vault to `new_key` (arca ADR 0018, warden ADR 0002). Called only by `PendingRotation::confirm`, which has already
+    /// checked the declaration and the words: nothing here asks the person anything.
+    ///
+    /// Under the sync lock, in this order (the person already holds the phrase of `new_key`, so a stop between two steps loses
+    /// nothing, and repeating it with the same key finishes it):
+    /// 1. `begin_epoch` on the local store with the **current** secrets: a full snapshot of the live folder at epoch + 1, and the
+    ///    arca state moves to the new epoch. It adopts a manifest of the new epoch that an earlier try already published.
+    /// 2. `arca_folder.txt` points at that manifest: the cycle keeps which manifest the folder reflects, and an old id would be read
+    ///    with a key that cannot open it.
+    /// 3. `sync_secrets.json` gets the new key and epoch in one atomic save: they are a pair.
+    pub(crate) async fn arca_rotate_to(&self, new_key: &VaultKey, now_ms: u64) -> Result<(), crate::arca_rotation::RotationError> {
+        use crate::arca_rotation::RotationError;
+        let failed = |error: anyhow::Error| RotationError::Failed(format!("{error:#}"));
+        let _one_sync_at_a_time = self.sync_lock().await.map_err(failed)?;
+        let Some(mode) = load_mode(&mode_path_for(&self.manifest_path)).map_err(failed)? else {
+            return Err(RotationError::NotInArcaMode);
+        };
+        let (engine, roots) = self.arca_engine(mode.secret_accepted, false).map_err(failed)?;
+        let (_next, snapshot) = engine
+            .begin_epoch(new_key, &roots, now_ms)
+            .await
+            .map_err(|e| failed(engine_failure(e, "starting the new key epoch")))?;
+        let published = match snapshot {
+            Snapshot::Created { id, .. } => id,
+            Snapshot::Unchanged { head, .. } => head,
+        };
+        save_folder(&folder_path_for(&self.manifest_path), &published).map_err(failed)?;
+
+        let mut secrets = self.load_secrets().map_err(failed)?;
+        secrets.vault_key = *new_key.export_bytes();
+        secrets.key_epoch = secrets.key_epoch.checked_add(1).ok_or_else(|| RotationError::Failed("there is no next key epoch".into()))?;
+        crate::manifest::save_secrets(&self.secrets_path, &secrets).map_err(failed)
+    }
+
     /// What every entry point does to turn the mode on (ADR 0012, step a): needs the vault key and no Send waiting for the phone,
     /// does the Pull through `warden-sync` first when the vault is paired on Arweave (so the first arca manifest is not made from a
     /// vault that is behind), and stops without turning it on if that Pull fails. Returns whether the Pull brought a new
