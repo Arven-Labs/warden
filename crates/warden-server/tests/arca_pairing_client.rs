@@ -160,7 +160,7 @@ async fn a_key_goes_from_one_device_to_another_when_both_codes_are_typed_right()
     // B reads it; the person types A's fingerprint on B; only then is the key stored.
     let received = offer.receive(&b).await.unwrap().expect("a grant is waiting");
     assert!(!b_device.engine.is_initialized(), "nothing is written before the fingerprint is confirmed");
-    received.confirm(&key_fingerprint(&key), &b.hub_store().unwrap(), &b_device.engine).await.unwrap();
+    received.confirm(&key_fingerprint(&key), &b.manifests(), &b_device.engine).await.unwrap();
 
     assert_eq!(b_device.engine.export_vault_key().unwrap(), key);
 }
@@ -191,7 +191,7 @@ async fn a_wrong_fingerprint_on_the_receiving_side_writes_nothing() {
     grant(&a, &listed[0], &offer.code(), &key).await.unwrap();
 
     let received = offer.receive(&b).await.unwrap().unwrap();
-    let result = received.confirm(WRONG, &b.hub_store().unwrap(), &b_device.engine).await;
+    let result = received.confirm(WRONG, &b.manifests(), &b_device.engine).await;
 
     assert!(matches!(result, Err(PairingError::FingerprintMismatch)), "{result:?}");
     assert!(!b_device.engine.is_initialized());
@@ -231,7 +231,7 @@ async fn a_key_made_up_by_a_device_that_has_none_is_caught_by_the_fingerprint() 
     let received = offer.receive(&b).await.unwrap().unwrap();
 
     // The person types what A shows: the fingerprint of the real key. It is not the forged key's.
-    let result = received.confirm(&key_fingerprint(&real_key), &b.hub_store().unwrap(), &b_device.engine).await;
+    let result = received.confirm(&key_fingerprint(&real_key), &b.manifests(), &b_device.engine).await;
     assert!(matches!(result, Err(PairingError::FingerprintMismatch)), "{result:?}");
     assert!(!b_device.engine.is_initialized());
     let _ = a;
@@ -249,7 +249,7 @@ async fn reading_with_no_grant_waiting_is_none_and_so_is_reading_twice() {
     let listed = list_offers(&a).await.unwrap();
     grant(&a, &listed[0], &offer.code(), &key).await.unwrap();
     let received = offer.receive(&b).await.unwrap().unwrap();
-    received.confirm(&key_fingerprint(&key), &b.hub_store().unwrap(), &b_device.engine).await.unwrap();
+    received.confirm(&key_fingerprint(&key), &b.manifests(), &b_device.engine).await.unwrap();
     assert!(offer.receive(&b).await.unwrap().is_none(), "a grant is read once");
 }
 
