@@ -921,4 +921,92 @@ describe("the arca mode of the vault on the desktop", () => {
       await context.close();
     }
   });
+
+  describe("the newer key epochs that stop the vault (arca ADR 0018)", () => {
+    const ON = () => ({ hasKey: true, on: true, pendingSend: false, hubId: HUB.id, loginsAccepted: true });
+    const epoch = (n, hex) => ({ epoch: n, id: `manifest/${hex.padEnd(64, "0")}` });
+    const REAL = epoch(1, "ab12cd34ef56");
+    const FORGED = epoch(1, "99aa88bb77cc");
+
+    test("with epochs pending, the screen says why syncing stopped and lists each one, in both languages", { timeout: TIMEOUT }, async () => {
+      for (const [locale, title, hint, button] of [
+        ["en-US", "Newer key found", /Syncing is stopped until you decide/, "Acknowledge and keep syncing"],
+        ["pt-BR", "Chave mais nova encontrada", /A sincronização está parada até você decidir/, "Reconhecer e continuar sincronizando"],
+      ]) {
+        const { context, page, errors } = await openSync(ON, { arca_epochs_pending: () => [REAL, FORGED] }, { locale });
+        try {
+          await page.getByRole("heading", { name: title }).waitFor();
+          await page.getByText(hint).waitFor();
+          await page.getByRole("listitem").filter({ hasText: "ab12cd34ef56" }).filter({ hasText: /1/ }).waitFor();
+          await page.getByRole("listitem").filter({ hasText: "99aa88bb77cc" }).waitFor();
+          await page.getByRole("button", { name: button, exact: true }).waitFor();
+          assert.deepEqual(errors, [], "the page raised no error");
+        } finally {
+          await context.close();
+        }
+      }
+    });
+
+    test("with nothing pending there is no block, and with the mode off the backend is not even asked", { timeout: TIMEOUT }, async () => {
+      const healthy = await openSync(ON, { arca_epochs_pending: () => [] });
+      try {
+        await healthy.page.getByRole("button", { name: "Sync now", exact: true }).waitFor();
+        assert.equal(await healthy.page.getByRole("heading", { name: "Newer key found" }).count(), 0);
+        assert.deepEqual(healthy.errors, [], "the page raised no error");
+      } finally {
+        await healthy.context.close();
+      }
+      const off = await openSync(() => ({ hasKey: true, on: false, pendingSend: false }), { arca_epochs_pending: () => [REAL] });
+      try {
+        await off.page.getByRole("button", { name: "Turn on arca mode", exact: true }).waitFor();
+        assert.equal(await off.page.getByRole("heading", { name: "Newer key found" }).count(), 0);
+        assert.equal(asked(off.calls, "arca_epochs_pending").length, 0, "mode off: nothing to ask");
+      } finally {
+        await off.context.close();
+      }
+    });
+
+    test("acknowledging takes a second click and sends exactly the pairs that were shown", { timeout: TIMEOUT }, async () => {
+      let items = [REAL, FORGED];
+      const { context, page, calls, errors } = await openSync(ON, {
+        arca_epochs_pending: () => items,
+        arca_epochs_acknowledge: () => {
+          items = [];
+        },
+      });
+      try {
+        await page.getByRole("button", { name: "Acknowledge and keep syncing", exact: true }).click();
+        await page.getByText(/Nothing is deleted/).waitFor();
+        assert.equal(asked(calls, "arca_epochs_acknowledge").length, 0, "one click acknowledges nothing");
+
+        await page.getByRole("button", { name: "Cancel", exact: true }).click();
+        assert.equal(asked(calls, "arca_epochs_acknowledge").length, 0, "cancelling acknowledges nothing");
+
+        await page.getByRole("button", { name: "Acknowledge and keep syncing", exact: true }).click();
+        await page.getByRole("button", { name: "Yes, acknowledge", exact: true }).click();
+        await page.getByText("Acknowledged. Syncing can go on.").waitFor();
+        assert.deepEqual(asked(calls, "arca_epochs_acknowledge").map((c) => c.args), [{ seen: [REAL, FORGED] }]);
+        await page.getByRole("heading", { name: "Newer key found" }).waitFor({ state: "detached" });
+        assert.deepEqual(errors, [], "the page raised no error");
+      } finally {
+        await context.close();
+      }
+    });
+
+    test("a refusal from the backend is shown and the epochs stay listed", { timeout: TIMEOUT }, async () => {
+      const { context, page, errors } = await openSync(ON, {
+        arca_epochs_pending: () => [REAL],
+        arca_epochs_acknowledge: () => Promise.reject("this vault is not in arca mode: turn it on first"),
+      });
+      try {
+        await page.getByRole("button", { name: "Acknowledge and keep syncing", exact: true }).click();
+        await page.getByRole("button", { name: "Yes, acknowledge", exact: true }).click();
+        await page.getByText(/Could not acknowledge: this vault is not in arca mode/).waitFor();
+        await page.getByRole("heading", { name: "Newer key found" }).waitFor();
+        assert.deepEqual(errors, [], "a refusal is shown, not raised");
+      } finally {
+        await context.close();
+      }
+    });
+  });
 });
