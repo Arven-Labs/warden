@@ -110,7 +110,7 @@ fn first_device(name: &str) -> (Device, [u8; 32]) {
 /// A device that got `key` (as the arca pairing would hand it over).
 fn paired_device(name: &str, key: [u8; 32]) -> Device {
     let device = device(name);
-    device.engine.adopt_vault_key(key).unwrap();
+    device.engine.adopt_vault_key(key, 0).unwrap();
     device
 }
 
@@ -1125,7 +1125,7 @@ async fn a_device_without_a_logins_folder_neither_gets_nor_loses_logins() {
 
     let c = {
         let device = device_with("c-without", false);
-        device.engine.adopt_vault_key(key).unwrap();
+        device.engine.adopt_vault_key(key, 0).unwrap();
         device
     };
     write(&c, "note.md", "from c");

@@ -425,6 +425,8 @@ mod tests {
                         (StatusCode::NO_CONTENT, String::new())
                     }),
                 )
+                // The phone looks up the key epoch before it stores the key (P-49 C1): a hub with no manifest yet means epoch 0.
+                .route("/arca/v1/objects", get(|| async { axum::Json(serde_json::json!({ "ids": [], "next": null })) }))
                 .with_state(state.clone());
             let (tx, rx) = std::sync::mpsc::channel::<SocketAddr>();
             // The bridge's own runtime does the blocking; the hub lives on a runtime of its own, on its own thread.

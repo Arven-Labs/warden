@@ -100,7 +100,7 @@ fn adopting_a_key_on_a_fresh_device_stores_it_privately_and_starts_from_nothing_
     let device = engine(&base);
     assert!(!device.is_initialized());
 
-    device.adopt_vault_key([7u8; 32]).unwrap();
+    device.adopt_vault_key([7u8; 32], 0).unwrap();
 
     assert!(device.is_initialized());
     assert_eq!(device.export_vault_key().unwrap(), [7u8; 32]);
@@ -122,7 +122,7 @@ fn adopting_a_key_on_a_device_that_has_one_fails_and_leaves_it() {
     device.init_fresh().unwrap();
     let before = device.export_vault_key().unwrap();
 
-    assert!(device.adopt_vault_key([9u8; 32]).is_err());
+    assert!(device.adopt_vault_key([9u8; 32], 0).is_err());
     assert_eq!(device.export_vault_key().unwrap(), before);
 }
 
