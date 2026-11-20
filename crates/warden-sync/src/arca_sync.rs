@@ -264,6 +264,40 @@ impl SyncEngine {
         Ok(())
     }
 
+    /// Rotates the vault to `new_key` (arca ADR 0018, warden ADR 0002). Called only by `PendingRotation::confirm`, which has already
+    /// checked the declaration and the words: nothing here asks the person anything.
+    ///
+    /// Under the sync lock, in this order (the person already holds the phrase of `new_key`, so a stop between two steps loses
+    /// nothing, and repeating it with the same key finishes it):
+    /// 1. `begin_epoch` on the local store with the **current** secrets: a full snapshot of the live folder at epoch + 1, and the
+    ///    arca state moves to the new epoch. It adopts a manifest of the new epoch that an earlier try already published.
+    /// 2. `arca_folder.txt` points at that manifest: the cycle keeps which manifest the folder reflects, and an old id would be read
+    ///    with a key that cannot open it.
+    /// 3. `sync_secrets.json` gets the new key and epoch in one atomic save: they are a pair.
+    pub(crate) async fn arca_rotate_to(&self, new_key: &VaultKey, now_ms: u64) -> Result<(), crate::arca_rotation::RotationError> {
+        use crate::arca_rotation::RotationError;
+        let failed = |error: anyhow::Error| RotationError::Failed(format!("{error:#}"));
+        let _one_sync_at_a_time = self.sync_lock().await.map_err(failed)?;
+        let Some(mode) = load_mode(&mode_path_for(&self.manifest_path)).map_err(failed)? else {
+            return Err(RotationError::NotInArcaMode);
+        };
+        let (engine, roots) = self.arca_engine(mode.secret_accepted, false).map_err(failed)?;
+        let (_next, snapshot) = engine
+            .begin_epoch(new_key, &roots, now_ms)
+            .await
+            .map_err(|e| failed(engine_failure(e, "starting the new key epoch")))?;
+        let published = match snapshot {
+            Snapshot::Created { id, .. } => id,
+            Snapshot::Unchanged { head, .. } => head,
+        };
+        save_folder(&folder_path_for(&self.manifest_path), &published).map_err(failed)?;
+
+        let mut secrets = self.load_secrets().map_err(failed)?;
+        secrets.vault_key = *new_key.export_bytes();
+        secrets.key_epoch = secrets.key_epoch.checked_add(1).ok_or_else(|| RotationError::Failed("there is no next key epoch".into()))?;
+        crate::manifest::save_secrets(&self.secrets_path, &secrets).map_err(failed)
+    }
+
     /// What every entry point does to turn the mode on (ADR 0012, step a): needs the vault key and no Send waiting for the phone,
     /// does the Pull through `warden-sync` first when the vault is paired on Arweave (so the first arca manifest is not made from a
     /// vault that is behind), and stops without turning it on if that Pull fails. Returns whether the Pull brought a new
@@ -911,6 +945,238 @@ mod tests {
         std::fs::write(device.base.join("vault/note.md"), b"hello").unwrap();
         device.engine.arca_enable_after_pull(false, false, 7).await.unwrap();
         assert_eq!(epochs_in_store(&device).await, vec![0]);
+    }
+
+    // ---------- rotating the key (warden ADR 0002, arca ADR 0018) ----------
+
+    use crate::arca_rotation::{PendingRotation, RotationError};
+
+    async fn device_in_arca_mode(name: &str) -> Device {
+        let device = device_with_key(name);
+        std::fs::write(device.base.join("vault/note.md"), b"hello").unwrap();
+        device.engine.arca_enable_after_pull(false, false, 7).await.unwrap();
+        device
+    }
+
+    fn secrets_path_of(device: &Device) -> PathBuf {
+        device.base.join("sync_secrets.json")
+    }
+
+    fn secrets_of(device: &Device) -> crate::manifest::SyncSecrets {
+        crate::manifest::load_secrets(&secrets_path_of(device)).unwrap().unwrap()
+    }
+
+    /// `(epoch, id)` of every manifest in the arca's own store, ascending.
+    async fn manifests_in_store(device: &Device) -> Vec<(u32, ObjectId)> {
+        use arca_core::envelope::Header;
+        use arca_core::object::ObjectKind;
+        use arca_core::store::BlobStore;
+        let store = DiskStore::open(store_path_for(&device.base.join("sync_manifest.json"))).unwrap();
+        let mut found = Vec::new();
+        for id in store.list(ObjectKind::Manifest).await.unwrap() {
+            let bytes = store.get(&id).await.unwrap().expect("a listed manifest is there");
+            found.push((Header::decode(&bytes).unwrap().0.key_epoch, id));
+        }
+        found.sort_by_key(|(epoch, id)| (*epoch, id.hash));
+        found
+    }
+
+    fn epochs_of(found: &[(u32, ObjectId)]) -> Vec<u32> {
+        found.iter().map(|(epoch, _)| *epoch).collect()
+    }
+
+    /// The words the person is asked to type back, read off the phrase.
+    fn asked_words(pending: &PendingRotation) -> Vec<String> {
+        let phrase = pending.phrase().unwrap();
+        let words: Vec<&str> = phrase.words().collect();
+        pending.positions().iter().map(|position| words[position - 1].to_string()).collect()
+    }
+
+    async fn confirm_with(pending: PendingRotation, device: &Device, words: &[String], revoked: bool) -> Result<(), RotationError> {
+        let refs: Vec<&str> = words.iter().map(String::as_str).collect();
+        pending.confirm(&refs, revoked, &device.engine, 100).await
+    }
+
+    async fn rotate(device: &Device) -> Result<(), RotationError> {
+        let pending = PendingRotation::generate().unwrap();
+        let words = asked_words(&pending);
+        confirm_with(pending, device, &words, true).await
+    }
+
+    #[tokio::test]
+    async fn a_confirmed_rotation_saves_the_new_key_and_epoch_and_publishes_the_new_manifest() {
+        let device = device_in_arca_mode("rotate-ok").await;
+        let old = secrets_of(&device);
+        rotate(&device).await.unwrap();
+
+        let new = secrets_of(&device);
+        assert_ne!(new.vault_key, old.vault_key);
+        assert_eq!(new.key_epoch, 1);
+        assert_eq!(new.device_id, old.device_id);
+        let found = manifests_in_store(&device).await;
+        assert_eq!(epochs_of(&found), vec![0, 1]);
+        // the folder reflects the new manifest, so the next cycle does not read the old id with the new key
+        let folder = std::fs::read_to_string(device.base.join("arca_folder.txt")).unwrap();
+        assert_eq!(folder.trim(), found[1].1.to_string());
+    }
+
+    #[tokio::test]
+    async fn after_a_rotation_a_local_snapshot_has_nothing_to_write() {
+        let device = device_in_arca_mode("rotate-unchanged").await;
+        rotate(&device).await.unwrap();
+        let (engine, roots) = device.engine.arca_engine(false, false).unwrap();
+        let snapshot = engine.snapshot(&roots, 200).await.unwrap();
+        assert!(matches!(snapshot, Snapshot::Unchanged { .. }), "a snapshot right after a rotation wrote a manifest");
+    }
+
+    #[tokio::test]
+    async fn the_old_key_does_not_follow_a_rotation() {
+        let device = device_in_arca_mode("rotate-old-key").await;
+        let old = secrets_of(&device);
+        rotate(&device).await.unwrap();
+        let store = DiskStore::open(store_path_for(&device.base.join("sync_manifest.json"))).unwrap();
+        let keys = EpochKeys::derive(&VaultKey::from_bytes(old.vault_key), 0);
+        let lost = Engine::new(store, keys, "the-lost-device".to_string()).unwrap();
+        assert!(matches!(lost.heads().await, Err(EngineError::NeedsNewKey { have: 0, found: 1 })));
+    }
+
+    #[tokio::test]
+    async fn a_wrong_word_writes_nothing() {
+        let device = device_in_arca_mode("rotate-wrong-word").await;
+        let before = std::fs::read(secrets_path_of(&device)).unwrap();
+        let pending = PendingRotation::generate().unwrap();
+        let mut words = asked_words(&pending);
+        words[0] = if words[0] == "zoo" { "abandon".into() } else { "zoo".into() };
+        assert_eq!(confirm_with(pending, &device, &words, true).await, Err(RotationError::WordMismatch));
+        assert_eq!(std::fs::read(secrets_path_of(&device)).unwrap(), before);
+        assert_eq!(epochs_of(&manifests_in_store(&device).await), vec![0]);
+    }
+
+    #[tokio::test]
+    async fn fewer_words_than_asked_writes_nothing() {
+        let device = device_in_arca_mode("rotate-few-words").await;
+        let before = std::fs::read(secrets_path_of(&device)).unwrap();
+        let pending = PendingRotation::generate().unwrap();
+        assert_eq!(confirm_with(pending, &device, &[], true).await, Err(RotationError::WordMismatch));
+        assert_eq!(std::fs::read(secrets_path_of(&device)).unwrap(), before);
+        assert_eq!(epochs_of(&manifests_in_store(&device).await), vec![0]);
+    }
+
+    #[tokio::test]
+    async fn without_saying_the_token_was_revoked_nothing_is_written() {
+        let device = device_in_arca_mode("rotate-not-declared").await;
+        let before = std::fs::read(secrets_path_of(&device)).unwrap();
+        let pending = PendingRotation::generate().unwrap();
+        let words = asked_words(&pending);
+        assert_eq!(confirm_with(pending, &device, &words, false).await, Err(RotationError::NotDeclared));
+        assert_eq!(std::fs::read(secrets_path_of(&device)).unwrap(), before);
+        assert_eq!(epochs_of(&manifests_in_store(&device).await), vec![0]);
+    }
+
+    #[tokio::test]
+    async fn a_vault_not_in_arca_mode_is_not_rotated() {
+        let device = device_with_key("rotate-mode-off");
+        let before = std::fs::read(secrets_path_of(&device)).unwrap();
+        let pending = PendingRotation::generate().unwrap();
+        let words = asked_words(&pending);
+        assert_eq!(confirm_with(pending, &device, &words, true).await, Err(RotationError::NotInArcaMode));
+        assert_eq!(std::fs::read(secrets_path_of(&device)).unwrap(), before);
+    }
+
+    #[tokio::test]
+    async fn two_rotations_in_a_row_reach_epoch_two() {
+        let device = device_in_arca_mode("rotate-twice").await;
+        rotate(&device).await.unwrap();
+        rotate(&device).await.unwrap();
+        assert_eq!(secrets_of(&device).key_epoch, 2);
+        assert_eq!(epochs_of(&manifests_in_store(&device).await), vec![0, 1, 2]);
+    }
+
+    #[tokio::test]
+    async fn the_phrase_shown_is_the_phrase_of_the_key_that_was_saved() {
+        let device = device_in_arca_mode("rotate-phrase").await;
+        let pending = PendingRotation::generate().unwrap();
+        let shown = pending.phrase().unwrap().expose().to_string();
+        let words = asked_words(&pending);
+        confirm_with(pending, &device, &words, true).await.unwrap();
+        let saved = VaultKey::from_bytes(secrets_of(&device).vault_key);
+        assert_eq!(saved.to_phrase().unwrap().expose(), shown);
+    }
+
+    #[tokio::test]
+    async fn a_stop_between_publishing_and_saving_keeps_the_old_key_and_epoch() {
+        let device = device_in_arca_mode("rotate-stop").await;
+        let old = secrets_of(&device);
+        // A folder where the temporary of the secrets file has to go makes the save fail, after the new manifest is out.
+        std::fs::create_dir(device.base.join("sync_secrets.tmp")).unwrap();
+        assert!(matches!(rotate(&device).await, Err(RotationError::Failed(_))));
+        let after = secrets_of(&device);
+        assert_eq!((after.vault_key, after.key_epoch), (old.vault_key, 0));
+        assert_eq!(epochs_of(&manifests_in_store(&device).await), vec![0, 1]);
+    }
+
+    #[tokio::test]
+    async fn resuming_with_the_same_phrase_after_a_stop_finishes_with_one_new_manifest() {
+        let device = device_in_arca_mode("rotate-resume").await;
+        let pending = PendingRotation::generate().unwrap();
+        let shown = pending.phrase().unwrap().expose().to_string();
+        let words = asked_words(&pending);
+        std::fs::create_dir(device.base.join("sync_secrets.tmp")).unwrap();
+        assert!(confirm_with(pending, &device, &words, true).await.is_err());
+        std::fs::remove_dir(device.base.join("sync_secrets.tmp")).unwrap();
+
+        let resumed = PendingRotation::from_phrase(&shown).unwrap();
+        assert!(resumed.positions().is_empty());
+        confirm_with(resumed, &device, &[], true).await.unwrap();
+
+        let saved = secrets_of(&device);
+        assert_eq!(saved.key_epoch, 1);
+        assert_eq!(VaultKey::from_bytes(saved.vault_key).to_phrase().unwrap().expose(), shown);
+        assert_eq!(epochs_of(&manifests_in_store(&device).await), vec![0, 1], "the manifest already published is adopted, not made twice");
+    }
+
+    #[tokio::test]
+    async fn another_key_after_a_stop_is_refused_and_does_not_publish_over_the_first() {
+        let device = device_in_arca_mode("rotate-other-key").await;
+        let old = secrets_of(&device);
+        std::fs::create_dir(device.base.join("sync_secrets.tmp")).unwrap();
+        assert!(rotate(&device).await.is_err());
+        std::fs::remove_dir(device.base.join("sync_secrets.tmp")).unwrap();
+
+        assert!(matches!(rotate(&device).await, Err(RotationError::Failed(_))));
+        let after = secrets_of(&device);
+        assert_eq!((after.vault_key, after.key_epoch), (old.vault_key, 0));
+        assert_eq!(epochs_of(&manifests_in_store(&device).await), vec![0, 1]);
+    }
+
+    #[tokio::test]
+    async fn rotating_to_the_key_already_in_use_is_refused() {
+        let device = device_in_arca_mode("rotate-same-key").await;
+        let old = secrets_of(&device);
+        let phrase = VaultKey::from_bytes(old.vault_key).to_phrase().unwrap();
+        let same = PendingRotation::from_phrase(phrase.expose()).unwrap();
+        assert!(matches!(confirm_with(same, &device, &[], true).await, Err(RotationError::Failed(_))));
+        let after = secrets_of(&device);
+        assert_eq!((after.vault_key, after.key_epoch), (old.vault_key, 0));
+        assert_eq!(epochs_of(&manifests_in_store(&device).await), vec![0]);
+    }
+
+    #[test]
+    fn the_words_asked_are_three_distinct_positions_in_order_and_change_between_rotations() {
+        let mut seen = std::collections::BTreeSet::new();
+        for _ in 0..40 {
+            let positions = PendingRotation::generate().unwrap().positions();
+            assert_eq!(positions.len(), 3);
+            assert!(positions.windows(2).all(|pair| pair[0] < pair[1]), "{positions:?}");
+            assert!(positions.iter().all(|p| (1..=24).contains(p)), "{positions:?}");
+            seen.insert(positions);
+        }
+        assert!(seen.len() > 1, "the positions are drawn for each rotation, not fixed");
+    }
+
+    #[test]
+    fn a_phrase_that_is_not_24_valid_words_is_refused() {
+        assert_eq!(PendingRotation::from_phrase("these are not twenty four words").unwrap_err(), RotationError::BadPhrase);
     }
 
     fn pair_on_arweave(device: &Device) {
