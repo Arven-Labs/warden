@@ -129,7 +129,7 @@ pub async fn run_offer<P: PairingPrompts>(access: &HubAccess, device_id: &str, e
         }
     };
     let typed = prompts.ask(Ask::FingerprintShownByTheOldDevice).await.ok_or(FlowError::Cancelled)?;
-    received.confirm(&typed, engine)?;
+    received.confirm(&typed, &access.hub_store()?, engine).await?;
     Ok(())
 }
 

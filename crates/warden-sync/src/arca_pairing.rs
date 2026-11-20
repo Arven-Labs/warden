@@ -81,6 +81,7 @@ impl std::error::Error for PairingError {}
 pub struct HubAccess {
     base: Url,
     token: String,
+    allow_insecure: bool,
 }
 
 impl HubAccess {
@@ -107,7 +108,14 @@ impl HubAccess {
         if plain && !allow_insecure && !is_this_computer(&parsed) {
             return Err(PairingError::InsecureUrl);
         }
-        Ok(Self { base: parsed, token: device_token.to_string() })
+        Ok(Self { base: parsed, token: device_token.to_string(), allow_insecure })
+    }
+
+    /// The arca's client for the same hub and token, under the same rule about plain `http`.
+    pub fn hub_store(&self) -> Result<arca_core::hub::HubStore, PairingError> {
+        let base = self.base.as_str().trim_end_matches('/');
+        let store = if self.allow_insecure { arca_core::hub::HubStore::allow_insecure_http(base, &self.token) } else { arca_core::hub::HubStore::new(base, &self.token) };
+        store.map_err(|e| PairingError::Hub(e.to_string()))
     }
 
     /// `https://hub:port/arca/v1/pairing/<tail...>`, each part percent-encoded as one path segment.
@@ -295,11 +303,18 @@ pub struct Received {
 impl Received {
     /// Adopts the key on `engine` if `typed_fingerprint` (what the person typed after reading it on A) is this key's
     /// `key_fingerprint`; otherwise `FingerprintMismatch` and nothing is written.
-    pub fn confirm(self, typed_fingerprint: &str, engine: &SyncEngine) -> Result<(), PairingError> {
+    pub async fn confirm<S: arca_core::store::BlobStore>(self, typed_fingerprint: &str, store: &S, engine: &SyncEngine) -> Result<(), PairingError> {
         if normalized(typed_fingerprint) != normalized(&key_fingerprint(&self.key)) {
             return Err(PairingError::FingerprintMismatch);
         }
-        engine.adopt_vault_key(self.key).map_err(|e| PairingError::Adopt(e.to_string()))
+        let _ = store; // esboço: ainda não descobre a época
+        engine.adopt_vault_key(self.key, 0).map_err(|e| PairingError::Adopt(e.to_string()))
+    }
+
+    /// A `Received` for tests of what `confirm` does with the key.
+    #[cfg(test)]
+    pub(crate) fn from_key_for_test(key: [u8; 32]) -> Self {
+        Self { key }
     }
 }
 

@@ -1029,6 +1029,114 @@ mod tests {
         assert!(matches!(snapshot, Snapshot::Unchanged { .. }), "a snapshot right after a rotation wrote a manifest");
     }
 
+    // ---------- pairing into a vault that was already rotated (P-49 C1: the epoch is found, not assumed) ----------
+
+    use crate::arca_pairing::{key_fingerprint, PairingError, Received};
+    use arca_core::object::ObjectKind;
+    use arca_core::store::{BlobStore, Capabilities, StoreError};
+    use std::future::{ready, Future};
+
+    /// The arca's own store of `device`, as a hub would serve it to a device that pairs.
+    fn store_of(device: &Device) -> DiskStore {
+        DiskStore::open(store_path_for(&device.base.join("sync_manifest.json"))).unwrap()
+    }
+
+    /// What B does after A granted `key` and the person typed A's fingerprint.
+    async fn pair_b_with<S: BlobStore>(b: &Device, key: [u8; 32], store: &S) -> Result<(), PairingError> {
+        Received::from_key_for_test(key).confirm(&key_fingerprint(&key), store, &b.engine).await
+    }
+
+    #[tokio::test]
+    async fn pairing_into_a_rotated_vault_saves_the_epoch_found_in_the_store() {
+        let a = device_in_arca_mode("pair-rotated-a").await;
+        rotate(&a).await.unwrap();
+        let key = secrets_of(&a).vault_key;
+        let b = device("pair-rotated-b");
+
+        pair_b_with(&b, key, &store_of(&a)).await.unwrap();
+
+        let saved = secrets_of(&b);
+        assert_eq!((saved.vault_key, saved.key_epoch), (key, 1));
+    }
+
+    #[tokio::test]
+    async fn pairing_into_a_vault_that_never_rotated_saves_epoch_zero() {
+        let a = device_in_arca_mode("pair-plain-a").await;
+        let key = secrets_of(&a).vault_key;
+        let b = device("pair-plain-b");
+
+        pair_b_with(&b, key, &store_of(&a)).await.unwrap();
+
+        assert_eq!(secrets_of(&b).key_epoch, 0);
+    }
+
+    #[tokio::test]
+    async fn pairing_into_a_hub_with_no_manifest_yet_saves_epoch_zero() {
+        let b = device("pair-empty-b");
+        let empty = DiskStore::open(b.base.join("empty-store")).unwrap();
+
+        pair_b_with(&b, [5u8; 32], &empty).await.unwrap();
+
+        assert_eq!(secrets_of(&b).key_epoch, 0);
+    }
+
+    #[tokio::test]
+    async fn a_key_that_opens_no_manifest_of_the_store_is_refused_and_nothing_is_written() {
+        let a = device_in_arca_mode("pair-wrong-a").await;
+        let b = device("pair-wrong-b");
+
+        let result = pair_b_with(&b, [9u8; 32], &store_of(&a)).await;
+
+        assert!(matches!(result, Err(PairingError::Adopt(_))), "{result:?}");
+        assert!(!b.engine.is_initialized());
+        assert!(!b.base.join("sync_secrets.json").exists(), "no key file was created");
+    }
+
+    /// A store that lists a manifest and cannot read it: the hub went away in the middle of the pairing.
+    struct HubDown;
+
+    impl BlobStore for HubDown {
+        fn put(&self, _: &ObjectId, _: &[u8]) -> impl Future<Output = Result<(), StoreError>> + Send {
+            ready(Err(StoreError::Unavailable(std::io::ErrorKind::TimedOut)))
+        }
+        fn get(&self, _: &ObjectId) -> impl Future<Output = Result<Option<Vec<u8>>, StoreError>> + Send {
+            ready(Err(StoreError::Unavailable(std::io::ErrorKind::TimedOut)))
+        }
+        fn has(&self, _: &ObjectId) -> impl Future<Output = Result<bool, StoreError>> + Send {
+            ready(Err(StoreError::Unavailable(std::io::ErrorKind::TimedOut)))
+        }
+        fn list(&self, _: ObjectKind) -> impl Future<Output = Result<Vec<ObjectId>, StoreError>> + Send {
+            ready(Ok(vec![ObjectId::of(ObjectKind::Manifest, b"x")]))
+        }
+        fn delete(&self, _: &ObjectId) -> impl Future<Output = Result<(), StoreError>> + Send {
+            ready(Err(StoreError::Unavailable(std::io::ErrorKind::TimedOut)))
+        }
+        fn capabilities(&self) -> Capabilities {
+            Capabilities { consistent_list: false }
+        }
+    }
+
+    #[tokio::test]
+    async fn a_hub_that_is_down_while_the_epoch_is_looked_up_is_an_error_and_nothing_is_written() {
+        let b = device("pair-down-b");
+
+        let result = pair_b_with(&b, [5u8; 32], &HubDown).await;
+
+        assert!(matches!(result, Err(PairingError::Hub(_))), "{result:?}");
+        assert!(!b.engine.is_initialized());
+    }
+
+    #[tokio::test]
+    async fn a_wrong_fingerprint_is_refused_before_the_store_is_asked_anything() {
+        let b = device("pair-print-b");
+
+        // `HubDown` lists a manifest and then fails: if the store were asked, the answer would be `Hub`, not `FingerprintMismatch`.
+        let result = Received::from_key_for_test([5u8; 32]).confirm("not the fingerprint", &HubDown, &b.engine).await;
+
+        assert!(matches!(result, Err(PairingError::FingerprintMismatch)), "{result:?}");
+        assert!(!b.engine.is_initialized());
+    }
+
     #[tokio::test]
     async fn the_old_key_does_not_follow_a_rotation() {
         let device = device_in_arca_mode("rotate-old-key").await;

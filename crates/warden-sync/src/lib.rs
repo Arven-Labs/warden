@@ -227,12 +227,13 @@ impl SyncEngine {
     /// over. Errors if this device already has one — pairing an already-initialized device would
     /// silently discard its existing key and orphan whatever it had already pushed.
     pub async fn pairing_join(&self, code: &str) -> anyhow::Result<()> {
-        self.adopt_joined_material(pairing::join(code).await?)
+        // The LAN pairing is the Arweave/git motors', which know no key epoch.
+        self.adopt_joined_material(pairing::join(code).await?, 0)
     }
 
     /// Same as `pairing_join`, but sweeps only `hosts` — used by tests.
     pub async fn pairing_join_with_hosts(&self, code: &str, hosts: Vec<Ipv4Addr>) -> anyhow::Result<()> {
-        self.adopt_joined_material(pairing::join_with_hosts(code, hosts).await?)
+        self.adopt_joined_material(pairing::join_with_hosts(code, hosts).await?, 0)
     }
 
     /// Waits out any other process syncing this vault (`lock`).
@@ -256,19 +257,19 @@ impl SyncEngine {
     ///
     /// **Never call this with a key that came over the network.** It does no check of its own; the arca pairing goes through
     /// `arca_pairing::Received::confirm`, which only calls it after the person typed the key's fingerprint.
-    pub fn adopt_vault_key(&self, vault_key: [u8; 32]) -> anyhow::Result<()> {
+    ///
+    /// `key_epoch` is the epoch the key is saved with (warden ADR 0002): the caller finds it with
+    /// `arca_core::discover::discover_epoch`, or passes 0 for a vault that never rotated.
+    pub fn adopt_vault_key(&self, vault_key: [u8; 32], key_epoch: u32) -> anyhow::Result<()> {
         // No `owner_address` and no `last_tx_id`: nothing has been fetched or applied here yet.
-        self.adopt_joined_material(pairing::JoinedKeyMaterial { vault_key, owner_address: None })
+        self.adopt_joined_material(pairing::JoinedKeyMaterial { vault_key, owner_address: None }, key_epoch)
     }
 
-    fn adopt_joined_material(&self, material: pairing::JoinedKeyMaterial) -> anyhow::Result<()> {
+    fn adopt_joined_material(&self, material: pairing::JoinedKeyMaterial, key_epoch: u32) -> anyhow::Result<()> {
         if self.is_initialized() {
             anyhow::bail!("this device already has sync set up — pairing now would overwrite the existing key");
         }
-        // Epoch 0 is right only while no screen calls `arca_rotation::PendingRotation` (warden ADR 0002): a device that pairs
-        // into a vault that was already rotated would get epoch 0 and open nothing. Whoever wires the rotation to a screen must
-        // find the epoch here with `arca_core::discover::discover_epoch`, in the same change.
-        let secrets = manifest::SyncSecrets { version: 1, device_id: manifest::generate_device_id(), vault_key: material.vault_key, key_epoch: 0 };
+        let secrets = manifest::SyncSecrets { version: 1, device_id: manifest::generate_device_id(), vault_key: material.vault_key, key_epoch };
         manifest::save_secrets(&self.secrets_path, &secrets)?;
 
         let mut new_manifest = manifest::SyncManifest { version: 1, ..Default::default() };
