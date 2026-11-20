@@ -446,7 +446,7 @@ mod tests {
     /// vault/manifest/local-repo paths — simulates two separate devices talking to the same
     /// remote, the way `fake_pairing_peer.rs`-style tests simulate two ends of a protocol.
     fn paired_engine(remote: &Path, suffix: &str, vault_key: [u8; 32], device_id: &str) -> GitSyncEngine {
-        let secrets = SyncSecrets { version: 1, device_id: device_id.to_string(), vault_key };
+        let secrets = SyncSecrets { version: 1, device_id: device_id.to_string(), vault_key, key_epoch: 0 };
         let secrets_path = temp_dir(&format!("secrets-{suffix}"));
         manifest::save_secrets(&secrets_path, &secrets).unwrap();
         GitSyncEngine::new(

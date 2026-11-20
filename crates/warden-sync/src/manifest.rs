@@ -18,6 +18,15 @@ pub struct SyncSecrets {
     pub device_id: String,
     #[serde(with = "base64_32")]
     pub vault_key: [u8; 32],
+    /// The key epoch the arca derives its subkeys for (arca ADR 0018, warden ADR 0002). It is a pair with `vault_key`: both change in
+    /// the same atomic save. A file written before it existed reads as 0, and 0 is not written: the file of every install that has
+    /// never rotated stays exactly as it was (and an older build, which ignores unknown fields, reads it as before).
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub key_epoch: u32,
+}
+
+fn is_zero(epoch: &u32) -> bool {
+    *epoch == 0
 }
 
 /// Non-secret sync tracking state, rewritten after every successful push/pull.
@@ -70,7 +79,7 @@ pub fn generate_device_id() -> String {
 pub fn generate_secrets() -> SyncSecrets {
     let mut vault_key = [0u8; 32];
     OsRng.fill_bytes(&mut vault_key);
-    SyncSecrets { version: 1, device_id: generate_device_id(), vault_key }
+    SyncSecrets { version: 1, device_id: generate_device_id(), vault_key, key_epoch: 0 }
 }
 
 pub fn load_secrets(path: &Path) -> anyhow::Result<Option<SyncSecrets>> {
@@ -234,6 +243,46 @@ mod tests {
             "warden-sync-test-{name}-{}",
             std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
         ))
+    }
+
+    // The key epoch (warden ADR 0002): a pair with the key, in the same file, and a file from before it reads as epoch 0.
+    #[test]
+    fn a_secrets_file_from_before_the_epoch_existed_loads_as_epoch_zero() {
+        let path = temp_path("secrets-no-epoch");
+        let key = BASE64.encode([7u8; 32]);
+        std::fs::write(&path, format!(r#"{{"version":1,"device_id":"abc","vault_key":"{key}"}}"#)).unwrap();
+        let loaded = load_secrets(&path).unwrap().unwrap();
+        assert_eq!(loaded.key_epoch, 0);
+        assert_eq!(loaded.vault_key, [7u8; 32]);
+    }
+
+    #[test]
+    fn the_key_epoch_survives_a_save_and_a_load() {
+        let mut secrets = generate_secrets();
+        secrets.key_epoch = 7;
+        let path = temp_path("secrets-epoch-round-trip");
+        save_secrets(&path, &secrets).unwrap();
+        let loaded = load_secrets(&path).unwrap().unwrap();
+        assert_eq!((loaded.key_epoch, loaded.vault_key), (7, secrets.vault_key));
+    }
+
+    // Epoch 0 is not written, so the file of every install that exists today stays byte for byte what it is until a rotation.
+    #[test]
+    fn epoch_zero_is_not_written_to_the_file() {
+        let path = temp_path("secrets-epoch-zero-omitted");
+        save_secrets(&path, &generate_secrets()).unwrap();
+        let text = std::fs::read_to_string(&path).unwrap();
+        assert!(!text.contains("key_epoch"), "{text}");
+    }
+
+    #[test]
+    fn a_rotated_epoch_is_written_to_the_file() {
+        let mut secrets = generate_secrets();
+        secrets.key_epoch = 5;
+        let path = temp_path("secrets-epoch-written");
+        save_secrets(&path, &secrets).unwrap();
+        let value: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+        assert_eq!(value["key_epoch"], 5);
     }
 
     #[test]
