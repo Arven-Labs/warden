@@ -1963,6 +1963,7 @@ name = "desktop"
 version = "0.1.2"
 dependencies = [
  "anyhow",
+ "arca-core",
  "async-trait",
  "base64 0.22.1",
  "cpal",

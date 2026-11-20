@@ -280,9 +280,28 @@ impl From<&PendingEpoch> for PendingEpochPayload {
     }
 }
 
+/// What `epochs_acknowledge` needs from the engine: the fresh list and the acknowledgement. A seam so the choice of WHICH pairs reach
+/// the engine is tested with real `PendingEpoch`s (only this engine can have one pending, through a hub), not just `positions_seen`.
+#[async_trait::async_trait]
+trait EpochSource {
+    async fn pending(&self) -> Result<Vec<PendingEpoch>, String>;
+    async fn acknowledge(&self, seen: &[PendingEpoch]) -> Result<(), String>;
+}
+
+#[async_trait::async_trait]
+impl EpochSource for SyncEngine {
+    async fn pending(&self) -> Result<Vec<PendingEpoch>, String> {
+        self.arca_pending_epochs().await.map_err(|e| format!("{e:#}"))
+    }
+
+    async fn acknowledge(&self, seen: &[PendingEpoch]) -> Result<(), String> {
+        self.arca_acknowledge_epochs(seen).await.map_err(|e| format!("{e:#}"))
+    }
+}
+
 /// The newer key epochs that stop the vault, for the person to look at BEFORE acknowledging. Empty with the mode off.
 pub async fn epochs_pending(engine: &SyncEngine) -> Result<Vec<PendingEpochPayload>, String> {
-    engine.arca_pending_epochs().await.map(|list| list.iter().map(PendingEpochPayload::from).collect()).map_err(|e| format!("{e:#}"))
+    engine.pending().await.map(|list| list.iter().map(PendingEpochPayload::from).collect())
 }
 
 /// Where, in the fresh list, are the pairs the screen handed back. The comparison is on the whole pair (epoch and id text): the next
@@ -295,10 +314,14 @@ pub fn positions_seen(fresh: &[PendingEpochPayload], seen: &[PendingEpochPayload
 /// Acknowledges what the person saw. `seen` is only looked up in a fresh list (no id from the screen reaches the engine): whatever
 /// showed up after the person looked stays pending. With nothing to acknowledge it still asks the engine, so the mode off is told.
 pub async fn epochs_acknowledge(engine: &SyncEngine, seen: &[PendingEpochPayload]) -> Result<(), String> {
-    let fresh = engine.arca_pending_epochs().await.map_err(|e| format!("{e:#}"))?;
+    acknowledge_seen(engine, seen).await
+}
+
+async fn acknowledge_seen(source: &impl EpochSource, seen: &[PendingEpochPayload]) -> Result<(), String> {
+    let fresh = source.pending().await?;
     let listed: Vec<PendingEpochPayload> = fresh.iter().map(PendingEpochPayload::from).collect();
     let to_acknowledge: Vec<PendingEpoch> = positions_seen(&listed, seen).into_iter().map(|position| fresh[position]).collect();
-    engine.arca_acknowledge_epochs(&to_acknowledge).await.map_err(|e| format!("{e:#}"))
+    source.acknowledge(&to_acknowledge).await
 }
 
 /// The saved hub `hub_id`, with the token this computer holds for it, ready to sync with.
@@ -634,6 +657,7 @@ pub async fn arca_sync_allow_empty(state: State<'_, AppState>, hub_id: String, c
 #[cfg(test)]
 mod tests {
     use super::*;
+    use arca_core::object::{ObjectId, ObjectKind};
     use std::path::PathBuf;
     use warden_sync::arca_sync::SkippedLogin;
     use warden_sync::manifest::{save_manifest, SyncManifest};
@@ -1275,6 +1299,70 @@ mod tests {
         enable(&keyed.engine, false, false, 1).await.unwrap();
         assert_eq!(epochs_acknowledge(&keyed.engine, &[pending(1, "a")]).await, Ok(()));
         assert_eq!(epochs_acknowledge(&keyed.engine, &[]).await, Ok(()));
+    }
+
+    /// An engine with a fixed list of pending epochs that remembers what it was told to acknowledge (`None` until it was asked).
+    struct FakeEngine {
+        fresh: Vec<PendingEpoch>,
+        acknowledged: Mutex<Option<Vec<PendingEpoch>>>,
+    }
+
+    impl FakeEngine {
+        fn with(fresh: Vec<PendingEpoch>) -> Self {
+            Self { fresh, acknowledged: Mutex::new(None) }
+        }
+        fn told(&self) -> Option<Vec<PendingEpoch>> {
+            self.acknowledged.lock().unwrap().clone()
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl EpochSource for FakeEngine {
+        async fn pending(&self) -> Result<Vec<PendingEpoch>, String> {
+            Ok(self.fresh.clone())
+        }
+        async fn acknowledge(&self, seen: &[PendingEpoch]) -> Result<(), String> {
+            *self.acknowledged.lock().unwrap() = Some(seen.to_vec());
+            Ok(())
+        }
+    }
+
+    fn manifest(epoch: u32, content: &str) -> PendingEpoch {
+        PendingEpoch { epoch, id: ObjectId::of(ObjectKind::Manifest, content.as_bytes()) }
+    }
+
+    #[tokio::test]
+    async fn only_the_pair_the_person_saw_reaches_the_engine_not_the_forged_one_of_the_same_epoch() {
+        let (real, forged, newer) = (manifest(1, "the real rotation"), manifest(1, "forged with the old key"), manifest(2, "a later one"));
+        let engine = FakeEngine::with(vec![real, forged, newer]);
+        acknowledge_seen(&engine, &[PendingEpochPayload::from(&real)]).await.unwrap();
+        assert_eq!(engine.told(), Some(vec![real]), "the forged object and the later epoch stay pending");
+    }
+
+    #[tokio::test]
+    async fn what_appeared_after_the_person_looked_is_not_acknowledged() {
+        let (shown, appeared_later) = (manifest(1, "what the screen listed"), manifest(1, "showed up after"));
+        let engine = FakeEngine::with(vec![shown, appeared_later]);
+        let gone = PendingEpochPayload::from(&manifest(1, "was listed but went away"));
+        acknowledge_seen(&engine, &[PendingEpochPayload::from(&shown), gone]).await.unwrap();
+        assert_eq!(engine.told(), Some(vec![shown]));
+    }
+
+    #[tokio::test]
+    async fn with_nothing_seen_the_engine_is_still_asked_with_an_empty_list_so_the_mode_off_is_told() {
+        let engine = FakeEngine::with(vec![manifest(1, "pending")]);
+        acknowledge_seen(&engine, &[]).await.unwrap();
+        assert_eq!(engine.told(), Some(Vec::new()));
+    }
+
+    #[test]
+    fn the_payload_carries_the_epoch_and_the_object_id_as_text() {
+        let pending = manifest(3, "some manifest");
+        let payload = PendingEpochPayload::from(&pending);
+        assert_eq!(payload, PendingEpochPayload { epoch: 3, id: pending.id.to_string() });
+        let hex = payload.id.strip_prefix("manifest/").expect("a manifest id");
+        assert!(hex.len() == 64 && hex.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b)), "{hex}");
+        assert_ne!(PendingEpochPayload::from(&manifest(3, "another manifest")).id, payload.id, "two objects, two ids");
     }
 
     #[test]
