@@ -29,13 +29,15 @@ globset = "0.4"
 # `warden-mobile-bridge`'s Android cross-compile (it depends on warden-core only through this crate).
 warden-core = { path = "../warden-core", default-features = false }
 warden-truthid = { path = "../warden-truthid" }
-# The arca sync cycle (`arca_sync.rs`), off by default: arca's `hub` feature pulls `reqwest` with the `aws-lc-rs` TLS provider
-# (C code), and `warden-mobile-bridge` (Android) pins `ring`. The on/off switch itself (`arca_mode.rs`) has no such dependency, so
-# a build without this feature still refuses to write a vault that is in arca mode. Pinned by commit, like in `warden-server`.
-arca-core = { git = "https://github.com/Arven-Labs/arca", rev = "5caa5dd517aef248bcdd27fc7284f9804634fd03", optional = true, features = ["hub"] }
+# The arca core without its network client: the key epoch is found at pairing (`arca_pairing.rs`, `discover_epoch`), which the mobile
+# bridge also does. Pinned by commit, like in `warden-server`.
+arca-core = { git = "https://github.com/Arven-Labs/arca", rev = "0216ad298db7b4775e0cff8939a23307e3101feb", default-features = false }
 
 [features]
-arca = ["dep:arca-core"]
+# The arca sync cycle (`arca_sync.rs`), off by default: arca's `hub` feature pulls `reqwest` with the `aws-lc-rs` TLS provider
+# (C code), and `warden-mobile-bridge` (Android) pins `ring`. The on/off switch itself (`arca_mode.rs`) has no such dependency, so
+# a build without this feature still refuses to write a vault that is in arca mode.
+arca = ["arca-core/hub"]
 
 [dev-dependencies]
 axum = "0.8"

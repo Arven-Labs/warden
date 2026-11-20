@@ -81,7 +81,6 @@ impl std::error::Error for PairingError {}
 pub struct HubAccess {
     base: Url,
     token: String,
-    allow_insecure: bool,
 }
 
 impl HubAccess {
@@ -108,22 +107,26 @@ impl HubAccess {
         if plain && !allow_insecure && !is_this_computer(&parsed) {
             return Err(PairingError::InsecureUrl);
         }
-        Ok(Self { base: parsed, token: device_token.to_string(), allow_insecure })
+        Ok(Self { base: parsed, token: device_token.to_string() })
     }
 
-    /// The arca's client for the same hub and token, under the same rule about plain `http`.
-    pub fn hub_store(&self) -> Result<arca_core::hub::HubStore, PairingError> {
-        let base = self.base.as_str().trim_end_matches('/');
-        let store = if self.allow_insecure { arca_core::hub::HubStore::allow_insecure_http(base, &self.token) } else { arca_core::hub::HubStore::new(base, &self.token) };
-        store.map_err(|e| PairingError::Hub(e.to_string()))
+    /// A read-only view of the hub's manifests, to find the key epoch (`Received::confirm`), over the same client rules as the
+    /// pairing calls (`ring`, no redirect, no proxy).
+    pub fn manifests(&self) -> HubManifests<'_> {
+        HubManifests { access: self }
     }
 
     /// `https://hub:port/arca/v1/pairing/<tail...>`, each part percent-encoded as one path segment.
     fn url(&self, tail: &[&str]) -> Url {
+        self.url_under("pairing", tail)
+    }
+
+    /// `https://hub:port/arca/v1/<section>/<tail...>`.
+    fn url_under(&self, section: &str, tail: &[&str]) -> Url {
         let mut url = self.base.clone();
         {
             let mut segments = url.path_segments_mut().expect("an http(s) address can have a path");
-            segments.clear().extend(["arca", "v1", "pairing"]).extend(tail);
+            segments.clear().extend(["arca", "v1", section]).extend(tail);
         }
         url
     }
@@ -144,6 +147,113 @@ impl HubAccess {
             body.extend_from_slice(&chunk);
         }
         Ok((status, body))
+    }
+}
+
+/// Most ids one `list` page may hold, pages one `list` may follow, ids one `list` may gather: the hub is not trusted, so a lie
+/// cannot make this device loop or hold more than arca's own client would (`arca_core::hub`).
+const LIST_PAGE_LIMIT: usize = 1000;
+const MAX_LIST_PAGES: usize = 10_000;
+const MAX_LIST_IDS: usize = 1_000_000;
+const MAX_LIST_PAGE_BYTES: usize = 1 << 20;
+
+#[derive(serde::Deserialize)]
+struct ListPage {
+    ids: Vec<String>,
+    next: Option<String>,
+}
+
+/// What `HubAccess::manifests` returns: `list` and `get` of manifests, which is all `discover_epoch` asks. Writing is refused, so
+/// the pairing cannot change the hub through it. A copy of the part of arca's `HubStore` the mobile bridge cannot take (its `hub`
+/// feature brings `aws-lc-rs`).
+pub struct HubManifests<'a> {
+    access: &'a HubAccess,
+}
+
+fn unavailable(kind: std::io::ErrorKind) -> arca_core::store::StoreError {
+    arca_core::store::StoreError::Unavailable(kind)
+}
+
+/// Failures of a read: no token or an unapproved device, and everything else.
+fn read_failure(status: StatusCode) -> arca_core::store::StoreError {
+    match status.as_u16() {
+        401 | 403 => unavailable(std::io::ErrorKind::PermissionDenied),
+        _ => unavailable(std::io::ErrorKind::Other),
+    }
+}
+
+impl arca_core::store::BlobStore for HubManifests<'_> {
+    async fn put(&self, _: &arca_core::object::ObjectId, _: &[u8]) -> Result<(), arca_core::store::StoreError> {
+        Err(unavailable(std::io::ErrorKind::Unsupported))
+    }
+
+    async fn get(&self, id: &arca_core::object::ObjectId) -> Result<Option<Vec<u8>>, arca_core::store::StoreError> {
+        let tail = id.to_string();
+        let parts: Vec<&str> = tail.split('/').collect();
+        let cap = arca_core::server::MAX_MANIFEST_OBJECT_BYTES as usize;
+        let (status, body) = self.access.send(Method::GET, self.access.url_under("objects", &parts), None, "", cap).await.map_err(|_| unavailable(std::io::ErrorKind::Other))?;
+        match status.as_u16() {
+            200 => Ok(Some(body)),
+            404 => Ok(None),
+            _ => Err(read_failure(status)),
+        }
+    }
+
+    async fn has(&self, _: &arca_core::object::ObjectId) -> Result<bool, arca_core::store::StoreError> {
+        Err(unavailable(std::io::ErrorKind::Unsupported))
+    }
+
+    async fn list(&self, kind: arca_core::object::ObjectKind) -> Result<Vec<arca_core::object::ObjectId>, arca_core::store::StoreError> {
+        let invalid = || unavailable(std::io::ErrorKind::InvalidData);
+        // The prefix of an object key in the hub's routes (`blob/<hex>`, `manifest/<hex>`).
+        let name = match kind {
+            arca_core::object::ObjectKind::Blob => "blob",
+            arca_core::object::ObjectKind::Manifest => "manifest",
+        };
+        let mut out: Vec<arca_core::object::ObjectId> = Vec::new();
+        let mut after: Option<String> = None;
+        for _ in 0..MAX_LIST_PAGES {
+            let mut url = self.access.url_under("objects", &[]);
+            url.query_pairs_mut().append_pair("kind", name).append_pair("limit", &LIST_PAGE_LIMIT.to_string());
+            if let Some(after) = &after {
+                url.query_pairs_mut().append_pair("after", after);
+            }
+            let (status, body) = self.access.send(Method::GET, url, None, "", MAX_LIST_PAGE_BYTES).await.map_err(|_| unavailable(std::io::ErrorKind::Other))?;
+            if status.as_u16() != 200 {
+                return Err(read_failure(status));
+            }
+            let page: ListPage = serde_json::from_slice(&body).map_err(|_| invalid())?;
+            // The hub is an untrusted input: ids in hex, strictly increasing and after `after`; `next` must move forward.
+            let mut last = after.clone();
+            for hex in &page.ids {
+                let id: arca_core::object::ObjectId = format!("{name}/{hex}").parse().map_err(|_| invalid())?;
+                if last.as_ref().is_some_and(|l| hex <= l) {
+                    return Err(invalid());
+                }
+                last = Some(hex.clone());
+                out.push(id);
+                if out.len() > MAX_LIST_IDS {
+                    return Err(invalid());
+                }
+            }
+            let Some(next) = page.next else {
+                return Ok(out);
+            };
+            let next_ok = format!("{name}/{next}").parse::<arca_core::object::ObjectId>().is_ok() && !page.ids.is_empty() && last.as_ref().is_none_or(|l| next >= *l);
+            if !next_ok {
+                return Err(invalid());
+            }
+            after = Some(next);
+        }
+        Err(invalid())
+    }
+
+    async fn delete(&self, _: &arca_core::object::ObjectId) -> Result<(), arca_core::store::StoreError> {
+        Err(unavailable(std::io::ErrorKind::Unsupported))
+    }
+
+    fn capabilities(&self) -> arca_core::store::Capabilities {
+        arca_core::store::Capabilities::new(true)
     }
 }
 
