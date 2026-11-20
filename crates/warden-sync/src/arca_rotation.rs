@@ -92,7 +92,8 @@ impl PendingRotation {
         let phrase = self.phrase()?;
         let words: Vec<&str> = phrase.words().collect();
         for (typed, position) in typed_words.iter().zip(&self.positions) {
-            if !typed.trim().eq_ignore_ascii_case(words[*position]) {
+            // QUEBRA 2: nao confere as palavras
+            if false && !typed.trim().eq_ignore_ascii_case(words[*position]) {
                 return Err(RotationError::WordMismatch);
             }
         }

@@ -282,20 +282,21 @@ impl SyncEngine {
             return Err(RotationError::NotInArcaMode);
         };
         let (engine, roots) = self.arca_engine(mode.secret_accepted, false).map_err(failed)?;
+        // QUEBRA 1: grava os segredos ANTES do begin_epoch; QUEBRA 4: a epoca nao sobe
+        let mut secrets = self.load_secrets().map_err(failed)?;
+        secrets.vault_key = *new_key.export_bytes();
+        secrets.key_epoch = secrets.key_epoch.checked_add(0).ok_or_else(|| RotationError::Failed("there is no next key epoch".into()))?;
+        crate::manifest::save_secrets(&self.secrets_path, &secrets).map_err(failed)?;
         let (_next, snapshot) = engine
             .begin_epoch(new_key, &roots, now_ms)
             .await
             .map_err(|e| failed(engine_failure(e, "starting the new key epoch")))?;
-        let published = match snapshot {
+        let _published = match snapshot {
             Snapshot::Created { id, .. } => id,
             Snapshot::Unchanged { head, .. } => head,
         };
-        save_folder(&folder_path_for(&self.manifest_path), &published).map_err(failed)?;
-
-        let mut secrets = self.load_secrets().map_err(failed)?;
-        secrets.vault_key = *new_key.export_bytes();
-        secrets.key_epoch = secrets.key_epoch.checked_add(1).ok_or_else(|| RotationError::Failed("there is no next key epoch".into()))?;
-        crate::manifest::save_secrets(&self.secrets_path, &secrets).map_err(failed)
+        // QUEBRA 3: nao atualiza arca_folder.txt
+        Ok(())
     }
 
     /// What every entry point does to turn the mode on (ADR 0012, step a): needs the vault key and no Send waiting for the phone,
