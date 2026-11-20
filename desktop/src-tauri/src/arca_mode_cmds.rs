@@ -289,7 +289,7 @@ pub async fn epochs_pending(engine: &SyncEngine) -> Result<Vec<PendingEpochPaylo
 /// epoch is predictable, so the epoch alone would let a forged object hide the real rotation. A pair that is not in the fresh list
 /// (it went away, or the text is not one of the ids listed) is just not found. Each position once, in the order of the fresh list.
 pub fn positions_seen(fresh: &[PendingEpochPayload], seen: &[PendingEpochPayload]) -> Vec<usize> {
-    fresh.iter().enumerate().filter(|(_, pending)| seen.iter().any(|s| s.epoch == pending.epoch)).map(|(position, _)| position).collect()
+    fresh.iter().enumerate().filter(|(_, pending)| seen.contains(pending)).map(|(position, _)| position).collect()
 }
 
 /// Acknowledges what the person saw. `seen` is only looked up in a fresh list (no id from the screen reaches the engine): whatever
