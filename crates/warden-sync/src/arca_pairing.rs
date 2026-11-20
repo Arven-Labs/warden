@@ -303,12 +303,24 @@ pub struct Received {
 impl Received {
     /// Adopts the key on `engine` if `typed_fingerprint` (what the person typed after reading it on A) is this key's
     /// `key_fingerprint`; otherwise `FingerprintMismatch` and nothing is written.
+    ///
+    /// The key epoch is found, not assumed (warden ADR 0002): the highest epoch in which a manifest of `store` opens with
+    /// the key. A store with no manifest is a vault that never wrote one, so epoch 0. A key that opens none of the manifests
+    /// is refused (`Adopt`), and a store that cannot be read is `Hub`; in both cases nothing is written.
     pub async fn confirm<S: arca_core::store::BlobStore>(self, typed_fingerprint: &str, store: &S, engine: &SyncEngine) -> Result<(), PairingError> {
+        use arca_core::crypto::VaultKey;
+        use arca_core::discover::{discover_epoch, DiscoverError};
+
         if normalized(typed_fingerprint) != normalized(&key_fingerprint(&self.key)) {
             return Err(PairingError::FingerprintMismatch);
         }
-        let _ = store; // esboço: ainda não descobre a época
-        engine.adopt_vault_key(self.key, 0).map_err(|e| PairingError::Adopt(e.to_string()))
+        let epoch = match discover_epoch(store, &VaultKey::from_bytes(self.key)).await {
+            Ok(found) => found.epoch,
+            Err(DiscoverError::Empty) => 0,
+            Err(DiscoverError::NoneOpens) => return Err(PairingError::Adopt("this key opens none of the vault's manifests".into())),
+            Err(DiscoverError::Store(e)) => return Err(PairingError::Hub(e.to_string())),
+        };
+        engine.adopt_vault_key(self.key, epoch).map_err(|e| PairingError::Adopt(e.to_string()))
     }
 
     /// A `Received` for tests of what `confirm` does with the key.

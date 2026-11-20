@@ -1033,7 +1033,7 @@ mod tests {
 
     use crate::arca_pairing::{key_fingerprint, PairingError, Received};
     use arca_core::object::ObjectKind;
-    use arca_core::store::{BlobStore, StoreError};
+    use arca_core::store::{BlobStore, Capabilities, StoreError};
     use std::future::{ready, Future};
 
     /// The arca's own store of `device`, as a hub would serve it to a device that pairs.
