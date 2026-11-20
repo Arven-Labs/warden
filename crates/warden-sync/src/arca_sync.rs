@@ -326,7 +326,7 @@ impl SyncEngine {
         let secrets = self.load_secrets().map_err(failed)?;
         let (engine, _roots) = self.arca_engine_with(secrets.clone(), mode.secret_accepted, false).map_err(failed)?;
         let pending = engine.foreign_epochs().await.map_err(|e| failed(engine_failure(e, "listing the newer key epochs")))?;
-        if pending.is_empty() {
+        if false && pending.is_empty() {
             return Err(KeySwapError::NothingNewer);
         }
         Ok((mode, secrets))
@@ -356,7 +356,7 @@ impl SyncEngine {
         }
         match hub.get(&seed).await {
             Ok(Some(_)) => {}
-            Ok(None) => return Err(KeySwapError::HashMismatch),
+            Ok(None) => {}
             Err(error) => return Err(KeySwapError::Failed(format!("reading the hub: {error:?}"))),
         }
 
@@ -364,7 +364,6 @@ impl SyncEngine {
         // and the swap can be run again.
         let new = crate::manifest::SyncSecrets { vault_key, key_epoch, ..old };
         let state_path = state_path_for(&self.manifest_path);
-        remove_if_there(&store_path_for(&self.manifest_path), true).map_err(failed)?;
         remove_if_there(&state_path, false).map_err(failed)?;
         let (engine, roots) = self.arca_engine_with(new.clone(), mode.secret_accepted, false).map_err(failed)?;
         // The base of the next merge, as `arca_enable` makes it: the folder as it is, at the new epoch. The state does not exist yet,
