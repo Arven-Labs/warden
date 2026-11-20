@@ -1033,7 +1033,7 @@ mod tests {
 
     use crate::arca_pairing::{key_fingerprint, PairingError, Received};
     use arca_core::object::ObjectKind;
-    use arca_core::store::{BlobStore, Capabilities, StoreError};
+    use arca_core::store::{BlobStore, StoreError};
     use std::future::{ready, Future};
 
     /// The arca's own store of `device`, as a hub would serve it to a device that pairs.
@@ -1093,7 +1093,14 @@ mod tests {
     }
 
     /// A store that lists a manifest and cannot read it: the hub went away in the middle of the pairing.
-    struct HubDown;
+    struct HubDown(DiskStore);
+
+    impl HubDown {
+        /// The inner store only lends its `Capabilities` (a `#[non_exhaustive]` struct, so it cannot be built here).
+        fn of(device: &Device) -> Self {
+            Self(DiskStore::open(device.base.join("down-store")).unwrap())
+        }
+    }
 
     impl BlobStore for HubDown {
         fn put(&self, _: &ObjectId, _: &[u8]) -> impl Future<Output = Result<(), StoreError>> + Send {
@@ -1112,7 +1119,7 @@ mod tests {
             ready(Err(StoreError::Unavailable(std::io::ErrorKind::TimedOut)))
         }
         fn capabilities(&self) -> Capabilities {
-            Capabilities { consistent_list: false }
+            self.0.capabilities()
         }
     }
 
@@ -1120,7 +1127,7 @@ mod tests {
     async fn a_hub_that_is_down_while_the_epoch_is_looked_up_is_an_error_and_nothing_is_written() {
         let b = device("pair-down-b");
 
-        let result = pair_b_with(&b, [5u8; 32], &HubDown).await;
+        let result = pair_b_with(&b, [5u8; 32], &HubDown::of(&b)).await;
 
         assert!(matches!(result, Err(PairingError::Hub(_))), "{result:?}");
         assert!(!b.engine.is_initialized());
@@ -1131,7 +1138,7 @@ mod tests {
         let b = device("pair-print-b");
 
         // `HubDown` lists a manifest and then fails: if the store were asked, the answer would be `Hub`, not `FingerprintMismatch`.
-        let result = Received::from_key_for_test([5u8; 32]).confirm("not the fingerprint", &HubDown, &b.engine).await;
+        let result = Received::from_key_for_test([5u8; 32]).confirm("not the fingerprint", &HubDown::of(&b), &b.engine).await;
 
         assert!(matches!(result, Err(PairingError::FingerprintMismatch)), "{result:?}");
         assert!(!b.engine.is_initialized());
