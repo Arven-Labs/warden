@@ -16,10 +16,10 @@ use arca_core::disk::DiskStore;
 use arca_core::engine::{Engine, EngineError, MergeOutcome, Roots, Snapshot, VerifyMode};
 use arca_core::kept::KeptOriginal;
 use arca_core::losers::{LoserCopy, Skip};
-use arca_core::manifest::{FileEntry, Hash32};
+use arca_core::manifest::{FileEntry, Hash32, Manifest};
 use arca_core::object::{ObjectId, ObjectKind};
 use arca_core::state::DeviceState;
-use arca_core::store::BlobStore;
+use arca_core::store::{verified_get, BlobStore, StoreError};
 // What a caller needs to name the hub it syncs with, and the class it may let be emptied, so it does not need `arca-core` of its own.
 pub use arca_core::hub::{HubError, HubStore};
 pub use arca_core::engine::ForeignEpoch as PendingEpoch;
@@ -309,7 +309,10 @@ impl SyncEngine {
         if load_mode(&mode_path_for(&self.manifest_path)).map_err(failed)?.is_none() {
             return Err(KeySwapError::NotInArcaMode);
         }
+        let secrets = self.load_secrets().map_err(failed)?;
         match DeviceState::load(&state_path_for(&self.manifest_path)) {
+            // A head of an earlier epoch than the key being handed over would be refused by the device that takes it.
+            Ok(Some(state)) if state.key_epoch != secrets.key_epoch => Err(KeySwapError::NoKey("the accepted manifest is not of this key's epoch yet: run a cycle first".into())),
             Ok(Some(state)) => Ok(ObjectId { kind: ObjectKind::Manifest, hash: state.last_accepted.0 }),
             Ok(None) => Err(KeySwapError::NoKey("this device has not accepted any manifest yet".into())),
             Err(error) => Err(failed(engine_failure(error, "reading the accepted manifest"))),
@@ -339,8 +342,11 @@ impl SyncEngine {
     }
 
     /// Swaps this device's key for `vault_key` at `key_epoch` (warden ADR 0002, item 4; `arca_key_swap` is the conversation that
-    /// gets the key and the person's confirmations, and the only caller). `seed` is the manifest the person confirmed by the head
-    /// code. Under the sync lock. **Nothing is written** unless the mode is on, a newer epoch is pending, and `hub` holds `seed`.
+    /// gets the key and the person's confirmations; this method does not ask anybody anything, so nothing but that conversation
+    /// should call it with a key that came over the network). `seed` is the manifest the person confirmed by the head code.
+    /// Under the sync lock. **Nothing is written** unless the mode is on, a newer epoch is pending, the key is newer than this
+    /// device's (another key, and a higher epoch), and `seed` is a manifest `hub` holds that `vault_key` opens **at `key_epoch`**:
+    /// a head of an earlier epoch, or one the key cannot open, would leave the device refusing every manifest for good.
     ///
     /// Then, in this order: the local replica (`arca-store`, `arca_state.json`) is wiped; a first manifest of the new epoch is made
     /// from the folder as it is (the base of the next merge, as `arca_enable` does); the hub is pulled; the state is seeded with
@@ -350,14 +356,21 @@ impl SyncEngine {
         let failed = |error: anyhow::Error| KeySwapError::Failed(format!("{error:#}"));
         let _one_sync_at_a_time = self.sync_lock().await.map_err(failed)?;
         let (mode, old) = self.swap_precondition().await?;
-        // The head the person confirmed has to be a manifest the hub really holds. Checked before the first write.
+        if vault_key == old.vault_key || key_epoch <= old.key_epoch {
+            return Err(KeySwapError::NotNewer);
+        }
+        // The head the person confirmed has to be a manifest the hub really holds (its bytes hash to its id) and that the new key
+        // opens at the new epoch: `Manifest::open` refuses another epoch, another key and garbage. Before the first write.
         if seed.kind != ObjectKind::Manifest {
             return Err(KeySwapError::HashMismatch);
         }
-        match hub.get(&seed).await {
-            Ok(Some(_)) => {}
-            Ok(None) => return Err(KeySwapError::HashMismatch),
+        let sealed = match verified_get(hub, &seed).await {
+            Ok(Some(bytes)) => bytes,
+            Ok(None) | Err(StoreError::Corrupt) => return Err(KeySwapError::HashMismatch),
             Err(error) => return Err(KeySwapError::Failed(format!("reading the hub: {error:?}"))),
+        };
+        if Manifest::open(&EpochKeys::derive(&VaultKey::from_bytes(vault_key), key_epoch), &sealed).is_err() {
+            return Err(KeySwapError::HashMismatch);
         }
 
         // From here on, a stop leaves the old pair in `sync_secrets.json` (it is saved last): a cycle notes the newer epoch again
@@ -377,6 +390,11 @@ impl SyncEngine {
         let pulled = engine.pull(hub).await.map_err(|e| failed(engine_failure(e, "pulling from the hub")))?;
         ensure_complete(&pulled, "pull").map_err(failed)?;
         drop(engine);
+        // The head has to be in the local replica now: a state that names a manifest that never arrives refuses every cycle.
+        let local = DiskStore::open(store_path_for(&self.manifest_path)).map_err(|error| failed(error.into()))?;
+        if !matches!(local.has(&seed).await, Ok(true)) {
+            return Err(KeySwapError::Failed("the head did not reach the local replica with the pull; nothing was saved, run a cycle and try again".into()));
+        }
         // Seeded after the pull, so the manifests the hub holds can satisfy it; a hub that hides the head leaves the device refusing
         // (Rollback) instead of accepting an older manifest.
         DeviceState { key_epoch, last_accepted: Hash32(seed.hash) }.save(&state_path).map_err(|e| failed(engine_failure(e, "seeding the device state")))?;
@@ -871,8 +889,6 @@ fn skipped_logins(skipped: Vec<Skipped>) -> Vec<SkippedLogin> {
         .collect()
 }
 
-/// `Ok` from a replication with `manifests_withheld` is not a success: a blob could not be read, so the manifests that cite it were
-/// held back and the round is incomplete.
 /// Removes `path` (a folder when `dir`) if it is there. A link is removed as a link, never followed.
 fn remove_if_there(path: &Path, dir: bool) -> anyhow::Result<()> {
     let is_link = std::fs::symlink_metadata(path).is_ok_and(|meta| meta.file_type().is_symlink());
@@ -884,6 +900,8 @@ fn remove_if_there(path: &Path, dir: bool) -> anyhow::Result<()> {
     }
 }
 
+/// `Ok` from a replication with `manifests_withheld` is not a success: a blob could not be read, so the manifests that cite it were
+/// held back and the round is incomplete.
 fn ensure_complete(report: &ReplicateReport, what: &str) -> anyhow::Result<()> {
     if report.manifests_withheld {
         anyhow::bail!("the {what} was incomplete: {} corrupt, {} missing and {} unreadable objects held the manifests back", report.corrupt.len(), report.missing.len(), report.unreadable.len());

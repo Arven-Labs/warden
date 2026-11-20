@@ -2244,13 +2244,9 @@ async fn a_head_the_new_key_cannot_open_is_refused_and_writes_nothing() {
     let g = rotated_group(&hub, "swap-foreign-head").await;
     let before = disk_of(&g.b);
     let (key, epoch, _) = handed_over(&g.a).await;
-    // a manifest the hub holds and lists, of another group: it is the right kind and the hub serves it, but the key does not open it
-    let (stranger, _) = first_device("swap-foreign-head-s");
-    write(&stranger, "x.md", "x");
-    stranger.engine.arca_enable(false, 1).await.unwrap();
-    let (_, stranger_store) = hub.pair("dev-swap-foreign-head-s");
-    stranger.engine.arca_sync(&stranger_store, 2).await.unwrap();
-    let seed = stranger.engine.arca_head_id().await.unwrap();
+    // a manifest the hub holds and lists, of the SAME epoch (1) but sealed by an unrelated group's key: the header epoch matches,
+    // the hub serves it, and the key does not open it
+    let seed = rotate_elsewhere(&hub, "swap-foreign-head-s", [5u8; 32], [6u8; 32]).await;
 
     let result = g.b.engine.arca_replace_key(&g.b_store, key, epoch, seed, 8).await;
 
