@@ -12,7 +12,7 @@ use tauri::State;
 use warden_bootstrap::auto_sync::{ArcaCycleError, ArcaCycleSummary, ArcaVerifySummary, SyncRunner};
 use warden_bootstrap::saved_hubs;
 use warden_sync::arca_mode::ArcaVerifyState;
-use warden_sync::arca_sync::{is_auth_rejected, ArcaSyncReport, ArcaVerifyReport, Class, HubStore, KeptItem, LoserItem, LosersCleared, NotCleared};
+use warden_sync::arca_sync::{is_auth_rejected, ArcaSyncReport, ArcaVerifyReport, Class, HubStore, KeptItem, LoserItem, LosersCleared, NotCleared, PendingEpoch};
 use warden_sync::SyncEngine;
 
 use crate::remote_cmds::DEVICE_NAME;
@@ -274,19 +274,31 @@ pub struct PendingEpochPayload {
     pub id: String,
 }
 
-// DRAFT (tests first): wrong on purpose, so the new tests fail for the right reason before the real code.
-pub async fn epochs_pending(_engine: &SyncEngine) -> Result<Vec<PendingEpochPayload>, String> {
-    Ok(Vec::new())
+impl From<&PendingEpoch> for PendingEpochPayload {
+    fn from(pending: &PendingEpoch) -> Self {
+        Self { epoch: pending.epoch, id: pending.id.to_string() }
+    }
 }
 
-// DRAFT (tests first).
-pub fn positions_seen(fresh: &[PendingEpochPayload], _seen: &[PendingEpochPayload]) -> Vec<usize> {
-    (0..fresh.len()).collect()
+/// The newer key epochs that stop the vault, for the person to look at BEFORE acknowledging. Empty with the mode off.
+pub async fn epochs_pending(engine: &SyncEngine) -> Result<Vec<PendingEpochPayload>, String> {
+    engine.arca_pending_epochs().await.map(|list| list.iter().map(PendingEpochPayload::from).collect()).map_err(|e| format!("{e:#}"))
 }
 
-// DRAFT (tests first).
-pub async fn epochs_acknowledge(_engine: &SyncEngine, _seen: &[PendingEpochPayload]) -> Result<(), String> {
-    Ok(())
+/// Where, in the fresh list, are the pairs the screen handed back. The comparison is on the whole pair (epoch and id text): the next
+/// epoch is predictable, so the epoch alone would let a forged object hide the real rotation. A pair that is not in the fresh list
+/// (it went away, or the text is not one of the ids listed) is just not found. Each position once, in the order of the fresh list.
+pub fn positions_seen(fresh: &[PendingEpochPayload], seen: &[PendingEpochPayload]) -> Vec<usize> {
+    fresh.iter().enumerate().filter(|(_, pending)| seen.contains(pending)).map(|(position, _)| position).collect()
+}
+
+/// Acknowledges what the person saw. `seen` is only looked up in a fresh list (no id from the screen reaches the engine): whatever
+/// showed up after the person looked stays pending. With nothing to acknowledge it still asks the engine, so the mode off is told.
+pub async fn epochs_acknowledge(engine: &SyncEngine, seen: &[PendingEpochPayload]) -> Result<(), String> {
+    let fresh = engine.arca_pending_epochs().await.map_err(|e| format!("{e:#}"))?;
+    let listed: Vec<PendingEpochPayload> = fresh.iter().map(PendingEpochPayload::from).collect();
+    let to_acknowledge: Vec<PendingEpoch> = positions_seen(&listed, seen).into_iter().map(|position| fresh[position]).collect();
+    engine.arca_acknowledge_epochs(&to_acknowledge).await.map_err(|e| format!("{e:#}"))
 }
 
 /// The saved hub `hub_id`, with the token this computer holds for it, ready to sync with.
@@ -571,6 +583,19 @@ pub async fn arca_kept_list(state: State<'_, AppState>) -> Result<Vec<KeptPayloa
 #[tauri::command]
 pub async fn arca_kept_clear(state: State<'_, AppState>, ids: Vec<String>) -> Result<ClearPayload, String> {
     kept_clear(&state.sync, &ids).await
+}
+
+/// The manifests of a newer key epoch that stop the vault until the person decides (arca ADR 0018). Empty with the mode off.
+#[tauri::command]
+pub async fn arca_epochs_pending(state: State<'_, AppState>) -> Result<Vec<PendingEpochPayload>, String> {
+    epochs_pending(&state.sync).await
+}
+
+/// Acknowledges the pairs the person saw on the screen. They are only looked up in a fresh list; it deletes nothing and does not adopt
+/// the newer key.
+#[tauri::command]
+pub async fn arca_epochs_acknowledge(state: State<'_, AppState>, seen: Vec<PendingEpochPayload>) -> Result<(), String> {
+    epochs_acknowledge(&state.sync, &seen).await
 }
 
 /// What the last automatic cycle did, and whether the loop is stopped. The screen asks when it opens and again at each

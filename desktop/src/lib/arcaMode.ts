@@ -137,6 +137,19 @@ export interface LoserItem {
   modifiedAtMs: number | null;
 }
 
+/** A manifest of a newer key epoch that stops the vault (arca ADR 0018), as `arca_epochs_pending` answers. The header of the epoch is
+ * not authenticated: anyone with the old key can forge one. `id` is `manifest/<64 hex>` and goes back, with the epoch, to
+ * `arca_epochs_acknowledge` as a pair: the epoch alone would let a forged object hide the real rotation. */
+export interface PendingEpoch {
+  epoch: number;
+  id: string;
+}
+
+/** The first hex digits of the object id, enough for a person to tell two apart (never used to look anything up). */
+export function epochShortId(id: string): string {
+  return id.slice(id.indexOf("/") + 1).slice(0, 12);
+}
+
 /** What `arca_losers_clear` answers. */
 export interface ClearReport {
   removed: number;
