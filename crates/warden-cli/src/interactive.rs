@@ -78,7 +78,7 @@ use warden_bootstrap::saved_hubs::SavedHub;
 use warden_sync::arca_mode::ArcaMode;
 use warden_sync::arca_pairing::{HubAccess, PendingOffer};
 use warden_sync::arca_sync::{is_auth_rejected, ArcaSyncReport, PendingEpoch};
-use warden_sync::arca_key_swap::KeySwapError;
+use warden_sync::arca_key_swap::{run_grant_replacing, run_replace_key, KeySwapError};
 use warden_sync::arca_pairing_flow::{run_grant, run_offer, Ask, FlowError, PairingPrompts, Shown, Wait};
 
 use crate::commands::{self, Command, ParseOutcome};
@@ -1325,6 +1325,8 @@ async fn cmd_help(terminal: &mut CliTerminal) -> anyhow::Result<()> {
         ("/arca on", "help.arca_on"),
         ("/arca sync", "help.arca_sync"),
         ("/arca ack", "help.arca_ack"),
+        ("/arca swap grant", "help.arca_swap_grant"),
+        ("/arca swap offer", "help.arca_swap_offer"),
         ("/arca pair offer", "help.arca_pair_offer"),
         ("/arca pair grant", "help.arca_pair_grant"),
     ]
@@ -3232,18 +3234,21 @@ struct TerminalPrompts<'a> {
 
 /// What `show` puts on the screen, one line each. In the swap path the key line carries the fingerprint AND the head code, and the
 /// instructions say to type both.
-fn shown_lines(shown: Shown, _swap: bool) -> Vec<String> {
-    match shown {
-        Shown::OfferCode(code) => vec![tr!("arca.offer_code", code = code), tr!("arca.offer_instructions")],
-        Shown::KeyFingerprint(fingerprint) => vec![tr!("arca.key_fingerprint", fingerprint = fingerprint), tr!("arca.fingerprint_instructions")],
+fn shown_lines(shown: Shown, swap: bool) -> Vec<String> {
+    match (shown, swap) {
+        (Shown::OfferCode(code), false) => vec![tr!("arca.offer_code", code = code), tr!("arca.offer_instructions")],
+        (Shown::OfferCode(code), true) => vec![tr!("arca.offer_code", code = code), tr!("arca.swap_offer_instructions")],
+        (Shown::KeyFingerprint(fingerprint), false) => vec![tr!("arca.key_fingerprint", fingerprint = fingerprint), tr!("arca.fingerprint_instructions")],
+        (Shown::KeyFingerprint(fingerprint), true) => vec![tr!("arca.swap_key_fingerprint", fingerprint = fingerprint), tr!("arca.swap_fingerprint_instructions")],
     }
 }
 
-/// The title of the field `ask` opens.
-fn ask_title(ask: Ask, _swap: bool) -> String {
-    match ask {
-        Ask::CodeShownByTheNewDevice => tr!("arca.ask_code"),
-        Ask::FingerprintShownByTheOldDevice => tr!("arca.ask_fingerprint"),
+/// The title of the field `ask` opens. Only the fingerprint field changes in the swap path: it takes the head code after it.
+fn ask_title(ask: Ask, swap: bool) -> String {
+    match (ask, swap) {
+        (Ask::CodeShownByTheNewDevice, _) => tr!("arca.ask_code"),
+        (Ask::FingerprintShownByTheOldDevice, false) => tr!("arca.ask_fingerprint"),
+        (Ask::FingerprintShownByTheOldDevice, true) => tr!("arca.ask_fingerprint_head"),
     }
 }
 
@@ -3617,20 +3622,76 @@ fn finish_arca_pairing(terminal: &mut CliTerminal, result: Result<(), FlowError>
 }
 
 /// What a key swap that did not happen says, one line. `KeySwapError` only has `Debug`, so every variant gets its own words here.
-fn key_swap_lines(_error: &KeySwapError) -> Vec<String> {
-    Vec::new()
+fn key_swap_lines(error: &KeySwapError) -> Vec<String> {
+    let line = match error {
+        KeySwapError::NotInArcaMode => tr!("arca.swap_needs_mode"),
+        KeySwapError::NothingNewer => tr!("arca.swap_nothing_newer"),
+        KeySwapError::NotNewer => tr!("arca.swap_not_newer"),
+        KeySwapError::NoKey(message) => tr!("arca.swap_no_key", message = message),
+        KeySwapError::NoOffers => tr!("arca.swap_no_offers"),
+        KeySwapError::Cancelled => tr!("arca.cancelled"),
+        KeySwapError::TimedOut => tr!("arca.swap_timed_out"),
+        KeySwapError::HashMismatch => tr!("arca.swap_hash_mismatch"),
+        KeySwapError::Pairing(error) => error.to_string(),
+        KeySwapError::Failed(message) => tr!("arca.swap_failed", message = message),
+    };
+    vec![line]
+}
+
+fn finish_arca_swap(terminal: &mut CliTerminal, result: Result<(), KeySwapError>, ok_key: &str) -> anyhow::Result<()> {
+    match result {
+        Ok(()) => render_message_card(terminal, "arca", accent_style(), vec![(tr!(ok_key), Style::default())]),
+        Err(KeySwapError::Cancelled) => cancelled_card(terminal),
+        Err(error) => render_message_card(terminal, "arca", error_style(), key_swap_lines(&error).into_iter().map(|line| (line, error_style())).collect()),
+    }
 }
 
 /// `/arca swap grant` — on the device that rotated the key: hands the new key (and shows the head code) to a device that is still on
 /// the old one.
-async fn cmd_arca_swap_grant(_terminal: &mut CliTerminal, _session: &CliSession) -> anyhow::Result<()> {
-    Ok(())
+async fn cmd_arca_swap_grant(terminal: &mut CliTerminal, session: &CliSession) -> anyhow::Result<()> {
+    let engine = make_sync_engine(session)?;
+    let Some(access) = ask_hub_access(terminal).await? else { return cancelled_card(terminal) };
+    let result = run_grant_replacing(&access, &engine, &mut TerminalPrompts { terminal, swap: true }).await;
+    finish_arca_swap(terminal, result, "arca.swap_granted_ok")
 }
 
 /// `/arca swap offer` — on the device that stayed on the old key: asks to confirm, publishes an offer and replaces its key with the
-/// new one (arca ADR 0018, Warden ADR 0002).
-async fn cmd_arca_swap_offer(_terminal: &mut CliTerminal, _session: &CliSession) -> anyhow::Result<()> {
-    Ok(())
+/// new one (arca ADR 0018, Warden ADR 0002). `run_replace_key` checks the preconditions again; they are looked at here first only so
+/// the person is not asked to confirm something that cannot happen.
+async fn cmd_arca_swap_offer(terminal: &mut CliTerminal, session: &CliSession) -> anyhow::Result<()> {
+    let engine = make_sync_engine(session)?;
+    let blocked = if engine.arca_mode()?.is_none() {
+        Some(KeySwapError::NotInArcaMode)
+    } else {
+        match engine.pending().await {
+            Ok(pending) if pending.is_empty() => Some(KeySwapError::NothingNewer),
+            Ok(_) => None,
+            Err(message) => Some(KeySwapError::Failed(message)),
+        }
+    };
+    if let Some(error) = blocked {
+        return finish_arca_swap(terminal, Err(error), "arca.swap_stored_ok");
+    }
+    // One question for both the pairing and the hub's reader: they are the same hub and the same token.
+    let Some((url, token)) = ask_hub_credentials(terminal).await? else { return cancelled_card(terminal) };
+    let access = match HubAccess::new(&url, &token) {
+        Ok(access) => access,
+        Err(error) => return arca_error_card(terminal, error.to_string()),
+    };
+    let hub = match hub_store_for(&url, &token) {
+        Ok(hub) => hub,
+        Err(message) => return arca_error_card(terminal, message),
+    };
+    let Some(device_id) = prompt_field(terminal, &tr!("arca.ask_device"), "").await?.map(|id| id.trim().to_string()).filter(|id| !id.is_empty()) else {
+        return cancelled_card(terminal);
+    };
+    discard_pending_keys();
+    let answer = prompt_field(terminal, &tr!("arca.swap_confirm"), "").await?;
+    if !answer.as_deref().is_some_and(is_yes) {
+        return cancelled_card(terminal);
+    }
+    let result = run_replace_key(&access, &hub, &device_id, &engine, &mut TerminalPrompts { terminal, swap: true }, ARCA_OFFER_POLL, ARCA_OFFER_TIMEOUT, now_millis()).await;
+    finish_arca_swap(terminal, result, "arca.swap_stored_ok")
 }
 
 /// How long the new device waits for a grant: the same 10 minutes an offer lives on the hub.

@@ -204,6 +204,8 @@ pub fn parse_command(input: &str) -> ParseOutcome {
         ("arca", ["on"]) => Command::ArcaOn,
         ("arca", ["sync"]) => Command::ArcaSync,
         ("arca", ["ack"]) => Command::ArcaAck,
+        ("arca", ["swap", "grant"]) => Command::ArcaSwapGrant,
+        ("arca", ["swap", "offer"]) => Command::ArcaSwapOffer,
         ("arca", ["pair", "offer"]) => Command::ArcaPairOffer,
         ("arca", ["pair", "grant"]) => Command::ArcaPairGrant,
         _ => return ParseOutcome::Unrecognized(trimmed.to_string()),
@@ -250,7 +252,7 @@ const AGENTS_SUBCOMMANDS: &[&str] = &["use", "tree", "create", "edit", "remove"]
 const SKILLS_SUBCOMMANDS: &[&str] = &["show", "create", "edit", "remove", "path", "file", "attach", "detach"];
 const SSH_SUBCOMMANDS: &[&str] = &["add", "edit", "remove", "on", "off", "test"];
 const SYNC_SUBCOMMANDS: &[&str] = &["push", "pull", "pair", "git"];
-const ARCA_SUBCOMMANDS: &[&str] = &["on", "sync", "ack", "pair"];
+const ARCA_SUBCOMMANDS: &[&str] = &["on", "sync", "ack", "swap", "pair"];
 
 /// Parses the word currently being typed (the last whitespace-separated token) out of a
 /// `/`-prefixed `input`, along with its candidate completions from the fixed part of the grammar
