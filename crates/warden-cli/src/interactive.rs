@@ -3660,17 +3660,16 @@ async fn cmd_arca_swap_grant(terminal: &mut CliTerminal, session: &CliSession) -
 /// the person is not asked to confirm something that cannot happen.
 async fn cmd_arca_swap_offer(terminal: &mut CliTerminal, session: &CliSession) -> anyhow::Result<()> {
     let engine = make_sync_engine(session)?;
-    let blocked = if engine.arca_mode()?.is_none() {
-        Some(KeySwapError::NotInArcaMode)
-    } else {
-        match engine.pending().await {
-            Ok(pending) if pending.is_empty() => Some(KeySwapError::NothingNewer),
-            Ok(_) => None,
-            Err(message) => Some(KeySwapError::Failed(message)),
-        }
+    if engine.arca_mode()?.is_none() {
+        return finish_arca_swap(terminal, Err(KeySwapError::NotInArcaMode), "arca.swap_stored_ok");
+    }
+    let pending = match engine.pending().await {
+        Ok(pending) => pending,
+        // Nothing started yet, so this is not "the swap did not finish".
+        Err(message) => return arca_error_card(terminal, tr!("arca.epochs_unreadable", error = message)),
     };
-    if let Some(error) = blocked {
-        return finish_arca_swap(terminal, Err(error), "arca.swap_stored_ok");
+    if pending.is_empty() {
+        return finish_arca_swap(terminal, Err(KeySwapError::NothingNewer), "arca.swap_stored_ok");
     }
     // One question for both the pairing and the hub's reader: they are the same hub and the same token.
     let Some((url, token)) = ask_hub_credentials(terminal).await? else { return cancelled_card(terminal) };
@@ -3685,6 +3684,8 @@ async fn cmd_arca_swap_offer(terminal: &mut CliTerminal, session: &CliSession) -
     let Some(device_id) = prompt_field(terminal, &tr!("arca.ask_device"), "").await?.map(|id| id.trim().to_string()).filter(|id| !id.is_empty()) else {
         return cancelled_card(terminal);
     };
+    // What the confirmation is about: the person sees the newer epochs before being asked whether to follow one.
+    render_message_card(terminal, "arca", accent_style(), arca_epoch_lines(&pending).into_iter().map(|line| (line, Style::default())).collect())?;
     discard_pending_keys();
     let answer = prompt_field(terminal, &tr!("arca.swap_confirm"), "").await?;
     if !answer.as_deref().is_some_and(is_yes) {
@@ -4892,10 +4893,15 @@ mod tests {
         speak(i18n::Locale::En);
         let mismatch = key_swap_lines(&KeySwapError::HashMismatch).join("\n");
         assert!(mismatch.contains("Nothing was changed") && mismatch.contains("do not trust this hub"), "{mismatch}");
+        // The hub only holds the other device's first manifest after it ran a cycle: a right code can fail until then.
+        assert!(mismatch.contains("/arca sync"), "{mismatch}");
+        // A device in arca mode already has a key, so `/arca pair offer` would refuse it: the texts must not send it there.
         let nothing_newer = key_swap_lines(&KeySwapError::NothingNewer).join("\n");
-        assert!(nothing_newer.contains("/arca pair offer") && nothing_newer.contains("/arca ack"), "{nothing_newer}");
+        assert!(nothing_newer.contains("acknowledged") && !nothing_newer.contains("/arca pair offer"), "{nothing_newer}");
+        // `Failed` can come from either device, so the text names where to run what.
         let failed = key_swap_lines(&KeySwapError::Failed("disk gone".into())).join("\n");
-        assert!(failed.contains("disk gone") && failed.contains("/arca sync") && failed.contains("/arca swap offer"), "{failed}");
+        assert!(failed.contains("disk gone") && failed.contains("/arca sync") && failed.contains("/arca swap offer") && failed.contains("replacing its key"), "{failed}");
+        assert!(!tr!("arca.ack_confirm").contains("pair it again"), "the acknowledgement must not send the person to a pairing that fails");
         let no_mode = key_swap_lines(&KeySwapError::NotInArcaMode).join("\n");
         assert!(no_mode.contains("/arca on"), "{no_mode}");
     }
