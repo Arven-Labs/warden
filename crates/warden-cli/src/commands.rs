@@ -95,6 +95,10 @@ pub enum Command {
     ArcaSync,
     /// `/arca ack` — acknowledges the newer key epochs `/arca` lists (P-49 A2): this device keeps its key and syncing goes on. Asks to confirm.
     ArcaAck,
+    /// `/arca swap grant` — on the device that rotated the key: hands the new key to a device still on the old one (P-49 C2).
+    ArcaSwapGrant,
+    /// `/arca swap offer` — on the device still on the old key: replaces it with the new one. Asks to confirm.
+    ArcaSwapOffer,
     /// `/arca pair offer` — on the new device: offers itself to the hub and waits for the key (arca ADR 0016).
     ArcaPairOffer,
     /// `/arca pair grant` — on the device that has the key: hands it to a waiting offer.
@@ -499,6 +503,22 @@ mod tests {
     }
 
     #[test]
+    fn arca_swap_parses_and_takes_no_arguments() {
+        assert!(matches!(assert_recognized("/arca swap grant"), Command::ArcaSwapGrant));
+        assert!(matches!(assert_recognized("/arca swap offer"), Command::ArcaSwapOffer));
+        // Same rule as the pairing: the hub address and the token are asked for in the terminal, never taken from the line.
+        for line in ["/arca swap", "/arca swap grant https://hub", "/arca swap offer token123", "/arca swap now", "/arca swap offer --yes"] {
+            assert!(matches!(parse_command(line), ParseOutcome::Unrecognized(_)), "{line}");
+        }
+    }
+
+    #[test]
+    fn ghost_suggestion_knows_the_arca_swap_subcommand() {
+        assert_eq!(ghost_suggestion("/arca sw").as_deref(), Some("ap"));
+        assert_eq!(ghost_suggestion("/arca sy").as_deref(), Some("nc"));
+    }
+
+    #[test]
     fn ghost_suggestion_knows_the_arca_ack_subcommand() {
         assert_eq!(ghost_suggestion("/arca a").as_deref(), Some("ck"));
     }
@@ -510,7 +530,8 @@ mod tests {
 
     #[test]
     fn ghost_suggestion_knows_the_arca_sync_subcommand() {
-        assert_eq!(ghost_suggestion("/arca s").as_deref(), Some("ync"));
+        // `swap` also starts with "s", so the ghost needs the second letter to tell the two apart.
+        assert_eq!(ghost_suggestion("/arca sy").as_deref(), Some("nc"));
     }
 
     #[test]
