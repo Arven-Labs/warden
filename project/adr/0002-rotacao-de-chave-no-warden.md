@@ -38,6 +38,15 @@ A ordem do fluxo segue o ADR 0018 da arca: (1) revogar o token no hub (declaraç
 - O caminho "trocar chave" muda o contrato do pareamento (hoje só dispositivo novo recebe chave): custo médio de reverter.
 - O re-pareamento de um dispositivo ao qual o hub já consumiu o grant exige conceder de novo: um passo manual a mais para quem perde a resposta.
 
+## Atualização (P-49 C2, 2026-11-20): o caminho "trocar chave" como foi feito
+Implementa o item 4. Detalhes que o texto acima não fixava:
+- **Funções novas** (`arca_key_swap`): `run_grant_replacing` no dispositivo que rotacionou e `run_replace_key` no que ficou com a chave velha. `run_offer`, `run_grant`, `Shown` e `PairingError` não mudaram. Precondição checada **antes** de publicar a oferta: modo arca ligado e `foreign_epochs` não vazio.
+- **O hash que a pessoa digita** é o código do head: os 32 primeiros dígitos hex do hash do último manifest que o A aceitou, em grupos de 4, dentro do mesmo texto da impressão da chave (`<impressão> <código>`). O B resolve o id inteiro listando os manifests do hub; zero ou mais de um casamento é recusa.
+- **Validação da semente** (achado da auditoria): o manifest do head tem de existir no hub com o hash dos seus bytes e abrir com a chave nova **na época nova**. Um head de época anterior ou de outra chave seria gravado como `last_accepted` e o dispositivo recusaria todo ciclo (`Rollback`), sem saída segura. A chave também precisa ser mais nova que a do dispositivo (outra chave e época maior).
+- **Ordem e queda**: apaga `arca-store` e `arca_state.json`, faz o 1º snapshot da época nova (a base do próximo merge, como no `arca_enable`), puxa o hub, confere que a semente chegou, semeia o estado e grava chave e época **por último**. Uma queda antes do fim deixa o par velho e a pendência de época anotada; refazer depois de um ciclo termina o serviço. **Sem teste de queda.**
+- **Época já reconhecida fica fora**: quem reconheceu a época pendente escolheu seguir com a chave velha; `foreign_epochs` vazio dá `NothingNewer` (decisão do dono, 2026-11-20).
+- **Limite**: a base do merge é uma raiz sem ancestral comum, então remoções que outros dispositivos fizeram desde a rotação podem ressuscitar na pasta deste; edições concorrentes viram conflito, não perda.
+
 ## Não validado
 - Conferido no código: há **um** `sync_secrets.json` e **um** `sync_manifest.json` por instalação (`paths.rs`), então o par chave e época é por instalação. Se um dia houver mais de um cofre por instalação, a rotação de um mudaria a chave dos outros.
 - O comportamento com um hub real escondendo manifests da época nova; o custo de `begin_epoch` em cofre grande; a frase BIP-39 e o fluxo inteiro num aparelho real (nada disso foi executado).
