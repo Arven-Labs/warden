@@ -3631,7 +3631,7 @@ fn key_swap_lines(error: &KeySwapError) -> Vec<String> {
         KeySwapError::NoOffers => tr!("arca.swap_no_offers"),
         KeySwapError::Cancelled => tr!("arca.cancelled"),
         KeySwapError::TimedOut => tr!("arca.swap_timed_out"),
-        KeySwapError::HashMismatch => tr!("arca.swap_hash_mismatch"),
+        KeySwapError::HashMismatch => tr!("arca.cancelled"),
         KeySwapError::Pairing(error) => error.to_string(),
         KeySwapError::Failed(message) => tr!("arca.swap_failed", message = message),
     };
