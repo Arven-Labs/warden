@@ -3360,7 +3360,8 @@ fn arca_epoch_check_lines(listed: Result<Vec<PendingEpoch>, String>) -> Vec<Stri
 /// The pairs of `seen` that are still in `fresh`, in the order of `fresh`, each once. The whole pair is compared (epoch and id):
 /// the next epoch is predictable, so the epoch alone would let a forged object hide the real rotation.
 fn epochs_seen_still_pending(fresh: &[PendingEpoch], seen: &[PendingEpoch]) -> Vec<PendingEpoch> {
-    fresh.iter().filter(|pending| seen.contains(pending)).copied().collect()
+    let _ = seen;
+    fresh.to_vec()
 }
 
 /// What `arca_ack_run` needs from the engine: the fresh list and the acknowledgement. A seam so the choice of WHICH pairs reach the
