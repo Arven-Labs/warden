@@ -6,6 +6,17 @@
 
 ---
 
+### 2026-11-21 — arca: o aviso de época e o `/arca ack` no CLI (P-49 da arca, fatia A2, [warden#200](https://github.com/Arven-Labs/warden/pull/200))
+
+- **Pedido**: "vamos de p49", fatia A2 escolhida entre A2, ligar a troca de chave no CLI, telas e sugestões da auditoria da C2. Plan mode. Decisões suas: um comando só, `/arca ack` (sem `/arca epochs`), com confirmação por "y" digitado.
+- **Feito** (`crates/warden-cli`): `/arca` lista as épocas mais novas pendentes (número e 16 primeiros hex do id) e diz que o aviso pode ser forjado; `/arca ack` busca a lista de novo, pede o "y" e reconhece só os pares (época, id) que a pessoa viu e que ainda estão pendentes (`epochs_seen_still_pending`, `arca_ack_run`, seam `EpochSource` como no desktop). Textos em en e pt-BR.
+- **CI** (todos no warden#200): antes da implementação, 11 testes novos falharam e 105 passaram no `warden-cli` (run 44848166259; 2 dos novos já passavam com o esboço, prova mais fraca); depois, verde (run 44849487843). **Quebra proposital** (PR descartável #201, fechado): a seleção devolvendo a lista fresca inteira fez 5 testes falharem (run 44850991127). Depois da auditoria, verde com 117 testes no `warden-cli` (run 44850982681).
+- **Auditoria** (`security-auditor`, só leitura): sem crítico. Corrigidos: `/arca` caía inteiro se a leitura das épocas falhasse (agora diz que não deu para conferir, nunca "nada pendente"), id de 12 para 16 hex, textos do `ack` (fala em todas as épocas listadas, que o dispositivo segue com a chave velha e que é preciso rodar `/arca` para conferir o que sobrou) e mensagem própria para "nenhuma pendente". **Não corrigidos**: listar, cruzar e reconhecer são três chamadas com o lock solto entre elas (o cruzamento fica só no CLI; fechar pede um `SyncEngine::arca_acknowledge_seen` sob um lock só, que o desktop também usaria); `/arca` agora pega o `sync_lock` e pode esperar um ciclo em andamento (até 10 min); custo de `scan_manifests` em cofre grande, não medido.
+- **Não verificado**: o `cmd_arca_ack` com terminal (sem teste, como o `cmd_arca_on`); modo desligado no CLI; nada rodou num terminal real.
+- **Fica**: ligar `run_grant_replacing` e `run_replace_key` no CLI, no desktop e no mobile; as telas da rotação; as sugestões da auditoria da C2 e as três acima.
+
+---
+
 ### 2026-11-20 — arca: o caminho "trocar chave" no pareamento (P-49 da arca, fatia C2, [warden#197](https://github.com/Arven-Labs/warden/pull/197))
 
 - **Pedido**: "vamos de p49", fatia C2 escolhida por você entre C2, telas e A2. Plan mode; só biblioteca e fluxo, sem CLI, desktop nem mobile (decisão sua). Decisões suas no caminho: o A mostra a impressão da chave **e** o código do head (32 hex) e a pessoa digita tudo no B; re-semear o snapshot como o `arca_enable`; depois da auditoria, corrigir os achados 1, 2 e 3 neste PR e **não** aceitar época já reconhecida (achado 5).
