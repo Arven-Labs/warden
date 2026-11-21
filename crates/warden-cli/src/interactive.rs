@@ -1323,6 +1323,7 @@ async fn cmd_help(terminal: &mut CliTerminal) -> anyhow::Result<()> {
         ("/arca", "help.arca"),
         ("/arca on", "help.arca_on"),
         ("/arca sync", "help.arca_sync"),
+        ("/arca ack", "help.arca_ack"),
         ("/arca pair offer", "help.arca_pair_offer"),
         ("/arca pair grant", "help.arca_pair_grant"),
     ]
@@ -3318,10 +3319,12 @@ async fn ask_hub_credentials(terminal: &mut CliTerminal) -> anyhow::Result<Optio
     Ok(Some((url.trim().to_string(), token.trim().to_string())))
 }
 
-/// `/arca` — whether the vault is in arca mode. Reads the switch file only: no network, nothing written.
-fn cmd_arca_status(terminal: &mut CliTerminal, session: &CliSession) -> anyhow::Result<()> {
+/// `/arca` — whether the vault is in arca mode, and the newer key epochs that stop it, if any. Reads local files only: no network,
+/// nothing written.
+async fn cmd_arca_status(terminal: &mut CliTerminal, session: &CliSession) -> anyhow::Result<()> {
     let engine = make_sync_engine(session)?;
-    let lines = arca_status_lines(engine.is_initialized(), engine.arca_mode()?.as_ref());
+    let mut lines = arca_status_lines(engine.is_initialized(), engine.arca_mode()?.as_ref());
+    lines.extend(arca_epoch_lines(&engine.arca_pending_epochs().await?));
     render_message_card(terminal, "arca", accent_style(), lines.into_iter().map(|line| (line, Style::default())).collect())
 }
 
@@ -3334,13 +3337,22 @@ fn arca_status_lines(has_key: bool, mode: Option<&ArcaMode>) -> Vec<String> {
 }
 
 /// The notice `/arca` adds when newer key epochs are pending. Empty when there are none.
-fn arca_epoch_lines(_pending: &[PendingEpoch]) -> Vec<String> {
-    Vec::new()
+fn arca_epoch_lines(pending: &[PendingEpoch]) -> Vec<String> {
+    if pending.is_empty() {
+        return Vec::new();
+    }
+    let items = pending.iter().map(|found| {
+        let id = found.id.to_string();
+        let short = id.rsplit('/').next().unwrap_or(&id).chars().take(12).collect::<String>();
+        tr!("arca.epochs_item", epoch = found.epoch, id = short)
+    });
+    std::iter::once(tr!("arca.epochs_notice")).chain(items).chain(std::iter::once(tr!("arca.epochs_hint"))).collect()
 }
 
-/// The pairs of `seen` that are still in `fresh`, in the order of `fresh`, each once. The whole pair is compared (epoch and id).
-fn epochs_seen_still_pending(_fresh: &[PendingEpoch], _seen: &[PendingEpoch]) -> Vec<PendingEpoch> {
-    Vec::new()
+/// The pairs of `seen` that are still in `fresh`, in the order of `fresh`, each once. The whole pair is compared (epoch and id):
+/// the next epoch is predictable, so the epoch alone would let a forged object hide the real rotation.
+fn epochs_seen_still_pending(fresh: &[PendingEpoch], seen: &[PendingEpoch]) -> Vec<PendingEpoch> {
+    fresh.iter().filter(|pending| seen.contains(pending)).copied().collect()
 }
 
 /// What `arca_ack_run` needs from the engine: the fresh list and the acknowledgement. A seam so the choice of WHICH pairs reach the
@@ -3369,16 +3381,52 @@ enum ArcaAck {
     Failed(String),
 }
 
-async fn arca_ack_run(_source: &impl EpochSource, _seen: &[PendingEpoch], _answer: Option<&str>) -> ArcaAck {
-    ArcaAck::Cancelled
+/// The part of `/arca ack` that cannot be undone in practice: only after a typed yes, and only the pairs the person saw. `seen` is
+/// looked up in a fresh list, so no id from the screen reaches the engine and whatever showed up after the person looked stays pending.
+async fn arca_ack_run(source: &impl EpochSource, seen: &[PendingEpoch], answer: Option<&str>) -> ArcaAck {
+    if !answer.is_some_and(is_yes) {
+        return ArcaAck::Cancelled;
+    }
+    let fresh = match source.pending().await {
+        Ok(fresh) => fresh,
+        Err(message) => return ArcaAck::Failed(message),
+    };
+    let to_acknowledge = epochs_seen_still_pending(&fresh, seen);
+    if to_acknowledge.is_empty() {
+        return ArcaAck::NothingPending;
+    }
+    match source.acknowledge(&to_acknowledge).await {
+        Ok(()) => ArcaAck::Done { count: to_acknowledge.len() },
+        Err(message) => ArcaAck::Failed(message),
+    }
 }
 
-fn arca_ack_lines(_outcome: &ArcaAck) -> Vec<String> {
-    Vec::new()
+fn arca_ack_lines(outcome: &ArcaAck) -> Vec<String> {
+    match outcome {
+        ArcaAck::NothingPending => vec![tr!("arca.ack_nothing")],
+        ArcaAck::Cancelled => vec![tr!("arca.cancelled")],
+        ArcaAck::Done { count } => vec![tr!("arca.ack_done", count = count)],
+        ArcaAck::Failed(message) => vec![message.clone()],
+    }
 }
 
-async fn cmd_arca_ack(_terminal: &mut CliTerminal, _session: &CliSession) -> anyhow::Result<()> {
-    Ok(())
+/// `/arca ack` — lists the newer key epochs and, after a typed yes, acknowledges the ones just listed. The keys typed before the
+/// question are thrown away so a stray Enter cannot answer it.
+async fn cmd_arca_ack(terminal: &mut CliTerminal, session: &CliSession) -> anyhow::Result<()> {
+    let engine = make_sync_engine(session)?;
+    if engine.arca_mode()?.is_none() {
+        return arca_error_card(terminal, tr!("arca.ack_needs_mode"));
+    }
+    let seen = engine.arca_pending_epochs().await?;
+    if seen.is_empty() {
+        return render_message_card(terminal, "arca", accent_style(), vec![(tr!("arca.ack_nothing"), Style::default())]);
+    }
+    render_message_card(terminal, "arca", accent_style(), arca_epoch_lines(&seen).into_iter().map(|line| (line, Style::default())).collect())?;
+    discard_pending_keys();
+    let answer = prompt_field(terminal, &tr!("arca.ack_confirm"), "").await?;
+    let outcome = arca_ack_run(&engine, &seen, answer.as_deref()).await;
+    let style = if matches!(outcome, ArcaAck::Failed(_)) { error_style() } else { accent_style() };
+    render_message_card(terminal, "arca", style, arca_ack_lines(&outcome).into_iter().map(|line| (line, Style::default())).collect())
 }
 
 /// What `/arca on` came to.
@@ -3704,7 +3752,7 @@ async fn handle_command(command: Command, terminal: &mut CliTerminal, session: &
         Command::SyncPull => cmd_sync_pull(terminal, session).await,
         Command::SyncPairShow => cmd_sync_pair_show(terminal, session).await,
         Command::SyncPairJoin(code, host) => cmd_sync_pair_join(terminal, session, code, host).await,
-        Command::ArcaStatus => cmd_arca_status(terminal, session),
+        Command::ArcaStatus => cmd_arca_status(terminal, session).await,
         Command::ArcaOn => cmd_arca_on(terminal, session).await,
         Command::ArcaSync => cmd_arca_sync(terminal, session).await,
         Command::ArcaAck => cmd_arca_ack(terminal, session).await,
