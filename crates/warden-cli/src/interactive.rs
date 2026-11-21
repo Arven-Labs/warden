@@ -3319,12 +3319,12 @@ async fn ask_hub_credentials(terminal: &mut CliTerminal) -> anyhow::Result<Optio
     Ok(Some((url.trim().to_string(), token.trim().to_string())))
 }
 
-/// `/arca` — whether the vault is in arca mode, and the newer key epochs that stop it, if any. Reads local files only: no network,
-/// nothing written.
+/// `/arca` — whether the vault is in arca mode, and the newer key epochs that stop it, if any. No network. Listing the epochs takes
+/// the sync lock (it can wait for a cycle that is running), so a failure there does not hide the status: it is said on its own line.
 async fn cmd_arca_status(terminal: &mut CliTerminal, session: &CliSession) -> anyhow::Result<()> {
     let engine = make_sync_engine(session)?;
     let mut lines = arca_status_lines(engine.is_initialized(), engine.arca_mode()?.as_ref());
-    lines.extend(arca_epoch_lines(&engine.arca_pending_epochs().await?));
+    lines.extend(arca_epoch_check_lines(engine.pending().await));
     render_message_card(terminal, "arca", accent_style(), lines.into_iter().map(|line| (line, Style::default())).collect())
 }
 
@@ -3343,10 +3343,18 @@ fn arca_epoch_lines(pending: &[PendingEpoch]) -> Vec<String> {
     }
     let items = pending.iter().map(|found| {
         let id = found.id.to_string();
-        let short = id.rsplit('/').next().unwrap_or(&id).chars().take(12).collect::<String>();
+        let short = id.rsplit('/').next().unwrap_or(&id).chars().take(16).collect::<String>();
         tr!("arca.epochs_item", epoch = found.epoch, id = short)
     });
     std::iter::once(tr!("arca.epochs_notice")).chain(items).chain(std::iter::once(tr!("arca.epochs_hint"))).collect()
+}
+
+/// The epoch notice, or, when the list could not be read, a line saying so: an error shown as "nothing pending" would hide a rotation.
+fn arca_epoch_check_lines(listed: Result<Vec<PendingEpoch>, String>) -> Vec<String> {
+    match listed {
+        Ok(pending) => arca_epoch_lines(&pending),
+        Err(message) => vec![tr!("arca.epochs_unreadable", error = message)],
+    }
 }
 
 /// The pairs of `seen` that are still in `fresh`, in the order of `fresh`, each once. The whole pair is compared (epoch and id):
@@ -3417,9 +3425,12 @@ async fn cmd_arca_ack(terminal: &mut CliTerminal, session: &CliSession) -> anyho
     if engine.arca_mode()?.is_none() {
         return arca_error_card(terminal, tr!("arca.ack_needs_mode"));
     }
-    let seen = engine.arca_pending_epochs().await?;
+    let seen = match engine.pending().await {
+        Ok(seen) => seen,
+        Err(message) => return arca_error_card(terminal, tr!("arca.epochs_unreadable", error = message)),
+    };
     if seen.is_empty() {
-        return render_message_card(terminal, "arca", accent_style(), vec![(tr!("arca.ack_nothing"), Style::default())]);
+        return render_message_card(terminal, "arca", accent_style(), vec![(tr!("arca.ack_none_pending"), Style::default())]);
     }
     render_message_card(terminal, "arca", accent_style(), arca_epoch_lines(&seen).into_iter().map(|line| (line, Style::default())).collect())?;
     discard_pending_keys();
@@ -4658,6 +4669,18 @@ mod tests {
         speak(i18n::Locale::PtBr);
         let pt = arca_epoch_lines(&[epoch(2, "abc123")]).join("\n");
         assert!(pt.contains("chave mais nova") && pt.contains("época 2") && pt.contains("/arca ack"), "{pt}");
+    }
+
+    #[test]
+    fn a_list_that_could_not_be_read_is_said_and_never_shown_as_nothing_pending() {
+        speak(i18n::Locale::En);
+        let en = arca_epoch_check_lines(Err("lock busy".into())).join("\n");
+        assert!(en.contains("lock busy") && en.contains("NOT mean there are none"), "{en}");
+        speak(i18n::Locale::PtBr);
+        let pt = arca_epoch_check_lines(Err("lock busy".into())).join("\n");
+        assert!(pt.contains("lock busy") && pt.contains("NÃO quer dizer"), "{pt}");
+        assert!(arca_epoch_check_lines(Ok(vec![])).is_empty());
+        assert!(!arca_epoch_check_lines(Ok(vec![epoch(2, "abc123")])).is_empty());
     }
 
     #[test]
