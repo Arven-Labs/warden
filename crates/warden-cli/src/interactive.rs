@@ -77,7 +77,7 @@ use warden_bootstrap::remote_identities::RemoteIdentity;
 use warden_bootstrap::saved_hubs::SavedHub;
 use warden_sync::arca_mode::ArcaMode;
 use warden_sync::arca_pairing::{HubAccess, PendingOffer};
-use warden_sync::arca_sync::{is_auth_rejected, ArcaSyncReport};
+use warden_sync::arca_sync::{is_auth_rejected, ArcaSyncReport, PendingEpoch};
 use warden_sync::arca_pairing_flow::{run_grant, run_offer, Ask, FlowError, PairingPrompts, Shown, Wait};
 
 use crate::commands::{self, Command, ParseOutcome};
@@ -3333,6 +3333,54 @@ fn arca_status_lines(has_key: bool, mode: Option<&ArcaMode>) -> Vec<String> {
     }
 }
 
+/// The notice `/arca` adds when newer key epochs are pending. Empty when there are none.
+fn arca_epoch_lines(_pending: &[PendingEpoch]) -> Vec<String> {
+    Vec::new()
+}
+
+/// The pairs of `seen` that are still in `fresh`, in the order of `fresh`, each once. The whole pair is compared (epoch and id).
+fn epochs_seen_still_pending(_fresh: &[PendingEpoch], _seen: &[PendingEpoch]) -> Vec<PendingEpoch> {
+    Vec::new()
+}
+
+/// What `arca_ack_run` needs from the engine: the fresh list and the acknowledgement. A seam so the choice of WHICH pairs reach the
+/// engine is tested with real `PendingEpoch`s (only a hub can make the engine have one pending).
+trait EpochSource {
+    async fn pending(&self) -> Result<Vec<PendingEpoch>, String>;
+    async fn acknowledge(&self, seen: &[PendingEpoch]) -> Result<(), String>;
+}
+
+impl EpochSource for warden_sync::SyncEngine {
+    async fn pending(&self) -> Result<Vec<PendingEpoch>, String> {
+        self.arca_pending_epochs().await.map_err(|e| format!("{e:#}"))
+    }
+
+    async fn acknowledge(&self, seen: &[PendingEpoch]) -> Result<(), String> {
+        self.arca_acknowledge_epochs(seen).await.map_err(|e| format!("{e:#}"))
+    }
+}
+
+/// What `/arca ack` came to.
+#[derive(Debug, PartialEq, Eq)]
+enum ArcaAck {
+    NothingPending,
+    Cancelled,
+    Done { count: usize },
+    Failed(String),
+}
+
+async fn arca_ack_run(_source: &impl EpochSource, _seen: &[PendingEpoch], _answer: Option<&str>) -> ArcaAck {
+    ArcaAck::Cancelled
+}
+
+fn arca_ack_lines(_outcome: &ArcaAck) -> Vec<String> {
+    Vec::new()
+}
+
+async fn cmd_arca_ack(_terminal: &mut CliTerminal, _session: &CliSession) -> anyhow::Result<()> {
+    Ok(())
+}
+
 /// What `/arca on` came to.
 #[derive(Debug, PartialEq, Eq)]
 enum ArcaOn {
@@ -3659,6 +3707,7 @@ async fn handle_command(command: Command, terminal: &mut CliTerminal, session: &
         Command::ArcaStatus => cmd_arca_status(terminal, session),
         Command::ArcaOn => cmd_arca_on(terminal, session).await,
         Command::ArcaSync => cmd_arca_sync(terminal, session).await,
+        Command::ArcaAck => cmd_arca_ack(terminal, session).await,
         Command::ArcaPairOffer => cmd_arca_pair_offer(terminal, session).await,
         Command::ArcaPairGrant => cmd_arca_pair_grant(terminal, session).await,
         Command::SyncGitPush => cmd_sync_git_push(terminal, session).await,
@@ -4507,6 +4556,136 @@ mod tests {
         assert!(without_key.contains("no vault key"), "{without_key}");
         assert!(without_key.contains("/arca pair offer"), "{without_key}");
         assert!(without_key.contains("/arca on"), "{without_key}");
+    }
+
+    // ---------- the newer key epochs that stop the vault (`/arca` and `/arca ack`) ----------
+
+    /// A pending epoch whose id is the hex of `tag` (up to 32 bytes) padded with zeros: `manifest/<64 hex>`, the way the hub names
+    /// its objects. Different tags in their first 6 bytes give different short ids.
+    fn epoch(number: u32, tag: &str) -> PendingEpoch {
+        let hex: String = tag.bytes().map(|byte| format!("{byte:02x}")).collect();
+        PendingEpoch { epoch: number, id: format!("manifest/{hex:0<64}").parse().unwrap() }
+    }
+
+    /// An engine with a fixed list of pending epochs that remembers what it was told to acknowledge (`None` until it was asked).
+    struct FakeEngine {
+        fresh: Result<Vec<PendingEpoch>, String>,
+        acknowledged: std::sync::Mutex<Option<Vec<PendingEpoch>>>,
+    }
+
+    impl FakeEngine {
+        fn with(fresh: Vec<PendingEpoch>) -> Self {
+            Self { fresh: Ok(fresh), acknowledged: std::sync::Mutex::new(None) }
+        }
+        fn told(&self) -> Option<Vec<PendingEpoch>> {
+            self.acknowledged.lock().unwrap().clone()
+        }
+    }
+
+    impl EpochSource for FakeEngine {
+        async fn pending(&self) -> Result<Vec<PendingEpoch>, String> {
+            self.fresh.clone()
+        }
+        async fn acknowledge(&self, seen: &[PendingEpoch]) -> Result<(), String> {
+            *self.acknowledged.lock().unwrap() = Some(seen.to_vec());
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn with_no_newer_epoch_the_status_adds_nothing() {
+        assert!(arca_epoch_lines(&[]).is_empty());
+    }
+
+    #[test]
+    fn a_pending_epoch_is_listed_with_its_number_and_short_id_and_the_way_out() {
+        speak(i18n::Locale::En);
+        let lines = arca_epoch_lines(&[epoch(2, "abc123"), epoch(3, "def456")]).join("\n");
+        assert!(lines.contains("newer key"), "{lines}");
+        assert!(lines.contains("epoch 2") && lines.contains("616263313233"), "{lines}");
+        assert!(lines.contains("epoch 3"), "{lines}");
+        assert!(lines.contains("/arca pair offer") && lines.contains("/arca ack"), "{lines}");
+        // The epoch in an object's header is not authenticated: the notice must not read as a fact.
+        assert!(lines.contains("forge"), "{lines}");
+        speak(i18n::Locale::PtBr);
+        let pt = arca_epoch_lines(&[epoch(2, "abc123")]).join("\n");
+        assert!(pt.contains("chave mais nova") && pt.contains("época 2") && pt.contains("/arca ack"), "{pt}");
+    }
+
+    #[test]
+    fn only_the_pairs_seen_and_still_pending_are_kept_in_the_order_of_the_fresh_list() {
+        let (a, b, c) = (epoch(1, "a"), epoch(1, "b"), epoch(2, "c"));
+        assert_eq!(epochs_seen_still_pending(&[a, b, c], &[b]), vec![b], "the one that was shown");
+        assert_eq!(epochs_seen_still_pending(&[a, b, c], &[c, a]), vec![a, c], "in the order of the fresh list");
+        assert_eq!(epochs_seen_still_pending(&[a, b, c], &[a, a]), vec![a], "each once");
+        assert_eq!(epochs_seen_still_pending(&[a, b, c], &[]), vec![], "nothing seen, nothing acknowledged");
+        assert_eq!(epochs_seen_still_pending(&[a], &[b]), vec![], "gone since the person looked");
+        assert_eq!(epochs_seen_still_pending(&[], &[a]), vec![]);
+    }
+
+    #[test]
+    fn the_epoch_alone_is_not_enough_a_forged_object_of_the_same_epoch_is_another_pair() {
+        let (real, forged) = (epoch(1, "the real rotation"), epoch(1, "forged with the old key"));
+        assert_eq!(epochs_seen_still_pending(&[real, forged], &[real]), vec![real]);
+        assert_eq!(epochs_seen_still_pending(&[forged], &[real]), vec![]);
+    }
+
+    #[tokio::test]
+    async fn without_a_typed_yes_the_engine_is_not_asked_to_acknowledge_anything() {
+        for answer in [None, Some(""), Some("n"), Some("nao"), Some("talvez")] {
+            let engine = FakeEngine::with(vec![epoch(1, "a")]);
+            assert_eq!(arca_ack_run(&engine, &[epoch(1, "a")], answer).await, ArcaAck::Cancelled, "{answer:?}");
+            assert_eq!(engine.told(), None, "{answer:?}");
+        }
+    }
+
+    #[tokio::test]
+    async fn only_the_pair_the_person_saw_reaches_the_engine_not_the_forged_one_of_the_same_epoch() {
+        let (real, forged, later) = (epoch(1, "the real rotation"), epoch(1, "forged with the old key"), epoch(2, "a later one"));
+        let engine = FakeEngine::with(vec![real, forged, later]);
+        assert_eq!(arca_ack_run(&engine, &[real], Some("y")).await, ArcaAck::Done { count: 1 });
+        assert_eq!(engine.told(), Some(vec![real]), "the forged object and the later epoch stay pending");
+    }
+
+    #[tokio::test]
+    async fn what_appeared_after_the_person_looked_is_not_acknowledged() {
+        let (shown, appeared_later) = (epoch(1, "what the screen listed"), epoch(1, "showed up after"));
+        let engine = FakeEngine::with(vec![shown, appeared_later]);
+        assert_eq!(arca_ack_run(&engine, &[shown], Some("sim")).await, ArcaAck::Done { count: 1 });
+        assert_eq!(engine.told(), Some(vec![shown]));
+    }
+
+    #[tokio::test]
+    async fn when_everything_seen_is_gone_nothing_is_acknowledged_and_the_person_is_told() {
+        let engine = FakeEngine::with(vec![epoch(2, "new")]);
+        assert_eq!(arca_ack_run(&engine, &[epoch(1, "old")], Some("y")).await, ArcaAck::NothingPending);
+        assert_eq!(engine.told(), None);
+    }
+
+    #[tokio::test]
+    async fn a_failure_to_read_the_list_is_reported_and_acknowledges_nothing() {
+        let engine = FakeEngine { fresh: Err("disk gone".into()), acknowledged: std::sync::Mutex::new(None) };
+        assert_eq!(arca_ack_run(&engine, &[epoch(1, "a")], Some("y")).await, ArcaAck::Failed("disk gone".into()));
+        assert_eq!(engine.told(), None);
+    }
+
+    #[test]
+    fn the_outcome_of_the_acknowledgement_is_said_in_words() {
+        speak(i18n::Locale::En);
+        assert!(arca_ack_lines(&ArcaAck::Done { count: 2 }).join("\n").contains("acknowledged"));
+        assert!(arca_ack_lines(&ArcaAck::NothingPending).join("\n").contains("nothing"));
+        assert!(arca_ack_lines(&ArcaAck::Cancelled).join("\n").contains("cancelled"));
+        assert_eq!(arca_ack_lines(&ArcaAck::Failed("boom".into())), vec!["boom".to_string()]);
+    }
+
+    #[test]
+    fn the_acknowledgement_says_the_device_keeps_the_old_key_and_nothing_is_deleted() {
+        speak(i18n::Locale::En);
+        let en = tr!("arca.ack_confirm");
+        assert!(en.contains("keeps its current key") && en.contains("Nothing is deleted") && en.contains("(y/n)"), "{en}");
+        speak(i18n::Locale::PtBr);
+        let pt = tr!("arca.ack_confirm");
+        assert!(pt.contains("chave atual") && pt.contains("Nada é apagado") && pt.contains("(s/n)"), "{pt}");
     }
 
     // ---------- `/arca on` ----------

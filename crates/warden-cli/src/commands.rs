@@ -93,6 +93,8 @@ pub enum Command {
     ArcaOn,
     /// `/arca sync` — one cycle against a hub; the address and the token are asked for, like in the pairing.
     ArcaSync,
+    /// `/arca ack` — acknowledges the newer key epochs `/arca` lists (P-49 A2): this device keeps its key and syncing goes on. Asks to confirm.
+    ArcaAck,
     /// `/arca pair offer` — on the new device: offers itself to the hub and waits for the key (arca ADR 0016).
     ArcaPairOffer,
     /// `/arca pair grant` — on the device that has the key: hands it to a waiting offer.
@@ -484,6 +486,20 @@ mod tests {
         for line in ["/arca sync https://hub", "/arca sync token123", "/arca status", "/arca on now", "/arca on --yes", "/arca off"] {
             assert!(matches!(parse_command(line), ParseOutcome::Unrecognized(_)), "{line}");
         }
+    }
+
+    #[test]
+    fn arca_ack_parses_and_takes_no_arguments() {
+        assert!(matches!(assert_recognized("/arca ack"), Command::ArcaAck));
+        // What is acknowledged is chosen on the screen from the list the person just read, never typed on the line.
+        for line in ["/arca ack 1", "/arca ack all", "/arca ack --yes", "/arca acknowledge"] {
+            assert!(matches!(parse_command(line), ParseOutcome::Unrecognized(_)), "{line}");
+        }
+    }
+
+    #[test]
+    fn ghost_suggestion_knows_the_arca_ack_subcommand() {
+        assert_eq!(ghost_suggestion("/arca a").as_deref(), Some("ck"));
     }
 
     #[test]
