@@ -15,13 +15,19 @@ use arca_core::disk::DiskStore;
 use arca_core::engine::{Engine, Roots, Snapshot};
 use arca_core::hub::HubStore;
 use arca_core::manifest::Class;
-use arca_core::object::ObjectId;
+use arca_core::manifest::Hash32;
+use arca_core::object::{ObjectId, ObjectKind};
+use arca_core::state::DeviceState;
 use arca_core::store::BlobStore;
 use warden_core::memory::Vault;
 use warden_core::orchestrator::Orchestrator;
 use warden_server::arca_api::ArcaLimits;
 use warden_server::{PairingProof, PairingStore, Server};
-use warden_sync::arca_mode::{load_mode, mode_path_for, state_path_for, store_path_for};
+use warden_sync::arca_key_swap::{head_code, run_grant_replacing, run_replace_key, KeySwapError};
+use warden_sync::arca_mode::{folder_path_for, load_mode, mode_path_for, state_path_for, store_path_for};
+use warden_sync::arca_pairing::{key_fingerprint, list_offers, HubAccess, PairingError, PendingOffer};
+use warden_sync::arca_pairing_flow::{Ask, PairingPrompts, Shown, Wait};
+use warden_sync::arca_rotation::PendingRotation;
 use warden_sync::arca_sync::{NotCleared, PendingEpoch};
 use warden_sync::SyncEngine;
 
@@ -54,6 +60,19 @@ impl Hub {
         let token = self.devices.authenticate_as(id, id, None, proof).unwrap().unwrap().issued_token.unwrap();
         self.devices.approve(id).unwrap();
         HubStore::new(&format!("http://{}", self.addr), &token).unwrap()
+    }
+
+    /// The same approved device seen by the cycle (`HubStore`) and by the pairing (`HubAccess`): one registration, one token.
+    fn pair(&self, id: &str) -> (HubAccess, HubStore) {
+        let proof = if self.devices.list().unwrap().is_empty() {
+            PairingProof::PairingKey
+        } else {
+            PairingProof::Invite(self.devices.create_invite("test", Duration::from_secs(60)).unwrap())
+        };
+        let token = self.devices.authenticate_as(id, id, None, proof).unwrap().unwrap().issued_token.unwrap();
+        self.devices.approve(id).unwrap();
+        let url = format!("http://{}", self.addr);
+        (HubAccess::new(&url, &token).unwrap(), HubStore::new(&url, &token).unwrap())
     }
 }
 
@@ -2032,4 +2051,373 @@ async fn a_new_manifest_of_the_same_epoch_stops_the_cycle_again_after_the_first_
 async fn with_the_mode_off_nothing_is_pending() {
     let (a, _) = first_device("a-off");
     assert_eq!(a.engine.arca_pending_epochs().await.unwrap(), vec![]);
+}
+
+// ---------- swapping the key (P-49 C2, warden ADR 0002 item 4) ----------
+
+/// Two devices of one group on one hub. `a` rotated the key (epoch 1) and pushed it; `b` still has the old key, ran a cycle that
+/// stopped on the newer epoch (so the pull noted it) and is the one that will swap.
+struct Group {
+    a: Device,
+    a_access: HubAccess,
+    a_store: HubStore,
+    b: Device,
+    b_id: String,
+    b_access: HubAccess,
+    b_store: HubStore,
+}
+
+async fn rotated_group(hub: &Hub, name: &str) -> Group {
+    let (a, key) = first_device(&format!("{name}-a"));
+    write(&a, "note.md", "hello");
+    a.engine.arca_enable(false, 1).await.unwrap();
+    let (a_access, a_store) = hub.pair(&format!("dev-{name}-a"));
+    a.engine.arca_sync(&a_store, 2).await.unwrap();
+
+    let b = paired_device(&format!("{name}-b"), key);
+    b.engine.arca_enable(false, 3).await.unwrap();
+    let b_id = format!("dev-{name}-b");
+    let (b_access, b_store) = hub.pair(&b_id);
+    b.engine.arca_sync(&b_store, 4).await.unwrap();
+
+    let rotation = PendingRotation::generate().unwrap();
+    let phrase = rotation.phrase().unwrap();
+    let words: Vec<&str> = phrase.words().collect();
+    let typed: Vec<&str> = rotation.positions().iter().map(|position| words[position - 1]).collect();
+    rotation.confirm(&typed, true, &a.engine, 5).await.unwrap();
+    a.engine.arca_sync(&a_store, 6).await.unwrap();
+
+    b.engine.arca_sync(&b_store, 7).await.expect_err("the cycle stops on the newer epoch");
+    assert!(!b.engine.arca_pending_epochs().await.unwrap().is_empty(), "b sees the newer epoch");
+    Group { a, a_access, a_store, b, b_id, b_access, b_store }
+}
+
+fn secrets_of(device: &Device) -> warden_sync::manifest::SyncSecrets {
+    warden_sync::manifest::load_secrets(&device.manifest.with_file_name("sync_secrets.json")).unwrap().unwrap()
+}
+
+/// What the device that rotated hands over: the key, its epoch, and the manifest it shows the head code of.
+async fn handed_over(a: &Device) -> ([u8; 32], u32, ObjectId) {
+    let secrets = secrets_of(a);
+    (secrets.vault_key, secrets.key_epoch, a.engine.arca_head_id().await.unwrap())
+}
+
+fn names_under(root: &Path) -> Vec<String> {
+    fn walk(root: &Path, dir: &Path, out: &mut Vec<String>) {
+        let Ok(entries) = std::fs::read_dir(dir) else { return };
+        for entry in entries {
+            let path = entry.unwrap().path();
+            out.push(path.strip_prefix(root).unwrap().to_string_lossy().into_owned());
+            if path.is_dir() {
+                walk(root, &path, out);
+            }
+        }
+    }
+    let mut out = Vec::new();
+    walk(root, root, &mut out);
+    out.sort();
+    out
+}
+
+/// Everything a swap may write on a device, to compare before and after a swap that must write nothing.
+#[derive(Debug, PartialEq)]
+struct Disk {
+    pair: ([u8; 32], u32, String),
+    state: Option<DeviceState>,
+    store: Vec<String>,
+    folder: Option<String>,
+}
+
+fn disk_of(device: &Device) -> Disk {
+    let secrets = secrets_of(device);
+    Disk {
+        pair: (secrets.vault_key, secrets.key_epoch, secrets.device_id),
+        state: DeviceState::load(&state_path_for(&device.manifest)).unwrap(),
+        store: names_under(&store_path_for(&device.manifest)),
+        folder: std::fs::read_to_string(folder_path_for(&device.manifest)).ok(),
+    }
+}
+
+#[tokio::test]
+async fn swapping_the_key_writes_the_pair_whole_wipes_the_replica_and_seeds_the_state() {
+    let hub = hub().await;
+    let g = rotated_group(&hub, "swap-ok").await;
+    // A file only the old replica has: the wipe is what removes it (what the hub gives back by the pull is another matter).
+    let marker = store_path_for(&g.b.manifest).join("stale-marker");
+    std::fs::write(&marker, "old replica").unwrap();
+    let before = disk_of(&g.b);
+    let (key, epoch, seed) = handed_over(&g.a).await;
+    assert_eq!(epoch, 1, "the group rotated once");
+
+    g.b.engine.arca_replace_key(&g.b_store, key, epoch, seed, 8).await.expect("the swap goes through");
+
+    let after = disk_of(&g.b);
+    assert_eq!(after.pair, (key, 1, before.pair.2.clone()), "the new key and its epoch together, and the same device id");
+    assert_eq!(after.state, Some(DeviceState { key_epoch: 1, last_accepted: Hash32(seed.hash) }), "the state holds the head the person confirmed");
+    assert!(before.store.iter().any(|name| name == "stale-marker"), "the marker was in the old replica");
+    assert!(!marker.exists(), "the old replica was wiped");
+    assert_ne!(after.folder, before.folder, "the folder points at the first manifest of the new epoch");
+    assert_eq!(g.b.engine.arca_pending_epochs().await.unwrap(), vec![], "nothing newer is pending any more");
+
+    g.b.engine.arca_sync(&g.b_store, 9).await.expect("a cycle on the new key goes through");
+    g.a.engine.arca_sync(&g.a_store, 10).await.unwrap();
+    assert_eq!(files(&g.b.vault), files(&g.a.vault));
+}
+
+#[tokio::test]
+async fn a_local_edit_made_since_the_rotation_survives_the_swap() {
+    let hub = hub().await;
+    let g = rotated_group(&hub, "swap-edit").await;
+    write(&g.b, "note.md", "edited locally");
+    write(&g.b, "new-here.md", "only here");
+    let (key, epoch, seed) = handed_over(&g.a).await;
+
+    g.b.engine.arca_replace_key(&g.b_store, key, epoch, seed, 8).await.unwrap();
+    g.b.engine.arca_sync(&g.b_store, 9).await.expect("the cycle after the swap finds a base to merge on");
+
+    let texts: Vec<String> = files(&g.b.vault).into_values().collect();
+    assert!(texts.iter().any(|t| t == "edited locally"), "the local edit is still there: {texts:?}");
+    assert!(texts.iter().any(|t| t == "only here"), "the new file is still there: {texts:?}");
+    assert!(texts.iter().any(|t| t == "hello"), "the other side's text is kept too: {texts:?}");
+}
+
+#[tokio::test]
+async fn a_head_the_hub_does_not_hold_stops_the_swap_and_writes_nothing() {
+    let hub = hub().await;
+    let g = rotated_group(&hub, "swap-no-seed").await;
+    let before = disk_of(&g.b);
+    let (key, epoch, _) = handed_over(&g.a).await;
+    let unknown = ObjectId { kind: ObjectKind::Manifest, hash: [9u8; 32] };
+
+    let result = g.b.engine.arca_replace_key(&g.b_store, key, epoch, unknown, 8).await;
+
+    assert!(matches!(result, Err(KeySwapError::HashMismatch)), "{result:?}");
+    assert_eq!(disk_of(&g.b), before);
+}
+
+#[tokio::test]
+async fn with_the_mode_off_the_swap_is_refused_and_writes_nothing() {
+    let hub = hub().await;
+    let (b, _) = first_device("swap-mode-off");
+    let before = secrets_of(&b).vault_key;
+    let seed = ObjectId { kind: ObjectKind::Manifest, hash: [1u8; 32] };
+
+    let result = b.engine.arca_replace_key(&hub.store("dev-swap-mode-off"), NEW_KEY, 1, seed, 8).await;
+
+    assert!(matches!(result, Err(KeySwapError::NotInArcaMode)), "{result:?}");
+    assert_eq!(secrets_of(&b).vault_key, before);
+    assert!(!mode_path_for(&b.manifest).exists(), "the mode stays off");
+}
+
+#[tokio::test]
+async fn with_no_newer_epoch_the_swap_is_refused_and_writes_nothing() {
+    let hub = hub().await;
+    let (b, _) = synced_device(&hub, "swap-nothing-newer").await;
+    let before = disk_of(&b);
+    let seed = ObjectId { kind: ObjectKind::Manifest, hash: [1u8; 32] };
+
+    let result = b.engine.arca_replace_key(&hub.store("dev-swap-nothing-newer"), NEW_KEY, 1, seed, 8).await;
+
+    assert!(matches!(result, Err(KeySwapError::NothingNewer)), "{result:?}");
+    assert_eq!(disk_of(&b), before);
+}
+
+#[tokio::test]
+async fn a_head_of_an_earlier_epoch_is_refused_and_writes_nothing() {
+    let hub = hub().await;
+    let g = rotated_group(&hub, "swap-old-head").await;
+    let before = disk_of(&g.b);
+    let (key, epoch, _) = handed_over(&g.a).await;
+    // the manifest b itself accepted before the rotation: the hub holds it, but it is of epoch 0 and `epoch` is 1
+    let old_head = before.state.expect("b accepted a manifest before the rotation").last_accepted;
+    let seed = ObjectId { kind: ObjectKind::Manifest, hash: old_head.0 };
+
+    let result = g.b.engine.arca_replace_key(&g.b_store, key, epoch, seed, 8).await;
+
+    assert!(matches!(result, Err(KeySwapError::HashMismatch)), "{result:?}");
+    assert_eq!(disk_of(&g.b), before, "a device that refused is not left holding a head it can never reach");
+}
+
+#[tokio::test]
+async fn a_head_the_new_key_cannot_open_is_refused_and_writes_nothing() {
+    let hub = hub().await;
+    let g = rotated_group(&hub, "swap-foreign-head").await;
+    let before = disk_of(&g.b);
+    let (key, epoch, _) = handed_over(&g.a).await;
+    // a manifest the hub holds and lists, of the SAME epoch (1) but sealed by an unrelated group's key: the header epoch matches,
+    // the hub serves it, and the key does not open it
+    let seed = rotate_elsewhere(&hub, "swap-foreign-head-s", [5u8; 32], [6u8; 32]).await;
+
+    let result = g.b.engine.arca_replace_key(&g.b_store, key, epoch, seed, 8).await;
+
+    assert!(matches!(result, Err(KeySwapError::HashMismatch)), "{result:?}");
+    assert_eq!(disk_of(&g.b), before);
+}
+
+#[tokio::test]
+async fn a_key_that_is_not_newer_than_the_devices_own_is_refused_and_writes_nothing() {
+    let hub = hub().await;
+    let g = rotated_group(&hub, "swap-not-newer").await;
+    let before = disk_of(&g.b);
+    let (new_key, new_epoch, seed) = handed_over(&g.a).await;
+    let (old_key, old_epoch) = (before.pair.0, before.pair.1);
+
+    // the same key, at a higher epoch
+    let same_key = g.b.engine.arca_replace_key(&g.b_store, old_key, new_epoch, seed, 8).await;
+    assert!(matches!(same_key, Err(KeySwapError::NotNewer)), "{same_key:?}");
+    // another key, at the epoch the device already has
+    let same_epoch = g.b.engine.arca_replace_key(&g.b_store, new_key, old_epoch, seed, 8).await;
+    assert!(matches!(same_epoch, Err(KeySwapError::NotNewer)), "{same_epoch:?}");
+    assert_eq!(disk_of(&g.b), before);
+}
+
+// ---- the conversation between the two devices ----
+
+/// A person at one device: what they type is fixed in advance, and what the flow showed and asked is kept.
+#[derive(Default)]
+struct Script {
+    pick: Option<usize>,
+    typed: Option<String>,
+    shown: Vec<Shown>,
+    asked: Vec<Ask>,
+}
+
+impl PairingPrompts for Script {
+    async fn wait(&mut self, pause: Duration) -> Wait {
+        tokio::time::sleep(pause).await;
+        Wait::Continue
+    }
+    fn show(&mut self, shown: Shown) {
+        self.shown.push(shown);
+    }
+    async fn choose_offer(&mut self, _offers: &[PendingOffer]) -> Option<usize> {
+        self.pick
+    }
+    async fn ask(&mut self, ask: Ask) -> Option<String> {
+        self.asked.push(ask);
+        self.typed.clone()
+    }
+}
+
+const POLL: Duration = Duration::from_millis(20);
+const WAIT: Duration = Duration::from_secs(5);
+
+async fn wait_for_the_offer(access: &HubAccess) -> PendingOffer {
+    for _ in 0..250 {
+        if let Some(offer) = list_offers(access).await.unwrap().into_iter().next() {
+            return offer;
+        }
+        tokio::time::sleep(POLL).await;
+    }
+    panic!("the stranded device never published its offer");
+}
+
+/// Both sides at once: `a` hands over (the person types B's code on it), `b` swaps with `typed_on_b`. Returns what each side ended
+/// with and what A's screen showed.
+async fn swap_through_the_pairing(a: &Device, a_access: &HubAccess, b: &Device, b_id: &str, b_access: &HubAccess, b_store: &HubStore, typed_on_b: String) -> (Result<(), KeySwapError>, Result<(), KeySwapError>, Script) {
+    let a_side = async {
+        let offer = wait_for_the_offer(a_access).await;
+        let mut script = Script { pick: Some(0), typed: Some(offer.code().to_uppercase()), ..Script::default() };
+        let result = run_grant_replacing(a_access, &a.engine, &mut script).await;
+        (result, script)
+    };
+    let mut b_script = Script { typed: Some(typed_on_b), ..Script::default() };
+    let b_side = run_replace_key(b_access, b_store, b_id, &b.engine, &mut b_script, POLL, WAIT, 8);
+    let (b_result, (a_result, a_script)) = tokio::join!(b_side, a_side);
+    (b_result, a_result, a_script)
+}
+
+#[tokio::test]
+async fn the_person_types_the_fingerprint_and_the_head_code_and_the_key_is_swapped() {
+    let hub = hub().await;
+    let g = rotated_group(&hub, "flow-ok").await;
+    let (key, epoch, head) = handed_over(&g.a).await;
+    let shown = format!("{} {}", key_fingerprint(&key), head_code(&head));
+    // typed in another spelling: upper case, spaces instead of dashes
+    let typed = shown.to_uppercase().replace('-', " ");
+
+    let (b_result, a_result, a_script) = swap_through_the_pairing(&g.a, &g.a_access, &g.b, &g.b_id, &g.b_access, &g.b_store, typed).await;
+
+    a_result.expect("A handed the key over");
+    b_result.expect("B swapped");
+    assert_eq!(a_script.shown, vec![Shown::KeyFingerprint(shown)], "A shows the fingerprint and the head code in one text");
+    let secrets = secrets_of(&g.b);
+    assert_eq!((secrets.vault_key, secrets.key_epoch), (key, epoch));
+    g.b.engine.arca_sync(&g.b_store, 9).await.expect("a cycle on the new key goes through");
+}
+
+#[tokio::test]
+async fn a_wrong_head_code_stops_the_swap_and_writes_nothing() {
+    let hub = hub().await;
+    let g = rotated_group(&hub, "flow-bad-head").await;
+    let before = disk_of(&g.b);
+    let (key, _, _) = handed_over(&g.a).await;
+    let typed = format!("{} 0000-0000-0000-0000-0000-0000-0000-0000", key_fingerprint(&key));
+
+    let (b_result, _, _) = swap_through_the_pairing(&g.a, &g.a_access, &g.b, &g.b_id, &g.b_access, &g.b_store, typed).await;
+
+    assert!(matches!(b_result, Err(KeySwapError::HashMismatch)), "{b_result:?}");
+    assert_eq!(disk_of(&g.b), before);
+}
+
+#[tokio::test]
+async fn a_wrong_fingerprint_stops_the_swap_and_writes_nothing() {
+    let hub = hub().await;
+    let g = rotated_group(&hub, "flow-bad-fp").await;
+    let before = disk_of(&g.b);
+    let (_, _, head) = handed_over(&g.a).await;
+    let typed = format!("0000-0000-0000-0000 {}", head_code(&head));
+
+    let (b_result, _, _) = swap_through_the_pairing(&g.a, &g.a_access, &g.b, &g.b_id, &g.b_access, &g.b_store, typed).await;
+
+    assert!(matches!(b_result, Err(KeySwapError::Pairing(PairingError::FingerprintMismatch))), "{b_result:?}");
+    assert_eq!(disk_of(&g.b), before);
+}
+
+#[tokio::test]
+async fn a_key_that_opens_none_of_the_hubs_manifests_is_refused_and_writes_nothing() {
+    let hub = hub().await;
+    let g = rotated_group(&hub, "flow-foreign-key").await;
+    let before = disk_of(&g.b);
+    // another group's device: its key opens nothing this hub holds
+    let (stranger, _) = first_device("flow-foreign-key-s");
+    write(&stranger, "x.md", "x");
+    stranger.engine.arca_enable(false, 1).await.unwrap();
+    let (stranger_access, _) = hub.pair("dev-flow-foreign-key-s");
+    let (key, _, head) = handed_over(&stranger).await;
+    let typed = format!("{} {}", key_fingerprint(&key), head_code(&head));
+
+    let (b_result, _, _) = swap_through_the_pairing(&stranger, &stranger_access, &g.b, &g.b_id, &g.b_access, &g.b_store, typed).await;
+
+    assert!(matches!(b_result, Err(KeySwapError::Pairing(PairingError::Adopt(_)))), "{b_result:?}");
+    assert_eq!(disk_of(&g.b), before);
+}
+
+#[tokio::test]
+async fn the_stranded_device_is_checked_before_any_offer_is_published() {
+    let hub = hub().await;
+    let (watcher, _) = hub.pair("dev-flow-watcher");
+    let mut script = Script::default();
+
+    // mode off
+    let (off, _) = first_device("flow-off");
+    let (off_access, off_store) = hub.pair("dev-flow-off");
+    let result = run_replace_key(&off_access, &off_store, "dev-flow-off", &off.engine, &mut script, POLL, WAIT, 8).await;
+    assert!(matches!(result, Err(KeySwapError::NotInArcaMode)), "{result:?}");
+    assert!(list_offers(&watcher).await.unwrap().is_empty(), "no offer was published");
+
+    // mode on, nothing newer
+    let (healthy, _) = synced_device(&hub, "flow-healthy").await;
+    let (healthy_access, healthy_store) = hub.pair("dev-flow-healthy-2");
+    let result = run_replace_key(&healthy_access, &healthy_store, "dev-flow-healthy-2", &healthy.engine, &mut script, POLL, WAIT, 8).await;
+    assert!(matches!(result, Err(KeySwapError::NothingNewer)), "{result:?}");
+    assert!(list_offers(&watcher).await.unwrap().is_empty(), "no offer was published");
+
+    // no key at all: the ordinary pairing is the way for this one
+    let new = device("flow-new");
+    let (new_access, new_store) = hub.pair("dev-flow-new");
+    let result = run_replace_key(&new_access, &new_store, "dev-flow-new", &new.engine, &mut script, POLL, WAIT, 8).await;
+    assert!(matches!(result, Err(KeySwapError::NotInArcaMode)), "{result:?}");
+    assert!(!new.engine.is_initialized());
+    assert!(list_offers(&watcher).await.unwrap().is_empty(), "no offer was published");
 }

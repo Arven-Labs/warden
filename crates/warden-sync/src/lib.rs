@@ -18,6 +18,8 @@ pub mod arca_mode;
 pub mod arca_pairing;
 pub mod arca_pairing_flow;
 #[cfg(feature = "arca")]
+pub mod arca_key_swap;
+#[cfg(feature = "arca")]
 pub mod arca_rotation;
 #[cfg(feature = "arca")]
 pub mod arca_sync;

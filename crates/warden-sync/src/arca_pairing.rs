@@ -433,6 +433,15 @@ impl Received {
         engine.adopt_vault_key(self.key, epoch).map_err(|e| PairingError::Adopt(e.to_string()))
     }
 
+    /// The key, if `typed_fingerprint` is its `key_fingerprint` (same check as `confirm`, same normalization); otherwise
+    /// `FingerprintMismatch`. For the key swap (`arca_key_swap`), which does its own writing after more checks. Nothing is written.
+    pub(crate) fn into_key_if_fingerprint_matches(self, typed_fingerprint: &str) -> Result<[u8; 32], PairingError> {
+        if normalized(typed_fingerprint) != normalized(&key_fingerprint(&self.key)) {
+            return Err(PairingError::FingerprintMismatch);
+        }
+        Ok(self.key)
+    }
+
     /// A `Received` for tests of what `confirm` does with the key.
     #[cfg(test)]
     pub(crate) fn from_key_for_test(key: [u8; 32]) -> Self {
