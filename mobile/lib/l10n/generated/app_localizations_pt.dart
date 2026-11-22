@@ -2140,4 +2140,141 @@ class AppLocalizationsPt extends AppLocalizations {
   @override
   String get arcaPairErrHub =>
       'Não foi possível falar com o hub. Confira a conexão e tente de novo.';
+
+  @override
+  String get arcaModeOpen => 'Modo arca';
+
+  @override
+  String get arcaModeTitle => 'Modo arca';
+
+  @override
+  String get arcaModeIntro =>
+      'Sincroniza o cofre deste dispositivo com os seus outros dispositivos pelo hub, cifrado neste dispositivo. Precisa da chave do cofre (pareie este dispositivo antes) e de um hub iniciado com --arca.';
+
+  @override
+  String get arcaModeNoHub =>
+      'Conecte-se a um hub primeiro (tela Conexão), com um dispositivo que o hub já aprovou.';
+
+  @override
+  String get arcaModeStatusOff =>
+      'O modo arca está desligado neste dispositivo.';
+
+  @override
+  String get arcaModeStatusOn => 'O modo arca está ligado.';
+
+  @override
+  String get arcaModeEnable => 'Ligar o modo arca';
+
+  @override
+  String get arcaModeEnableTitle => 'Ligar o modo arca?';
+
+  @override
+  String get arcaModeEnableWarning =>
+      'A partir de agora este cofre sincroniza pela arca. O Send e o Pull antigos deste cofre deixam de funcionar neste dispositivo, e esta versão não tem como desligar de novo. Ligue só se os seus outros dispositivos também usam o modo arca.';
+
+  @override
+  String get arcaModeEnableYes => 'Ligar';
+
+  @override
+  String get arcaModeEnableNo => 'Agora não';
+
+  @override
+  String get arcaModeSyncNow => 'Sincronizar agora';
+
+  @override
+  String get arcaModeSyncing => 'Sincronizando…';
+
+  @override
+  String arcaModeSynced(int pulled) {
+    String _temp0 = intl.Intl.pluralLogic(
+      pulled,
+      locale: localeName,
+      other: 'Sincronizado. $pulled objetos recebidos do hub.',
+      one: 'Sincronizado. 1 objeto recebido do hub.',
+      zero: 'Sincronizado. Nada novo no hub.',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get arcaModeVaultEmptied =>
+      'Todos os arquivos do cofre sumiram deste dispositivo, então o cofre ficou de fora desta sincronização. Nada foi enviado nem removido.';
+
+  @override
+  String get arcaModeInsecureTitle => 'Este hub não é cifrado no caminho';
+
+  @override
+  String arcaModeInsecureWarning(String address) {
+    return 'O hub em $address usa http simples. O token deste dispositivo vai viajar em claro nesta rede, e qualquer pessoa nela poderia lê-lo e agir como este dispositivo. O cofre continua cifrado, mas o token não. Continue só numa rede em que você confia.';
+  }
+
+  @override
+  String get arcaModeInsecureYes => 'Entendi, sincronizar mesmo assim';
+
+  @override
+  String get arcaModeInsecureNo => 'Cancelar';
+
+  @override
+  String get arcaModeEpochsTitle => 'Há uma chave mais nova esperando';
+
+  @override
+  String get arcaModeEpochsIntro =>
+      'Outro dispositivo passou o cofre para uma chave mais nova. Até você decidir, este dispositivo mantém a chave antiga e não sincroniza além dela. Confira que a troca foi sua antes de reconhecer.';
+
+  @override
+  String arcaModeEpochItem(int epoch, String id) {
+    return 'Época de chave $epoch, manifesto $id';
+  }
+
+  @override
+  String get arcaModeEpochsAcknowledge => 'Reconhecer';
+
+  @override
+  String arcaModeEpochsAcknowledged(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count chaves mais novas reconhecidas.',
+      one: '1 chave mais nova reconhecida.',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get arcaModeEpochsChanged =>
+      'A lista mudou enquanto você olhava. Nada foi reconhecido: confira as chaves abaixo e tente de novo.';
+
+  @override
+  String get arcaModeErrNotInArcaMode =>
+      'O modo arca não está ligado. Ligue-o primeiro.';
+
+  @override
+  String get arcaModeErrAlreadyOn => 'O modo arca já está ligado.';
+
+  @override
+  String get arcaModeErrNoKey =>
+      'Este dispositivo ainda não tem a chave do cofre. Pareie-o com outro dispositivo primeiro.';
+
+  @override
+  String get arcaModeErrSendPending =>
+      'Há um Send esperando uma leitura. Termine ou cancele, e tente de novo.';
+
+  @override
+  String get arcaModeErrInsecureUrl =>
+      'O endereço do hub usa http simples para uma máquina fora da sua rede. Use https.';
+
+  @override
+  String get arcaModeErrBadUrl => 'O endereço do hub não é válido.';
+
+  @override
+  String get arcaModeErrBadToken =>
+      'O token deste dispositivo para o hub não pode ser usado. Conecte-se ao hub de novo.';
+
+  @override
+  String get arcaModeErrUnauthorized =>
+      'O hub não reconhece este dispositivo. Conecte-se ao hub de novo, ou aprove este dispositivo no hub.';
+
+  @override
+  String get arcaModeErrOther =>
+      'Algo deu errado. Confira a conexão e tente de novo.';
 }

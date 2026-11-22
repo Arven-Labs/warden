@@ -2133,4 +2133,140 @@ class AppLocalizationsEn extends AppLocalizations {
   @override
   String get arcaPairErrHub =>
       'Could not talk to the hub. Check the connection and try again.';
+
+  @override
+  String get arcaModeOpen => 'Arca mode';
+
+  @override
+  String get arcaModeTitle => 'Arca mode';
+
+  @override
+  String get arcaModeIntro =>
+      'Syncs this device\'s vault with your other devices through the hub, encrypted on this device. It needs the vault key (pair this device first) and a hub started with --arca.';
+
+  @override
+  String get arcaModeNoHub =>
+      'Connect to a hub first (Connection screen), using a device the hub has already approved.';
+
+  @override
+  String get arcaModeStatusOff => 'Arca mode is off on this device.';
+
+  @override
+  String get arcaModeStatusOn => 'Arca mode is on.';
+
+  @override
+  String get arcaModeEnable => 'Turn on arca mode';
+
+  @override
+  String get arcaModeEnableTitle => 'Turn on arca mode?';
+
+  @override
+  String get arcaModeEnableWarning =>
+      'From now on this vault syncs through the arca. The older Send and Pull of this vault stop working on this device, and this version has no way to turn it off again. Turn it on only if your other devices use the arca mode too.';
+
+  @override
+  String get arcaModeEnableYes => 'Turn on';
+
+  @override
+  String get arcaModeEnableNo => 'Not now';
+
+  @override
+  String get arcaModeSyncNow => 'Sync now';
+
+  @override
+  String get arcaModeSyncing => 'Syncing…';
+
+  @override
+  String arcaModeSynced(int pulled) {
+    String _temp0 = intl.Intl.pluralLogic(
+      pulled,
+      locale: localeName,
+      other: 'Synced. $pulled objects received from the hub.',
+      one: 'Synced. 1 object received from the hub.',
+      zero: 'Synced. Nothing new from the hub.',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get arcaModeVaultEmptied =>
+      'Every file of the vault is gone from this device, so the vault was left out of this sync. Nothing was sent or removed.';
+
+  @override
+  String get arcaModeInsecureTitle => 'This hub is not encrypted in transit';
+
+  @override
+  String arcaModeInsecureWarning(String address) {
+    return 'The hub at $address uses plain http. This device\'s token will travel in the clear on this network, and anyone on it could read it and act as this device. Your vault stays encrypted, but the token does not. Continue only on a network you trust.';
+  }
+
+  @override
+  String get arcaModeInsecureYes => 'I understand, sync anyway';
+
+  @override
+  String get arcaModeInsecureNo => 'Cancel';
+
+  @override
+  String get arcaModeEpochsTitle => 'A newer key is waiting';
+
+  @override
+  String get arcaModeEpochsIntro =>
+      'Another device switched the vault to a newer key. Until you decide, this device keeps its old key and does not sync past it. Check that the change was yours before you acknowledge it.';
+
+  @override
+  String arcaModeEpochItem(int epoch, String id) {
+    return 'Key epoch $epoch, manifest $id';
+  }
+
+  @override
+  String get arcaModeEpochsAcknowledge => 'Acknowledge';
+
+  @override
+  String arcaModeEpochsAcknowledged(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count newer keys acknowledged.',
+      one: '1 newer key acknowledged.',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get arcaModeEpochsChanged =>
+      'The list changed while you were looking. Nothing was acknowledged: check the keys below and try again.';
+
+  @override
+  String get arcaModeErrNotInArcaMode =>
+      'Arca mode is not on. Turn it on first.';
+
+  @override
+  String get arcaModeErrAlreadyOn => 'Arca mode is already on.';
+
+  @override
+  String get arcaModeErrNoKey =>
+      'This device has no vault key yet. Pair it with another device first.';
+
+  @override
+  String get arcaModeErrSendPending =>
+      'A Send is waiting for a scan. Finish or cancel it, then try again.';
+
+  @override
+  String get arcaModeErrInsecureUrl =>
+      'The hub address uses plain http to a machine outside your own network. Use https.';
+
+  @override
+  String get arcaModeErrBadUrl => 'The hub address is not valid.';
+
+  @override
+  String get arcaModeErrBadToken =>
+      'This device\'s token for the hub cannot be used. Connect to the hub again.';
+
+  @override
+  String get arcaModeErrUnauthorized =>
+      'The hub does not recognize this device. Connect to the hub again, or approve this device on the hub.';
+
+  @override
+  String get arcaModeErrOther =>
+      'Something went wrong. Check the connection and try again.';
 }

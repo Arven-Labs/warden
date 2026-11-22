@@ -3511,6 +3511,210 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Could not talk to the hub. Check the connection and try again.'**
   String get arcaPairErrHub;
+
+  /// No description provided for @arcaModeOpen.
+  ///
+  /// In en, this message translates to:
+  /// **'Arca mode'**
+  String get arcaModeOpen;
+
+  /// No description provided for @arcaModeTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Arca mode'**
+  String get arcaModeTitle;
+
+  /// No description provided for @arcaModeIntro.
+  ///
+  /// In en, this message translates to:
+  /// **'Syncs this device\'s vault with your other devices through the hub, encrypted on this device. It needs the vault key (pair this device first) and a hub started with --arca.'**
+  String get arcaModeIntro;
+
+  /// No description provided for @arcaModeNoHub.
+  ///
+  /// In en, this message translates to:
+  /// **'Connect to a hub first (Connection screen), using a device the hub has already approved.'**
+  String get arcaModeNoHub;
+
+  /// No description provided for @arcaModeStatusOff.
+  ///
+  /// In en, this message translates to:
+  /// **'Arca mode is off on this device.'**
+  String get arcaModeStatusOff;
+
+  /// No description provided for @arcaModeStatusOn.
+  ///
+  /// In en, this message translates to:
+  /// **'Arca mode is on.'**
+  String get arcaModeStatusOn;
+
+  /// No description provided for @arcaModeEnable.
+  ///
+  /// In en, this message translates to:
+  /// **'Turn on arca mode'**
+  String get arcaModeEnable;
+
+  /// No description provided for @arcaModeEnableTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Turn on arca mode?'**
+  String get arcaModeEnableTitle;
+
+  /// No description provided for @arcaModeEnableWarning.
+  ///
+  /// In en, this message translates to:
+  /// **'From now on this vault syncs through the arca. The older Send and Pull of this vault stop working on this device, and this version has no way to turn it off again. Turn it on only if your other devices use the arca mode too.'**
+  String get arcaModeEnableWarning;
+
+  /// No description provided for @arcaModeEnableYes.
+  ///
+  /// In en, this message translates to:
+  /// **'Turn on'**
+  String get arcaModeEnableYes;
+
+  /// No description provided for @arcaModeEnableNo.
+  ///
+  /// In en, this message translates to:
+  /// **'Not now'**
+  String get arcaModeEnableNo;
+
+  /// No description provided for @arcaModeSyncNow.
+  ///
+  /// In en, this message translates to:
+  /// **'Sync now'**
+  String get arcaModeSyncNow;
+
+  /// No description provided for @arcaModeSyncing.
+  ///
+  /// In en, this message translates to:
+  /// **'Syncing…'**
+  String get arcaModeSyncing;
+
+  /// No description provided for @arcaModeSynced.
+  ///
+  /// In en, this message translates to:
+  /// **'{pulled, plural, =0{Synced. Nothing new from the hub.} one{Synced. 1 object received from the hub.} other{Synced. {pulled} objects received from the hub.}}'**
+  String arcaModeSynced(int pulled);
+
+  /// No description provided for @arcaModeVaultEmptied.
+  ///
+  /// In en, this message translates to:
+  /// **'Every file of the vault is gone from this device, so the vault was left out of this sync. Nothing was sent or removed.'**
+  String get arcaModeVaultEmptied;
+
+  /// No description provided for @arcaModeInsecureTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'This hub is not encrypted in transit'**
+  String get arcaModeInsecureTitle;
+
+  /// No description provided for @arcaModeInsecureWarning.
+  ///
+  /// In en, this message translates to:
+  /// **'The hub at {address} uses plain http. This device\'s token will travel in the clear on this network, and anyone on it could read it and act as this device. Your vault stays encrypted, but the token does not. Continue only on a network you trust.'**
+  String arcaModeInsecureWarning(String address);
+
+  /// No description provided for @arcaModeInsecureYes.
+  ///
+  /// In en, this message translates to:
+  /// **'I understand, sync anyway'**
+  String get arcaModeInsecureYes;
+
+  /// No description provided for @arcaModeInsecureNo.
+  ///
+  /// In en, this message translates to:
+  /// **'Cancel'**
+  String get arcaModeInsecureNo;
+
+  /// No description provided for @arcaModeEpochsTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'A newer key is waiting'**
+  String get arcaModeEpochsTitle;
+
+  /// No description provided for @arcaModeEpochsIntro.
+  ///
+  /// In en, this message translates to:
+  /// **'Another device switched the vault to a newer key. Until you decide, this device keeps its old key and does not sync past it. Check that the change was yours before you acknowledge it.'**
+  String get arcaModeEpochsIntro;
+
+  /// No description provided for @arcaModeEpochItem.
+  ///
+  /// In en, this message translates to:
+  /// **'Key epoch {epoch}, manifest {id}'**
+  String arcaModeEpochItem(int epoch, String id);
+
+  /// No description provided for @arcaModeEpochsAcknowledge.
+  ///
+  /// In en, this message translates to:
+  /// **'Acknowledge'**
+  String get arcaModeEpochsAcknowledge;
+
+  /// No description provided for @arcaModeEpochsAcknowledged.
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, one{1 newer key acknowledged.} other{{count} newer keys acknowledged.}}'**
+  String arcaModeEpochsAcknowledged(int count);
+
+  /// No description provided for @arcaModeEpochsChanged.
+  ///
+  /// In en, this message translates to:
+  /// **'The list changed while you were looking. Nothing was acknowledged: check the keys below and try again.'**
+  String get arcaModeEpochsChanged;
+
+  /// No description provided for @arcaModeErrNotInArcaMode.
+  ///
+  /// In en, this message translates to:
+  /// **'Arca mode is not on. Turn it on first.'**
+  String get arcaModeErrNotInArcaMode;
+
+  /// No description provided for @arcaModeErrAlreadyOn.
+  ///
+  /// In en, this message translates to:
+  /// **'Arca mode is already on.'**
+  String get arcaModeErrAlreadyOn;
+
+  /// No description provided for @arcaModeErrNoKey.
+  ///
+  /// In en, this message translates to:
+  /// **'This device has no vault key yet. Pair it with another device first.'**
+  String get arcaModeErrNoKey;
+
+  /// No description provided for @arcaModeErrSendPending.
+  ///
+  /// In en, this message translates to:
+  /// **'A Send is waiting for a scan. Finish or cancel it, then try again.'**
+  String get arcaModeErrSendPending;
+
+  /// No description provided for @arcaModeErrInsecureUrl.
+  ///
+  /// In en, this message translates to:
+  /// **'The hub address uses plain http to a machine outside your own network. Use https.'**
+  String get arcaModeErrInsecureUrl;
+
+  /// No description provided for @arcaModeErrBadUrl.
+  ///
+  /// In en, this message translates to:
+  /// **'The hub address is not valid.'**
+  String get arcaModeErrBadUrl;
+
+  /// No description provided for @arcaModeErrBadToken.
+  ///
+  /// In en, this message translates to:
+  /// **'This device\'s token for the hub cannot be used. Connect to the hub again.'**
+  String get arcaModeErrBadToken;
+
+  /// No description provided for @arcaModeErrUnauthorized.
+  ///
+  /// In en, this message translates to:
+  /// **'The hub does not recognize this device. Connect to the hub again, or approve this device on the hub.'**
+  String get arcaModeErrUnauthorized;
+
+  /// No description provided for @arcaModeErrOther.
+  ///
+  /// In en, this message translates to:
+  /// **'Something went wrong. Check the connection and try again.'**
+  String get arcaModeErrOther;
 }
 
 class _AppLocalizationsDelegate
