@@ -113,6 +113,7 @@ pub(crate) fn app_state(dir: &Path) -> crate::AppState {
         sync: warden_sync::SyncEngine::new(dir.join("vault"), dir.join("config.toml"), dir.join("secrets.json"), dir.join("manifest.json")),
         pending_push: Mutex::new(None),
         pending_publish: Mutex::new(None),
+        pending_rotation: Mutex::new(None),
         generated_files_root: dir.join("generated"),
         embedded_server: Mutex::new(None),
         approvals: Arc::new(approval::ApprovalBroker::default()),

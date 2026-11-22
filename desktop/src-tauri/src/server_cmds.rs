@@ -516,6 +516,7 @@ mod tests {
             sync,
             pending_push: std::sync::Mutex::new(None),
             pending_publish: std::sync::Mutex::new(None),
+            pending_rotation: std::sync::Mutex::new(None),
             generated_files_root: temp_dir.join("generated"),
             embedded_server: std::sync::Mutex::new(None),
             approvals: std::sync::Arc::new(crate::approval::ApprovalBroker::default()),

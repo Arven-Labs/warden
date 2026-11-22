@@ -30,6 +30,7 @@ import {
   type VerifyStatus,
 } from "../lib/arcaMode";
 import type { SavedHub } from "../types";
+import ArcaRotationBlock from "./ArcaRotationBlock";
 
 /** Warden P183, desktop: turns the arca mode of the vault on (one way, so it takes a second click), chooses the saved hub the automatic
  * sync uses (recorded as soon as it is picked) and syncs with it by hand. The work is `warden_sync::arca_sync`, run by the
@@ -681,6 +682,7 @@ function ArcaModeSection() {
           </p>
         )}
         {integrityError && <p className="settings-error-banner">{t("arca.verifyFailed", { message: integrityError })}</p>}
+        {view === "on" && <ArcaRotationBlock hubId={selected} />}
         {view === "on" && (epochs.length > 0 || epochsResult !== null) && epochsBlock()}
         {view === "on" && (losers.length > 0 || losersResult !== null) && losersBlock()}
         {view === "on" && (kept.length > 0 || keptResult !== null) && keptBlock()}
