@@ -21,8 +21,12 @@ after(async () => {
 });
 
 /** Opens the Sync screen as a computer that `role` ("grant" has the key, "offer" has none); `run` is the pairing, settled by the test. */
-async function openSync(role, run) {
+async function openSync(role, run, extra = {}) {
   const handlers = {
+    arca_swap_run: () => run.promise,
+    arca_mode_status: { hasKey: true, on: true, pendingSend: false },
+    arca_epochs_pending: [],
+    ...extra,
     list_hubs: [HUB],
     list_conversations: [],
     list_projects: [],
@@ -193,5 +197,158 @@ describe("pairing a device with arca on the desktop", () => {
     } finally {
       await second.context.close();
     }
+  });
+
+  // P-49: the key swap. Both devices have a key, so the person says which side this computer plays; the same events and the same
+  // typed-only field carry the conversation, and `arca_swap_run` (not `arca_pair_run`) is what starts it.
+  describe("swapping the key after a lost device", () => {
+    const NEWER = { epoch: 1, id: `manifest/${"ab".repeat(32)}` };
+    const SWAP_GRANT = "Hand the new key to a device on the old key";
+    const SWAP_REPLACE = "Replace this device's key with the newer one";
+    const FINGERPRINT_AND_HEAD = "0123-4567-89ab-cdef 0123-4567-89ab-cdef-0123-4567-89ab-cdef";
+
+    test("the device that switched hands the new key over with its own command and shows the fingerprint and the head code", { timeout: TIMEOUT }, async () => {
+      const run = deferred();
+      const opened = await openSync("grant", run);
+      const { context, page, calls, errors } = opened;
+      try {
+        await page.getByRole("button", { name: SWAP_GRANT, exact: true }).click();
+        const started = calls.filter((c) => c.cmd === "arca_swap_run");
+        assert.deepEqual(started.map((c) => c.args), [{ hubId: HUB.id, side: "grant" }]);
+        assert.equal(calls.filter((c) => c.cmd === "arca_pair_run").length, 0, "the ordinary pairing was not started");
+
+        await send(opened, { kind: "show", what: "keyFingerprint", value: FINGERPRINT_AND_HEAD });
+        await page.getByText(FINGERPRINT_AND_HEAD).waitFor();
+        await page.getByText(/head code of the vault it opens/).waitFor();
+        assert.equal(await page.locator("#arca-pair-typed").count(), 0, "a computed value is never in a field");
+
+        run.resolve("done");
+        await page.getByText("Key handed over. The other device still has to check the fingerprint and the head code.").waitFor();
+        assert.deepEqual(errors, [], "the page raised no error");
+      } finally {
+        await context.close();
+      }
+    });
+
+    test("the swap buttons are offered to a computer with a key, and the one that replaces only while a newer epoch is pending", { timeout: TIMEOUT }, async () => {
+      const nothing = await openSync("grant", deferred(), { arca_epochs_pending: [] });
+      try {
+        await nothing.page.getByRole("button", { name: SWAP_GRANT, exact: true }).waitFor();
+        assert.equal(await nothing.page.getByRole("button", { name: SWAP_REPLACE, exact: true }).count(), 0, "no newer epoch, nothing to swap to");
+      } finally {
+        await nothing.context.close();
+      }
+      const pending = await openSync("grant", deferred(), { arca_epochs_pending: [NEWER] });
+      try {
+        await pending.page.getByRole("button", { name: SWAP_REPLACE, exact: true }).waitFor();
+      } finally {
+        await pending.context.close();
+      }
+      const keyless = await openSync("offer", deferred(), { arca_epochs_pending: [NEWER] });
+      try {
+        await keyless.page.getByRole("button", { name: "Start", exact: true }).waitFor();
+        assert.equal(await keyless.page.getByRole("button", { name: SWAP_GRANT, exact: true }).count(), 0, "a computer with no key has nothing to hand over");
+        assert.equal(await keyless.page.getByRole("button", { name: SWAP_REPLACE, exact: true }).count(), 0, "and no key to replace");
+      } finally {
+        await keyless.context.close();
+      }
+    });
+
+    test("with the arca mode off there is no swap, and the backend is not asked for epochs", { timeout: TIMEOUT }, async () => {
+      const off = await openSync("grant", deferred(), { arca_mode_status: { hasKey: true, on: false, pendingSend: false }, arca_epochs_pending: [NEWER] });
+      try {
+        await off.page.getByRole("button", { name: "Start", exact: true }).waitFor();
+        assert.equal(await off.page.getByRole("button", { name: SWAP_GRANT, exact: true }).count(), 0);
+        assert.equal(await off.page.getByRole("button", { name: SWAP_REPLACE, exact: true }).count(), 0);
+        assert.equal(off.calls.filter((c) => c.cmd === "arca_epochs_pending").length, 0, "mode off: nothing to ask");
+      } finally {
+        await off.context.close();
+      }
+    });
+
+    test("replacing the key asks first, lists the newer epoch, publishes nothing until the second click, and the codes are typed", { timeout: TIMEOUT }, async () => {
+      const run = deferred();
+      const opened = await openSync("grant", run, { arca_epochs_pending: [NEWER] });
+      const { context, page, calls, errors } = opened;
+      try {
+        await page.getByRole("button", { name: SWAP_REPLACE, exact: true }).click();
+        await page.getByText(/erased and rebuilt from the hub/).waitFor();
+        // The Arca mode section lists the same epoch above; this one is the pairing section's own.
+        await page.locator("section").filter({ hasText: "Pair a device with arca" }).getByText(/Epoch 1/).waitFor();
+        assert.equal(calls.filter((c) => c.cmd === "arca_swap_run").length, 0, "one click publishes no offer");
+
+        await page.getByRole("button", { name: "Cancel", exact: true }).click();
+        await page.getByRole("button", { name: SWAP_REPLACE, exact: true }).waitFor();
+        assert.equal(calls.filter((c) => c.cmd === "arca_swap_run").length, 0, "cancelling publishes nothing");
+
+        await page.getByRole("button", { name: SWAP_REPLACE, exact: true }).click();
+        await page.getByRole("button", { name: "Yes, replace the key", exact: true }).click();
+        assert.deepEqual(calls.filter((c) => c.cmd === "arca_swap_run").map((c) => c.args), [{ hubId: HUB.id, side: "replace" }]);
+
+        await send(opened, { kind: "show", what: "offerCode", value: "7f3a-91c2-0b4d-e8a5" });
+        await page.getByText(/On the device that switched to the new key/).waitFor();
+        await send(opened, { kind: "ask", ask: "fingerprintShownByTheOldDevice" });
+        const field = page.getByLabel("Fingerprint and head code the other device shows");
+        await field.waitFor();
+        assert.equal(await field.inputValue(), "");
+        await context.grantPermissions(["clipboard-read", "clipboard-write"]);
+        await page.evaluate((text) => navigator.clipboard.writeText(text), FINGERPRINT_AND_HEAD);
+        await field.focus();
+        await page.keyboard.press("ControlOrMeta+V");
+        assert.equal(await field.inputValue(), "", "a pasted code is not taken");
+        await field.pressSequentially(FINGERPRINT_AND_HEAD);
+        await page.getByRole("button", { name: "Confirm", exact: true }).click();
+        assert.deepEqual(calls.findLast((c) => c.cmd === "arca_pair_answer").args.reply, { kind: "typed", text: FINGERPRINT_AND_HEAD });
+        // From here the core reads no more answers: a Cancel would promise what it cannot do, so it is not offered.
+        await page.getByText(/Replacing the key… This cannot be cancelled now/).waitFor();
+        assert.equal(await page.getByRole("button", { name: "Cancel", exact: true }).count(), 0, "no Cancel once the codes were sent");
+
+        run.resolve("done");
+        await page.getByText("Key replaced on this device.").waitFor();
+        assert.deepEqual(errors, [], "the page raised no error");
+      } finally {
+        await context.close();
+      }
+    });
+
+    test("the confirmation to replace uses the epochs as they are when it is clicked, not as they were when the screen opened", { timeout: TIMEOUT }, async () => {
+      // Pending when the screen opens; gone by the click (acknowledged or rotated from the Arca mode section).
+      let asks = 0;
+      const opened = await openSync("grant", deferred(), { arca_epochs_pending: () => (++asks === 1 ? [NEWER] : []) });
+      const { context, page, calls, errors } = opened;
+      try {
+        await page.getByRole("button", { name: SWAP_REPLACE, exact: true }).click();
+        await page.getByText(/No newer key epoch is pending on this device any more/).waitFor();
+        assert.equal(await page.getByRole("button", { name: "Yes, replace the key", exact: true }).count(), 0, "no confirmation for something that is gone");
+        assert.equal(calls.filter((c) => c.cmd === "arca_swap_run").length, 0, "nothing was published");
+        assert.deepEqual(errors, [], "the page raised no error");
+      } finally {
+        await context.close();
+      }
+    });
+
+    test("giving up a swap reaches the backend, and an error from it is shown as a swap failure", { timeout: TIMEOUT }, async () => {
+      const run = deferred();
+      const opened = await openSync("grant", run);
+      try {
+        await opened.page.getByRole("button", { name: SWAP_GRANT, exact: true }).click();
+        await opened.page.getByRole("button", { name: "Cancel", exact: true }).click();
+        assert.ok(opened.calls.some((c) => c.cmd === "arca_pair_cancel"), "cancel reaches the backend");
+        run.resolve("cancelled");
+        await opened.page.getByText("Cancelled.").waitFor();
+      } finally {
+        await opened.context.close();
+      }
+      const failing = deferred();
+      const second = await openSync("grant", failing);
+      try {
+        await second.page.getByRole("button", { name: SWAP_GRANT, exact: true }).click();
+        failing.reject("no device is waiting for a key: start the swap on the device that is replacing its key, then try again");
+        await second.page.getByText(/Pairing failed: no device is waiting for a key/).waitFor();
+        assert.deepEqual(second.errors, [], "the page raised no error");
+      } finally {
+        await second.context.close();
+      }
+    });
   });
 });

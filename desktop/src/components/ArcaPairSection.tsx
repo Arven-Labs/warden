@@ -2,11 +2,14 @@ import { useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { t } from "../i18n";
+import { epochShortId, type PendingEpoch } from "../lib/arcaMode";
 import { emptyView, fieldIsTyped, reduce, type PairView } from "../lib/arcaPair";
 import type { SavedHub } from "../types";
 
 type Role = "grant" | "offer";
 type Outcome = "done" | "cancelled";
+/** The side of the key swap (P-49) this computer plays, or `null` for the ordinary pairing. */
+type SwapSide = "grant" | "replace";
 
 /** P182 item 2, desktop: hands the vault key to a new device (or receives it) through the hub, with the two codes typed by
  * the person. The conversation itself is `warden_sync::arca_pairing_flow`, run by the `arca_pair_run` command. */
@@ -18,7 +21,35 @@ function ArcaPairSection() {
   const [view, setView] = useState<PairView>(emptyView);
   const [typed, setTyped] = useState("");
   const [result, setResult] = useState<{ ok: boolean; text: string } | null>(null);
+  // The key swap (P-49): which side is running, the newer epochs that make "replace" possible, and its confirmation (the offer sits
+  // on the hub for 10 minutes, so the person is asked before it is published).
+  const [swap, setSwap] = useState<SwapSide | null>(null);
+  const [epochs, setEpochs] = useState<PendingEpoch[]>([]);
+  const [confirmingReplace, setConfirmingReplace] = useState(false);
+  // The person sent the fingerprint and the head code on the replacing side: from there the core takes no more answers (a give-up is not
+  // read) and rebuilds the local copy, so "Cancel" would promise what it cannot do.
+  const [committed, setCommitted] = useState(false);
   const runningRef = useRef(false);
+
+  // The swap only exists with the arca mode on (the backend refuses it otherwise), and the epochs are only asked then, as the mode
+  // section does. Best effort: without the answers there are just no swap buttons (the ordinary pairing does not depend on them).
+  const [modeOn, setModeOn] = useState(false);
+  function refreshSwapState() {
+    invoke<{ on?: boolean } | null>("arca_mode_status")
+      .then((status) => {
+        const on = status?.on === true;
+        setModeOn(on);
+        if (!on) {
+          setEpochs([]);
+          return;
+        }
+        return invoke<PendingEpoch[] | null>("arca_epochs_pending").then((items) => setEpochs(items ?? []));
+      })
+      .catch(() => {
+        setModeOn(false);
+        setEpochs([]);
+      });
+  }
 
   useEffect(() => {
     invoke<SavedHub[]>("list_hubs")
@@ -28,6 +59,7 @@ function ArcaPairSection() {
       })
       .catch(() => setHubs([]));
     invoke<Role>("arca_pair_role").then(setRole).catch(() => setRole(null));
+    refreshSwapState();
   }, []);
 
   useEffect(() => {
@@ -39,22 +71,23 @@ function ArcaPairSection() {
     };
   }, []);
 
-  async function start() {
+  /** Starts the ordinary pairing (no `side`) or one side of the key swap. */
+  async function start(side: SwapSide | null = null) {
     // The backend refuses a second pairing too, but a second click must not hide the screen of the one that runs.
     if (runningRef.current) return;
     setResult(null);
     setView(emptyView);
     setTyped("");
+    setConfirmingReplace(false);
+    setCommitted(false);
+    setSwap(side);
     setRunning(true);
     runningRef.current = true;
     const playedAs = role;
     try {
-      const outcome = await invoke<Outcome>("arca_pair_run", { hubId });
-      setResult(
-        outcome === "cancelled"
-          ? { ok: false, text: t("arcaPair.cancelled") }
-          : { ok: true, text: t(playedAs === "offer" ? "arcaPair.doneOffer" : "arcaPair.doneGrant") },
-      );
+      const outcome = side ? await invoke<Outcome>("arca_swap_run", { hubId, side }) : await invoke<Outcome>("arca_pair_run", { hubId });
+      const doneKey = side === "grant" ? "arcaPair.swapDoneGrant" : side === "replace" ? "arcaPair.swapDoneReplace" : playedAs === "offer" ? "arcaPair.doneOffer" : "arcaPair.doneGrant";
+      setResult(outcome === "cancelled" ? { ok: false, text: t("arcaPair.cancelled") } : { ok: true, text: t(doneKey) });
     } catch (e) {
       setResult({ ok: false, text: t("arcaPair.failed", { message: String(e) }) });
     } finally {
@@ -64,6 +97,27 @@ function ArcaPairSection() {
       // A question cannot outlive the pairing, so only what was shown is kept.
       setView((current) => ({ ...current, question: null, devices: [] }));
       invoke<Role>("arca_pair_role").then(setRole).catch(() => {});
+      // A swap that worked leaves nothing pending; one that did not leaves the button where it was. The Arca mode section lists the
+      // same epochs and has its own state, so it is told too.
+      refreshSwapState();
+      window.dispatchEvent(new Event("arca-epochs-changed"));
+    }
+  }
+
+  /** Opens the confirmation of "replace" with the epochs as they are NOW: the Arca mode section (or a rotation) may have changed them
+   * since this screen opened, and the offer must not be published for something that is no longer pending. */
+  async function askToReplace() {
+    setResult(null);
+    try {
+      const fresh = (await invoke<PendingEpoch[] | null>("arca_epochs_pending")) ?? [];
+      setEpochs(fresh);
+      if (fresh.length === 0) {
+        setResult({ ok: false, text: t("arcaPair.swapNothingNewer") });
+        return;
+      }
+      setConfirmingReplace(true);
+    } catch (e) {
+      setResult({ ok: false, text: t("arcaPair.failed", { message: String(e) }) });
     }
   }
 
@@ -76,10 +130,15 @@ function ArcaPairSection() {
     if (typed.trim().length === 0) return;
     answer({ kind: "typed", text: typed.trim() });
     setTyped("");
+    // The last question of the replacing side: after it the core only works (it reads no more answers).
+    if (swap === "replace" && view.question === "fingerprint") setCommitted(true);
   }
 
   const noHubs = hubs !== null && hubs.length === 0;
-  const fieldLabel = view.question === "code" ? t("arcaPair.askCode") : t("arcaPair.askFingerprint");
+  // The swap hands over a fingerprint AND the head code of the vault (48 hex), so its words differ from the pairing's.
+  const fieldLabel = view.question === "code" ? t("arcaPair.askCode") : t(swap ? "arcaPair.swapAskFingerprint" : "arcaPair.askFingerprint");
+  const offerCodeHint = swap ? "arcaPair.swapOfferCodeHint" : "arcaPair.offerCodeHint";
+  const fingerprintHint = swap ? "arcaPair.swapFingerprintHint" : "arcaPair.fingerprintHint";
 
   return (
     <section className="settings-section">
@@ -111,9 +170,46 @@ function ArcaPairSection() {
           )
         )}
 
+        {role === "grant" && modeOn && !running && !noHubs && (
+          <>
+            <p className="settings-hint">{t("arcaPair.hintSwap")}</p>
+            {confirmingReplace ? (
+              <>
+                <ul>
+                  {epochs.map((item) => (
+                    <li key={`${item.epoch}-${item.id}`} className="settings-hint">
+                      {t("arca.epochItem", { epoch: item.epoch, id: epochShortId(item.id) })}
+                    </li>
+                  ))}
+                </ul>
+                <p className="settings-error-banner">{t("arcaPair.swapReplaceConfirm")}</p>
+                <div className="sync-join-form">
+                  <button type="button" className="settings-save-btn" disabled={hubId === ""} onClick={() => void start("replace")}>
+                    {t("arcaPair.swapReplaceYes")}
+                  </button>
+                  <button type="button" className="settings-browse-btn" onClick={() => setConfirmingReplace(false)}>
+                    {t("arcaPair.cancel")}
+                  </button>
+                </div>
+              </>
+            ) : (
+              <div className="sync-join-form">
+                <button type="button" className="settings-browse-btn" disabled={hubId === ""} onClick={() => void start("grant")}>
+                  {t("arcaPair.swapGrantStart")}
+                </button>
+                {epochs.length > 0 && (
+                  <button type="button" className="settings-browse-btn" disabled={hubId === ""} onClick={() => void askToReplace()}>
+                    {t("arcaPair.swapReplaceStart")}
+                  </button>
+                )}
+              </div>
+            )}
+          </>
+        )}
+
         {view.shown && (
           <>
-            <p className="settings-hint">{t(view.shown.what === "offerCode" ? "arcaPair.offerCodeHint" : "arcaPair.fingerprintHint")}</p>
+            <p className="settings-hint">{t(view.shown.what === "offerCode" ? offerCodeHint : fingerprintHint)}</p>
             <p className="sync-pairing-code">{view.shown.value}</p>
           </>
         )}
@@ -169,9 +265,13 @@ function ArcaPairSection() {
               </form>
             )}
 
-            <button type="button" className="settings-browse-btn" onClick={() => void invoke("arca_pair_cancel")}>
-              {t("arcaPair.cancel")}
-            </button>
+            {committed ? (
+              <p className="settings-hint">{t("arcaPair.swapWorking")}</p>
+            ) : (
+              <button type="button" className="settings-browse-btn" onClick={() => void invoke("arca_pair_cancel")}>
+                {t("arcaPair.cancel")}
+              </button>
+            )}
           </>
         )}
 

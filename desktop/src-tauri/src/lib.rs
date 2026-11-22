@@ -1498,6 +1498,7 @@ pub fn run() {
             hub_cmds::open_hub_window,
             arca_pair_cmds::arca_pair_role,
             arca_pair_cmds::arca_pair_run,
+            arca_pair_cmds::arca_swap_run,
             arca_pair_cmds::arca_pair_answer,
             arca_pair_cmds::arca_pair_cancel,
             arca_mode_cmds::arca_mode_status,
