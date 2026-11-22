@@ -82,6 +82,8 @@ export const sync = {
   "arcaPair.swapOfferCodeHint": "On the device that switched to the new key, start “Hand the new key to a device on the old key” and type this code:",
   "arcaPair.swapAskFingerprint": "Fingerprint and head code the other device shows",
   "arcaPair.swapFingerprintHint": "Fingerprint of the new key and head code of the vault it opens. Type both on the device that is replacing its key. If it refuses, what it received is NOT your key, or the hub is not showing your vault: do not trust this hub.",
+  "arcaPair.swapNothingNewer": "No newer key epoch is pending on this device any more, so there is nothing to swap to. Nothing was changed.",
+  "arcaPair.swapWorking": "Replacing the key… This cannot be cancelled now, and the arca copy on this computer is being rebuilt: keep the app open.",
   "arcaPair.swapDoneGrant": "Key handed over. The other device still has to check the fingerprint and the head code.",
   "arcaPair.swapDoneReplace": "Key replaced on this device. Check the Arca mode section for anything pending, then sync.",
 

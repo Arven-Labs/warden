@@ -83,6 +83,8 @@ export const syncPt: Record<keyof typeof sync, string> = {
   "arcaPair.swapOfferCodeHint": "No dispositivo que passou para a chave nova, comece “Entregar a chave nova a um dispositivo na chave velha” e digite este código:",
   "arcaPair.swapAskFingerprint": "Impressão e código do head que o outro dispositivo mostra",
   "arcaPair.swapFingerprintHint": "Impressão da chave nova e código do head do cofre que ela abre. Digite os dois no dispositivo que está trocando a chave. Se ele recusar, o que chegou NÃO é a sua chave, ou o hub não está mostrando o seu cofre: não confie neste hub.",
+  "arcaPair.swapNothingNewer": "Não há mais nenhuma época de chave mais nova pendente neste dispositivo, então não há para o que trocar. Nada foi alterado.",
+  "arcaPair.swapWorking": "Trocando a chave… Agora não dá mais para cancelar, e a cópia do arca neste computador está sendo refeita: mantenha o app aberto.",
   "arcaPair.swapDoneGrant": "Chave entregue. O outro dispositivo ainda precisa conferir a impressão e o código do head.",
   "arcaPair.swapDoneReplace": "Chave trocada neste dispositivo. Confira a seção Modo arca para ver se algo ficou pendente e depois sincronize.",
 

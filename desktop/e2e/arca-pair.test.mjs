@@ -299,9 +299,28 @@ describe("pairing a device with arca on the desktop", () => {
         await field.pressSequentially(FINGERPRINT_AND_HEAD);
         await page.getByRole("button", { name: "Confirm", exact: true }).click();
         assert.deepEqual(calls.findLast((c) => c.cmd === "arca_pair_answer").args.reply, { kind: "typed", text: FINGERPRINT_AND_HEAD });
+        // From here the core reads no more answers: a Cancel would promise what it cannot do, so it is not offered.
+        await page.getByText(/Replacing the key… This cannot be cancelled now/).waitFor();
+        assert.equal(await page.getByRole("button", { name: "Cancel", exact: true }).count(), 0, "no Cancel once the codes were sent");
 
         run.resolve("done");
         await page.getByText("Key replaced on this device.").waitFor();
+        assert.deepEqual(errors, [], "the page raised no error");
+      } finally {
+        await context.close();
+      }
+    });
+
+    test("the confirmation to replace uses the epochs as they are when it is clicked, not as they were when the screen opened", { timeout: TIMEOUT }, async () => {
+      // Pending when the screen opens; gone by the click (acknowledged or rotated from the Arca mode section).
+      let asks = 0;
+      const opened = await openSync("grant", deferred(), { arca_epochs_pending: () => (++asks === 1 ? [NEWER] : []) });
+      const { context, page, calls, errors } = opened;
+      try {
+        await page.getByRole("button", { name: SWAP_REPLACE, exact: true }).click();
+        await page.getByText(/No newer key epoch is pending on this device any more/).waitFor();
+        assert.equal(await page.getByRole("button", { name: "Yes, replace the key", exact: true }).count(), 0, "no confirmation for something that is gone");
+        assert.equal(calls.filter((c) => c.cmd === "arca_swap_run").length, 0, "nothing was published");
         assert.deepEqual(errors, [], "the page raised no error");
       } finally {
         await context.close();

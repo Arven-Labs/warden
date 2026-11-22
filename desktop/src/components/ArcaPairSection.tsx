@@ -26,6 +26,9 @@ function ArcaPairSection() {
   const [swap, setSwap] = useState<SwapSide | null>(null);
   const [epochs, setEpochs] = useState<PendingEpoch[]>([]);
   const [confirmingReplace, setConfirmingReplace] = useState(false);
+  // The person sent the fingerprint and the head code on the replacing side: from there the core takes no more answers (a give-up is not
+  // read) and rebuilds the local copy, so "Cancel" would promise what it cannot do.
+  const [committed, setCommitted] = useState(false);
   const runningRef = useRef(false);
 
   // The swap only exists with the arca mode on (the backend refuses it otherwise), and the epochs are only asked then, as the mode
@@ -76,6 +79,7 @@ function ArcaPairSection() {
     setView(emptyView);
     setTyped("");
     setConfirmingReplace(false);
+    setCommitted(false);
     setSwap(side);
     setRunning(true);
     runningRef.current = true;
@@ -93,8 +97,27 @@ function ArcaPairSection() {
       // A question cannot outlive the pairing, so only what was shown is kept.
       setView((current) => ({ ...current, question: null, devices: [] }));
       invoke<Role>("arca_pair_role").then(setRole).catch(() => {});
-      // A swap that worked leaves nothing pending; one that did not leaves the button where it was.
+      // A swap that worked leaves nothing pending; one that did not leaves the button where it was. The Arca mode section lists the
+      // same epochs and has its own state, so it is told too.
       refreshSwapState();
+      window.dispatchEvent(new Event("arca-epochs-changed"));
+    }
+  }
+
+  /** Opens the confirmation of "replace" with the epochs as they are NOW: the Arca mode section (or a rotation) may have changed them
+   * since this screen opened, and the offer must not be published for something that is no longer pending. */
+  async function askToReplace() {
+    setResult(null);
+    try {
+      const fresh = (await invoke<PendingEpoch[] | null>("arca_epochs_pending")) ?? [];
+      setEpochs(fresh);
+      if (fresh.length === 0) {
+        setResult({ ok: false, text: t("arcaPair.swapNothingNewer") });
+        return;
+      }
+      setConfirmingReplace(true);
+    } catch (e) {
+      setResult({ ok: false, text: t("arcaPair.failed", { message: String(e) }) });
     }
   }
 
@@ -107,6 +130,8 @@ function ArcaPairSection() {
     if (typed.trim().length === 0) return;
     answer({ kind: "typed", text: typed.trim() });
     setTyped("");
+    // The last question of the replacing side: after it the core only works (it reads no more answers).
+    if (swap === "replace" && view.question === "fingerprint") setCommitted(true);
   }
 
   const noHubs = hubs !== null && hubs.length === 0;
@@ -173,7 +198,7 @@ function ArcaPairSection() {
                   {t("arcaPair.swapGrantStart")}
                 </button>
                 {epochs.length > 0 && (
-                  <button type="button" className="settings-browse-btn" disabled={hubId === ""} onClick={() => setConfirmingReplace(true)}>
+                  <button type="button" className="settings-browse-btn" disabled={hubId === ""} onClick={() => void askToReplace()}>
                     {t("arcaPair.swapReplaceStart")}
                   </button>
                 )}
@@ -240,9 +265,13 @@ function ArcaPairSection() {
               </form>
             )}
 
-            <button type="button" className="settings-browse-btn" onClick={() => void invoke("arca_pair_cancel")}>
-              {t("arcaPair.cancel")}
-            </button>
+            {committed ? (
+              <p className="settings-hint">{t("arcaPair.swapWorking")}</p>
+            ) : (
+              <button type="button" className="settings-browse-btn" onClick={() => void invoke("arca_pair_cancel")}>
+                {t("arcaPair.cancel")}
+              </button>
+            )}
           </>
         )}
 

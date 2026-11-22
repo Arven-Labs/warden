@@ -545,6 +545,14 @@ function ArcaModeSection() {
   useEffect(() => {
     if (view === "on") refreshEpochs();
   }, [view, loop?.atMs, manualAt]);
+  // The pairing section (a key swap) can clear what is pending without any cycle here, and it has its own state: it says so with an event.
+  useEffect(() => {
+    const onChanged = () => {
+      if (view === "on") refreshEpochs();
+    };
+    window.addEventListener("arca-epochs-changed", onChanged);
+    return () => window.removeEventListener("arca-epochs-changed", onChanged);
+  }, [view]);
   // The automatic cycle only speaks while the mode is on and when it is newer than the last manual sync: the newer of the two wins,
   // so an old automatic warning never comes back over a manual sync made after it, and a newer one replaces the manual warnings.
   const autoNewer = view === "on" && loop !== null && loop.atMs > manualAt;

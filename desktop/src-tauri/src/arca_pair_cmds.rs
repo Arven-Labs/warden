@@ -172,7 +172,7 @@ pub fn key_swap_message(error: &KeySwapError) -> String {
         KeySwapError::NoOffers => "no device is waiting for a key: start the swap on the device that is replacing its key, then try again.".to_string(),
         KeySwapError::Cancelled => "cancelled.".to_string(),
         KeySwapError::TimedOut => "no key arrived in time. Nothing was changed: start the swap again.".to_string(),
-        KeySwapError::HashMismatch => "the head code does not match any manifest the hub holds. Nothing was changed on this device: check the code on the other device, and that it synced after switching.".to_string(),
+        KeySwapError::HashMismatch => "the head code does not match any manifest the hub holds. Nothing was changed on this device: check the code on the other device, and that it synced after switching. If both are right, do not trust this hub: it is not showing your vault.".to_string(),
         KeySwapError::Pairing(error) => error.to_string(),
         KeySwapError::Failed(why) => format!("the key swap did not finish: {why}. If it stopped half way on the device that is replacing its key, sync there and then swap again."),
     }
@@ -372,6 +372,13 @@ mod tests {
             let message = key_swap_message(&untouched);
             assert!(message.contains("Nothing was changed") || message.contains("nothing was changed"), "{untouched:?} -> {message}");
         }
+    }
+
+    #[test]
+    fn a_head_code_no_manifest_matches_warns_that_the_hub_may_not_be_trusted() {
+        // The head code is what the hub cannot forge: if the person typed it right and it still matches nothing, the hub is the suspect.
+        let message = key_swap_message(&KeySwapError::HashMismatch);
+        assert!(message.contains("do not trust this hub"), "{message}");
     }
 
     #[test]
