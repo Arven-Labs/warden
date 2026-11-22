@@ -400,14 +400,26 @@ mod tests {
     }
 
     #[test]
-    fn the_permission_for_plain_http_is_only_for_the_own_network_never_for_a_public_address() {
-        // A screen that passes `true` by mistake (or from a stale "already warned") must not send the token across the internet.
-        for public in ["http://hub.example.com", "http://203.0.113.7:7000", "http://8.8.8.8", "http://[2001:db8::1]:7000", "http://172.32.0.1", "http://100.128.0.1", "http://192.169.0.1", "http://localhost.evil.com", "http://HUB.EXAMPLE.COM"] {
-            let refused = hub_store_for(public, "token", true).err().unwrap_or_else(|| panic!("{public} was accepted"));
-            assert_eq!(refused.kind, ArcaModeErrorKind::InsecureUrl, "{public}");
+    fn with_the_permission_plain_http_goes_to_any_host_and_without_it_only_to_this_phone() {
+        // The person decided (2026-11-22): after the warning, plain http is accepted on any network, a name that is only local
+        // (`*.lan`, `*.ts.net`) or a public one. The warning on the screen is what protects the token, not a list of networks here.
+        for any in [
+            "http://hub.example.com",
+            "http://203.0.113.7:7000",
+            "http://8.8.8.8",
+            "http://[2001:db8::1]:7000",
+            "http://nas.lan:7000",
+            "http://my-hub.tail1234.ts.net:7420",
+            "http://localhost.evil.com",
+            "HTTP://HUB.EXAMPLE.COM",
+        ] {
+            assert!(hub_store_for(any, "token", true).is_ok(), "{any} should be accepted once the person was warned");
+            let refused = hub_store_for(any, "token", false).err().unwrap_or_else(|| panic!("{any} was accepted without the permission"));
+            assert_eq!(refused.kind, ArcaModeErrorKind::InsecureUrl, "{any}: without the permission it stays refused");
         }
-        for own in ["http://192.168.0.10:7000", "http://10.0.0.5", "http://172.16.4.2", "http://172.31.255.255", "http://169.254.1.1", "http://100.64.0.1", "http://100.127.255.255", "http://127.0.0.1:7000", "http://localhost:7000", "http://[::1]:7000", "http://[fd12:3456::1]:7000", "http://[fe80::1]", "http://my-hub.local:7000", "HTTP://192.168.0.10:7000"] {
-            assert!(hub_store_for(own, "token", true).is_ok(), "{own} should be accepted once the person was warned");
+        // This phone itself needs no permission: the token does not leave it.
+        for here in ["http://127.0.0.1:7000", "http://localhost:7000", "http://[::1]:7000"] {
+            assert!(hub_store_for(here, "token", false).is_ok(), "{here} is this phone");
         }
     }
 
