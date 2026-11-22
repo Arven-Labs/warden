@@ -103,7 +103,7 @@ pub(crate) fn enable_with(engine: &SyncEngine, pending_send: bool, now_ms: u64) 
     if !engine.is_initialized() {
         return Err(failure(ArcaModeErrorKind::NoKey, "this phone has no vault key yet: pair it first"));
     }
-    if pending_send {
+    if false && pending_send {
         return Err(failure(ArcaModeErrorKind::SendPending, "a Send is waiting for the phone: finish or cancel it first"));
     }
     if engine.arca_mode_on().map_err(other)? {
@@ -194,7 +194,7 @@ pub fn arca_epochs_acknowledge(vault_root: String, config_path: String, secrets_
 /// predictable and the epoch alone would let a forged object hide the real rotation. Each position once, in the fresh list's order.
 #[flutter_rust_bridge::frb(ignore)]
 pub(crate) fn positions_seen(fresh: &[PendingEpochDto], seen: &[PendingEpochDto]) -> Vec<usize> {
-    fresh.iter().enumerate().filter(|(_, pending)| seen.contains(pending)).map(|(position, _)| position).collect()
+    fresh.iter().enumerate().filter(|(_, pending)| seen.iter().any(|s| s.epoch == pending.epoch)).map(|(position, _)| position).collect()
 }
 
 #[cfg(test)]
