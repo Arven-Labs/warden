@@ -174,6 +174,8 @@ fn hub_failure(error: ArcaModeFailure) -> ArcaPairFailure {
     let kind = match error.kind {
         ArcaModeErrorKind::InsecureUrl => ArcaPairErrorKind::InsecureUrl,
         ArcaModeErrorKind::BadUrl => ArcaPairErrorKind::BadUrl,
+        // A token the hub client cannot use is a token problem ("connect again"), not the network.
+        ArcaModeErrorKind::BadToken => ArcaPairErrorKind::Unauthorized,
         _ => ArcaPairErrorKind::Hub,
     };
     ArcaPairFailure { kind, detail: error.detail }
@@ -388,20 +390,26 @@ pub(crate) fn failure_of(error: FlowError) -> ArcaPairFailure {
 /// "do not trust this hub" (`HashMismatch`) each get their own kind, because the screen's words differ.
 pub(crate) fn swap_failure_of(error: KeySwapError, has_key: bool) -> ArcaPairFailure {
     use ArcaPairErrorKind as K;
-    let _ = has_key;
     let simple = |kind, detail: String| ArcaPairFailure { kind, detail };
     match error {
+        // In a swap the pairing only gets to `Adopt` when the key opens none of the hub's manifests (or the hub has none): that is not
+        // "could not be saved", it is the sign of a hub that shows another vault.
+        KeySwapError::Pairing(PairingError::Adopt(why)) => simple(K::KeyOpensNothing, why),
         KeySwapError::Pairing(e) => failure_of(FlowError::Pairing(e)),
         KeySwapError::NotInArcaMode => simple(K::NotInArcaMode, "this vault is not in arca mode".into()),
         KeySwapError::NothingNewer => simple(K::NothingNewer, "no newer key epoch is pending".into()),
         KeySwapError::NotNewer => simple(K::NotNewer, "the key that arrived is not newer than this phone's".into()),
+        // With a key, the swap's "no key" is "no accepted manifest of this key's epoch yet" (`arca_head_id`): the person syncs first.
+        KeySwapError::NoKey(why) if has_key => simple(K::NoAcceptedHead, why),
         KeySwapError::NoKey(why) => simple(K::NoKey, why),
         KeySwapError::NoOffers => simple(K::NoOffers, "no device is waiting for a key".into()),
         KeySwapError::TimedOut => simple(K::TimedOut, "no key arrived in time".into()),
         KeySwapError::HashMismatch => simple(K::HashMismatch, "the typed head code names no manifest the hub holds".into()),
-        // `Cancelled` is told apart before this is called (`last_of_swap`); a stop half way is `Hub` with the engine's own words.
+        // `Cancelled` is told apart before this is called (`last_of_swap`).
         KeySwapError::Cancelled => simple(K::Hub, "cancelled".into()),
-        KeySwapError::Failed(why) => simple(K::Hub, why),
+        // The disk, the lock or a stop half way: the swap may have written something, so the screen says to sync and swap again
+        // (the desktop's `key_swap_message` and the CLI do the same), and not "check the connection".
+        KeySwapError::Failed(why) => simple(K::SwapIncomplete, why),
     }
 }
 
