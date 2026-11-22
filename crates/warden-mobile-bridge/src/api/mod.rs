@@ -1,3 +1,4 @@
+pub mod arca_mode;
 pub mod arca_pair;
 pub mod discovery;
 pub mod simple;

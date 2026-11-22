@@ -12,7 +12,8 @@ anyhow.workspace = true
 tokio = { workspace = true, features = ["rt-multi-thread"] }
 warden-core = { path = "../warden-core", default-features = false }
 warden-server-protocol = { path = "../warden-server-protocol" }
-warden-sync = { path = "../warden-sync" }
+# `arca`: the mode switch, the cycle and the key swap. The spike of P-49 (warden#208, discarded) built it for Android arm64 with the CI green.
+warden-sync = { path = "../warden-sync", features = ["arca"] }
 
 [dev-dependencies]
 # Só os testes do pareamento da arca: um hub de duas rotas numa thread própria e a cifra do grant.
