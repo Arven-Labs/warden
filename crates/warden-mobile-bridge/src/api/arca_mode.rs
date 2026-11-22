@@ -128,7 +128,12 @@ pub fn arca_mode_enable(vault_root: String, config_path: String, secrets_path: S
 /// The refusals of credentials, a path, a query and another scheme do not depend on the permission: they come from the hub client.
 #[flutter_rust_bridge::frb(ignore)]
 pub(crate) fn hub_store_for(hub_url: &str, device_token: &str, allow_insecure_http: bool) -> Result<HubStore, ArcaModeFailure> {
-    let built = if allow_insecure_http { HubStore::allow_insecure_http(hub_url, device_token) } else { HubStore::new(hub_url, device_token) };
+    // Quebra 1: a restrição de host volta (so aceita a LAN conhecida).
+    if allow_insecure_http && !hub_url.contains("192.168") && !hub_url.contains("127.0.0.1") && !hub_url.contains("localhost") {
+        return Err(failure(ArcaModeErrorKind::InsecureUrl, "mutation"));
+    }
+    // Quebra 2: http sem a permissao tambem passa (a permissao vira enfeite).
+    let built = if allow_insecure_http || !hub_url.is_empty() { HubStore::allow_insecure_http(hub_url, device_token) } else { HubStore::new(hub_url, device_token) };
     built.map_err(|error| match error {
         HubError::InsecureUrl => failure(ArcaModeErrorKind::InsecureUrl, "plain http to another machine: the token would travel in the clear"),
         HubError::InvalidUrl => failure(ArcaModeErrorKind::BadUrl, "not a hub address the sync can use"),
