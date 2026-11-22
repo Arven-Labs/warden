@@ -2,7 +2,40 @@
 
 > **Nota**: Este log foi criado junto com o projeto. As sessões serão registradas aqui conforme o trabalho avança.
 >
-> Última atualização: 2026-11-15 (a tela para apagar os `.arca-kept-*`; este log ficou sem entradas de 2026-11-06 a 2026-11-13, o trabalho desse período está no git e no `SESSIONS.md` da arca)
+> Última atualização: 2026-11-22 (o modo arca no celular, o swap e a rotação no desktop; este log ficou sem entradas de 2026-11-06 a 2026-11-13, o trabalho desse período está no git e no `SESSIONS.md` da arca)
+
+---
+
+### 2026-11-22 — arca: o modo arca no celular, fatia 1 do swap no mobile (P-49 da arca, [warden#208](https://github.com/Arven-Labs/warden/pull/208) spike descartado, [warden#209](https://github.com/Arven-Labs/warden/pull/209) bridge, [warden#211](https://github.com/Arven-Labs/warden/pull/211) tela)
+
+- **Pedido**: "vamos de swap no mobile". Plan mode. O swap no mobile não é só uma tela: `run_replace_key` começa por `arca_swap_precheck`, que exige modo arca ligado e época mais nova pendente, e o celular não tinha nenhum dos dois. Por isso esta fatia entrega o modo arca mínimo no celular, e **o swap em si fica para a fatia 2**. Decisões suas: spike do TLS antes de tudo; escopo mínimo (sem loop automático, sem logins MCP, sem perdedores); `allow_insecure_http` com aviso; sem "desligar o modo". **Não confirmado por você**: o estreitamento do `allow_insecure_http` para a rede própria.
+- **Spike do TLS** (#208, descartado): ligar a feature `arca` do `warden-sync` no `warden-mobile-bridge` compila no Android arm64 (run 45043380630). A premissa de que o Android só aceita `ring` estava velha: o `aws-lc-rs` já estava na árvore do bridge pelo `rmcp` do `warden-core`.
+- **Bridge** (#209, `62f32350`): `crates/warden-mobile-bridge/src/api/arca_mode.rs` com status, ligar (`sync_logins` sempre `false`), ciclo manual, épocas pendentes e reconhecer (só o par `(época, id)` da lista fresca; devolve a contagem). Testes primeiro: 11 falharam com `not yet implemented` (run 45047105433), 16 verdes depois; quebra proposital (#210, descartado) derrubou 3. Auditoria (`security-auditor`, só leitura): sem vazamento de token; corrigido o `allow_insecure_http`, que liberava http para qualquer host: agora só IP privado, link-local, 100.64.0.0/10, ULA e loopback IPv6, `localhost` e `*.local`. Os bindings do frb e o `gen-l10n` foram gerados no PC do dono (ADR 0017).
+- **Tela** (#211, `2ac2b941`): `ArcaModeScreen`, o serviço `arca_mode_flow.dart`, o botão na tela Sync e os textos `arcaMode*` (en e pt). O aviso do http inseguro vale só para o endereço exato, só em memória, relendo o hub a cada sync. Testes primeiro: 20 de 21 falharam com a tela vazia (run 45055167269). Quebra proposital: a primeira (#212) foi **inválida** (falhou no `flutter analyze`, `unused_field`); refeita, 5 falhas; segunda (#213), 8 quebras e 7 falhas. Auditoria: nenhum crítico; corrigidos leitura que falha virando "desligado" ou "sem época", diálogos só com "sim" explícito (`barrierDismissible: false`), `acknowledge` provado com a lista vista, toque duplo e hub relido. CI final: 415 testes do Mobile, `analyze` limpo, Android verde.
+- **Não verificado**: aparelho ou emulador real, hub real, o ciclo bem-sucedido ponta a ponta, armv7, iOS, tamanho do APK, o TLS com `aws-lc` e `ring` no mesmo processo em runtime. O puxar-para-atualizar não tem teste.
+- **Fica**: o swap `Replace` e `Grant` no mobile (fatia 2: bridge de `run_replace_key` com o `HubStore` do celular, reaproveitando o `begin/next/answer/cancel` do `arca_pair.rs`) e as telas da rotação no mobile; a mensagem não diz "ainda sobra época" depois de um reconhecimento parcial; um Send iniciado durante um Pull longo pode entrar antes do modo ligar (igual ao desktop); `needs_reload` do Pull descartado no celular; falha do Pull e `NeedsNewKey` caem em `Other`; hubs em http com nome fora da rede própria (`*.lan`, `*.ts.net`) são recusados mesmo com o aceite; ver a Sessão 121 no `SESSIONS.md` da arca.
+
+---
+
+### 2026-11-22 — arca: o swap da chave no desktop (P-49 da arca, [warden#206](https://github.com/Arven-Labs/warden/pull/206))
+
+- **Pedido**: "vamos continuar no p49"; fatia escolhida entre swap no desktop, swap no mobile, a corrida do `ack` e validar ponta a ponta antes. Plan mode.
+- **Feito** (`desktop`): o comando `arca_swap_run(hub_id, side)` e, na seção de pareamento do Sync, dois botões (só com o modo arca ligado): entregar a chave nova a um dispositivo que ficou na chave velha, e trocar a chave deste dispositivo pela mais nova (só com época mais nova pendente; confirmação com segundo clique, com as épocas lidas na hora). Reaproveita o `channel_prompts`, o `PairSlot` e o campo digitado sem colar do pareamento.
+- **CI**: com stubs, 4 testes Rust e 4 e2e do swap falharam (runs 44986949735 e 44986949783); o e2e pegou uma regressão (a tela perguntava épocas com o modo desligado), corrigida; verde com 167 testes do desktop e 618 do restante, e e2e 96 de 96. Quebra proposital (#207, descartado) derrubou 2 testes.
+- **Auditoria**: sem crítico. Corrigidos: `HashMismatch` sem o aviso "não confie neste hub", a confirmação usava épocas em cache, "Cancelar" continuava visível depois de os códigos irem, e a seção do Modo arca não atualizava depois do swap. **Sem correção**: rotação e "ciente de época" não são bloqueadas enquanto um swap roda; o auto-loop pode rodar entre um `Failed` no meio da troca e a ação da pessoa; textos do erro do swap em inglês.
+- **Não verificado**: o swap ponta a ponta com hub e dois dispositivos reais; a tela num desktop real.
+- **Fica**: o swap no mobile (fatia 2, ver a entrada acima) e as telas da rotação no mobile; a corrida do `ack`; a validação ponta a ponta com hub e dois dispositivos.
+
+---
+
+### 2026-11-22 — arca: a tela da rotação de chave no desktop (P-49 da arca, [warden#204](https://github.com/Arven-Labs/warden/pull/204))
+
+- **Pedido**: "vamos de p49"; fatia escolhida entre telas da rotação no desktop, swap no desktop, swap no mobile e a corrida do `ack`. Plan mode.
+- **Feito** (`desktop`): 4 comandos Tauri (`arca_rotation_begin`, `_resume`, `_confirm`, `_cancel`) e o bloco "Perdeu um dispositivo? Troque a chave": a chave fica no Rust (`Mutex<Option<PendingRotation>>` com `take()`), só a frase de 24 palavras sai, uma vez; a pessoa digita 3 palavras de volta, declara que revogou o token e confirma com segundo clique; depois a tela roda o `arca_sync_run`. "Retomar" aceita as 24 palavras para terminar uma rotação interrompida.
+- **CI**: 11 dos 12 primeiros testes novos falharam com stubs (run 44983729086), verde depois com 161 testes do desktop e Desktop E2E ok. Quebra proposital (#205, descartado): ignorar a declaração de revogação e o modo desligado derrubou 2 testes.
+- **Auditoria**: sem crítico. Corrigido o importante: uma falha que pode ter gravado algo no meio da rotação era dita "não trocada" e descartava a frase; agora o backend devolve `partial` e a tela abre o "Retomar". Também `Debug` redigido, `resume` atômico e texto da tela citando `/arca swap grant` e `offer`. **Sem correção**: "enviada ao hub" não olha o payload do sync; a frase fica no estado React enquanto a tela está aberta.
+- **Não verificado**: a rotação ponta a ponta com hub e dois dispositivos reais; o efeito do `begin_epoch` com chave diferente depois de uma parada parcial; a tela num desktop real.
+- **Fica**: as telas da rotação e o swap no mobile; a corrida do `ack`.
 
 ---
 
