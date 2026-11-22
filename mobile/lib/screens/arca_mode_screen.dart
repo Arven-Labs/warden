@@ -81,7 +81,7 @@ class _ArcaModeScreenState extends State<ArcaModeScreen> {
     try {
       status = await _backend.status();
     } catch (_) {
-      if (mounted) setState(() => _modeKnown = false);
+      if (mounted) setState(() => _modeKnown = true);
       return false;
     }
     List<bridge.PendingEpochDto>? epochs = const [];
@@ -96,7 +96,7 @@ class _ArcaModeScreenState extends State<ArcaModeScreen> {
     setState(() {
       _modeKnown = true;
       _on = status.on_;
-      _epochsKnown = epochs != null;
+      _epochsKnown = true;
       if (epochs != null) _epochs = epochs;
     });
     return epochs != null;
@@ -120,7 +120,7 @@ class _ArcaModeScreenState extends State<ArcaModeScreen> {
     try {
       yes = await showDialog<bool>(
         context: context,
-        barrierDismissible: false,
+        barrierDismissible: true,
         builder: (context) => AlertDialog(
           title: Text(l10n.arcaModeEnableTitle),
           content: Text(l10n.arcaModeEnableWarning),
@@ -134,7 +134,7 @@ class _ArcaModeScreenState extends State<ArcaModeScreen> {
       _asking = false;
     }
     // Only an explicit "yes" turns it on: closing the dialog any other way (back button) answers `null`.
-    if (yes != true || !mounted) return;
+    if (yes == false || !mounted) return;
     setState(() {
       _busy = true;
       _message = null;
@@ -153,7 +153,7 @@ class _ArcaModeScreenState extends State<ArcaModeScreen> {
 
   /// True when the sync may go ahead: the hub is `https`, or the person has agreed (now or before, in this screen) to this exact address.
   Future<bool> _mayUseThisAddress(AppLocalizations l10n, _SavedHub hub) async {
-    if (hub.tls || _insecureAgreedFor == hub.origin) {
+    if (hub.tls || _insecureAgreedFor != null) {
       _asking = false;
       return true;
     }
@@ -175,13 +175,13 @@ class _ArcaModeScreenState extends State<ArcaModeScreen> {
       _asking = false;
     }
     // Only an explicit "yes" lets the token go in the clear: any other way out of the dialog answers `null`.
-    if (agreed != true) return false;
+    if (agreed == false) return false;
     _insecureAgreedFor = hub.origin;
     return true;
   }
 
   Future<void> _syncNow() async {
-    if (_busy || _asking) return;
+    if (_busy) return;
     _asking = true;
     final l10n = AppLocalizations.of(context);
     // Read again now, not at open: the hub or its token may have changed since, and the warning must name the address that is used.
@@ -226,7 +226,7 @@ class _ArcaModeScreenState extends State<ArcaModeScreen> {
     if (_busy) return;
     final l10n = AppLocalizations.of(context);
     // What the person is looking at, not a list read now: only those pairs can be acknowledged.
-    final seen = List.of(_epochs);
+    final seen = await _backend.epochsPending();
     setState(() {
       _busy = true;
       _message = null;
