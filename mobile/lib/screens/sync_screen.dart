@@ -3,6 +3,7 @@ import 'package:qr_flutter/qr_flutter.dart';
 
 import '../l10n/generated/app_localizations.dart';
 import '../services/vault_paths.dart';
+import 'arca_mode_screen.dart';
 import 'arca_pair_screen.dart';
 import '../src/rust/api/sync.dart' as bridge;
 
@@ -331,6 +332,13 @@ class _SyncScreenState extends State<SyncScreen> {
                   key: const Key('open-arca-pair'),
                   onPressed: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const ArcaPairScreen())),
                   child: Text(l10n.arcaPairOpen),
+                ),
+                // The arca mode itself: turn it on, sync by hand, and see the newer key epochs that stop the vault.
+                const SizedBox(height: 8),
+                OutlinedButton(
+                  key: const Key('open-arca-mode'),
+                  onPressed: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const ArcaModeScreen())),
+                  child: Text(l10n.arcaModeOpen),
                 ),
               ],
             ),

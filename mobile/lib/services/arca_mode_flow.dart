@@ -19,13 +19,22 @@ abstract class ArcaModeBackend {
 }
 
 /// The sentence for a failure kind, in the app's language (the Rust text is English and never shown as the main message).
-String arcaModeErrorText(AppLocalizations l10n, bridge.ArcaModeErrorKind kind) {
-  throw UnimplementedError('tests first');
-}
+String arcaModeErrorText(AppLocalizations l10n, bridge.ArcaModeErrorKind kind) => switch (kind) {
+      bridge.ArcaModeErrorKind.notInArcaMode => l10n.arcaModeErrNotInArcaMode,
+      bridge.ArcaModeErrorKind.alreadyOn => l10n.arcaModeErrAlreadyOn,
+      bridge.ArcaModeErrorKind.noKey => l10n.arcaModeErrNoKey,
+      bridge.ArcaModeErrorKind.sendPending => l10n.arcaModeErrSendPending,
+      bridge.ArcaModeErrorKind.insecureUrl => l10n.arcaModeErrInsecureUrl,
+      bridge.ArcaModeErrorKind.badUrl => l10n.arcaModeErrBadUrl,
+      bridge.ArcaModeErrorKind.badToken => l10n.arcaModeErrBadToken,
+      bridge.ArcaModeErrorKind.unauthorized => l10n.arcaModeErrUnauthorized,
+      bridge.ArcaModeErrorKind.other => l10n.arcaModeErrOther,
+    };
 
 /// The first hex digits of a manifest id (`manifest/<hex>`), enough for a person to tell two apart (never used to look anything up).
 String epochShortId(String id) {
-  throw UnimplementedError('tests first');
+  final hex = id.substring(id.indexOf('/') + 1);
+  return hex.length <= 12 ? hex : hex.substring(0, 12);
 }
 
 /// The real backend: the Rust bridge, over the same four sync paths the Sync screen uses.
