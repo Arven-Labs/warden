@@ -7,9 +7,13 @@
 //! Like `sync.rs`, every function takes the four sync paths explicitly and rebuilds the `SyncEngine` per call (it is cheap and pure).
 //! The Rust text of a failure is English and for the log; the screen translates `ArcaModeErrorKind`.
 //!
-//! STATE: tests first. Every function below is a stub (`todo!()`), so the tests fail for the right reason before the code exists.
+//! `http` to another machine is refused unless the screen passes `allow_insecure_http` (only after warning the person that the
+//! token then travels in the clear: `HubStore::allow_insecure_http`, the name is on purpose). `https` and loopback never need it.
 
+use warden_sync::arca_sync::{is_auth_rejected, HubError, HubStore, PendingEpoch};
 use warden_sync::SyncEngine;
+
+use super::sync::{push_is_pending, rt};
 
 /// Why a mode call did not go through, as something the screen can translate.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -72,48 +76,125 @@ fn engine(vault_root: &str, config_path: &str, secrets_path: &str, manifest_path
     SyncEngine::new(vault_root.into(), config_path.into(), secrets_path.into(), manifest_path.into())
 }
 
-/// Whether the mode is on, and whether a Send is waiting.
-pub fn arca_mode_status(vault_root: String, config_path: String, secrets_path: String, manifest_path: String) -> Result<ArcaModeStatusDto, ArcaModeFailure> {
-    let _ = engine(&vault_root, &config_path, &secrets_path, &manifest_path);
-    todo!("arca_mode_status")
+fn failure(kind: ArcaModeErrorKind, detail: impl std::fmt::Display) -> ArcaModeFailure {
+    ArcaModeFailure { kind, detail: detail.to_string() }
 }
 
-/// What turning the mode on does with the answer about the Send (the seam the test uses): refused while one waits.
+fn other(error: anyhow::Error) -> ArcaModeFailure {
+    failure(ArcaModeErrorKind::Other, format!("{error:#}"))
+}
+
+impl From<&PendingEpoch> for PendingEpochDto {
+    fn from(pending: &PendingEpoch) -> Self {
+        Self { epoch: pending.epoch, id: pending.id.to_string() }
+    }
+}
+
+/// Whether the mode is on, and whether a Send is waiting.
+pub fn arca_mode_status(vault_root: String, config_path: String, secrets_path: String, manifest_path: String) -> Result<ArcaModeStatusDto, ArcaModeFailure> {
+    let on = engine(&vault_root, &config_path, &secrets_path, &manifest_path).arca_mode_on().map_err(other)?;
+    Ok(ArcaModeStatusDto { on, send_pending: push_is_pending() })
+}
+
+/// What turning the mode on does with the answer about the Send (the seam the test uses): refused while one waits. The refusals come
+/// first, one by one, so each has its own kind; the engine repeats them under its lock before it writes anything.
 #[flutter_rust_bridge::frb(ignore)]
 pub(crate) fn enable_with(engine: &SyncEngine, pending_send: bool, now_ms: u64) -> Result<(), ArcaModeFailure> {
-    let _ = (engine, pending_send, now_ms);
-    todo!("enable_with")
+    if !engine.is_initialized() {
+        return Err(failure(ArcaModeErrorKind::NoKey, "this phone has no vault key yet: pair it first"));
+    }
+    if pending_send {
+        return Err(failure(ArcaModeErrorKind::SendPending, "a Send is waiting for the phone: finish or cancel it first"));
+    }
+    if engine.arca_mode_on().map_err(other)? {
+        return Err(failure(ArcaModeErrorKind::AlreadyOn, "this vault is already in arca mode"));
+    }
+    // The logins never travel from the phone in this slice (`sync_logins` false); the Pull before it only happens for a vault paired on Arweave.
+    rt().block_on(engine.arca_enable_after_pull(pending_send, false, now_ms)).map(|_needs_reload| ()).map_err(other)
 }
 
 /// Turns the mode on (warden ADR 0012, step a): `pending_send` comes from the Send this process has in flight.
 pub fn arca_mode_enable(vault_root: String, config_path: String, secrets_path: String, manifest_path: String, now_ms: u64) -> Result<(), ArcaModeFailure> {
-    let _ = (engine(&vault_root, &config_path, &secrets_path, &manifest_path), now_ms);
-    todo!("arca_mode_enable")
+    enable_with(&engine(&vault_root, &config_path, &secrets_path, &manifest_path), push_is_pending(), now_ms)
 }
 
-/// One cycle against the hub at `hub_url` with this phone's `device_token`.
-pub fn arca_sync_run(vault_root: String, config_path: String, secrets_path: String, manifest_path: String, hub_url: String, device_token: String, now_ms: u64) -> Result<ArcaSyncDto, ArcaModeFailure> {
-    let _ = (engine(&vault_root, &config_path, &secrets_path, &manifest_path), hub_url, device_token, now_ms);
-    todo!("arca_sync_run")
+/// The hub client for `hub_url`. Plain `http` to another machine is refused unless `allow_insecure_http` (the person was warned).
+#[flutter_rust_bridge::frb(ignore)]
+pub(crate) fn hub_store_for(hub_url: &str, device_token: &str, allow_insecure_http: bool) -> Result<HubStore, ArcaModeFailure> {
+    let built = if allow_insecure_http { HubStore::allow_insecure_http(hub_url, device_token) } else { HubStore::new(hub_url, device_token) };
+    built.map_err(|error| match error {
+        HubError::InsecureUrl => failure(ArcaModeErrorKind::InsecureUrl, "plain http to another machine: the token would travel in the clear"),
+        HubError::InvalidUrl => failure(ArcaModeErrorKind::BadUrl, "not a hub address the sync can use"),
+        HubError::InvalidToken => failure(ArcaModeErrorKind::BadToken, "the token cannot be used"),
+        other_error => failure(ArcaModeErrorKind::Other, other_error),
+    })
+}
+
+fn count(n: usize) -> u32 {
+    u32::try_from(n).unwrap_or(u32::MAX)
+}
+
+/// One cycle against the hub at `hub_url` with this phone's `device_token`. `allow_insecure_http` only after the screen warned the person.
+#[allow(clippy::too_many_arguments)]
+pub fn arca_sync_run(
+    vault_root: String,
+    config_path: String,
+    secrets_path: String,
+    manifest_path: String,
+    hub_url: String,
+    device_token: String,
+    allow_insecure_http: bool,
+    now_ms: u64,
+) -> Result<ArcaSyncDto, ArcaModeFailure> {
+    let engine = engine(&vault_root, &config_path, &secrets_path, &manifest_path);
+    if !engine.arca_mode_on().map_err(other)? {
+        return Err(failure(ArcaModeErrorKind::NotInArcaMode, "this vault is not in arca mode: turn it on first"));
+    }
+    let hub = hub_store_for(&hub_url, &device_token, allow_insecure_http)?;
+    match rt().block_on(engine.arca_sync(&hub, now_ms)) {
+        Ok(report) => Ok(ArcaSyncDto {
+            snapshot_created: report.snapshot_created,
+            pulled: count(report.pulled),
+            merges: count(report.merges),
+            conflicts: count(report.conflicts),
+            files_changed: count(report.files_changed),
+            pushed: count(report.pushed),
+            vault_emptied: report.vault_emptied,
+        }),
+        Err(error) => {
+            // The token is never in the engine's text; this is for the day a lower layer puts a header in an error.
+            let detail = format!("{error:#}");
+            let detail = if device_token.is_empty() { detail } else { detail.replace(&device_token, "***") };
+            let kind = if is_auth_rejected(&error) { ArcaModeErrorKind::Unauthorized } else { ArcaModeErrorKind::Other };
+            Err(failure(kind, detail))
+        }
+    }
 }
 
 /// The newer key epochs that stop the vault. Empty with the mode off.
 pub fn arca_epochs_pending(vault_root: String, config_path: String, secrets_path: String, manifest_path: String) -> Result<Vec<PendingEpochDto>, ArcaModeFailure> {
-    let _ = engine(&vault_root, &config_path, &secrets_path, &manifest_path);
-    todo!("arca_epochs_pending")
+    let engine = engine(&vault_root, &config_path, &secrets_path, &manifest_path);
+    rt().block_on(engine.arca_pending_epochs()).map(|list| list.iter().map(PendingEpochDto::from).collect()).map_err(other)
 }
 
 /// Acknowledges the pairs the person saw. They are only looked up in a fresh list; nothing from `seen` reaches the engine as an id.
+/// What shows up after the person looked stays pending. Asked even with nothing to acknowledge, so the mode off is told.
 pub fn arca_epochs_acknowledge(vault_root: String, config_path: String, secrets_path: String, manifest_path: String, seen: Vec<PendingEpochDto>) -> Result<(), ArcaModeFailure> {
-    let _ = (engine(&vault_root, &config_path, &secrets_path, &manifest_path), seen);
-    todo!("arca_epochs_acknowledge")
+    let engine = engine(&vault_root, &config_path, &secrets_path, &manifest_path);
+    if !engine.arca_mode_on().map_err(other)? {
+        return Err(failure(ArcaModeErrorKind::NotInArcaMode, "this vault is not in arca mode: turn it on first"));
+    }
+    let fresh = rt().block_on(engine.arca_pending_epochs()).map_err(other)?;
+    let listed: Vec<PendingEpochDto> = fresh.iter().map(PendingEpochDto::from).collect();
+    let to_acknowledge: Vec<PendingEpoch> = positions_seen(&listed, &seen).into_iter().map(|position| fresh[position]).collect();
+    rt().block_on(engine.arca_acknowledge_epochs(&to_acknowledge)).map_err(other)
 }
 
 /// Where, in the fresh list, are the pairs the screen handed back: the whole pair (epoch and id text), since the next epoch is
 /// predictable and the epoch alone would let a forged object hide the real rotation. Each position once, in the fresh list's order.
+#[flutter_rust_bridge::frb(ignore)]
 pub(crate) fn positions_seen(fresh: &[PendingEpochDto], seen: &[PendingEpochDto]) -> Vec<usize> {
-    let _ = (fresh, seen);
-    todo!("positions_seen")
+    fresh.iter().enumerate().filter(|(_, pending)| seen.contains(pending)).map(|(position, _)| position).collect()
 }
 
 #[cfg(test)]
@@ -154,7 +235,7 @@ mod tests {
     }
 
     fn sync_run(paths: &[String; 4], hub_url: &str, token: &str) -> Result<ArcaSyncDto, ArcaModeFailure> {
-        arca_sync_run(paths[0].clone(), paths[1].clone(), paths[2].clone(), paths[3].clone(), hub_url.to_string(), token.to_string(), 2_000)
+        arca_sync_run(paths[0].clone(), paths[1].clone(), paths[2].clone(), paths[3].clone(), hub_url.to_string(), token.to_string(), false, 2_000)
     }
 
     fn pending(paths: &[String; 4]) -> Result<Vec<PendingEpochDto>, ArcaModeFailure> {
@@ -255,6 +336,29 @@ mod tests {
         enable(&paths).unwrap();
         assert_eq!(sync_run(&paths, "http://192.168.0.10:7000", "token").unwrap_err().kind, ArcaModeErrorKind::InsecureUrl);
         assert_eq!(sync_run(&paths, "https://hub.example/some/path", "token").unwrap_err().kind, ArcaModeErrorKind::BadUrl);
+    }
+
+    #[test]
+    fn plain_http_to_the_lan_is_only_accepted_when_the_person_was_warned_and_the_other_refusals_stay() {
+        // Building the client opens no connection, so a LAN address is enough to see what is accepted.
+        let refused = hub_store_for("http://192.168.0.10:7000", "token", false).err().unwrap();
+        assert_eq!(refused.kind, ArcaModeErrorKind::InsecureUrl);
+        assert!(hub_store_for("http://192.168.0.10:7000", "token", true).is_ok(), "warned: http to the LAN is accepted");
+        assert!(hub_store_for("https://hub.example", "token", false).is_ok(), "https never needs the permission");
+        // The permission is for plain http only: a bad address or token stays refused with it.
+        assert_eq!(hub_store_for("https://hub.example/some/path", "token", true).err().unwrap().kind, ArcaModeErrorKind::BadUrl);
+        assert_eq!(hub_store_for("ftp://hub.example", "token", true).err().unwrap().kind, ArcaModeErrorKind::BadUrl);
+        assert_eq!(hub_store_for("http://192.168.0.10:7000", "", true).err().unwrap().kind, ArcaModeErrorKind::BadToken);
+    }
+
+    #[test]
+    fn a_warned_cycle_over_plain_http_reaches_the_hub_instead_of_being_refused() {
+        let paths = phone("sync-insecure-allowed");
+        with_key(&paths);
+        enable(&paths).unwrap();
+        // Loopback needs no permission, so this also shows the flag does not change what a reachable hub answers.
+        let result = arca_sync_run(paths[0].clone(), paths[1].clone(), paths[2].clone(), paths[3].clone(), hub_that_refuses(), "token".into(), true, 2_000);
+        assert_eq!(result.unwrap_err().kind, ArcaModeErrorKind::Unauthorized);
     }
 
     // ---------- epochs ----------
