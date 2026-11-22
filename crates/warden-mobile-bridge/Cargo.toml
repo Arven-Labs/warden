@@ -12,7 +12,7 @@ anyhow.workspace = true
 tokio = { workspace = true, features = ["rt-multi-thread"] }
 warden-core = { path = "../warden-core", default-features = false }
 warden-server-protocol = { path = "../warden-server-protocol" }
-warden-sync = { path = "../warden-sync" }
+warden-sync = { path = "../warden-sync", features = ["arca"] }
 
 [dev-dependencies]
 # Só os testes do pareamento da arca: um hub de duas rotas numa thread própria e a cifra do grant.
