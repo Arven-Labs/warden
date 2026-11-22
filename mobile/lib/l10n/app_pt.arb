@@ -608,6 +608,11 @@
   "arcaSwapReplaceConfirmYes": "Trocar a chave",
   "arcaSwapReplaceConfirmNo": "Agora não",
   "arcaSwapNothingPending": "Não há mais nenhuma chave mais nova pendente. Nada foi alterado.",
+  "arcaPairErrSwapIncomplete": "A troca de chave não terminou. Se parou no meio, sincronize este dispositivo (Modo arca, Sincronizar agora) e comece a troca de novo.",
+  "arcaPairErrNoAcceptedHead": "Este dispositivo ainda não aceitou um manifest da chave atual, então não tem código do head para mostrar. Sincronize este dispositivo primeiro (Modo arca, Sincronizar agora) e tente de novo.",
+  "arcaPairErrKeyOpensNothing": "Esta chave não abre o cofre que o hub mostra. Nada foi alterado neste dispositivo. Confira o outro dispositivo e não confie neste hub até conferir.",
+  "arcaSwapErrNoOffers": "Nenhum dispositivo está esperando uma chave. Comece a troca primeiro no dispositivo que vai trocar a chave e tente de novo.",
+  "arcaSwapBack": "Voltar ao modo arca",
 
   "arcaModeOpen": "Modo arca",
   "arcaModeTitle": "Modo arca",

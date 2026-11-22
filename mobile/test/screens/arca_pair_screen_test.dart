@@ -450,21 +450,82 @@ void main() {
         bridge.ArcaPairErrorKind.nothingNewer: pt.arcaPairErrNothingNewer,
         bridge.ArcaPairErrorKind.notNewer: pt.arcaPairErrNotNewer,
         bridge.ArcaPairErrorKind.hashMismatch: pt.arcaPairErrHashMismatch,
+        bridge.ArcaPairErrorKind.swapIncomplete: pt.arcaPairErrSwapIncomplete,
+        bridge.ArcaPairErrorKind.noAcceptedHead: pt.arcaPairErrNoAcceptedHead,
+        bridge.ArcaPairErrorKind.keyOpensNothing: pt.arcaPairErrKeyOpensNothing,
       };
       for (final entry in cases.entries) {
         await startedSwap(tester, ArcaSwapSide.replace, steps: [_failed(entry.key)], locale: const Locale('pt'));
         expect(find.text(entry.value), findsOneWidget, reason: '${entry.key}');
       }
       expect(pt.arcaPairErrHashMismatch, contains('não confie'));
+      expect(pt.arcaPairErrKeyOpensNothing, contains('não confie'));
+      expect(pt.arcaPairErrSwapIncomplete, contains('sincronize'), reason: 'a swap that may have stopped half way says to sync and swap again');
     });
 
-    testWidgets('after a failure the same button starts the swap again', (tester) async {
-      final backend = await startedSwap(tester, ArcaSwapSide.replace, steps: [_failed(bridge.ArcaPairErrorKind.timedOut)]);
+    testWidgets('the side that hands the key over can start again after a failure: it writes nothing on this device', (tester) async {
+      final backend = await startedSwap(tester, ArcaSwapSide.grant, steps: [_failed(bridge.ArcaPairErrorKind.timedOut)]);
 
       await _startPairing(tester, backend);
 
-      expect(backend.startedSwapReplace.length, 2);
+      expect(backend.startedSwapGrant.length, 2);
       expect(backend.started, isEmpty);
+    });
+
+    // The replacing side wipes the local sync copy, and the confirmation (the epochs read at the tap) lives on the Arca mode screen:
+    // a "start again" here would redo it without that confirmation, so after a failure or a cancel the way out is back to that screen.
+    for (final ending in [_failed(bridge.ArcaPairErrorKind.timedOut), _step(bridge.ArcaPairStepKind.cancelled)]) {
+      testWidgets('the replacing side offers no way to start again after ${ending.kind.name}, only back to Arca mode', (tester) async {
+        final backend = await startedSwap(tester, ArcaSwapSide.replace, steps: [ending]);
+
+        expect(find.byKey(const Key('arca-pair-start')), findsNothing);
+        expect(find.byKey(const Key('arca-pair-back')), findsOneWidget);
+        expect(find.text(AppLocalizationsEn().arcaSwapBack), findsOneWidget);
+        expect(backend.startedSwapReplace.length, 1);
+      });
+    }
+
+    testWidgets('"back to Arca mode" leaves the swap screen', (tester) async {
+      _savedHub();
+      final backend = FakeBackend()..push(_failed(bridge.ArcaPairErrorKind.timedOut));
+      await tester.pumpWidget(testApp(
+        home: Builder(
+          builder: (context) => Scaffold(
+            body: TextButton(
+              key: const Key('open-swap'),
+              onPressed: () => Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => ArcaPairScreen(backend: backend, swap: ArcaSwapSide.replace))),
+              child: const Text('open'),
+            ),
+          ),
+        ),
+      ));
+      await tester.tap(find.byKey(const Key('open-swap')));
+      await _settle(tester);
+      await _startPairing(tester, backend);
+
+      await tester.tap(find.byKey(const Key('arca-pair-back')));
+      await _settle(tester);
+
+      expect(find.byKey(const Key('open-swap')), findsOneWidget);
+      expect(find.byKey(const Key('arca-pair-back')), findsNothing);
+    });
+
+    testWidgets('with no new device waiting, the swap says to start it on the device that replaces its key', (tester) async {
+      await startedSwap(tester, ArcaSwapSide.grant, steps: [_failed(bridge.ArcaPairErrorKind.noOffers)]);
+
+      expect(find.text(AppLocalizationsEn().arcaSwapErrNoOffers), findsOneWidget);
+      expect(find.text(AppLocalizationsEn().arcaPairErrNoOffers), findsNothing);
+    });
+
+    testWidgets('the field of the swap takes no suggestions, no autocorrect, no selection and no keyboard learning', (tester) async {
+      await startedSwap(tester, ArcaSwapSide.replace, steps: [_offerCode('abcd-0123-4567-89ef'), _ask]);
+
+      final field = tester.widget<TextField>(find.byKey(const Key('arca-pair-fingerprint')));
+
+      expect(field.enableSuggestions, isFalse);
+      expect(field.autocorrect, isFalse);
+      expect(field.enableInteractiveSelection, isFalse);
+      expect(field.enableIMEPersonalizedLearning, isFalse, reason: 'the keyboard must not learn a fingerprint and a head code');
     });
 
     testWidgets('giving up during a swap tells the bridge, with the swap\'s words on the button', (tester) async {

@@ -69,6 +69,9 @@ String arcaPairErrorText(AppLocalizations l10n, bridge.ArcaPairErrorKind kind) =
       bridge.ArcaPairErrorKind.nothingNewer => l10n.arcaPairErrNothingNewer,
       bridge.ArcaPairErrorKind.notNewer => l10n.arcaPairErrNotNewer,
       bridge.ArcaPairErrorKind.hashMismatch => l10n.arcaPairErrHashMismatch,
+      bridge.ArcaPairErrorKind.swapIncomplete => l10n.arcaPairErrSwapIncomplete,
+      bridge.ArcaPairErrorKind.noAcceptedHead => l10n.arcaPairErrNoAcceptedHead,
+      bridge.ArcaPairErrorKind.keyOpensNothing => l10n.arcaPairErrKeyOpensNothing,
       bridge.ArcaPairErrorKind.hub => l10n.arcaPairErrHub,
     };
 

@@ -545,6 +545,13 @@ void main() {
       expect(find.byKey(const Key('arca-mode-swap-replace')), findsOneWidget);
     });
 
+    testWidgets('while a newer key is pending this device does not offer to hand over its (old) key', (tester) async {
+      await shown(tester, epochs: [_epoch(1, _hex1)]);
+
+      expect(find.byKey(const Key('arca-mode-swap-grant')), findsNothing);
+      expect(find.byKey(const Key('arca-mode-swap-replace')), findsOneWidget);
+    });
+
     testWidgets('neither button shows with the mode off', (tester) async {
       await shown(tester, on: false, epochs: [_epoch(1, _hex1)]);
 
