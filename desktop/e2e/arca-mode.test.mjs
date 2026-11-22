@@ -1009,4 +1009,139 @@ describe("the arca mode of the vault on the desktop", () => {
       }
     });
   });
+
+  // P-49: the key rotation for "I lost a device". The key waits in the backend; the screen shows the phrase once and sends back only
+  // the words typed, the statement about the token, and (after the rotation) a normal sync with the chosen hub.
+  describe("changing the key after a lost device", () => {
+    const ON = () => ({ hasKey: true, on: true, pendingSend: false, hubId: HUB.id, loginsAccepted: true });
+    const WORDS = Array.from({ length: 24 }, (_, i) => `word${String(i + 1).padStart(2, "0")}`);
+    const START = { phrase: WORDS, positions: [2, 9, 17] };
+
+    async function startRotation(page) {
+      await page.getByRole("button", { name: "Change the key…", exact: true }).click();
+      await page.getByRole("heading", { name: "Write these 24 words down now" }).waitFor();
+    }
+
+    async function fillAsked(page) {
+      for (const position of START.positions) await page.getByLabel(`Word ${position}`, { exact: true }).fill(WORDS[position - 1]);
+    }
+
+    test("the phrase is shown once, nothing is confirmed before the second click, and the backend gets the typed words and the statement", { timeout: TIMEOUT }, async () => {
+      const { context, page, calls, errors } = await openSync(ON, {
+        arca_rotation_begin: () => START,
+        arca_rotation_confirm: () => null,
+        arca_sync_run: () => CLEAN_CYCLE,
+      });
+      try {
+        await startRotation(page);
+        assert.equal(await page.getByRole("listitem").filter({ hasText: /^word\d\d$/ }).count(), 24, "all 24 words are shown");
+        const confirm = page.getByRole("button", { name: "Change the key", exact: true });
+        assert.equal(await confirm.isDisabled(), true, "nothing typed and nothing declared yet");
+
+        await fillAsked(page);
+        assert.equal(await confirm.isDisabled(), true, "the words alone are not enough: the token has to be declared revoked");
+        await page.getByRole("checkbox", { name: "I revoked the lost device's token on the hub" }).check();
+        await confirm.click();
+        await page.getByText(/It cannot be undone from here/).waitFor();
+        assert.equal(asked(calls, "arca_rotation_confirm").length, 0, "one click confirms nothing");
+
+        await page.getByRole("button", { name: "Yes, change the key", exact: true }).click();
+        await page.getByText("The key was changed and sent to the hub.").waitFor();
+        assert.deepEqual(asked(calls, "arca_rotation_confirm").map((c) => c.args), [{ typedWords: ["word02", "word09", "word17"], revokedOnHub: true }]);
+        assert.deepEqual(asked(calls, "arca_sync_run").map((c) => c.args), [{ hubId: HUB.id }], "the new epoch is sent with the hub that is chosen");
+        assert.equal(await page.getByText("word01", { exact: true }).count(), 0, "the phrase is gone from the page once it worked");
+        assert.deepEqual(errors, [], "the page raised no error");
+      } finally {
+        await context.close();
+      }
+    });
+
+    test("cancelling drops the phrase from the page and tells the backend to drop the key", { timeout: TIMEOUT }, async () => {
+      const { context, page, calls, errors } = await openSync(ON, { arca_rotation_begin: () => START });
+      try {
+        await startRotation(page);
+        await page.getByRole("button", { name: "Cancel", exact: true }).click();
+        await page.getByRole("button", { name: "Change the key…", exact: true }).waitFor();
+        assert.equal(await page.getByText("word01", { exact: true }).count(), 0, "the phrase is not on the page any more");
+        assert.equal(asked(calls, "arca_rotation_confirm").length, 0);
+        assert.ok(asked(calls, "arca_rotation_cancel").length >= 1, "the key waiting in the backend is dropped");
+        assert.deepEqual(errors, [], "the page raised no error");
+      } finally {
+        await context.close();
+      }
+    });
+
+    test("a refusal is shown, the phrase leaves the page and nothing is sent to the hub", { timeout: TIMEOUT }, async () => {
+      const { context, page, calls, errors } = await openSync(ON, {
+        arca_rotation_begin: () => START,
+        arca_rotation_confirm: () => Promise.reject("the words typed are not the ones asked for"),
+      });
+      try {
+        await startRotation(page);
+        await fillAsked(page);
+        await page.getByRole("checkbox", { name: "I revoked the lost device's token on the hub" }).check();
+        await page.getByRole("button", { name: "Change the key", exact: true }).click();
+        await page.getByRole("button", { name: "Yes, change the key", exact: true }).click();
+        await page.getByText(/The key was not changed: the words typed are not the ones asked for/).waitFor();
+        assert.equal(await page.getByText("word01", { exact: true }).count(), 0, "the backend dropped that key, so the phrase leaves the page");
+        assert.equal(asked(calls, "arca_sync_run").length, 0, "a key that was not changed is not sent");
+        assert.deepEqual(errors, [], "a refusal is shown, not raised");
+      } finally {
+        await context.close();
+      }
+    });
+
+    test("a rotation that worked but could not be sent says so and does not call it done", { timeout: TIMEOUT }, async () => {
+      const { context, page, errors } = await openSync(ON, {
+        arca_rotation_begin: () => START,
+        arca_rotation_confirm: () => null,
+        arca_sync_run: () => Promise.reject("the hub is down"),
+      });
+      try {
+        await startRotation(page);
+        await fillAsked(page);
+        await page.getByRole("checkbox", { name: "I revoked the lost device's token on the hub" }).check();
+        await page.getByRole("button", { name: "Change the key", exact: true }).click();
+        await page.getByRole("button", { name: "Yes, change the key", exact: true }).click();
+        await page.getByText(/changed on this computer, but it was not sent to the hub: the hub is down/).waitFor();
+        assert.deepEqual(errors, [], "the page raised no error");
+      } finally {
+        await context.close();
+      }
+    });
+
+    test("resuming asks for the 24 words, sends them to resume and confirms with no words typed back", { timeout: TIMEOUT }, async () => {
+      const { context, page, calls, errors } = await openSync(ON, {
+        arca_rotation_resume: () => null,
+        arca_rotation_confirm: () => null,
+        arca_sync_run: () => CLEAN_CYCLE,
+      });
+      try {
+        await page.getByRole("button", { name: "Resume an interrupted change…", exact: true }).click();
+        const finish = page.getByRole("button", { name: "Finish the change", exact: true });
+        await page.getByLabel("The 24 words").fill(WORDS.slice(0, 23).join(" "));
+        await page.getByRole("checkbox", { name: "I revoked the lost device's token on the hub" }).check();
+        assert.equal(await finish.isDisabled(), true, "23 words are not a phrase");
+        await page.getByLabel("The 24 words").fill(WORDS.join(" "));
+        await finish.click();
+        await page.getByRole("button", { name: "Yes, change the key", exact: true }).click();
+        await page.getByText("The key was changed and sent to the hub.").waitFor();
+        assert.deepEqual(asked(calls, "arca_rotation_resume").map((c) => c.args), [{ phrase: WORDS.join(" ") }]);
+        assert.deepEqual(asked(calls, "arca_rotation_confirm").map((c) => c.args), [{ typedWords: [], revokedOnHub: true }]);
+        assert.deepEqual(errors, [], "the page raised no error");
+      } finally {
+        await context.close();
+      }
+    });
+
+    test("the block is not offered while the mode is off", { timeout: TIMEOUT }, async () => {
+      const { context, page } = await openSync(() => ({ hasKey: true, on: false, pendingSend: false }));
+      try {
+        await page.getByRole("button", { name: "Turn on arca mode", exact: true }).waitFor();
+        assert.equal(await page.getByRole("button", { name: "Change the key…" }).count(), 0);
+      } finally {
+        await context.close();
+      }
+    });
+  });
 });

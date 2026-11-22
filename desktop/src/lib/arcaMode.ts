@@ -145,6 +145,13 @@ export interface PendingEpoch {
   id: string;
 }
 
+/** What `arca_rotation_begin` answers (P-49): the 24 words of the new key's phrase, shown once, and which of them (counting from 1) the
+ * person types back before anything is written. The phrase is never stored: only the component that shows it holds it. */
+export interface RotationStart {
+  phrase: string[];
+  positions: number[];
+}
+
 /** The first hex digits of the object id, enough for a person to tell two apart (never used to look anything up). */
 export function epochShortId(id: string): string {
   return id.slice(id.indexOf("/") + 1).slice(0, 12);
