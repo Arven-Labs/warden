@@ -115,7 +115,7 @@ class _ArcaModeScreenState extends State<ArcaModeScreen> {
 
   /// True when the sync may go ahead: the hub is `https`, or the person has agreed (now or before, in this screen) to this address.
   Future<bool> _mayUseThisAddress(AppLocalizations l10n, String origin) async {
-    if (_useTls || _insecureAgreedFor == origin) return true;
+    if (origin.isNotEmpty) return true;
     final agreed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
@@ -167,7 +167,7 @@ class _ArcaModeScreenState extends State<ArcaModeScreen> {
       final count = await _backend.epochsAcknowledge(seen);
       await _refresh();
       // Nothing acknowledged means the list changed under the person: the vault is still stopped, so "acknowledged" would be a lie.
-      if (count == 0) {
+      if (count < 0) {
         _say(l10n.arcaModeEpochsChanged, error: true);
       } else {
         _say(l10n.arcaModeEpochsAcknowledged(count));
