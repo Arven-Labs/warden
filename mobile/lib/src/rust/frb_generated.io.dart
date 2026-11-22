@@ -3,6 +3,7 @@
 
 // ignore_for_file: unused_import, unused_element, unnecessary_import, duplicate_ignore, invalid_use_of_internal_member, annotate_overrides, non_constant_identifier_names, curly_braces_in_flow_control_structures, prefer_const_literals_to_create_immutables, unused_field
 
+import 'api/arca_mode.dart';
 import 'api/arca_pair.dart';
 import 'api/discovery.dart';
 import 'api/simple.dart';
@@ -29,6 +30,15 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   String dco_decode_String(dynamic raw);
 
   @protected
+  ArcaModeErrorKind dco_decode_arca_mode_error_kind(dynamic raw);
+
+  @protected
+  ArcaModeFailure dco_decode_arca_mode_failure(dynamic raw);
+
+  @protected
+  ArcaModeStatusDto dco_decode_arca_mode_status_dto(dynamic raw);
+
+  @protected
   ArcaPairErrorKind dco_decode_arca_pair_error_kind(dynamic raw);
 
   @protected
@@ -42,6 +52,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   ArcaPairStepKind dco_decode_arca_pair_step_kind(dynamic raw);
+
+  @protected
+  ArcaSyncDto dco_decode_arca_sync_dto(dynamic raw);
 
   @protected
   bool dco_decode_bool(dynamic raw);
@@ -80,6 +93,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   List<DiscoveredHubDto> dco_decode_list_discovered_hub_dto(dynamic raw);
 
   @protected
+  List<PendingEpochDto> dco_decode_list_pending_epoch_dto(dynamic raw);
+
+  @protected
   Uint8List dco_decode_list_prim_u_8_strict(dynamic raw);
 
   @protected
@@ -99,6 +115,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   PushBeginDto? dco_decode_opt_box_autoadd_push_begin_dto(dynamic raw);
+
+  @protected
+  PendingEpochDto dco_decode_pending_epoch_dto(dynamic raw);
 
   @protected
   PullResultDto dco_decode_pull_result_dto(dynamic raw);
@@ -125,6 +144,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   int dco_decode_u_32(dynamic raw);
 
   @protected
+  BigInt dco_decode_u_64(dynamic raw);
+
+  @protected
   int dco_decode_u_8(dynamic raw);
 
   @protected
@@ -132,6 +154,19 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   String sse_decode_String(SseDeserializer deserializer);
+
+  @protected
+  ArcaModeErrorKind sse_decode_arca_mode_error_kind(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  ArcaModeFailure sse_decode_arca_mode_failure(SseDeserializer deserializer);
+
+  @protected
+  ArcaModeStatusDto sse_decode_arca_mode_status_dto(
+    SseDeserializer deserializer,
+  );
 
   @protected
   ArcaPairErrorKind sse_decode_arca_pair_error_kind(
@@ -149,6 +184,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   ArcaPairStepKind sse_decode_arca_pair_step_kind(SseDeserializer deserializer);
+
+  @protected
+  ArcaSyncDto sse_decode_arca_sync_dto(SseDeserializer deserializer);
 
   @protected
   bool sse_decode_bool(SseDeserializer deserializer);
@@ -195,6 +233,11 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  List<PendingEpochDto> sse_decode_list_pending_epoch_dto(
+    SseDeserializer deserializer,
+  );
+
+  @protected
   Uint8List sse_decode_list_prim_u_8_strict(SseDeserializer deserializer);
 
   @protected
@@ -222,6 +265,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  PendingEpochDto sse_decode_pending_epoch_dto(SseDeserializer deserializer);
+
+  @protected
   PullResultDto sse_decode_pull_result_dto(SseDeserializer deserializer);
 
   @protected
@@ -246,6 +292,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   int sse_decode_u_32(SseDeserializer deserializer);
 
   @protected
+  BigInt sse_decode_u_64(SseDeserializer deserializer);
+
+  @protected
   int sse_decode_u_8(SseDeserializer deserializer);
 
   @protected
@@ -253,6 +302,24 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   void sse_encode_String(String self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_arca_mode_error_kind(
+    ArcaModeErrorKind self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_arca_mode_failure(
+    ArcaModeFailure self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_arca_mode_status_dto(
+    ArcaModeStatusDto self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_arca_pair_error_kind(
@@ -277,6 +344,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
     ArcaPairStepKind self,
     SseSerializer serializer,
   );
+
+  @protected
+  void sse_encode_arca_sync_dto(ArcaSyncDto self, SseSerializer serializer);
 
   @protected
   void sse_encode_bool(bool self, SseSerializer serializer);
@@ -339,6 +409,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  void sse_encode_list_pending_epoch_dto(
+    List<PendingEpochDto> self,
+    SseSerializer serializer,
+  );
+
+  @protected
   void sse_encode_list_prim_u_8_strict(
     Uint8List self,
     SseSerializer serializer,
@@ -375,6 +451,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  void sse_encode_pending_epoch_dto(
+    PendingEpochDto self,
+    SseSerializer serializer,
+  );
+
+  @protected
   void sse_encode_pull_result_dto(PullResultDto self, SseSerializer serializer);
 
   @protected
@@ -397,6 +479,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   void sse_encode_u_32(int self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_u_64(BigInt self, SseSerializer serializer);
 
   @protected
   void sse_encode_u_8(int self, SseSerializer serializer);

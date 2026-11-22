@@ -33,6 +33,12 @@ pub(crate) fn rt() -> &'static tokio::runtime::Runtime {
 static PENDING_PUSH: Mutex<Option<(BeginPushResult, String)>> = Mutex::new(None);
 static PENDING_PAIRING_HOST: Mutex<Option<PairingHost>> = Mutex::new(None);
 
+/// Whether a Send was begun and is still waiting for the other device's scan (the arca mode cannot be turned on over it).
+#[flutter_rust_bridge::frb(ignore)]
+pub(crate) fn push_is_pending() -> bool {
+    PENDING_PUSH.lock().unwrap_or_else(|e| e.into_inner()).is_some()
+}
+
 fn engine(vault_root: &str, config_path: &str, secrets_path: &str, manifest_path: &str) -> SyncEngine {
     SyncEngine::new(vault_root.into(), config_path.into(), secrets_path.into(), manifest_path.into())
 }

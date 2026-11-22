@@ -39,7 +39,7 @@ flutter_rust_bridge::frb_generated_boilerplate!(
     default_rust_auto_opaque = RustAutoOpaqueMoi,
 );
 pub(crate) const FLUTTER_RUST_BRIDGE_CODEGEN_VERSION: &str = "2.13.0";
-pub(crate) const FLUTTER_RUST_BRIDGE_CODEGEN_CONTENT_HASH: i32 = 1909990013;
+pub(crate) const FLUTTER_RUST_BRIDGE_CODEGEN_CONTENT_HASH: i32 = -330213319;
 
 // Section: executor
 
@@ -47,6 +47,179 @@ flutter_rust_bridge::frb_generated_default_handler!();
 
 // Section: wire_funcs
 
+fn wire__crate__api__arca_mode__arca_epochs_acknowledge_impl(
+    port_: flutter_rust_bridge::for_generated::MessagePort,
+    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
+    rust_vec_len_: i32,
+    data_len_: i32,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_normal::<flutter_rust_bridge::for_generated::SseCodec, _, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "arca_epochs_acknowledge",
+            port: Some(port_),
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
+        },
+        move || {
+            let message = unsafe {
+                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
+                    ptr_,
+                    rust_vec_len_,
+                    data_len_,
+                )
+            };
+            let mut deserializer =
+                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_vault_root = <String>::sse_decode(&mut deserializer);
+            let api_config_path = <String>::sse_decode(&mut deserializer);
+            let api_secrets_path = <String>::sse_decode(&mut deserializer);
+            let api_manifest_path = <String>::sse_decode(&mut deserializer);
+            let api_seen =
+                <Vec<crate::api::arca_mode::PendingEpochDto>>::sse_decode(&mut deserializer);
+            deserializer.end();
+            move |context| {
+                transform_result_sse::<_, crate::api::arca_mode::ArcaModeFailure>((move || {
+                    let output_ok = crate::api::arca_mode::arca_epochs_acknowledge(
+                        api_vault_root,
+                        api_config_path,
+                        api_secrets_path,
+                        api_manifest_path,
+                        api_seen,
+                    )?;
+                    std::result::Result::Ok(output_ok)
+                })(
+                ))
+            }
+        },
+    )
+}
+fn wire__crate__api__arca_mode__arca_epochs_pending_impl(
+    port_: flutter_rust_bridge::for_generated::MessagePort,
+    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
+    rust_vec_len_: i32,
+    data_len_: i32,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_normal::<flutter_rust_bridge::for_generated::SseCodec, _, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "arca_epochs_pending",
+            port: Some(port_),
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
+        },
+        move || {
+            let message = unsafe {
+                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
+                    ptr_,
+                    rust_vec_len_,
+                    data_len_,
+                )
+            };
+            let mut deserializer =
+                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_vault_root = <String>::sse_decode(&mut deserializer);
+            let api_config_path = <String>::sse_decode(&mut deserializer);
+            let api_secrets_path = <String>::sse_decode(&mut deserializer);
+            let api_manifest_path = <String>::sse_decode(&mut deserializer);
+            deserializer.end();
+            move |context| {
+                transform_result_sse::<_, crate::api::arca_mode::ArcaModeFailure>((move || {
+                    let output_ok = crate::api::arca_mode::arca_epochs_pending(
+                        api_vault_root,
+                        api_config_path,
+                        api_secrets_path,
+                        api_manifest_path,
+                    )?;
+                    std::result::Result::Ok(output_ok)
+                })(
+                ))
+            }
+        },
+    )
+}
+fn wire__crate__api__arca_mode__arca_mode_enable_impl(
+    port_: flutter_rust_bridge::for_generated::MessagePort,
+    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
+    rust_vec_len_: i32,
+    data_len_: i32,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_normal::<flutter_rust_bridge::for_generated::SseCodec, _, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "arca_mode_enable",
+            port: Some(port_),
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
+        },
+        move || {
+            let message = unsafe {
+                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
+                    ptr_,
+                    rust_vec_len_,
+                    data_len_,
+                )
+            };
+            let mut deserializer =
+                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_vault_root = <String>::sse_decode(&mut deserializer);
+            let api_config_path = <String>::sse_decode(&mut deserializer);
+            let api_secrets_path = <String>::sse_decode(&mut deserializer);
+            let api_manifest_path = <String>::sse_decode(&mut deserializer);
+            let api_now_ms = <u64>::sse_decode(&mut deserializer);
+            deserializer.end();
+            move |context| {
+                transform_result_sse::<_, crate::api::arca_mode::ArcaModeFailure>((move || {
+                    let output_ok = crate::api::arca_mode::arca_mode_enable(
+                        api_vault_root,
+                        api_config_path,
+                        api_secrets_path,
+                        api_manifest_path,
+                        api_now_ms,
+                    )?;
+                    std::result::Result::Ok(output_ok)
+                })(
+                ))
+            }
+        },
+    )
+}
+fn wire__crate__api__arca_mode__arca_mode_status_impl(
+    port_: flutter_rust_bridge::for_generated::MessagePort,
+    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
+    rust_vec_len_: i32,
+    data_len_: i32,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_normal::<flutter_rust_bridge::for_generated::SseCodec, _, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "arca_mode_status",
+            port: Some(port_),
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
+        },
+        move || {
+            let message = unsafe {
+                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
+                    ptr_,
+                    rust_vec_len_,
+                    data_len_,
+                )
+            };
+            let mut deserializer =
+                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_vault_root = <String>::sse_decode(&mut deserializer);
+            let api_config_path = <String>::sse_decode(&mut deserializer);
+            let api_secrets_path = <String>::sse_decode(&mut deserializer);
+            let api_manifest_path = <String>::sse_decode(&mut deserializer);
+            deserializer.end();
+            move |context| {
+                transform_result_sse::<_, crate::api::arca_mode::ArcaModeFailure>((move || {
+                    let output_ok = crate::api::arca_mode::arca_mode_status(
+                        api_vault_root,
+                        api_config_path,
+                        api_secrets_path,
+                        api_manifest_path,
+                    )?;
+                    std::result::Result::Ok(output_ok)
+                })(
+                ))
+            }
+        },
+    )
+}
 fn wire__crate__api__arca_pair__arca_pair_answer_impl(
     port_: flutter_rust_bridge::for_generated::MessagePort,
     ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
@@ -309,6 +482,56 @@ fn wire__crate__api__arca_pair__arca_pair_start_grant_impl(
                         api_manifest_path,
                         api_hub_url,
                         api_device_token,
+                    )?;
+                    std::result::Result::Ok(output_ok)
+                })(
+                ))
+            }
+        },
+    )
+}
+fn wire__crate__api__arca_mode__arca_sync_run_impl(
+    port_: flutter_rust_bridge::for_generated::MessagePort,
+    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
+    rust_vec_len_: i32,
+    data_len_: i32,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_normal::<flutter_rust_bridge::for_generated::SseCodec, _, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "arca_sync_run",
+            port: Some(port_),
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
+        },
+        move || {
+            let message = unsafe {
+                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
+                    ptr_,
+                    rust_vec_len_,
+                    data_len_,
+                )
+            };
+            let mut deserializer =
+                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_vault_root = <String>::sse_decode(&mut deserializer);
+            let api_config_path = <String>::sse_decode(&mut deserializer);
+            let api_secrets_path = <String>::sse_decode(&mut deserializer);
+            let api_manifest_path = <String>::sse_decode(&mut deserializer);
+            let api_hub_url = <String>::sse_decode(&mut deserializer);
+            let api_device_token = <String>::sse_decode(&mut deserializer);
+            let api_allow_insecure_http = <bool>::sse_decode(&mut deserializer);
+            let api_now_ms = <u64>::sse_decode(&mut deserializer);
+            deserializer.end();
+            move |context| {
+                transform_result_sse::<_, crate::api::arca_mode::ArcaModeFailure>((move || {
+                    let output_ok = crate::api::arca_mode::arca_sync_run(
+                        api_vault_root,
+                        api_config_path,
+                        api_secrets_path,
+                        api_manifest_path,
+                        api_hub_url,
+                        api_device_token,
+                        api_allow_insecure_http,
+                        api_now_ms,
                     )?;
                     std::result::Result::Ok(output_ok)
                 })(
@@ -1074,6 +1297,49 @@ impl SseDecode for String {
     }
 }
 
+impl SseDecode for crate::api::arca_mode::ArcaModeErrorKind {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut inner = <i32>::sse_decode(deserializer);
+        return match inner {
+            0 => crate::api::arca_mode::ArcaModeErrorKind::NotInArcaMode,
+            1 => crate::api::arca_mode::ArcaModeErrorKind::AlreadyOn,
+            2 => crate::api::arca_mode::ArcaModeErrorKind::NoKey,
+            3 => crate::api::arca_mode::ArcaModeErrorKind::SendPending,
+            4 => crate::api::arca_mode::ArcaModeErrorKind::InsecureUrl,
+            5 => crate::api::arca_mode::ArcaModeErrorKind::BadUrl,
+            6 => crate::api::arca_mode::ArcaModeErrorKind::BadToken,
+            7 => crate::api::arca_mode::ArcaModeErrorKind::Unauthorized,
+            8 => crate::api::arca_mode::ArcaModeErrorKind::Other,
+            _ => unreachable!("Invalid variant for ArcaModeErrorKind: {}", inner),
+        };
+    }
+}
+
+impl SseDecode for crate::api::arca_mode::ArcaModeFailure {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut var_kind = <crate::api::arca_mode::ArcaModeErrorKind>::sse_decode(deserializer);
+        let mut var_detail = <String>::sse_decode(deserializer);
+        return crate::api::arca_mode::ArcaModeFailure {
+            kind: var_kind,
+            detail: var_detail,
+        };
+    }
+}
+
+impl SseDecode for crate::api::arca_mode::ArcaModeStatusDto {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut var_on_ = <bool>::sse_decode(deserializer);
+        let mut var_sendPending = <bool>::sse_decode(deserializer);
+        return crate::api::arca_mode::ArcaModeStatusDto {
+            on: var_on_,
+            send_pending: var_sendPending,
+        };
+    }
+}
+
 impl SseDecode for crate::api::arca_pair::ArcaPairErrorKind {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
@@ -1158,6 +1424,28 @@ impl SseDecode for crate::api::arca_pair::ArcaPairStepKind {
             6 => crate::api::arca_pair::ArcaPairStepKind::Cancelled,
             7 => crate::api::arca_pair::ArcaPairStepKind::Failed,
             _ => unreachable!("Invalid variant for ArcaPairStepKind: {}", inner),
+        };
+    }
+}
+
+impl SseDecode for crate::api::arca_mode::ArcaSyncDto {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut var_snapshotCreated = <bool>::sse_decode(deserializer);
+        let mut var_pulled = <u32>::sse_decode(deserializer);
+        let mut var_merges = <u32>::sse_decode(deserializer);
+        let mut var_conflicts = <u32>::sse_decode(deserializer);
+        let mut var_filesChanged = <u32>::sse_decode(deserializer);
+        let mut var_pushed = <u32>::sse_decode(deserializer);
+        let mut var_vaultEmptied = <bool>::sse_decode(deserializer);
+        return crate::api::arca_mode::ArcaSyncDto {
+            snapshot_created: var_snapshotCreated,
+            pulled: var_pulled,
+            merges: var_merges,
+            conflicts: var_conflicts,
+            files_changed: var_filesChanged,
+            pushed: var_pushed,
+            vault_emptied: var_vaultEmptied,
         };
     }
 }
@@ -1255,6 +1543,20 @@ impl SseDecode for Vec<crate::api::discovery::DiscoveredHubDto> {
     }
 }
 
+impl SseDecode for Vec<crate::api::arca_mode::PendingEpochDto> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut len_ = <i32>::sse_decode(deserializer);
+        let mut ans_ = Vec::with_capacity(len_ as usize);
+        for idx_ in 0..len_ {
+            ans_.push(<crate::api::arca_mode::PendingEpochDto>::sse_decode(
+                deserializer,
+            ));
+        }
+        return ans_;
+    }
+}
+
 impl SseDecode for Vec<u8> {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
@@ -1336,6 +1638,18 @@ impl SseDecode for Option<crate::api::sync::PushBeginDto> {
         } else {
             return None;
         }
+    }
+}
+
+impl SseDecode for crate::api::arca_mode::PendingEpochDto {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut var_epoch = <u32>::sse_decode(deserializer);
+        let mut var_id = <String>::sse_decode(deserializer);
+        return crate::api::arca_mode::PendingEpochDto {
+            epoch: var_epoch,
+            id: var_id,
+        };
     }
 }
 
@@ -1455,6 +1769,13 @@ impl SseDecode for u32 {
     }
 }
 
+impl SseDecode for u64 {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        deserializer.cursor.read_u64::<NativeEndian>().unwrap()
+    }
+}
+
 impl SseDecode for u8 {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
@@ -1476,72 +1797,84 @@ fn pde_ffi_dispatcher_primary_impl(
 ) {
     // Codec=Pde (Serialization + dispatch), see doc to use other codecs
     match func_id {
-        1 => wire__crate__api__arca_pair__arca_pair_answer_impl(port, ptr, rust_vec_len, data_len),
-        2 => wire__crate__api__arca_pair__arca_pair_cancel_impl(port, ptr, rust_vec_len, data_len),
-        3 => wire__crate__api__arca_pair__arca_pair_next_impl(port, ptr, rust_vec_len, data_len),
-        4 => wire__crate__api__arca_pair__arca_pair_pick_impl(port, ptr, rust_vec_len, data_len),
-        5 => wire__crate__api__arca_pair__arca_pair_role_impl(port, ptr, rust_vec_len, data_len),
-        6 => wire__crate__api__arca_pair__arca_pair_start_impl(port, ptr, rust_vec_len, data_len),
-        7 => wire__crate__api__arca_pair__arca_pair_start_grant_impl(
+        1 => wire__crate__api__arca_mode__arca_epochs_acknowledge_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        8 => wire__crate__api__skills__bridge_delete_skill_impl(port, ptr, rust_vec_len, data_len),
-        9 => wire__crate__api__skills__bridge_delete_skill_file_impl(
+        2 => {
+            wire__crate__api__arca_mode__arca_epochs_pending_impl(port, ptr, rust_vec_len, data_len)
+        }
+        3 => wire__crate__api__arca_mode__arca_mode_enable_impl(port, ptr, rust_vec_len, data_len),
+        4 => wire__crate__api__arca_mode__arca_mode_status_impl(port, ptr, rust_vec_len, data_len),
+        5 => wire__crate__api__arca_pair__arca_pair_answer_impl(port, ptr, rust_vec_len, data_len),
+        6 => wire__crate__api__arca_pair__arca_pair_cancel_impl(port, ptr, rust_vec_len, data_len),
+        7 => wire__crate__api__arca_pair__arca_pair_next_impl(port, ptr, rust_vec_len, data_len),
+        8 => wire__crate__api__arca_pair__arca_pair_pick_impl(port, ptr, rust_vec_len, data_len),
+        9 => wire__crate__api__arca_pair__arca_pair_role_impl(port, ptr, rust_vec_len, data_len),
+        10 => wire__crate__api__arca_pair__arca_pair_start_impl(port, ptr, rust_vec_len, data_len),
+        11 => wire__crate__api__arca_pair__arca_pair_start_grant_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        10 => wire__crate__api__discovery__bridge_discover_hubs_impl(
+        12 => wire__crate__api__arca_mode__arca_sync_run_impl(port, ptr, rust_vec_len, data_len),
+        13 => wire__crate__api__skills__bridge_delete_skill_impl(port, ptr, rust_vec_len, data_len),
+        14 => wire__crate__api__skills__bridge_delete_skill_file_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        11 => wire__crate__api__sync__bridge_init_fresh_impl(port, ptr, rust_vec_len, data_len),
-        12 => wire__crate__api__skills__bridge_install_catalog_skill_impl(
+        15 => wire__crate__api__discovery__bridge_discover_hubs_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        13 => wire__crate__api__skills__bridge_list_skill_catalog_impl(
+        16 => wire__crate__api__sync__bridge_init_fresh_impl(port, ptr, rust_vec_len, data_len),
+        17 => wire__crate__api__skills__bridge_install_catalog_skill_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        14 => wire__crate__api__skills__bridge_list_skill_files_impl(
+        18 => wire__crate__api__skills__bridge_list_skill_catalog_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        15 => wire__crate__api__skills__bridge_list_skills_impl(port, ptr, rust_vec_len, data_len),
-        16 => wire__crate__api__sync__bridge_pairing_host_start_impl(
+        19 => wire__crate__api__skills__bridge_list_skill_files_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        17 => {
+        20 => wire__crate__api__skills__bridge_list_skills_impl(port, ptr, rust_vec_len, data_len),
+        21 => wire__crate__api__sync__bridge_pairing_host_start_impl(
+            port,
+            ptr,
+            rust_vec_len,
+            data_len,
+        ),
+        22 => {
             wire__crate__api__sync__bridge_pairing_host_wait_impl(port, ptr, rust_vec_len, data_len)
         }
-        18 => wire__crate__api__sync__bridge_pairing_join_impl(port, ptr, rust_vec_len, data_len),
-        19 => wire__crate__api__sync__bridge_pull_impl(port, ptr, rust_vec_len, data_len),
-        20 => wire__crate__api__sync__bridge_push_await_impl(port, ptr, rust_vec_len, data_len),
-        21 => wire__crate__api__sync__bridge_push_begin_impl(port, ptr, rust_vec_len, data_len),
-        22 => {
+        23 => wire__crate__api__sync__bridge_pairing_join_impl(port, ptr, rust_vec_len, data_len),
+        24 => wire__crate__api__sync__bridge_pull_impl(port, ptr, rust_vec_len, data_len),
+        25 => wire__crate__api__sync__bridge_push_await_impl(port, ptr, rust_vec_len, data_len),
+        26 => wire__crate__api__sync__bridge_push_begin_impl(port, ptr, rust_vec_len, data_len),
+        27 => {
             wire__crate__api__skills__bridge_read_skill_file_impl(port, ptr, rust_vec_len, data_len)
         }
-        23 => wire__crate__api__skills__bridge_save_skill_impl(port, ptr, rust_vec_len, data_len),
-        24 => {
+        28 => wire__crate__api__skills__bridge_save_skill_impl(port, ptr, rust_vec_len, data_len),
+        29 => {
             wire__crate__api__skills__bridge_save_skill_file_impl(port, ptr, rust_vec_len, data_len)
         }
-        26 => wire__crate__api__simple__init_app_impl(port, ptr, rust_vec_len, data_len),
+        31 => wire__crate__api__simple__init_app_impl(port, ptr, rust_vec_len, data_len),
         _ => unreachable!(),
     }
 }
@@ -1554,14 +1887,84 @@ fn pde_ffi_dispatcher_sync_impl(
 ) -> flutter_rust_bridge::for_generated::WireSyncRust2DartSse {
     // Codec=Pde (Serialization + dispatch), see doc to use other codecs
     match func_id {
-        25 => wire__crate__api__sync__bridge_status_impl(ptr, rust_vec_len, data_len),
-        27 => wire__crate__api__simple__ping_impl(ptr, rust_vec_len, data_len),
+        30 => wire__crate__api__sync__bridge_status_impl(ptr, rust_vec_len, data_len),
+        32 => wire__crate__api__simple__ping_impl(ptr, rust_vec_len, data_len),
         _ => unreachable!(),
     }
 }
 
 // Section: rust2dart
 
+// Codec=Dco (DartCObject based), see doc to use other codecs
+impl flutter_rust_bridge::IntoDart for crate::api::arca_mode::ArcaModeErrorKind {
+    fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
+        match self {
+            Self::NotInArcaMode => 0.into_dart(),
+            Self::AlreadyOn => 1.into_dart(),
+            Self::NoKey => 2.into_dart(),
+            Self::SendPending => 3.into_dart(),
+            Self::InsecureUrl => 4.into_dart(),
+            Self::BadUrl => 5.into_dart(),
+            Self::BadToken => 6.into_dart(),
+            Self::Unauthorized => 7.into_dart(),
+            Self::Other => 8.into_dart(),
+            _ => unreachable!(),
+        }
+    }
+}
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive
+    for crate::api::arca_mode::ArcaModeErrorKind
+{
+}
+impl flutter_rust_bridge::IntoIntoDart<crate::api::arca_mode::ArcaModeErrorKind>
+    for crate::api::arca_mode::ArcaModeErrorKind
+{
+    fn into_into_dart(self) -> crate::api::arca_mode::ArcaModeErrorKind {
+        self
+    }
+}
+// Codec=Dco (DartCObject based), see doc to use other codecs
+impl flutter_rust_bridge::IntoDart for crate::api::arca_mode::ArcaModeFailure {
+    fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
+        [
+            self.kind.into_into_dart().into_dart(),
+            self.detail.into_into_dart().into_dart(),
+        ]
+        .into_dart()
+    }
+}
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive
+    for crate::api::arca_mode::ArcaModeFailure
+{
+}
+impl flutter_rust_bridge::IntoIntoDart<crate::api::arca_mode::ArcaModeFailure>
+    for crate::api::arca_mode::ArcaModeFailure
+{
+    fn into_into_dart(self) -> crate::api::arca_mode::ArcaModeFailure {
+        self
+    }
+}
+// Codec=Dco (DartCObject based), see doc to use other codecs
+impl flutter_rust_bridge::IntoDart for crate::api::arca_mode::ArcaModeStatusDto {
+    fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
+        [
+            self.on.into_into_dart().into_dart(),
+            self.send_pending.into_into_dart().into_dart(),
+        ]
+        .into_dart()
+    }
+}
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive
+    for crate::api::arca_mode::ArcaModeStatusDto
+{
+}
+impl flutter_rust_bridge::IntoIntoDart<crate::api::arca_mode::ArcaModeStatusDto>
+    for crate::api::arca_mode::ArcaModeStatusDto
+{
+    fn into_into_dart(self) -> crate::api::arca_mode::ArcaModeStatusDto {
+        self
+    }
+}
 // Codec=Dco (DartCObject based), see doc to use other codecs
 impl flutter_rust_bridge::IntoDart for crate::api::arca_pair::ArcaPairErrorKind {
     fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
@@ -1692,6 +2095,32 @@ impl flutter_rust_bridge::IntoIntoDart<crate::api::arca_pair::ArcaPairStepKind>
     }
 }
 // Codec=Dco (DartCObject based), see doc to use other codecs
+impl flutter_rust_bridge::IntoDart for crate::api::arca_mode::ArcaSyncDto {
+    fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
+        [
+            self.snapshot_created.into_into_dart().into_dart(),
+            self.pulled.into_into_dart().into_dart(),
+            self.merges.into_into_dart().into_dart(),
+            self.conflicts.into_into_dart().into_dart(),
+            self.files_changed.into_into_dart().into_dart(),
+            self.pushed.into_into_dart().into_dart(),
+            self.vault_emptied.into_into_dart().into_dart(),
+        ]
+        .into_dart()
+    }
+}
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive
+    for crate::api::arca_mode::ArcaSyncDto
+{
+}
+impl flutter_rust_bridge::IntoIntoDart<crate::api::arca_mode::ArcaSyncDto>
+    for crate::api::arca_mode::ArcaSyncDto
+{
+    fn into_into_dart(self) -> crate::api::arca_mode::ArcaSyncDto {
+        self
+    }
+}
+// Codec=Dco (DartCObject based), see doc to use other codecs
 impl flutter_rust_bridge::IntoDart for crate::api::skills::CatalogSkillDto {
     fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
         [
@@ -1734,6 +2163,27 @@ impl flutter_rust_bridge::IntoIntoDart<crate::api::discovery::DiscoveredHubDto>
     for crate::api::discovery::DiscoveredHubDto
 {
     fn into_into_dart(self) -> crate::api::discovery::DiscoveredHubDto {
+        self
+    }
+}
+// Codec=Dco (DartCObject based), see doc to use other codecs
+impl flutter_rust_bridge::IntoDart for crate::api::arca_mode::PendingEpochDto {
+    fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
+        [
+            self.epoch.into_into_dart().into_dart(),
+            self.id.into_into_dart().into_dart(),
+        ]
+        .into_dart()
+    }
+}
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive
+    for crate::api::arca_mode::PendingEpochDto
+{
+}
+impl flutter_rust_bridge::IntoIntoDart<crate::api::arca_mode::PendingEpochDto>
+    for crate::api::arca_mode::PendingEpochDto
+{
+    fn into_into_dart(self) -> crate::api::arca_mode::PendingEpochDto {
         self
     }
 }
@@ -1883,6 +2333,45 @@ impl SseEncode for String {
     }
 }
 
+impl SseEncode for crate::api::arca_mode::ArcaModeErrorKind {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <i32>::sse_encode(
+            match self {
+                crate::api::arca_mode::ArcaModeErrorKind::NotInArcaMode => 0,
+                crate::api::arca_mode::ArcaModeErrorKind::AlreadyOn => 1,
+                crate::api::arca_mode::ArcaModeErrorKind::NoKey => 2,
+                crate::api::arca_mode::ArcaModeErrorKind::SendPending => 3,
+                crate::api::arca_mode::ArcaModeErrorKind::InsecureUrl => 4,
+                crate::api::arca_mode::ArcaModeErrorKind::BadUrl => 5,
+                crate::api::arca_mode::ArcaModeErrorKind::BadToken => 6,
+                crate::api::arca_mode::ArcaModeErrorKind::Unauthorized => 7,
+                crate::api::arca_mode::ArcaModeErrorKind::Other => 8,
+                _ => {
+                    unimplemented!("");
+                }
+            },
+            serializer,
+        );
+    }
+}
+
+impl SseEncode for crate::api::arca_mode::ArcaModeFailure {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <crate::api::arca_mode::ArcaModeErrorKind>::sse_encode(self.kind, serializer);
+        <String>::sse_encode(self.detail, serializer);
+    }
+}
+
+impl SseEncode for crate::api::arca_mode::ArcaModeStatusDto {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <bool>::sse_encode(self.on, serializer);
+        <bool>::sse_encode(self.send_pending, serializer);
+    }
+}
+
 impl SseEncode for crate::api::arca_pair::ArcaPairErrorKind {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
@@ -1971,6 +2460,19 @@ impl SseEncode for crate::api::arca_pair::ArcaPairStepKind {
     }
 }
 
+impl SseEncode for crate::api::arca_mode::ArcaSyncDto {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <bool>::sse_encode(self.snapshot_created, serializer);
+        <u32>::sse_encode(self.pulled, serializer);
+        <u32>::sse_encode(self.merges, serializer);
+        <u32>::sse_encode(self.conflicts, serializer);
+        <u32>::sse_encode(self.files_changed, serializer);
+        <u32>::sse_encode(self.pushed, serializer);
+        <bool>::sse_encode(self.vault_emptied, serializer);
+    }
+}
+
 impl SseEncode for bool {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
@@ -2042,6 +2544,16 @@ impl SseEncode for Vec<crate::api::discovery::DiscoveredHubDto> {
     }
 }
 
+impl SseEncode for Vec<crate::api::arca_mode::PendingEpochDto> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <i32>::sse_encode(self.len() as _, serializer);
+        for item in self {
+            <crate::api::arca_mode::PendingEpochDto>::sse_encode(item, serializer);
+        }
+    }
+}
+
 impl SseEncode for Vec<u8> {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
@@ -2109,6 +2621,14 @@ impl SseEncode for Option<crate::api::sync::PushBeginDto> {
         if let Some(value) = self {
             <crate::api::sync::PushBeginDto>::sse_encode(value, serializer);
         }
+    }
+}
+
+impl SseEncode for crate::api::arca_mode::PendingEpochDto {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <u32>::sse_encode(self.epoch, serializer);
+        <String>::sse_encode(self.id, serializer);
     }
 }
 
@@ -2186,6 +2706,13 @@ impl SseEncode for u32 {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
         serializer.cursor.write_u32::<NativeEndian>(self).unwrap();
+    }
+}
+
+impl SseEncode for u64 {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        serializer.cursor.write_u64::<NativeEndian>(self).unwrap();
     }
 }
 
