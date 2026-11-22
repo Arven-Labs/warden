@@ -10,10 +10,13 @@ import '../src/rust/api/arca_pair.dart' as bridge;
 /// The phone shows a code to type on the other device, and later asks for the fingerprint the other device shows. That field
 /// takes only typed characters: copying the fingerprint across would defeat the check against a hub that swaps the key.
 class ArcaPairScreen extends StatefulWidget {
-  const ArcaPairScreen({super.key, this.backend});
+  const ArcaPairScreen({super.key, this.backend, this.swap});
 
   /// Tests pass a fake; the app uses the Rust bridge.
   final ArcaPairBackend? backend;
+
+  /// Set when this is the key swap (P-49) and not the first pairing: which half this device plays.
+  final ArcaSwapSide? swap;
 
   @override
   State<ArcaPairScreen> createState() => _ArcaPairScreenState();

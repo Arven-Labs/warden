@@ -35,11 +35,28 @@ class FakeBackend implements ArcaPairBackend {
   }
 
   @override
-  Future<bridge.ArcaPairRole> role() async => playedRole;
+  Future<bridge.ArcaPairRole> role() async {
+    roleCalls++;
+    return playedRole;
+  }
 
   @override
   Future<void> startGrant({required String hubUrl, required String deviceToken}) async {
     startedAsGrant.add({'hubUrl': hubUrl, 'deviceToken': deviceToken});
+  }
+
+  final startedSwapGrant = <Map<String, String>>[];
+  final startedSwapReplace = <Map<String, String>>[];
+  int roleCalls = 0;
+
+  @override
+  Future<void> startSwapGrant({required String hubUrl, required String deviceToken}) async {
+    startedSwapGrant.add({'hubUrl': hubUrl, 'deviceToken': deviceToken});
+  }
+
+  @override
+  Future<void> startSwapReplace({required String hubUrl, required String deviceToken, required String deviceId}) async {
+    startedSwapReplace.add({'hubUrl': hubUrl, 'deviceToken': deviceToken, 'deviceId': deviceId});
   }
 
   @override
@@ -325,6 +342,138 @@ void main() {
       await _startPairing(tester, backend);
 
       expect(find.text(AppLocalizationsPt().arcaPairErrCodeMismatch), findsOneWidget);
+    });
+  });
+
+  group('ArcaPairScreen as the key swap (P-49)', () {
+    const headCode = '0123-4567-89ab-cdef-0123-4567-89ab-cdef';
+    const typedLine = '$_fingerprint $headCode';
+
+    Future<FakeBackend> startedSwap(WidgetTester tester, ArcaSwapSide side, {List<bridge.ArcaPairStep> steps = const [], Locale locale = const Locale('en')}) async {
+      _savedHub();
+      final backend = FakeBackend();
+      for (final step in steps) {
+        backend.push(step);
+      }
+      await tester.pumpWidget(testApp(home: ArcaPairScreen(backend: backend, swap: side), locale: locale));
+      await _settle(tester);
+      await _startPairing(tester, backend);
+      return backend;
+    }
+
+    testWidgets('the device that rotated starts the swap grant with the saved hub, and not the pairing ones', (tester) async {
+      final backend = await startedSwap(tester, ArcaSwapSide.grant, steps: [_chooseOffer(['phone-a'])]);
+
+      expect(backend.startedSwapGrant, [
+        {'hubUrl': 'https://hub.local:7420', 'deviceToken': 'tok'},
+      ]);
+      expect(backend.startedAsGrant, isEmpty);
+      expect(backend.started, isEmpty);
+      expect(backend.startedSwapReplace, isEmpty);
+    });
+
+    testWidgets('the stranded device starts the swap replace with hub, token and device id, and shows its offer code', (tester) async {
+      final backend = await startedSwap(tester, ArcaSwapSide.replace, steps: [_offerCode('abcd-0123-4567-89ef')]);
+
+      expect(backend.startedSwapReplace, [
+        {'hubUrl': 'https://hub.local:7420', 'deviceToken': 'tok', 'deviceId': 'phone-1234'},
+      ]);
+      expect(backend.started, isEmpty);
+      expect(backend.startedSwapGrant, isEmpty);
+      expect(find.text('abcd-0123-4567-89ef'), findsOneWidget);
+    });
+
+    testWidgets('it does not ask the bridge which role this device plays: the person already said', (tester) async {
+      final backend = await startedSwap(tester, ArcaSwapSide.replace, steps: [_offerCode('abcd-0123-4567-89ef')]);
+
+      expect(backend.roleCalls, 0);
+    });
+
+    testWidgets('it has its own title and its own introduction for each half', (tester) async {
+      _savedHub();
+      await tester.pumpWidget(testApp(home: ArcaPairScreen(backend: FakeBackend(), swap: ArcaSwapSide.replace)));
+      await _settle(tester);
+      expect(find.text(AppLocalizationsEn().arcaSwapTitle), findsOneWidget);
+      expect(find.text(AppLocalizationsEn().arcaSwapReplaceIntro), findsOneWidget);
+
+      await tester.pumpWidget(testApp(home: ArcaPairScreen(backend: FakeBackend(), swap: ArcaSwapSide.grant)));
+      await _settle(tester);
+      expect(find.text(AppLocalizationsEn().arcaSwapGrantIntro), findsOneWidget);
+    });
+
+    testWidgets('the replacing side asks for the fingerprint and the head code in the swap\'s words, and sends what was typed', (tester) async {
+      final backend = await startedSwap(tester, ArcaSwapSide.replace, steps: [_offerCode('abcd-0123-4567-89ef'), _ask]);
+
+      expect(find.text(AppLocalizationsEn().arcaSwapAskFingerprint), findsOneWidget);
+      expect(find.text(AppLocalizationsEn().arcaPairAskFingerprint), findsNothing);
+      final field = find.byKey(const Key('arca-pair-fingerprint'));
+      for (var i = 1; i <= typedLine.length; i++) {
+        await tester.enterText(field, typedLine.substring(0, i));
+      }
+      await tester.tap(find.byKey(const Key('arca-pair-confirm')));
+      await _settle(tester);
+
+      expect(backend.answers, [typedLine]);
+    });
+
+    testWidgets('a fingerprint and head code pasted in one go do not get into the field', (tester) async {
+      await startedSwap(tester, ArcaSwapSide.replace, steps: [_offerCode('abcd-0123-4567-89ef'), _ask]);
+
+      final field = find.byKey(const Key('arca-pair-fingerprint'));
+      await tester.enterText(field, typedLine);
+      await tester.pump();
+
+      expect(tester.widget<TextField>(field).controller!.text, isEmpty);
+      expect(tester.widget<TextField>(field).contextMenuBuilder, isNotNull);
+    });
+
+    testWidgets('the side that rotated keeps the fingerprint and the head code on screen, for the person to type on the other device', (tester) async {
+      await startedSwap(tester, ArcaSwapSide.grant, steps: [_showFingerprint(typedLine), _done]);
+
+      expect(find.text(typedLine), findsOneWidget);
+      expect(find.text(AppLocalizationsEn().arcaSwapGranted), findsOneWidget);
+      expect(find.text(AppLocalizationsEn().arcaPairGranted), findsNothing);
+    });
+
+    testWidgets('when the replacing side is done it says the key is the newer one, not that the device was paired', (tester) async {
+      await startedSwap(tester, ArcaSwapSide.replace, steps: [_offerCode('abcd-0123-4567-89ef'), _done]);
+
+      expect(find.text(AppLocalizationsEn().arcaSwapDone), findsOneWidget);
+      expect(find.text(AppLocalizationsEn().arcaPairDone), findsNothing);
+    });
+
+    testWidgets('each way a swap can refuse is told in the app\'s language, and the hub-not-to-trust one says so', (tester) async {
+      final pt = AppLocalizationsPt();
+      final cases = {
+        bridge.ArcaPairErrorKind.notInArcaMode: pt.arcaPairErrNotInArcaMode,
+        bridge.ArcaPairErrorKind.nothingNewer: pt.arcaPairErrNothingNewer,
+        bridge.ArcaPairErrorKind.notNewer: pt.arcaPairErrNotNewer,
+        bridge.ArcaPairErrorKind.hashMismatch: pt.arcaPairErrHashMismatch,
+      };
+      for (final entry in cases.entries) {
+        await startedSwap(tester, ArcaSwapSide.replace, steps: [_failed(entry.key)], locale: const Locale('pt'));
+        expect(find.text(entry.value), findsOneWidget, reason: '${entry.key}');
+      }
+      expect(pt.arcaPairErrHashMismatch, contains('não confie'));
+    });
+
+    testWidgets('after a failure the same button starts the swap again', (tester) async {
+      final backend = await startedSwap(tester, ArcaSwapSide.replace, steps: [_failed(bridge.ArcaPairErrorKind.timedOut)]);
+
+      await _startPairing(tester, backend);
+
+      expect(backend.startedSwapReplace.length, 2);
+      expect(backend.started, isEmpty);
+    });
+
+    testWidgets('giving up during a swap tells the bridge, with the swap\'s words on the button', (tester) async {
+      final backend = await startedSwap(tester, ArcaSwapSide.replace, steps: [_offerCode('abcd-0123-4567-89ef')]);
+
+      expect(find.text(AppLocalizationsEn().arcaSwapCancel), findsOneWidget);
+      await tester.tap(find.byKey(const Key('arca-pair-cancel')));
+      await _settle(tester);
+
+      expect(backend.cancels, 1);
     });
   });
 }

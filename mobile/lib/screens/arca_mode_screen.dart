@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../l10n/generated/app_localizations.dart';
 import '../services/arca_mode_flow.dart';
+import '../services/arca_pair_flow.dart';
 import '../services/connection_settings.dart';
 import '../src/rust/api/arca_mode.dart' as bridge;
 
@@ -11,10 +12,13 @@ import '../src/rust/api/arca_mode.dart' as bridge;
 /// `http`, the sync warns the person that the device token will travel in the clear. The agreement is kept only in this screen's
 /// memory and only for that exact address: it is never written to disk, so leaving the screen (or changing the hub) asks again.
 class ArcaModeScreen extends StatefulWidget {
-  const ArcaModeScreen({super.key, this.backend});
+  const ArcaModeScreen({super.key, this.backend, this.pairBackend});
 
   /// Tests pass a fake; the app uses the Rust bridge.
   final ArcaModeBackend? backend;
+
+  /// The backend of the key swap screens this one opens (tests pass a fake).
+  final ArcaPairBackend? pairBackend;
 
   @override
   State<ArcaModeScreen> createState() => _ArcaModeScreenState();

@@ -1,11 +1,15 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mobile/l10n/generated/app_localizations_en.dart';
 import 'package:mobile/l10n/generated/app_localizations_pt.dart';
 import 'package:mobile/screens/arca_mode_screen.dart';
 import 'package:mobile/services/arca_mode_flow.dart';
+import 'package:mobile/services/arca_pair_flow.dart';
 import 'package:mobile/services/connection_settings.dart';
 import 'package:mobile/src/rust/api/arca_mode.dart' as bridge;
+import 'package:mobile/src/rust/api/arca_pair.dart' as bridge_pair;
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../helpers/test_app.dart';
@@ -504,4 +508,168 @@ void main() {
       expect(find.byKey(const Key('arca-mode-sync')), findsNothing);
     });
   });
+
+  group('the key swap buttons (P-49)', () {
+    Future<(FakeBackend, FakePairBackend)> shown(WidgetTester tester, {bool on = true, List<bridge.PendingEpochDto>? epochs}) async {
+      _savedHub();
+      final backend = FakeBackend(on: on)..epochs = epochs ?? [];
+      final pair = FakePairBackend();
+      await tester.pumpWidget(testApp(home: ArcaModeScreen(backend: backend, pairBackend: pair)));
+      await _settle(tester);
+      return (backend, pair);
+    }
+
+    testWidgets('with the mode on and a hub, the device can hand the new key to another one, and the screen it opens starts the swap grant', (tester) async {
+      final (_, pair) = await shown(tester);
+
+      await _tap(tester, 'arca-mode-swap-grant');
+      expect(find.text(en.arcaSwapTitle), findsOneWidget);
+      await tester.tap(find.byKey(const Key('arca-pair-start')));
+      await _settle(tester);
+
+      expect(pair.startedSwapGrant, [
+        {'hubUrl': 'https://hub.local:7420', 'deviceToken': 'tok'},
+      ]);
+      expect(pair.startedSwapReplace, isEmpty);
+    });
+
+    testWidgets('with no newer key epoch pending there is no way to replace this device\'s key', (tester) async {
+      await shown(tester);
+
+      expect(find.byKey(const Key('arca-mode-swap-replace')), findsNothing);
+    });
+
+    testWidgets('with a newer key epoch pending the device can replace its key', (tester) async {
+      await shown(tester, epochs: [_epoch(1, _hex1)]);
+
+      expect(find.byKey(const Key('arca-mode-swap-replace')), findsOneWidget);
+    });
+
+    testWidgets('neither button shows with the mode off', (tester) async {
+      await shown(tester, on: false, epochs: [_epoch(1, _hex1)]);
+
+      expect(find.byKey(const Key('arca-mode-swap-grant')), findsNothing);
+      expect(find.byKey(const Key('arca-mode-swap-replace')), findsNothing);
+    });
+
+    testWidgets('neither button shows without a hub the sync can use', (tester) async {
+      SharedPreferences.setMockInitialValues({'connection.host': 'hub.local', 'connection.port': 7420, 'connection.authKey': 'key', 'connection.useTls': true});
+      final backend = FakeBackend(on: true)..epochs = [_epoch(1, _hex1)];
+      await tester.pumpWidget(testApp(home: ArcaModeScreen(backend: backend, pairBackend: FakePairBackend())));
+      await _settle(tester);
+
+      expect(find.byKey(const Key('arca-mode-swap-grant')), findsNothing);
+      expect(find.byKey(const Key('arca-mode-swap-replace')), findsNothing);
+    });
+
+    testWidgets('replacing reads the newer epochs again at the tap and asks about those, not the ones the screen had', (tester) async {
+      final (backend, pair) = await shown(tester, epochs: [_epoch(1, _hex1)]);
+      final readsBefore = backend.pendingCalls;
+      backend.epochs = [_epoch(2, _hex2)];
+
+      await _tap(tester, 'arca-mode-swap-replace');
+
+      expect(backend.pendingCalls, greaterThan(readsBefore));
+      expect(find.text(en.arcaSwapReplaceConfirmTitle), findsOneWidget);
+      expect(find.text(en.arcaModeEpochItem(2, epochShortId('manifest/$_hex2'))), findsWidgets);
+      // Nothing started on the tap alone.
+      expect(pair.startedSwapReplace, isEmpty);
+      expect(find.text(en.arcaSwapTitle), findsNothing);
+    });
+
+    testWidgets('"not now" on the confirmation changes nothing and opens nothing', (tester) async {
+      final (_, pair) = await shown(tester, epochs: [_epoch(1, _hex1)]);
+
+      await _tap(tester, 'arca-mode-swap-replace');
+      await _tap(tester, 'arca-mode-swap-no');
+
+      expect(find.text(en.arcaSwapReplaceConfirmTitle), findsNothing);
+      expect(find.text(en.arcaSwapTitle), findsNothing);
+      expect(pair.startedSwapReplace, isEmpty);
+    });
+
+    testWidgets('leaving the confirmation with the back button is not a yes', (tester) async {
+      final (_, pair) = await shown(tester, epochs: [_epoch(1, _hex1)]);
+
+      await _tap(tester, 'arca-mode-swap-replace');
+      await _back(tester);
+
+      expect(find.text(en.arcaSwapTitle), findsNothing);
+      expect(pair.startedSwapReplace, isEmpty);
+    });
+
+    testWidgets('"replace the key" on the confirmation opens the swap screen, and only its start button starts the swap replace', (tester) async {
+      final (_, pair) = await shown(tester, epochs: [_epoch(1, _hex1)]);
+
+      await _tap(tester, 'arca-mode-swap-replace');
+      await _tap(tester, 'arca-mode-swap-yes');
+      expect(find.text(en.arcaSwapTitle), findsOneWidget);
+      expect(pair.startedSwapReplace, isEmpty, reason: 'the swap starts on the start button, not on the confirmation');
+      await tester.tap(find.byKey(const Key('arca-pair-start')));
+      await _settle(tester);
+
+      expect(pair.startedSwapReplace, [
+        {'hubUrl': 'https://hub.local:7420', 'deviceToken': 'tok', 'deviceId': 'phone-1234'},
+      ]);
+    });
+
+    testWidgets('if the newer epoch is gone by the tap, it says so and asks nothing', (tester) async {
+      final (backend, _) = await shown(tester, epochs: [_epoch(1, _hex1)]);
+      backend.epochs = [];
+
+      await _tap(tester, 'arca-mode-swap-replace');
+
+      expect(find.text(en.arcaSwapNothingPending), findsOneWidget);
+      expect(find.text(en.arcaSwapReplaceConfirmTitle), findsNothing);
+    });
+
+    testWidgets('the confirmation is in the app\'s language', (tester) async {
+      _savedHub();
+      final backend = FakeBackend(on: true)..epochs = [_epoch(1, _hex1)];
+      await tester.pumpWidget(testApp(home: ArcaModeScreen(backend: backend, pairBackend: FakePairBackend()), locale: const Locale('pt')));
+      await _settle(tester);
+
+      await _tap(tester, 'arca-mode-swap-replace');
+
+      expect(find.text(pt.arcaSwapReplaceConfirmTitle), findsOneWidget);
+      expect(find.text(pt.arcaSwapReplaceConfirmBody), findsOneWidget);
+    });
+  });
+}
+
+/// A stand-in for the bridge of the swap screens the Arca mode screen opens: records what they start, and never answers.
+class FakePairBackend implements ArcaPairBackend {
+  final startedSwapGrant = <Map<String, String>>[];
+  final startedSwapReplace = <Map<String, String>>[];
+
+  @override
+  Future<bridge_pair.ArcaPairRole> role() async => bridge_pair.ArcaPairRole.grant;
+
+  @override
+  Future<void> start({required String hubUrl, required String deviceToken, required String deviceId}) async {}
+
+  @override
+  Future<void> startGrant({required String hubUrl, required String deviceToken}) async {}
+
+  @override
+  Future<void> startSwapGrant({required String hubUrl, required String deviceToken}) async {
+    startedSwapGrant.add({'hubUrl': hubUrl, 'deviceToken': deviceToken});
+  }
+
+  @override
+  Future<void> startSwapReplace({required String hubUrl, required String deviceToken, required String deviceId}) async {
+    startedSwapReplace.add({'hubUrl': hubUrl, 'deviceToken': deviceToken, 'deviceId': deviceId});
+  }
+
+  @override
+  Future<void> pick(int index) async {}
+
+  @override
+  Future<bridge_pair.ArcaPairStep> next() => Completer<bridge_pair.ArcaPairStep>().future;
+
+  @override
+  Future<void> answer(String typed) async {}
+
+  @override
+  Future<void> cancel() async {}
 }
