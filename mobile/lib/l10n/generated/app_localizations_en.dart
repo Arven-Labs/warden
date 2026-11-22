@@ -2135,6 +2135,75 @@ class AppLocalizationsEn extends AppLocalizations {
       'Could not talk to the hub. Check the connection and try again.';
 
   @override
+  String get arcaPairErrNotInArcaMode =>
+      'Arca mode is not on on this device. Turn it on first.';
+
+  @override
+  String get arcaPairErrNothingNewer =>
+      'No newer key is pending on this device, so there is nothing to replace. Nothing was changed.';
+
+  @override
+  String get arcaPairErrNotNewer =>
+      'The key that arrived is not newer than this device\'s. Nothing was changed. Check that the other device really switched to a new key.';
+
+  @override
+  String get arcaPairErrHashMismatch =>
+      'The head code does not match any manifest the hub holds. Nothing was changed on this device. Check the code on the other device, and that it synced after switching. If both are right, do not trust this hub: it is not showing your vault.';
+
+  @override
+  String get arcaSwapTitle => 'Change the vault key';
+
+  @override
+  String get arcaSwapGrantOpen => 'Hand the new key to another device';
+
+  @override
+  String get arcaSwapReplaceOpen =>
+      'Replace this device\'s key with the newer one';
+
+  @override
+  String get arcaSwapGrantIntro =>
+      'Hands this device\'s new vault key to a device that is still on the old key and is waiting for it. Pick that device, type the code it shows, then type the fingerprint and head code shown here on it.';
+
+  @override
+  String get arcaSwapReplaceIntro =>
+      'Replaces this device\'s old key with the newer one made on another device. You will read a code here and type it on the other device, then type the fingerprint and head code that device shows back here.';
+
+  @override
+  String get arcaSwapAskFingerprint =>
+      'Now type the fingerprint and the head code the other device shows, in one line. Do not copy and paste: typing them is what protects you from a hub that shows a different vault.';
+
+  @override
+  String get arcaSwapFingerprintLabel => 'Fingerprint and head code';
+
+  @override
+  String get arcaSwapGranted =>
+      'Key sent. Now type this fingerprint and head code on the other device:';
+
+  @override
+  String get arcaSwapDone =>
+      'Done: this device now uses the newer key. Sync to continue.';
+
+  @override
+  String get arcaSwapCancel => 'Cancel the swap';
+
+  @override
+  String get arcaSwapReplaceConfirmTitle => 'Replace this device\'s key?';
+
+  @override
+  String get arcaSwapReplaceConfirmBody =>
+      'This device drops its local sync copy and takes the newer key; the files of your vault stay. Do it only to follow a key change you made on another device, and have that device in front of you: you will type a fingerprint and a head code from it.';
+
+  @override
+  String get arcaSwapReplaceConfirmYes => 'Replace the key';
+
+  @override
+  String get arcaSwapReplaceConfirmNo => 'Not now';
+
+  @override
+  String get arcaSwapNothingPending =>
+      'No newer key is pending anymore. Nothing was changed.';
+
+  @override
   String get arcaModeOpen => 'Arca mode';
 
   @override
