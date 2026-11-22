@@ -24,6 +24,7 @@ after(async () => {
 async function openSync(role, run, extra = {}) {
   const handlers = {
     arca_swap_run: () => run.promise,
+    arca_mode_status: { hasKey: true, on: true, pendingSend: false },
     arca_epochs_pending: [],
     ...extra,
     list_hubs: [HUB],
@@ -250,6 +251,18 @@ describe("pairing a device with arca on the desktop", () => {
         assert.equal(await keyless.page.getByRole("button", { name: SWAP_REPLACE, exact: true }).count(), 0, "and no key to replace");
       } finally {
         await keyless.context.close();
+      }
+    });
+
+    test("with the arca mode off there is no swap, and the backend is not asked for epochs", { timeout: TIMEOUT }, async () => {
+      const off = await openSync("grant", deferred(), { arca_mode_status: { hasKey: true, on: false, pendingSend: false }, arca_epochs_pending: [NEWER] });
+      try {
+        await off.page.getByRole("button", { name: "Start", exact: true }).waitFor();
+        assert.equal(await off.page.getByRole("button", { name: SWAP_GRANT, exact: true }).count(), 0);
+        assert.equal(await off.page.getByRole("button", { name: SWAP_REPLACE, exact: true }).count(), 0);
+        assert.equal(off.calls.filter((c) => c.cmd === "arca_epochs_pending").length, 0, "mode off: nothing to ask");
+      } finally {
+        await off.context.close();
       }
     });
 

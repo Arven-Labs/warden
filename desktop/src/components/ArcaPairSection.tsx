@@ -28,11 +28,24 @@ function ArcaPairSection() {
   const [confirmingReplace, setConfirmingReplace] = useState(false);
   const runningRef = useRef(false);
 
-  // Best effort: without the list there is just no "replace" button (the pairing and the hand-over do not depend on it).
-  function refreshEpochs() {
-    invoke<PendingEpoch[] | null>("arca_epochs_pending")
-      .then((items) => setEpochs(items ?? []))
-      .catch(() => setEpochs([]));
+  // The swap only exists with the arca mode on (the backend refuses it otherwise), and the epochs are only asked then, as the mode
+  // section does. Best effort: without the answers there are just no swap buttons (the ordinary pairing does not depend on them).
+  const [modeOn, setModeOn] = useState(false);
+  function refreshSwapState() {
+    invoke<{ on?: boolean } | null>("arca_mode_status")
+      .then((status) => {
+        const on = status?.on === true;
+        setModeOn(on);
+        if (!on) {
+          setEpochs([]);
+          return;
+        }
+        return invoke<PendingEpoch[] | null>("arca_epochs_pending").then((items) => setEpochs(items ?? []));
+      })
+      .catch(() => {
+        setModeOn(false);
+        setEpochs([]);
+      });
   }
 
   useEffect(() => {
@@ -43,7 +56,7 @@ function ArcaPairSection() {
       })
       .catch(() => setHubs([]));
     invoke<Role>("arca_pair_role").then(setRole).catch(() => setRole(null));
-    refreshEpochs();
+    refreshSwapState();
   }, []);
 
   useEffect(() => {
@@ -81,7 +94,7 @@ function ArcaPairSection() {
       setView((current) => ({ ...current, question: null, devices: [] }));
       invoke<Role>("arca_pair_role").then(setRole).catch(() => {});
       // A swap that worked leaves nothing pending; one that did not leaves the button where it was.
-      refreshEpochs();
+      refreshSwapState();
     }
   }
 
@@ -132,7 +145,7 @@ function ArcaPairSection() {
           )
         )}
 
-        {role === "grant" && !running && !noHubs && (
+        {role === "grant" && modeOn && !running && !noHubs && (
           <>
             <p className="settings-hint">{t("arcaPair.hintSwap")}</p>
             {confirmingReplace ? (
