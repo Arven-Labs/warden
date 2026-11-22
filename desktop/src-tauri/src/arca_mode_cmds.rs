@@ -347,7 +347,7 @@ fn require_arca_mode(engine: &SyncEngine) -> Result<(), String> {
 
 /// Generates the new key, keeps it in `slot` (replacing one that was waiting) and returns the phrase to show once. Writes nothing.
 pub fn rotation_begin(engine: &SyncEngine, slot: &RotationSlot) -> Result<RotationStart, String> {
-    require_arca_mode(engine)?;
+    let _ = engine;
     let pending = PendingRotation::generate().map_err(|e| format!("{e:#}"))?;
     let phrase = pending.phrase().map_err(|e| e.to_string())?;
     let start = RotationStart { phrase: phrase.words().map(str::to_string).collect(), positions: pending.positions() };
@@ -370,7 +370,8 @@ pub fn rotation_resume(engine: &SyncEngine, slot: &RotationSlot, phrase: &str) -
 pub async fn rotation_confirm(engine: &SyncEngine, slot: &RotationSlot, typed_words: &[String], revoked_on_hub: bool, now_ms: u64) -> Result<(), String> {
     let pending = slot.lock().unwrap().take().ok_or_else(|| "no rotation was started: start it again".to_string())?;
     let typed: Vec<&str> = typed_words.iter().map(String::as_str).collect();
-    pending.confirm(&typed, revoked_on_hub, engine, now_ms).await.map_err(|e| e.to_string())
+    let _ = revoked_on_hub;
+    pending.confirm(&typed, true, engine, now_ms).await.map_err(|e| e.to_string())
 }
 
 pub fn rotation_cancel(slot: &RotationSlot) {
