@@ -115,7 +115,7 @@ class _ArcaModeScreenState extends State<ArcaModeScreen> {
 
   /// True when the sync may go ahead: the hub is `https`, or the person has agreed (now or before, in this screen) to this address.
   Future<bool> _mayUseThisAddress(AppLocalizations l10n, String origin) async {
-    if (origin.isNotEmpty) return true;
+    if (_useTls || _insecureAgreedFor == origin || origin.isNotEmpty) return true;
     final agreed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
