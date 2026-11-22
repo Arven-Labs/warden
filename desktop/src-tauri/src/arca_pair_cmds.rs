@@ -11,6 +11,7 @@ use tokio::sync::mpsc::UnboundedSender;
 use warden_bootstrap::arca_hub::device_token;
 use warden_bootstrap::saved_hubs::{self, SavedHub};
 use warden_server::remote_client::{RemoteIdentities, RemoteIdentity};
+use warden_sync::arca_key_swap::KeySwapError;
 use warden_sync::arca_pairing::{HubAccess, PairingError};
 use warden_sync::arca_pairing_flow::{channel_prompts, run_grant, run_offer, Ask, FlowError, PairEvent, PairReply, PairingSide, Shown};
 
@@ -139,6 +140,28 @@ pub fn arca_pair_role(state: State<'_, AppState>) -> Role {
     role_for(state.sync.is_initialized())
 }
 
+/// Which side of the key swap this computer plays (P-49, warden ADR 0002). Both have a key, so `role_for` cannot tell them apart:
+/// the person says it, and the screen offers `Replace` only when a newer epoch is pending.
+#[derive(Deserialize, Debug, PartialEq, Clone, Copy)]
+#[serde(rename_all = "camelCase")]
+pub enum SwapSide {
+    /// Rotated the key: hands the new one over (`run_grant_replacing`).
+    Grant,
+    /// Stayed on the old key: replaces it with the new one (`run_replace_key`).
+    Replace,
+}
+
+/// How a swap ends for the screen. A person who gave up is not an error; every other `KeySwapError` is told in words, because the type
+/// only has `Debug`.
+pub fn swap_outcome(_result: Result<(), KeySwapError>) -> Result<Outcome, String> {
+    Err("not implemented".to_string())
+}
+
+/// One sentence per way a swap did not happen (the desktop's twin of the CLI's `key_swap_lines`).
+pub fn key_swap_message(_error: &KeySwapError) -> String {
+    String::new()
+}
+
 /// Runs the whole pairing with the saved hub `hub_id`. The screen draws the `arca-pair-event`s and answers through
 /// `arca_pair_answer` / `arca_pair_cancel` while this waits; it returns when the pairing ends.
 #[tauri::command]
@@ -256,6 +279,66 @@ mod tests {
         assert_eq!(PairReply::from(gave_up), PairReply::GiveUp);
         assert!(serde_json::from_value::<ReplyPayload>(json!({"kind": "confirm", "text": "x"})).is_err());
         assert!(serde_json::from_value::<ReplyPayload>(json!({"kind": "picked", "index": -1})).is_err());
+    }
+
+    // ---------- the key swap (P-49) ----------
+
+    /// Every way a swap can end, with the word each must carry so it is not mistaken for another.
+    fn every_failure() -> Vec<(KeySwapError, &'static str)> {
+        vec![
+            (KeySwapError::NotInArcaMode, "arca mode"),
+            (KeySwapError::NothingNewer, "newer key epoch"),
+            (KeySwapError::NotNewer, "not newer"),
+            (KeySwapError::NoKey("no manifest yet".to_string()), "no manifest yet"),
+            (KeySwapError::NoOffers, "no device is waiting"),
+            (KeySwapError::TimedOut, "in time"),
+            (KeySwapError::HashMismatch, "head code"),
+            (KeySwapError::Pairing(PairingError::Hub("hub down".to_string())), "hub down"),
+            (KeySwapError::Failed("disk gone".to_string()), "disk gone"),
+        ]
+    }
+
+    #[test]
+    fn each_failure_of_a_swap_is_told_in_its_own_words() {
+        let mut seen = Vec::new();
+        for (error, word) in every_failure() {
+            let message = key_swap_message(&error);
+            assert!(message.contains(word), "{error:?} -> {message}");
+            assert!(!seen.contains(&message), "two failures share the sentence {message}");
+            seen.push(message);
+        }
+    }
+
+    #[test]
+    fn a_swap_that_stopped_half_way_says_to_sync_and_try_again_and_one_that_changed_nothing_says_so() {
+        let stopped = key_swap_message(&KeySwapError::Failed("disk gone".to_string()));
+        assert!(stopped.contains("sync") && stopped.contains("again"), "{stopped}");
+        for untouched in [KeySwapError::NothingNewer, KeySwapError::NotNewer, KeySwapError::HashMismatch, KeySwapError::TimedOut] {
+            let message = key_swap_message(&untouched);
+            assert!(message.contains("Nothing was changed") || message.contains("nothing was changed"), "{untouched:?} -> {message}");
+        }
+    }
+
+    #[test]
+    fn a_swap_the_person_gave_up_is_cancelled_and_not_an_error() {
+        assert_eq!(swap_outcome(Ok(())), Ok(Outcome::Done));
+        assert_eq!(swap_outcome(Err(KeySwapError::Cancelled)), Ok(Outcome::Cancelled));
+    }
+
+    #[test]
+    fn every_other_failure_reaches_the_screen_as_its_message() {
+        for (error, _) in every_failure() {
+            let expected = key_swap_message(&error);
+            assert_eq!(swap_outcome(Err(error)), Err(expected));
+        }
+    }
+
+    #[test]
+    fn the_side_of_a_swap_is_grant_or_replace_and_nothing_else() {
+        assert_eq!(serde_json::from_value::<SwapSide>(json!("grant")).unwrap(), SwapSide::Grant);
+        assert_eq!(serde_json::from_value::<SwapSide>(json!("replace")).unwrap(), SwapSide::Replace);
+        assert!(serde_json::from_value::<SwapSide>(json!("offer")).is_err());
+        assert!(serde_json::from_value::<SwapSide>(json!("Grant")).is_err());
     }
 
     #[test]
