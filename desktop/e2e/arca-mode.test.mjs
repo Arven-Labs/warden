@@ -1074,7 +1074,7 @@ describe("the arca mode of the vault on the desktop", () => {
     test("a refusal is shown, the phrase leaves the page and nothing is sent to the hub", { timeout: TIMEOUT }, async () => {
       const { context, page, calls, errors } = await openSync(ON, {
         arca_rotation_begin: () => START,
-        arca_rotation_confirm: () => Promise.reject("the words typed are not the ones asked for"),
+        arca_rotation_confirm: () => Promise.reject({ partial: false, message: "the words typed are not the ones asked for" }),
       });
       try {
         await startRotation(page);
@@ -1086,6 +1086,57 @@ describe("the arca mode of the vault on the desktop", () => {
         assert.equal(await page.getByText("word01", { exact: true }).count(), 0, "the backend dropped that key, so the phrase leaves the page");
         assert.equal(asked(calls, "arca_sync_run").length, 0, "a key that was not changed is not sent");
         assert.deepEqual(errors, [], "a refusal is shown, not raised");
+      } finally {
+        await context.close();
+      }
+    });
+
+    test("a rotation that stopped half way opens the resume with the same 24 words and finishes with the same key, not a new one", { timeout: TIMEOUT }, async () => {
+      let confirms = 0;
+      const { context, page, calls, errors } = await openSync(ON, {
+        arca_rotation_begin: () => START,
+        arca_rotation_resume: () => null,
+        arca_rotation_confirm: () => {
+          confirms += 1;
+          return confirms === 1 ? Promise.reject({ partial: true, message: "the key was not rotated: disk full" }) : null;
+        },
+        arca_sync_run: () => CLEAN_CYCLE,
+      });
+      try {
+        await startRotation(page);
+        await fillAsked(page);
+        await page.getByRole("checkbox", { name: "I revoked the lost device's token on the hub" }).check();
+        await page.getByRole("button", { name: "Change the key", exact: true }).click();
+        await page.getByRole("button", { name: "Yes, change the key", exact: true }).click();
+        await page.getByText(/The change stopped half way: the key was not rotated: disk full\. Do not make a new key/).waitFor();
+        assert.equal(await page.getByLabel("The 24 words").inputValue(), WORDS.join(" "), "the same words are in the box");
+        assert.equal(await page.getByText("word01", { exact: true }).count(), 0, "the phrase is not listed again, only in the box");
+
+        await page.getByRole("checkbox", { name: "I revoked the lost device's token on the hub" }).check();
+        await page.getByRole("button", { name: "Finish the change", exact: true }).click();
+        await page.getByRole("button", { name: "Yes, change the key", exact: true }).click();
+        await page.getByText("The key was changed and sent to the hub.").waitFor();
+        assert.equal(asked(calls, "arca_rotation_begin").length, 1, "no new key was made");
+        assert.deepEqual(asked(calls, "arca_rotation_resume").map((c) => c.args), [{ phrase: WORDS.join(" ") }]);
+        assert.deepEqual(errors, [], "the page raised no error");
+      } finally {
+        await context.close();
+      }
+    });
+
+    test("a refusal on resume keeps the words typed so a typo is fixed in place", { timeout: TIMEOUT }, async () => {
+      const { context, page, errors } = await openSync(ON, {
+        arca_rotation_resume: () => Promise.reject("that is not a valid 24-word phrase"),
+      });
+      try {
+        await page.getByRole("button", { name: "Resume an interrupted change…", exact: true }).click();
+        await page.getByLabel("The 24 words").fill(WORDS.join(" "));
+        await page.getByRole("checkbox", { name: "I revoked the lost device's token on the hub" }).check();
+        await page.getByRole("button", { name: "Finish the change", exact: true }).click();
+        await page.getByRole("button", { name: "Yes, change the key", exact: true }).click();
+        await page.getByText(/The key was not changed: that is not a valid 24-word phrase/).waitFor();
+        assert.equal(await page.getByLabel("The 24 words").inputValue(), WORDS.join(" "), "the typed words are still there");
+        assert.deepEqual(errors, [], "the page raised no error");
       } finally {
         await context.close();
       }

@@ -12,7 +12,7 @@ use tauri::State;
 use warden_bootstrap::auto_sync::{ArcaCycleError, ArcaCycleSummary, ArcaVerifySummary, SyncRunner};
 use warden_bootstrap::saved_hubs;
 use warden_sync::arca_mode::ArcaVerifyState;
-use warden_sync::arca_rotation::PendingRotation;
+use warden_sync::arca_rotation::{PendingRotation, RotationError};
 use warden_sync::arca_sync::{is_auth_rejected, ArcaSyncReport, ArcaVerifyReport, Class, HubStore, KeptItem, LoserItem, LosersCleared, NotCleared, PendingEpoch};
 use warden_sync::SyncEngine;
 
@@ -330,11 +330,40 @@ async fn acknowledge_seen(source: &impl EpochSource, seen: &[PendingEpochPayload
 pub type RotationSlot = Mutex<Option<PendingRotation>>;
 
 /// What the screen shows once when a rotation starts: the 24 words to keep and which of them (counting from 1) to type back.
-#[derive(Serialize, Debug, PartialEq, Eq)]
+#[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RotationStart {
     pub phrase: Vec<String>,
     pub positions: Vec<usize>,
+}
+
+/// No `Display` and a redacted `Debug`, like `PendingRotation`: the 24 words must not reach a log by a stray `{:?}`.
+impl std::fmt::Debug for RotationStart {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("RotationStart(<redacted>)")
+    }
+}
+
+/// Why a confirmation failed, for the screen. `partial` is true only when the rotation may have written something before it stopped
+/// (`RotationError::Failed`): then the person has to **resume with the same 24 words**, not start a new key (the core finishes a
+/// half-way stop only with the same key). Every other refusal happens before the first write.
+#[derive(Serialize, Debug, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct RotationFailure {
+    pub partial: bool,
+    pub message: String,
+}
+
+impl RotationFailure {
+    fn nothing_written(message: impl Into<String>) -> Self {
+        Self { partial: false, message: message.into() }
+    }
+}
+
+impl From<RotationError> for RotationFailure {
+    fn from(error: RotationError) -> Self {
+        Self { partial: matches!(error, RotationError::Failed(_)), message: error.to_string() }
+    }
 }
 
 /// Nothing to rotate without the mode on, and no phrase should be shown for a rotation that could not be confirmed.
@@ -359,7 +388,6 @@ pub fn rotation_begin(engine: &SyncEngine, slot: &RotationSlot) -> Result<Rotati
 /// valid leaves the slot empty (whatever was waiting there is dropped).
 pub fn rotation_resume(engine: &SyncEngine, slot: &RotationSlot, phrase: &str) -> Result<(), String> {
     require_arca_mode(engine)?;
-    *slot.lock().unwrap() = None;
     let pending = PendingRotation::from_phrase(phrase).map_err(|e| e.to_string())?;
     *slot.lock().unwrap() = Some(pending);
     Ok(())
@@ -367,10 +395,10 @@ pub fn rotation_resume(engine: &SyncEngine, slot: &RotationSlot, phrase: &str) -
 
 /// Rotates to the key waiting in `slot`. The key leaves the slot first: it is consumed by one try, right or wrong, so a second click
 /// finds nothing and a wrong word means starting again (the right words cannot be guessed on the same key).
-pub async fn rotation_confirm(engine: &SyncEngine, slot: &RotationSlot, typed_words: &[String], revoked_on_hub: bool, now_ms: u64) -> Result<(), String> {
-    let pending = slot.lock().unwrap().take().ok_or_else(|| "no rotation was started: start it again".to_string())?;
+pub async fn rotation_confirm(engine: &SyncEngine, slot: &RotationSlot, typed_words: &[String], revoked_on_hub: bool, now_ms: u64) -> Result<(), RotationFailure> {
+    let pending = slot.lock().unwrap().take().ok_or_else(|| RotationFailure::nothing_written("no rotation was started: start it again"))?;
     let typed: Vec<&str> = typed_words.iter().map(String::as_str).collect();
-    pending.confirm(&typed, revoked_on_hub, engine, now_ms).await.map_err(|e| e.to_string())
+    pending.confirm(&typed, revoked_on_hub, engine, now_ms).await.map_err(RotationFailure::from)
 }
 
 pub fn rotation_cancel(slot: &RotationSlot) {
@@ -689,7 +717,7 @@ pub fn arca_rotation_resume(state: State<'_, AppState>, phrase: String) -> Resul
 /// Confirms the rotation: the words typed back and the statement that the lost device's token was revoked on the hub. It does not
 /// send anything: the screen runs a sync afterwards (`arca_sync_run`), which is what publishes the new epoch.
 #[tauri::command]
-pub async fn arca_rotation_confirm(state: State<'_, AppState>, typed_words: Vec<String>, revoked_on_hub: bool) -> Result<(), String> {
+pub async fn arca_rotation_confirm(state: State<'_, AppState>, typed_words: Vec<String>, revoked_on_hub: bool) -> Result<(), RotationFailure> {
     rotation_confirm(&state.sync, &state.pending_rotation, &typed_words, revoked_on_hub, now_ms()).await
 }
 
@@ -833,7 +861,7 @@ mod tests {
         let device = device_in_arca_mode("rotation-none").await;
         let before = secrets_of(&device);
         let error = rotation_confirm(&device.engine, &RotationSlot::default(), &[], true, 2).await.unwrap_err();
-        assert!(error.contains("no rotation"), "{error}");
+        assert!(error.message.contains("no rotation") && !error.partial, "{error:?}");
         let after = secrets_of(&device);
         assert_eq!((after.vault_key, after.key_epoch), (before.vault_key, before.key_epoch));
     }
@@ -845,7 +873,7 @@ mod tests {
         let slot = RotationSlot::default();
         let start = rotation_begin(&device.engine, &slot).unwrap();
         let error = rotation_confirm(&device.engine, &slot, &asked(&start), false, 2).await.unwrap_err();
-        assert!(error.contains("revoked"), "{error}");
+        assert!(error.message.contains("revoked") && !error.partial, "{error:?}");
         let after = secrets_of(&device);
         assert_eq!((after.vault_key, after.key_epoch), (before.vault_key, before.key_epoch));
     }
@@ -859,7 +887,7 @@ mod tests {
         let mut words = asked(&start);
         words[0] = "zoo-not-a-word".to_string();
         let error = rotation_confirm(&device.engine, &slot, &words, true, 2).await.unwrap_err();
-        assert!(error.contains("words"), "{error}");
+        assert!(error.message.contains("words") && !error.partial, "{error:?}");
         let after = secrets_of(&device);
         assert_eq!((after.vault_key, after.key_epoch), (before.vault_key, before.key_epoch));
         assert!(slot.lock().unwrap().is_none(), "a failed try drops the key: the right words cannot be guessed on the same key");
@@ -878,7 +906,7 @@ mod tests {
         assert!(slot.lock().unwrap().is_none());
         // A second click finds nothing to rotate.
         let again = rotation_confirm(&device.engine, &slot, &asked(&start), true, 3).await.unwrap_err();
-        assert!(again.contains("no rotation"), "{again}");
+        assert!(again.message.contains("no rotation"), "{again:?}");
         assert_eq!(secrets_of(&device).key_epoch, before.key_epoch + 1);
     }
 
@@ -920,8 +948,37 @@ mod tests {
         rotation_cancel(&slot);
         assert!(slot.lock().unwrap().is_none());
         let error = rotation_confirm(&device.engine, &slot, &asked(&start), true, 2).await.unwrap_err();
-        assert!(error.contains("no rotation"), "{error}");
+        assert!(error.message.contains("no rotation"), "{error:?}");
         assert_eq!(secrets_of(&device).key_epoch, 0);
+    }
+
+    #[test]
+    fn only_a_failure_that_may_have_written_something_says_to_resume() {
+        // A refusal before the first write: start again. A stop half way: the same 24 words finish it (a new key would not).
+        for refused in [RotationError::NotDeclared, RotationError::WordMismatch, RotationError::BadPhrase, RotationError::NotInArcaMode] {
+            assert!(!RotationFailure::from(refused.clone()).partial, "{refused:?}");
+        }
+        let stopped = RotationFailure::from(RotationError::Failed("disk full".to_string()));
+        assert!(stopped.partial);
+        assert!(stopped.message.contains("disk full"), "{stopped:?}");
+    }
+
+    #[test]
+    fn the_failure_reaches_the_screen_in_camel_case_and_the_start_never_prints_the_phrase() {
+        let failure = RotationFailure { partial: true, message: "x".to_string() };
+        assert_eq!(serde_json::to_string(&failure).unwrap(), r#"{"partial":true,"message":"x"}"#);
+        let start = RotationStart { phrase: vec!["abandon".to_string()], positions: vec![1] };
+        assert!(!format!("{start:?}").contains("abandon"), "the words must not reach a log");
+    }
+
+    #[tokio::test]
+    async fn a_phrase_that_is_not_valid_leaves_a_rotation_that_was_waiting_untouched() {
+        let device = device_in_arca_mode("rotation-resume-keeps").await;
+        let slot = RotationSlot::default();
+        let start = rotation_begin(&device.engine, &slot).unwrap();
+        assert!(rotation_resume(&device.engine, &slot, "not a phrase").is_err());
+        rotation_confirm(&device.engine, &slot, &asked(&start), true, 2).await.unwrap();
+        assert_eq!(secrets_of(&device).key_epoch, 1, "the first key was still waiting and confirmed");
     }
 
     // ---------- the automatic loop's cycle ----------
