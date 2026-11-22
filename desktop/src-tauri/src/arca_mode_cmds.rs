@@ -337,19 +337,45 @@ pub struct RotationStart {
     pub positions: Vec<usize>,
 }
 
-pub fn rotation_begin(_engine: &SyncEngine, _slot: &RotationSlot) -> Result<RotationStart, String> {
-    Err("not implemented".to_string())
+/// Nothing to rotate without the mode on, and no phrase should be shown for a rotation that could not be confirmed.
+fn require_arca_mode(engine: &SyncEngine) -> Result<(), String> {
+    match engine.arca_mode().map_err(|e| format!("{e:#}"))? {
+        Some(_) => Ok(()),
+        None => Err("this vault is not in arca mode: turn it on first".to_string()),
+    }
 }
 
-pub fn rotation_resume(_engine: &SyncEngine, _slot: &RotationSlot, _phrase: &str) -> Result<(), String> {
-    Err("not implemented".to_string())
+/// Generates the new key, keeps it in `slot` (replacing one that was waiting) and returns the phrase to show once. Writes nothing.
+pub fn rotation_begin(engine: &SyncEngine, slot: &RotationSlot) -> Result<RotationStart, String> {
+    require_arca_mode(engine)?;
+    let pending = PendingRotation::generate().map_err(|e| format!("{e:#}"))?;
+    let phrase = pending.phrase().map_err(|e| e.to_string())?;
+    let start = RotationStart { phrase: phrase.words().map(str::to_string).collect(), positions: pending.positions() };
+    *slot.lock().unwrap() = Some(pending);
+    Ok(start)
 }
 
-pub async fn rotation_confirm(_engine: &SyncEngine, _slot: &RotationSlot, _typed_words: &[String], _revoked_on_hub: bool, _now_ms: u64) -> Result<(), String> {
-    Err("not implemented".to_string())
+/// Resumes a rotation that stopped half way: the 24 words typed are the confirmation, so none are asked back. A phrase that is not
+/// valid leaves the slot empty (whatever was waiting there is dropped).
+pub fn rotation_resume(engine: &SyncEngine, slot: &RotationSlot, phrase: &str) -> Result<(), String> {
+    require_arca_mode(engine)?;
+    *slot.lock().unwrap() = None;
+    let pending = PendingRotation::from_phrase(phrase).map_err(|e| e.to_string())?;
+    *slot.lock().unwrap() = Some(pending);
+    Ok(())
 }
 
-pub fn rotation_cancel(_slot: &RotationSlot) {}
+/// Rotates to the key waiting in `slot`. The key leaves the slot first: it is consumed by one try, right or wrong, so a second click
+/// finds nothing and a wrong word means starting again (the right words cannot be guessed on the same key).
+pub async fn rotation_confirm(engine: &SyncEngine, slot: &RotationSlot, typed_words: &[String], revoked_on_hub: bool, now_ms: u64) -> Result<(), String> {
+    let pending = slot.lock().unwrap().take().ok_or_else(|| "no rotation was started: start it again".to_string())?;
+    let typed: Vec<&str> = typed_words.iter().map(String::as_str).collect();
+    pending.confirm(&typed, revoked_on_hub, engine, now_ms).await.map_err(|e| e.to_string())
+}
+
+pub fn rotation_cancel(slot: &RotationSlot) {
+    *slot.lock().unwrap() = None;
+}
 
 /// The saved hub `hub_id`, with the token this computer holds for it, ready to sync with.
 pub fn saved_hub_store(hubs_path: &Path, config_file: &Path, hub_id: &str) -> Result<HubStore, String> {
@@ -646,6 +672,30 @@ pub async fn arca_epochs_pending(state: State<'_, AppState>) -> Result<Vec<Pendi
 #[tauri::command]
 pub async fn arca_epochs_acknowledge(state: State<'_, AppState>, seen: Vec<PendingEpochPayload>) -> Result<(), String> {
     epochs_acknowledge(&state.sync, &seen).await
+}
+
+/// Starts a key rotation: the 24-word phrase of the new key (shown once; keep it off logs and storage) and which words to type back.
+#[tauri::command]
+pub fn arca_rotation_begin(state: State<'_, AppState>) -> Result<RotationStart, String> {
+    rotation_begin(&state.sync, &state.pending_rotation)
+}
+
+/// Resumes a rotation that stopped half way, from the 24 words of its phrase.
+#[tauri::command]
+pub fn arca_rotation_resume(state: State<'_, AppState>, phrase: String) -> Result<(), String> {
+    rotation_resume(&state.sync, &state.pending_rotation, &phrase)
+}
+
+/// Confirms the rotation: the words typed back and the statement that the lost device's token was revoked on the hub. It does not
+/// send anything: the screen runs a sync afterwards (`arca_sync_run`), which is what publishes the new epoch.
+#[tauri::command]
+pub async fn arca_rotation_confirm(state: State<'_, AppState>, typed_words: Vec<String>, revoked_on_hub: bool) -> Result<(), String> {
+    rotation_confirm(&state.sync, &state.pending_rotation, &typed_words, revoked_on_hub, now_ms()).await
+}
+
+#[tauri::command]
+pub fn arca_rotation_cancel(state: State<'_, AppState>) {
+    rotation_cancel(&state.pending_rotation);
 }
 
 /// What the last automatic cycle did, and whether the loop is stopped. The screen asks when it opens and again at each

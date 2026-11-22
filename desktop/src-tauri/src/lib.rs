@@ -71,6 +71,9 @@ struct AppState {
     pending_push: Mutex<Option<warden_sync::push::BeginPushResult>>,
     /// A skill package waiting for the TruthID phone to pin it (P160): `skill_publish_begin` fills it, `skill_publish_await` takes it.
     pending_publish: Mutex<Option<warden_sync::publish::BeginPublish>>,
+    /// The new vault key of a rotation (P-49) that the person has not confirmed: `arca_rotation_begin` fills it, `arca_rotation_confirm`
+    /// takes it. The key never goes back to the screen; only its phrase goes out, once.
+    pending_rotation: arca_mode_cmds::RotationSlot,
     /// Resolved once at startup, same as `sync`'s vault path below — the trusted root
     /// `open_generated_file` (P64) confines every path it's willing to open to, so a path a
     /// malicious/prompt-injected tool result claimed can never be opened outside of it.
@@ -1292,6 +1295,7 @@ pub fn run() {
         sync,
         pending_push: Mutex::new(None),
         pending_publish: Mutex::new(None),
+        pending_rotation: Mutex::new(None),
         generated_files_root,
         embedded_server: Mutex::new(None),
         approvals: Arc::new(approval::ApprovalBroker::default()),
@@ -1505,6 +1509,10 @@ pub fn run() {
             arca_mode_cmds::arca_kept_clear,
             arca_mode_cmds::arca_epochs_pending,
             arca_mode_cmds::arca_epochs_acknowledge,
+            arca_mode_cmds::arca_rotation_begin,
+            arca_mode_cmds::arca_rotation_resume,
+            arca_mode_cmds::arca_rotation_confirm,
+            arca_mode_cmds::arca_rotation_cancel,
             arca_mode_cmds::arca_mode_enable,
             arca_mode_cmds::arca_mode_accept_logins,
             arca_mode_cmds::arca_mode_revoke_logins,
