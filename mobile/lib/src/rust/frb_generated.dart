@@ -3,6 +3,7 @@
 
 // ignore_for_file: unused_import, unused_element, unnecessary_import, duplicate_ignore, invalid_use_of_internal_member, annotate_overrides, non_constant_identifier_names, curly_braces_in_flow_control_structures, prefer_const_literals_to_create_immutables, unused_field
 
+import 'api/arca_mode.dart';
 import 'api/arca_pair.dart';
 import 'api/discovery.dart';
 import 'api/simple.dart';
@@ -73,7 +74,7 @@ class RustLib extends BaseEntrypoint<RustLibApi, RustLibApiImpl, RustLibWire> {
   String get codegenVersion => '2.13.0';
 
   @override
-  int get rustContentHash => 1909990013;
+  int get rustContentHash => -330213319;
 
   static const kDefaultExternalLibraryLoaderConfig =
       ExternalLibraryLoaderConfig(
@@ -85,6 +86,36 @@ class RustLib extends BaseEntrypoint<RustLibApi, RustLibApiImpl, RustLibWire> {
 }
 
 abstract class RustLibApi extends BaseApi {
+  Future<int> crateApiArcaModeArcaEpochsAcknowledge({
+    required String vaultRoot,
+    required String configPath,
+    required String secretsPath,
+    required String manifestPath,
+    required List<PendingEpochDto> seen,
+  });
+
+  Future<List<PendingEpochDto>> crateApiArcaModeArcaEpochsPending({
+    required String vaultRoot,
+    required String configPath,
+    required String secretsPath,
+    required String manifestPath,
+  });
+
+  Future<void> crateApiArcaModeArcaModeEnable({
+    required String vaultRoot,
+    required String configPath,
+    required String secretsPath,
+    required String manifestPath,
+    required BigInt nowMs,
+  });
+
+  Future<ArcaModeStatusDto> crateApiArcaModeArcaModeStatus({
+    required String vaultRoot,
+    required String configPath,
+    required String secretsPath,
+    required String manifestPath,
+  });
+
   Future<void> crateApiArcaPairArcaPairAnswer({required String typed});
 
   Future<void> crateApiArcaPairArcaPairCancel();
@@ -117,6 +148,17 @@ abstract class RustLibApi extends BaseApi {
     required String manifestPath,
     required String hubUrl,
     required String deviceToken,
+  });
+
+  Future<ArcaSyncDto> crateApiArcaModeArcaSyncRun({
+    required String vaultRoot,
+    required String configPath,
+    required String secretsPath,
+    required String manifestPath,
+    required String hubUrl,
+    required String deviceToken,
+    required bool allowInsecureHttp,
+    required BigInt nowMs,
   });
 
   Future<void> crateApiSkillsBridgeDeleteSkill({
@@ -237,6 +279,178 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   });
 
   @override
+  Future<int> crateApiArcaModeArcaEpochsAcknowledge({
+    required String vaultRoot,
+    required String configPath,
+    required String secretsPath,
+    required String manifestPath,
+    required List<PendingEpochDto> seen,
+  }) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_String(vaultRoot, serializer);
+          sse_encode_String(configPath, serializer);
+          sse_encode_String(secretsPath, serializer);
+          sse_encode_String(manifestPath, serializer);
+          sse_encode_list_pending_epoch_dto(seen, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 1,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_u_32,
+          decodeErrorData: sse_decode_arca_mode_failure,
+        ),
+        constMeta: kCrateApiArcaModeArcaEpochsAcknowledgeConstMeta,
+        argValues: [vaultRoot, configPath, secretsPath, manifestPath, seen],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiArcaModeArcaEpochsAcknowledgeConstMeta =>
+      const TaskConstMeta(
+        debugName: "arca_epochs_acknowledge",
+        argNames: [
+          "vaultRoot",
+          "configPath",
+          "secretsPath",
+          "manifestPath",
+          "seen",
+        ],
+      );
+
+  @override
+  Future<List<PendingEpochDto>> crateApiArcaModeArcaEpochsPending({
+    required String vaultRoot,
+    required String configPath,
+    required String secretsPath,
+    required String manifestPath,
+  }) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_String(vaultRoot, serializer);
+          sse_encode_String(configPath, serializer);
+          sse_encode_String(secretsPath, serializer);
+          sse_encode_String(manifestPath, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 2,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_list_pending_epoch_dto,
+          decodeErrorData: sse_decode_arca_mode_failure,
+        ),
+        constMeta: kCrateApiArcaModeArcaEpochsPendingConstMeta,
+        argValues: [vaultRoot, configPath, secretsPath, manifestPath],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiArcaModeArcaEpochsPendingConstMeta =>
+      const TaskConstMeta(
+        debugName: "arca_epochs_pending",
+        argNames: ["vaultRoot", "configPath", "secretsPath", "manifestPath"],
+      );
+
+  @override
+  Future<void> crateApiArcaModeArcaModeEnable({
+    required String vaultRoot,
+    required String configPath,
+    required String secretsPath,
+    required String manifestPath,
+    required BigInt nowMs,
+  }) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_String(vaultRoot, serializer);
+          sse_encode_String(configPath, serializer);
+          sse_encode_String(secretsPath, serializer);
+          sse_encode_String(manifestPath, serializer);
+          sse_encode_u_64(nowMs, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 3,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_unit,
+          decodeErrorData: sse_decode_arca_mode_failure,
+        ),
+        constMeta: kCrateApiArcaModeArcaModeEnableConstMeta,
+        argValues: [vaultRoot, configPath, secretsPath, manifestPath, nowMs],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiArcaModeArcaModeEnableConstMeta =>
+      const TaskConstMeta(
+        debugName: "arca_mode_enable",
+        argNames: [
+          "vaultRoot",
+          "configPath",
+          "secretsPath",
+          "manifestPath",
+          "nowMs",
+        ],
+      );
+
+  @override
+  Future<ArcaModeStatusDto> crateApiArcaModeArcaModeStatus({
+    required String vaultRoot,
+    required String configPath,
+    required String secretsPath,
+    required String manifestPath,
+  }) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_String(vaultRoot, serializer);
+          sse_encode_String(configPath, serializer);
+          sse_encode_String(secretsPath, serializer);
+          sse_encode_String(manifestPath, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 4,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_arca_mode_status_dto,
+          decodeErrorData: sse_decode_arca_mode_failure,
+        ),
+        constMeta: kCrateApiArcaModeArcaModeStatusConstMeta,
+        argValues: [vaultRoot, configPath, secretsPath, manifestPath],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiArcaModeArcaModeStatusConstMeta =>
+      const TaskConstMeta(
+        debugName: "arca_mode_status",
+        argNames: ["vaultRoot", "configPath", "secretsPath", "manifestPath"],
+      );
+
+  @override
   Future<void> crateApiArcaPairArcaPairAnswer({required String typed}) {
     return handler.executeNormal(
       NormalTask(
@@ -246,7 +460,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 1,
+            funcId: 5,
             port: port_,
           );
         },
@@ -273,7 +487,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 2,
+            funcId: 6,
             port: port_,
           );
         },
@@ -300,7 +514,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 3,
+            funcId: 7,
             port: port_,
           );
         },
@@ -328,7 +542,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 4,
+            funcId: 8,
             port: port_,
           );
         },
@@ -364,7 +578,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 5,
+            funcId: 9,
             port: port_,
           );
         },
@@ -409,7 +623,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 6,
+            funcId: 10,
             port: port_,
           );
         },
@@ -468,7 +682,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 7,
+            funcId: 11,
             port: port_,
           );
         },
@@ -504,6 +718,71 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       );
 
   @override
+  Future<ArcaSyncDto> crateApiArcaModeArcaSyncRun({
+    required String vaultRoot,
+    required String configPath,
+    required String secretsPath,
+    required String manifestPath,
+    required String hubUrl,
+    required String deviceToken,
+    required bool allowInsecureHttp,
+    required BigInt nowMs,
+  }) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_String(vaultRoot, serializer);
+          sse_encode_String(configPath, serializer);
+          sse_encode_String(secretsPath, serializer);
+          sse_encode_String(manifestPath, serializer);
+          sse_encode_String(hubUrl, serializer);
+          sse_encode_String(deviceToken, serializer);
+          sse_encode_bool(allowInsecureHttp, serializer);
+          sse_encode_u_64(nowMs, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 12,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_arca_sync_dto,
+          decodeErrorData: sse_decode_arca_mode_failure,
+        ),
+        constMeta: kCrateApiArcaModeArcaSyncRunConstMeta,
+        argValues: [
+          vaultRoot,
+          configPath,
+          secretsPath,
+          manifestPath,
+          hubUrl,
+          deviceToken,
+          allowInsecureHttp,
+          nowMs,
+        ],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiArcaModeArcaSyncRunConstMeta =>
+      const TaskConstMeta(
+        debugName: "arca_sync_run",
+        argNames: [
+          "vaultRoot",
+          "configPath",
+          "secretsPath",
+          "manifestPath",
+          "hubUrl",
+          "deviceToken",
+          "allowInsecureHttp",
+          "nowMs",
+        ],
+      );
+
+  @override
   Future<void> crateApiSkillsBridgeDeleteSkill({
     required String vaultRoot,
     required String name,
@@ -517,7 +796,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 8,
+            funcId: 13,
             port: port_,
           );
         },
@@ -554,7 +833,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 9,
+            funcId: 14,
             port: port_,
           );
         },
@@ -587,7 +866,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 10,
+            funcId: 15,
             port: port_,
           );
         },
@@ -626,7 +905,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 11,
+            funcId: 16,
             port: port_,
           );
         },
@@ -663,7 +942,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 12,
+            funcId: 17,
             port: port_,
           );
         },
@@ -696,7 +975,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 13,
+            funcId: 18,
             port: port_,
           );
         },
@@ -731,7 +1010,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 14,
+            funcId: 19,
             port: port_,
           );
         },
@@ -764,7 +1043,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 15,
+            funcId: 20,
             port: port_,
           );
         },
@@ -803,7 +1082,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 16,
+            funcId: 21,
             port: port_,
           );
         },
@@ -833,7 +1112,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 17,
+            funcId: 22,
             port: port_,
           );
         },
@@ -873,7 +1152,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 18,
+            funcId: 23,
             port: port_,
           );
         },
@@ -926,7 +1205,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 19,
+            funcId: 24,
             port: port_,
           );
         },
@@ -960,7 +1239,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 20,
+            funcId: 25,
             port: port_,
           );
         },
@@ -999,7 +1278,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 21,
+            funcId: 26,
             port: port_,
           );
         },
@@ -1036,7 +1315,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 22,
+            funcId: 27,
             port: port_,
           );
         },
@@ -1073,7 +1352,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 23,
+            funcId: 28,
             port: port_,
           );
         },
@@ -1112,7 +1391,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 24,
+            funcId: 29,
             port: port_,
           );
         },
@@ -1148,7 +1427,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           sse_encode_String(configPath, serializer);
           sse_encode_String(secretsPath, serializer);
           sse_encode_String(manifestPath, serializer);
-          return pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 25)!;
+          return pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 30)!;
         },
         codec: SseCodec(
           decodeSuccessData: sse_decode_sync_status_dto,
@@ -1175,7 +1454,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 26,
+            funcId: 31,
             port: port_,
           );
         },
@@ -1199,7 +1478,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       SyncTask(
         callFfi: () {
           final serializer = SseSerializer(generalizedFrbRustBinding);
-          return pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 27)!;
+          return pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 32)!;
         },
         codec: SseCodec(
           decodeSuccessData: sse_decode_String,
@@ -1219,6 +1498,36 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   String dco_decode_String(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return raw as String;
+  }
+
+  @protected
+  ArcaModeErrorKind dco_decode_arca_mode_error_kind(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return ArcaModeErrorKind.values[raw as int];
+  }
+
+  @protected
+  ArcaModeFailure dco_decode_arca_mode_failure(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 2)
+      throw Exception('unexpected arr length: expect 2 but see ${arr.length}');
+    return ArcaModeFailure(
+      kind: dco_decode_arca_mode_error_kind(arr[0]),
+      detail: dco_decode_String(arr[1]),
+    );
+  }
+
+  @protected
+  ArcaModeStatusDto dco_decode_arca_mode_status_dto(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 2)
+      throw Exception('unexpected arr length: expect 2 but see ${arr.length}');
+    return ArcaModeStatusDto(
+      on_: dco_decode_bool(arr[0]),
+      sendPending: dco_decode_bool(arr[1]),
+    );
   }
 
   @protected
@@ -1264,6 +1573,23 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   ArcaPairStepKind dco_decode_arca_pair_step_kind(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return ArcaPairStepKind.values[raw as int];
+  }
+
+  @protected
+  ArcaSyncDto dco_decode_arca_sync_dto(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 7)
+      throw Exception('unexpected arr length: expect 7 but see ${arr.length}');
+    return ArcaSyncDto(
+      snapshotCreated: dco_decode_bool(arr[0]),
+      pulled: dco_decode_u_32(arr[1]),
+      merges: dco_decode_u_32(arr[2]),
+      conflicts: dco_decode_u_32(arr[3]),
+      filesChanged: dco_decode_u_32(arr[4]),
+      pushed: dco_decode_u_32(arr[5]),
+      vaultEmptied: dco_decode_bool(arr[6]),
+    );
   }
 
   @protected
@@ -1355,6 +1681,12 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  List<PendingEpochDto> dco_decode_list_pending_epoch_dto(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return (raw as List<dynamic>).map(dco_decode_pending_epoch_dto).toList();
+  }
+
+  @protected
   Uint8List dco_decode_list_prim_u_8_strict(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return raw as Uint8List;
@@ -1394,6 +1726,18 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   PushBeginDto? dco_decode_opt_box_autoadd_push_begin_dto(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return raw == null ? null : dco_decode_box_autoadd_push_begin_dto(raw);
+  }
+
+  @protected
+  PendingEpochDto dco_decode_pending_epoch_dto(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 2)
+      throw Exception('unexpected arr length: expect 2 but see ${arr.length}');
+    return PendingEpochDto(
+      epoch: dco_decode_u_32(arr[0]),
+      id: dco_decode_String(arr[1]),
+    );
   }
 
   @protected
@@ -1496,6 +1840,12 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  BigInt dco_decode_u_64(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return dcoDecodeU64(raw);
+  }
+
+  @protected
   int dco_decode_u_8(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return raw as int;
@@ -1512,6 +1862,33 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     // Codec=Sse (Serialization based), see doc to use other codecs
     var inner = sse_decode_list_prim_u_8_strict(deserializer);
     return utf8.decoder.convert(inner);
+  }
+
+  @protected
+  ArcaModeErrorKind sse_decode_arca_mode_error_kind(
+    SseDeserializer deserializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var inner = sse_decode_i_32(deserializer);
+    return ArcaModeErrorKind.values[inner];
+  }
+
+  @protected
+  ArcaModeFailure sse_decode_arca_mode_failure(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_kind = sse_decode_arca_mode_error_kind(deserializer);
+    var var_detail = sse_decode_String(deserializer);
+    return ArcaModeFailure(kind: var_kind, detail: var_detail);
+  }
+
+  @protected
+  ArcaModeStatusDto sse_decode_arca_mode_status_dto(
+    SseDeserializer deserializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_on_ = sse_decode_bool(deserializer);
+    var var_sendPending = sse_decode_bool(deserializer);
+    return ArcaModeStatusDto(on_: var_on_, sendPending: var_sendPending);
   }
 
   @protected
@@ -1564,6 +1941,27 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     // Codec=Sse (Serialization based), see doc to use other codecs
     var inner = sse_decode_i_32(deserializer);
     return ArcaPairStepKind.values[inner];
+  }
+
+  @protected
+  ArcaSyncDto sse_decode_arca_sync_dto(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_snapshotCreated = sse_decode_bool(deserializer);
+    var var_pulled = sse_decode_u_32(deserializer);
+    var var_merges = sse_decode_u_32(deserializer);
+    var var_conflicts = sse_decode_u_32(deserializer);
+    var var_filesChanged = sse_decode_u_32(deserializer);
+    var var_pushed = sse_decode_u_32(deserializer);
+    var var_vaultEmptied = sse_decode_bool(deserializer);
+    return ArcaSyncDto(
+      snapshotCreated: var_snapshotCreated,
+      pulled: var_pulled,
+      merges: var_merges,
+      conflicts: var_conflicts,
+      filesChanged: var_filesChanged,
+      pushed: var_pushed,
+      vaultEmptied: var_vaultEmptied,
+    );
   }
 
   @protected
@@ -1683,6 +2081,20 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  List<PendingEpochDto> sse_decode_list_pending_epoch_dto(
+    SseDeserializer deserializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    var len_ = sse_decode_i_32(deserializer);
+    var ans_ = <PendingEpochDto>[];
+    for (var idx_ = 0; idx_ < len_; ++idx_) {
+      ans_.add(sse_decode_pending_epoch_dto(deserializer));
+    }
+    return ans_;
+  }
+
+  @protected
   Uint8List sse_decode_list_prim_u_8_strict(SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     var len_ = sse_decode_i_32(deserializer);
@@ -1761,6 +2173,14 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     } else {
       return null;
     }
+  }
+
+  @protected
+  PendingEpochDto sse_decode_pending_epoch_dto(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_epoch = sse_decode_u_32(deserializer);
+    var var_id = sse_decode_String(deserializer);
+    return PendingEpochDto(epoch: var_epoch, id: var_id);
   }
 
   @protected
@@ -1869,6 +2289,12 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  BigInt sse_decode_u_64(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    return deserializer.buffer.getBigUint64();
+  }
+
+  @protected
   int sse_decode_u_8(SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     return deserializer.buffer.getUint8();
@@ -1883,6 +2309,35 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   void sse_encode_String(String self, SseSerializer serializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     sse_encode_list_prim_u_8_strict(utf8.encoder.convert(self), serializer);
+  }
+
+  @protected
+  void sse_encode_arca_mode_error_kind(
+    ArcaModeErrorKind self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_i_32(self.index, serializer);
+  }
+
+  @protected
+  void sse_encode_arca_mode_failure(
+    ArcaModeFailure self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_arca_mode_error_kind(self.kind, serializer);
+    sse_encode_String(self.detail, serializer);
+  }
+
+  @protected
+  void sse_encode_arca_mode_status_dto(
+    ArcaModeStatusDto self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_bool(self.on_, serializer);
+    sse_encode_bool(self.sendPending, serializer);
   }
 
   @protected
@@ -1927,6 +2382,18 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   ) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     sse_encode_i_32(self.index, serializer);
+  }
+
+  @protected
+  void sse_encode_arca_sync_dto(ArcaSyncDto self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_bool(self.snapshotCreated, serializer);
+    sse_encode_u_32(self.pulled, serializer);
+    sse_encode_u_32(self.merges, serializer);
+    sse_encode_u_32(self.conflicts, serializer);
+    sse_encode_u_32(self.filesChanged, serializer);
+    sse_encode_u_32(self.pushed, serializer);
+    sse_encode_bool(self.vaultEmptied, serializer);
   }
 
   @protected
@@ -2041,6 +2508,18 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  void sse_encode_list_pending_epoch_dto(
+    List<PendingEpochDto> self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_i_32(self.length, serializer);
+    for (final item in self) {
+      sse_encode_pending_epoch_dto(item, serializer);
+    }
+  }
+
+  @protected
   void sse_encode_list_prim_u_8_strict(
     Uint8List self,
     SseSerializer serializer,
@@ -2124,6 +2603,16 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  void sse_encode_pending_epoch_dto(
+    PendingEpochDto self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_u_32(self.epoch, serializer);
+    sse_encode_String(self.id, serializer);
+  }
+
+  @protected
   void sse_encode_pull_result_dto(
     PullResultDto self,
     SseSerializer serializer,
@@ -2202,6 +2691,12 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   void sse_encode_u_32(int self, SseSerializer serializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     serializer.buffer.putUint32(self);
+  }
+
+  @protected
+  void sse_encode_u_64(BigInt self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    serializer.buffer.putBigUint64(self);
   }
 
   @protected
