@@ -97,7 +97,10 @@ pub fn arca_mode_status(vault_root: String, config_path: String, secrets_path: S
 }
 
 /// What turning the mode on does with the answer about the Send (the seam the test uses): refused while one waits. The refusals come
-/// first, one by one, so each has its own kind; the engine repeats them under its lock before it writes anything.
+/// first, one by one, so each has its own kind. The engine repeats the key and the "already on" ones under its lock; the Send is NOT
+/// rechecked there (`arca_enable_after_pull` reads it before the Pull and the engine never sees it again), so a Send begun during a
+/// long Pull can still get in: `finish_push` then fails cleanly (it checks the mode under the lock before it asks for the pin), but
+/// the mode is already on. The desktop has the same shape (limit, not a regression).
 #[flutter_rust_bridge::frb(ignore)]
 pub(crate) fn enable_with(engine: &SyncEngine, pending_send: bool, now_ms: u64) -> Result<(), ArcaModeFailure> {
     if !engine.is_initialized() {
@@ -118,9 +121,42 @@ pub fn arca_mode_enable(vault_root: String, config_path: String, secrets_path: S
     enable_with(&engine(&vault_root, &config_path, &secrets_path, &manifest_path), push_is_pending(), now_ms)
 }
 
-/// The hub client for `hub_url`. Plain `http` to another machine is refused unless `allow_insecure_http` (the person was warned).
+/// Whether `host` (as written in a URL, brackets and all) is a machine on the person's own network: a private, link-local or
+/// carrier-grade-NAT (Tailscale's 100.64.0.0/10) address, a unique-local or link-local IPv6 one, loopback, `localhost` or an mDNS
+/// `*.local` name. A public address or name is not: the token must not cross the internet in the clear.
+fn is_own_network(host: &str) -> bool {
+    use std::net::{IpAddr, Ipv4Addr};
+    let bare = host.strip_prefix('[').and_then(|h| h.strip_suffix(']')).unwrap_or(host);
+    match bare.parse::<IpAddr>() {
+        Ok(IpAddr::V4(ip)) => ip.is_private() || ip.is_loopback() || ip.is_link_local() || (u32::from(ip) & 0xffc0_0000) == u32::from(Ipv4Addr::new(100, 64, 0, 0)),
+        Ok(IpAddr::V6(ip)) => ip.is_loopback() || (ip.segments()[0] & 0xfe00) == 0xfc00 || (ip.segments()[0] & 0xffc0) == 0xfe80,
+        Err(_) => {
+            let name = bare.to_ascii_lowercase();
+            name == "localhost" || name.ends_with(".local")
+        }
+    }
+}
+
+/// The host of a plain `http://` address, or `None` when the address is not one (the hub client judges everything else).
+fn plain_http_host(hub_url: &str) -> Option<&str> {
+    let rest = hub_url.get(..7).filter(|scheme| scheme.eq_ignore_ascii_case("http://")).map(|_| &hub_url[7..])?;
+    let authority = rest.split(['/', '?', '#']).next().unwrap_or("");
+    // Credentials in the address are the hub client's to refuse; they must not shift what counts as the host here.
+    if authority.contains('@') {
+        return None;
+    }
+    let host = if authority.starts_with('[') { authority.split_inclusive(']').next().unwrap_or(authority) } else { authority.split(':').next().unwrap_or(authority) };
+    Some(host)
+}
+
+/// The hub client for `hub_url`. Plain `http` to another machine is refused unless `allow_insecure_http` (the person was warned), and
+/// even then only to a machine on the person's own network (`is_own_network`): the permission is a bool with no origin attached, so
+/// the host is checked here and a screen that passes `true` for a public address (by mistake or by a stale "already warned") is refused.
 #[flutter_rust_bridge::frb(ignore)]
 pub(crate) fn hub_store_for(hub_url: &str, device_token: &str, allow_insecure_http: bool) -> Result<HubStore, ArcaModeFailure> {
+    if allow_insecure_http && plain_http_host(hub_url).is_some_and(|host| !is_own_network(host)) {
+        return Err(failure(ArcaModeErrorKind::InsecureUrl, "plain http is only accepted to a machine on your own network, never to a public address"));
+    }
     let built = if allow_insecure_http { HubStore::allow_insecure_http(hub_url, device_token) } else { HubStore::new(hub_url, device_token) };
     built.map_err(|error| match error {
         HubError::InsecureUrl => failure(ArcaModeErrorKind::InsecureUrl, "plain http to another machine: the token would travel in the clear"),
@@ -128,6 +164,16 @@ pub(crate) fn hub_store_for(hub_url: &str, device_token: &str, allow_insecure_ht
         HubError::InvalidToken => failure(ArcaModeErrorKind::BadToken, "the token cannot be used"),
         other_error => failure(ArcaModeErrorKind::Other, other_error),
     })
+}
+
+/// `detail` with every copy of `token` taken out (literal only: another encoding of it is not covered, the layers below never print it).
+#[flutter_rust_bridge::frb(ignore)]
+pub(crate) fn redact(detail: &str, token: &str) -> String {
+    if token.is_empty() {
+        detail.to_string()
+    } else {
+        detail.replace(token, "***")
+    }
 }
 
 fn count(n: usize) -> u32 {
@@ -163,8 +209,7 @@ pub fn arca_sync_run(
         }),
         Err(error) => {
             // The token is never in the engine's text; this is for the day a lower layer puts a header in an error.
-            let detail = format!("{error:#}");
-            let detail = if device_token.is_empty() { detail } else { detail.replace(&device_token, "***") };
+            let detail = redact(&format!("{error:#}"), &device_token);
             let kind = if is_auth_rejected(&error) { ArcaModeErrorKind::Unauthorized } else { ArcaModeErrorKind::Other };
             Err(failure(kind, detail))
         }
@@ -178,8 +223,10 @@ pub fn arca_epochs_pending(vault_root: String, config_path: String, secrets_path
 }
 
 /// Acknowledges the pairs the person saw. They are only looked up in a fresh list; nothing from `seen` reaches the engine as an id.
-/// What shows up after the person looked stays pending. Asked even with nothing to acknowledge, so the mode off is told.
-pub fn arca_epochs_acknowledge(vault_root: String, config_path: String, secrets_path: String, manifest_path: String, seen: Vec<PendingEpochDto>) -> Result<(), ArcaModeFailure> {
+/// What shows up after the person looked stays pending. Asked even with nothing to acknowledge, so the mode off is told. Returns how
+/// many pairs were acknowledged: 0 means the list changed under the person (or nothing was seen), so the vault is still stopped and
+/// the screen must list the epochs again instead of saying "acknowledged".
+pub fn arca_epochs_acknowledge(vault_root: String, config_path: String, secrets_path: String, manifest_path: String, seen: Vec<PendingEpochDto>) -> Result<u32, ArcaModeFailure> {
     let engine = engine(&vault_root, &config_path, &secrets_path, &manifest_path);
     if !engine.arca_mode_on().map_err(other)? {
         return Err(failure(ArcaModeErrorKind::NotInArcaMode, "this vault is not in arca mode: turn it on first"));
@@ -187,7 +234,8 @@ pub fn arca_epochs_acknowledge(vault_root: String, config_path: String, secrets_
     let fresh = rt().block_on(engine.arca_pending_epochs()).map_err(other)?;
     let listed: Vec<PendingEpochDto> = fresh.iter().map(PendingEpochDto::from).collect();
     let to_acknowledge: Vec<PendingEpoch> = positions_seen(&listed, &seen).into_iter().map(|position| fresh[position]).collect();
-    rt().block_on(engine.arca_acknowledge_epochs(&to_acknowledge)).map_err(other)
+    rt().block_on(engine.arca_acknowledge_epochs(&to_acknowledge)).map_err(other)?;
+    Ok(count(to_acknowledge.len()))
 }
 
 /// Where, in the fresh list, are the pairs the screen handed back: the whole pair (epoch and id text), since the next epoch is
@@ -349,6 +397,32 @@ mod tests {
         assert_eq!(hub_store_for("https://hub.example/some/path", "token", true).err().unwrap().kind, ArcaModeErrorKind::BadUrl);
         assert_eq!(hub_store_for("ftp://hub.example", "token", true).err().unwrap().kind, ArcaModeErrorKind::BadUrl);
         assert_eq!(hub_store_for("http://192.168.0.10:7000", "", true).err().unwrap().kind, ArcaModeErrorKind::BadToken);
+    }
+
+    #[test]
+    fn the_permission_for_plain_http_is_only_for_the_own_network_never_for_a_public_address() {
+        // A screen that passes `true` by mistake (or from a stale "already warned") must not send the token across the internet.
+        for public in ["http://hub.example.com", "http://203.0.113.7:7000", "http://8.8.8.8", "http://[2001:db8::1]:7000", "http://172.32.0.1", "http://100.128.0.1", "http://192.169.0.1", "http://localhost.evil.com", "http://HUB.EXAMPLE.COM"] {
+            let refused = hub_store_for(public, "token", true).err().unwrap_or_else(|| panic!("{public} was accepted"));
+            assert_eq!(refused.kind, ArcaModeErrorKind::InsecureUrl, "{public}");
+        }
+        for own in ["http://192.168.0.10:7000", "http://10.0.0.5", "http://172.16.4.2", "http://172.31.255.255", "http://169.254.1.1", "http://100.64.0.1", "http://100.127.255.255", "http://127.0.0.1:7000", "http://localhost:7000", "http://[::1]:7000", "http://[fd12:3456::1]:7000", "http://[fe80::1]", "http://my-hub.local:7000", "HTTP://192.168.0.10:7000"] {
+            assert!(hub_store_for(own, "token", true).is_ok(), "{own} should be accepted once the person was warned");
+        }
+    }
+
+    #[test]
+    fn the_permission_does_not_relax_credentials_a_path_or_a_query_in_the_address() {
+        for odd in ["http://user:pass@192.168.0.10:7000", "http://192.168.0.10:7000/some/path", "http://192.168.0.10:7000/?x=1", "http://192.168.0.10:7000#frag", "http://public.example.com@192.168.0.10:7000", "http://192.168.0.10@public.example.com"] {
+            let refused = hub_store_for(odd, "token", true).err().unwrap_or_else(|| panic!("{odd} was accepted"));
+            assert!(matches!(refused.kind, ArcaModeErrorKind::BadUrl | ArcaModeErrorKind::InsecureUrl), "{odd}: {:?}", refused.kind);
+        }
+    }
+
+    #[test]
+    fn the_token_is_taken_out_of_a_failure_text_wherever_it_appears() {
+        assert_eq!(redact("hub said no to SECRET-TOKEN-123 (SECRET-TOKEN-123)", "SECRET-TOKEN-123"), "hub said no to *** (***)");
+        assert_eq!(redact("nothing to hide", ""), "nothing to hide", "an empty token must not turn every gap into stars");
     }
 
     #[test]
