@@ -8,7 +8,8 @@
 //! The Rust text of a failure is English and for the log; the screen translates `ArcaModeErrorKind`.
 //!
 //! `http` to another machine is refused unless the screen passes `allow_insecure_http` (only after warning the person that the
-//! token then travels in the clear: `HubStore::allow_insecure_http`, the name is on purpose). `https` and loopback never need it.
+//! token then travels in the clear to that address, across every network on the way: `HubStore::allow_insecure_http`, the name is on
+//! purpose). `https` and loopback never need it. With the permission, any host is accepted.
 
 use warden_sync::arca_sync::{is_auth_rejected, HubError, HubStore, PendingEpoch};
 use warden_sync::SyncEngine;
@@ -121,42 +122,12 @@ pub fn arca_mode_enable(vault_root: String, config_path: String, secrets_path: S
     enable_with(&engine(&vault_root, &config_path, &secrets_path, &manifest_path), push_is_pending(), now_ms)
 }
 
-/// Whether `host` (as written in a URL, brackets and all) is a machine on the person's own network: a private, link-local or
-/// carrier-grade-NAT (Tailscale's 100.64.0.0/10) address, a unique-local or link-local IPv6 one, loopback, `localhost` or an mDNS
-/// `*.local` name. A public address or name is not: the token must not cross the internet in the clear.
-fn is_own_network(host: &str) -> bool {
-    use std::net::{IpAddr, Ipv4Addr};
-    let bare = host.strip_prefix('[').and_then(|h| h.strip_suffix(']')).unwrap_or(host);
-    match bare.parse::<IpAddr>() {
-        Ok(IpAddr::V4(ip)) => ip.is_private() || ip.is_loopback() || ip.is_link_local() || (u32::from(ip) & 0xffc0_0000) == u32::from(Ipv4Addr::new(100, 64, 0, 0)),
-        Ok(IpAddr::V6(ip)) => ip.is_loopback() || (ip.segments()[0] & 0xfe00) == 0xfc00 || (ip.segments()[0] & 0xffc0) == 0xfe80,
-        Err(_) => {
-            let name = bare.to_ascii_lowercase();
-            name == "localhost" || name.ends_with(".local")
-        }
-    }
-}
-
-/// The host of a plain `http://` address, or `None` when the address is not one (the hub client judges everything else).
-fn plain_http_host(hub_url: &str) -> Option<&str> {
-    let rest = hub_url.get(..7).filter(|scheme| scheme.eq_ignore_ascii_case("http://")).map(|_| &hub_url[7..])?;
-    let authority = rest.split(['/', '?', '#']).next().unwrap_or("");
-    // Credentials in the address are the hub client's to refuse; they must not shift what counts as the host here.
-    if authority.contains('@') {
-        return None;
-    }
-    let host = if authority.starts_with('[') { authority.split_inclusive(']').next().unwrap_or(authority) } else { authority.split(':').next().unwrap_or(authority) };
-    Some(host)
-}
-
-/// The hub client for `hub_url`. Plain `http` to another machine is refused unless `allow_insecure_http` (the person was warned), and
-/// even then only to a machine on the person's own network (`is_own_network`): the permission is a bool with no origin attached, so
-/// the host is checked here and a screen that passes `true` for a public address (by mistake or by a stale "already warned") is refused.
+/// The hub client for `hub_url`. Plain `http` to another machine is refused unless `allow_insecure_http`, on ANY network: the person
+/// decided (2026-11-22) that a warning is enough. The permission is a bool with no address attached, so what ties it to the address
+/// the person saw is the screen, which asks again for every address and keeps the answer only in memory (`arca_mode_screen.dart`).
+/// The refusals of credentials, a path, a query and another scheme do not depend on the permission: they come from the hub client.
 #[flutter_rust_bridge::frb(ignore)]
 pub(crate) fn hub_store_for(hub_url: &str, device_token: &str, allow_insecure_http: bool) -> Result<HubStore, ArcaModeFailure> {
-    if allow_insecure_http && plain_http_host(hub_url).is_some_and(|host| !is_own_network(host)) {
-        return Err(failure(ArcaModeErrorKind::InsecureUrl, "plain http is only accepted to a machine on your own network, never to a public address"));
-    }
     let built = if allow_insecure_http { HubStore::allow_insecure_http(hub_url, device_token) } else { HubStore::new(hub_url, device_token) };
     built.map_err(|error| match error {
         HubError::InsecureUrl => failure(ArcaModeErrorKind::InsecureUrl, "plain http to another machine: the token would travel in the clear"),

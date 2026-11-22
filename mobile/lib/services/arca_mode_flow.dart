@@ -9,7 +9,7 @@ abstract class ArcaModeBackend {
   /// Turns the mode on. Throws `bridge.ArcaModeFailure`.
   Future<void> enable();
 
-  /// One cycle. `allowInsecureHttp` only after the person was warned; the bridge still refuses a public address.
+  /// One cycle. `allowInsecureHttp` only after the person was warned: with it the bridge accepts plain http to any host.
   Future<bridge.ArcaSyncDto> syncRun({required String hubUrl, required String deviceToken, required bool allowInsecureHttp});
 
   Future<List<bridge.PendingEpochDto>> epochsPending();
