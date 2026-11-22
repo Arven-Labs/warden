@@ -4,6 +4,7 @@ import 'package:mobile/l10n/generated/app_localizations_en.dart';
 import 'package:mobile/l10n/generated/app_localizations_pt.dart';
 import 'package:mobile/screens/arca_mode_screen.dart';
 import 'package:mobile/services/arca_mode_flow.dart';
+import 'package:mobile/services/connection_settings.dart';
 import 'package:mobile/src/rust/api/arca_mode.dart' as bridge;
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -24,6 +25,10 @@ class FakeBackend implements ArcaModeBackend {
   List<bridge.PendingEpochDto> epochs = [];
   int acknowledgeReturns = 1;
 
+  /// When set, reading the mode (or the newer key epochs) fails, as a hub or a disk that does not answer would make it.
+  bool statusFails = false;
+  bool epochsFail = false;
+
   int statusCalls = 0;
   int enableCalls = 0;
   int pendingCalls = 0;
@@ -33,6 +38,7 @@ class FakeBackend implements ArcaModeBackend {
   @override
   Future<bridge.ArcaModeStatusDto> status() async {
     statusCalls++;
+    if (statusFails) throw _failure(bridge.ArcaModeErrorKind.other);
     return bridge.ArcaModeStatusDto(on_: on, sendPending: sendPending);
   }
 
@@ -58,6 +64,7 @@ class FakeBackend implements ArcaModeBackend {
   @override
   Future<List<bridge.PendingEpochDto>> epochsPending() async {
     pendingCalls++;
+    if (epochsFail) throw _failure(bridge.ArcaModeErrorKind.other);
     return List.of(epochs);
   }
 
@@ -98,6 +105,12 @@ Future<void> _settle(WidgetTester tester) async {
 
 Future<void> _tap(WidgetTester tester, String key) async {
   await tester.tap(find.byKey(Key(key)));
+  await _settle(tester);
+}
+
+/// Leaves the open dialog the way the Android back button does: no answer at all (`null`), neither "yes" nor "no".
+Future<void> _back(WidgetTester tester) async {
+  await tester.state<NavigatorState>(find.byType(Navigator).first).maybePop();
   await _settle(tester);
 }
 
@@ -362,6 +375,105 @@ void main() {
       expect(find.text(en.arcaModeEpochsAcknowledged(0)), findsNothing, reason: '"acknowledged" would be a lie');
       expect(backend.pendingCalls, greaterThan(before));
       expect(find.text(en.arcaModeEpochItem(2, '001122334455')), findsOneWidget, reason: 'the new one is on the screen now');
+      // What was sent is what the person was looking at (the first list), never the one read after it.
+      expect(backend.acknowledged, [
+        [_epoch(1, _hex1)],
+      ]);
+    });
+
+    // ---------- what the audit of this screen found ----------
+
+    testWidgets('a mode that could not be read is not shown as off, and nothing irreversible is offered', (tester) async {
+      _savedHub();
+      final backend = FakeBackend()..statusFails = true;
+      await _show(tester, backend);
+
+      expect(find.text(en.arcaModeErrOther), findsOneWidget);
+      expect(find.text(en.arcaModeStatusOff), findsNothing);
+      expect(find.byKey(const Key('arca-mode-enable')), findsNothing, reason: 'it could already be on');
+      expect(find.byKey(const Key('arca-mode-sync')), findsNothing);
+    });
+
+    testWidgets('newer keys that could not be read are not shown as "nothing pending"', (tester) async {
+      _savedHub();
+      final backend = FakeBackend(on: true)..epochsFail = true;
+      await _show(tester, backend);
+
+      expect(find.text(en.arcaModeStatusOn), findsOneWidget, reason: 'the mode itself was read');
+      expect(find.byKey(const Key('arca-mode-epochs-unreadable')), findsOneWidget);
+      expect(find.byKey(const Key('arca-mode-sync')), findsOneWidget);
+    });
+
+    testWidgets('leaving the "turn on" dialog without answering does not turn it on, and tapping outside does not leave it', (tester) async {
+      _savedHub();
+      final backend = FakeBackend();
+      await _show(tester, backend);
+
+      await _tap(tester, 'arca-mode-enable');
+      await tester.tapAt(const Offset(2, 2));
+      await _settle(tester);
+      expect(find.text(en.arcaModeEnableWarning), findsOneWidget, reason: 'a tap outside is not an answer');
+
+      await _back(tester);
+      expect(find.text(en.arcaModeEnableWarning), findsNothing);
+      expect(backend.enableCalls, 0);
+      expect(find.text(en.arcaModeStatusOff), findsOneWidget);
+    });
+
+    testWidgets('leaving the plain-http warning without answering sends nothing, and tapping outside does not leave it', (tester) async {
+      _savedHub(tls: false);
+      final backend = FakeBackend(on: true);
+      await _show(tester, backend);
+
+      await _tap(tester, 'arca-mode-sync');
+      await tester.tapAt(const Offset(2, 2));
+      await _settle(tester);
+      expect(find.text(en.arcaModeInsecureTitle), findsOneWidget, reason: 'a tap outside is not an agreement');
+
+      await _back(tester);
+      expect(backend.syncCalls, isEmpty, reason: 'no answer is not a yes: the token stays on the phone');
+    });
+
+    testWidgets('a second tap while the warning is opening does not stack another dialog', (tester) async {
+      _savedHub(tls: false);
+      final backend = FakeBackend(on: true);
+      await _show(tester, backend);
+
+      final onPressed = tester.widget<FilledButton>(find.byKey(const Key('arca-mode-sync'))).onPressed!;
+      onPressed();
+      onPressed();
+      await _settle(tester);
+
+      expect(find.text(en.arcaModeInsecureTitle), findsOneWidget);
+      await _tap(tester, 'arca-mode-insecure-no');
+      expect(find.text(en.arcaModeInsecureTitle), findsNothing, reason: 'there was only one to close');
+    });
+
+    testWidgets('if the hub changed since the person agreed, the warning comes again with the new address', (tester) async {
+      _savedHub(tls: false);
+      final backend = FakeBackend(on: true);
+      await _show(tester, backend);
+      await _tap(tester, 'arca-mode-sync');
+      await _tap(tester, 'arca-mode-insecure-yes');
+      expect(backend.syncCalls.length, 1);
+
+      // Saved again by the Connection screen while this one stayed open.
+      final store = ConnectionSettingsStore();
+      await store.save(const ConnectionSettings(host: 'other.local', port: 7420, authKey: 'key', deviceName: 'phone', useTls: false));
+      await store.saveDeviceToken('other.local', 7420, 'tok-other');
+      await _tap(tester, 'arca-mode-sync');
+
+      expect(find.text(en.arcaModeInsecureWarning('http://other.local:7420')), findsOneWidget, reason: 'the agreement was for the other address');
+      expect(backend.syncCalls.length, 1, reason: 'nothing was sent to the new address');
+    });
+
+    testWidgets('a saved hub with no token for it offers no sync', (tester) async {
+      SharedPreferences.setMockInitialValues({'connection.host': 'hub.local', 'connection.port': 7420, 'connection.authKey': 'key', 'connection.useTls': true});
+      final backend = FakeBackend(on: true);
+      await _show(tester, backend);
+
+      expect(find.text(en.arcaModeNoHub), findsOneWidget);
+      expect(find.byKey(const Key('arca-mode-sync')), findsNothing);
     });
   });
 }
