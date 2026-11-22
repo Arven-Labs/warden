@@ -273,7 +273,8 @@ describe("pairing a device with arca on the desktop", () => {
       try {
         await page.getByRole("button", { name: SWAP_REPLACE, exact: true }).click();
         await page.getByText(/erased and rebuilt from the hub/).waitFor();
-        await page.getByText(/Epoch 1/).waitFor();
+        // The Arca mode section lists the same epoch above; this one is the pairing section's own.
+        await page.locator("section").filter({ hasText: "Pair a device with arca" }).getByText(/Epoch 1/).waitFor();
         assert.equal(calls.filter((c) => c.cmd === "arca_swap_run").length, 0, "one click publishes no offer");
 
         await page.getByRole("button", { name: "Cancel", exact: true }).click();
