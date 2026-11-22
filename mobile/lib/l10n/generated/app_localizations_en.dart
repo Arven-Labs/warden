@@ -2197,7 +2197,7 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String arcaModeInsecureWarning(String address) {
-    return 'The hub at $address uses plain http. This device\'s token will travel in the clear on this network, and anyone on it could read it and act as this device. Your vault stays encrypted, but the token does not. Continue only on a network you trust.';
+    return 'The hub at $address uses plain http. This device\'s token will travel in the clear to that address, across every network on the way, and anyone along the way could read it and act as this device. If the address is on the internet, that can be anyone. Your vault stays encrypted, but the token does not. Continue only if you trust the whole path.';
   }
 
   @override
@@ -2253,7 +2253,7 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get arcaModeErrInsecureUrl =>
-      'The hub address uses plain http to a machine outside your own network. Use https.';
+      'The hub address uses plain http and the warning was not accepted. Use https.';
 
   @override
   String get arcaModeErrBadUrl => 'The hub address is not valid.';

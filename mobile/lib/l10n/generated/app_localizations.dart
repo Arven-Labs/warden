@@ -3611,7 +3611,7 @@ abstract class AppLocalizations {
   /// No description provided for @arcaModeInsecureWarning.
   ///
   /// In en, this message translates to:
-  /// **'The hub at {address} uses plain http. This device\'s token will travel in the clear on this network, and anyone on it could read it and act as this device. Your vault stays encrypted, but the token does not. Continue only on a network you trust.'**
+  /// **'The hub at {address} uses plain http. This device\'s token will travel in the clear to that address, across every network on the way, and anyone along the way could read it and act as this device. If the address is on the internet, that can be anyone. Your vault stays encrypted, but the token does not. Continue only if you trust the whole path.'**
   String arcaModeInsecureWarning(String address);
 
   /// No description provided for @arcaModeInsecureYes.
@@ -3689,7 +3689,7 @@ abstract class AppLocalizations {
   /// No description provided for @arcaModeErrInsecureUrl.
   ///
   /// In en, this message translates to:
-  /// **'The hub address uses plain http to a machine outside your own network. Use https.'**
+  /// **'The hub address uses plain http and the warning was not accepted. Use https.'**
   String get arcaModeErrInsecureUrl;
 
   /// No description provided for @arcaModeErrBadUrl.
