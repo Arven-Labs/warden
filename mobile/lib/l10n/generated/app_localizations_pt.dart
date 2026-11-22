@@ -2205,7 +2205,7 @@ class AppLocalizationsPt extends AppLocalizations {
 
   @override
   String arcaModeInsecureWarning(String address) {
-    return 'O hub em $address usa http simples. O token deste dispositivo vai viajar em claro nesta rede, e qualquer pessoa nela poderia lê-lo e agir como este dispositivo. O cofre continua cifrado, mas o token não. Continue só numa rede em que você confia.';
+    return 'O hub em $address usa http, que não é cifrado. O token deste dispositivo será enviado sem proteção até esse endereço, e qualquer pessoa no caminho poderia copiá-lo (na internet, pode ser qualquer pessoa). Com ele, ela entraria no hub como este dispositivo: usaria o que o hub oferece aos dispositivos aprovados e leria ou apagaria o que está guardado lá. O conteúdo do seu cofre continua cifrado, mas o token não. Se puder, use https. Se achar que o token vazou, revogue este dispositivo no hub.';
   }
 
   @override
@@ -2261,7 +2261,7 @@ class AppLocalizationsPt extends AppLocalizations {
 
   @override
   String get arcaModeErrInsecureUrl =>
-      'O endereço do hub usa http simples para uma máquina fora da sua rede. Use https.';
+      'O endereço do hub usa http e isso não é aceito aqui. Use https.';
 
   @override
   String get arcaModeErrBadUrl => 'O endereço do hub não é válido.';

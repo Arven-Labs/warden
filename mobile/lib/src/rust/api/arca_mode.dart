@@ -7,7 +7,7 @@ import '../frb_generated.dart';
 
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
-// These functions are ignored because they are not marked as `pub`: `count`, `enable_with`, `engine`, `failure`, `hub_store_for`, `is_own_network`, `other`, `plain_http_host`, `positions_seen`, `redact`
+// These functions are ignored because they are not marked as `pub`: `count`, `enable_with`, `engine`, `failure`, `hub_store_for`, `other`, `positions_seen`, `redact`
 // These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `clone`, `clone`, `clone`, `clone`, `clone`, `eq`, `eq`, `eq`, `eq`, `eq`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `from`
 
 /// Whether the mode is on, and whether a Send is waiting.

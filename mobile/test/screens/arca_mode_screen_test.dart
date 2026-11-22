@@ -82,13 +82,13 @@ bridge.PendingEpochDto _epoch(int number, String hex) => bridge.PendingEpochDto(
 const _hex1 = 'abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789';
 const _hex2 = '00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff';
 
-void _savedHub({bool tls = true}) => SharedPreferences.setMockInitialValues({
-      'connection.host': 'hub.local',
+void _savedHub({bool tls = true, String host = 'hub.local'}) => SharedPreferences.setMockInitialValues({
+      'connection.host': host,
       'connection.port': 7420,
       'connection.authKey': 'key',
       'connection.useTls': tls,
       'connection.deviceId': 'phone-1234',
-      'connection.deviceToken.hub.local:7420': 'tok',
+      'connection.deviceToken.$host:7420': 'tok',
     });
 
 Future<void> _show(WidgetTester tester, FakeBackend backend, {Locale locale = const Locale('en')}) async {
@@ -283,6 +283,34 @@ void main() {
       expect(find.text(en.arcaModeInsecureTitle), findsNothing, reason: 'same address, same screen');
       expect(backend.syncCalls.length, 2);
       expect(backend.syncCalls.last['allowInsecureHttp'], true);
+    });
+
+    testWidgets('a hub out on the internet over plain http gets the same warning, and the token only goes after the yes', (tester) async {
+      // Any network is allowed (the person's decision), so the warning is the only thing between the token and the wire.
+      _savedHub(tls: false, host: 'hub.example.com');
+      final backend = FakeBackend(on: true);
+      await _show(tester, backend);
+
+      await _tap(tester, 'arca-mode-sync');
+      expect(find.text(en.arcaModeInsecureWarning('http://hub.example.com:7420')), findsOneWidget);
+      expect(backend.syncCalls, isEmpty);
+
+      await _tap(tester, 'arca-mode-insecure-yes');
+      expect(backend.syncCalls, [
+        {'hubUrl': 'http://hub.example.com:7420', 'deviceToken': 'tok', 'allowInsecureHttp': true},
+      ]);
+    });
+
+    testWidgets('an IPv6 hub is written with brackets, in the warning and in the call', (tester) async {
+      _savedHub(tls: false, host: '2001:db8::1');
+      final backend = FakeBackend(on: true);
+      await _show(tester, backend);
+
+      await _tap(tester, 'arca-mode-sync');
+      expect(find.text(en.arcaModeInsecureWarning('http://[2001:db8::1]:7420')), findsOneWidget);
+      await _tap(tester, 'arca-mode-insecure-yes');
+
+      expect(backend.syncCalls.single['hubUrl'], 'http://[2001:db8::1]:7420');
     });
 
     testWidgets('the agreement is not kept: opening the screen again asks again', (tester) async {

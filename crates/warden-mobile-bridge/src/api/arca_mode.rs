@@ -8,7 +8,8 @@
 //! The Rust text of a failure is English and for the log; the screen translates `ArcaModeErrorKind`.
 //!
 //! `http` to another machine is refused unless the screen passes `allow_insecure_http` (only after warning the person that the
-//! token then travels in the clear: `HubStore::allow_insecure_http`, the name is on purpose). `https` and loopback never need it.
+//! token then travels in the clear to that address, across every network on the way: `HubStore::allow_insecure_http`, the name is on
+//! purpose). `https` and loopback never need it. With the permission, any host is accepted.
 
 use warden_sync::arca_sync::{is_auth_rejected, HubError, HubStore, PendingEpoch};
 use warden_sync::SyncEngine;
@@ -121,42 +122,12 @@ pub fn arca_mode_enable(vault_root: String, config_path: String, secrets_path: S
     enable_with(&engine(&vault_root, &config_path, &secrets_path, &manifest_path), push_is_pending(), now_ms)
 }
 
-/// Whether `host` (as written in a URL, brackets and all) is a machine on the person's own network: a private, link-local or
-/// carrier-grade-NAT (Tailscale's 100.64.0.0/10) address, a unique-local or link-local IPv6 one, loopback, `localhost` or an mDNS
-/// `*.local` name. A public address or name is not: the token must not cross the internet in the clear.
-fn is_own_network(host: &str) -> bool {
-    use std::net::{IpAddr, Ipv4Addr};
-    let bare = host.strip_prefix('[').and_then(|h| h.strip_suffix(']')).unwrap_or(host);
-    match bare.parse::<IpAddr>() {
-        Ok(IpAddr::V4(ip)) => ip.is_private() || ip.is_loopback() || ip.is_link_local() || (u32::from(ip) & 0xffc0_0000) == u32::from(Ipv4Addr::new(100, 64, 0, 0)),
-        Ok(IpAddr::V6(ip)) => ip.is_loopback() || (ip.segments()[0] & 0xfe00) == 0xfc00 || (ip.segments()[0] & 0xffc0) == 0xfe80,
-        Err(_) => {
-            let name = bare.to_ascii_lowercase();
-            name == "localhost" || name.ends_with(".local")
-        }
-    }
-}
-
-/// The host of a plain `http://` address, or `None` when the address is not one (the hub client judges everything else).
-fn plain_http_host(hub_url: &str) -> Option<&str> {
-    let rest = hub_url.get(..7).filter(|scheme| scheme.eq_ignore_ascii_case("http://")).map(|_| &hub_url[7..])?;
-    let authority = rest.split(['/', '?', '#']).next().unwrap_or("");
-    // Credentials in the address are the hub client's to refuse; they must not shift what counts as the host here.
-    if authority.contains('@') {
-        return None;
-    }
-    let host = if authority.starts_with('[') { authority.split_inclusive(']').next().unwrap_or(authority) } else { authority.split(':').next().unwrap_or(authority) };
-    Some(host)
-}
-
-/// The hub client for `hub_url`. Plain `http` to another machine is refused unless `allow_insecure_http` (the person was warned), and
-/// even then only to a machine on the person's own network (`is_own_network`): the permission is a bool with no origin attached, so
-/// the host is checked here and a screen that passes `true` for a public address (by mistake or by a stale "already warned") is refused.
+/// The hub client for `hub_url`. Plain `http` to another machine is refused unless `allow_insecure_http`, on ANY network: the person
+/// decided (2026-11-22) that a warning is enough. The permission is a bool with no address attached, so what ties it to the address
+/// the person saw is the screen, which asks again for every address and keeps the answer only in memory (`arca_mode_screen.dart`).
+/// The refusals of credentials, a path, a query and another scheme do not depend on the permission: they come from the hub client.
 #[flutter_rust_bridge::frb(ignore)]
 pub(crate) fn hub_store_for(hub_url: &str, device_token: &str, allow_insecure_http: bool) -> Result<HubStore, ArcaModeFailure> {
-    if allow_insecure_http && plain_http_host(hub_url).is_some_and(|host| !is_own_network(host)) {
-        return Err(failure(ArcaModeErrorKind::InsecureUrl, "plain http is only accepted to a machine on your own network, never to a public address"));
-    }
     let built = if allow_insecure_http { HubStore::allow_insecure_http(hub_url, device_token) } else { HubStore::new(hub_url, device_token) };
     built.map_err(|error| match error {
         HubError::InsecureUrl => failure(ArcaModeErrorKind::InsecureUrl, "plain http to another machine: the token would travel in the clear"),
@@ -393,6 +364,7 @@ mod tests {
         assert_eq!(refused.kind, ArcaModeErrorKind::InsecureUrl);
         assert!(hub_store_for("http://192.168.0.10:7000", "token", true).is_ok(), "warned: http to the LAN is accepted");
         assert!(hub_store_for("https://hub.example", "token", false).is_ok(), "https never needs the permission");
+        assert!(hub_store_for("https://hub.example", "token", true).is_ok(), "and having it changes nothing for https");
         // The permission is for plain http only: a bad address or token stays refused with it.
         assert_eq!(hub_store_for("https://hub.example/some/path", "token", true).err().unwrap().kind, ArcaModeErrorKind::BadUrl);
         assert_eq!(hub_store_for("ftp://hub.example", "token", true).err().unwrap().kind, ArcaModeErrorKind::BadUrl);
@@ -400,22 +372,47 @@ mod tests {
     }
 
     #[test]
-    fn the_permission_for_plain_http_is_only_for_the_own_network_never_for_a_public_address() {
-        // A screen that passes `true` by mistake (or from a stale "already warned") must not send the token across the internet.
-        for public in ["http://hub.example.com", "http://203.0.113.7:7000", "http://8.8.8.8", "http://[2001:db8::1]:7000", "http://172.32.0.1", "http://100.128.0.1", "http://192.169.0.1", "http://localhost.evil.com", "http://HUB.EXAMPLE.COM"] {
-            let refused = hub_store_for(public, "token", true).err().unwrap_or_else(|| panic!("{public} was accepted"));
-            assert_eq!(refused.kind, ArcaModeErrorKind::InsecureUrl, "{public}");
+    fn with_the_permission_plain_http_goes_to_any_host_and_without_it_only_to_this_phone() {
+        // The person decided (2026-11-22): after the warning, plain http is accepted on any network, a name that is only local
+        // (`*.lan`, `*.ts.net`) or a public one. The warning on the screen is what protects the token, not a list of networks here.
+        for any in [
+            "http://hub.example.com",
+            "http://203.0.113.7:7000",
+            "http://8.8.8.8",
+            "http://[2001:db8::1]:7000",
+            "http://nas.lan:7000",
+            "http://my-hub.tail1234.ts.net:7420",
+            "http://localhost.evil.com",
+            "HTTP://HUB.EXAMPLE.COM",
+        ] {
+            assert!(hub_store_for(any, "token", true).is_ok(), "{any} should be accepted once the person was warned");
+            let refused = hub_store_for(any, "token", false).err().unwrap_or_else(|| panic!("{any} was accepted without the permission"));
+            assert_eq!(refused.kind, ArcaModeErrorKind::InsecureUrl, "{any}: without the permission it stays refused");
         }
-        for own in ["http://192.168.0.10:7000", "http://10.0.0.5", "http://172.16.4.2", "http://172.31.255.255", "http://169.254.1.1", "http://100.64.0.1", "http://100.127.255.255", "http://127.0.0.1:7000", "http://localhost:7000", "http://[::1]:7000", "http://[fd12:3456::1]:7000", "http://[fe80::1]", "http://my-hub.local:7000", "HTTP://192.168.0.10:7000"] {
-            assert!(hub_store_for(own, "token", true).is_ok(), "{own} should be accepted once the person was warned");
+        // This phone itself needs no permission: the token does not leave it.
+        for here in ["http://127.0.0.1:7000", "http://localhost:7000", "http://[::1]:7000"] {
+            assert!(hub_store_for(here, "token", false).is_ok(), "{here} is this phone");
         }
     }
 
     #[test]
     fn the_permission_does_not_relax_credentials_a_path_or_a_query_in_the_address() {
-        for odd in ["http://user:pass@192.168.0.10:7000", "http://192.168.0.10:7000/some/path", "http://192.168.0.10:7000/?x=1", "http://192.168.0.10:7000#frag", "http://public.example.com@192.168.0.10:7000", "http://192.168.0.10@public.example.com"] {
+        // With any host allowed, these are the cases that matter most: a public host with credentials, a path or another scheme. The
+        // permission is only for plain http, so each stays a bad address (never an "insecure" one, which the permission would lift).
+        for odd in [
+            "http://user:pass@192.168.0.10:7000",
+            "http://user@hub.example.com",
+            "http://192.168.0.10:7000/some/path",
+            "http://hub.example.com/some/path",
+            "http://192.168.0.10:7000/?x=1",
+            "http://192.168.0.10:7000#frag",
+            "http://public.example.com@192.168.0.10:7000",
+            "http://192.168.0.10@public.example.com",
+            "ftp://192.168.0.10:7000",
+            "ftp://hub.example.com",
+        ] {
             let refused = hub_store_for(odd, "token", true).err().unwrap_or_else(|| panic!("{odd} was accepted"));
-            assert!(matches!(refused.kind, ArcaModeErrorKind::BadUrl | ArcaModeErrorKind::InsecureUrl), "{odd}: {:?}", refused.kind);
+            assert_eq!(refused.kind, ArcaModeErrorKind::BadUrl, "{odd}");
         }
     }
 
