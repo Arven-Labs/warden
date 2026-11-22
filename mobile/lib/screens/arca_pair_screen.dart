@@ -59,7 +59,8 @@ class _ArcaPairScreenState extends State<ArcaPairScreen> {
     final settings = await store.load();
     final token = settings == null ? null : await store.deviceTokenFor(settings.host, settings.port);
     final deviceId = await store.getOrCreateDeviceId();
-    final role = await _backend.role();
+    // In a swap both ends already have a key, so the key cannot say which half this is: the person said it.
+    final role = widget.swap == null ? await _backend.role() : _role;
     if (!mounted) return;
     setState(() {
       _role = role;
@@ -84,7 +85,11 @@ class _ArcaPairScreenState extends State<ArcaPairScreen> {
       _typed.clear();
     });
     try {
-      if (_role == bridge.ArcaPairRole.grant) {
+      if (widget.swap == ArcaSwapSide.grant) {
+        await _backend.startSwapGrant(hubUrl: _hubUrl!, deviceToken: _token!);
+      } else if (widget.swap == ArcaSwapSide.replace) {
+        await _backend.startSwapReplace(hubUrl: _hubUrl!, deviceToken: _token!, deviceId: _deviceId!);
+      } else if (_role == bridge.ArcaPairRole.grant) {
         await _backend.startGrant(hubUrl: _hubUrl!, deviceToken: _token!);
       } else {
         await _backend.start(hubUrl: _hubUrl!, deviceToken: _token!, deviceId: _deviceId!);
@@ -166,12 +171,18 @@ class _ArcaPairScreenState extends State<ArcaPairScreen> {
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context);
+    final swap = widget.swap;
+    final intro = switch (swap) {
+      ArcaSwapSide.grant => l10n.arcaSwapGrantIntro,
+      ArcaSwapSide.replace => l10n.arcaSwapReplaceIntro,
+      null => _role == bridge.ArcaPairRole.grant ? l10n.arcaPairGrantIntro : l10n.arcaPairIntro,
+    };
     return Scaffold(
-      appBar: AppBar(title: Text(l10n.arcaPairTitle)),
+      appBar: AppBar(title: Text(swap == null ? l10n.arcaPairTitle : l10n.arcaSwapTitle)),
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
-          Text(_role == bridge.ArcaPairRole.grant ? l10n.arcaPairGrantIntro : l10n.arcaPairIntro),
+          Text(intro),
           const SizedBox(height: 16),
           ..._body(l10n),
         ],
@@ -202,7 +213,8 @@ class _ArcaPairScreenState extends State<ArcaPairScreen> {
 
   List<Widget> _body(AppLocalizations l10n) {
     final startButton = FilledButton(key: const Key('arca-pair-start'), onPressed: _start, child: Text(l10n.arcaPairStart));
-    final cancelButton = OutlinedButton(key: const Key('arca-pair-cancel'), onPressed: () => _backend.cancel(), child: Text(l10n.arcaPairCancel));
+    final swap = widget.swap != null;
+    final cancelButton = OutlinedButton(key: const Key('arca-pair-cancel'), onPressed: () => _backend.cancel(), child: Text(swap ? l10n.arcaSwapCancel : l10n.arcaPairCancel));
     switch (_phase) {
       case _Phase.loading:
         return const [Center(child: CircularProgressIndicator())];
@@ -225,7 +237,13 @@ class _ArcaPairScreenState extends State<ArcaPairScreen> {
           cancelButton,
         ];
       case _Phase.asking:
-        return _typedStep(l10n, cancelButton, prompt: l10n.arcaPairAskFingerprint, fieldKey: 'arca-pair-fingerprint', label: l10n.arcaPairFingerprintLabel);
+        return _typedStep(
+          l10n,
+          cancelButton,
+          prompt: swap ? l10n.arcaSwapAskFingerprint : l10n.arcaPairAskFingerprint,
+          fieldKey: 'arca-pair-fingerprint',
+          label: swap ? l10n.arcaSwapFingerprintLabel : l10n.arcaPairFingerprintLabel,
+        );
       case _Phase.choosing:
         return [
           Text(l10n.arcaPairChooseOffer),
@@ -239,8 +257,8 @@ class _ArcaPairScreenState extends State<ArcaPairScreen> {
       case _Phase.done:
         final granted = _grantedFingerprint;
         return [
-          if (granted == null) Text(l10n.arcaPairDone) else ...[
-            Text(l10n.arcaPairGranted),
+          if (granted == null) Text(swap ? l10n.arcaSwapDone : l10n.arcaPairDone) else ...[
+            Text(swap ? l10n.arcaSwapGranted : l10n.arcaPairGranted),
             const SizedBox(height: 8),
             SelectableText(granted, style: Theme.of(context).textTheme.headlineSmall),
           ],

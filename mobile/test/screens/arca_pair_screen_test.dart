@@ -355,7 +355,8 @@ void main() {
       for (final step in steps) {
         backend.push(step);
       }
-      await tester.pumpWidget(testApp(home: ArcaPairScreen(backend: backend, swap: side), locale: locale));
+      // A new key each time: the same screen type at the same place would keep the State (and the backend) of the previous mount.
+      await tester.pumpWidget(testApp(home: ArcaPairScreen(key: UniqueKey(), backend: backend, swap: side), locale: locale));
       await _settle(tester);
       await _startPairing(tester, backend);
       return backend;
@@ -391,12 +392,12 @@ void main() {
 
     testWidgets('it has its own title and its own introduction for each half', (tester) async {
       _savedHub();
-      await tester.pumpWidget(testApp(home: ArcaPairScreen(backend: FakeBackend(), swap: ArcaSwapSide.replace)));
+      await tester.pumpWidget(testApp(home: ArcaPairScreen(key: UniqueKey(), backend: FakeBackend(), swap: ArcaSwapSide.replace)));
       await _settle(tester);
       expect(find.text(AppLocalizationsEn().arcaSwapTitle), findsOneWidget);
       expect(find.text(AppLocalizationsEn().arcaSwapReplaceIntro), findsOneWidget);
 
-      await tester.pumpWidget(testApp(home: ArcaPairScreen(backend: FakeBackend(), swap: ArcaSwapSide.grant)));
+      await tester.pumpWidget(testApp(home: ArcaPairScreen(key: UniqueKey(), backend: FakeBackend(), swap: ArcaSwapSide.grant)));
       await _settle(tester);
       expect(find.text(AppLocalizationsEn().arcaSwapGrantIntro), findsOneWidget);
     });

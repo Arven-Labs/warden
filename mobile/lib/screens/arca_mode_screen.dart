@@ -5,6 +5,7 @@ import '../services/arca_mode_flow.dart';
 import '../services/arca_pair_flow.dart';
 import '../services/connection_settings.dart';
 import '../src/rust/api/arca_mode.dart' as bridge;
+import 'arca_pair_screen.dart';
 
 /// The arca mode of this phone: turn it on, sync by hand, and see (and acknowledge) the newer key epochs that stop the vault.
 ///
@@ -228,6 +229,69 @@ class _ArcaModeScreenState extends State<ArcaModeScreen> {
     if (mounted) setState(() => _busy = false);
   }
 
+  /// Opens the key swap screen for one half. Whatever it did (a key replaced, a key handed over) changes what this screen shows, so
+  /// the mode and the newer epochs are read again when it comes back.
+  Future<void> _openSwap(ArcaSwapSide side) async {
+    await Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => ArcaPairScreen(backend: widget.pairBackend, swap: side)));
+    if (mounted) await _refresh();
+  }
+
+  /// Replacing this device's key drops its local sync copy, so it asks first, and about the epochs read NOW (not the ones the screen
+  /// drew a while ago): the person confirms what is pending at the moment of the tap. Only an explicit "yes" opens the swap screen.
+  Future<void> _replaceKey() async {
+    if (_busy || _asking) return;
+    _asking = true;
+    final l10n = AppLocalizations.of(context);
+    final List<bridge.PendingEpochDto> fresh;
+    try {
+      fresh = await _backend.epochsPending();
+    } catch (error) {
+      _asking = false;
+      _say(arcaModeErrorText(l10n, _kindOf(error)), error: true);
+      return;
+    }
+    if (!mounted) {
+      _asking = false;
+      return;
+    }
+    if (fresh.isEmpty) {
+      _asking = false;
+      await _refresh();
+      _say(l10n.arcaSwapNothingPending, error: true);
+      return;
+    }
+    final bool? yes;
+    try {
+      yes = await showDialog<bool>(
+        context: context,
+        barrierDismissible: false,
+        builder: (context) => AlertDialog(
+          title: Text(l10n.arcaSwapReplaceConfirmTitle),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(l10n.arcaSwapReplaceConfirmBody),
+                const SizedBox(height: 12),
+                for (final item in fresh) Text(l10n.arcaModeEpochItem(item.epoch, epochShortId(item.id))),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(key: const Key('arca-mode-swap-no'), onPressed: () => Navigator.of(context).pop(false), child: Text(l10n.arcaSwapReplaceConfirmNo)),
+            FilledButton(key: const Key('arca-mode-swap-yes'), onPressed: () => Navigator.of(context).pop(true), child: Text(l10n.arcaSwapReplaceConfirmYes)),
+          ],
+        ),
+      );
+    } finally {
+      _asking = false;
+    }
+    // Only an explicit "yes": closing the dialog any other way (back button) answers `null`.
+    if (yes != true || !mounted) return;
+    await _openSwap(ArcaSwapSide.replace);
+  }
+
   Future<void> _acknowledge() async {
     if (_busy) return;
     final l10n = AppLocalizations.of(context);
@@ -293,6 +357,15 @@ class _ArcaModeScreenState extends State<ArcaModeScreen> {
         else
           FilledButton(key: const Key('arca-mode-sync'), onPressed: _busy ? null : _syncNow, child: Text(l10n.arcaModeSyncNow)),
         if (!_on && _hubOrigin == null) ...[const SizedBox(height: 8), Text(l10n.arcaModeNoHub)],
+        // The key swap (P-49): hand the new key over any time the mode is on; replace this device's key only while a newer one is pending.
+        if (_on && _hubOrigin != null) ...[
+          const SizedBox(height: 8),
+          OutlinedButton(key: const Key('arca-mode-swap-grant'), onPressed: _busy ? null : () => _openSwap(ArcaSwapSide.grant), child: Text(l10n.arcaSwapGrantOpen)),
+          if (_epochs.isNotEmpty) ...[
+            const SizedBox(height: 8),
+            OutlinedButton(key: const Key('arca-mode-swap-replace'), onPressed: _busy ? null : _replaceKey, child: Text(l10n.arcaSwapReplaceOpen)),
+          ],
+        ],
       ],
       if (_busy) ...[
         const SizedBox(height: 16),
