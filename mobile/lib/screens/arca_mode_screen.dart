@@ -59,7 +59,9 @@ class _ArcaModeScreenState extends State<ArcaModeScreen> {
     final settings = await store.load();
     final token = settings == null ? null : await store.deviceTokenFor(settings.host, settings.port);
     if (settings == null || token == null) return null;
-    return (origin: '${settings.useTls ? 'https' : 'http'}://${settings.host}:${settings.port}', token: token, tls: settings.useTls);
+    // An IPv6 literal (`::1`) needs its brackets in an address, or the port is read as part of it.
+    final host = settings.host.contains(':') ? '[${settings.host}]' : settings.host;
+    return (origin: '${settings.useTls ? 'https' : 'http'}://$host:${settings.port}', token: token, tls: settings.useTls);
   }
 
   Future<void> _load() async {

@@ -364,6 +364,7 @@ mod tests {
         assert_eq!(refused.kind, ArcaModeErrorKind::InsecureUrl);
         assert!(hub_store_for("http://192.168.0.10:7000", "token", true).is_ok(), "warned: http to the LAN is accepted");
         assert!(hub_store_for("https://hub.example", "token", false).is_ok(), "https never needs the permission");
+        assert!(hub_store_for("https://hub.example", "token", true).is_ok(), "and having it changes nothing for https");
         // The permission is for plain http only: a bad address or token stays refused with it.
         assert_eq!(hub_store_for("https://hub.example/some/path", "token", true).err().unwrap().kind, ArcaModeErrorKind::BadUrl);
         assert_eq!(hub_store_for("ftp://hub.example", "token", true).err().unwrap().kind, ArcaModeErrorKind::BadUrl);
@@ -396,9 +397,22 @@ mod tests {
 
     #[test]
     fn the_permission_does_not_relax_credentials_a_path_or_a_query_in_the_address() {
-        for odd in ["http://user:pass@192.168.0.10:7000", "http://192.168.0.10:7000/some/path", "http://192.168.0.10:7000/?x=1", "http://192.168.0.10:7000#frag", "http://public.example.com@192.168.0.10:7000", "http://192.168.0.10@public.example.com"] {
+        // With any host allowed, these are the cases that matter most: a public host with credentials, a path or another scheme. The
+        // permission is only for plain http, so each stays a bad address (never an "insecure" one, which the permission would lift).
+        for odd in [
+            "http://user:pass@192.168.0.10:7000",
+            "http://user@hub.example.com",
+            "http://192.168.0.10:7000/some/path",
+            "http://hub.example.com/some/path",
+            "http://192.168.0.10:7000/?x=1",
+            "http://192.168.0.10:7000#frag",
+            "http://public.example.com@192.168.0.10:7000",
+            "http://192.168.0.10@public.example.com",
+            "ftp://192.168.0.10:7000",
+            "ftp://hub.example.com",
+        ] {
             let refused = hub_store_for(odd, "token", true).err().unwrap_or_else(|| panic!("{odd} was accepted"));
-            assert!(matches!(refused.kind, ArcaModeErrorKind::BadUrl | ArcaModeErrorKind::InsecureUrl), "{odd}: {:?}", refused.kind);
+            assert_eq!(refused.kind, ArcaModeErrorKind::BadUrl, "{odd}");
         }
     }
 

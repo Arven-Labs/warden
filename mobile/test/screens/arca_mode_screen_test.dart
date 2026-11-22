@@ -301,6 +301,18 @@ void main() {
       ]);
     });
 
+    testWidgets('an IPv6 hub is written with brackets, in the warning and in the call', (tester) async {
+      _savedHub(tls: false, host: '2001:db8::1');
+      final backend = FakeBackend(on: true);
+      await _show(tester, backend);
+
+      await _tap(tester, 'arca-mode-sync');
+      expect(find.text(en.arcaModeInsecureWarning('http://[2001:db8::1]:7420')), findsOneWidget);
+      await _tap(tester, 'arca-mode-insecure-yes');
+
+      expect(backend.syncCalls.single['hubUrl'], 'http://[2001:db8::1]:7420');
+    });
+
     testWidgets('the agreement is not kept: opening the screen again asks again', (tester) async {
       _savedHub(tls: false);
       final backend = FakeBackend(on: true);
