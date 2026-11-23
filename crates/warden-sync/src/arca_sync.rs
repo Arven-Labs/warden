@@ -990,8 +990,12 @@ mod tests {
         for (before_any_write, remedy) in [
             (EngineError::Object(arca_core::Error::KeyNotRotated), Remedy::SameKey),
             (EngineError::Object(arca_core::Error::EpochOverflow), Remedy::NeedsRepair),
+            // Only diverging tips are joined by a sync (`merge`); an unreadable manifest blocks the merge and the snapshot alike
+            // (`arca_sync.rs`: "cannot be read; refusing to build on them"), so syncing cannot cure it.
             (EngineError::Diverged { tips: 2, rejected: 0 }, Remedy::SyncFirst),
-            (EngineError::Diverged { tips: 1, rejected: 3 }, Remedy::SyncFirst),
+            (EngineError::Diverged { tips: 3, rejected: 0 }, Remedy::SyncFirst),
+            (EngineError::Diverged { tips: 1, rejected: 3 }, Remedy::NeedsRepair),
+            (EngineError::Diverged { tips: 2, rejected: 1 }, Remedy::NeedsRepair),
             (EngineError::Rollback, Remedy::StorageChanged),
             (EngineError::Interrupted, Remedy::SyncFirst),
             (EngineError::IncompleteApply, Remedy::SyncFirst),
@@ -1014,11 +1018,28 @@ mod tests {
             EngineError::Io(std::io::ErrorKind::PermissionDenied),
             EngineError::MissingObject,
             EngineError::JournalTooLarge,
+            // an object error that is not one of the two refusals comes from inside `build_snapshot` (sealing, a manifest that does
+            // not fit the rules), after the blobs may be out
+            EngineError::Object(arca_core::Error::Decrypt),
+            EngineError::Object(arca_core::Error::Encrypt),
+            EngineError::Object(arca_core::Error::WrongKeyEpoch { found: 2, expected: 1 }),
+            EngineError::Object(arca_core::Error::InvalidManifest("too many files")),
         ] {
             let failure = rotation_error_of(may_have_written.clone());
             assert!(matches!(failure.error, RotationError::Failed(_)), "{may_have_written:?}");
             assert_eq!(failure.remedy, None, "{may_have_written:?}");
         }
+    }
+
+    #[test]
+    fn a_busy_engine_in_a_rotation_does_not_promise_a_next_cycle_that_nobody_runs() {
+        use crate::arca_rotation::Remedy;
+        // `engine_failure` says "this cycle did nothing; the next one tries again", true for the sync loop. A rotation is one call by
+        // the person: nobody tries again, so the text must not say so.
+        let text = rotation_error_of(EngineError::Busy).error.to_string();
+        assert!(!text.contains("next one tries again"), "{text}");
+        assert!(!text.contains("this cycle did nothing"), "{text}");
+        assert!(text.contains(Remedy::Busy.hint()), "{text}");
     }
 
     #[test]
@@ -1503,6 +1524,28 @@ mod tests {
         let after = secrets_of(&device);
         assert_eq!((after.vault_key, after.key_epoch), (finished.vault_key, 1));
         assert_eq!(epochs_of(&manifests_in_store(&device).await), vec![0, 1]);
+    }
+
+    #[tokio::test]
+    async fn a_vault_whose_secrets_cannot_be_read_is_refused_as_needing_repair_not_as_a_busy_program_and_writes_nothing() {
+        use crate::arca_rotation::Remedy;
+        let device = device_in_arca_mode("rotate-secrets-unreadable").await;
+        // `arca_engine` cannot load the secrets: the closure before `begin_epoch` refuses, and nothing is on disk yet. Another
+        // program holding the vault is not what is wrong, so "close it and try again" would be false.
+        std::fs::write(secrets_path_of(&device), b"{ this is not json").unwrap();
+        let before = std::fs::read(secrets_path_of(&device)).unwrap();
+        let pending = PendingRotation::generate().unwrap();
+        let words = asked_words(&pending);
+
+        let failure = confirm_detailed_with(pending, &device, &words).await.unwrap_err();
+
+        assert!(matches!(failure.error, RotationError::Refused(_)), "{failure:?}");
+        assert_eq!(failure.remedy, Some(Remedy::NeedsRepair), "{failure:?}");
+        let text = failure.error.to_string();
+        assert!(text.contains(Remedy::NeedsRepair.hint()), "{text}");
+        assert!(!text.contains("another program"), "{text}");
+        assert_eq!(std::fs::read(secrets_path_of(&device)).unwrap(), before);
+        assert_eq!(epochs_of(&manifests_in_store(&device).await), vec![0]);
     }
 
     #[tokio::test]
