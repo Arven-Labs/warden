@@ -4004,6 +4004,18 @@ abstract class AppLocalizations {
   /// **'There is no key waiting any more. Start again to get a new one.'**
   String get arcaRotationErrNoRotation;
 
+  /// No description provided for @arcaRotationErrRefused.
+  ///
+  /// In en, this message translates to:
+  /// **'The change was refused before anything was saved, and that key was discarded. Start again to get a new one.'**
+  String get arcaRotationErrRefused;
+
+  /// No description provided for @arcaRotationErrNewerEpoch.
+  ///
+  /// In en, this message translates to:
+  /// **'A newer key is already stored and this device has not accepted it, so nothing was changed and that key was discarded. If an earlier change of key on this device stopped half way, start it again and type the 24 words of that one. If another device changed the key, pair this device again or check the pending key changes first.'**
+  String get arcaRotationErrNewerEpoch;
+
   /// No description provided for @arcaRotationErrFailed.
   ///
   /// In en, this message translates to:

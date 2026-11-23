@@ -166,11 +166,25 @@ class _ArcaRotationScreenState extends State<ArcaRotationScreen> {
     final phrase = _resumeController.text.trim().split(RegExp(r'\s+')).join(' ');
     try {
       await widget.backend.rotationResume(phrase);
-      await widget.backend.rotationConfirm(typedWords: const [], revokedOnHub: _revoked);
     } catch (error) {
+      // `resume` writes nothing: here `other` really is "nothing was changed".
       if (mounted) {
         setState(() {
           _error = arcaRotationErrorText(l10n, _kindOf(error));
+          _busy = false;
+        });
+      }
+      return;
+    }
+    try {
+      await widget.backend.rotationConfirm(typedWords: const [], revokedOnHub: _revoked);
+    } catch (error) {
+      // As in `_confirm`: the bridge never answers `other` to a confirm, so `other` or an error that is not the bridge's own (a panic,
+      // a broken channel) is the unknown, and the unknown may have written something. The 24 words stay to be tried again.
+      final kind = error is bridge_rotation.ArcaRotationFailure && error.kind != bridge_rotation.ArcaRotationErrorKind.other ? error.kind : bridge_rotation.ArcaRotationErrorKind.failed;
+      if (mounted) {
+        setState(() {
+          _error = arcaRotationErrorText(l10n, kind);
           _busy = false;
         });
       }

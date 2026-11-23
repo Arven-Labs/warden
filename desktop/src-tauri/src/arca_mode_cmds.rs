@@ -955,7 +955,14 @@ mod tests {
     #[test]
     fn only_a_failure_that_may_have_written_something_says_to_resume() {
         // A refusal before the first write: start again. A stop half way: the same 24 words finish it (a new key would not).
-        for refused in [RotationError::NotDeclared, RotationError::WordMismatch, RotationError::BadPhrase, RotationError::NotInArcaMode] {
+        for refused in [
+            RotationError::NotDeclared,
+            RotationError::WordMismatch,
+            RotationError::BadPhrase,
+            RotationError::NotInArcaMode,
+            RotationError::Refused("same key".to_string()),
+            RotationError::NewerEpoch,
+        ] {
             assert!(!RotationFailure::from(refused.clone()).partial, "{refused:?}");
         }
         let stopped = RotationFailure::from(RotationError::Failed("disk full".to_string()));

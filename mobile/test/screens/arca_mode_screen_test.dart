@@ -942,6 +942,23 @@ void main() {
       expect(backend.syncCalls.length, 1);
     });
 
+    testWidgets('resuming: an error that is not the bridge\'s own during the confirm may have written something, so it never says "nothing was changed"', (tester) async {
+      final backend = await shown(tester);
+      backend.confirmCrash = StateError('channel closed');
+      await tapRoute(tester, 'arca-mode-rotate');
+      await tapRoute(tester, 'arca-rotation-resume-open');
+
+      await typeInto(tester, 'arca-rotation-resume-field', backend.rotationStart.phrase.join(' '));
+      await tapRoute(tester, 'arca-rotation-revoked');
+      await tapRoute(tester, 'arca-rotation-resume-confirm');
+      await tapRoute(tester, 'arca-rotation-confirm-yes');
+
+      expect(find.text(arcaRotationErrorText(en, bridge_rot.ArcaRotationErrorKind.failed)), findsOneWidget);
+      expect(find.text(arcaRotationErrorText(en, bridge_rot.ArcaRotationErrorKind.other)), findsNothing);
+      expect(find.byKey(const Key('arca-rotation-resume-field')), findsOneWidget, reason: 'the same 24 words stay to be tried again');
+      expect(backend.syncCalls, isEmpty);
+    });
+
     testWidgets('the resume field takes only typing too, and a phrase the bridge refuses is told as such and confirms nothing', (tester) async {
       final backend = await shown(tester);
       backend.resumeFailure = _rotationFailure(bridge_rot.ArcaRotationErrorKind.badPhrase);
@@ -963,7 +980,13 @@ void main() {
 
     testWidgets('every other failure shows its own sentence and never the English detail', (tester) async {
       // `other` is not here: the bridge never answers it to a confirm, so on a confirm it is the unknown, and the screen treats it as `failed`.
-      for (final kind in [bridge_rot.ArcaRotationErrorKind.notDeclared, bridge_rot.ArcaRotationErrorKind.noRotation]) {
+      // `refused` and `newerEpoch` are refusals before the first write: the phrase is spent, "resume" would be wrong (nothing was written).
+      for (final kind in [
+        bridge_rot.ArcaRotationErrorKind.notDeclared,
+        bridge_rot.ArcaRotationErrorKind.noRotation,
+        bridge_rot.ArcaRotationErrorKind.refused,
+        bridge_rot.ArcaRotationErrorKind.newerEpoch,
+      ]) {
         // A fresh tree: the screen of the last turn must not stay open on top of the next one.
         await tester.pumpWidget(const SizedBox());
         final backend = await shown(tester);

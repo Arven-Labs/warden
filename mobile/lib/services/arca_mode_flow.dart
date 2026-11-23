@@ -39,6 +39,8 @@ String arcaRotationErrorText(AppLocalizations l10n, bridge_rotation.ArcaRotation
       bridge_rotation.ArcaRotationErrorKind.wordMismatch => l10n.arcaRotationErrWordMismatch,
       bridge_rotation.ArcaRotationErrorKind.badPhrase => l10n.arcaRotationErrBadPhrase,
       bridge_rotation.ArcaRotationErrorKind.noRotation => l10n.arcaRotationErrNoRotation,
+      bridge_rotation.ArcaRotationErrorKind.refused => l10n.arcaRotationErrRefused,
+      bridge_rotation.ArcaRotationErrorKind.newerEpoch => l10n.arcaRotationErrNewerEpoch,
       bridge_rotation.ArcaRotationErrorKind.failed => l10n.arcaRotationErrFailed,
       bridge_rotation.ArcaRotationErrorKind.other => l10n.arcaRotationErrOther,
     };

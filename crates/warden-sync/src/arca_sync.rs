@@ -280,15 +280,14 @@ impl SyncEngine {
     pub(crate) async fn arca_rotate_to(&self, new_key: &VaultKey, now_ms: u64) -> Result<(), crate::arca_rotation::RotationError> {
         use crate::arca_rotation::RotationError;
         let failed = |error: anyhow::Error| RotationError::Failed(format!("{error:#}"));
-        let _one_sync_at_a_time = self.sync_lock().await.map_err(failed)?;
-        let Some(mode) = load_mode(&mode_path_for(&self.manifest_path)).map_err(failed)? else {
+        // Until `begin_epoch` writes, nothing is on disk: what goes wrong here is a refusal, not a stop half way.
+        let refused = |error: anyhow::Error| RotationError::Refused(format!("{error:#}"));
+        let _one_sync_at_a_time = self.sync_lock().await.map_err(refused)?;
+        let Some(mode) = load_mode(&mode_path_for(&self.manifest_path)).map_err(refused)? else {
             return Err(RotationError::NotInArcaMode);
         };
-        let (engine, roots) = self.arca_engine(mode.secret_accepted, false).map_err(failed)?;
-        let (_next, snapshot) = engine
-            .begin_epoch(new_key, &roots, now_ms)
-            .await
-            .map_err(|e| failed(engine_failure(e, "starting the new key epoch")))?;
+        let (engine, roots) = self.arca_engine(mode.secret_accepted, false).map_err(refused)?;
+        let (_next, snapshot) = engine.begin_epoch(new_key, &roots, now_ms).await.map_err(rotation_error_of)?;
         let published = match snapshot {
             Snapshot::Created { id, .. } => id,
             Snapshot::Unchanged { head, .. } => head,
@@ -928,6 +927,35 @@ fn engine_failure(error: EngineError, what: &str) -> anyhow::Error {
     }
 }
 
+/// How a `begin_epoch` error reaches the person. Only the errors `begin_epoch` returns **before its first write** are refusals
+/// (read in `Engine::begin_epoch`; its tests prove the store is unchanged for `KeyNotRotated`, `EpochOverflow`, `Diverged`,
+/// `Interrupted`, `Rollback` and `NeedsNewKey`, the rest is by reading the code); any other one (a store error, `StateNotSaved`) may come after the new
+/// manifest went out, so it stays `Failed`, which tells the person to resume with the same 24 words. Do not widen the refusal
+/// list without that proof: a wrong "nothing was changed" makes the person throw away a key that was already published.
+fn rotation_error_of(error: EngineError) -> crate::arca_rotation::RotationError {
+    use crate::arca_rotation::RotationError;
+    let wrote_nothing = matches!(
+        error,
+        EngineError::Object(arca_core::Error::KeyNotRotated | arca_core::Error::EpochOverflow)
+            | EngineError::Diverged { .. }
+            | EngineError::Rollback
+            | EngineError::Interrupted
+            | EngineError::IncompleteApply
+            | EngineError::CorruptJournal
+            | EngineError::CorruptState
+            | EngineError::Busy
+    );
+    if matches!(error, EngineError::NeedsNewKey { .. }) {
+        return RotationError::NewerEpoch;
+    }
+    let text = format!("{:#}", engine_failure(error, "starting the new key epoch"));
+    if wrote_nothing {
+        RotationError::Refused(text)
+    } else {
+        RotationError::Failed(text)
+    }
+}
+
 /// The manifest the vault folder reflects. A missing or unreadable file with the mode on is an error: guessing would bring back
 /// the deletion described in the module docs.
 fn load_folder(path: &Path) -> anyhow::Result<ObjectId> {
@@ -948,6 +976,39 @@ mod tests {
 
     fn said(error: EngineError, what: &str) -> String {
         format!("{:#}", engine_failure(error, what))
+    }
+
+    #[test]
+    fn only_the_errors_begin_epoch_returns_before_its_first_write_are_refusals() {
+        use crate::arca_rotation::RotationError;
+        // The refusals: arca-core `begin_epoch` returns each of them before `build_snapshot` puts anything (read in the code; its
+        // tests cover `KeyNotRotated`, `EpochOverflow`, `Diverged`, `Interrupted`, `Rollback` and `NeedsNewKey`, not the others).
+        for before_any_write in [
+            EngineError::Object(arca_core::Error::KeyNotRotated),
+            EngineError::Object(arca_core::Error::EpochOverflow),
+            EngineError::Diverged { tips: 2, rejected: 0 },
+            EngineError::Rollback,
+            EngineError::Interrupted,
+            EngineError::IncompleteApply,
+            EngineError::CorruptJournal,
+            EngineError::CorruptState,
+            EngineError::Busy,
+        ] {
+            assert!(matches!(rotation_error_of(before_any_write.clone()), RotationError::Refused(_)), "{before_any_write:?}");
+        }
+        assert_eq!(rotation_error_of(EngineError::NeedsNewKey { have: 1, found: 2 }), RotationError::NewerEpoch);
+        // Anything else can come from inside `build_snapshot`, after the blobs or the manifest went out: the person must resume with
+        // the same 24 words, so none of these may read as "nothing was changed".
+        for may_have_written in [
+            EngineError::Store(StoreError::Unavailable(std::io::ErrorKind::TimedOut)),
+            EngineError::Store(StoreError::Corrupt),
+            EngineError::StateNotSaved,
+            EngineError::Io(std::io::ErrorKind::PermissionDenied),
+            EngineError::MissingObject,
+            EngineError::JournalTooLarge,
+        ] {
+            assert!(matches!(rotation_error_of(may_have_written.clone()), RotationError::Failed(_)), "{may_have_written:?}");
+        }
     }
 
     #[test]
@@ -1378,7 +1439,8 @@ mod tests {
         assert!(rotate(&device).await.is_err());
         std::fs::remove_dir(device.base.join("sync_secrets.tmp")).unwrap();
 
-        assert!(matches!(rotate(&device).await, Err(RotationError::Failed(_))));
+        // a half-finished rotation with the first key is in the store: a second key hits that epoch, and nothing is written
+        assert_eq!(rotate(&device).await, Err(RotationError::NewerEpoch));
         let after = secrets_of(&device);
         assert_eq!((after.vault_key, after.key_epoch), (old.vault_key, 0));
         assert_eq!(epochs_of(&manifests_in_store(&device).await), vec![0, 1]);
@@ -1390,7 +1452,8 @@ mod tests {
         let old = secrets_of(&device);
         let phrase = VaultKey::from_bytes(old.vault_key).to_phrase().unwrap();
         let same = PendingRotation::from_phrase(phrase.expose()).unwrap();
-        assert!(matches!(confirm_with(same, &device, &[], true).await, Err(RotationError::Failed(_))));
+        // refused before the first write: the person can simply make another key, so it must not read as "stopped half way"
+        assert!(matches!(confirm_with(same, &device, &[], true).await, Err(RotationError::Refused(_))));
         let after = secrets_of(&device);
         assert_eq!((after.vault_key, after.key_epoch), (old.vault_key, 0));
         assert_eq!(epochs_of(&manifests_in_store(&device).await), vec![0]);
