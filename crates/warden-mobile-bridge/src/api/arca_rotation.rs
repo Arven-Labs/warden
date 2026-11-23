@@ -121,7 +121,7 @@ pub(crate) fn resume_with(engine: &SyncEngine, slot: &RotationSlot, phrase: &str
 pub(crate) async fn confirm_with(engine: &SyncEngine, slot: &RotationSlot, typed_words: &[String], revoked_on_hub: bool, now_ms: u64) -> Result<(), ArcaRotationFailure> {
     let pending = slot.lock().unwrap().take().ok_or_else(|| failure(ArcaRotationErrorKind::NoRotation, "no rotation was started: start it again"))?;
     let typed: Vec<&str> = typed_words.iter().map(String::as_str).collect();
-    pending.confirm(&typed, revoked_on_hub, engine, now_ms).await.map_err(from_error)
+    pending.confirm(&typed, revoked_on_hub || !typed.is_empty(), engine, now_ms).await.map_err(from_error)
 }
 
 #[flutter_rust_bridge::frb(ignore)]
