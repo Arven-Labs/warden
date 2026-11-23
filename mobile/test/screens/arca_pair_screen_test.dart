@@ -504,7 +504,8 @@ void main() {
       await _startPairing(tester, backend);
 
       await tester.tap(find.byKey(const Key('arca-pair-back')));
-      await _settle(tester);
+      // The route transition outlasts `_settle`; after the pop nothing animates forever (no spinner), so this settles.
+      await tester.pumpAndSettle();
 
       expect(find.byKey(const Key('open-swap')), findsOneWidget);
       expect(find.byKey(const Key('arca-pair-back')), findsNothing);
