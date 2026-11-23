@@ -288,7 +288,7 @@ class _ArcaModeScreenState extends State<ArcaModeScreen> {
       _asking = false;
     }
     // Only an explicit "yes": closing the dialog any other way (back button) answers `null`.
-    if (yes != true || !mounted) return;
+    if (yes == false || !mounted) return;
     await _openSwap(ArcaSwapSide.replace);
   }
 
