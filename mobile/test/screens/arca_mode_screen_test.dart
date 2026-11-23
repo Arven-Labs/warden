@@ -85,6 +85,12 @@ class FakeBackend implements ArcaModeBackend {
   bridge_rot.ArcaRotationFailure? beginFailure;
   bridge_rot.ArcaRotationFailure? resumeFailure;
   bridge_rot.ArcaRotationFailure? confirmFailure;
+
+  /// An error that is not the bridge's own (a panic, a broken channel): the screen cannot know whether anything was written.
+  Object? confirmCrash;
+
+  /// Holds the confirm until the test lets it go, to look at the screen while it is in flight.
+  Completer<void>? confirmGate;
   int beginCalls = 0;
   int cancelCalls = 0;
   final resumed = <String>[];
@@ -108,6 +114,10 @@ class FakeBackend implements ArcaModeBackend {
   @override
   Future<void> rotationConfirm({required List<String> typedWords, required bool revokedOnHub}) async {
     confirmed.add((typedWords: List.of(typedWords), revokedOnHub: revokedOnHub));
+    final gate = confirmGate;
+    if (gate != null) await gate.future;
+    final crash = confirmCrash;
+    if (crash != null) throw crash;
     final failure = confirmFailure;
     if (failure != null) throw failure;
   }
@@ -967,6 +977,49 @@ void main() {
         expect(find.textContaining('SECRET'), findsNothing, reason: '$kind');
         expect(backend.syncCalls, isEmpty, reason: '$kind');
       }
+    });
+
+    testWidgets('an error that is not the bridge\'s own during the confirm may have written something: it opens "resume", never "begin again"', (tester) async {
+      final backend = await shown(tester);
+      backend.confirmCrash = StateError('channel closed');
+      await openAndBegin(tester, backend);
+      await fillAndDeclare(tester, backend);
+
+      await tapRoute(tester, 'arca-rotation-confirm');
+      await tapRoute(tester, 'arca-rotation-confirm-yes');
+
+      expect(find.byKey(const Key('arca-rotation-resume-field')), findsOneWidget);
+      expect(find.text(arcaRotationErrorText(en, bridge_rot.ArcaRotationErrorKind.failed)), findsOneWidget);
+      expect(find.byKey(const Key('arca-rotation-begin')), findsNothing);
+      expect(backend.syncCalls, isEmpty);
+    });
+
+    testWidgets('the back button does nothing while the confirm is in flight, and the sync still runs when it ends', (tester) async {
+      final backend = await shown(tester);
+      backend.confirmGate = Completer<void>();
+      await openAndBegin(tester, backend);
+      await fillAndDeclare(tester, backend);
+      await tapRoute(tester, 'arca-rotation-confirm');
+      await tapRoute(tester, 'arca-rotation-confirm-yes');
+      final cancelsBefore = backend.cancelCalls;
+
+      await _back(tester);
+      await settleRoute(tester);
+      expect(find.byKey(const Key('arca-rotation-capture-warning')), findsOneWidget, reason: 'still on the rotation screen');
+      expect(backend.cancelCalls, cancelsBefore, reason: 'nothing was dropped under the confirm');
+
+      backend.confirmGate!.complete();
+      await settleRoute(tester);
+      expect(backend.syncCalls.length, 1);
+    });
+
+    testWidgets('with the newer epochs unreadable there is no way to rotate: an empty list may only be a list that was not read', (tester) async {
+      _savedHub();
+      final backend = FakeBackend(on: true)..epochsFail = true;
+      await tester.pumpWidget(testApp(home: ArcaModeScreen(backend: backend, pairBackend: FakePairBackend())));
+      await _settle(tester);
+
+      expect(find.byKey(const Key('arca-mode-rotate')), findsNothing);
     });
 
     testWidgets('cancelling drops the key in the bridge and wipes the phrase from the screen', (tester) async {
