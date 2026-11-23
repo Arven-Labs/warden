@@ -51,7 +51,9 @@ String arcaRotationErrorText(AppLocalizations l10n, bridge_rotation.ArcaRotation
     bridge_rotation.ArcaRotationErrorKind.syncFirst => refusal(l10n.arcaRotationCauseSyncFirst),
     bridge_rotation.ArcaRotationErrorKind.storageChanged => refusal(l10n.arcaRotationCauseStorageChanged),
     bridge_rotation.ArcaRotationErrorKind.needsRepair => refusal(l10n.arcaRotationCauseNeedsRepair),
-    bridge_rotation.ArcaRotationErrorKind.newerEpoch => refusal(l10n.arcaRotationCauseNewerEpoch),
+    // On a resume a newer epoch proves the phrase is NOT the one an earlier attempt published (that one would have been adopted), so the
+    // sentence about an earlier attempt would be false: its own text, with no context prefix.
+    bridge_rotation.ArcaRotationErrorKind.newerEpoch => resuming ? l10n.arcaRotationErrNewerEpochResume : refusal(l10n.arcaRotationCauseNewerEpoch),
     bridge_rotation.ArcaRotationErrorKind.failed => l10n.arcaRotationErrFailed,
     bridge_rotation.ArcaRotationErrorKind.classEmptied => l10n.arcaRotationErrClassEmptied,
     bridge_rotation.ArcaRotationErrorKind.other => l10n.arcaRotationErrOther,

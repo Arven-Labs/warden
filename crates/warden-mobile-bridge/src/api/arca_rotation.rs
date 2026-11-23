@@ -39,8 +39,8 @@ pub enum ArcaRotationErrorKind {
     /// Refused before this attempt wrote anything, because the key is the one the vault already uses. The only refusal that another
     /// key cures; on a resume it means the change was already finished with this key.
     SameKey,
-    /// Refused before this attempt wrote anything: another program holds the vault or the sync state, or the vault could not be
-    /// opened. Try again in a while; a new key is not needed.
+    /// Refused before this attempt wrote anything: another program holds the vault's folder or the sync state (the engine's `Busy`,
+    /// and only that). Try again in a while; a new key is not needed.
     Busy,
     /// Refused before this attempt wrote anything: the copies diverge or an interrupted update waits for its recovery. Sync first,
     /// then try again; a new key is not needed.
@@ -48,8 +48,9 @@ pub enum ArcaRotationErrorKind {
     /// Refused before this attempt wrote anything: the storage does not continue the history this device accepted (it went back in
     /// time, was replaced or emptied). Check the hub or folder it syncs with; a new key does not fix it.
     StorageChanged,
-    /// Refused before this attempt wrote anything: the arca's state or journal on this device is damaged, or there is no next key
-    /// epoch. Neither a new key nor this screen fixes it.
+    /// Refused before this attempt wrote anything: something this device needs cannot be used (the arca's state or journal is damaged,
+    /// a stored manifest cannot be read, the vault could not be opened, there is no next key epoch). Neither a new key nor this
+    /// screen fixes it, and the state files must not be deleted to get around it.
     NeedsRepair,
     /// A newer key epoch is already stored and was not acknowledged. Nothing was written, and a new key meets the same wall: type the
     /// 24 words of an earlier rotation of this device that stopped, or pair again / look at the pending epochs.
