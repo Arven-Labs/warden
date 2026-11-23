@@ -732,7 +732,9 @@ void main() {
     });
 
     test('on a resume a refusal says what THIS attempt did, and that an earlier one may have published the key: never "discarded"', () {
-      for (final kind in refusals) {
+      // `newerEpoch` is not here: on a resume it proves that the phrase is NOT the one an earlier attempt published (that one would
+      // have been adopted), so it has its own text (below).
+      for (final kind in refusals.where((k) => k != bridge_rot.ArcaRotationErrorKind.newerEpoch)) {
         final text = arcaRotationErrorText(en, kind, resuming: true);
         expect(text, contains('this attempt'), reason: '$kind: $text');
         expect(text, contains('earlier attempt'), reason: '$kind: $text');
@@ -763,6 +765,71 @@ void main() {
         expect(textPt, contains('MESMAS 24 palavras'), reason: textPt);
         expect(textPt.toLowerCase(), isNot(contains('chave nova')), reason: textPt);
       }
+    });
+
+    test('an emptied class names the class that can be the logins, asks for ONE file and never a whole old backup, and gives the way out of who emptied it on purpose', () {
+      final text = arcaRotationErrorText(en, bridge_rot.ArcaRotationErrorKind.classEmptied);
+      expect(text, contains('logins'), reason: text);
+      expect(text, contains('ONE file'), reason: text);
+      expect(text, contains('NEVER an old backup'), reason: text);
+      expect(text, contains('on purpose'), reason: text);
+      expect(text, contains('only then delete it and sync'), reason: text);
+      final textPt = arcaRotationErrorText(pt, bridge_rot.ArcaRotationErrorKind.classEmptied);
+      expect(textPt, contains('logins'), reason: textPt);
+      expect(textPt, contains('UM arquivo'), reason: textPt);
+      expect(textPt, contains('NUNCA um backup antigo'), reason: textPt);
+      expect(textPt, contains('de propósito'), reason: textPt);
+      expect(textPt, contains('só então apague e sincronize'), reason: textPt);
+    });
+
+    test('a newer epoch on a resume says the phrase is NOT the one of the change that stopped, never that an earlier attempt published it', () {
+      final text = arcaRotationErrorText(en, bridge_rot.ArcaRotationErrorKind.newerEpoch, resuming: true);
+      expect(text, contains('not those of the change that stopped'), reason: text);
+      expect(text, contains('24 words'), reason: text);
+      for (final forbidden in ['earlier attempt', 'discarded', 'new key']) {
+        expect(text.toLowerCase(), isNot(contains(forbidden)), reason: text);
+      }
+      final textPt = arcaRotationErrorText(pt, bridge_rot.ArcaRotationErrorKind.newerEpoch, resuming: true);
+      expect(textPt, contains('não são as da troca que parou'), reason: textPt);
+      for (final forbidden in ['tentativa anterior', 'descartada', 'chave nova']) {
+        expect(textPt.toLowerCase(), isNot(contains(forbidden)), reason: textPt);
+      }
+    });
+
+    test('a newer epoch, in both contexts, warns that an epoch is not authenticated and not to accept the one of a change of this device that stopped', () {
+      for (final resuming in [false, true]) {
+        final text = arcaRotationErrorText(en, bridge_rot.ArcaRotationErrorKind.newerEpoch, resuming: resuming);
+        expect(text, contains('not authenticated'), reason: text);
+        expect(text, contains('anyone who holds the old key can forge one'), reason: text);
+        expect(text, contains('do not accept its epoch'), reason: text);
+        final textPt = arcaRotationErrorText(pt, bridge_rot.ArcaRotationErrorKind.newerEpoch, resuming: resuming);
+        expect(textPt, contains('não é autenticada'), reason: textPt);
+        expect(textPt, contains('não aceite a época dela'), reason: textPt);
+      }
+    });
+
+    test('the key in use, on a resume, also points at a change that stopped with ANOTHER phrase: a new key meets the epoch already published', () {
+      final text = arcaRotationErrorText(en, bridge_rot.ArcaRotationErrorKind.sameKey, resuming: true);
+      expect(text, contains('ANOTHER phrase'), reason: text);
+      expect(text, contains('a new key meets the epoch already published'), reason: text);
+      final textPt = arcaRotationErrorText(pt, bridge_rot.ArcaRotationErrorKind.sameKey, resuming: true);
+      expect(textPt, contains('OUTRA frase'), reason: textPt);
+      expect(textPt, contains('uma chave nova bate na época já publicada'), reason: textPt);
+    });
+
+    test('the refusals about the storage and the arca state say not to delete the state files to get around them', () {
+      for (final kind in [bridge_rot.ArcaRotationErrorKind.storageChanged, bridge_rot.ArcaRotationErrorKind.needsRepair]) {
+        for (final resuming in [false, true]) {
+          expect(arcaRotationErrorText(en, kind, resuming: resuming), contains('Do not delete the sync state files to get around it'), reason: '$kind');
+          expect(arcaRotationErrorText(pt, kind, resuming: resuming), contains('Não apague os arquivos de estado'), reason: '$kind');
+        }
+      }
+    });
+
+    test('a busy vault names the program that holds it and not a vault that could not be opened (that is another kind)', () {
+      final text = arcaRotationErrorText(en, bridge_rot.ArcaRotationErrorKind.busy);
+      expect(text, contains("using the vault's folder or the sync state"), reason: text);
+      expect(text, isNot(contains('could not be opened')), reason: text);
     });
   });
 
@@ -1012,6 +1079,23 @@ void main() {
       expect(find.text(arcaRotationErrorText(en, bridge_rot.ArcaRotationErrorKind.busy)), findsNothing, reason: 'the "discarded" text is for a key just made');
       expect(find.byKey(const Key('arca-rotation-resume-field')), findsOneWidget);
       expect(tester.widget<TextField>(find.byKey(const Key('arca-rotation-resume-field'))).controller!.text, backend.rotationStart.phrase.join(' '), reason: 'the 24 words stay to be tried again');
+      expect(backend.syncCalls, isEmpty);
+    });
+
+    testWidgets('resuming: a newer epoch says the phrase is not the one of the change that stopped, and keeps the words to be fixed', (tester) async {
+      final backend = await shown(tester);
+      backend.confirmFailure = _rotationFailure(bridge_rot.ArcaRotationErrorKind.newerEpoch);
+      await tapRoute(tester, 'arca-mode-rotate');
+      await tapRoute(tester, 'arca-rotation-resume-open');
+
+      await typeInto(tester, 'arca-rotation-resume-field', backend.rotationStart.phrase.join(' '));
+      await tapRoute(tester, 'arca-rotation-revoked');
+      await tapRoute(tester, 'arca-rotation-resume-confirm');
+      await tapRoute(tester, 'arca-rotation-confirm-yes');
+
+      expect(find.text(arcaRotationErrorText(en, bridge_rot.ArcaRotationErrorKind.newerEpoch, resuming: true)), findsOneWidget);
+      expect(find.textContaining('earlier attempt'), findsNothing, reason: 'a newer epoch proves the phrase is not the published one');
+      expect(find.byKey(const Key('arca-rotation-resume-field')), findsOneWidget);
       expect(backend.syncCalls, isEmpty);
     });
 

@@ -412,6 +412,21 @@ mod tests {
     }
 
     #[test]
+    fn a_vault_that_cannot_be_opened_is_a_repair_and_not_a_busy_program_and_writes_nothing() {
+        let paths = phone_in_arca_mode("secrets-unreadable");
+        let slot = RotationSlot::default();
+        let start = begin_with(&engine_of(&paths), &slot).unwrap();
+        std::fs::write(&paths[2], b"{ this is not json").unwrap();
+        let before = std::fs::read(&paths[2]).unwrap();
+
+        let failure = confirm(&paths, &slot, &asked(&start), true, 2).unwrap_err();
+
+        assert_eq!(failure.kind, ArcaRotationErrorKind::NeedsRepair, "{}", failure.detail);
+        assert!(!failure.detail.contains("another program"), "{}", failure.detail);
+        assert_eq!(std::fs::read(&paths[2]).unwrap(), before, "nothing was written");
+    }
+
+    #[test]
     fn resuming_with_the_phrase_of_a_rotation_that_finished_says_the_key_is_already_in_use() {
         let paths = phone_in_arca_mode("resume-finished");
         let slot = RotationSlot::default();
