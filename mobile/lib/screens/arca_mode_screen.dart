@@ -360,8 +360,10 @@ class _ArcaModeScreenState extends State<ArcaModeScreen> {
         // The key swap (P-49): hand the new key over any time the mode is on; replace this device's key only while a newer one is pending.
         if (_on && _hubOrigin != null) ...[
           const SizedBox(height: 8),
-          OutlinedButton(key: const Key('arca-mode-swap-grant'), onPressed: _busy ? null : () => _openSwap(ArcaSwapSide.grant), child: Text(l10n.arcaSwapGrantOpen)),
-          if (_epochs.isNotEmpty) ...[
+          // With a newer key pending this device is the stranded one: its own key is the old one, so it must not hand it over.
+          if (_epochs.isEmpty)
+            OutlinedButton(key: const Key('arca-mode-swap-grant'), onPressed: _busy ? null : () => _openSwap(ArcaSwapSide.grant), child: Text(l10n.arcaSwapGrantOpen))
+          else ...[
             const SizedBox(height: 8),
             OutlinedButton(key: const Key('arca-mode-swap-replace'), onPressed: _busy ? null : _replaceKey, child: Text(l10n.arcaSwapReplaceOpen)),
           ],

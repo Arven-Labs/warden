@@ -203,6 +203,8 @@ class _ArcaPairScreenState extends State<ArcaPairScreen> {
           enableSuggestions: false,
           autocorrect: false,
           enableInteractiveSelection: false,
+          // The keyboard must not learn a fingerprint (or a head code) either.
+          enableIMEPersonalizedLearning: false,
           contextMenuBuilder: (context, editableTextState) => const SizedBox.shrink(),
         ),
         const SizedBox(height: 16),
@@ -214,6 +216,12 @@ class _ArcaPairScreenState extends State<ArcaPairScreen> {
   List<Widget> _body(AppLocalizations l10n) {
     final startButton = FilledButton(key: const Key('arca-pair-start'), onPressed: _start, child: Text(l10n.arcaPairStart));
     final swap = widget.swap != null;
+    // The replacing side wipes the local sync copy, and its confirmation (the epochs read at the tap) lives on the Arca mode screen:
+    // after a failure or a cancel the way out is back to that screen, not a "start again" that would skip the confirmation.
+    final replacing = widget.swap == ArcaSwapSide.replace;
+    final restartButton = replacing
+        ? OutlinedButton(key: const Key('arca-pair-back'), onPressed: () => Navigator.of(context).maybePop(), child: Text(l10n.arcaSwapBack))
+        : startButton;
     final cancelButton = OutlinedButton(key: const Key('arca-pair-cancel'), onPressed: () => _backend.cancel(), child: Text(swap ? l10n.arcaSwapCancel : l10n.arcaPairCancel));
     switch (_phase) {
       case _Phase.loading:
@@ -264,12 +272,15 @@ class _ArcaPairScreenState extends State<ArcaPairScreen> {
           ],
         ];
       case _Phase.cancelled:
-        return [Text(l10n.arcaPairCancelled), const SizedBox(height: 16), startButton];
+        return [Text(l10n.arcaPairCancelled), const SizedBox(height: 16), restartButton];
       case _Phase.failed:
+        final kind = _failure ?? bridge.ArcaPairErrorKind.hub;
+        // "No device is waiting" means something else in a swap: the new device starts it on the other device (the swap's own words).
+        final text = swap && kind == bridge.ArcaPairErrorKind.noOffers ? l10n.arcaSwapErrNoOffers : arcaPairErrorText(l10n, kind);
         return [
-          Text(arcaPairErrorText(l10n, _failure ?? bridge.ArcaPairErrorKind.hub), style: TextStyle(color: Theme.of(context).colorScheme.error)),
+          Text(text, style: TextStyle(color: Theme.of(context).colorScheme.error)),
           const SizedBox(height: 16),
-          startButton,
+          restartButton,
         ];
     }
   }
