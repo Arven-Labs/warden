@@ -926,7 +926,9 @@ void main() {
       await tapRoute(tester, 'arca-rotation-confirm-yes');
 
       expect(backend.resumed, [phrase]);
-      expect(backend.confirmed, [(typedWords: <String>[], revokedOnHub: true)]);
+      expect(backend.confirmed.length, 1);
+      expect(backend.confirmed.single.typedWords, isEmpty, reason: 'a resume asks no words back');
+      expect(backend.confirmed.single.revokedOnHub, isTrue);
       expect(backend.syncCalls.length, 1);
     });
 
@@ -951,6 +953,8 @@ void main() {
 
     testWidgets('every other failure shows its own sentence and never the English detail', (tester) async {
       for (final kind in [bridge_rot.ArcaRotationErrorKind.notDeclared, bridge_rot.ArcaRotationErrorKind.noRotation, bridge_rot.ArcaRotationErrorKind.other]) {
+        // A fresh tree: the screen of the last turn must not stay open on top of the next one.
+        await tester.pumpWidget(const SizedBox());
         final backend = await shown(tester);
         backend.confirmFailure = _rotationFailure(kind);
         await openAndBegin(tester, backend);
