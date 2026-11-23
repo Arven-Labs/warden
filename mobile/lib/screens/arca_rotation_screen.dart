@@ -62,7 +62,7 @@ class _ArcaRotationScreenState extends State<ArcaRotationScreen> {
     _revoked = false;
   }
 
-  bool get _canConfirm => _revoked && _wordControllers.every((c) => c.text.trim().isNotEmpty);
+  bool get _canConfirm => _wordControllers.every((c) => c.text.trim().isNotEmpty);
 
   bool get _canResume => _revoked && _resumeController.text.trim().isNotEmpty;
 
