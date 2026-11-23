@@ -1328,6 +1328,8 @@ async fn cmd_help(terminal: &mut CliTerminal) -> anyhow::Result<()> {
         ("/arca ack", "help.arca_ack"),
         ("/arca swap grant", "help.arca_swap_grant"),
         ("/arca swap offer", "help.arca_swap_offer"),
+        ("/arca rotate", "help.arca_rotate"),
+        ("/arca rotate resume", "help.arca_rotate_resume"),
         ("/arca pair offer", "help.arca_pair_offer"),
         ("/arca pair grant", "help.arca_pair_grant"),
     ]
@@ -3696,10 +3698,8 @@ async fn cmd_arca_swap_offer(terminal: &mut CliTerminal, session: &CliSession) -
     finish_arca_swap(terminal, result, "arca.swap_stored_ok")
 }
 
-// SKELETON (first commit of the P-49 `/arca rotate` task): only the names and signatures the tests need, answering wrongly on
-// purpose, so the tests fail on behavior and not on compilation. The next commit replaces every body below.
-
-/// What `/arca rotate` and `/arca rotate resume` came to once the person answered everything.
+/// What `/arca rotate` and `/arca rotate resume` came to once the person answered everything. It never holds the phrase or a word
+/// the person typed: only what the core said.
 #[derive(Debug, PartialEq, Eq)]
 enum ArcaRotate {
     Cancelled,
@@ -3707,24 +3707,202 @@ enum ArcaRotate {
     Refused(RotationError),
 }
 
-async fn arca_rotate_run(_engine: &warden_sync::SyncEngine, _pending: PendingRotation, _typed_words: &[String], _declaration: Option<&str>, _confirmation: Option<&str>, _now_ms: u64) -> ArcaRotate {
-    ArcaRotate::Cancelled
+/// The part of a rotation that writes: it goes through `PendingRotation::confirm`, which checks the declaration and the words
+/// before the first write and takes `self`, so a key is tried once. `declaration` is the answer to "did you revoke the lost
+/// device's token on the hub?" and `confirmation` the answer to "change the key now?"; only a typed yes counts for either (the
+/// same words as every other confirmation here). Without the declaration the core refuses and says why, so the confirmation is
+/// only decisive once the declaration was given. `typed_words` is empty when the 24 words were typed (`/arca rotate resume`).
+async fn arca_rotate_run(engine: &warden_sync::SyncEngine, pending: PendingRotation, typed_words: &[String], declaration: Option<&str>, confirmation: Option<&str>, now_ms: u64) -> ArcaRotate {
+    let declared = declaration.is_some_and(is_yes);
+    if declared && !confirmation.is_some_and(is_yes) {
+        return ArcaRotate::Cancelled;
+    }
+    let typed: Vec<&str> = typed_words.iter().map(String::as_str).collect();
+    match pending.confirm(&typed, declared, engine, now_ms).await {
+        Ok(()) => ArcaRotate::Done,
+        Err(error) => ArcaRotate::Refused(error),
+    }
 }
 
-fn rotation_error_lines(_error: &RotationError) -> Vec<String> {
-    Vec::new()
+/// What a rotation that did not happen says. Only the variants that need words of the CLI's own have them (what to run next, and
+/// in both languages); every other refusal says the reason the core gave, as the desktop does, so a change of that text in
+/// `warden-sync` reaches the terminal too. `Failed` is the one that may have written something: it sends the person to resume
+/// with the same 24 words and never to a new key.
+fn rotation_error_lines(error: &RotationError) -> Vec<String> {
+    let line = match error {
+        RotationError::NotDeclared => tr!("arca.rotate_not_declared"),
+        RotationError::WordMismatch => tr!("arca.rotate_word_mismatch"),
+        RotationError::BadPhrase => tr!("arca.rotate_bad_phrase"),
+        RotationError::NotInArcaMode => tr!("arca.rotate_needs_mode"),
+        RotationError::Failed(_) => tr!("arca.rotate_partial", message = error),
+        other => tr!("arca.rotate_failed", message = other),
+    };
+    vec![line]
 }
 
-fn arca_rotated_lines(_sent: Option<&Result<ArcaSyncReport, String>>) -> Vec<String> {
-    Vec::new()
+/// The card of a rotation that worked: whether the new epoch reached the hub. A rotation writes only on this computer; the normal
+/// cycle is what publishes it, so `sent` is `None` when no hub was given and the error when that cycle failed.
+fn arca_rotated_lines(sent: Option<&Result<ArcaSyncReport, String>>) -> Vec<String> {
+    match sent {
+        None => vec![tr!("arca.rotate_done_no_hub")],
+        Some(Ok(report)) => std::iter::once(tr!("arca.rotate_done_sent")).chain(arca_report_lines(report)).collect(),
+        Some(Err(message)) => vec![tr!("arca.rotate_done_not_sent", message = message)],
+    }
 }
 
-fn phrase_rows<'a>(_words: impl Iterator<Item = &'a str>, _per_row: usize) -> Vec<String> {
-    Vec::new()
+/// The 24 words as rows of `per_row` numbered words, so the person can write them down in order. The only place the phrase becomes
+/// text; the rows live as long as the screen that shows them (`show_phrase_once`) and are dropped right after.
+fn phrase_rows<'a>(words: impl Iterator<Item = &'a str>, per_row: usize) -> Vec<String> {
+    let numbered: Vec<String> = words.enumerate().map(|(index, word)| format!("{:>2}. {:<8}", index + 1, word)).collect();
+    numbered.chunks(per_row.max(1)).map(|row| row.join("  ").trim_end().to_string()).collect()
 }
 
-fn phrase_per_row(_width: usize) -> usize {
-    1
+/// How many words fit on one row of a terminal `width` columns wide, from 1 to 4: an item is 12 columns ("24. " and 8 for the
+/// longest word of the list), the gap between two is 2 and the box takes 4, so `n` items need `14 * n + 2`.
+fn phrase_per_row(width: usize) -> usize {
+    (width.saturating_sub(2) / 14).clamp(1, 4)
+}
+
+/// The box that shows the phrase: a title with what to press, one row per line of words.
+fn render_phrase_box(frame: &mut ratatui::Frame, rows: &[String], title: &str) {
+    let area = frame.area();
+    let block = Block::bordered().border_type(BorderType::Rounded).border_style(Style::default().fg(accent_color())).title(title.to_string());
+    let inner = block.inner(area);
+    frame.render_widget(block, area);
+    frame.render_widget(Paragraph::new(rows.iter().map(|row| Line::raw(row.clone())).collect::<Vec<_>>()), inner);
+}
+
+/// Draws the phrase box until the person presses Enter (`true`, they wrote the words down) or Ctrl+C / Ctrl+D (`false`).
+fn wait_for_the_phrase_to_be_read(terminal: &mut CliTerminal, rows: &[String]) -> anyhow::Result<bool> {
+    let title = tr!("arca.rotate_phrase_title");
+    loop {
+        terminal.draw(|frame| render_phrase_box(frame, rows, &title))?;
+        if !event::poll(POLL_INTERVAL)? {
+            continue;
+        }
+        if let Event::Key(key) = event::read()? {
+            if key.kind == KeyEventKind::Press {
+                match key.code {
+                    KeyCode::Enter => return Ok(true),
+                    KeyCode::Char('c' | 'd') if key.modifiers.contains(KeyModifiers::CONTROL) => return Ok(false),
+                    _ => {}
+                }
+            }
+        }
+    }
+}
+
+/// Shows the phrase ONCE, in the live box (the viewport) and not as a card: a card is committed to the terminal's own scroll
+/// history (`insert_before`) and would stay there, while the live box is cleared as soon as the person is done, so the 24 words are
+/// on the screen only while they are being written down. Returns whether the person went on. Whatever happens, the box is cleared
+/// and the terminal goes back to its usual height before the result is looked at.
+fn show_phrase_once(terminal: &mut CliTerminal, rows: &[String]) -> anyhow::Result<bool> {
+    terminal.clear()?;
+    *terminal = new_inline_terminal_with_height(rows.len() as u16 + 2)?;
+    discard_pending_keys();
+    let went_on = wait_for_the_phrase_to_be_read(terminal, rows);
+    terminal.clear()?;
+    *terminal = new_inline_terminal()?;
+    went_on
+}
+
+/// The two answers that decide a rotation: whether the lost device's token was revoked on the hub and, only when it was, whether to
+/// change the key now. The keys typed before each question are thrown away so a stray Enter cannot answer it. `None` when the person
+/// gave up at the first question.
+async fn ask_rotation_answers(terminal: &mut CliTerminal) -> anyhow::Result<Option<(String, Option<String>)>> {
+    discard_pending_keys();
+    let Some(declaration) = prompt_field(terminal, &tr!("arca.rotate_ask_revoked"), "").await? else { return Ok(None) };
+    if !is_yes(&declaration) {
+        return Ok(Some((declaration, None)));
+    }
+    discard_pending_keys();
+    let confirmation = prompt_field(terminal, &tr!("arca.rotate_confirm"), "").await?;
+    Ok(Some((declaration, confirmation)))
+}
+
+/// The cycle that sends the new epoch: a rotation writes only here, and the normal cycle publishes it (the desktop runs one right
+/// after too). Asks for the hub like `/arca sync` does; `None` when no hub was given.
+async fn send_the_new_epoch(terminal: &mut CliTerminal, engine: &warden_sync::SyncEngine) -> anyhow::Result<Option<Result<ArcaSyncReport, String>>> {
+    let Some((url, token)) = ask_hub_credentials(terminal).await? else { return Ok(None) };
+    let hub = match hub_store_for(&url, &token) {
+        Ok(hub) => hub,
+        Err(message) => return Ok(Some(Err(message))),
+    };
+    Ok(Some(match engine.arca_sync(&hub, now_millis()).await {
+        Ok(report) => Ok(report),
+        Err(err) if is_auth_rejected(&err) => Err(tr!("arca.hub_refused")),
+        Err(err) => Err(format!("{err:#}")),
+    }))
+}
+
+/// Says how the rotation ended. After one that worked, it says so before asking for the hub (the key has already changed on this
+/// computer whatever the hub answers), then runs the cycle that sends it.
+async fn finish_arca_rotate(terminal: &mut CliTerminal, engine: &warden_sync::SyncEngine, outcome: ArcaRotate) -> anyhow::Result<()> {
+    match outcome {
+        ArcaRotate::Cancelled => cancelled_card(terminal),
+        ArcaRotate::Refused(error) => render_message_card(terminal, "arca", error_style(), rotation_error_lines(&error).into_iter().map(|line| (line, error_style())).collect()),
+        ArcaRotate::Done => {
+            render_message_card(terminal, "arca", accent_style(), vec![(tr!("arca.rotate_sending"), Style::default())])?;
+            let sent = send_the_new_epoch(terminal, engine).await?;
+            let style = if matches!(sent, Some(Err(_))) { error_style() } else { accent_style() };
+            render_message_card(terminal, "arca", style, arca_rotated_lines(sent.as_ref()).into_iter().map(|line| (line, Style::default())).collect())
+        }
+    }
+}
+
+/// `/arca rotate` — after losing a device (arca ADR 0018, Warden ADR 0002, P-49): makes a new key, shows its 24 words once, asks for
+/// three of them back, asks whether the lost device's token was revoked on the hub and then to confirm, and rotates. The phrase
+/// exists only in memory and on the screen while it is shown: it is not in a card, not in the line history and not in any `Debug`.
+/// Nothing is shown for a vault that is not in arca mode, and the key is dropped on every way out before the confirmation.
+async fn cmd_arca_rotate(terminal: &mut CliTerminal, session: &CliSession) -> anyhow::Result<()> {
+    let engine = make_sync_engine(session)?;
+    if engine.arca_mode()?.is_none() {
+        return arca_error_card(terminal, tr!("arca.rotate_needs_mode"));
+    }
+    let pending = PendingRotation::generate()?;
+    let positions = pending.positions();
+    render_message_card(terminal, "arca", accent_style(), vec![(tr!("arca.rotate_intro"), Style::default())])?;
+    let rows = phrase_rows(pending.phrase()?.words(), phrase_per_row(terminal_width() as usize));
+    let went_on = show_phrase_once(terminal, &rows);
+    drop(rows);
+    if !went_on? {
+        return cancelled_card(terminal);
+    }
+    let mut typed = Vec::with_capacity(positions.len());
+    for position in positions {
+        discard_pending_keys();
+        let Some(word) = prompt_field(terminal, &tr!("arca.rotate_ask_word", position = position), "").await?.filter(|word| !word.trim().is_empty()) else {
+            return cancelled_card(terminal);
+        };
+        typed.push(word);
+    }
+    let Some((declaration, confirmation)) = ask_rotation_answers(terminal).await? else { return cancelled_card(terminal) };
+    let outcome = arca_rotate_run(&engine, pending, &typed, Some(declaration.as_str()), confirmation.as_deref(), now_millis()).await;
+    finish_arca_rotate(terminal, &engine, outcome).await
+}
+
+/// `/arca rotate resume` — finishes a rotation that stopped half way (the core says so with `RotationError::Failed`): the same 24
+/// words are typed again, in a field that is not echoed and not kept, and they are the confirmation, so no word is asked back. A
+/// phrase that is not valid is said at once, before anything else is asked.
+async fn cmd_arca_rotate_resume(terminal: &mut CliTerminal, session: &CliSession) -> anyhow::Result<()> {
+    let engine = make_sync_engine(session)?;
+    if engine.arca_mode()?.is_none() {
+        return arca_error_card(terminal, tr!("arca.rotate_needs_mode"));
+    }
+    render_message_card(terminal, "arca", accent_style(), vec![(tr!("arca.rotate_resume_intro"), Style::default())])?;
+    discard_pending_keys();
+    let LineOutcome::Submitted(typed_phrase) = read_secret_field(terminal, &tr!("arca.rotate_ask_phrase")).await? else { return cancelled_card(terminal) };
+    if typed_phrase.trim().is_empty() {
+        return cancelled_card(terminal);
+    }
+    let pending = match PendingRotation::from_phrase(&typed_phrase) {
+        Ok(pending) => pending,
+        Err(error) => return finish_arca_rotate(terminal, &engine, ArcaRotate::Refused(error)).await,
+    };
+    drop(typed_phrase);
+    let Some((declaration, confirmation)) = ask_rotation_answers(terminal).await? else { return cancelled_card(terminal) };
+    let outcome = arca_rotate_run(&engine, pending, &[], Some(declaration.as_str()), confirmation.as_deref(), now_millis()).await;
+    finish_arca_rotate(terminal, &engine, outcome).await
 }
 
 /// How long the new device waits for a grant: the same 10 minutes an offer lives on the hub.
@@ -3892,8 +4070,8 @@ async fn handle_command(command: Command, terminal: &mut CliTerminal, session: &
         Command::ArcaAck => cmd_arca_ack(terminal, session).await,
         Command::ArcaSwapGrant => cmd_arca_swap_grant(terminal, session).await,
         Command::ArcaSwapOffer => cmd_arca_swap_offer(terminal, session).await,
-        // Skeleton: the command itself comes in the next commit.
-        Command::ArcaRotate | Command::ArcaRotateResume => cancelled_card(terminal),
+        Command::ArcaRotate => cmd_arca_rotate(terminal, session).await,
+        Command::ArcaRotateResume => cmd_arca_rotate_resume(terminal, session).await,
         Command::ArcaPairOffer => cmd_arca_pair_offer(terminal, session).await,
         Command::ArcaPairGrant => cmd_arca_pair_grant(terminal, session).await,
         Command::SyncGitPush => cmd_sync_git_push(terminal, session).await,
