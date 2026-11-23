@@ -971,9 +971,36 @@ mod tests {
     }
 
     #[test]
+    fn an_emptied_class_is_a_stop_that_opens_the_resume_with_its_way_out_in_the_message() {
+        use warden_sync::arca_rotation::Remedy;
+        // `ClassEmptied` comes as `Failed` with its remedy in the text: `partial` is what opens the resume, with the same 24 words.
+        let stopped = RotationFailure::from(RotationError::Failed(Remedy::ClassEmptied.hint().to_string()));
+        assert!(stopped.partial, "{stopped:?}");
+        assert!(stopped.message.contains("SAME 24 words"), "{stopped:?}");
+        assert!(!stopped.newer_epoch, "{stopped:?}");
+    }
+
+    #[test]
+    fn only_a_newer_epoch_says_so_because_on_a_resume_it_proves_the_phrase_is_not_the_published_one() {
+        let newer = RotationFailure::from(RotationError::NewerEpoch);
+        assert!(newer.newer_epoch && !newer.partial, "{newer:?}");
+        for other in [
+            RotationError::NotDeclared,
+            RotationError::WordMismatch,
+            RotationError::BadPhrase,
+            RotationError::NotInArcaMode,
+            RotationError::Refused("same key".to_string()),
+            RotationError::Failed("disk full".to_string()),
+        ] {
+            assert!(!RotationFailure::from(other.clone()).newer_epoch, "{other:?}");
+        }
+        assert!(!RotationFailure::nothing_written("no rotation was started").newer_epoch);
+    }
+
+    #[test]
     fn the_failure_reaches_the_screen_in_camel_case_and_the_start_never_prints_the_phrase() {
-        let failure = RotationFailure { partial: true, message: "x".to_string() };
-        assert_eq!(serde_json::to_string(&failure).unwrap(), r#"{"partial":true,"message":"x"}"#);
+        let failure = RotationFailure { partial: true, message: "x".to_string(), newer_epoch: false };
+        assert_eq!(serde_json::to_string(&failure).unwrap(), r#"{"partial":true,"message":"x","newerEpoch":false}"#);
         let start = RotationStart { phrase: vec!["abandon".to_string()], positions: vec![1] };
         assert!(!format!("{start:?}").contains("abandon"), "the words must not reach a log");
     }

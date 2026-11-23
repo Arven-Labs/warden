@@ -224,6 +224,11 @@ mod tests {
         // an earlier change of this device stopped half way with another phrase: type the 24 words of that one
         assert!(text.contains("24 words"), "{text}");
         assert!(text.contains("this attempt"), "{text}");
+        // the epoch of a stored object is not authenticated (the warning `engine_failure` gives): look first, acknowledge only then,
+        // and never acknowledge the epoch of a change of this device that stopped (it is finished with its 24 words)
+        assert!(text.contains("not authenticated"), "{text}");
+        assert!(text.contains("anyone who holds the old key can forge one"), "{text}");
+        assert!(text.contains("do not acknowledge"), "{text}");
     }
 
     #[test]
@@ -235,19 +240,23 @@ mod tests {
         assert!(!text.contains("nothing was changed"), "{text}");
     }
 
+    /// The exact words of each remedy, one by one: a text that changes (a "make a new key" that creeps into another remedy, a warning
+    /// that is dropped) fails here, and a new remedy is a compile error in `hint` until it is written down here too.
     #[test]
-    fn only_a_key_that_is_the_one_in_use_is_told_to_make_a_new_key() {
-        for remedy in REMEDIES {
-            assert!(!remedy.hint().trim().is_empty(), "{remedy:?}");
-            assert_eq!(remedy.hint().contains("make a new key"), remedy == Remedy::SameKey, "{remedy:?}: {}", remedy.hint());
+    fn each_remedy_says_exactly_what_resolves_it() {
+        let expected: [(Remedy, &str); 6] = [
+            (Remedy::SameKey, "that key is already the one in use: if you were finishing a change, it is already done. If an earlier change stopped half way with ANOTHER phrase, type the 24 words of that one (a new key meets the epoch already published). Otherwise make a new key"),
+            (Remedy::Busy, "another program is using this vault's folder or Warden's sync state: close it and try again in a while (a new key is not needed)"),
+            (Remedy::SyncFirst, "run a sync first: it joins diverging copies and finishes an interrupted apply; then try again (a new key is not needed)"),
+            (Remedy::StorageChanged, "the storage no longer continues the history this device accepted: check the hub or folder it syncs with before trying again (a new key does not fix it). Do not delete state files to get around it: that turns off the protection against the storage going back in time"),
+            (Remedy::NeedsRepair, "something this device needs cannot be used (the arca's state or journal file is damaged, a manifest in the local storage cannot be read, the logins folder is not usable, or no next key epoch exists): this screen cannot fix it, and a new key does not either. Do not delete state files to get around it: that turns off the protection against the storage going back in time"),
+            (Remedy::ClassEmptied, "a class that the already published manifest has is empty in the folder (it can be the logins class, not only the vault): put back at least ONE file of that class, only files that were there when the change started (for example from the trash) and NEVER an old backup as a whole, because files deleted on purpose would come back and be published to every device, credentials included; then finish with the SAME 24 words (a new key would meet the epoch already published). If you emptied it on purpose: put any one file back, finish the change with the same 24 words, and only then delete it and sync"),
+        ];
+        assert_eq!(expected.len(), REMEDIES.len());
+        for (remedy, hint) in expected {
+            assert!(REMEDIES.contains(&remedy), "{remedy:?}");
+            assert_eq!(remedy.hint(), hint, "{remedy:?}");
         }
-    }
-
-    #[test]
-    fn an_emptied_class_is_told_to_put_the_files_back_and_finish_with_the_same_24_words() {
-        let hint = Remedy::ClassEmptied.hint();
-        assert!(hint.contains("put those files back"), "{hint}");
-        assert!(hint.contains("SAME 24 words"), "{hint}");
     }
 
     #[test]
