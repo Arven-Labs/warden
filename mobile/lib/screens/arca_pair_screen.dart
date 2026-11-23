@@ -199,7 +199,7 @@ class _ArcaPairScreenState extends State<ArcaPairScreen> {
           key: Key(fieldKey),
           controller: _typed,
           decoration: InputDecoration(labelText: label, border: const OutlineInputBorder()),
-          inputFormatters: widget.swap != null ? const <TextInputFormatter>[] : [TypedOnlyFormatter()],
+          inputFormatters: widget.swap != null ? <TypedOnlyFormatter>[] : [TypedOnlyFormatter()],
           enableSuggestions: false,
           autocorrect: false,
           enableInteractiveSelection: false,
