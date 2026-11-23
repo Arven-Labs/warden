@@ -6,13 +6,15 @@
 
 ---
 
-### 2026-11-23 — arca: I3b, a rotação separa recusa de parada no meio (P-49 da arca, [warden#229](https://github.com/Arven-Labs/warden/pull/229), rascunho, EM ANDAMENTO)
+### 2026-11-23 — arca: I3b, a rotação separa recusa de parada no meio (P-49 da arca, [warden#229](https://github.com/Arven-Labs/warden/pull/229), pronto para mesclar, não mesclado)
 
 - **Pedido**: "vamos continuar no p49"; fatia escolhida por você: I3b da auditoria da #222. Plan mode. O `arca-core` não mudou: o `begin_epoch` já recusava época pendente sem gravar; o defeito era só a classificação do erro aqui.
 - **Feito**: `RotationError` ganhou `Refused` (recusa antes de gravar) e `NewerEpoch` (`NeedsNewKey`); `arca_rotate_to` classifica pelo `EngineError` (`rotation_error_of`), e o que não está na lista de "nada gravado" fica `Failed`. Bridge: kinds `refused` e `newerEpoch`, textos en/pt, teste de mapeamento e teste Dart.
 - **CI**: testes primeiro, 2 falharam e 128 passaram (run 45228648183); verde em `a7d07ae` (run 45231159117). Quebra proposital (#230, descartado): `NeedsNewKey` como `Failed` derrubou `another_key_after_a_stop_...` (129 passam, 1 falha). Só a mutação de `NeedsNewKey` foi feita, não a de `KeyNotRotated`.
-- **FALTA**: o codegen do FRB e o `flutter gen-l10n` no seu PC (ADR 0017), no `69313559`; até lá o CI do mobile e do bridge fica vermelho nesta branch. Depois: CI, auditoria (`security-auditor`), mesclar.
-- **Não verificado**: o fluxo na tela com os kinds novos (só o teste Dart, ainda sem rodar).
+- **Codegen**: o FRB e o `gen-l10n` rodaram no seu PC (`f5d10e4`, só os 5 arquivos gerados). O run de `f5d10e4` caiu por `ENOTFOUND api.github.com` no `Changed areas` (nada rodou) e, ao reexecutar, por `429` do Maven Central no Android; os dois passaram ao reexecutar.
+- **Auditoria** (`security-auditor`, só leitura): sem crítico; nenhum erro classificado como recusa sai depois da primeira escrita do `begin_epoch`. Corrigidos: S1 (a retomada tratava erro fora do bridge como "nada foi alterado"; o teste Dart falhou antes, 469 passam e 1 falha no run 45269408270) e S3 (teste de tabela do `rotation_error_of` e comentário corrigido). **Sem correção, no `PENDING.md` da arca**: I1 (texto da retomada que manda descartar uma chave que pode já ter sido publicada), S2, S4, S5; S6 ignorado.
+- **CI**: verde em `fca47ec` (5 jobs, tentativa 1). Quebra proposital: `NeedsNewKey` como `Failed` (#230) derrubou 1 teste; `StateNotSaved` como recusa (#231, run 45274113771) derrubou o teste de tabela do S3 (130 passam, 1 falha). Os dois PRs foram descartados. `KeyNotRotated` como `Failed` não foi feita; o Android falhou também no run da #231 e não foi investigado.
+- **Não verificado**: a tela com os kinds novos em aparelho real; a rotação ponta a ponta com hub e dois dispositivos.
 
 ---
 
