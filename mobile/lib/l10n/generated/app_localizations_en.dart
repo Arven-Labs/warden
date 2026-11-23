@@ -2357,4 +2357,98 @@ class AppLocalizationsEn extends AppLocalizations {
   @override
   String get arcaModeErrOther =>
       'Something went wrong. Check the connection and try again.';
+
+  @override
+  String get arcaRotationOpen => 'Lost a device? Change the key';
+
+  @override
+  String get arcaRotationTitle => 'Change the vault key';
+
+  @override
+  String get arcaRotationIntro =>
+      'Use this when a device was lost or stolen. It makes a new vault key, and the lost device\'s copy of the vault stops being enough. First revoke the lost device\'s token on the hub.';
+
+  @override
+  String get arcaRotationBegin => 'Make the new key';
+
+  @override
+  String get arcaRotationResumeOpen => 'Resume a change that stopped half way';
+
+  @override
+  String get arcaRotationPhraseIntro =>
+      'These 24 words are the new key. Write them on paper, in order. They are shown only once and nobody can recover them for you.';
+
+  @override
+  String get arcaRotationCaptureWarning =>
+      'Do not photograph this screen or take a screenshot: a copy of these words is a copy of your vault.';
+
+  @override
+  String get arcaRotationTypeBack =>
+      'To show that you wrote them down, type these three words from the list:';
+
+  @override
+  String arcaRotationWordLabel(int position) {
+    return 'Word $position';
+  }
+
+  @override
+  String get arcaRotationRevoked =>
+      'I already revoked the lost device\'s token on the hub.';
+
+  @override
+  String get arcaRotationConfirm => 'Change the key';
+
+  @override
+  String get arcaRotationCancel => 'Cancel';
+
+  @override
+  String get arcaRotationConfirmTitle => 'Change the vault key?';
+
+  @override
+  String get arcaRotationConfirmBody =>
+      'The vault will switch to the new key and this cannot be undone. Your other devices will have to receive the new key before they can sync again.';
+
+  @override
+  String get arcaRotationConfirmNo => 'Not now';
+
+  @override
+  String get arcaRotationConfirmYes => 'Yes, change the key';
+
+  @override
+  String get arcaRotationResumeIntro =>
+      'The change stopped half way. Type the same 24 words you wrote down, separated by spaces, to finish it. Do not make a new key.';
+
+  @override
+  String get arcaRotationResumeLabel => 'The 24 words';
+
+  @override
+  String get arcaRotationResumeConfirm => 'Finish the change';
+
+  @override
+  String get arcaRotationErrNotInArcaMode =>
+      'Arca mode is not on. Turn it on first.';
+
+  @override
+  String get arcaRotationErrNotDeclared =>
+      'You must confirm that the lost device\'s token was revoked on the hub. Nothing was changed.';
+
+  @override
+  String get arcaRotationErrWordMismatch =>
+      'One of the words did not match. Nothing was changed and that key was discarded: start again to get a new one.';
+
+  @override
+  String get arcaRotationErrBadPhrase =>
+      'Those words are not a valid key phrase. Check them against your paper and try again.';
+
+  @override
+  String get arcaRotationErrNoRotation =>
+      'There is no key waiting any more. Start again to get a new one.';
+
+  @override
+  String get arcaRotationErrFailed =>
+      'The change stopped half way and may have been partly saved. Type the same 24 words to finish it. Do not make a new key.';
+
+  @override
+  String get arcaRotationErrOther =>
+      'Something went wrong. Nothing was changed. Try again.';
 }
