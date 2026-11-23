@@ -963,7 +963,13 @@ void main() {
 
     testWidgets('every other failure shows its own sentence and never the English detail', (tester) async {
       // `other` is not here: the bridge never answers it to a confirm, so on a confirm it is the unknown, and the screen treats it as `failed`.
-      for (final kind in [bridge_rot.ArcaRotationErrorKind.notDeclared, bridge_rot.ArcaRotationErrorKind.noRotation]) {
+      // `refused` and `newerEpoch` are refusals before the first write: the phrase is spent, "resume" would be wrong (nothing was written).
+      for (final kind in [
+        bridge_rot.ArcaRotationErrorKind.notDeclared,
+        bridge_rot.ArcaRotationErrorKind.noRotation,
+        bridge_rot.ArcaRotationErrorKind.refused,
+        bridge_rot.ArcaRotationErrorKind.newerEpoch,
+      ]) {
         // A fresh tree: the screen of the last turn must not stay open on top of the next one.
         await tester.pumpWidget(const SizedBox());
         final backend = await shown(tester);

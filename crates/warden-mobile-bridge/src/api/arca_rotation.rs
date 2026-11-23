@@ -36,6 +36,12 @@ pub enum ArcaRotationErrorKind {
     BadPhrase,
     /// No rotation was started (or it was dropped): start it again.
     NoRotation,
+    /// Refused before anything was written (the new key is the one in use, no next epoch, another program holds the vault): the key
+    /// was dropped and nothing is half done, so start again with a new key.
+    Refused,
+    /// A newer key epoch is already stored and was not acknowledged. Nothing was written, and a new key meets the same wall: type the
+    /// 24 words of an earlier rotation of this device that stopped, or pair again / look at the pending epochs.
+    NewerEpoch,
     /// The rotation may have written something before it stopped: resume with the **same 24 words**, a new key would not finish it.
     Failed,
     /// Anything else (the disk, reading the mode).
@@ -70,8 +76,8 @@ pub(crate) fn kind_of(error: &RotationError) -> ArcaRotationErrorKind {
         RotationError::WordMismatch => ArcaRotationErrorKind::WordMismatch,
         RotationError::BadPhrase => ArcaRotationErrorKind::BadPhrase,
         RotationError::NotInArcaMode => ArcaRotationErrorKind::NotInArcaMode,
-        // provisório: os kinds `refused` e `newerEpoch` chegam com o codegen do FRB (etapa 3 do plano)
-        RotationError::Refused(_) | RotationError::NewerEpoch => ArcaRotationErrorKind::Other,
+        RotationError::Refused(_) => ArcaRotationErrorKind::Refused,
+        RotationError::NewerEpoch => ArcaRotationErrorKind::NewerEpoch,
         RotationError::Failed(_) => ArcaRotationErrorKind::Failed,
     }
 }
@@ -363,6 +369,8 @@ mod tests {
             (RotationError::WordMismatch, ArcaRotationErrorKind::WordMismatch),
             (RotationError::BadPhrase, ArcaRotationErrorKind::BadPhrase),
             (RotationError::NotInArcaMode, ArcaRotationErrorKind::NotInArcaMode),
+            (RotationError::Refused("same key".to_string()), ArcaRotationErrorKind::Refused),
+            (RotationError::NewerEpoch, ArcaRotationErrorKind::NewerEpoch),
         ] {
             assert_eq!(kind_of(&refused), kind, "{refused:?}");
         }
