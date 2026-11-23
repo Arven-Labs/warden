@@ -928,7 +928,8 @@ fn engine_failure(error: EngineError, what: &str) -> anyhow::Error {
 }
 
 /// How a `begin_epoch` error reaches the person. Only the errors `begin_epoch` returns **before its first write** are refusals
-/// (arca-core tests prove the store is unchanged for each); any other one (a store error, `StateNotSaved`) may come after the new
+/// (read in `Engine::begin_epoch`; its tests prove the store is unchanged for `KeyNotRotated`, `EpochOverflow`, `Diverged`,
+/// `Interrupted`, `Rollback` and `NeedsNewKey`, the rest is by reading the code); any other one (a store error, `StateNotSaved`) may come after the new
 /// manifest went out, so it stays `Failed`, which tells the person to resume with the same 24 words. Do not widen the refusal
 /// list without that proof: a wrong "nothing was changed" makes the person throw away a key that was already published.
 fn rotation_error_of(error: EngineError) -> crate::arca_rotation::RotationError {
