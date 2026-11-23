@@ -1,5 +1,6 @@
 import '../l10n/generated/app_localizations.dart';
 import '../src/rust/api/arca_mode.dart' as bridge;
+import '../src/rust/api/arca_rotation.dart' as bridge_rotation;
 import 'vault_paths.dart';
 
 /// What the arca mode screen needs from the Rust bridge, so a test can stand in for it (tests never load `RustLib`).
@@ -16,7 +17,31 @@ abstract class ArcaModeBackend {
 
   /// How many of [seen] were acknowledged. 0 means the list changed under the person.
   Future<int> epochsAcknowledge(List<bridge.PendingEpochDto> seen);
+
+  /// Starts a key rotation: the 24 words of the new key (shown once) and which of them to type back. Writes nothing. Throws
+  /// `bridge_rotation.ArcaRotationFailure`.
+  Future<bridge_rotation.RotationStartDto> rotationBegin();
+
+  /// Resumes a rotation that stopped half way, from its 24 words (they are the confirmation: no words are asked back).
+  Future<void> rotationResume(String phrase);
+
+  /// Rotates to the key waiting in the bridge. `revokedOnHub` is the person's statement about the lost device's token.
+  Future<void> rotationConfirm({required List<String> typedWords, required bool revokedOnHub});
+
+  /// Drops the key that was waiting. Nothing was written.
+  Future<void> rotationCancel();
 }
+
+/// The sentence for a rotation failure kind, in the app's language (the Rust text is English and never shown as the main message).
+String arcaRotationErrorText(AppLocalizations l10n, bridge_rotation.ArcaRotationErrorKind kind) => switch (kind) {
+      bridge_rotation.ArcaRotationErrorKind.notInArcaMode => '',
+      bridge_rotation.ArcaRotationErrorKind.notDeclared => '',
+      bridge_rotation.ArcaRotationErrorKind.wordMismatch => '',
+      bridge_rotation.ArcaRotationErrorKind.badPhrase => '',
+      bridge_rotation.ArcaRotationErrorKind.noRotation => '',
+      bridge_rotation.ArcaRotationErrorKind.failed => '',
+      bridge_rotation.ArcaRotationErrorKind.other => '',
+    };
 
 /// The sentence for a failure kind, in the app's language (the Rust text is English and never shown as the main message).
 String arcaModeErrorText(AppLocalizations l10n, bridge.ArcaModeErrorKind kind) => switch (kind) {
@@ -83,4 +108,33 @@ class BridgeArcaModeBackend implements ArcaModeBackend {
     final paths = await VaultPaths.resolve();
     return bridge.arcaEpochsAcknowledge(vaultRoot: paths.vaultRoot, configPath: paths.configPath, secretsPath: paths.secretsPath, manifestPath: paths.manifestPath, seen: seen);
   }
+
+  @override
+  Future<bridge_rotation.RotationStartDto> rotationBegin() async {
+    final paths = await VaultPaths.resolve();
+    return bridge_rotation.arcaRotationBegin(vaultRoot: paths.vaultRoot, configPath: paths.configPath, secretsPath: paths.secretsPath, manifestPath: paths.manifestPath);
+  }
+
+  @override
+  Future<void> rotationResume(String phrase) async {
+    final paths = await VaultPaths.resolve();
+    await bridge_rotation.arcaRotationResume(vaultRoot: paths.vaultRoot, configPath: paths.configPath, secretsPath: paths.secretsPath, manifestPath: paths.manifestPath, phrase: phrase);
+  }
+
+  @override
+  Future<void> rotationConfirm({required List<String> typedWords, required bool revokedOnHub}) async {
+    final paths = await VaultPaths.resolve();
+    await bridge_rotation.arcaRotationConfirm(
+      vaultRoot: paths.vaultRoot,
+      configPath: paths.configPath,
+      secretsPath: paths.secretsPath,
+      manifestPath: paths.manifestPath,
+      typedWords: typedWords,
+      revokedOnHub: revokedOnHub,
+      nowMs: BigInt.from(DateTime.now().millisecondsSinceEpoch),
+    );
+  }
+
+  @override
+  Future<void> rotationCancel() => bridge_rotation.arcaRotationCancel();
 }
