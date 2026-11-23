@@ -166,7 +166,7 @@ pub fn arca_swap_start_replace(
 /// the swap hands a key over, so it does not get the permission the sync cycle has (decided 2026-11-22). Its own function so a test
 /// can hold the strictness: `begin` refuses the same addresses with `HubAccess`, which would hide a loosened reader.
 pub(crate) fn swap_hub_store(hub_url: &str, device_token: &str) -> Result<HubStore, ArcaPairFailure> {
-    hub_store_for(hub_url, device_token, false).map_err(hub_failure)
+    hub_store_for(hub_url, device_token, true).map_err(hub_failure)
 }
 
 /// The refusals of the hub reader as the kinds the pairing screen already translates.
