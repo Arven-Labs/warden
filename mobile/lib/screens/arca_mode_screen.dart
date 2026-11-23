@@ -375,8 +375,11 @@ class _ArcaModeScreenState extends State<ArcaModeScreen> {
           // With a newer key pending this device is the stranded one: its own key is the old one, so it must not hand it over.
           if (_epochs.isEmpty) ...[
             OutlinedButton(key: const Key('arca-mode-swap-grant'), onPressed: _busy ? null : () => _openSwap(ArcaSwapSide.grant), child: Text(l10n.arcaSwapGrantOpen)),
-            const SizedBox(height: 8),
-            OutlinedButton(key: const Key('arca-mode-rotate'), onPressed: _busy ? null : _openRotation, child: Text(l10n.arcaRotationOpen)),
+            // An empty list that could not be read is not "nothing pending": a rotation started over a newer epoch would be refused.
+            if (_epochsKnown) ...[
+              const SizedBox(height: 8),
+              OutlinedButton(key: const Key('arca-mode-rotate'), onPressed: _busy ? null : _openRotation, child: Text(l10n.arcaRotationOpen)),
+            ],
           ] else ...[
             const SizedBox(height: 8),
             OutlinedButton(key: const Key('arca-mode-swap-replace'), onPressed: _busy ? null : _replaceKey, child: Text(l10n.arcaSwapReplaceOpen)),

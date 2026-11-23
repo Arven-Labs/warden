@@ -159,9 +159,10 @@ class _ArcaRotationScreenState extends State<ArcaRotationScreen> {
     try {
       await widget.backend.rotationConfirm(typedWords: [for (final c in _wordControllers) c.text.trim()], revokedOnHub: _revoked);
     } catch (error) {
-      final kind = _kindOf(error);
-      // The bridge took the key out when it started: whatever the answer, that phrase is spent. Only `failed` may have written something,
-      // and then the way on is the same 24 words typed again, never a new key.
+      // The bridge took the key out when it started: whatever the answer, that phrase is spent. `failed` may have written something,
+      // and so may an error that is not the bridge's own (a panic, a broken channel: the bridge never answers `other` to a confirm).
+      // Then the way on is the same 24 words typed again, never a new key.
+      final kind = error is bridge_rotation.ArcaRotationFailure && error.kind != bridge_rotation.ArcaRotationErrorKind.other ? error.kind : bridge_rotation.ArcaRotationErrorKind.failed;
       if (!mounted) return;
       setState(() {
         _wipe();
@@ -264,7 +265,10 @@ class _ArcaRotationScreenState extends State<ArcaRotationScreen> {
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context);
-    return Scaffold(
+    // Not while a confirm or a resume is in flight: leaving would drop the screen that must hand `true` back so the new epoch is sent.
+    return PopScope(
+      canPop: !_busy,
+      child: Scaffold(
       appBar: AppBar(title: Text(l10n.arcaRotationTitle)),
       body: ListView(
         padding: const EdgeInsets.all(16),
@@ -280,6 +284,7 @@ class _ArcaRotationScreenState extends State<ArcaRotationScreen> {
           },
           if (_busy) ...[const SizedBox(height: 16), const LinearProgressIndicator()],
         ],
+      ),
       ),
     );
   }
