@@ -220,6 +220,11 @@ pub fn parse_command(input: &str) -> ParseOutcome {
     ParseOutcome::Recognized(command)
 }
 
+// SKELETON (first commit of the review fixes of `/arca rotate`): answers wrongly on purpose; the next commit writes it.
+pub fn is_rotate_with_arguments(_input: &str) -> bool {
+    false
+}
+
 /// Parses a provider `kind` the way a user would type it (matching the config file's own
 /// `#[serde(rename_all = "snake_case")]` spelling) — there's no `FromStr` on `Provider` itself
 /// since its only other consumer (`toml`) goes through `serde`, not `str::parse`.
@@ -527,8 +532,9 @@ mod tests {
         assert!(matches!(assert_recognized("/arca rotate resume"), Command::ArcaRotateResume));
         // The tokenizer collapses whitespace, so a run of spaces between the words is the same command.
         assert!(matches!(assert_recognized("  /arca   rotate    resume  "), Command::ArcaRotateResume));
-        // The 24 words are typed in a field that is not echoed and not kept: a phrase on the command line would stay in the
-        // line history (and in the screen), so no argument is ever taken from the line.
+        // No argument is ever taken from the line: this only proves the PARSER refuses them. What keeps a phrase typed there out
+        // of the line history and out of the "unknown command" card is `is_rotate_with_arguments` (tested below) and the
+        // REPL's use of it (`remember_line`, `unknown_command_lines` in `interactive.rs`).
         let phrase_on_the_line = format!("/arca rotate resume {}", ["zoo"; 24].join(" "));
         for line in [
             "/arca rotate now",
@@ -543,6 +549,33 @@ mod tests {
             phrase_on_the_line.as_str(),
         ] {
             assert!(matches!(parse_command(line), ParseOutcome::Unrecognized(_)), "{line}");
+        }
+    }
+
+    #[test]
+    fn a_rotate_line_with_arguments_is_told_apart_from_the_two_exact_commands() {
+        // The phrase of the official BIP-39 vector for 32 bytes of 0xff (arca-core `recovery.rs`): a real one, not "word word".
+        let phrase = format!("{} vote", ["zoo"; 23].join(" "));
+        let with_phrase = format!("/arca rotate resume {phrase}");
+        let shouty = format!("/ARCA rotate resume {phrase}");
+        let upper_sub = format!("/arca ROTATE resume {phrase}");
+        let slash_space = format!("/ arca rotate resume {phrase}");
+        let padded = format!("   /arca   rotate   resume   {phrase}   ");
+        for line in [
+            with_phrase.as_str(),
+            shouty.as_str(),
+            upper_sub.as_str(),
+            slash_space.as_str(),
+            padded.as_str(),
+            "/arca rotate resume abandon",
+            "/arca rotate now",
+            "/arca rotate --yes",
+            "/arca rotate rotate",
+        ] {
+            assert!(is_rotate_with_arguments(line), "{line}");
+        }
+        for line in ["/arca rotate", "/arca rotate resume", "  /arca   rotate   resume  ", "/arca sync", "/arca swap now", "/arca rotated", "/arca", "/nonsense", "hello rotate", "arca rotate resume x", ""] {
+            assert!(!is_rotate_with_arguments(line), "{line}: only a line that starts /arca rotate and is not one of the two commands");
         }
     }
 

@@ -52,6 +52,7 @@ use crossterm::terminal::{disable_raw_mode, enable_raw_mode};
 use owo_colors::OwoColorize;
 use ratatui::backend::CrosstermBackend;
 use ratatui::buffer::Buffer;
+use ratatui::layout::Rect;
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, BorderType, Paragraph};
@@ -3728,7 +3729,7 @@ async fn arca_rotate_run(engine: &warden_sync::SyncEngine, pending: PendingRotat
 /// in both languages); every other refusal says the reason the core gave, as the desktop does, so a change of that text in
 /// `warden-sync` reaches the terminal too. `Failed` is the one that may have written something: it sends the person to resume
 /// with the same 24 words and never to a new key.
-fn rotation_error_lines(error: &RotationError) -> Vec<String> {
+fn rotation_error_lines(error: &RotationError, _resuming: bool) -> Vec<String> {
     let line = match error {
         RotationError::NotDeclared => tr!("arca.rotate_not_declared"),
         RotationError::WordMismatch => tr!("arca.rotate_word_mismatch"),
@@ -3840,7 +3841,7 @@ async fn send_the_new_epoch(terminal: &mut CliTerminal, engine: &warden_sync::Sy
 async fn finish_arca_rotate(terminal: &mut CliTerminal, engine: &warden_sync::SyncEngine, outcome: ArcaRotate) -> anyhow::Result<()> {
     match outcome {
         ArcaRotate::Cancelled => cancelled_card(terminal),
-        ArcaRotate::Refused(error) => render_message_card(terminal, "arca", error_style(), rotation_error_lines(&error).into_iter().map(|line| (line, error_style())).collect()),
+        ArcaRotate::Refused(error) => render_message_card(terminal, "arca", error_style(), rotation_error_lines(&error, false).into_iter().map(|line| (line, error_style())).collect()),
         ArcaRotate::Done => {
             render_message_card(terminal, "arca", accent_style(), vec![(tr!("arca.rotate_sending"), Style::default())])?;
             let sent = send_the_new_epoch(terminal, engine).await?;
@@ -3903,6 +3904,49 @@ async fn cmd_arca_rotate_resume(terminal: &mut CliTerminal, session: &CliSession
     let Some((declaration, confirmation)) = ask_rotation_answers(terminal).await? else { return cancelled_card(terminal) };
     let outcome = arca_rotate_run(&engine, pending, &[], Some(declaration.as_str()), confirmation.as_deref(), now_millis()).await;
     finish_arca_rotate(terminal, &engine, outcome).await
+}
+
+// SKELETON (first commit of the review fixes of `/arca rotate`): the names and signatures the new tests need, answering wrongly on
+// purpose so the tests fail on behavior and not on compilation. The next commit writes every body below and wires them in.
+
+/// Whether a submitted line may go into the line history (saved in clear text on disk, recalled with the arrow keys).
+fn keep_in_history(line: &str) -> bool {
+    !line.trim().is_empty()
+}
+
+fn remember_line(history: &mut Vec<String>, line: &str) {
+    if keep_in_history(line) {
+        history.push(line.to_string());
+    }
+}
+
+/// What the REPL says for a line that is not a command.
+fn unknown_command_lines(raw: &str) -> String {
+    tr!("command.unknown", command = raw)
+}
+
+/// Whether the terminal can show every word of the phrase; the number of words per row if it can.
+fn phrase_layout(width: usize, _height: usize) -> Option<usize> {
+    Some(phrase_per_row(width))
+}
+
+fn draw_phrase_box(_buf: &mut Buffer, _area: Rect, _rows: &[String], _title: &str, _keys: &str) {}
+
+/// The person at the terminal, for the questions of a rotation: one field per question, `None` when they gave up.
+trait FieldAsker {
+    async fn ask(&mut self, title: &str) -> anyhow::Result<Option<String>>;
+}
+
+async fn typed_words_from(_asker: &mut impl FieldAsker, _positions: &[usize]) -> anyhow::Result<Option<Vec<String>>> {
+    Ok(Some(Vec::new()))
+}
+
+async fn rotation_answers_from(_asker: &mut impl FieldAsker) -> anyhow::Result<Option<(String, Option<String>)>> {
+    Ok(None)
+}
+
+async fn ask_and_rotate(_engine: &warden_sync::SyncEngine, _asker: &mut impl FieldAsker, _pending: PendingRotation, _now_ms: u64) -> anyhow::Result<ArcaRotate> {
+    Ok(ArcaRotate::Cancelled)
 }
 
 /// How long the new device waits for a grant: the same 10 minutes an offer lives on the hub.
@@ -5322,12 +5366,73 @@ mod tests {
 
     #[test]
     fn the_rows_are_as_wide_as_the_terminal_allows() {
-        // One item is 12 columns ("24. " and 8 for the longest word), the gap between items 2, the card 4: n items need 14 * n + 2.
+        // One item is 12 columns ("24. " and 8 for the longest word), the gap between items 2, the box border 2 and 2 columns of
+        // slack: n items need 14 * n + 2. Those numbers are this function's own design, not a fact from outside.
         for (width, per_row) in [(80, 4), (58, 4), (57, 3), (44, 3), (43, 2), (30, 2), (29, 1), (0, 1)] {
             assert_eq!(phrase_per_row(width), per_row, "width {width}");
         }
     }
 
+    /// Rows of text of what `draw_phrase_box` painted in a `width` x `height` area, the border characters turned into spaces.
+    fn painted_rows(rows: &[String], title: &str, keys: &str, width: u16, height: u16) -> Vec<String> {
+        let area = Rect::new(0, 0, width, height);
+        let mut buf = Buffer::empty(area);
+        draw_phrase_box(&mut buf, area, rows, title, keys);
+        (0..height).map(|y| (0..width).map(|x| buf[(x, y)].symbol().to_string()).collect::<String>().replace(['│', '╭', '╮', '╰', '╯', '─'], " ")).collect()
+    }
+
+    #[test]
+    fn every_word_of_the_phrase_and_the_keys_are_on_the_screen_at_each_width_the_layout_accepts() {
+        let pending = PendingRotation::generate().unwrap();
+        let phrase = pending.phrase().unwrap();
+        let words: Vec<&str> = phrase.words().collect();
+        for locale in [i18n::Locale::En, i18n::Locale::PtBr] {
+            speak(locale);
+            let (title, keys) = (tr!("arca.rotate_phrase_title"), tr!("arca.rotate_phrase_keys"));
+            assert!(keys.chars().count() <= 27, "the keys row must fit the narrowest box (29 columns, 2 of them border): {keys}");
+            for width in [80u16, 58, 44, 30, 29] {
+                let per_row = phrase_layout(width as usize, 100).unwrap_or_else(|| panic!("width {width} is accepted"));
+                let rows = phrase_rows(words.iter().copied(), per_row);
+                // The box is the rows, the keys row and two borders high.
+                let painted = painted_rows(&rows, &title, &keys, width, rows.len() as u16 + 3);
+                let inner = &painted[1..=rows.len()];
+                let tokens: Vec<&str> = inner.iter().flat_map(|row| row.split_whitespace()).collect();
+                let numbers: Vec<&str> = tokens.iter().copied().step_by(2).collect();
+                let shown: Vec<&str> = tokens.iter().copied().skip(1).step_by(2).collect();
+                let expected_numbers: Vec<String> = (1..=24).map(|n| format!("{n}.")).collect();
+                assert_eq!(numbers, expected_numbers.iter().map(String::as_str).collect::<Vec<_>>(), "width {width}: every number, none cut");
+                assert_eq!(shown, words, "width {width}: every word whole and in order");
+                let last = &painted[rows.len() + 1];
+                assert!(last.contains("Enter") && last.contains("Ctrl+D"), "width {width}: the keys are on the screen: {last:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn a_terminal_that_cannot_show_every_word_is_refused_before_anything_is_made() {
+        // (width, height, words per row if accepted). A row is 24 / per_row lines, plus 2 border lines and the keys row.
+        for (width, height, expected) in [
+            (80, 24, Some(4)),
+            (80, 9, Some(4)),
+            (80, 8, None),
+            (44, 11, Some(3)),
+            (44, 10, None),
+            (30, 15, Some(2)),
+            (30, 14, None),
+            (29, 27, Some(1)),
+            (29, 26, None),
+            (28, 100, None),
+            (0, 0, None),
+            (80, 0, None),
+        ] {
+            assert_eq!(phrase_layout(width, height), expected, "{width}x{height}");
+        }
+    }
+
+    /// WEAK ON PURPOSE, and said so: it asserts an absence, so any implementation that never prints the phrase passes it, and it
+    /// passes the skeleton too. What proves the phrase IS on the screen that shows it is
+    /// `every_word_of_the_phrase_and_the_keys_are_on_the_screen_at_each_width_the_layout_accepts` above; this one only guards that
+    /// no other text (the questions, the cards, the `Debug` of what the command holds) ever starts to carry it.
     #[test]
     fn the_phrase_is_written_by_no_text_but_the_screen_that_shows_it() {
         let pending = PendingRotation::generate().unwrap();
@@ -5352,11 +5457,12 @@ mod tests {
             for position in 1..=24 {
                 elsewhere.push(tr!("arca.rotate_ask_word", position = position));
             }
-            for key in ["arca.rotate_intro", "arca.rotate_resume_intro", "arca.rotate_phrase_title", "arca.rotate_ask_phrase", "arca.rotate_ask_revoked", "arca.rotate_confirm"] {
+            for key in ["arca.rotate_intro", "arca.rotate_resume_intro", "arca.rotate_phrase_title", "arca.rotate_phrase_keys", "arca.rotate_ask_phrase", "arca.rotate_ask_revoked", "arca.rotate_confirm", "arca.rotate_sending", "arca.rotate_terminal_small", "arca.rotate_resized", "arca.rotate_no_arguments"] {
                 elsewhere.push(tr!(key));
             }
             for error in &errors {
-                elsewhere.extend(rotation_error_lines(error));
+                elsewhere.extend(rotation_error_lines(error, false));
+                elsewhere.extend(rotation_error_lines(error, true));
             }
             elsewhere.extend(arca_rotated_lines(None));
             elsewhere.extend(arca_rotated_lines(Some(&Ok(ArcaSyncReport::default()))));
@@ -5383,37 +5489,79 @@ mod tests {
         ];
         let mut seen_en = Vec::new();
         for error in errors {
-            speak(i18n::Locale::En);
-            let en = rotation_error_lines(&error).join("\n");
-            speak(i18n::Locale::PtBr);
-            let pt = rotation_error_lines(&error).join("\n");
-            assert!(!en.trim().is_empty() && !pt.trim().is_empty(), "{error:?}");
-            assert_ne!(en, pt, "{error:?}: the pt-BR text is not translated");
-            assert!(!seen_en.contains(&en), "{error:?} says the same as another: {en}");
-            seen_en.push(en);
+            for resuming in [false, true] {
+                speak(i18n::Locale::En);
+                let en = rotation_error_lines(&error, resuming).join("\n");
+                speak(i18n::Locale::PtBr);
+                let pt = rotation_error_lines(&error, resuming).join("\n");
+                assert!(!en.trim().is_empty() && !pt.trim().is_empty(), "{error:?}");
+                assert_ne!(en, pt, "{error:?}: the pt-BR text is not translated");
+                // The same text may serve both ways of running it (a stop half way, a bad phrase); two different errors never share one.
+                if !seen_en.contains(&en) {
+                    seen_en.push(en);
+                }
+            }
+        }
+        assert!(seen_en.len() >= 7, "each of the 7 errors says something of its own: {}", seen_en.len());
+        // Every text and every key this fix added exists in both catalogs (a missing key shows itself).
+        for locale in [i18n::Locale::En, i18n::Locale::PtBr] {
+            speak(locale);
+            for key in ["arca.rotate_phrase_keys", "arca.rotate_terminal_small", "arca.rotate_resized", "arca.rotate_no_arguments", "arca.rotate_discarded", "arca.rotate_refused", "arca.rotate_newer_epoch"] {
+                assert_ne!(tr!(key), key, "{key} is missing from the catalog of {locale:?}");
+            }
         }
     }
 
     #[test]
     fn a_refusal_before_the_first_write_never_sends_the_person_to_resume_and_a_stop_half_way_always_does() {
         speak(i18n::Locale::En);
-        for error in [RotationError::NotDeclared, RotationError::WordMismatch, RotationError::NotInArcaMode, RotationError::Refused("same key".into())] {
-            let lines = rotation_error_lines(&error).join("\n");
-            assert!(!lines.contains("resume"), "{error:?}: nothing was written, so there is nothing to resume: {lines}");
+        let lines = |error: &RotationError, resuming: bool| rotation_error_lines(error, resuming).join("\n");
+        // `/arca rotate` (a phrase was shown): nothing was written, the phrase is void, the next step is a new rotation.
+        for error in [RotationError::NotDeclared, RotationError::WordMismatch, RotationError::NotInArcaMode, RotationError::Refused("same key".into()), RotationError::NewerEpoch] {
+            let text = lines(&error, false);
+            assert!(text.contains("discarded"), "{error:?}: the person may throw the paper away: {text}");
+            if !matches!(error, RotationError::NewerEpoch) {
+                assert!(!text.contains("resume"), "{error:?}: nothing was written, so there is nothing to resume: {text}");
+            }
         }
-        let undeclared = rotation_error_lines(&RotationError::NotDeclared).join("\n");
-        assert!(undeclared.contains("revoked") && undeclared.contains("Nothing was written"), "{undeclared}");
-        let mismatch = rotation_error_lines(&RotationError::WordMismatch).join("\n");
-        assert!(mismatch.contains("Nothing was written") && mismatch.contains("/arca rotate"), "{mismatch}");
-        let reason = rotation_error_lines(&RotationError::Refused("same key".into())).join("\n");
-        assert!(reason.contains(&RotationError::Refused("same key".into()).to_string()), "the reason the core gave is said as it was: {reason}");
-        let no_mode = rotation_error_lines(&RotationError::NotInArcaMode).join("\n");
+        // `/arca rotate resume` (no phrase was shown, an earlier try may have written): never "discarded", never "the key was not changed".
+        for error in [RotationError::NotDeclared, RotationError::NotInArcaMode, RotationError::Refused("same key".into()), RotationError::NewerEpoch] {
+            let text = lines(&error, true);
+            assert!(!text.contains("discarded") && !text.contains("not changed"), "{error:?}: an earlier try may have written: {text}");
+        }
+        let undeclared = lines(&RotationError::NotDeclared, false);
+        assert!(undeclared.contains("revoked") && undeclared.contains("wrote nothing") && undeclared.contains("/arca rotate again"), "{undeclared}");
+        let undeclared_resume = lines(&RotationError::NotDeclared, true);
+        assert!(undeclared_resume.contains("/arca rotate resume again"), "{undeclared_resume}");
+        let mismatch = lines(&RotationError::WordMismatch, false);
+        assert!(mismatch.contains("wrote nothing") && mismatch.contains("/arca rotate again"), "{mismatch}");
+        // The reason the core gave is said once, in the CLI's own sentence: the core's own "nothing was changed:" is not repeated.
+        let refused = lines(&RotationError::Refused("same key".into()), false);
+        assert_eq!(refused.matches("same key").count(), 1, "{refused}");
+        assert!(!refused.contains("nothing was changed") && refused.contains("/arca rotate again"), "{refused}");
+        assert!(lines(&RotationError::Refused("same key".into()), true).contains("/arca rotate resume again"));
+        let no_mode = lines(&RotationError::NotInArcaMode, false);
         assert!(no_mode.contains("/arca on"), "{no_mode}");
-        let half_way = rotation_error_lines(&RotationError::Failed("disk gone".into())).join("\n");
-        assert!(half_way.contains("disk gone") && half_way.contains("/arca rotate resume") && half_way.contains("Do not make a new key") && half_way.contains("same 24 words"), "{half_way}");
+        // A newer epoch: a new key hits the same wall, so the text says where each cause is handled, and does NOT offer `/arca ack`
+        // as a shortcut (the epoch of an object is not authenticated: whoever has the old key can forge one).
+        for resuming in [false, true] {
+            let newer = lines(&RotationError::NewerEpoch, resuming);
+            assert!(newer.contains("/arca swap offer") && newer.contains("/arca rotate resume") && newer.contains("ANOTHER") && newer.contains("not authenticated"), "{newer}");
+            assert!(!newer.contains("/arca ack"), "{newer}");
+        }
+        // A stop half way (it may have written): the same 24 words, never a new key, and nothing says the phrase is void.
+        for resuming in [false, true] {
+            let half_way = lines(&RotationError::Failed("disk gone".into()), resuming);
+            assert!(half_way.contains("(disk gone)") && half_way.contains("/arca rotate resume") && half_way.contains("Do not make a new key") && half_way.contains("same 24 words") && half_way.contains("hidden field"), "{half_way}");
+            assert!(!half_way.contains("discarded") && !half_way.contains("the key was not rotated"), "the core's English sentence is not pasted in: {half_way}");
+        }
         speak(i18n::Locale::PtBr);
-        let half_way_pt = rotation_error_lines(&RotationError::Failed("disk gone".into())).join("\n");
-        assert!(half_way_pt.contains("disk gone") && half_way_pt.contains("/arca rotate resume") && half_way_pt.contains("Não gere uma chave nova") && half_way_pt.contains("mesmas 24 palavras"), "{half_way_pt}");
+        let half_way_pt = lines(&RotationError::Failed("disk gone".into()), false);
+        assert!(half_way_pt.contains("(disk gone)") && half_way_pt.contains("/arca rotate resume") && half_way_pt.contains("Não gere uma chave nova") && half_way_pt.contains("mesmas 24 palavras") && half_way_pt.contains("campo escondido"), "{half_way_pt}");
+        assert!(!half_way_pt.contains("the key was not rotated"), "an English sentence of the core inside the pt-BR text contradicts it: {half_way_pt}");
+        let newer_pt = lines(&RotationError::NewerEpoch, false);
+        assert!(newer_pt.contains("/arca swap offer") && newer_pt.contains("OUTRA") && !newer_pt.contains("/arca ack"), "{newer_pt}");
+        assert!(lines(&RotationError::NotDeclared, false).contains("descartada"), "pt-BR says the phrase is void too");
     }
 
     #[test]
@@ -5446,12 +5594,196 @@ mod tests {
         assert!(tr!("arca.rotate_ask_word", position = 17).contains("17"));
         let intro = tr!("arca.rotate_intro");
         assert!(intro.contains("24 words") && intro.contains("ONCE") && intro.contains("revoke"), "{intro}");
+        // What the clearing does NOT guarantee is said where the person reads it: a resize, tmux/screen and `script` can keep a copy.
+        assert!(intro.contains("tmux") && intro.contains("script") && intro.contains("resiz"), "{intro}");
+        // The key has already changed when this is shown (it is the `Done` arm), so it must not speak as if it were going to.
+        let sending = tr!("arca.rotate_sending");
+        assert!(sending.contains("was changed on this computer") && !sending.contains("is being"), "{sending}");
         speak(i18n::Locale::PtBr);
+        let intro_pt = tr!("arca.rotate_intro");
+        assert!(intro_pt.contains("tmux") && intro_pt.contains("script") && intro_pt.contains("redimension"), "{intro_pt}");
+        let sending_pt = tr!("arca.rotate_sending");
+        assert!(sending_pt.contains("foi trocada neste computador") && !sending_pt.contains("está sendo"), "{sending_pt}");
         let revoked_pt = tr!("arca.rotate_ask_revoked");
         assert!(revoked_pt.contains("revogou") && revoked_pt.contains("(s/n)"), "{revoked_pt}");
         let confirm_pt = tr!("arca.rotate_confirm");
         assert!(confirm_pt.contains("desfazer") && confirm_pt.contains("(s/n)"), "{confirm_pt}");
         assert!(tr!("arca.rotate_ask_word", position = 17).contains("17"));
+    }
+
+    #[test]
+    fn a_line_with_words_after_arca_rotate_is_neither_kept_in_the_history_nor_echoed_nor_saved() {
+        // Two real phrases: the official 0xff vector and one just made. (The messages below never print the line: a failing run
+        // would otherwise put a phrase in the log.)
+        let made = PendingRotation::generate().unwrap();
+        let made_phrase = made.phrase().unwrap();
+        for phrase in [ZOO_PHRASE.to_string(), made_phrase.expose().to_string()] {
+            let words: Vec<&str> = phrase.split(' ').collect();
+            let secret = [phrase.clone(), words[..12].join(" "), words[12..].join(" ")];
+            for line in [format!("/arca rotate resume {phrase}"), format!("/arca rotate {phrase}"), format!("  /ARCA   rotate   resume   {phrase}  ")] {
+                // The line history as a session builds it, saved the way the session saves it.
+                let mut history = Vec::new();
+                for typed in ["/arca on", line.as_str(), "/arca rotate resume", "/arca rotate", "hello", "   "] {
+                    remember_line(&mut history, typed);
+                }
+                assert_eq!(history, vec!["/arca on", "/arca rotate resume", "/arca rotate", "hello"], "only the line with words stays out; blank lines never go in");
+                let path = std::env::temp_dir().join(format!("warden-cli-history-{}.txt", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
+                save_history(&path, &history);
+                let saved = std::fs::read_to_string(&path).unwrap();
+                let _ = std::fs::remove_file(&path);
+                for part in &secret {
+                    assert!(!saved.contains(part.as_str()), "the phrase reached the history file");
+                }
+                for locale in [i18n::Locale::En, i18n::Locale::PtBr] {
+                    speak(locale);
+                    let said = unknown_command_lines(&line);
+                    for part in &secret {
+                        assert!(!said.contains(part.as_str()), "the phrase was echoed in the unknown-command card");
+                    }
+                    assert!(said.contains("/arca rotate resume"), "the card says what to do instead: {said}");
+                }
+            }
+        }
+        // Every other unknown command is still echoed as before, and recalled from the history.
+        speak(i18n::Locale::En);
+        assert!(unknown_command_lines("/nonsense now").contains("/nonsense now"));
+        let mut history = Vec::new();
+        remember_line(&mut history, "/nonsense now");
+        assert_eq!(history, vec!["/nonsense now"]);
+        let said = unknown_command_lines("/arca rotate resume abandon");
+        assert!(said.contains("hidden") && !said.contains("abandon"), "{said}");
+        speak(i18n::Locale::PtBr);
+        assert!(unknown_command_lines("/arca rotate resume abandon").contains("escondido"));
+    }
+
+    /// The person, from a script: what each field answers, in order; `None` is Ctrl+D. It remembers the titles it was asked.
+    struct ScriptedAsker {
+        answers: std::collections::VecDeque<Option<String>>,
+        asked: Vec<String>,
+    }
+
+    impl ScriptedAsker {
+        fn new(answers: Vec<Option<&str>>) -> Self {
+            Self { answers: answers.into_iter().map(|answer| answer.map(str::to_string)).collect(), asked: Vec::new() }
+        }
+        /// The words of `pending` that are asked back, then `then`.
+        fn with_words(pending: &PendingRotation, then: Vec<Option<&str>>) -> Self {
+            let mut asker = Self::new(then);
+            for word in words_asked(pending).into_iter().rev() {
+                asker.answers.push_front(Some(word));
+            }
+            asker
+        }
+    }
+
+    impl FieldAsker for ScriptedAsker {
+        async fn ask(&mut self, title: &str) -> anyhow::Result<Option<String>> {
+            self.asked.push(title.to_string());
+            Ok(self.answers.pop_front().expect("the command asked more than the script has"))
+        }
+    }
+
+    #[tokio::test]
+    async fn the_declaration_is_asked_first_and_the_confirmation_only_after_a_yes() {
+        speak(i18n::Locale::En);
+        let mut asker = ScriptedAsker::new(vec![Some("n")]);
+        assert_eq!(rotation_answers_from(&mut asker).await.unwrap(), Some(("n".to_string(), None)));
+        assert_eq!(asker.asked.len(), 1, "no \"change it now?\" for someone who did not revoke the token");
+        assert!(asker.asked[0].contains("revoke"), "{:?}", asker.asked);
+
+        let mut asker = ScriptedAsker::new(vec![Some("s"), Some("sim")]);
+        assert_eq!(rotation_answers_from(&mut asker).await.unwrap(), Some(("s".to_string(), Some("sim".to_string()))));
+        assert_eq!(asker.asked.len(), 2);
+        assert!(asker.asked[0].contains("revoke") && asker.asked[1].contains("change this vault's key"), "the declaration comes first: {:?}", asker.asked);
+
+        // Ctrl+D on the first question gives up; on the second it is a confirmation that never came.
+        let mut asker = ScriptedAsker::new(vec![None]);
+        assert_eq!(rotation_answers_from(&mut asker).await.unwrap(), None);
+        assert_eq!(asker.asked.len(), 1);
+        let mut asker = ScriptedAsker::new(vec![Some("s"), None]);
+        assert_eq!(rotation_answers_from(&mut asker).await.unwrap(), Some(("s".to_string(), None)));
+        // An empty answer is not a yes.
+        let mut asker = ScriptedAsker::new(vec![Some("")]);
+        assert_eq!(rotation_answers_from(&mut asker).await.unwrap(), Some((String::new(), None)));
+        assert_eq!(asker.asked.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn a_blank_word_is_asked_again_and_only_giving_up_stops_the_questions() {
+        speak(i18n::Locale::En);
+        // A stray Enter must not throw away the phrase the person just wrote down.
+        let mut asker = ScriptedAsker::new(vec![Some(""), Some("   "), Some("abandon"), Some("ability"), Some("able")]);
+        let typed = typed_words_from(&mut asker, &[3, 11, 20]).await.unwrap();
+        assert_eq!(typed, Some(vec!["abandon".to_string(), "ability".to_string(), "able".to_string()]));
+        assert_eq!(asker.asked.len(), 5);
+        assert!(asker.asked[..3].iter().all(|title| title.contains("word 3 ")), "the same word is asked again: {:?}", asker.asked);
+        assert!(asker.asked[3].contains("word 11 ") && asker.asked[4].contains("word 20 "), "{:?}", asker.asked);
+        // Ctrl+D gives up at once.
+        let mut asker = ScriptedAsker::new(vec![Some("abandon"), None]);
+        assert_eq!(typed_words_from(&mut asker, &[3, 11, 20]).await.unwrap(), None);
+        assert_eq!(asker.asked.len(), 2, "nothing is asked after giving up");
+        // A resume asks for no word.
+        let mut asker = ScriptedAsker::new(Vec::new());
+        assert_eq!(typed_words_from(&mut asker, &[]).await.unwrap(), Some(Vec::new()));
+        assert!(asker.asked.is_empty());
+    }
+
+    #[tokio::test]
+    async fn what_the_person_answers_decides_the_rotation_and_nothing_is_decided_for_them() {
+        let device = device_in_arca_mode("rotate-questions").await;
+        let before = secrets_of(&device);
+
+        // No declaration: the core refuses, the confirmation is never asked, nothing is written.
+        let pending = PendingRotation::generate().unwrap();
+        let mut asker = ScriptedAsker::with_words(&pending, vec![Some("n")]);
+        assert_eq!(ask_and_rotate(&device.engine, &mut asker, pending, 8).await.unwrap(), ArcaRotate::Refused(RotationError::NotDeclared));
+        assert_eq!(asker.asked.len(), 4, "three words and the declaration");
+        assert_key_untouched(&device, &before, "no declaration");
+
+        // Declared but not confirmed, and Ctrl+D on the confirmation.
+        for confirmation in [Some("n"), None] {
+            let pending = PendingRotation::generate().unwrap();
+            let mut asker = ScriptedAsker::with_words(&pending, vec![Some("s"), confirmation]);
+            assert_eq!(ask_and_rotate(&device.engine, &mut asker, pending, 8).await.unwrap(), ArcaRotate::Cancelled, "{confirmation:?}");
+            assert_key_untouched(&device, &before, "not confirmed");
+        }
+
+        // Giving up on the second word stops everything: the declaration is never asked.
+        let pending = PendingRotation::generate().unwrap();
+        let first = words_asked(&pending).remove(0);
+        let mut asker = ScriptedAsker::new(vec![Some(first.as_str()), None]);
+        assert_eq!(ask_and_rotate(&device.engine, &mut asker, pending, 8).await.unwrap(), ArcaRotate::Cancelled);
+        assert_eq!(asker.asked.len(), 2);
+        assert_key_untouched(&device, &before, "gave up on a word");
+
+        // A wrong word, even with both yes.
+        let pending = PendingRotation::generate().unwrap();
+        let mut asker = ScriptedAsker::with_words(&pending, vec![Some("s"), Some("s")]);
+        asker.answers[0].as_mut().unwrap().push('x');
+        assert_eq!(ask_and_rotate(&device.engine, &mut asker, pending, 8).await.unwrap(), ArcaRotate::Refused(RotationError::WordMismatch));
+        assert_key_untouched(&device, &before, "wrong word");
+
+        // Everything right: the key changes, once.
+        let pending = PendingRotation::generate().unwrap();
+        let mut asker = ScriptedAsker::with_words(&pending, vec![Some("s"), Some("sim")]);
+        assert_eq!(ask_and_rotate(&device.engine, &mut asker, pending, 8).await.unwrap(), ArcaRotate::Done);
+        assert_eq!(secrets_of(&device).key_epoch, 1);
+    }
+
+    #[tokio::test]
+    async fn a_resume_asks_the_two_questions_and_no_word_and_saves_the_key_of_the_24_words() {
+        let device = device_in_arca_mode("rotate-resume-questions").await;
+        let before = secrets_of(&device);
+        let mut asker = ScriptedAsker::new(vec![Some("n")]);
+        let pending = PendingRotation::from_phrase(ZOO_PHRASE).unwrap();
+        assert_eq!(ask_and_rotate(&device.engine, &mut asker, pending, 8).await.unwrap(), ArcaRotate::Refused(RotationError::NotDeclared));
+        assert_eq!(asker.asked.len(), 1, "the declaration is the first thing a resume asks");
+        assert_key_untouched(&device, &before, "resume without a declaration");
+        let mut asker = ScriptedAsker::new(vec![Some("s"), Some("s")]);
+        let pending = PendingRotation::from_phrase(ZOO_PHRASE).unwrap();
+        assert_eq!(ask_and_rotate(&device.engine, &mut asker, pending, 9).await.unwrap(), ArcaRotate::Done);
+        assert_eq!(asker.asked.len(), 2);
+        assert_eq!(secrets_of(&device).vault_key, [0xff; 32]);
     }
 
     // ---------- `/arca on` ----------
