@@ -99,9 +99,10 @@ function ArcaRotationBlock({ hubId }: { hubId: string }) {
         setStep({ kind: "resume" });
         setOutcome({ ok: false, text: t("arca.rotationPartial", { message: failure.message }) });
       } else if (step.kind === "resume") {
-        // The 24 words typed are the person's own work: a typo is fixed in place, not typed again from nothing.
+        // The 24 words typed are the person's own work: a typo is fixed in place, not typed again from nothing. And nothing written by
+        // THIS attempt says nothing about the store: an earlier attempt may have published this very key, so it is not "not changed".
         setConfirming(false);
-        setOutcome({ ok: false, text: t("arca.rotationFailed", { message: failure.message }) });
+        setOutcome({ ok: false, text: t("arca.rotationResumeNotWritten", { message: failure.message }) });
       } else {
         // Nothing was written and the backend dropped the key with the try: the person starts again.
         reset();

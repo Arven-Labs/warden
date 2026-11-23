@@ -182,6 +182,7 @@ export const syncPt: Record<keyof typeof sync, string> = {
   "arca.rotationDoneNotSent": "A chave foi trocada neste computador, mas não foi enviada ao hub: {message}. Sincronize de novo para enviar.",
   "arca.rotationDoneNoHub": "A chave foi trocada neste computador. Escolha um hub e sincronize para enviar.",
   "arca.rotationFailed": "A chave não foi trocada: {message}",
+  "arca.rotationResumeNotWritten": "Nada foi gravado nesta tentativa, mas uma tentativa anterior pode já ter publicado essa chave: guarde as 24 palavras. Detalhe: {message}",
   "arca.rotationPartial": "A troca parou no meio: {message}. Não gere uma chave nova. As mesmas 24 palavras estão na caixa abaixo: confirme para terminar com a mesma chave.",
   "arca.keptTitle": "Arquivos guardados",
   "arca.keptHint": "Uma atualização do cofre foi interrompida e estes arquivos não puderam voltar para onde estavam. Cada um é um arquivo seu, deixado na pasta indicada com um nome que é só um código. Abra essa pasta e olhe o arquivo antes de apagar: apagar não pode ser desfeito por aqui, e apagar não sobrescreve o disco.",

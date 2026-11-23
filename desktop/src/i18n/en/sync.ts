@@ -181,6 +181,7 @@ export const sync = {
   "arca.rotationDoneNotSent": "The key was changed on this computer, but it was not sent to the hub: {message}. Sync again to send it.",
   "arca.rotationDoneNoHub": "The key was changed on this computer. Choose a hub and sync to send it.",
   "arca.rotationFailed": "The key was not changed: {message}",
+  "arca.rotationResumeNotWritten": "Nothing was written by this attempt, but an earlier attempt may already have published this key: keep the 24 words. Detail: {message}",
   "arca.rotationPartial": "The change stopped half way: {message}. Do not make a new key. The same 24 words are in the box below: confirm to finish it with the same key.",
   "arca.keptTitle": "Files set aside",
   "arca.keptHint": "An update of the vault was interrupted and these files could not be put back where they were. Each one is a file of yours, left in the folder shown under a name that is only a code. Open that folder and look at it before deleting: deleting cannot be undone from here, and deleting does not overwrite the disk.",

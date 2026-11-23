@@ -277,14 +277,15 @@ impl SyncEngine {
     /// 2. `arca_folder.txt` points at that manifest: the cycle keeps which manifest the folder reflects, and an old id would be read
     ///    with a key that cannot open it.
     /// 3. `sync_secrets.json` gets the new key and epoch in one atomic save: they are a pair.
-    pub(crate) async fn arca_rotate_to(&self, new_key: &VaultKey, now_ms: u64) -> Result<(), crate::arca_rotation::RotationError> {
-        use crate::arca_rotation::RotationError;
-        let failed = |error: anyhow::Error| RotationError::Failed(format!("{error:#}"));
-        // Until `begin_epoch` writes, nothing is on disk: what goes wrong here is a refusal, not a stop half way.
-        let refused = |error: anyhow::Error| RotationError::Refused(format!("{error:#}"));
+    pub(crate) async fn arca_rotate_to(&self, new_key: &VaultKey, now_ms: u64) -> Result<(), crate::arca_rotation::RotationFailure> {
+        use crate::arca_rotation::{Remedy, RotationError, RotationFailure};
+        let failed = |error: anyhow::Error| RotationFailure::stopped(None, format!("{error:#}"));
+        // Until `begin_epoch` writes, nothing is on disk: what goes wrong here is a refusal, not a stop half way. The vault or its
+        // sync state could not be opened (a lock that is held, an unreadable mode file or setting): trying again later is the remedy.
+        let refused = |error: anyhow::Error| RotationFailure::refused(Remedy::Busy, format!("{error:#}"));
         let _one_sync_at_a_time = self.sync_lock().await.map_err(refused)?;
         let Some(mode) = load_mode(&mode_path_for(&self.manifest_path)).map_err(refused)? else {
-            return Err(RotationError::NotInArcaMode);
+            return Err(RotationError::NotInArcaMode.into());
         };
         let (engine, roots) = self.arca_engine(mode.secret_accepted, false).map_err(refused)?;
         let (_next, snapshot) = engine.begin_epoch(new_key, &roots, now_ms).await.map_err(rotation_error_of)?;
@@ -296,7 +297,7 @@ impl SyncEngine {
 
         let mut secrets = self.load_secrets().map_err(failed)?;
         secrets.vault_key = *new_key.export_bytes();
-        secrets.key_epoch = secrets.key_epoch.checked_add(1).ok_or_else(|| RotationError::Failed("there is no next key epoch".into()))?;
+        secrets.key_epoch = secrets.key_epoch.checked_add(1).ok_or_else(|| RotationFailure::from(RotationError::Failed("there is no next key epoch".into())))?;
         crate::manifest::save_secrets(&self.secrets_path, &secrets).map_err(failed)
     }
 
@@ -932,27 +933,29 @@ fn engine_failure(error: EngineError, what: &str) -> anyhow::Error {
 /// `Interrupted`, `Rollback` and `NeedsNewKey`, the rest is by reading the code); any other one (a store error, `StateNotSaved`) may come after the new
 /// manifest went out, so it stays `Failed`, which tells the person to resume with the same 24 words. Do not widen the refusal
 /// list without that proof: a wrong "nothing was changed" makes the person throw away a key that was already published.
-fn rotation_error_of(error: EngineError) -> crate::arca_rotation::RotationError {
-    use crate::arca_rotation::RotationError;
-    let wrote_nothing = matches!(
-        error,
-        EngineError::Object(arca_core::Error::KeyNotRotated | arca_core::Error::EpochOverflow)
-            | EngineError::Diverged { .. }
-            | EngineError::Rollback
-            | EngineError::Interrupted
-            | EngineError::IncompleteApply
-            | EngineError::CorruptJournal
-            | EngineError::CorruptState
-            | EngineError::Busy
-    );
+///
+/// Each refusal carries the `Remedy` that resolves it, because a new key cures only the first (`KeyNotRotated`): the others are
+/// about the folder, the storage or the arca's files, and the same trouble meets the next key too. `ClassEmptied` is a stop, not a
+/// refusal: `begin_epoch` returns it only when a manifest of the new epoch is already published (`prev` is `None` otherwise, so the
+/// class had no entries to lose), so a new key would meet that epoch (`NewerEpoch`); the way out is the same phrase, files back.
+fn rotation_error_of(error: EngineError) -> crate::arca_rotation::RotationFailure {
+    use crate::arca_rotation::{Remedy, RotationError, RotationFailure};
     if matches!(error, EngineError::NeedsNewKey { .. }) {
-        return RotationError::NewerEpoch;
+        return RotationError::NewerEpoch.into();
     }
+    let (wrote_nothing, remedy) = match &error {
+        EngineError::Object(arca_core::Error::KeyNotRotated) => (true, Some(Remedy::SameKey)),
+        EngineError::Object(arca_core::Error::EpochOverflow) | EngineError::CorruptJournal | EngineError::CorruptState => (true, Some(Remedy::NeedsRepair)),
+        EngineError::Diverged { .. } | EngineError::Interrupted | EngineError::IncompleteApply => (true, Some(Remedy::SyncFirst)),
+        EngineError::Rollback => (true, Some(Remedy::StorageChanged)),
+        EngineError::Busy => (true, Some(Remedy::Busy)),
+        EngineError::ClassEmptied { .. } => (false, Some(Remedy::ClassEmptied)),
+        _ => (false, None),
+    };
     let text = format!("{:#}", engine_failure(error, "starting the new key epoch"));
-    if wrote_nothing {
-        RotationError::Refused(text)
-    } else {
-        RotationError::Failed(text)
+    match (wrote_nothing, remedy) {
+        (true, Some(remedy)) => RotationFailure::refused(remedy, text),
+        (_, remedy) => RotationFailure::stopped(remedy, text),
     }
 }
 
