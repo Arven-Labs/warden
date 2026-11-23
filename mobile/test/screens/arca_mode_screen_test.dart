@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -80,7 +81,7 @@ class FakeBackend implements ArcaModeBackend {
   }
 
   /// The phrase the bridge "shows": `word01` .. `word24`, and the positions (counting from 1) the person is asked to type back.
-  bridge_rot.RotationStartDto rotationStart = bridge_rot.RotationStartDto(phrase: [for (var i = 1; i <= 24; i++) 'word${i.toString().padLeft(2, '0')}'], positions: [3, 11, 20]);
+  bridge_rot.RotationStartDto rotationStart = bridge_rot.RotationStartDto(phrase: [for (var i = 1; i <= 24; i++) 'word${i.toString().padLeft(2, '0')}'], positions: Uint32List.fromList([3, 11, 20]));
   bridge_rot.ArcaRotationFailure? beginFailure;
   bridge_rot.ArcaRotationFailure? resumeFailure;
   bridge_rot.ArcaRotationFailure? confirmFailure;
