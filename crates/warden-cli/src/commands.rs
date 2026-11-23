@@ -99,6 +99,11 @@ pub enum Command {
     ArcaSwapGrant,
     /// `/arca swap offer` — on the device still on the old key: replaces it with the new one. Asks to confirm.
     ArcaSwapOffer,
+    /// `/arca rotate` — after losing a device: makes a new vault key, shows its 24 words once, asks for 3 of them back and the
+    /// declaration that the lost device's token was revoked on the hub, then rotates (P-49, arca ADR 0018, Warden ADR 0002).
+    ArcaRotate,
+    /// `/arca rotate resume` — finishes a rotation that stopped half way: the same 24 words are typed again, no new key is made.
+    ArcaRotateResume,
     /// `/arca pair offer` — on the new device: offers itself to the hub and waits for the key (arca ADR 0016).
     ArcaPairOffer,
     /// `/arca pair grant` — on the device that has the key: hands it to a waiting offer.
@@ -512,6 +517,41 @@ mod tests {
         for line in ["/arca swap", "/arca swap grant https://hub", "/arca swap offer token123", "/arca swap now", "/arca swap offer --yes"] {
             assert!(matches!(parse_command(line), ParseOutcome::Unrecognized(_)), "{line}");
         }
+    }
+
+    #[test]
+    fn arca_rotate_and_its_resume_parse_and_take_no_arguments() {
+        assert!(matches!(assert_recognized("/arca rotate"), Command::ArcaRotate));
+        assert!(matches!(assert_recognized("/arca rotate resume"), Command::ArcaRotateResume));
+        // The tokenizer collapses whitespace, so a run of spaces between the words is the same command.
+        assert!(matches!(assert_recognized("  /arca   rotate    resume  "), Command::ArcaRotateResume));
+        // The 24 words are typed in a field that is not echoed and not kept: a phrase on the command line would stay in the
+        // line history (and in the screen), so no argument is ever taken from the line.
+        let phrase_on_the_line = format!("/arca rotate resume {}", ["zoo"; 24].join(" "));
+        for line in [
+            "/arca rotate now",
+            "/arca rotate --yes",
+            "/arca rotate revoked",
+            "/arca rotate resume now",
+            "/arca rotate resume --yes",
+            "/arca rotate resume abandon",
+            "/arca rotate resume resume",
+            "/arca resume",
+            "/arca rotate rotate",
+            phrase_on_the_line.as_str(),
+        ] {
+            assert!(matches!(parse_command(line), ParseOutcome::Unrecognized(_)), "{line}");
+        }
+    }
+
+    #[test]
+    fn ghost_suggestion_knows_the_arca_rotate_subcommand() {
+        // `rotate` is the only `/arca` subcommand that starts with "r", so one letter is enough.
+        assert_eq!(ghost_suggestion("/arca r").as_deref(), Some("otate"));
+        assert_eq!(ghost_suggestion("/arca ro").as_deref(), Some("tate"));
+        // The others are not disturbed: `swap` and `sync` still need their second letter.
+        assert_eq!(ghost_suggestion("/arca s"), None);
+        assert_eq!(ghost_suggestion("/arca sw").as_deref(), Some("ap"));
     }
 
     #[test]
