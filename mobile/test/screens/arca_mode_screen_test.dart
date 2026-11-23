@@ -1003,6 +1003,8 @@ void main() {
       await settleRoute(tester);
 
       expect(backend.confirmed.length, 1);
+      // A second pop would take the rotation screen away without its `true`: the sync that sends the new epoch would never run.
+      expect(backend.syncCalls.length, 1);
     });
 
     testWidgets('the screen speaks Portuguese when the app does', (tester) async {
