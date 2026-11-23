@@ -9,10 +9,13 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
+use warden_sync::arca_key_swap::{run_grant_replacing, run_replace_key, KeySwapError};
 use warden_sync::arca_pairing::{HubAccess, PairingError};
+use warden_sync::arca_sync::HubStore;
 use warden_sync::arca_pairing_flow::{channel_prompts, run_grant, run_offer, Ask, FlowError, PairEvent, PairReply, PairingSide, Shown};
 use warden_sync::SyncEngine;
 
+use super::arca_mode::{hub_store_for, ArcaModeErrorKind, ArcaModeFailure};
 use super::sync::rt;
 
 /// How long B waits for a grant: the 10 minutes an offer lives on the hub (as the CLI and the desktop do), looking every 2 seconds.
@@ -66,6 +69,21 @@ pub enum ArcaPairErrorKind {
     CodeMismatch,
     /// The chosen offer is gone from the hub (expired or replaced).
     NoOffer,
+    /// Key swap: this vault is not in arca mode, so there is no key to hand over or replace.
+    NotInArcaMode,
+    /// Key swap, replacing side: no newer key epoch is pending on this phone.
+    NothingNewer,
+    /// Key swap, replacing side: the key that arrived is not newer than this phone's.
+    NotNewer,
+    /// Key swap, replacing side: the typed head code names no manifest the hub holds.
+    HashMismatch,
+    /// Key swap: it did not finish and may have stopped half way. The screen says to sync and swap again, as the desktop does.
+    SwapIncomplete,
+    /// Key swap, the device that rotated: it has a key but no accepted manifest of that key's epoch yet, so it has no head code to show.
+    NoAcceptedHead,
+    /// Key swap, replacing side: the key that arrived opens none of the manifests the hub holds (or the hub holds none): the sign of a
+    /// hub that shows another vault.
+    KeyOpensNothing,
     /// Anything else (network, an answer the hub does not document).
     Hub,
 }
@@ -119,6 +137,50 @@ pub fn arca_pair_start_grant(vault_root: String, config_path: String, secrets_pa
     begin(Side::Granting, [vault_root, config_path, secrets_path, manifest_path], &hub_url, &device_token)
 }
 
+/// Key swap, the device that rotated (A): same slot and events as `arca_pair_start_grant`, but the fingerprint it shows is
+/// `<fingerprint> <head code>` (`run_grant_replacing`). Plain `http` to another host is refused, as in the pairing.
+pub fn arca_swap_start_grant(vault_root: String, config_path: String, secrets_path: String, manifest_path: String, hub_url: String, device_token: String) -> Result<(), ArcaPairFailure> {
+    // The vault key is read inside `run_grant_replacing`; it never crosses to Dart.
+    begin(Side::SwapGrant, [vault_root, config_path, secrets_path, manifest_path], &hub_url, &device_token)
+}
+
+/// Key swap, the stranded device (B): same slot and events as `arca_pair_start`; asks for `<fingerprint> <head code>`
+/// (`run_replace_key`). Needs the mode on and a newer epoch pending, checked before anything is published.
+#[allow(clippy::too_many_arguments)]
+pub fn arca_swap_start_replace(
+    vault_root: String,
+    config_path: String,
+    secrets_path: String,
+    manifest_path: String,
+    hub_url: String,
+    device_token: String,
+    device_id: String,
+    now_ms: u64,
+) -> Result<(), ArcaPairFailure> {
+    // Built before the slot is taken, so a refusal leaves nothing running.
+    let hub = swap_hub_store(&hub_url, &device_token)?;
+    begin(Side::SwapReplace { device_id, hub, now_ms }, [vault_root, config_path, secrets_path, manifest_path], &hub_url, &device_token)
+}
+
+/// The reader of the hub for the swap, as strict as the pairing's access (`http` only to this phone, no credentials in the address):
+/// the swap hands a key over, so it does not get the permission the sync cycle has (decided 2026-11-22). Its own function so a test
+/// can hold the strictness: `begin` refuses the same addresses with `HubAccess`, which would hide a loosened reader.
+pub(crate) fn swap_hub_store(hub_url: &str, device_token: &str) -> Result<HubStore, ArcaPairFailure> {
+    hub_store_for(hub_url, device_token, false).map_err(hub_failure)
+}
+
+/// The refusals of the hub reader as the kinds the pairing screen already translates.
+fn hub_failure(error: ArcaModeFailure) -> ArcaPairFailure {
+    let kind = match error.kind {
+        ArcaModeErrorKind::InsecureUrl => ArcaPairErrorKind::InsecureUrl,
+        ArcaModeErrorKind::BadUrl => ArcaPairErrorKind::BadUrl,
+        // A token the hub client cannot use is a token problem ("connect again"), not the network.
+        ArcaModeErrorKind::BadToken => ArcaPairErrorKind::Unauthorized,
+        _ => ArcaPairErrorKind::Hub,
+    };
+    ArcaPairFailure { kind, detail: error.detail }
+}
+
 /// The person picked the offer at `index` of the list `ChooseOffer` carried. An index past the end ends the pairing as cancelled.
 pub fn arca_pair_pick(index: u32) -> Result<(), ArcaPairFailure> {
     let running = slot();
@@ -142,6 +204,10 @@ pub fn arca_pair_start(
 enum Side {
     NewDevice { device_id: String },
     Granting,
+    /// The key swap, the device that rotated (A).
+    SwapGrant,
+    /// The key swap, the stranded device (B): it also reads the hub itself, to find the key's epoch and the head the person typed.
+    SwapReplace { device_id: String, hub: HubStore, now_ms: u64 },
 }
 
 /// Starts the one pairing in the slot: the address is checked before anything runs (plain `http` to another host is refused and no
@@ -166,22 +232,41 @@ fn begin(half: Side, [vault_root, config_path, secrets_path, manifest_path]: [St
                 let _ = forward_tx.send(screen_event(event));
             }
         });
-        let result = match half {
-            Side::NewDevice { device_id } => run_offer(&access, &device_id, &engine, &mut prompts, OFFER_POLL, OFFER_TIMEOUT).await,
-            Side::Granting => run_grant(&access, &engine, &mut prompts).await,
+        // Whether this phone has a key BEFORE the swap runs: a "no key" from the swap then means "no accepted manifest yet".
+        let has_key = engine.is_initialized();
+        let last = match half {
+            Side::NewDevice { device_id } => last_of_pairing(run_offer(&access, &device_id, &engine, &mut prompts, OFFER_POLL, OFFER_TIMEOUT).await),
+            Side::Granting => last_of_pairing(run_grant(&access, &engine, &mut prompts).await),
+            Side::SwapGrant => last_of_swap(run_grant_replacing(&access, &engine, &mut prompts).await, has_key),
+            Side::SwapReplace { device_id, hub, now_ms } => {
+                last_of_swap(run_replace_key(&access, &hub, &device_id, &engine, &mut prompts, OFFER_POLL, OFFER_TIMEOUT, now_ms).await, has_key)
+            }
         };
         // Closing the prompts ends the forwarder after the last event, so the screen has seen everything before the final one.
         drop(prompts);
         let _ = forwarder.await;
-        let last = match result {
-            Ok(()) => ArcaPairEvent::Done,
-            Err(FlowError::Cancelled) => ArcaPairEvent::Cancelled,
-            Err(e) => ArcaPairEvent::Failed(failure_of(e)),
-        };
         let _ = tx.send(last);
     });
     *running = Some(Session { replies, events: Arc::new(tokio::sync::Mutex::new(rx)), task });
     Ok(())
+}
+
+/// The final event of a pairing. A person who gave up is not a failure.
+fn last_of_pairing(result: Result<(), FlowError>) -> ArcaPairEvent {
+    match result {
+        Ok(()) => ArcaPairEvent::Done,
+        Err(FlowError::Cancelled) => ArcaPairEvent::Cancelled,
+        Err(e) => ArcaPairEvent::Failed(failure_of(e)),
+    }
+}
+
+/// The final event of a key swap, told the same way.
+fn last_of_swap(result: Result<(), KeySwapError>, has_key: bool) -> ArcaPairEvent {
+    match result {
+        Ok(()) => ArcaPairEvent::Done,
+        Err(KeySwapError::Cancelled) => ArcaPairEvent::Cancelled,
+        Err(e) => ArcaPairEvent::Failed(swap_failure_of(e, has_key)),
+    }
 }
 
 /// Every event of either side reaches the screen. `Ask` carries no value on purpose, so the screen has nothing to pre-fill.
@@ -299,6 +384,33 @@ pub(crate) fn failure_of(error: FlowError) -> ArcaPairFailure {
         FlowError::Pairing(PairingError::Hub(_)) | FlowError::Cancelled => K::Hub,
     };
     ArcaPairFailure { kind, detail: error.to_string() }
+}
+
+/// The kind of every way a key swap can end (the swap twin of `failure_of`). The ones that wrote nothing and the one that means
+/// "do not trust this hub" (`HashMismatch`) each get their own kind, because the screen's words differ.
+pub(crate) fn swap_failure_of(error: KeySwapError, has_key: bool) -> ArcaPairFailure {
+    use ArcaPairErrorKind as K;
+    let simple = |kind, detail: String| ArcaPairFailure { kind, detail };
+    match error {
+        // In a swap the pairing only gets to `Adopt` when the key opens none of the hub's manifests (or the hub has none): that is not
+        // "could not be saved", it is the sign of a hub that shows another vault.
+        KeySwapError::Pairing(PairingError::Adopt(why)) => simple(K::KeyOpensNothing, why),
+        KeySwapError::Pairing(e) => failure_of(FlowError::Pairing(e)),
+        KeySwapError::NotInArcaMode => simple(K::NotInArcaMode, "this vault is not in arca mode".into()),
+        KeySwapError::NothingNewer => simple(K::NothingNewer, "no newer key epoch is pending".into()),
+        KeySwapError::NotNewer => simple(K::NotNewer, "the key that arrived is not newer than this phone's".into()),
+        // With a key, the swap's "no key" is "no accepted manifest of this key's epoch yet" (`arca_head_id`): the person syncs first.
+        KeySwapError::NoKey(why) if has_key => simple(K::NoAcceptedHead, why),
+        KeySwapError::NoKey(why) => simple(K::NoKey, why),
+        KeySwapError::NoOffers => simple(K::NoOffers, "no device is waiting for a key".into()),
+        KeySwapError::TimedOut => simple(K::TimedOut, "no key arrived in time".into()),
+        KeySwapError::HashMismatch => simple(K::HashMismatch, "the typed head code names no manifest the hub holds".into()),
+        // `Cancelled` is told apart before this is called (`last_of_swap`).
+        KeySwapError::Cancelled => simple(K::Hub, "cancelled".into()),
+        // The disk, the lock or a stop half way: the swap may have written something, so the screen says to sync and swap again
+        // (the desktop's `key_swap_message` and the CLI do the same), and not "check the connection".
+        KeySwapError::Failed(why) => simple(K::SwapIncomplete, why),
+    }
 }
 
 #[cfg(test)]
@@ -848,5 +960,164 @@ mod tests {
             let text = error.to_string();
             assert_eq!(failure_of(error).kind, kind, "{text}");
         }
+    }
+
+    // ---------- the key swap (P-49, slice 2) ----------
+
+    fn start_swap_grant(paths: &[String], hub_url: &str) -> Result<(), ArcaPairFailure> {
+        arca_swap_start_grant(paths[0].clone(), paths[1].clone(), paths[2].clone(), paths[3].clone(), hub_url.to_string(), "token".into())
+    }
+
+    fn start_swap_replace(paths: &[String], hub_url: &str) -> Result<(), ArcaPairFailure> {
+        arca_swap_start_replace(paths[0].clone(), paths[1].clone(), paths[2].clone(), paths[3].clone(), hub_url.to_string(), "token".into(), "phone-1234".into(), 1_000)
+    }
+
+    // W1: nothing to hand over without a key, and the hub is not asked.
+    #[test]
+    fn a_swap_grant_without_a_key_says_so_and_asks_the_hub_nothing() {
+        let _turn = one_at_a_time();
+        let hub = FakeHub::start();
+        let (paths, _engine) = phone("swap-grant-no-key");
+
+        start_swap_grant(&paths, &hub.url).unwrap();
+        let first = arca_pair_next_event().unwrap();
+
+        assert!(matches!(&first, ArcaPairEvent::Failed(f) if f.kind == ArcaPairErrorKind::NoKey), "{first:?}");
+        assert_eq!(hub.offer_lists(), 0);
+    }
+
+    // W2: a key alone is not enough: the swap hands over the key of an arca vault, with the head the phone accepted.
+    #[test]
+    fn a_swap_grant_with_the_mode_off_is_refused_and_asks_the_hub_nothing() {
+        let _turn = one_at_a_time();
+        let hub = FakeHub::start();
+        let (paths, _engine, _key) = phone_with_key("swap-grant-off");
+
+        start_swap_grant(&paths, &hub.url).unwrap();
+        let first = arca_pair_next_event().unwrap();
+
+        assert!(matches!(&first, ArcaPairEvent::Failed(f) if f.kind == ArcaPairErrorKind::NotInArcaMode), "{first:?}");
+        assert_eq!(hub.offer_lists(), 0);
+    }
+
+    // W3: replacing needs the mode on; no offer is published (no grant is spent for nothing).
+    #[test]
+    fn a_swap_replace_with_the_mode_off_publishes_no_offer() {
+        let _turn = one_at_a_time();
+        let hub = FakeHub::start();
+        let (paths, _engine, _key) = phone_with_key("swap-replace-off");
+
+        start_swap_replace(&paths, &hub.url).unwrap();
+        let first = arca_pair_next_event().unwrap();
+
+        assert!(matches!(&first, ArcaPairEvent::Failed(f) if f.kind == ArcaPairErrorKind::NotInArcaMode), "{first:?}");
+        assert_eq!(hub.offer_puts(), 0);
+    }
+
+    // W4: mode on but no newer epoch pending (nobody rotated): nothing to swap to, and no offer is published.
+    #[test]
+    fn a_swap_replace_with_no_newer_epoch_pending_publishes_no_offer() {
+        let _turn = one_at_a_time();
+        let hub = FakeHub::start();
+        let (paths, engine, _key) = phone_with_key("swap-replace-nothing-newer");
+        crate::api::arca_mode::enable_with(&engine, false, 1_000).unwrap();
+
+        start_swap_replace(&paths, &hub.url).unwrap();
+        let first = arca_pair_next_event().unwrap();
+
+        assert!(matches!(&first, ArcaPairEvent::Failed(f) if f.kind == ArcaPairErrorKind::NothingNewer), "{first:?}");
+        assert_eq!(hub.offer_puts(), 0);
+    }
+
+    // W5: plain http to another host never sends the token, on either side, and leaves no session behind.
+    #[test]
+    fn a_swap_over_plain_http_to_another_host_is_refused_on_both_sides() {
+        let _turn = one_at_a_time();
+        let (paths, _engine, _key) = phone_with_key("swap-insecure");
+
+        let grant = start_swap_grant(&paths, "http://192.168.1.5:7420").unwrap_err();
+        assert_eq!(grant.kind, ArcaPairErrorKind::InsecureUrl);
+        assert_eq!(arca_pair_next_event().unwrap_err().kind, ArcaPairErrorKind::NoSession);
+
+        let replace = start_swap_replace(&paths, "http://192.168.1.5:7420").unwrap_err();
+        assert_eq!(replace.kind, ArcaPairErrorKind::InsecureUrl);
+        assert_eq!(arca_pair_next_event().unwrap_err().kind, ArcaPairErrorKind::NoSession);
+    }
+
+    // W6: an address with credentials is not a hub address, on either side.
+    #[test]
+    fn a_swap_with_credentials_in_the_address_is_refused_as_a_bad_address() {
+        let _turn = one_at_a_time();
+        let (paths, _engine, _key) = phone_with_key("swap-bad-url");
+
+        assert_eq!(start_swap_grant(&paths, "https://user:pass@hub.example").unwrap_err().kind, ArcaPairErrorKind::BadUrl);
+        assert_eq!(start_swap_replace(&paths, "https://user:pass@hub.example").unwrap_err().kind, ArcaPairErrorKind::BadUrl);
+        assert_eq!(arca_pair_next_event().unwrap_err().kind, ArcaPairErrorKind::NoSession);
+    }
+
+    // W7: one slot for pairing and swap alike.
+    #[test]
+    fn a_swap_is_refused_while_a_pairing_is_running() {
+        let _turn = one_at_a_time();
+        let hub = FakeHub::start();
+        let (paths, _engine) = phone("swap-busy");
+        start(&paths, &hub.url).unwrap();
+        assert!(matches!(arca_pair_next_event().unwrap(), ArcaPairEvent::OfferCode(_)));
+
+        let refused = start_swap_replace(&paths, &hub.url).unwrap_err();
+
+        assert_eq!(refused.kind, ArcaPairErrorKind::Busy);
+        arca_pair_cancel();
+    }
+
+    // W8: what the screen translates, one kind per way a swap ends (the words differ: some of them wrote nothing, one means "do not trust
+    // this hub", one means "it may have stopped half way: sync and swap again"). The phone has a key in all of these but the marked one.
+    #[test]
+    fn every_way_a_swap_can_end_has_a_kind_the_screen_can_translate() {
+        let cases: Vec<(KeySwapError, ArcaPairErrorKind)> = vec![
+            (KeySwapError::NotInArcaMode, ArcaPairErrorKind::NotInArcaMode),
+            (KeySwapError::NothingNewer, ArcaPairErrorKind::NothingNewer),
+            (KeySwapError::NotNewer, ArcaPairErrorKind::NotNewer),
+            (KeySwapError::NoOffers, ArcaPairErrorKind::NoOffers),
+            (KeySwapError::TimedOut, ArcaPairErrorKind::TimedOut),
+            (KeySwapError::HashMismatch, ArcaPairErrorKind::HashMismatch),
+            (KeySwapError::Pairing(PairingError::FingerprintMismatch), ArcaPairErrorKind::FingerprintMismatch),
+            (KeySwapError::Pairing(PairingError::CodeMismatch), ArcaPairErrorKind::CodeMismatch),
+            (KeySwapError::Pairing(PairingError::Forbidden), ArcaPairErrorKind::Forbidden),
+            (KeySwapError::Pairing(PairingError::Hub("boom".into())), ArcaPairErrorKind::Hub),
+            // A swap that stopped half way (or could not even start for the disk or the lock) is not a network problem.
+            (KeySwapError::Failed("disk gone".into()), ArcaPairErrorKind::SwapIncomplete),
+            // With a key, "no key" from the swap is "no accepted manifest of this key's epoch yet": sync first.
+            (KeySwapError::NoKey("has not accepted any manifest yet".into()), ArcaPairErrorKind::NoAcceptedHead),
+            // The key opens none of the hub's manifests: not "could not be saved", but the sign of a hub showing another vault.
+            (KeySwapError::Pairing(PairingError::Adopt("this key opens none of the vault's manifests".into())), ArcaPairErrorKind::KeyOpensNothing),
+            (KeySwapError::Pairing(PairingError::Adopt("the hub holds no manifest".into())), ArcaPairErrorKind::KeyOpensNothing),
+        ];
+        for (error, kind) in cases {
+            let text = format!("{error:?}");
+            assert_eq!(swap_failure_of(error, true).kind, kind, "{text}");
+        }
+    }
+
+    // W9: with no key at all, "no key" stays "no key" (nothing to hand over).
+    #[test]
+    fn without_a_key_the_swap_says_no_key_and_not_that_a_manifest_is_missing() {
+        assert_eq!(swap_failure_of(KeySwapError::NoKey("no key".into()), false).kind, ArcaPairErrorKind::NoKey);
+    }
+
+    // W10: the reader of the hub the swap uses is strict by itself, not only because `begin` refuses the same address afterwards.
+    #[test]
+    fn the_swaps_hub_reader_refuses_plain_http_to_another_host_and_credentials_in_the_address() {
+        assert_eq!(swap_hub_store("http://192.168.1.5:7420", "token").err().unwrap().kind, ArcaPairErrorKind::InsecureUrl);
+        assert_eq!(swap_hub_store("http://hub.lan:7420", "token").err().unwrap().kind, ArcaPairErrorKind::InsecureUrl);
+        assert_eq!(swap_hub_store("https://user:pass@hub.example", "token").err().unwrap().kind, ArcaPairErrorKind::BadUrl);
+        assert!(swap_hub_store("https://hub.example", "token").is_ok());
+        assert!(swap_hub_store("http://127.0.0.1:7420", "token").is_ok());
+    }
+
+    // W11: a token the hub client cannot use is told as a token problem ("connect again"), not as the network.
+    #[test]
+    fn a_token_the_hub_reader_cannot_use_is_told_as_unauthorized_and_not_as_the_network() {
+        assert_eq!(swap_hub_store("https://hub.example", "to\nken").err().unwrap().kind, ArcaPairErrorKind::Unauthorized);
     }
 }

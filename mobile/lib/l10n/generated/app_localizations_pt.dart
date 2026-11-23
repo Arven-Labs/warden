@@ -2142,6 +2142,94 @@ class AppLocalizationsPt extends AppLocalizations {
       'Não foi possível falar com o hub. Confira a conexão e tente de novo.';
 
   @override
+  String get arcaPairErrNotInArcaMode =>
+      'O modo arca não está ligado neste dispositivo. Ligue-o primeiro.';
+
+  @override
+  String get arcaPairErrNothingNewer =>
+      'Nenhuma chave mais nova está pendente neste dispositivo, então não há o que trocar. Nada foi alterado.';
+
+  @override
+  String get arcaPairErrNotNewer =>
+      'A chave que chegou não é mais nova que a deste dispositivo. Nada foi alterado. Confira se o outro dispositivo realmente passou para uma chave nova.';
+
+  @override
+  String get arcaPairErrHashMismatch =>
+      'O código do head não bate com nenhum manifest que o hub tem. Nada foi alterado neste dispositivo. Confira o código no outro dispositivo e se ele sincronizou depois da troca. Se os dois estiverem certos, não confie neste hub: ele não está mostrando o seu cofre.';
+
+  @override
+  String get arcaSwapTitle => 'Trocar a chave do cofre';
+
+  @override
+  String get arcaSwapGrantOpen => 'Entregar a chave nova a outro dispositivo';
+
+  @override
+  String get arcaSwapReplaceOpen =>
+      'Trocar a chave deste dispositivo pela mais nova';
+
+  @override
+  String get arcaSwapGrantIntro =>
+      'Entrega a chave nova do cofre deste dispositivo a um dispositivo que ainda está na chave velha e espera por ela. Escolha esse dispositivo, digite o código que ele mostra e depois digite nele a impressão digital e o código do head mostrados aqui.';
+
+  @override
+  String get arcaSwapReplaceIntro =>
+      'Troca a chave velha deste dispositivo pela mais nova, feita em outro dispositivo. Você vai ler um código aqui e digitá-lo no outro dispositivo, e depois digitar aqui a impressão digital e o código do head que ele mostra.';
+
+  @override
+  String get arcaSwapAskFingerprint =>
+      'Agora digite, numa linha só, a impressão digital e o código do head que o outro dispositivo mostra. Não copie e cole: digitar é o que protege você de um hub que mostra um cofre diferente.';
+
+  @override
+  String get arcaSwapFingerprintLabel => 'Impressão digital e código do head';
+
+  @override
+  String get arcaSwapGranted =>
+      'Chave enviada. Agora digite esta impressão digital e este código do head no outro dispositivo:';
+
+  @override
+  String get arcaSwapDone =>
+      'Pronto: este dispositivo agora usa a chave mais nova. Sincronize para continuar.';
+
+  @override
+  String get arcaSwapCancel => 'Cancelar a troca';
+
+  @override
+  String get arcaSwapReplaceConfirmTitle => 'Trocar a chave deste dispositivo?';
+
+  @override
+  String get arcaSwapReplaceConfirmBody =>
+      'Este dispositivo descarta a cópia local da sincronização e passa para a chave mais nova; os arquivos do seu cofre ficam. Faça isso só para acompanhar uma troca de chave que você fez em outro dispositivo, e tenha esse dispositivo à mão: você vai digitar dele uma impressão digital e um código do head.';
+
+  @override
+  String get arcaSwapReplaceConfirmYes => 'Trocar a chave';
+
+  @override
+  String get arcaSwapReplaceConfirmNo => 'Agora não';
+
+  @override
+  String get arcaSwapNothingPending =>
+      'Não há mais nenhuma chave mais nova pendente. Nada foi alterado.';
+
+  @override
+  String get arcaPairErrSwapIncomplete =>
+      'A troca de chave não terminou. Se parou no meio, sincronize este dispositivo (Modo arca, Sincronizar agora) e comece a troca de novo.';
+
+  @override
+  String get arcaPairErrNoAcceptedHead =>
+      'Este dispositivo ainda não aceitou um manifest da chave atual, então não tem código do head para mostrar. Sincronize este dispositivo primeiro (Modo arca, Sincronizar agora) e tente de novo.';
+
+  @override
+  String get arcaPairErrKeyOpensNothing =>
+      'Esta chave não abre o cofre que o hub mostra. Nada foi alterado neste dispositivo. Confira o outro dispositivo e não confie neste hub até conferir.';
+
+  @override
+  String get arcaSwapErrNoOffers =>
+      'Nenhum dispositivo está esperando uma chave. Comece a troca primeiro no dispositivo que vai trocar a chave e tente de novo.';
+
+  @override
+  String get arcaSwapBack => 'Voltar ao modo arca';
+
+  @override
   String get arcaModeOpen => 'Modo arca';
 
   @override

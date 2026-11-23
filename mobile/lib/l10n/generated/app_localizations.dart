@@ -3512,6 +3512,150 @@ abstract class AppLocalizations {
   /// **'Could not talk to the hub. Check the connection and try again.'**
   String get arcaPairErrHub;
 
+  /// No description provided for @arcaPairErrNotInArcaMode.
+  ///
+  /// In en, this message translates to:
+  /// **'Arca mode is not on on this device. Turn it on first.'**
+  String get arcaPairErrNotInArcaMode;
+
+  /// No description provided for @arcaPairErrNothingNewer.
+  ///
+  /// In en, this message translates to:
+  /// **'No newer key is pending on this device, so there is nothing to replace. Nothing was changed.'**
+  String get arcaPairErrNothingNewer;
+
+  /// No description provided for @arcaPairErrNotNewer.
+  ///
+  /// In en, this message translates to:
+  /// **'The key that arrived is not newer than this device\'s. Nothing was changed. Check that the other device really switched to a new key.'**
+  String get arcaPairErrNotNewer;
+
+  /// No description provided for @arcaPairErrHashMismatch.
+  ///
+  /// In en, this message translates to:
+  /// **'The head code does not match any manifest the hub holds. Nothing was changed on this device. Check the code on the other device, and that it synced after switching. If both are right, do not trust this hub: it is not showing your vault.'**
+  String get arcaPairErrHashMismatch;
+
+  /// No description provided for @arcaSwapTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Change the vault key'**
+  String get arcaSwapTitle;
+
+  /// No description provided for @arcaSwapGrantOpen.
+  ///
+  /// In en, this message translates to:
+  /// **'Hand the new key to another device'**
+  String get arcaSwapGrantOpen;
+
+  /// No description provided for @arcaSwapReplaceOpen.
+  ///
+  /// In en, this message translates to:
+  /// **'Replace this device\'s key with the newer one'**
+  String get arcaSwapReplaceOpen;
+
+  /// No description provided for @arcaSwapGrantIntro.
+  ///
+  /// In en, this message translates to:
+  /// **'Hands this device\'s new vault key to a device that is still on the old key and is waiting for it. Pick that device, type the code it shows, then type the fingerprint and head code shown here on it.'**
+  String get arcaSwapGrantIntro;
+
+  /// No description provided for @arcaSwapReplaceIntro.
+  ///
+  /// In en, this message translates to:
+  /// **'Replaces this device\'s old key with the newer one made on another device. You will read a code here and type it on the other device, then type the fingerprint and head code that device shows back here.'**
+  String get arcaSwapReplaceIntro;
+
+  /// No description provided for @arcaSwapAskFingerprint.
+  ///
+  /// In en, this message translates to:
+  /// **'Now type the fingerprint and the head code the other device shows, in one line. Do not copy and paste: typing them is what protects you from a hub that shows a different vault.'**
+  String get arcaSwapAskFingerprint;
+
+  /// No description provided for @arcaSwapFingerprintLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Fingerprint and head code'**
+  String get arcaSwapFingerprintLabel;
+
+  /// No description provided for @arcaSwapGranted.
+  ///
+  /// In en, this message translates to:
+  /// **'Key sent. Now type this fingerprint and head code on the other device:'**
+  String get arcaSwapGranted;
+
+  /// No description provided for @arcaSwapDone.
+  ///
+  /// In en, this message translates to:
+  /// **'Done: this device now uses the newer key. Sync to continue.'**
+  String get arcaSwapDone;
+
+  /// No description provided for @arcaSwapCancel.
+  ///
+  /// In en, this message translates to:
+  /// **'Cancel the swap'**
+  String get arcaSwapCancel;
+
+  /// No description provided for @arcaSwapReplaceConfirmTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Replace this device\'s key?'**
+  String get arcaSwapReplaceConfirmTitle;
+
+  /// No description provided for @arcaSwapReplaceConfirmBody.
+  ///
+  /// In en, this message translates to:
+  /// **'This device drops its local sync copy and takes the newer key; the files of your vault stay. Do it only to follow a key change you made on another device, and have that device in front of you: you will type a fingerprint and a head code from it.'**
+  String get arcaSwapReplaceConfirmBody;
+
+  /// No description provided for @arcaSwapReplaceConfirmYes.
+  ///
+  /// In en, this message translates to:
+  /// **'Replace the key'**
+  String get arcaSwapReplaceConfirmYes;
+
+  /// No description provided for @arcaSwapReplaceConfirmNo.
+  ///
+  /// In en, this message translates to:
+  /// **'Not now'**
+  String get arcaSwapReplaceConfirmNo;
+
+  /// No description provided for @arcaSwapNothingPending.
+  ///
+  /// In en, this message translates to:
+  /// **'No newer key is pending anymore. Nothing was changed.'**
+  String get arcaSwapNothingPending;
+
+  /// No description provided for @arcaPairErrSwapIncomplete.
+  ///
+  /// In en, this message translates to:
+  /// **'The key swap did not finish. If it stopped half way, sync this device (Arca mode, Sync now) and start the swap again.'**
+  String get arcaPairErrSwapIncomplete;
+
+  /// No description provided for @arcaPairErrNoAcceptedHead.
+  ///
+  /// In en, this message translates to:
+  /// **'This device has not accepted a manifest of its current key yet, so it has no head code to show. Sync this device first (Arca mode, Sync now), then try again.'**
+  String get arcaPairErrNoAcceptedHead;
+
+  /// No description provided for @arcaPairErrKeyOpensNothing.
+  ///
+  /// In en, this message translates to:
+  /// **'This key does not open the vault the hub shows. Nothing was changed on this device. Check the other device, and do not trust this hub until you have.'**
+  String get arcaPairErrKeyOpensNothing;
+
+  /// No description provided for @arcaSwapErrNoOffers.
+  ///
+  /// In en, this message translates to:
+  /// **'No device is waiting for a key. Start the swap on the device that is replacing its key first, then try again.'**
+  String get arcaSwapErrNoOffers;
+
+  /// No description provided for @arcaSwapBack.
+  ///
+  /// In en, this message translates to:
+  /// **'Back to Arca mode'**
+  String get arcaSwapBack;
+
   /// No description provided for @arcaModeOpen.
   ///
   /// In en, this message translates to:

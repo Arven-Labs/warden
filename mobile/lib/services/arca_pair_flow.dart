@@ -15,6 +15,12 @@ abstract class ArcaPairBackend {
   /// As the device that grants: the steps then are `chooseOffer`, `askOfferCode`, `showFingerprint`, `done`.
   Future<void> startGrant({required String hubUrl, required String deviceToken});
 
+  /// The key swap (P-49), the device that rotated: same steps as [startGrant], but the fingerprint it shows carries the head code too.
+  Future<void> startSwapGrant({required String hubUrl, required String deviceToken});
+
+  /// The key swap, the stranded device: same steps as [start], but it asks for the fingerprint and the head code.
+  Future<void> startSwapReplace({required String hubUrl, required String deviceToken, required String deviceId});
+
   /// The person picked the offer at [index] of the list `chooseOffer` carried.
   Future<void> pick(int index);
 
@@ -25,6 +31,10 @@ abstract class ArcaPairBackend {
 
   Future<void> cancel();
 }
+
+/// Which half of the key swap a screen plays. Both ends already have a key, so the role (`ArcaPairRole`) cannot tell them apart:
+/// the person says it, and the Arca mode screen offers `replace` only while a newer key epoch is pending.
+enum ArcaSwapSide { grant, replace }
 
 /// Accepts what a person types one character at a time and refuses what arrives in a lump (paste, drop, autofill, a suggestion):
 /// copying the fingerprint from one device to the other would defeat the check, which only works if a person compares them.
@@ -55,6 +65,13 @@ String arcaPairErrorText(AppLocalizations l10n, bridge.ArcaPairErrorKind kind) =
       bridge.ArcaPairErrorKind.noKey => l10n.arcaPairErrNoKey,
       bridge.ArcaPairErrorKind.codeMismatch => l10n.arcaPairErrCodeMismatch,
       bridge.ArcaPairErrorKind.noOffer => l10n.arcaPairErrNoOffer,
+      bridge.ArcaPairErrorKind.notInArcaMode => l10n.arcaPairErrNotInArcaMode,
+      bridge.ArcaPairErrorKind.nothingNewer => l10n.arcaPairErrNothingNewer,
+      bridge.ArcaPairErrorKind.notNewer => l10n.arcaPairErrNotNewer,
+      bridge.ArcaPairErrorKind.hashMismatch => l10n.arcaPairErrHashMismatch,
+      bridge.ArcaPairErrorKind.swapIncomplete => l10n.arcaPairErrSwapIncomplete,
+      bridge.ArcaPairErrorKind.noAcceptedHead => l10n.arcaPairErrNoAcceptedHead,
+      bridge.ArcaPairErrorKind.keyOpensNothing => l10n.arcaPairErrKeyOpensNothing,
       bridge.ArcaPairErrorKind.hub => l10n.arcaPairErrHub,
     };
 
@@ -76,6 +93,34 @@ class BridgeArcaPairBackend implements ArcaPairBackend {
       manifestPath: paths.manifestPath,
       hubUrl: hubUrl,
       deviceToken: deviceToken,
+    );
+  }
+
+  @override
+  Future<void> startSwapGrant({required String hubUrl, required String deviceToken}) async {
+    final paths = await VaultPaths.resolve();
+    await bridge.arcaSwapStartGrant(
+      vaultRoot: paths.vaultRoot,
+      configPath: paths.configPath,
+      secretsPath: paths.secretsPath,
+      manifestPath: paths.manifestPath,
+      hubUrl: hubUrl,
+      deviceToken: deviceToken,
+    );
+  }
+
+  @override
+  Future<void> startSwapReplace({required String hubUrl, required String deviceToken, required String deviceId}) async {
+    final paths = await VaultPaths.resolve();
+    await bridge.arcaSwapStartReplace(
+      vaultRoot: paths.vaultRoot,
+      configPath: paths.configPath,
+      secretsPath: paths.secretsPath,
+      manifestPath: paths.manifestPath,
+      hubUrl: hubUrl,
+      deviceToken: deviceToken,
+      deviceId: deviceId,
+      nowMs: BigInt.from(DateTime.now().millisecondsSinceEpoch),
     );
   }
 
