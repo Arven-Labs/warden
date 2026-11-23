@@ -164,9 +164,8 @@ class _ArcaRotationScreenState extends State<ArcaRotationScreen> {
       // and then the way on is the same 24 words typed again, never a new key.
       if (!mounted) return;
       setState(() {
-        _wipe();
         _error = arcaRotationErrorText(l10n, kind);
-        _step = kind == bridge_rotation.ArcaRotationErrorKind.failed ? _Step.resuming : _Step.idle;
+        _step = kind == bridge_rotation.ArcaRotationErrorKind.failed ? _Step.resuming : _Step.showing;
         _busy = false;
       });
       return;
