@@ -136,8 +136,6 @@ class _ArcaRotationScreenState extends State<ArcaRotationScreen> {
               key: const Key('arca-rotation-confirm-yes'),
               onPressed: () {
                 // A double tap would pop twice: the second pop would close this screen too.
-                if (answered) return;
-                answered = true;
                 Navigator.of(context).pop(true);
               },
               child: Text(l10n.arcaRotationConfirmYes),
