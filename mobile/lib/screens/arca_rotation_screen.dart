@@ -211,7 +211,7 @@ class _ArcaRotationScreenState extends State<ArcaRotationScreen> {
         key: key,
         controller: controller,
         decoration: InputDecoration(labelText: label, border: const OutlineInputBorder()),
-        inputFormatters: [TypedOnlyFormatter()],
+        inputFormatters: [if (_busy) TypedOnlyFormatter()],
         enableSuggestions: false,
         autocorrect: false,
         enableInteractiveSelection: false,
