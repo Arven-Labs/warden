@@ -980,23 +980,28 @@ mod tests {
 
     #[test]
     fn only_the_errors_begin_epoch_returns_before_its_first_write_are_refusals() {
-        use crate::arca_rotation::RotationError;
+        use crate::arca_rotation::{Remedy, RotationError};
         // The refusals: arca-core `begin_epoch` returns each of them before `build_snapshot` puts anything (read in the code; its
         // tests cover `KeyNotRotated`, `EpochOverflow`, `Diverged`, `Interrupted`, `Rollback` and `NeedsNewKey`, not the others).
-        for before_any_write in [
-            EngineError::Object(arca_core::Error::KeyNotRotated),
-            EngineError::Object(arca_core::Error::EpochOverflow),
-            EngineError::Diverged { tips: 2, rejected: 0 },
-            EngineError::Rollback,
-            EngineError::Interrupted,
-            EngineError::IncompleteApply,
-            EngineError::CorruptJournal,
-            EngineError::CorruptState,
-            EngineError::Busy,
+        // Each one comes with what resolves it, because only the first is cured by another key.
+        for (before_any_write, remedy) in [
+            (EngineError::Object(arca_core::Error::KeyNotRotated), Remedy::SameKey),
+            (EngineError::Object(arca_core::Error::EpochOverflow), Remedy::NeedsRepair),
+            (EngineError::Diverged { tips: 2, rejected: 0 }, Remedy::SyncFirst),
+            (EngineError::Diverged { tips: 1, rejected: 3 }, Remedy::SyncFirst),
+            (EngineError::Rollback, Remedy::StorageChanged),
+            (EngineError::Interrupted, Remedy::SyncFirst),
+            (EngineError::IncompleteApply, Remedy::SyncFirst),
+            (EngineError::CorruptJournal, Remedy::NeedsRepair),
+            (EngineError::CorruptState, Remedy::NeedsRepair),
+            (EngineError::Busy, Remedy::Busy),
         ] {
-            assert!(matches!(rotation_error_of(before_any_write.clone()), RotationError::Refused(_)), "{before_any_write:?}");
+            let failure = rotation_error_of(before_any_write.clone());
+            assert!(matches!(failure.error, RotationError::Refused(_)), "{before_any_write:?}");
+            assert_eq!(failure.remedy, Some(remedy), "{before_any_write:?}");
+            assert!(failure.error.to_string().contains(remedy.hint()), "the person is told what resolves it: {}", failure.error);
         }
-        assert_eq!(rotation_error_of(EngineError::NeedsNewKey { have: 1, found: 2 }), RotationError::NewerEpoch);
+        assert_eq!(rotation_error_of(EngineError::NeedsNewKey { have: 1, found: 2 }), RotationError::NewerEpoch.into());
         // Anything else can come from inside `build_snapshot`, after the blobs or the manifest went out: the person must resume with
         // the same 24 words, so none of these may read as "nothing was changed".
         for may_have_written in [
@@ -1007,8 +1012,21 @@ mod tests {
             EngineError::MissingObject,
             EngineError::JournalTooLarge,
         ] {
-            assert!(matches!(rotation_error_of(may_have_written.clone()), RotationError::Failed(_)), "{may_have_written:?}");
+            let failure = rotation_error_of(may_have_written.clone());
+            assert!(matches!(failure.error, RotationError::Failed(_)), "{may_have_written:?}");
+            assert_eq!(failure.remedy, None, "{may_have_written:?}");
         }
+    }
+
+    #[test]
+    fn a_class_emptied_by_a_resume_is_a_stop_not_a_refusal_and_does_not_send_to_a_new_key() {
+        use crate::arca_rotation::{Remedy, RotationError};
+        // `ClassEmptied` is only reachable when a manifest of the new epoch is already published (`begin_epoch` builds on `None`
+        // otherwise, so `had` is 0): the stop is real, and the way out is the same phrase with the files back.
+        let failure = rotation_error_of(EngineError::ClassEmptied { class: Class::Vault, had: 3 });
+        assert!(matches!(failure.error, RotationError::Failed(_)), "{failure:?}");
+        assert_eq!(failure.remedy, Some(Remedy::ClassEmptied));
+        assert!(failure.error.to_string().contains("SAME 24 words"), "{}", failure.error);
     }
 
     #[test]
@@ -1457,6 +1475,64 @@ mod tests {
         let after = secrets_of(&device);
         assert_eq!((after.vault_key, after.key_epoch), (old.vault_key, 0));
         assert_eq!(epochs_of(&manifests_in_store(&device).await), vec![0]);
+    }
+
+    async fn confirm_detailed_with(pending: PendingRotation, device: &Device, words: &[String]) -> Result<(), crate::arca_rotation::RotationFailure> {
+        let refs: Vec<&str> = words.iter().map(String::as_str).collect();
+        pending.confirm_detailed(&refs, true, &device.engine, 100).await
+    }
+
+    #[tokio::test]
+    async fn resuming_a_change_that_already_finished_is_refused_as_the_key_in_use_and_writes_nothing() {
+        use crate::arca_rotation::Remedy;
+        let device = device_in_arca_mode("rotate-resume-finished").await;
+        let pending = PendingRotation::generate().unwrap();
+        let shown = pending.phrase().unwrap().expose().to_string();
+        let words = asked_words(&pending);
+        confirm_with(pending, &device, &words, true).await.unwrap();
+        let finished = secrets_of(&device);
+
+        // The person types the 24 words again (they were not sure it worked): the key is already the one in use.
+        let again = PendingRotation::from_phrase(&shown).unwrap();
+        let failure = confirm_detailed_with(again, &device, &[]).await.unwrap_err();
+        assert!(matches!(failure.error, RotationError::Refused(_)), "{failure:?}");
+        assert_eq!(failure.remedy, Some(Remedy::SameKey));
+        let after = secrets_of(&device);
+        assert_eq!((after.vault_key, after.key_epoch), (finished.vault_key, 1));
+        assert_eq!(epochs_of(&manifests_in_store(&device).await), vec![0, 1]);
+    }
+
+    #[tokio::test]
+    async fn a_resume_over_an_emptied_class_stops_with_the_same_phrase_as_the_way_out_and_finishes_once_the_files_are_back() {
+        use crate::arca_rotation::Remedy;
+        let device = device_in_arca_mode("rotate-class-emptied").await;
+        let pending = PendingRotation::generate().unwrap();
+        let shown = pending.phrase().unwrap().expose().to_string();
+        let words = asked_words(&pending);
+        // The first try stops after publishing the new manifest (the secrets cannot be saved).
+        std::fs::create_dir(device.base.join("sync_secrets.tmp")).unwrap();
+        assert!(matches!(confirm_with(pending, &device, &words, true).await, Err(RotationError::Failed(_))));
+        std::fs::remove_dir(device.base.join("sync_secrets.tmp")).unwrap();
+        // Then the vault folder is recreated empty: the manifest already published has `note.md`, the folder does not.
+        std::fs::remove_file(device.base.join("vault/note.md")).unwrap();
+
+        // Another key does not cure it: it meets the epoch already published, and says nothing about the folder.
+        assert_eq!(rotate(&device).await, Err(RotationError::NewerEpoch));
+
+        let resumed = PendingRotation::from_phrase(&shown).unwrap();
+        let failure = confirm_detailed_with(resumed, &device, &[]).await.unwrap_err();
+        assert!(matches!(failure.error, RotationError::Failed(_)), "{failure:?}");
+        assert_eq!(failure.remedy, Some(Remedy::ClassEmptied));
+        assert_eq!(secrets_of(&device).key_epoch, 0, "nothing was saved");
+        assert_eq!(epochs_of(&manifests_in_store(&device).await), vec![0, 1]);
+
+        // The exit the text gives: put the files back and finish with the same 24 words.
+        std::fs::write(device.base.join("vault/note.md"), b"hello").unwrap();
+        confirm_with(PendingRotation::from_phrase(&shown).unwrap(), &device, &[], true).await.unwrap();
+        let saved = secrets_of(&device);
+        assert_eq!(saved.key_epoch, 1);
+        assert_eq!(VaultKey::from_bytes(saved.vault_key).to_phrase().unwrap().expose(), shown);
+        assert_eq!(epochs_of(&manifests_in_store(&device).await), vec![0, 1]);
     }
 
     #[test]

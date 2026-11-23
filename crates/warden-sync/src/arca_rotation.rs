@@ -132,3 +132,51 @@ fn draw_positions() -> Vec<usize> {
     chosen.sort_unstable();
     chosen
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const REMEDIES: [Remedy; 6] = [Remedy::SameKey, Remedy::Busy, Remedy::SyncFirst, Remedy::StorageChanged, Remedy::NeedsRepair, Remedy::ClassEmptied];
+
+    #[test]
+    fn a_newer_epoch_says_what_to_do_for_each_of_its_two_causes() {
+        let text = RotationError::NewerEpoch.to_string();
+        // another device rotated: pair again, or look at the pending epochs before acknowledging
+        assert!(text.contains("pair this device again"), "{text}");
+        assert!(text.contains("pending epochs"), "{text}");
+        // an earlier change of this device stopped half way with another phrase: type the 24 words of that one
+        assert!(text.contains("24 words"), "{text}");
+        assert!(text.contains("this attempt"), "{text}");
+    }
+
+    #[test]
+    fn a_refusal_says_that_this_attempt_wrote_nothing_not_that_nothing_was_ever_written() {
+        // On a resume, an earlier attempt may have published the new manifest: "nothing was changed" would be a claim about the store.
+        let text = RotationError::Refused("the folder is busy".to_string()).to_string();
+        assert!(text.contains("this attempt"), "{text}");
+        assert!(text.contains("the folder is busy"), "{text}");
+        assert!(!text.contains("nothing was changed"), "{text}");
+    }
+
+    #[test]
+    fn only_a_key_that_is_the_one_in_use_is_told_to_make_a_new_key() {
+        for remedy in REMEDIES {
+            assert!(!remedy.hint().trim().is_empty(), "{remedy:?}");
+            assert_eq!(remedy.hint().contains("make a new key"), remedy == Remedy::SameKey, "{remedy:?}: {}", remedy.hint());
+        }
+    }
+
+    #[test]
+    fn an_emptied_class_is_told_to_put_the_files_back_and_finish_with_the_same_24_words() {
+        let hint = Remedy::ClassEmptied.hint();
+        assert!(hint.contains("put those files back"), "{hint}");
+        assert!(hint.contains("SAME 24 words"), "{hint}");
+    }
+
+    #[test]
+    fn a_failure_without_a_remedy_is_just_the_error() {
+        let failure = RotationFailure::from(RotationError::WordMismatch);
+        assert_eq!(failure, RotationFailure { error: RotationError::WordMismatch, remedy: None });
+    }
+}
