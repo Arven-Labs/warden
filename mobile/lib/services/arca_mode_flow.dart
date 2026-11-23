@@ -34,13 +34,13 @@ abstract class ArcaModeBackend {
 
 /// The sentence for a rotation failure kind, in the app's language (the Rust text is English and never shown as the main message).
 String arcaRotationErrorText(AppLocalizations l10n, bridge_rotation.ArcaRotationErrorKind kind) => switch (kind) {
-      bridge_rotation.ArcaRotationErrorKind.notInArcaMode => '',
-      bridge_rotation.ArcaRotationErrorKind.notDeclared => '',
-      bridge_rotation.ArcaRotationErrorKind.wordMismatch => '',
-      bridge_rotation.ArcaRotationErrorKind.badPhrase => '',
-      bridge_rotation.ArcaRotationErrorKind.noRotation => '',
-      bridge_rotation.ArcaRotationErrorKind.failed => '',
-      bridge_rotation.ArcaRotationErrorKind.other => '',
+      bridge_rotation.ArcaRotationErrorKind.notInArcaMode => l10n.arcaRotationErrNotInArcaMode,
+      bridge_rotation.ArcaRotationErrorKind.notDeclared => l10n.arcaRotationErrNotDeclared,
+      bridge_rotation.ArcaRotationErrorKind.wordMismatch => l10n.arcaRotationErrWordMismatch,
+      bridge_rotation.ArcaRotationErrorKind.badPhrase => l10n.arcaRotationErrBadPhrase,
+      bridge_rotation.ArcaRotationErrorKind.noRotation => l10n.arcaRotationErrNoRotation,
+      bridge_rotation.ArcaRotationErrorKind.failed => l10n.arcaRotationErrFailed,
+      bridge_rotation.ArcaRotationErrorKind.other => l10n.arcaRotationErrOther,
     };
 
 /// The sentence for a failure kind, in the app's language (the Rust text is English and never shown as the main message).

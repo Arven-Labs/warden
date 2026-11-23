@@ -6,6 +6,7 @@ import '../services/arca_pair_flow.dart';
 import '../services/connection_settings.dart';
 import '../src/rust/api/arca_mode.dart' as bridge;
 import 'arca_pair_screen.dart';
+import 'arca_rotation_screen.dart';
 
 /// The arca mode of this phone: turn it on, sync by hand, and see (and acknowledge) the newer key epochs that stop the vault.
 ///
@@ -236,6 +237,17 @@ class _ArcaModeScreenState extends State<ArcaModeScreen> {
     if (mounted) await _refresh();
   }
 
+  /// The rotation for a lost device. When it was confirmed the new epoch exists only here: a normal sync sends it to the hub.
+  Future<void> _openRotation() async {
+    final confirmed = await Navigator.of(context).push<bool>(MaterialPageRoute<bool>(builder: (_) => ArcaRotationScreen(backend: _backend)));
+    if (!mounted) return;
+    if (confirmed == true) {
+      await _syncNow();
+    } else {
+      await _refresh();
+    }
+  }
+
   /// Replacing this device's key drops its local sync copy, so it asks first, and about the epochs read NOW (not the ones the screen
   /// drew a while ago): the person confirms what is pending at the moment of the tap. Only an explicit "yes" opens the swap screen.
   Future<void> _replaceKey() async {
@@ -361,9 +373,11 @@ class _ArcaModeScreenState extends State<ArcaModeScreen> {
         if (_on && _hubOrigin != null) ...[
           const SizedBox(height: 8),
           // With a newer key pending this device is the stranded one: its own key is the old one, so it must not hand it over.
-          if (_epochs.isEmpty)
-            OutlinedButton(key: const Key('arca-mode-swap-grant'), onPressed: _busy ? null : () => _openSwap(ArcaSwapSide.grant), child: Text(l10n.arcaSwapGrantOpen))
-          else ...[
+          if (_epochs.isEmpty) ...[
+            OutlinedButton(key: const Key('arca-mode-swap-grant'), onPressed: _busy ? null : () => _openSwap(ArcaSwapSide.grant), child: Text(l10n.arcaSwapGrantOpen)),
+            const SizedBox(height: 8),
+            OutlinedButton(key: const Key('arca-mode-rotate'), onPressed: _busy ? null : _openRotation, child: Text(l10n.arcaRotationOpen)),
+          ] else ...[
             const SizedBox(height: 8),
             OutlinedButton(key: const Key('arca-mode-swap-replace'), onPressed: _busy ? null : _replaceKey, child: Text(l10n.arcaSwapReplaceOpen)),
           ],
