@@ -2453,6 +2453,14 @@ class AppLocalizationsPt extends AppLocalizations {
       'Não há mais chave à espera. Recomece para ganhar uma nova.';
 
   @override
+  String get arcaRotationErrRefused =>
+      'A troca foi recusada antes de gravar qualquer coisa, e essa chave foi descartada. Recomece para ganhar uma nova.';
+
+  @override
+  String get arcaRotationErrNewerEpoch =>
+      'Já existe uma chave mais nova guardada e este dispositivo ainda não a aceitou: nada foi alterado e essa chave foi descartada. Se uma troca anterior neste dispositivo parou no meio, recomece e digite as 24 palavras dela. Se outro dispositivo trocou a chave, pareie este de novo ou veja primeiro as trocas de chave pendentes.';
+
+  @override
   String get arcaRotationErrFailed =>
       'A troca parou no meio e pode ter sido gravada em parte. Digite as mesmas 24 palavras para terminá-la. Não crie uma chave nova.';
 

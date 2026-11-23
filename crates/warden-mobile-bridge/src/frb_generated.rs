@@ -1712,8 +1712,10 @@ impl SseDecode for crate::api::arca_rotation::ArcaRotationErrorKind {
             2 => crate::api::arca_rotation::ArcaRotationErrorKind::WordMismatch,
             3 => crate::api::arca_rotation::ArcaRotationErrorKind::BadPhrase,
             4 => crate::api::arca_rotation::ArcaRotationErrorKind::NoRotation,
-            5 => crate::api::arca_rotation::ArcaRotationErrorKind::Failed,
-            6 => crate::api::arca_rotation::ArcaRotationErrorKind::Other,
+            5 => crate::api::arca_rotation::ArcaRotationErrorKind::Refused,
+            6 => crate::api::arca_rotation::ArcaRotationErrorKind::NewerEpoch,
+            7 => crate::api::arca_rotation::ArcaRotationErrorKind::Failed,
+            8 => crate::api::arca_rotation::ArcaRotationErrorKind::Other,
             _ => unreachable!("Invalid variant for ArcaRotationErrorKind: {}", inner),
         };
     }
@@ -2474,8 +2476,10 @@ impl flutter_rust_bridge::IntoDart for crate::api::arca_rotation::ArcaRotationEr
             Self::WordMismatch => 2.into_dart(),
             Self::BadPhrase => 3.into_dart(),
             Self::NoRotation => 4.into_dart(),
-            Self::Failed => 5.into_dart(),
-            Self::Other => 6.into_dart(),
+            Self::Refused => 5.into_dart(),
+            Self::NewerEpoch => 6.into_dart(),
+            Self::Failed => 7.into_dart(),
+            Self::Other => 8.into_dart(),
             _ => unreachable!(),
         }
     }
@@ -2916,8 +2920,10 @@ impl SseEncode for crate::api::arca_rotation::ArcaRotationErrorKind {
                 crate::api::arca_rotation::ArcaRotationErrorKind::WordMismatch => 2,
                 crate::api::arca_rotation::ArcaRotationErrorKind::BadPhrase => 3,
                 crate::api::arca_rotation::ArcaRotationErrorKind::NoRotation => 4,
-                crate::api::arca_rotation::ArcaRotationErrorKind::Failed => 5,
-                crate::api::arca_rotation::ArcaRotationErrorKind::Other => 6,
+                crate::api::arca_rotation::ArcaRotationErrorKind::Refused => 5,
+                crate::api::arca_rotation::ArcaRotationErrorKind::NewerEpoch => 6,
+                crate::api::arca_rotation::ArcaRotationErrorKind::Failed => 7,
+                crate::api::arca_rotation::ArcaRotationErrorKind::Other => 8,
                 _ => {
                     unimplemented!("");
                 }

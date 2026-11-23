@@ -78,6 +78,14 @@ enum ArcaRotationErrorKind {
   /// No rotation was started (or it was dropped): start it again.
   noRotation,
 
+  /// Refused before anything was written (the new key is the one in use, no next epoch, another program holds the vault): the key
+  /// was dropped and nothing is half done, so start again with a new key.
+  refused,
+
+  /// A newer key epoch is already stored and was not acknowledged. Nothing was written, and a new key meets the same wall: type the
+  /// 24 words of an earlier rotation of this device that stopped, or pair again / look at the pending epochs.
+  newerEpoch,
+
   /// The rotation may have written something before it stopped: resume with the **same 24 words**, a new key would not finish it.
   failed,
 

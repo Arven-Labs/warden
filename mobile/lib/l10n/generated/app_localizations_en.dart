@@ -2445,6 +2445,14 @@ class AppLocalizationsEn extends AppLocalizations {
       'There is no key waiting any more. Start again to get a new one.';
 
   @override
+  String get arcaRotationErrRefused =>
+      'The change was refused before anything was saved, and that key was discarded. Start again to get a new one.';
+
+  @override
+  String get arcaRotationErrNewerEpoch =>
+      'A newer key is already stored and this device has not accepted it, so nothing was changed and that key was discarded. If an earlier change of key on this device stopped half way, start it again and type the 24 words of that one. If another device changed the key, pair this device again or check the pending key changes first.';
+
+  @override
   String get arcaRotationErrFailed =>
       'The change stopped half way and may have been partly saved. Type the same 24 words to finish it. Do not make a new key.';
 
