@@ -944,6 +944,7 @@ fn rotation_error_of(error: EngineError) -> crate::arca_rotation::RotationError 
             | EngineError::CorruptJournal
             | EngineError::CorruptState
             | EngineError::Busy
+            | EngineError::StateNotSaved
     );
     if matches!(error, EngineError::NeedsNewKey { .. }) {
         return RotationError::NewerEpoch;
