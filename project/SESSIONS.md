@@ -6,6 +6,16 @@
 
 ---
 
+### 2026-11-23 — arca: I3b, a rotação separa recusa de parada no meio (P-49 da arca, [warden#229](https://github.com/Arven-Labs/warden/pull/229), rascunho, EM ANDAMENTO)
+
+- **Pedido**: "vamos continuar no p49"; fatia escolhida por você: I3b da auditoria da #222. Plan mode. O `arca-core` não mudou: o `begin_epoch` já recusava época pendente sem gravar; o defeito era só a classificação do erro aqui.
+- **Feito**: `RotationError` ganhou `Refused` (recusa antes de gravar) e `NewerEpoch` (`NeedsNewKey`); `arca_rotate_to` classifica pelo `EngineError` (`rotation_error_of`), e o que não está na lista de "nada gravado" fica `Failed`. Bridge: kinds `refused` e `newerEpoch`, textos en/pt, teste de mapeamento e teste Dart.
+- **CI**: testes primeiro, 2 falharam e 128 passaram (run 45228648183); verde em `a7d07ae` (run 45231159117). Quebra proposital (#230, descartado): `NeedsNewKey` como `Failed` derrubou `another_key_after_a_stop_...` (129 passam, 1 falha). Só a mutação de `NeedsNewKey` foi feita, não a de `KeyNotRotated`.
+- **FALTA**: o codegen do FRB e o `flutter gen-l10n` no seu PC (ADR 0017), no `69313559`; até lá o CI do mobile e do bridge fica vermelho nesta branch. Depois: CI, auditoria (`security-auditor`), mesclar.
+- **Não verificado**: o fluxo na tela com os kinds novos (só o teste Dart, ainda sem rodar).
+
+---
+
 ### 2026-11-23 — arca: a tela da rotação de chave no celular (P-49 da arca, [warden#222](https://github.com/Arven-Labs/warden/pull/222))
 
 - **Pedido**: "vamos continuar p49"; fatia escolhida por você: as telas da rotação no celular. Plan mode. **Decisões suas**: a frase fica na tela só com aviso (sem `FLAG_SECURE`, que vira pendência); `Failed` só testado pelo mapeamento de erro (sem dependência nova no `arca-core`, sem campo `partial`: o Dart usa `kind == failed`).
