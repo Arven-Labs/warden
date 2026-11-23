@@ -45,7 +45,7 @@ class _ArcaRotationScreenState extends State<ArcaRotationScreen> {
     }
     _resumeController.dispose();
     // Leaving with the phrase showing (or half way) must not leave a key waiting in the bridge. After a confirm there is nothing left to drop.
-    unawaited(widget.backend.rotationCancel().catchError((_) {}));
+    unawaited(Future<void>.value());
     super.dispose();
   }
 
