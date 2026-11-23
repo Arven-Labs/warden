@@ -14,6 +14,8 @@ use std::sync::Mutex;
 use warden_sync::arca_rotation::{PendingRotation, RotationError};
 use warden_sync::SyncEngine;
 
+use super::sync::rt;
+
 /// The rotation the person started and has not confirmed.
 #[flutter_rust_bridge::frb(ignore)]
 pub(crate) type RotationSlot = Mutex<Option<PendingRotation>>;
@@ -62,56 +64,102 @@ impl std::fmt::Debug for RotationStartDto {
 }
 
 #[flutter_rust_bridge::frb(ignore)]
-pub(crate) fn kind_of(_error: &RotationError) -> ArcaRotationErrorKind {
-    todo!("P-49 mobile rotation")
+pub(crate) fn kind_of(error: &RotationError) -> ArcaRotationErrorKind {
+    match error {
+        RotationError::NotDeclared => ArcaRotationErrorKind::NotDeclared,
+        RotationError::WordMismatch => ArcaRotationErrorKind::WordMismatch,
+        RotationError::BadPhrase => ArcaRotationErrorKind::BadPhrase,
+        RotationError::NotInArcaMode => ArcaRotationErrorKind::NotInArcaMode,
+        RotationError::Failed(_) => ArcaRotationErrorKind::Failed,
+    }
+}
+
+fn failure(kind: ArcaRotationErrorKind, detail: impl std::fmt::Display) -> ArcaRotationFailure {
+    ArcaRotationFailure { kind, detail: detail.to_string() }
+}
+
+fn from_error(error: RotationError) -> ArcaRotationFailure {
+    failure(kind_of(&error), &error)
+}
+
+/// Nothing to rotate without the mode on, and no phrase should be shown for a rotation that could not be confirmed.
+fn require_arca_mode(engine: &SyncEngine) -> Result<(), ArcaRotationFailure> {
+    match engine.arca_mode_on() {
+        Ok(true) => Ok(()),
+        Ok(false) => Err(failure(ArcaRotationErrorKind::NotInArcaMode, "this vault is not in arca mode: turn it on first")),
+        Err(error) => Err(failure(ArcaRotationErrorKind::Other, format!("{error:#}"))),
+    }
+}
+
+/// Generates the new key, keeps it in `slot` (replacing one that was waiting) and returns the phrase to show once. Writes nothing.
+#[flutter_rust_bridge::frb(ignore)]
+pub(crate) fn begin_with(engine: &SyncEngine, slot: &RotationSlot) -> Result<RotationStartDto, ArcaRotationFailure> {
+    require_arca_mode(engine)?;
+    let pending = PendingRotation::generate().map_err(|e| failure(ArcaRotationErrorKind::Other, format!("{e:#}")))?;
+    let phrase = pending.phrase().map_err(from_error)?;
+    let start = RotationStartDto {
+        phrase: phrase.words().map(str::to_string).collect(),
+        positions: pending.positions().into_iter().map(|p| u32::try_from(p).unwrap_or(u32::MAX)).collect(),
+    };
+    *slot.lock().unwrap() = Some(pending);
+    Ok(start)
+}
+
+/// Resumes a rotation that stopped half way: the 24 words typed are the confirmation. A phrase that is not valid leaves what was
+/// waiting in the slot untouched (the key is only replaced once the phrase was read).
+#[flutter_rust_bridge::frb(ignore)]
+pub(crate) fn resume_with(engine: &SyncEngine, slot: &RotationSlot, phrase: &str) -> Result<(), ArcaRotationFailure> {
+    require_arca_mode(engine)?;
+    let pending = PendingRotation::from_phrase(phrase).map_err(from_error)?;
+    *slot.lock().unwrap() = Some(pending);
+    Ok(())
+}
+
+/// Rotates to the key waiting in `slot`. The key leaves the slot first: it is consumed by one try, right or wrong, so a second tap
+/// finds nothing and a wrong word means starting again (the right words cannot be guessed on the same key).
+#[flutter_rust_bridge::frb(ignore)]
+pub(crate) async fn confirm_with(engine: &SyncEngine, slot: &RotationSlot, typed_words: &[String], revoked_on_hub: bool, now_ms: u64) -> Result<(), ArcaRotationFailure> {
+    let pending = slot.lock().unwrap().take().ok_or_else(|| failure(ArcaRotationErrorKind::NoRotation, "no rotation was started: start it again"))?;
+    let typed: Vec<&str> = typed_words.iter().map(String::as_str).collect();
+    pending.confirm(&typed, revoked_on_hub, engine, now_ms).await.map_err(from_error)
 }
 
 #[flutter_rust_bridge::frb(ignore)]
-pub(crate) fn begin_with(_engine: &SyncEngine, _slot: &RotationSlot) -> Result<RotationStartDto, ArcaRotationFailure> {
-    todo!("P-49 mobile rotation")
+pub(crate) fn cancel_with(slot: &RotationSlot) {
+    *slot.lock().unwrap() = None;
 }
 
-#[flutter_rust_bridge::frb(ignore)]
-pub(crate) fn resume_with(_engine: &SyncEngine, _slot: &RotationSlot, _phrase: &str) -> Result<(), ArcaRotationFailure> {
-    todo!("P-49 mobile rotation")
-}
-
-#[flutter_rust_bridge::frb(ignore)]
-pub(crate) async fn confirm_with(_engine: &SyncEngine, _slot: &RotationSlot, _typed_words: &[String], _revoked_on_hub: bool, _now_ms: u64) -> Result<(), ArcaRotationFailure> {
-    todo!("P-49 mobile rotation")
-}
-
-#[flutter_rust_bridge::frb(ignore)]
-pub(crate) fn cancel_with(_slot: &RotationSlot) {
-    todo!("P-49 mobile rotation")
+fn engine(vault_root: &str, config_path: &str, secrets_path: &str, manifest_path: &str) -> SyncEngine {
+    SyncEngine::new(vault_root.into(), config_path.into(), secrets_path.into(), manifest_path.into())
 }
 
 /// Generates the new key, keeps it and returns the phrase to show once. Writes nothing. Needs the mode on.
-pub fn arca_rotation_begin(_vault_root: String, _config_path: String, _secrets_path: String, _manifest_path: String) -> Result<RotationStartDto, ArcaRotationFailure> {
-    todo!("P-49 mobile rotation")
+pub fn arca_rotation_begin(vault_root: String, config_path: String, secrets_path: String, manifest_path: String) -> Result<RotationStartDto, ArcaRotationFailure> {
+    begin_with(&engine(&vault_root, &config_path, &secrets_path, &manifest_path), &SLOT)
 }
 
 /// Resumes a rotation that stopped half way, from the 24 words of its phrase: they are the confirmation, so none are asked back.
-pub fn arca_rotation_resume(_vault_root: String, _config_path: String, _secrets_path: String, _manifest_path: String, _phrase: String) -> Result<(), ArcaRotationFailure> {
-    todo!("P-49 mobile rotation")
+pub fn arca_rotation_resume(vault_root: String, config_path: String, secrets_path: String, manifest_path: String, phrase: String) -> Result<(), ArcaRotationFailure> {
+    resume_with(&engine(&vault_root, &config_path, &secrets_path, &manifest_path), &SLOT, &phrase)
 }
 
 /// Rotates to the key waiting here: the words typed back and the statement that the lost device's token was revoked on the hub.
 pub fn arca_rotation_confirm(
-    _vault_root: String,
-    _config_path: String,
-    _secrets_path: String,
-    _manifest_path: String,
-    _typed_words: Vec<String>,
-    _revoked_on_hub: bool,
-    _now_ms: u64,
+    vault_root: String,
+    config_path: String,
+    secrets_path: String,
+    manifest_path: String,
+    typed_words: Vec<String>,
+    revoked_on_hub: bool,
+    now_ms: u64,
 ) -> Result<(), ArcaRotationFailure> {
-    todo!("P-49 mobile rotation")
+    let engine = engine(&vault_root, &config_path, &secrets_path, &manifest_path);
+    rt().block_on(confirm_with(&engine, &SLOT, &typed_words, revoked_on_hub, now_ms))
 }
 
 /// Drops the key that was waiting. Nothing was written, so there is nothing to undo.
 pub fn arca_rotation_cancel() {
-    todo!("P-49 mobile rotation")
+    cancel_with(&SLOT);
 }
 
 #[cfg(test)]
