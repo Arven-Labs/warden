@@ -363,18 +363,44 @@ mod tests {
 
     #[test]
     fn only_a_failure_that_may_have_written_something_says_to_resume() {
-        // A refusal before the first write: start again. A stop half way: the same 24 words finish it (a new key would not).
-        for (refused, kind) in [
-            (RotationError::NotDeclared, ArcaRotationErrorKind::NotDeclared),
-            (RotationError::WordMismatch, ArcaRotationErrorKind::WordMismatch),
-            (RotationError::BadPhrase, ArcaRotationErrorKind::BadPhrase),
-            (RotationError::NotInArcaMode, ArcaRotationErrorKind::NotInArcaMode),
-            (RotationError::Refused("same key".to_string()), ArcaRotationErrorKind::Refused),
-            (RotationError::NewerEpoch, ArcaRotationErrorKind::NewerEpoch),
+        // A refusal before the first write says what resolves it (a new key only for the key in use). A stop half way: the same 24
+        // words finish it (a new key would not), and the one with a clear cause (an emptied class) says which.
+        let refused = |remedy| RotationFailure { error: RotationError::Refused("why".to_string()), remedy: Some(remedy) };
+        for (failure, kind) in [
+            (RotationFailure::from(RotationError::NotDeclared), ArcaRotationErrorKind::NotDeclared),
+            (RotationFailure::from(RotationError::WordMismatch), ArcaRotationErrorKind::WordMismatch),
+            (RotationFailure::from(RotationError::BadPhrase), ArcaRotationErrorKind::BadPhrase),
+            (RotationFailure::from(RotationError::NotInArcaMode), ArcaRotationErrorKind::NotInArcaMode),
+            (RotationFailure::from(RotationError::NewerEpoch), ArcaRotationErrorKind::NewerEpoch),
+            (refused(Remedy::SameKey), ArcaRotationErrorKind::SameKey),
+            (refused(Remedy::Busy), ArcaRotationErrorKind::Busy),
+            (refused(Remedy::SyncFirst), ArcaRotationErrorKind::SyncFirst),
+            (refused(Remedy::StorageChanged), ArcaRotationErrorKind::StorageChanged),
+            (refused(Remedy::NeedsRepair), ArcaRotationErrorKind::NeedsRepair),
+            // a refusal nobody gave a remedy to is not "start again with a new key" either
+            (RotationFailure::from(RotationError::Refused("why".to_string())), ArcaRotationErrorKind::NeedsRepair),
+            (RotationFailure { error: RotationError::Failed("class".to_string()), remedy: Some(Remedy::ClassEmptied) }, ArcaRotationErrorKind::ClassEmptied),
+            (RotationFailure::from(RotationError::Failed("disk full".to_string())), ArcaRotationErrorKind::Failed),
         ] {
-            assert_eq!(kind_of(&refused), kind, "{refused:?}");
+            assert_eq!(kind_of(&failure), kind, "{failure:?}");
         }
-        assert_eq!(kind_of(&RotationError::Failed("disk full".to_string())), ArcaRotationErrorKind::Failed);
+    }
+
+    #[test]
+    fn resuming_with_the_phrase_of_a_rotation_that_finished_says_the_key_is_already_in_use() {
+        let paths = phone_in_arca_mode("resume-finished");
+        let slot = RotationSlot::default();
+        let start = begin_with(&engine_of(&paths), &slot).unwrap();
+        confirm(&paths, &slot, &asked(&start), true, 2).unwrap();
+        let finished = secrets_of(&paths);
+
+        // The person types the 24 words again: nothing is left to do, and a new key is not what the message says it is.
+        resume_with(&engine_of(&paths), &slot, &start.phrase.join(" ")).unwrap();
+        let failure = confirm(&paths, &slot, &[], true, 3).unwrap_err();
+        assert_eq!(failure.kind, ArcaRotationErrorKind::SameKey, "{}", failure.detail);
+        assert!(failure.detail.contains("already the one in use"), "{}", failure.detail);
+        let after = secrets_of(&paths);
+        assert_eq!((after.vault_key, after.key_epoch), (finished.vault_key, 1));
     }
 
     #[test]

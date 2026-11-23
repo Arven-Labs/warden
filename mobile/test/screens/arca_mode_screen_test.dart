@@ -706,6 +706,63 @@ void main() {
     test('tells the kinds apart, so the person is not told the wrong thing', () {
       final texts = bridge_rot.ArcaRotationErrorKind.values.map((k) => arcaRotationErrorText(en, k)).toSet();
       expect(texts.length, bridge_rot.ArcaRotationErrorKind.values.length);
+      final resumed = bridge_rot.ArcaRotationErrorKind.values.map((k) => arcaRotationErrorText(en, k, resuming: true)).toSet();
+      expect(resumed.length, bridge_rot.ArcaRotationErrorKind.values.length);
+    });
+
+    // What a refusal of this attempt says, when the key was made a moment ago (`resuming: false`) and when it is the 24 words typed.
+    const refusals = [
+      bridge_rot.ArcaRotationErrorKind.sameKey,
+      bridge_rot.ArcaRotationErrorKind.busy,
+      bridge_rot.ArcaRotationErrorKind.syncFirst,
+      bridge_rot.ArcaRotationErrorKind.storageChanged,
+      bridge_rot.ArcaRotationErrorKind.needsRepair,
+      bridge_rot.ArcaRotationErrorKind.newerEpoch,
+    ];
+
+    test('only a key that is the one in use is told to get a new key: the other refusals are not cured by one', () {
+      // `failed` is not here: it says "do not make a new key", which is the opposite advice and already right.
+      for (final kind in [...refusals, bridge_rot.ArcaRotationErrorKind.classEmptied]) {
+        final onlyTheKeyInUse = kind == bridge_rot.ArcaRotationErrorKind.sameKey;
+        for (final resuming in [false, true]) {
+          expect(arcaRotationErrorText(en, kind, resuming: resuming).toLowerCase().contains('new key'), onlyTheKeyInUse, reason: 'en $kind: ${arcaRotationErrorText(en, kind, resuming: resuming)}');
+          expect(arcaRotationErrorText(pt, kind, resuming: resuming).toLowerCase().contains('chave nova'), onlyTheKeyInUse, reason: 'pt $kind: ${arcaRotationErrorText(pt, kind, resuming: resuming)}');
+        }
+      }
+    });
+
+    test('on a resume a refusal says what THIS attempt did, and that an earlier one may have published the key: never "discarded"', () {
+      for (final kind in refusals) {
+        final text = arcaRotationErrorText(en, kind, resuming: true);
+        expect(text, contains('this attempt'), reason: '$kind: $text');
+        expect(text, contains('earlier attempt'), reason: '$kind: $text');
+        expect(text, contains('24 words'), reason: '$kind: $text');
+        expect(text.toLowerCase(), isNot(contains('discarded')), reason: '$kind: $text');
+        final textPt = arcaRotationErrorText(pt, kind, resuming: true);
+        expect(textPt, contains('nesta tentativa'), reason: '$kind: $textPt');
+        expect(textPt, contains('tentativa anterior'), reason: '$kind: $textPt');
+        expect(textPt.toLowerCase(), isNot(contains('descartada')), reason: '$kind: $textPt');
+      }
+    });
+
+    test('when the key was just made, a refusal says it was discarded, and that is the only thing that changes with the context', () {
+      for (final kind in refusals) {
+        expect(arcaRotationErrorText(en, kind), contains('discarded'), reason: '$kind');
+        expect(arcaRotationErrorText(pt, kind), contains('descartada'), reason: '$kind');
+        expect(arcaRotationErrorText(en, kind), isNot(arcaRotationErrorText(en, kind, resuming: true)), reason: '$kind');
+      }
+    });
+
+    test('an emptied class says to put the files back and type the SAME 24 words, in both contexts, and never to make another key', () {
+      for (final resuming in [false, true]) {
+        final text = arcaRotationErrorText(en, bridge_rot.ArcaRotationErrorKind.classEmptied, resuming: resuming);
+        expect(text, contains('SAME 24 words'), reason: text);
+        expect(text.toLowerCase(), contains('put'), reason: text);
+        expect(text.toLowerCase(), isNot(contains('new key')), reason: text);
+        final textPt = arcaRotationErrorText(pt, bridge_rot.ArcaRotationErrorKind.classEmptied, resuming: resuming);
+        expect(textPt, contains('MESMAS 24 palavras'), reason: textPt);
+        expect(textPt.toLowerCase(), isNot(contains('chave nova')), reason: textPt);
+      }
     });
   });
 
@@ -924,6 +981,40 @@ void main() {
       expect(backend.syncCalls, isEmpty);
     });
 
+    testWidgets('an emptied class is a stop: it opens "resume" for the same phrase, says to put the files back, and does not make a new key', (tester) async {
+      final backend = await shown(tester);
+      backend.confirmFailure = _rotationFailure(bridge_rot.ArcaRotationErrorKind.classEmptied);
+      await openAndBegin(tester, backend);
+      await fillAndDeclare(tester, backend);
+
+      await tapRoute(tester, 'arca-rotation-confirm');
+      await tapRoute(tester, 'arca-rotation-confirm-yes');
+
+      expect(find.byKey(const Key('arca-rotation-resume-field')), findsOneWidget);
+      expect(find.text(arcaRotationErrorText(en, bridge_rot.ArcaRotationErrorKind.classEmptied)), findsOneWidget);
+      expect(find.byKey(const Key('arca-rotation-begin')), findsNothing, reason: 'another key would meet the epoch already published');
+      expect(backend.beginCalls, 1);
+      expect(backend.syncCalls, isEmpty);
+    });
+
+    testWidgets('resuming: a refusal says nothing was written by this attempt (an earlier one may have published the key) and keeps the 24 words', (tester) async {
+      final backend = await shown(tester);
+      backend.confirmFailure = _rotationFailure(bridge_rot.ArcaRotationErrorKind.busy);
+      await tapRoute(tester, 'arca-mode-rotate');
+      await tapRoute(tester, 'arca-rotation-resume-open');
+
+      await typeInto(tester, 'arca-rotation-resume-field', backend.rotationStart.phrase.join(' '));
+      await tapRoute(tester, 'arca-rotation-revoked');
+      await tapRoute(tester, 'arca-rotation-resume-confirm');
+      await tapRoute(tester, 'arca-rotation-confirm-yes');
+
+      expect(find.text(arcaRotationErrorText(en, bridge_rot.ArcaRotationErrorKind.busy, resuming: true)), findsOneWidget);
+      expect(find.text(arcaRotationErrorText(en, bridge_rot.ArcaRotationErrorKind.busy)), findsNothing, reason: 'the "discarded" text is for a key just made');
+      expect(find.byKey(const Key('arca-rotation-resume-field')), findsOneWidget);
+      expect(tester.widget<TextField>(find.byKey(const Key('arca-rotation-resume-field'))).controller!.text, backend.rotationStart.phrase.join(' '), reason: 'the 24 words stay to be tried again');
+      expect(backend.syncCalls, isEmpty);
+    });
+
     testWidgets('resuming: the 24 words typed are resumed and confirmed with no words asked back, then the screen closes and syncs', (tester) async {
       final backend = await shown(tester);
       await tapRoute(tester, 'arca-mode-rotate');
@@ -980,11 +1071,16 @@ void main() {
 
     testWidgets('every other failure shows its own sentence and never the English detail', (tester) async {
       // `other` is not here: the bridge never answers it to a confirm, so on a confirm it is the unknown, and the screen treats it as `failed`.
-      // `refused` and `newerEpoch` are refusals before the first write: the phrase is spent, "resume" would be wrong (nothing was written).
+      // The refusals (`sameKey`, `busy`, `syncFirst`, `storageChanged`, `needsRepair`, `newerEpoch`) come before the first write: the phrase is
+      // spent, "resume" would be wrong (nothing was written).
       for (final kind in [
         bridge_rot.ArcaRotationErrorKind.notDeclared,
         bridge_rot.ArcaRotationErrorKind.noRotation,
-        bridge_rot.ArcaRotationErrorKind.refused,
+        bridge_rot.ArcaRotationErrorKind.sameKey,
+        bridge_rot.ArcaRotationErrorKind.busy,
+        bridge_rot.ArcaRotationErrorKind.syncFirst,
+        bridge_rot.ArcaRotationErrorKind.storageChanged,
+        bridge_rot.ArcaRotationErrorKind.needsRepair,
         bridge_rot.ArcaRotationErrorKind.newerEpoch,
       ]) {
         // A fresh tree: the screen of the last turn must not stay open on top of the next one.
