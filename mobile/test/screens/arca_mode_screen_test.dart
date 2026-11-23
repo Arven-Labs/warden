@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -10,6 +11,7 @@ import 'package:mobile/services/arca_pair_flow.dart';
 import 'package:mobile/services/connection_settings.dart';
 import 'package:mobile/src/rust/api/arca_mode.dart' as bridge;
 import 'package:mobile/src/rust/api/arca_pair.dart' as bridge_pair;
+import 'package:mobile/src/rust/api/arca_rotation.dart' as bridge_rot;
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../helpers/test_app.dart';
@@ -77,7 +79,56 @@ class FakeBackend implements ArcaModeBackend {
     acknowledged.add(List.of(seen));
     return acknowledgeReturns;
   }
+
+  /// The phrase the bridge "shows": `word01` .. `word24`, and the positions (counting from 1) the person is asked to type back.
+  bridge_rot.RotationStartDto rotationStart = bridge_rot.RotationStartDto(phrase: [for (var i = 1; i <= 24; i++) 'word${i.toString().padLeft(2, '0')}'], positions: Uint32List.fromList([3, 11, 20]));
+  bridge_rot.ArcaRotationFailure? beginFailure;
+  bridge_rot.ArcaRotationFailure? resumeFailure;
+  bridge_rot.ArcaRotationFailure? confirmFailure;
+
+  /// An error that is not the bridge's own (a panic, a broken channel): the screen cannot know whether anything was written.
+  Object? confirmCrash;
+
+  /// Holds the confirm until the test lets it go, to look at the screen while it is in flight.
+  Completer<void>? confirmGate;
+  int beginCalls = 0;
+  int cancelCalls = 0;
+  final resumed = <String>[];
+  final confirmed = <({List<String> typedWords, bool revokedOnHub})>[];
+
+  @override
+  Future<bridge_rot.RotationStartDto> rotationBegin() async {
+    beginCalls++;
+    final failure = beginFailure;
+    if (failure != null) throw failure;
+    return rotationStart;
+  }
+
+  @override
+  Future<void> rotationResume(String phrase) async {
+    resumed.add(phrase);
+    final failure = resumeFailure;
+    if (failure != null) throw failure;
+  }
+
+  @override
+  Future<void> rotationConfirm({required List<String> typedWords, required bool revokedOnHub}) async {
+    confirmed.add((typedWords: List.of(typedWords), revokedOnHub: revokedOnHub));
+    final gate = confirmGate;
+    if (gate != null) await gate.future;
+    final crash = confirmCrash;
+    if (crash != null) throw crash;
+    final failure = confirmFailure;
+    if (failure != null) throw failure;
+  }
+
+  @override
+  Future<void> rotationCancel() async {
+    cancelCalls++;
+  }
 }
+
+bridge_rot.ArcaRotationFailure _rotationFailure(bridge_rot.ArcaRotationErrorKind kind) => bridge_rot.ArcaRotationFailure(kind: kind, detail: 'english detail SECRET');
 
 bridge.ArcaModeFailure _failure(bridge.ArcaModeErrorKind kind) => bridge.ArcaModeFailure(kind: kind, detail: 'english detail SECRET');
 
@@ -640,6 +691,383 @@ void main() {
 
       expect(find.text(pt.arcaSwapReplaceConfirmTitle), findsOneWidget);
       expect(find.text(pt.arcaSwapReplaceConfirmBody), findsOneWidget);
+    });
+  });
+
+  group('arcaRotationErrorText', () {
+    test('has a sentence for every kind, in both languages, and it is translated', () {
+      for (final kind in bridge_rot.ArcaRotationErrorKind.values) {
+        expect(arcaRotationErrorText(en, kind), isNotEmpty, reason: 'en $kind');
+        expect(arcaRotationErrorText(pt, kind), isNotEmpty, reason: 'pt $kind');
+        expect(arcaRotationErrorText(pt, kind), isNot(arcaRotationErrorText(en, kind)), reason: '$kind is translated');
+      }
+    });
+
+    test('tells the kinds apart, so the person is not told the wrong thing', () {
+      final texts = bridge_rot.ArcaRotationErrorKind.values.map((k) => arcaRotationErrorText(en, k)).toSet();
+      expect(texts.length, bridge_rot.ArcaRotationErrorKind.values.length);
+    });
+  });
+
+  group('the key rotation (P-49)', () {
+    // The phrase and the three fields are taller than the default test window: a tall one keeps everything built and tappable.
+    Future<FakeBackend> shown(WidgetTester tester, {bool on = true, List<bridge.PendingEpochDto>? epochs, Locale locale = const Locale('en')}) async {
+      tester.view.physicalSize = const Size(800, 3200);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      _savedHub();
+      final backend = FakeBackend(on: on)..epochs = epochs ?? [];
+      await tester.pumpWidget(testApp(home: ArcaModeScreen(backend: backend, pairBackend: FakePairBackend()), locale: locale));
+      await _settle(tester);
+      return backend;
+    }
+
+    // Longer than `_settle`: a route has to finish its transition.
+    Future<void> settleRoute(WidgetTester tester) async {
+      for (var i = 0; i < 10; i++) {
+        await tester.pump(const Duration(milliseconds: 100));
+      }
+    }
+
+    Future<void> tapRoute(WidgetTester tester, String key) async {
+      await tester.tap(find.byKey(Key(key)));
+      await settleRoute(tester);
+    }
+
+    // The person types: a character at a time (the fields refuse a block that arrives at once, see below).
+    Future<void> typeInto(WidgetTester tester, String key, String text) async {
+      for (var i = 1; i <= text.length; i++) {
+        await tester.enterText(find.byKey(Key(key)), text.substring(0, i));
+      }
+      await tester.pump();
+    }
+
+    /// The words the screen asks for, read off what the fake showed.
+    List<String> asked(FakeBackend backend) => [for (final position in backend.rotationStart.positions) backend.rotationStart.phrase[position - 1]];
+
+    Future<void> openAndBegin(WidgetTester tester, FakeBackend backend) async {
+      await tapRoute(tester, 'arca-mode-rotate');
+      await tapRoute(tester, 'arca-rotation-begin');
+    }
+
+    Future<void> fillAndDeclare(WidgetTester tester, FakeBackend backend, {bool declare = true}) async {
+      final words = asked(backend);
+      for (var i = 0; i < words.length; i++) {
+        await typeInto(tester, 'arca-rotation-word-$i', words[i]);
+      }
+      if (declare) await tapRoute(tester, 'arca-rotation-revoked');
+    }
+
+    testWidgets('with the mode on, a hub and no newer key pending, the device can start a rotation', (tester) async {
+      await shown(tester);
+
+      expect(find.byKey(const Key('arca-mode-rotate')), findsOneWidget);
+    });
+
+    testWidgets('no way to rotate with the mode off, without a usable hub, or while a newer key is pending', (tester) async {
+      await shown(tester, on: false);
+      expect(find.byKey(const Key('arca-mode-rotate')), findsNothing, reason: 'mode off');
+
+      await shown(tester, epochs: [_epoch(1, _hex1)]);
+      expect(find.byKey(const Key('arca-mode-rotate')), findsNothing, reason: 'this device holds the old key: it is the one that must replace it');
+
+      SharedPreferences.setMockInitialValues({'connection.host': 'hub.local', 'connection.port': 7420, 'connection.authKey': 'key', 'connection.useTls': true});
+      final backend = FakeBackend(on: true);
+      await tester.pumpWidget(testApp(home: ArcaModeScreen(backend: backend, pairBackend: FakePairBackend())));
+      await _settle(tester);
+      expect(find.byKey(const Key('arca-mode-rotate')), findsNothing, reason: 'no token for the hub');
+    });
+
+    testWidgets('opening the screen generates nothing: the key is made only on "begin"', (tester) async {
+      final backend = await shown(tester);
+
+      await tapRoute(tester, 'arca-mode-rotate');
+
+      expect(backend.beginCalls, 0);
+      expect(find.byKey(const Key('arca-rotation-begin')), findsOneWidget);
+      expect(find.text('word01'), findsNothing);
+    });
+
+    testWidgets('begin shows the 24 words once, numbered, with a warning about screenshots, and asks for exactly 3 words', (tester) async {
+      final backend = await shown(tester);
+
+      await openAndBegin(tester, backend);
+
+      expect(backend.beginCalls, 1);
+      for (var i = 1; i <= 24; i++) {
+        expect(find.text('$i. word${i.toString().padLeft(2, '0')}'), findsOneWidget, reason: 'word $i');
+      }
+      expect(find.byKey(const Key('arca-rotation-capture-warning')), findsOneWidget);
+      expect(find.byKey(const Key('arca-rotation-word-0')), findsOneWidget);
+      expect(find.byKey(const Key('arca-rotation-word-1')), findsOneWidget);
+      expect(find.byKey(const Key('arca-rotation-word-2')), findsOneWidget);
+      expect(find.byKey(const Key('arca-rotation-word-3')), findsNothing);
+    });
+
+    testWidgets('a double tap on begin asks the bridge for one key', (tester) async {
+      final backend = await shown(tester);
+      await tapRoute(tester, 'arca-mode-rotate');
+
+      final onPressed = tester.widget<FilledButton>(find.byKey(const Key('arca-rotation-begin'))).onPressed!;
+      onPressed();
+      onPressed();
+      await settleRoute(tester);
+
+      expect(backend.beginCalls, 1);
+    });
+
+    testWidgets('a refusal to begin says why in the app\'s words, never the English detail, and shows no phrase', (tester) async {
+      final backend = await shown(tester);
+      backend.beginFailure = _rotationFailure(bridge_rot.ArcaRotationErrorKind.notInArcaMode);
+      await tapRoute(tester, 'arca-mode-rotate');
+
+      await tapRoute(tester, 'arca-rotation-begin');
+
+      expect(find.text(arcaRotationErrorText(en, bridge_rot.ArcaRotationErrorKind.notInArcaMode)), findsOneWidget);
+      expect(find.textContaining('SECRET'), findsNothing);
+      expect(find.text('1. word01'), findsNothing);
+    });
+
+    testWidgets('the confirm button stays off until the lost device\'s token is declared revoked and all three words are typed', (tester) async {
+      final backend = await shown(tester);
+      await openAndBegin(tester, backend);
+      bool enabled() => tester.widget<FilledButton>(find.byKey(const Key('arca-rotation-confirm'))).onPressed != null;
+      expect(enabled(), isFalse, reason: 'nothing typed, nothing declared');
+
+      await fillAndDeclare(tester, backend, declare: false);
+      expect(enabled(), isFalse, reason: 'words typed but not declared');
+
+      await tapRoute(tester, 'arca-rotation-revoked');
+      expect(enabled(), isTrue);
+
+      await tester.enterText(find.byKey(const Key('arca-rotation-word-1')), '');
+      await tester.pump();
+      expect(enabled(), isFalse, reason: 'a word was erased');
+    });
+
+    testWidgets('the word fields take only typing: no paste, no suggestions, no autofill, and a block that arrives at once is refused', (tester) async {
+      final backend = await shown(tester);
+      await openAndBegin(tester, backend);
+
+      final field = tester.widget<TextField>(find.byKey(const Key('arca-rotation-word-0')));
+      expect(field.enableSuggestions, isFalse);
+      expect(field.autocorrect, isFalse);
+      expect(field.enableInteractiveSelection, isFalse);
+      expect(field.enableIMEPersonalizedLearning, isFalse);
+      await tester.enterText(find.byKey(const Key('arca-rotation-word-0')), 'word03');
+      expect(tester.widget<TextField>(find.byKey(const Key('arca-rotation-word-0'))).controller!.text, isEmpty, reason: 'six characters at once is a paste, not typing');
+    });
+
+    testWidgets('confirm asks first: "not now" and the back button are not a yes, and nothing is sent', (tester) async {
+      final backend = await shown(tester);
+      await openAndBegin(tester, backend);
+      await fillAndDeclare(tester, backend);
+
+      await tapRoute(tester, 'arca-rotation-confirm');
+      expect(find.byKey(const Key('arca-rotation-confirm-yes')), findsOneWidget);
+      await tapRoute(tester, 'arca-rotation-confirm-no');
+      expect(backend.confirmed, isEmpty);
+
+      await tapRoute(tester, 'arca-rotation-confirm');
+      await _back(tester);
+      expect(backend.confirmed, isEmpty);
+      expect(find.byKey(const Key('arca-rotation-confirm-yes')), findsNothing);
+      expect(find.text('1. word01'), findsOneWidget, reason: 'the phrase is still there to write down');
+    });
+
+    testWidgets('a "yes" confirms with the typed words and the declaration, closes the screen, and syncs with the saved hub so the new epoch goes out', (tester) async {
+      final backend = await shown(tester);
+      await openAndBegin(tester, backend);
+      await fillAndDeclare(tester, backend);
+
+      await tapRoute(tester, 'arca-rotation-confirm');
+      await tapRoute(tester, 'arca-rotation-confirm-yes');
+
+      expect(backend.confirmed.length, 1);
+      expect(backend.confirmed.single.typedWords, asked(backend));
+      expect(backend.confirmed.single.revokedOnHub, isTrue);
+      expect(find.byKey(const Key('arca-rotation-begin')), findsNothing, reason: 'back on the Arca mode screen');
+      expect(find.text('1. word01'), findsNothing, reason: 'the phrase is gone with the screen');
+      expect(backend.syncCalls, [
+        {'hubUrl': 'https://hub.local:7420', 'deviceToken': 'tok', 'allowInsecureHttp': false},
+      ]);
+    });
+
+    testWidgets('a wrong word: the error is shown, the phrase is gone, nothing is synced, and the person must begin again with a new key', (tester) async {
+      final backend = await shown(tester);
+      backend.confirmFailure = _rotationFailure(bridge_rot.ArcaRotationErrorKind.wordMismatch);
+      await openAndBegin(tester, backend);
+      await fillAndDeclare(tester, backend);
+
+      await tapRoute(tester, 'arca-rotation-confirm');
+      await tapRoute(tester, 'arca-rotation-confirm-yes');
+
+      expect(find.text(arcaRotationErrorText(en, bridge_rot.ArcaRotationErrorKind.wordMismatch)), findsOneWidget);
+      expect(find.text('1. word01'), findsNothing, reason: 'the key was dropped, so its phrase must not stay on screen');
+      expect(find.byKey(const Key('arca-rotation-begin')), findsOneWidget);
+      expect(backend.syncCalls, isEmpty);
+    });
+
+    testWidgets('a failure that may have written something opens "resume" with the same phrase to type, and does not make a new key', (tester) async {
+      final backend = await shown(tester);
+      backend.confirmFailure = _rotationFailure(bridge_rot.ArcaRotationErrorKind.failed);
+      await openAndBegin(tester, backend);
+      await fillAndDeclare(tester, backend);
+
+      await tapRoute(tester, 'arca-rotation-confirm');
+      await tapRoute(tester, 'arca-rotation-confirm-yes');
+
+      expect(find.byKey(const Key('arca-rotation-resume-field')), findsOneWidget);
+      expect(find.text(arcaRotationErrorText(en, bridge_rot.ArcaRotationErrorKind.failed)), findsOneWidget);
+      expect(find.byKey(const Key('arca-rotation-begin')), findsNothing, reason: 'a new key would not finish the stopped rotation');
+      expect(backend.beginCalls, 1);
+      expect(backend.syncCalls, isEmpty);
+    });
+
+    testWidgets('resuming: the 24 words typed are resumed and confirmed with no words asked back, then the screen closes and syncs', (tester) async {
+      final backend = await shown(tester);
+      await tapRoute(tester, 'arca-mode-rotate');
+      await tapRoute(tester, 'arca-rotation-resume-open');
+      final phrase = backend.rotationStart.phrase.join(' ');
+
+      await typeInto(tester, 'arca-rotation-resume-field', phrase);
+      await tapRoute(tester, 'arca-rotation-revoked');
+      await tapRoute(tester, 'arca-rotation-resume-confirm');
+      await tapRoute(tester, 'arca-rotation-confirm-yes');
+
+      expect(backend.resumed, [phrase]);
+      expect(backend.confirmed.length, 1);
+      expect(backend.confirmed.single.typedWords, isEmpty, reason: 'a resume asks no words back');
+      expect(backend.confirmed.single.revokedOnHub, isTrue);
+      expect(backend.syncCalls.length, 1);
+    });
+
+    testWidgets('the resume field takes only typing too, and a phrase the bridge refuses is told as such and confirms nothing', (tester) async {
+      final backend = await shown(tester);
+      backend.resumeFailure = _rotationFailure(bridge_rot.ArcaRotationErrorKind.badPhrase);
+      await tapRoute(tester, 'arca-mode-rotate');
+      await tapRoute(tester, 'arca-rotation-resume-open');
+
+      await tester.enterText(find.byKey(const Key('arca-rotation-resume-field')), backend.rotationStart.phrase.join(' '));
+      expect(tester.widget<TextField>(find.byKey(const Key('arca-rotation-resume-field'))).controller!.text, isEmpty, reason: 'a pasted block is refused');
+
+      await typeInto(tester, 'arca-rotation-resume-field', 'not a valid phrase');
+      await tapRoute(tester, 'arca-rotation-revoked');
+      await tapRoute(tester, 'arca-rotation-resume-confirm');
+      await tapRoute(tester, 'arca-rotation-confirm-yes');
+
+      expect(find.text(arcaRotationErrorText(en, bridge_rot.ArcaRotationErrorKind.badPhrase)), findsOneWidget);
+      expect(backend.confirmed, isEmpty);
+      expect(backend.syncCalls, isEmpty);
+    });
+
+    testWidgets('every other failure shows its own sentence and never the English detail', (tester) async {
+      // `other` is not here: the bridge never answers it to a confirm, so on a confirm it is the unknown, and the screen treats it as `failed`.
+      for (final kind in [bridge_rot.ArcaRotationErrorKind.notDeclared, bridge_rot.ArcaRotationErrorKind.noRotation]) {
+        // A fresh tree: the screen of the last turn must not stay open on top of the next one.
+        await tester.pumpWidget(const SizedBox());
+        final backend = await shown(tester);
+        backend.confirmFailure = _rotationFailure(kind);
+        await openAndBegin(tester, backend);
+        await fillAndDeclare(tester, backend);
+
+        await tapRoute(tester, 'arca-rotation-confirm');
+        await tapRoute(tester, 'arca-rotation-confirm-yes');
+
+        expect(find.text(arcaRotationErrorText(en, kind)), findsOneWidget, reason: '$kind');
+        expect(find.textContaining('SECRET'), findsNothing, reason: '$kind');
+        expect(backend.syncCalls, isEmpty, reason: '$kind');
+      }
+    });
+
+    testWidgets('an error that is not the bridge\'s own during the confirm may have written something: it opens "resume", never "begin again"', (tester) async {
+      final backend = await shown(tester);
+      backend.confirmCrash = StateError('channel closed');
+      await openAndBegin(tester, backend);
+      await fillAndDeclare(tester, backend);
+
+      await tapRoute(tester, 'arca-rotation-confirm');
+      await tapRoute(tester, 'arca-rotation-confirm-yes');
+
+      expect(find.byKey(const Key('arca-rotation-resume-field')), findsOneWidget);
+      expect(find.text(arcaRotationErrorText(en, bridge_rot.ArcaRotationErrorKind.failed)), findsOneWidget);
+      expect(find.byKey(const Key('arca-rotation-begin')), findsNothing);
+      expect(backend.syncCalls, isEmpty);
+    });
+
+    testWidgets('the back button does nothing while the confirm is in flight, and the sync still runs when it ends', (tester) async {
+      final backend = await shown(tester);
+      backend.confirmGate = Completer<void>();
+      await openAndBegin(tester, backend);
+      await fillAndDeclare(tester, backend);
+      await tapRoute(tester, 'arca-rotation-confirm');
+      await tapRoute(tester, 'arca-rotation-confirm-yes');
+      final cancelsBefore = backend.cancelCalls;
+
+      await _back(tester);
+      await settleRoute(tester);
+      expect(find.byKey(const Key('arca-rotation-capture-warning')), findsOneWidget, reason: 'still on the rotation screen');
+      expect(backend.cancelCalls, cancelsBefore, reason: 'nothing was dropped under the confirm');
+
+      backend.confirmGate!.complete();
+      await settleRoute(tester);
+      expect(backend.syncCalls.length, 1);
+    });
+
+    testWidgets('with the newer epochs unreadable there is no way to rotate: an empty list may only be a list that was not read', (tester) async {
+      _savedHub();
+      final backend = FakeBackend(on: true)..epochsFail = true;
+      await tester.pumpWidget(testApp(home: ArcaModeScreen(backend: backend, pairBackend: FakePairBackend())));
+      await _settle(tester);
+
+      expect(find.byKey(const Key('arca-mode-rotate')), findsNothing);
+    });
+
+    testWidgets('cancelling drops the key in the bridge and wipes the phrase from the screen', (tester) async {
+      final backend = await shown(tester);
+      await openAndBegin(tester, backend);
+
+      await tapRoute(tester, 'arca-rotation-cancel');
+
+      expect(backend.cancelCalls, greaterThan(0));
+      expect(find.text('1. word01'), findsNothing);
+      expect(backend.confirmed, isEmpty);
+    });
+
+    testWidgets('leaving the screen with the phrase showing drops the key in the bridge', (tester) async {
+      final backend = await shown(tester);
+      await openAndBegin(tester, backend);
+
+      await _back(tester);
+      await settleRoute(tester);
+
+      expect(backend.cancelCalls, greaterThan(0));
+      expect(find.text('1. word01'), findsNothing);
+    });
+
+    testWidgets('a double tap on the final "yes" confirms once', (tester) async {
+      final backend = await shown(tester);
+      await openAndBegin(tester, backend);
+      await fillAndDeclare(tester, backend);
+      await tapRoute(tester, 'arca-rotation-confirm');
+
+      final onPressed = tester.widget<FilledButton>(find.byKey(const Key('arca-rotation-confirm-yes'))).onPressed!;
+      onPressed();
+      onPressed();
+      await settleRoute(tester);
+
+      expect(backend.confirmed.length, 1);
+      // A second pop would take the rotation screen away without its `true`: the sync that sends the new epoch would never run.
+      expect(backend.syncCalls.length, 1);
+    });
+
+    testWidgets('the screen speaks Portuguese when the app does', (tester) async {
+      final backend = await shown(tester, locale: const Locale('pt'));
+      backend.beginFailure = _rotationFailure(bridge_rot.ArcaRotationErrorKind.notInArcaMode);
+      await tapRoute(tester, 'arca-mode-rotate');
+      await tapRoute(tester, 'arca-rotation-begin');
+
+      expect(find.text(arcaRotationErrorText(pt, bridge_rot.ArcaRotationErrorKind.notInArcaMode)), findsOneWidget);
     });
   });
 }

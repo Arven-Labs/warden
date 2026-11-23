@@ -2365,4 +2365,98 @@ class AppLocalizationsPt extends AppLocalizations {
   @override
   String get arcaModeErrOther =>
       'Algo deu errado. Confira a conexão e tente de novo.';
+
+  @override
+  String get arcaRotationOpen => 'Perdeu um dispositivo? Troque a chave';
+
+  @override
+  String get arcaRotationTitle => 'Trocar a chave do cofre';
+
+  @override
+  String get arcaRotationIntro =>
+      'Use quando um dispositivo foi perdido ou roubado. Isso cria uma chave nova do cofre, e a cópia do dispositivo perdido deixa de bastar. Antes, revogue o token do dispositivo perdido no hub.';
+
+  @override
+  String get arcaRotationBegin => 'Criar a chave nova';
+
+  @override
+  String get arcaRotationResumeOpen => 'Retomar uma troca que parou no meio';
+
+  @override
+  String get arcaRotationPhraseIntro =>
+      'Estas 24 palavras são a chave nova. Anote-as no papel, na ordem. Elas aparecem uma só vez e ninguém consegue recuperá-las para você.';
+
+  @override
+  String get arcaRotationCaptureWarning =>
+      'Não fotografe nem faça captura desta tela: uma cópia dessas palavras é uma cópia do seu cofre.';
+
+  @override
+  String get arcaRotationTypeBack =>
+      'Para mostrar que você anotou, digite estas três palavras da lista:';
+
+  @override
+  String arcaRotationWordLabel(int position) {
+    return 'Palavra $position';
+  }
+
+  @override
+  String get arcaRotationRevoked =>
+      'Já revoguei o token do dispositivo perdido no hub.';
+
+  @override
+  String get arcaRotationConfirm => 'Trocar a chave';
+
+  @override
+  String get arcaRotationCancel => 'Cancelar';
+
+  @override
+  String get arcaRotationConfirmTitle => 'Trocar a chave do cofre?';
+
+  @override
+  String get arcaRotationConfirmBody =>
+      'O cofre passa para a chave nova e isso não pode ser desfeito. Seus outros dispositivos precisam receber a chave nova antes de sincronizar de novo.';
+
+  @override
+  String get arcaRotationConfirmNo => 'Agora não';
+
+  @override
+  String get arcaRotationConfirmYes => 'Sim, trocar a chave';
+
+  @override
+  String get arcaRotationResumeIntro =>
+      'A troca parou no meio. Digite as mesmas 24 palavras que você anotou, separadas por espaço, para terminá-la. Não crie uma chave nova.';
+
+  @override
+  String get arcaRotationResumeLabel => 'As 24 palavras';
+
+  @override
+  String get arcaRotationResumeConfirm => 'Terminar a troca';
+
+  @override
+  String get arcaRotationErrNotInArcaMode =>
+      'O modo Arca não está ligado. Ligue-o primeiro.';
+
+  @override
+  String get arcaRotationErrNotDeclared =>
+      'É preciso confirmar que o token do dispositivo perdido foi revogado no hub. Nada foi alterado.';
+
+  @override
+  String get arcaRotationErrWordMismatch =>
+      'Uma das palavras não confere. Nada foi alterado e essa chave foi descartada: recomece para ganhar uma nova.';
+
+  @override
+  String get arcaRotationErrBadPhrase =>
+      'Essas palavras não formam uma frase de chave válida. Confira com o seu papel e tente de novo.';
+
+  @override
+  String get arcaRotationErrNoRotation =>
+      'Não há mais chave à espera. Recomece para ganhar uma nova.';
+
+  @override
+  String get arcaRotationErrFailed =>
+      'A troca parou no meio e pode ter sido gravada em parte. Digite as mesmas 24 palavras para terminá-la. Não crie uma chave nova.';
+
+  @override
+  String get arcaRotationErrOther =>
+      'Algo deu errado. Nada foi alterado. Tente de novo.';
 }

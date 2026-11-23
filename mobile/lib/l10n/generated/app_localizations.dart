@@ -3859,6 +3859,162 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Something went wrong. Check the connection and try again.'**
   String get arcaModeErrOther;
+
+  /// No description provided for @arcaRotationOpen.
+  ///
+  /// In en, this message translates to:
+  /// **'Lost a device? Change the key'**
+  String get arcaRotationOpen;
+
+  /// No description provided for @arcaRotationTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Change the vault key'**
+  String get arcaRotationTitle;
+
+  /// No description provided for @arcaRotationIntro.
+  ///
+  /// In en, this message translates to:
+  /// **'Use this when a device was lost or stolen. It makes a new vault key, and the lost device\'s copy of the vault stops being enough. First revoke the lost device\'s token on the hub.'**
+  String get arcaRotationIntro;
+
+  /// No description provided for @arcaRotationBegin.
+  ///
+  /// In en, this message translates to:
+  /// **'Make the new key'**
+  String get arcaRotationBegin;
+
+  /// No description provided for @arcaRotationResumeOpen.
+  ///
+  /// In en, this message translates to:
+  /// **'Resume a change that stopped half way'**
+  String get arcaRotationResumeOpen;
+
+  /// No description provided for @arcaRotationPhraseIntro.
+  ///
+  /// In en, this message translates to:
+  /// **'These 24 words are the new key. Write them on paper, in order. They are shown only once and nobody can recover them for you.'**
+  String get arcaRotationPhraseIntro;
+
+  /// No description provided for @arcaRotationCaptureWarning.
+  ///
+  /// In en, this message translates to:
+  /// **'Do not photograph this screen or take a screenshot: a copy of these words is a copy of your vault.'**
+  String get arcaRotationCaptureWarning;
+
+  /// No description provided for @arcaRotationTypeBack.
+  ///
+  /// In en, this message translates to:
+  /// **'To show that you wrote them down, type these three words from the list:'**
+  String get arcaRotationTypeBack;
+
+  /// No description provided for @arcaRotationWordLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Word {position}'**
+  String arcaRotationWordLabel(int position);
+
+  /// No description provided for @arcaRotationRevoked.
+  ///
+  /// In en, this message translates to:
+  /// **'I already revoked the lost device\'s token on the hub.'**
+  String get arcaRotationRevoked;
+
+  /// No description provided for @arcaRotationConfirm.
+  ///
+  /// In en, this message translates to:
+  /// **'Change the key'**
+  String get arcaRotationConfirm;
+
+  /// No description provided for @arcaRotationCancel.
+  ///
+  /// In en, this message translates to:
+  /// **'Cancel'**
+  String get arcaRotationCancel;
+
+  /// No description provided for @arcaRotationConfirmTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Change the vault key?'**
+  String get arcaRotationConfirmTitle;
+
+  /// No description provided for @arcaRotationConfirmBody.
+  ///
+  /// In en, this message translates to:
+  /// **'The vault will switch to the new key and this cannot be undone. Your other devices will have to receive the new key before they can sync again.'**
+  String get arcaRotationConfirmBody;
+
+  /// No description provided for @arcaRotationConfirmNo.
+  ///
+  /// In en, this message translates to:
+  /// **'Not now'**
+  String get arcaRotationConfirmNo;
+
+  /// No description provided for @arcaRotationConfirmYes.
+  ///
+  /// In en, this message translates to:
+  /// **'Yes, change the key'**
+  String get arcaRotationConfirmYes;
+
+  /// No description provided for @arcaRotationResumeIntro.
+  ///
+  /// In en, this message translates to:
+  /// **'The change stopped half way. Type the same 24 words you wrote down, separated by spaces, to finish it. Do not make a new key.'**
+  String get arcaRotationResumeIntro;
+
+  /// No description provided for @arcaRotationResumeLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'The 24 words'**
+  String get arcaRotationResumeLabel;
+
+  /// No description provided for @arcaRotationResumeConfirm.
+  ///
+  /// In en, this message translates to:
+  /// **'Finish the change'**
+  String get arcaRotationResumeConfirm;
+
+  /// No description provided for @arcaRotationErrNotInArcaMode.
+  ///
+  /// In en, this message translates to:
+  /// **'Arca mode is not on. Turn it on first.'**
+  String get arcaRotationErrNotInArcaMode;
+
+  /// No description provided for @arcaRotationErrNotDeclared.
+  ///
+  /// In en, this message translates to:
+  /// **'You must confirm that the lost device\'s token was revoked on the hub. Nothing was changed.'**
+  String get arcaRotationErrNotDeclared;
+
+  /// No description provided for @arcaRotationErrWordMismatch.
+  ///
+  /// In en, this message translates to:
+  /// **'One of the words did not match. Nothing was changed and that key was discarded: start again to get a new one.'**
+  String get arcaRotationErrWordMismatch;
+
+  /// No description provided for @arcaRotationErrBadPhrase.
+  ///
+  /// In en, this message translates to:
+  /// **'Those words are not a valid key phrase. Check them against your paper and try again.'**
+  String get arcaRotationErrBadPhrase;
+
+  /// No description provided for @arcaRotationErrNoRotation.
+  ///
+  /// In en, this message translates to:
+  /// **'There is no key waiting any more. Start again to get a new one.'**
+  String get arcaRotationErrNoRotation;
+
+  /// No description provided for @arcaRotationErrFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'The change stopped half way and may have been partly saved. Type the same 24 words to finish it. Do not make a new key.'**
+  String get arcaRotationErrFailed;
+
+  /// No description provided for @arcaRotationErrOther.
+  ///
+  /// In en, this message translates to:
+  /// **'Something went wrong. Nothing was changed. Try again.'**
+  String get arcaRotationErrOther;
 }
 
 class _AppLocalizationsDelegate
