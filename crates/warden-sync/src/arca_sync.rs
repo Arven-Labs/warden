@@ -945,7 +945,7 @@ fn rotation_error_of(error: EngineError) -> crate::arca_rotation::RotationError 
             | EngineError::Busy
     );
     if matches!(error, EngineError::NeedsNewKey { .. }) {
-        return RotationError::NewerEpoch;
+        return RotationError::Failed(String::new());
     }
     let text = format!("{:#}", engine_failure(error, "starting the new key epoch"));
     if wrote_nothing {
