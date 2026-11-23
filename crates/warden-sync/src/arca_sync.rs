@@ -280,15 +280,14 @@ impl SyncEngine {
     pub(crate) async fn arca_rotate_to(&self, new_key: &VaultKey, now_ms: u64) -> Result<(), crate::arca_rotation::RotationError> {
         use crate::arca_rotation::RotationError;
         let failed = |error: anyhow::Error| RotationError::Failed(format!("{error:#}"));
-        let _one_sync_at_a_time = self.sync_lock().await.map_err(failed)?;
-        let Some(mode) = load_mode(&mode_path_for(&self.manifest_path)).map_err(failed)? else {
+        // Until `begin_epoch` writes, nothing is on disk: what goes wrong here is a refusal, not a stop half way.
+        let refused = |error: anyhow::Error| RotationError::Refused(format!("{error:#}"));
+        let _one_sync_at_a_time = self.sync_lock().await.map_err(refused)?;
+        let Some(mode) = load_mode(&mode_path_for(&self.manifest_path)).map_err(refused)? else {
             return Err(RotationError::NotInArcaMode);
         };
-        let (engine, roots) = self.arca_engine(mode.secret_accepted, false).map_err(failed)?;
-        let (_next, snapshot) = engine
-            .begin_epoch(new_key, &roots, now_ms)
-            .await
-            .map_err(|e| failed(engine_failure(e, "starting the new key epoch")))?;
+        let (engine, roots) = self.arca_engine(mode.secret_accepted, false).map_err(refused)?;
+        let (_next, snapshot) = engine.begin_epoch(new_key, &roots, now_ms).await.map_err(rotation_error_of)?;
         let published = match snapshot {
             Snapshot::Created { id, .. } => id,
             Snapshot::Unchanged { head, .. } => head,
@@ -925,6 +924,34 @@ fn engine_failure(error: EngineError, what: &str) -> anyhow::Error {
             "{what}: another device switched this vault to a newer key (epoch {found}; this device has {have}), so this cycle did nothing. If it was you or a device you trust, pair this device again to get the new key. If you do not recognise it, look at the pending epochs first and only then acknowledge them: the epoch of an object is not authenticated, so anyone who holds the old key can forge one"
         ),
         other => anyhow::Error::from(other).context(what.to_string()),
+    }
+}
+
+/// How a `begin_epoch` error reaches the person. Only the errors `begin_epoch` returns **before its first write** are refusals
+/// (arca-core tests prove the store is unchanged for each); any other one (a store error, `StateNotSaved`) may come after the new
+/// manifest went out, so it stays `Failed`, which tells the person to resume with the same 24 words. Do not widen the refusal
+/// list without that proof: a wrong "nothing was changed" makes the person throw away a key that was already published.
+fn rotation_error_of(error: EngineError) -> crate::arca_rotation::RotationError {
+    use crate::arca_rotation::RotationError;
+    let wrote_nothing = matches!(
+        error,
+        EngineError::Object(arca_core::Error::KeyNotRotated | arca_core::Error::EpochOverflow)
+            | EngineError::Diverged { .. }
+            | EngineError::Rollback
+            | EngineError::Interrupted
+            | EngineError::IncompleteApply
+            | EngineError::CorruptJournal
+            | EngineError::CorruptState
+            | EngineError::Busy
+    );
+    if matches!(error, EngineError::NeedsNewKey { .. }) {
+        return RotationError::NewerEpoch;
+    }
+    let text = format!("{:#}", engine_failure(error, "starting the new key epoch"));
+    if wrote_nothing {
+        RotationError::Refused(text)
+    } else {
+        RotationError::Failed(text)
     }
 }
 
