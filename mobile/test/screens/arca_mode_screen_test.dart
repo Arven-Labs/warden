@@ -942,6 +942,23 @@ void main() {
       expect(backend.syncCalls.length, 1);
     });
 
+    testWidgets('resuming: an error that is not the bridge\'s own during the confirm may have written something, so it never says "nothing was changed"', (tester) async {
+      final backend = await shown(tester);
+      backend.confirmCrash = StateError('channel closed');
+      await tapRoute(tester, 'arca-mode-rotate');
+      await tapRoute(tester, 'arca-rotation-resume-open');
+
+      await typeInto(tester, 'arca-rotation-resume-field', backend.rotationStart.phrase.join(' '));
+      await tapRoute(tester, 'arca-rotation-revoked');
+      await tapRoute(tester, 'arca-rotation-resume-confirm');
+      await tapRoute(tester, 'arca-rotation-confirm-yes');
+
+      expect(find.text(arcaRotationErrorText(en, bridge_rot.ArcaRotationErrorKind.failed)), findsOneWidget);
+      expect(find.text(arcaRotationErrorText(en, bridge_rot.ArcaRotationErrorKind.other)), findsNothing);
+      expect(find.byKey(const Key('arca-rotation-resume-field')), findsOneWidget, reason: 'the same 24 words stay to be tried again');
+      expect(backend.syncCalls, isEmpty);
+    });
+
     testWidgets('the resume field takes only typing too, and a phrase the bridge refuses is told as such and confirms nothing', (tester) async {
       final backend = await shown(tester);
       backend.resumeFailure = _rotationFailure(bridge_rot.ArcaRotationErrorKind.badPhrase);

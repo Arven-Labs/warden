@@ -978,6 +978,39 @@ mod tests {
     }
 
     #[test]
+    fn only_the_errors_begin_epoch_returns_before_its_first_write_are_refusals() {
+        use crate::arca_rotation::RotationError;
+        // The refusals: arca-core `begin_epoch` returns each of them before `build_snapshot` puts anything (read in the code; its
+        // tests cover `KeyNotRotated`, `EpochOverflow`, `Diverged`, `Interrupted`, `Rollback` and `NeedsNewKey`, not the others).
+        for before_any_write in [
+            EngineError::Object(arca_core::Error::KeyNotRotated),
+            EngineError::Object(arca_core::Error::EpochOverflow),
+            EngineError::Diverged { tips: 2, rejected: 0 },
+            EngineError::Rollback,
+            EngineError::Interrupted,
+            EngineError::IncompleteApply,
+            EngineError::CorruptJournal,
+            EngineError::CorruptState,
+            EngineError::Busy,
+        ] {
+            assert!(matches!(rotation_error_of(before_any_write.clone()), RotationError::Refused(_)), "{before_any_write:?}");
+        }
+        assert_eq!(rotation_error_of(EngineError::NeedsNewKey { have: 1, found: 2 }), RotationError::NewerEpoch);
+        // Anything else can come from inside `build_snapshot`, after the blobs or the manifest went out: the person must resume with
+        // the same 24 words, so none of these may read as "nothing was changed".
+        for may_have_written in [
+            EngineError::Store(StoreError::Unavailable(std::io::ErrorKind::TimedOut)),
+            EngineError::Store(StoreError::Corrupt),
+            EngineError::StateNotSaved,
+            EngineError::Io(std::io::ErrorKind::PermissionDenied),
+            EngineError::MissingObject,
+            EngineError::JournalTooLarge,
+        ] {
+            assert!(matches!(rotation_error_of(may_have_written.clone()), RotationError::Failed(_)), "{may_have_written:?}");
+        }
+    }
+
+    #[test]
     fn a_busy_engine_says_another_program_has_the_vault_and_that_the_next_cycle_tries_again() {
         let message = said(EngineError::Busy, "merging");
         assert!(message.starts_with("merging: "), "{message}");
