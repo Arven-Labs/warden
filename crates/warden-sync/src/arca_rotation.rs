@@ -28,7 +28,15 @@ pub enum RotationError {
     BadPhrase,
     /// The vault is not in arca mode: there is nothing to rotate.
     NotInArcaMode,
-    /// Anything else: the new key is the one in use, a newer epoch is waiting, the disk refused.
+    /// Refused **before anything was written**: the new key is the one in use, there is no next epoch, the heads diverge, another
+    /// program holds the vault. Safe to try again with a new key.
+    Refused(String),
+    /// A newer key epoch than this device's is already in the store and was not acknowledged. Nothing was written, but a new key
+    /// will hit the same wall: either another device rotated (pair again or look at the pending epochs), or an earlier rotation of
+    /// this device stopped half way with **another** phrase (type the 24 words of that one).
+    NewerEpoch,
+    /// It may have stopped half way: the new manifest can be out while the folder pointer or the secrets are not saved yet. Type
+    /// the same 24 words to finish it; do not make a new key.
     Failed(String),
 }
 
@@ -39,6 +47,8 @@ impl std::fmt::Display for RotationError {
             RotationError::WordMismatch => f.write_str("the words typed are not the ones asked for"),
             RotationError::BadPhrase => f.write_str("that is not a valid 24-word phrase"),
             RotationError::NotInArcaMode => f.write_str("this vault is not in arca mode: turn it on first"),
+            RotationError::Refused(why) => write!(f, "nothing was changed: {why}"),
+            RotationError::NewerEpoch => f.write_str("a newer key epoch is already stored and was not acknowledged: nothing was changed"),
             RotationError::Failed(why) => write!(f, "the key was not rotated: {why}"),
         }
     }

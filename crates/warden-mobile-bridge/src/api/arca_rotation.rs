@@ -70,6 +70,8 @@ pub(crate) fn kind_of(error: &RotationError) -> ArcaRotationErrorKind {
         RotationError::WordMismatch => ArcaRotationErrorKind::WordMismatch,
         RotationError::BadPhrase => ArcaRotationErrorKind::BadPhrase,
         RotationError::NotInArcaMode => ArcaRotationErrorKind::NotInArcaMode,
+        // provisório: os kinds `refused` e `newerEpoch` chegam com o codegen do FRB (etapa 3 do plano)
+        RotationError::Refused(_) | RotationError::NewerEpoch => ArcaRotationErrorKind::Other,
         RotationError::Failed(_) => ArcaRotationErrorKind::Failed,
     }
 }

@@ -1378,7 +1378,8 @@ mod tests {
         assert!(rotate(&device).await.is_err());
         std::fs::remove_dir(device.base.join("sync_secrets.tmp")).unwrap();
 
-        assert!(matches!(rotate(&device).await, Err(RotationError::Failed(_))));
+        // a half-finished rotation with the first key is in the store: a second key hits that epoch, and nothing is written
+        assert_eq!(rotate(&device).await, Err(RotationError::NewerEpoch));
         let after = secrets_of(&device);
         assert_eq!((after.vault_key, after.key_epoch), (old.vault_key, 0));
         assert_eq!(epochs_of(&manifests_in_store(&device).await), vec![0, 1]);
@@ -1390,7 +1391,8 @@ mod tests {
         let old = secrets_of(&device);
         let phrase = VaultKey::from_bytes(old.vault_key).to_phrase().unwrap();
         let same = PendingRotation::from_phrase(phrase.expose()).unwrap();
-        assert!(matches!(confirm_with(same, &device, &[], true).await, Err(RotationError::Failed(_))));
+        // refused before the first write: the person can simply make another key, so it must not read as "stopped half way"
+        assert!(matches!(confirm_with(same, &device, &[], true).await, Err(RotationError::Refused(_))));
         let after = secrets_of(&device);
         assert_eq!((after.vault_key, after.key_epoch), (old.vault_key, 0));
         assert_eq!(epochs_of(&manifests_in_store(&device).await), vec![0]);
