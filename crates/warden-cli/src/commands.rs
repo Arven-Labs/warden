@@ -220,9 +220,16 @@ pub fn parse_command(input: &str) -> ParseOutcome {
     ParseOutcome::Recognized(command)
 }
 
-// SKELETON (first commit of the review fixes of `/arca rotate`): answers wrongly on purpose; the next commit writes it.
-pub fn is_rotate_with_arguments(_input: &str) -> bool {
-    false
+/// Whether `input` starts `/arca rotate` and is not exactly `/arca rotate` or `/arca rotate resume`: the person typed something
+/// after it, and for `resume` that something is probably the 24 words. The parser refuses it (arguments are never read from the
+/// line), but the REPL must also keep that line out of the line history (saved in clear text) and out of the "unknown command"
+/// card, which echoes the line: the caller asks this before doing either. Whitespace and the case of the first two words are
+/// read the way `parse_command` reads them, and an `/arca ROTATE resume ...` that the parser does not know still counts.
+pub fn is_rotate_with_arguments(input: &str) -> bool {
+    let Some(rest) = input.trim().strip_prefix('/') else { return false };
+    let mut words = rest.split_whitespace();
+    let starts_arca_rotate = words.next().is_some_and(|head| head.eq_ignore_ascii_case("arca")) && words.next().is_some_and(|sub| sub.eq_ignore_ascii_case("rotate"));
+    starts_arca_rotate && matches!(parse_command(input), ParseOutcome::Unrecognized(_))
 }
 
 /// Parses a provider `kind` the way a user would type it (matching the config file's own
