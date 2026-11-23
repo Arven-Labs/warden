@@ -5,6 +5,7 @@
 
 import 'api/arca_mode.dart';
 import 'api/arca_pair.dart';
+import 'api/arca_rotation.dart';
 import 'api/discovery.dart';
 import 'api/simple.dart';
 import 'api/skills.dart';
@@ -54,6 +55,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   ArcaPairStepKind dco_decode_arca_pair_step_kind(dynamic raw);
 
   @protected
+  ArcaRotationErrorKind dco_decode_arca_rotation_error_kind(dynamic raw);
+
+  @protected
+  ArcaRotationFailure dco_decode_arca_rotation_failure(dynamic raw);
+
+  @protected
   ArcaSyncDto dco_decode_arca_sync_dto(dynamic raw);
 
   @protected
@@ -96,6 +103,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   List<PendingEpochDto> dco_decode_list_pending_epoch_dto(dynamic raw);
 
   @protected
+  Uint32List dco_decode_list_prim_u_32_strict(dynamic raw);
+
+  @protected
   Uint8List dco_decode_list_prim_u_8_strict(dynamic raw);
 
   @protected
@@ -127,6 +137,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   PushResultDto dco_decode_push_result_dto(dynamic raw);
+
+  @protected
+  RotationStartDto dco_decode_rotation_start_dto(dynamic raw);
 
   @protected
   SkillDto dco_decode_skill_dto(dynamic raw);
@@ -186,6 +199,16 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   ArcaPairStepKind sse_decode_arca_pair_step_kind(SseDeserializer deserializer);
 
   @protected
+  ArcaRotationErrorKind sse_decode_arca_rotation_error_kind(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  ArcaRotationFailure sse_decode_arca_rotation_failure(
+    SseDeserializer deserializer,
+  );
+
+  @protected
   ArcaSyncDto sse_decode_arca_sync_dto(SseDeserializer deserializer);
 
   @protected
@@ -238,6 +261,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  Uint32List sse_decode_list_prim_u_32_strict(SseDeserializer deserializer);
+
+  @protected
   Uint8List sse_decode_list_prim_u_8_strict(SseDeserializer deserializer);
 
   @protected
@@ -275,6 +301,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   PushResultDto sse_decode_push_result_dto(SseDeserializer deserializer);
+
+  @protected
+  RotationStartDto sse_decode_rotation_start_dto(SseDeserializer deserializer);
 
   @protected
   SkillDto sse_decode_skill_dto(SseDeserializer deserializer);
@@ -342,6 +371,18 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   @protected
   void sse_encode_arca_pair_step_kind(
     ArcaPairStepKind self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_arca_rotation_error_kind(
+    ArcaRotationErrorKind self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_arca_rotation_failure(
+    ArcaRotationFailure self,
     SseSerializer serializer,
   );
 
@@ -415,6 +456,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  void sse_encode_list_prim_u_32_strict(
+    Uint32List self,
+    SseSerializer serializer,
+  );
+
+  @protected
   void sse_encode_list_prim_u_8_strict(
     Uint8List self,
     SseSerializer serializer,
@@ -464,6 +511,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   void sse_encode_push_result_dto(PushResultDto self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_rotation_start_dto(
+    RotationStartDto self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_skill_dto(SkillDto self, SseSerializer serializer);
