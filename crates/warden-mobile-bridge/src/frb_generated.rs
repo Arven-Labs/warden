@@ -1461,7 +1461,10 @@ impl SseDecode for crate::api::arca_pair::ArcaPairErrorKind {
             17 => crate::api::arca_pair::ArcaPairErrorKind::NothingNewer,
             18 => crate::api::arca_pair::ArcaPairErrorKind::NotNewer,
             19 => crate::api::arca_pair::ArcaPairErrorKind::HashMismatch,
-            20 => crate::api::arca_pair::ArcaPairErrorKind::Hub,
+            20 => crate::api::arca_pair::ArcaPairErrorKind::SwapIncomplete,
+            21 => crate::api::arca_pair::ArcaPairErrorKind::NoAcceptedHead,
+            22 => crate::api::arca_pair::ArcaPairErrorKind::KeyOpensNothing,
+            23 => crate::api::arca_pair::ArcaPairErrorKind::Hub,
             _ => unreachable!("Invalid variant for ArcaPairErrorKind: {}", inner),
         };
     }
@@ -2101,7 +2104,10 @@ impl flutter_rust_bridge::IntoDart for crate::api::arca_pair::ArcaPairErrorKind 
             Self::NothingNewer => 17.into_dart(),
             Self::NotNewer => 18.into_dart(),
             Self::HashMismatch => 19.into_dart(),
-            Self::Hub => 20.into_dart(),
+            Self::SwapIncomplete => 20.into_dart(),
+            Self::NoAcceptedHead => 21.into_dart(),
+            Self::KeyOpensNothing => 22.into_dart(),
+            Self::Hub => 23.into_dart(),
             _ => unreachable!(),
         }
     }
@@ -2513,7 +2519,10 @@ impl SseEncode for crate::api::arca_pair::ArcaPairErrorKind {
                 crate::api::arca_pair::ArcaPairErrorKind::NothingNewer => 17,
                 crate::api::arca_pair::ArcaPairErrorKind::NotNewer => 18,
                 crate::api::arca_pair::ArcaPairErrorKind::HashMismatch => 19,
-                crate::api::arca_pair::ArcaPairErrorKind::Hub => 20,
+                crate::api::arca_pair::ArcaPairErrorKind::SwapIncomplete => 20,
+                crate::api::arca_pair::ArcaPairErrorKind::NoAcceptedHead => 21,
+                crate::api::arca_pair::ArcaPairErrorKind::KeyOpensNothing => 22,
+                crate::api::arca_pair::ArcaPairErrorKind::Hub => 23,
                 _ => {
                     unimplemented!("");
                 }

@@ -2204,6 +2204,25 @@ class AppLocalizationsEn extends AppLocalizations {
       'No newer key is pending anymore. Nothing was changed.';
 
   @override
+  String get arcaPairErrSwapIncomplete =>
+      'The key swap did not finish. If it stopped half way, sync this device (Arca mode, Sync now) and start the swap again.';
+
+  @override
+  String get arcaPairErrNoAcceptedHead =>
+      'This device has not accepted a manifest of its current key yet, so it has no head code to show. Sync this device first (Arca mode, Sync now), then try again.';
+
+  @override
+  String get arcaPairErrKeyOpensNothing =>
+      'This key does not open the vault the hub shows. Nothing was changed on this device. Check the other device, and do not trust this hub until you have.';
+
+  @override
+  String get arcaSwapErrNoOffers =>
+      'No device is waiting for a key. Start the swap on the device that is replacing its key first, then try again.';
+
+  @override
+  String get arcaSwapBack => 'Back to Arca mode';
+
+  @override
   String get arcaModeOpen => 'Arca mode';
 
   @override

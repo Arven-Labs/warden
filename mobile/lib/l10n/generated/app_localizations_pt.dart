@@ -2211,6 +2211,25 @@ class AppLocalizationsPt extends AppLocalizations {
       'Não há mais nenhuma chave mais nova pendente. Nada foi alterado.';
 
   @override
+  String get arcaPairErrSwapIncomplete =>
+      'A troca de chave não terminou. Se parou no meio, sincronize este dispositivo (Modo arca, Sincronizar agora) e comece a troca de novo.';
+
+  @override
+  String get arcaPairErrNoAcceptedHead =>
+      'Este dispositivo ainda não aceitou um manifest da chave atual, então não tem código do head para mostrar. Sincronize este dispositivo primeiro (Modo arca, Sincronizar agora) e tente de novo.';
+
+  @override
+  String get arcaPairErrKeyOpensNothing =>
+      'Esta chave não abre o cofre que o hub mostra. Nada foi alterado neste dispositivo. Confira o outro dispositivo e não confie neste hub até conferir.';
+
+  @override
+  String get arcaSwapErrNoOffers =>
+      'Nenhum dispositivo está esperando uma chave. Comece a troca primeiro no dispositivo que vai trocar a chave e tente de novo.';
+
+  @override
+  String get arcaSwapBack => 'Voltar ao modo arca';
+
+  @override
   String get arcaModeOpen => 'Modo arca';
 
   @override

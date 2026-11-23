@@ -7,7 +7,7 @@ import '../frb_generated.dart';
 
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
-// These functions are ignored because they are not marked as `pub`: `begin`, `failure_of`, `hub_failure`, `last_of_pairing`, `last_of_swap`, `no_session`, `screen_event`, `slot`, `swap_failure_of`
+// These functions are ignored because they are not marked as `pub`: `begin`, `failure_of`, `hub_failure`, `last_of_pairing`, `last_of_swap`, `no_session`, `screen_event`, `slot`, `swap_failure_of`, `swap_hub_store`
 // These types are ignored because they are neither used by any `pub` functions nor (for structs and enums) marked `#[frb(unignore)]`: `ArcaPairEvent`, `Session`, `Side`
 // These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `from`
 // These functions are ignored (category: IgnoreBecauseExplicitAttribute): `arca_pair_next_event`
@@ -175,6 +175,16 @@ enum ArcaPairErrorKind {
 
   /// Key swap, replacing side: the typed head code names no manifest the hub holds.
   hashMismatch,
+
+  /// Key swap: it did not finish and may have stopped half way. The screen says to sync and swap again, as the desktop does.
+  swapIncomplete,
+
+  /// Key swap, the device that rotated: it has a key but no accepted manifest of that key's epoch yet, so it has no head code to show.
+  noAcceptedHead,
+
+  /// Key swap, replacing side: the key that arrived opens none of the manifests the hub holds (or the hub holds none): the sign of a
+  /// hub that shows another vault.
+  keyOpensNothing,
 
   /// Anything else (network, an answer the hub does not document).
   hub,
