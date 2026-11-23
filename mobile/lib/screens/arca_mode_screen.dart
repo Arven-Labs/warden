@@ -254,7 +254,7 @@ class _ArcaModeScreenState extends State<ArcaModeScreen> {
       _asking = false;
       return;
     }
-    if (fresh.isEmpty) {
+    if (fresh.isEmpty && _busy) {
       _asking = false;
       await _refresh();
       _say(l10n.arcaSwapNothingPending, error: true);
