@@ -280,9 +280,11 @@ impl SyncEngine {
     pub(crate) async fn arca_rotate_to(&self, new_key: &VaultKey, now_ms: u64) -> Result<(), crate::arca_rotation::RotationFailure> {
         use crate::arca_rotation::{Remedy, RotationError, RotationFailure};
         let failed = |error: anyhow::Error| RotationFailure::stopped(None, format!("{error:#}"));
-        // Until `begin_epoch` writes, nothing is on disk: what goes wrong here is a refusal, not a stop half way. The vault or its
-        // sync state could not be opened (a lock that is held, an unreadable mode file or setting): trying again later is the remedy.
-        let refused = |error: anyhow::Error| RotationFailure::refused(Remedy::Busy, format!("{error:#}"));
+        // Until `begin_epoch` writes, nothing is on disk: what goes wrong here is a refusal, not a stop half way. What can fail here is
+        // not "another program holds the vault" (`sync_lock` waits, it does not fail for being busy): it is the sync lock file, the mode
+        // file or `arca_engine` (unreadable secrets, a logins folder that is a link or overlaps the vault, the store that cannot be
+        // opened). Closing a program does not cure those, so the remedy is the repair one and the text is the real error.
+        let refused = |error: anyhow::Error| RotationFailure::refused(Remedy::NeedsRepair, format!("{error:#}"));
         let _one_sync_at_a_time = self.sync_lock().await.map_err(refused)?;
         let Some(mode) = load_mode(&mode_path_for(&self.manifest_path)).map_err(refused)? else {
             return Err(RotationError::NotInArcaMode.into());
@@ -946,13 +948,22 @@ fn rotation_error_of(error: EngineError) -> crate::arca_rotation::RotationFailur
     let (wrote_nothing, remedy) = match &error {
         EngineError::Object(arca_core::Error::KeyNotRotated) => (true, Some(Remedy::SameKey)),
         EngineError::Object(arca_core::Error::EpochOverflow) | EngineError::CorruptJournal | EngineError::CorruptState => (true, Some(Remedy::NeedsRepair)),
+        // An unreadable manifest is not joined by a sync: the cycle refuses to build on it ("cannot be read; refusing to build on
+        // them") and `merge` too. Only diverging tips are.
+        EngineError::Diverged { rejected, .. } if *rejected > 0 => (true, Some(Remedy::NeedsRepair)),
         EngineError::Diverged { .. } | EngineError::Interrupted | EngineError::IncompleteApply => (true, Some(Remedy::SyncFirst)),
         EngineError::Rollback => (true, Some(Remedy::StorageChanged)),
         EngineError::Busy => (true, Some(Remedy::Busy)),
         EngineError::ClassEmptied { .. } => (false, Some(Remedy::ClassEmptied)),
         _ => (false, None),
     };
-    let text = format!("{:#}", engine_failure(error, "starting the new key epoch"));
+    // `engine_failure` says "this cycle did nothing; the next one tries again" for `Busy`: true for the sync loop, false here, where
+    // one call by the person is all there is and nobody tries again.
+    let text = if matches!(error, EngineError::Busy) {
+        "starting the new key epoch: another operation is using the vault's folder or the sync state".to_string()
+    } else {
+        format!("{:#}", engine_failure(error, "starting the new key epoch"))
+    };
     match (wrote_nothing, remedy) {
         (true, Some(remedy)) => RotationFailure::refused(remedy, text),
         (_, remedy) => RotationFailure::stopped(remedy, text),

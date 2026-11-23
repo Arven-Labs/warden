@@ -2,19 +2,10 @@ import { useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { t } from "../i18n";
 import type { RotationStart } from "../lib/arcaMode";
+import { failureOf, failureView, type RotationPhase } from "../lib/arcaRotation";
 
 type Step = { kind: "idle" } | { kind: "shown"; start: RotationStart } | { kind: "resume" };
 type Outcome = { ok: true; text: string } | { ok: false; text: string } | null;
-
-/** What `arca_rotation_confirm` rejects with: `partial` says the rotation may have written something before it stopped. Any other
- * rejection (a plain string from the other commands) is nothing-written. */
-function failureOf(e: unknown): { partial: boolean; message: string } {
-  if (typeof e === "object" && e !== null && "message" in e) {
-    const { partial, message } = e as { partial?: unknown; message: unknown };
-    return { partial: partial === true, message: String(message) };
-  }
-  return { partial: false, message: String(e) };
-}
 
 /** P-49, desktop: the key rotation for "I lost a device" (arca ADR 0018, Warden ADR 0002). The work is `PendingRotation` in
  * `warden_sync::arca_rotation`; the key waits in the backend, and only its phrase comes here, once. The phrase lives in this component's
@@ -83,31 +74,34 @@ function ArcaRotationBlock({ hubId }: { hubId: string }) {
     setConfirming(false);
     // Where the 24 words are when something fails: the ones shown, or the ones typed to resume.
     const words = step.kind === "shown" ? step.start.phrase.join(" ") : phrase.trim();
+    // Which call is in flight: the resume call only reads the phrase, and its errors are about the phrase (see `failureView`).
+    let phase: RotationPhase = "confirm";
     try {
       if (step.kind === "resume") {
+        phase = "resume";
         await invoke("arca_rotation_resume", { phrase: phrase.trim() });
+        phase = "confirm";
       }
       await invoke("arca_rotation_confirm", { typedWords: step.kind === "shown" ? typed : [], revokedOnHub: revoked });
     } catch (e) {
       const failure = failureOf(e);
-      if (failure.partial) {
+      const view = failureView(step.kind === "shown" ? "shown" : "resume", phase, failure);
+      const text = t(view.key, { message: failure.message });
+      if (view.next === "resume") {
         // It may have written something before it stopped: only the SAME key finishes it, so the person resumes with the same 24 words
         // (a new key would be a different rotation). They are put in the box, and the second click is asked again.
         setPhrase(words);
         setTyped([]);
         setConfirming(false);
         setStep({ kind: "resume" });
-        setOutcome({ ok: false, text: t("arca.rotationPartial", { message: failure.message }) });
-      } else if (step.kind === "resume") {
-        // The 24 words typed are the person's own work: a typo is fixed in place, not typed again from nothing. And nothing written by
-        // THIS attempt says nothing about the store: an earlier attempt may have published this very key, so it is not "not changed".
+      } else if (view.next === "keep") {
+        // The 24 words typed are the person's own work: a typo is fixed in place, not typed again from nothing.
         setConfirming(false);
-        setOutcome({ ok: false, text: t("arca.rotationResumeNotWritten", { message: failure.message }) });
       } else {
         // Nothing was written and the backend dropped the key with the try: the person starts again.
         reset();
-        setOutcome({ ok: false, text: t("arca.rotationFailed", { message: failure.message }) });
       }
+      setOutcome({ ok: false, text });
       busyRef.current = false;
       setBusy(false);
       return;

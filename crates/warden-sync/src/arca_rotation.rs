@@ -51,7 +51,7 @@ impl std::fmt::Display for RotationError {
             RotationError::NotInArcaMode => f.write_str("this vault is not in arca mode: turn it on first"),
             RotationError::Refused(why) => write!(f, "this attempt wrote nothing: {why}"),
             RotationError::NewerEpoch => f.write_str(
-                "a newer key epoch is already stored and this device has not accepted it, so this attempt wrote nothing. If another device changed the key, pair this device again, or look at the pending epochs first. If an earlier change of key on this device stopped half way with another phrase, type the 24 words of that one",
+                "a newer key epoch is already stored and this device has not accepted it, so this attempt wrote nothing. If an earlier change of key on this device stopped half way with another phrase, finish it with the 24 words of that one, and do not acknowledge its epoch. If another device changed the key, look at the pending epochs first and acknowledge them only if you recognise the change, then pair this device again: the epoch of an object is not authenticated, so anyone who holds the old key can forge one",
             ),
             RotationError::Failed(why) => write!(f, "the key was not rotated: {why}"),
         }
@@ -67,19 +67,20 @@ pub enum Remedy {
     /// The new key is the one in use (arca `KeyNotRotated`). Another key cures it; on a resume it means the change was already
     /// finished with this very key.
     SameKey,
-    /// Another program holds the vault or the sync state (arca `Busy`), or the vault could not even be opened (disk, settings):
-    /// try again later.
+    /// Another program holds the vault's folder or the sync state (arca `Busy`, and only that): try again later.
     Busy,
-    /// The heads diverge, or an interrupted apply waits for its recovery (arca `Diverged`, `Interrupted`, `IncompleteApply`): the
-    /// normal sync joins and recovers them, then it can be tried again.
+    /// The copies diverge (more than one tip, none unreadable), or an interrupted apply waits for its recovery (arca `Diverged` with
+    /// `rejected == 0`, `Interrupted`, `IncompleteApply`): the normal sync joins and recovers them, then it can be tried again.
     SyncFirst,
     /// The storage does not continue the history this device accepted (arca `Rollback`): check the hub or folder it syncs with.
     StorageChanged,
-    /// The arca's state or journal file is damaged, or there is no next epoch (arca `CorruptState`, `CorruptJournal`,
-    /// `EpochOverflow`): not something a new key or the screen fixes.
+    /// Something this device needs cannot be used: the arca's state or journal file is damaged, a manifest in the local storage is
+    /// unreadable (arca `Diverged` with `rejected > 0`: a sync refuses to build on it too), there is no next epoch, or the vault
+    /// could not be opened before `begin_epoch` (unreadable secrets, a logins folder that is a link or overlaps the vault). Not
+    /// something a new key or the screen fixes, and the state files must not be deleted to get around it.
     NeedsRepair,
     /// A resume found a class that the already published manifest has, empty in the folder (arca `ClassEmptied`; only reachable when
-    /// a manifest of the new epoch is out). **A stop, not a refusal**: put the files back and finish with the SAME 24 words.
+    /// a manifest of the new epoch is out). **A stop, not a refusal**: put a file of that class back and finish with the SAME 24 words.
     ClassEmptied,
 }
 
@@ -87,12 +88,12 @@ impl Remedy {
     /// The next step, in English, for logs and for the messages of the CLI and the desktop (the phone translates the kind).
     pub fn hint(self) -> &'static str {
         match self {
-            Remedy::SameKey => "that key is already the one in use: if you were finishing a change, it is already done; otherwise make a new key",
-            Remedy::Busy => "another program may be using this vault or Warden's sync state, or the vault could not be opened: close it and try again in a while (a new key is not needed)",
+            Remedy::SameKey => "that key is already the one in use: if you were finishing a change, it is already done. If an earlier change stopped half way with ANOTHER phrase, type the 24 words of that one (a new key meets the epoch already published). Otherwise make a new key",
+            Remedy::Busy => "another program is using this vault's folder or Warden's sync state: close it and try again in a while (a new key is not needed)",
             Remedy::SyncFirst => "run a sync first: it joins diverging copies and finishes an interrupted apply; then try again (a new key is not needed)",
-            Remedy::StorageChanged => "the storage no longer continues the history this device accepted: check the hub or folder it syncs with before trying again (a new key does not fix it)",
-            Remedy::NeedsRepair => "the arca's state or journal on this device is damaged, or no next key epoch exists: this screen cannot fix it, and a new key does not either",
-            Remedy::ClassEmptied => "the vault folder lost every file of a class that the already published manifest has: put those files back and finish with the SAME 24 words (a new key would meet the epoch already published)",
+            Remedy::StorageChanged => "the storage no longer continues the history this device accepted: check the hub or folder it syncs with before trying again (a new key does not fix it). Do not delete state files to get around it: that turns off the protection against the storage going back in time",
+            Remedy::NeedsRepair => "something this device needs cannot be used (the arca's state or journal file is damaged, a manifest in the local storage cannot be read, the logins folder is not usable, or no next key epoch exists): this screen cannot fix it, and a new key does not either. Do not delete state files to get around it: that turns off the protection against the storage going back in time",
+            Remedy::ClassEmptied => "a class that the already published manifest has is empty in the folder (it can be the logins class, not only the vault): put back at least ONE file of that class, only files that were there when the change started (for example from the trash) and NEVER an old backup as a whole, because files deleted on purpose would come back and be published to every device, credentials included; then finish with the SAME 24 words (a new key would meet the epoch already published). If you emptied it on purpose: put any one file back, finish the change with the same 24 words, and only then delete it and sync",
         }
     }
 }
