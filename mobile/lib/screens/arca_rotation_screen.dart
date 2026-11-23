@@ -114,7 +114,6 @@ class _ArcaRotationScreenState extends State<ArcaRotationScreen> {
   Future<bool> _askToConfirm(AppLocalizations l10n) async {
     if (_busy || _asking) return false;
     _asking = true;
-    var answered = false;
     try {
       final yes = await showDialog<bool>(
         context: context,
@@ -123,25 +122,8 @@ class _ArcaRotationScreenState extends State<ArcaRotationScreen> {
           title: Text(l10n.arcaRotationConfirmTitle),
           content: Text(l10n.arcaRotationConfirmBody),
           actions: [
-            TextButton(
-              key: const Key('arca-rotation-confirm-no'),
-              onPressed: () {
-                if (answered) return;
-                answered = true;
-                Navigator.of(context).pop(false);
-              },
-              child: Text(l10n.arcaRotationConfirmNo),
-            ),
-            FilledButton(
-              key: const Key('arca-rotation-confirm-yes'),
-              onPressed: () {
-                // A double tap would pop twice: the second pop would close this screen too.
-                if (answered) return;
-                answered = true;
-                Navigator.of(context).pop(true);
-              },
-              child: Text(l10n.arcaRotationConfirmYes),
-            ),
+            TextButton(key: const Key('arca-rotation-confirm-no'), onPressed: () => Navigator.of(context).pop(false), child: Text(l10n.arcaRotationConfirmNo)),
+            FilledButton(key: const Key('arca-rotation-confirm-yes'), onPressed: () => Navigator.of(context).pop(true), child: Text(l10n.arcaRotationConfirmYes)),
           ],
         ),
       );
