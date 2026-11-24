@@ -5764,8 +5764,9 @@ mod tests {
         }
         // A short unknown command is still recalled from the history; the card names the command (its first word), not the rest.
         speak(i18n::Locale::En);
-        let said_short = unknown_command_lines("/nonsense now");
-        assert!(said_short.contains("/nonsense") && !said_short.contains("now"), "{said_short}");
+        // ("now" would be wrong here: it is inside the word "unknown" of the message itself.)
+        let said_short = unknown_command_lines("/nonsense zebra");
+        assert!(said_short.contains("/nonsense") && !said_short.contains("zebra"), "{said_short}");
         let mut history = Vec::new();
         remember_line(&mut history, "/nonsense now");
         assert_eq!(history, vec!["/nonsense now"]);
