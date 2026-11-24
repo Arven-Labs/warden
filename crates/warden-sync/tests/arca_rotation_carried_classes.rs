@@ -12,6 +12,7 @@
 //! - `Integrity`, `MissingObject`, `Store(Corrupt)`: a blob of such an entry is not what its manifest says (`verify_carried`, which
 //!   reads every one of them before anything is sent).
 //! - `ClassEmptied`: a class with a folder that has no file while the head lists entries of it.
+//!
 //! None of those publishes a manifest, so none of them may read as "stopped half way: resume with the same 24 words" (`Failed`):
 //! that sends the person to repeat a rotation that never started. Before the fix `rotation_error_of` sent all of them to
 //! `Failed` with no remedy. The one that IS a stop is `ClassEmptied` on a **resume** (a manifest of the new epoch is already out).
