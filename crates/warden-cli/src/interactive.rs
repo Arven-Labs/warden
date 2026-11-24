@@ -783,9 +783,10 @@ async fn read_line(line_history: &mut Vec<String>, terminal: &mut CliTerminal) -
 
 /// Whether a submitted line may go into the line history, which is saved in clear text (`save_history`) and recalled with the arrow
 /// keys. A blank line does not, and neither does `/arca rotate ...` with anything after it: that is where the 24 words of a
-/// `resume` end up when typed on the line (the text of a stop half way tells the person to run `resume`).
+/// `resume` end up when typed on the line (the text of a stop half way tells the person to run `resume`). Nor does a line that is
+/// the phrase on its own, typed as chat (`commands::is_bare_phrase`).
 fn keep_in_history(line: &str) -> bool {
-    !line.trim().is_empty() && !commands::may_hold_a_phrase(line)
+    !line.trim().is_empty() && !commands::may_hold_a_phrase(line) && !commands::is_bare_phrase(line)
 }
 
 fn remember_line(history: &mut Vec<String>, line: &str) {
@@ -4297,6 +4298,13 @@ where
         }
         if trimmed == "exit" || trimmed == "quit" {
             break;
+        }
+
+        // The recovery phrase typed as chat: it would go to the AI provider as the text of a turn. It is neither sent, nor echoed in
+        // the "you" card, nor kept (`read_line` already left it out of the line history); the card is a fixed text.
+        if commands::is_bare_phrase(trimmed) {
+            render_message_card(&mut terminal, &tr!("common.error"), error_style(), vec![(tr!("arca.phrase_in_chat"), Style::default())])?;
+            continue;
         }
 
         match commands::parse_command(trimmed) {

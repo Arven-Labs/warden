@@ -2,6 +2,7 @@
 //! out, with no `ratatui`/terminal dependency, so it's unit-testable the same way `LineEditor` is.
 
 use warden_bootstrap::Provider;
+use warden_sync::arca_rotation::PendingRotation;
 
 /// How many calls `/ssh log` shows without a number, and the most it shows (what the screens read too).
 const SSH_LOG_DEFAULT: usize = 20;
@@ -254,9 +255,13 @@ pub fn may_hold_a_phrase(input: &str) -> bool {
         && (trimmed.split_whitespace().count() >= PHRASE_LINE_TOKENS || trimmed.chars().count() >= PHRASE_LINE_CHARS)
 }
 
-/// Whether a submitted line is, by itself, the recovery phrase (a chat line with no slash). Skeleton: always `false` for now.
-pub fn is_bare_phrase(_input: &str) -> bool {
-    false
+/// Whether a submitted line is, by itself, the 24-word recovery phrase: a chat line with no command around it. The REPL must not
+/// send it to the model, keep it in the line history (saved in clear text) or echo it; `may_hold_a_phrase` only guards lines that
+/// start with `/`. The test is the one `/arca rotate resume` applies to what is typed there (`PendingRotation::from_phrase`): 24
+/// words of the English list with a valid checksum, in any case and with any whitespace between (and around) them. So 24 words
+/// with a wrong checksum, 23 or 25 words, a phrase inside a sentence, or words separated by commas are NOT caught: they are chat.
+pub fn is_bare_phrase(input: &str) -> bool {
+    PendingRotation::from_phrase(input.trim()).is_ok()
 }
 
 /// Parses a provider `kind` the way a user would type it (matching the config file's own
