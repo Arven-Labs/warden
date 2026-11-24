@@ -7,7 +7,7 @@ import '../frb_generated.dart';
 
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
-// These functions are ignored because they are not marked as `pub`: `begin_with`, `cancel_with`, `confirm_with`, `engine`, `failure`, `from_error`, `kind_of`, `require_arca_mode`, `resume_with`
+// These functions are ignored because they are not marked as `pub`: `begin_with`, `cancel_with`, `confirm_with`, `engine`, `failure`, `from_error`, `from_failure`, `kind_of`, `require_arca_mode`, `resume_with`
 // These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `clone`, `clone`, `clone`, `eq`, `eq`, `eq`, `fmt`, `fmt`, `fmt`
 
 /// Generates the new key, keeps it and returns the phrase to show once. Writes nothing. Needs the mode on.
@@ -78,9 +78,26 @@ enum ArcaRotationErrorKind {
   /// No rotation was started (or it was dropped): start it again.
   noRotation,
 
-  /// Refused before anything was written (the new key is the one in use, no next epoch, another program holds the vault): the key
-  /// was dropped and nothing is half done, so start again with a new key.
-  refused,
+  /// Refused before this attempt wrote anything, because the key is the one the vault already uses. The only refusal that another
+  /// key cures; on a resume it means the change was already finished with this key.
+  sameKey,
+
+  /// Refused before this attempt wrote anything: another program holds the vault's folder or the sync state (the engine's `Busy`,
+  /// and only that). Try again in a while; a new key is not needed.
+  busy,
+
+  /// Refused before this attempt wrote anything: the copies diverge or an interrupted update waits for its recovery. Sync first,
+  /// then try again; a new key is not needed.
+  syncFirst,
+
+  /// Refused before this attempt wrote anything: the storage does not continue the history this device accepted (it went back in
+  /// time, was replaced or emptied). Check the hub or folder it syncs with; a new key does not fix it.
+  storageChanged,
+
+  /// Refused before this attempt wrote anything: something this device needs cannot be used (the arca's state or journal is damaged,
+  /// a stored manifest cannot be read, the vault could not be opened, there is no next key epoch). Neither a new key nor this
+  /// screen fixes it, and the state files must not be deleted to get around it.
+  needsRepair,
 
   /// A newer key epoch is already stored and was not acknowledged. Nothing was written, and a new key meets the same wall: type the
   /// 24 words of an earlier rotation of this device that stopped, or pair again / look at the pending epochs.
@@ -88,6 +105,10 @@ enum ArcaRotationErrorKind {
 
   /// The rotation may have written something before it stopped: resume with the **same 24 words**, a new key would not finish it.
   failed,
+
+  /// A **stop**, not a refusal: a resume found the vault folder without every file of a class that the manifest already published
+  /// has. Put those files back and resume with the **same 24 words**; a new key would meet the epoch already published.
+  classEmptied,
 
   /// Anything else (the disk, reading the mode).
   other,

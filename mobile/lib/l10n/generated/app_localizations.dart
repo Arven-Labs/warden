@@ -3959,7 +3959,7 @@ abstract class AppLocalizations {
   /// No description provided for @arcaRotationResumeIntro.
   ///
   /// In en, this message translates to:
-  /// **'The change stopped half way. Type the same 24 words you wrote down, separated by spaces, to finish it. Do not make a new key.'**
+  /// **'Use this to finish a change that stopped half way. Type the same 24 words you wrote down, separated by spaces. Another key would not finish that change.'**
   String get arcaRotationResumeIntro;
 
   /// No description provided for @arcaRotationResumeLabel.
@@ -4004,23 +4004,77 @@ abstract class AppLocalizations {
   /// **'There is no key waiting any more. Start again to get a new one.'**
   String get arcaRotationErrNoRotation;
 
-  /// No description provided for @arcaRotationErrRefused.
+  /// No description provided for @arcaRotationNotWrittenNew.
   ///
   /// In en, this message translates to:
-  /// **'The change was refused before anything was saved, and that key was discarded. Start again to get a new one.'**
-  String get arcaRotationErrRefused;
+  /// **'Nothing was written and that key was discarded.'**
+  String get arcaRotationNotWrittenNew;
 
-  /// No description provided for @arcaRotationErrNewerEpoch.
+  /// No description provided for @arcaRotationNotWrittenResume.
   ///
   /// In en, this message translates to:
-  /// **'A newer key is already stored and this device has not accepted it, so nothing was changed and that key was discarded. If an earlier change of key on this device stopped half way, start it again and type the 24 words of that one. If another device changed the key, pair this device again or check the pending key changes first.'**
-  String get arcaRotationErrNewerEpoch;
+  /// **'Nothing was written by this attempt, but an earlier attempt may already have published this key: keep your 24 words.'**
+  String get arcaRotationNotWrittenResume;
+
+  /// No description provided for @arcaRotationCauseSameKey.
+  ///
+  /// In en, this message translates to:
+  /// **'That key is the one the vault already uses. Start again to get a new key.'**
+  String get arcaRotationCauseSameKey;
+
+  /// No description provided for @arcaRotationCauseSameKeyResume.
+  ///
+  /// In en, this message translates to:
+  /// **'That key is already the one the vault uses: if you were finishing a change, it is already done. If an earlier change stopped half way with ANOTHER phrase, type the 24 words of that one (a new key meets the epoch already published). If you were not finishing anything, start again to get a new key.'**
+  String get arcaRotationCauseSameKeyResume;
+
+  /// No description provided for @arcaRotationCauseBusy.
+  ///
+  /// In en, this message translates to:
+  /// **'Another program is using the vault\'s folder or the sync state. Close it, wait a moment and try again.'**
+  String get arcaRotationCauseBusy;
+
+  /// No description provided for @arcaRotationCauseSyncFirst.
+  ///
+  /// In en, this message translates to:
+  /// **'The copies of the vault do not agree yet, or an interrupted update is waiting. Sync first, then try again.'**
+  String get arcaRotationCauseSyncFirst;
+
+  /// No description provided for @arcaRotationCauseStorageChanged.
+  ///
+  /// In en, this message translates to:
+  /// **'The storage no longer continues the history this device accepted (it went back in time, was replaced or was emptied). Check the hub or folder it syncs with, then try again. Do not delete the sync state files to get around it: that turns off the protection against the storage going back in time.'**
+  String get arcaRotationCauseStorageChanged;
+
+  /// No description provided for @arcaRotationCauseNeedsRepair.
+  ///
+  /// In en, this message translates to:
+  /// **'Something this device needs cannot be used: the sync state is damaged, a stored manifest cannot be read, the logins folder is not usable, or there is no next key epoch. Changing the key will not fix it, and this screen cannot either. Do not delete the sync state files to get around it: that turns off the protection against the storage going back in time.'**
+  String get arcaRotationCauseNeedsRepair;
+
+  /// No description provided for @arcaRotationCauseNewerEpoch.
+  ///
+  /// In en, this message translates to:
+  /// **'A newer key is already stored and this device has not accepted it. If a change of key on this device stopped half way with another phrase, use Resume a change that stopped half way, type the 24 words of that one and do not accept its epoch. If it was you or a device you trust that changed the key, pair this device again. If you do not recognise it, look at the pending key changes first and only then accept them: the epoch of a stored object is not authenticated, so anyone who holds the old key can forge one.'**
+  String get arcaRotationCauseNewerEpoch;
+
+  /// No description provided for @arcaRotationErrNewerEpochResume.
+  ///
+  /// In en, this message translates to:
+  /// **'Nothing was written. These 24 words may not be the ones of the change that stopped half way (a forged object of a newer epoch causes the same error): check the pending key changes. If a change on this device did stop, type the 24 words of that change and do not accept its epoch. If it was you or a device you trust that changed the key, pair this device again. If you do not recognise it, look at the pending key changes first and only then accept them: the epoch of a stored object is not authenticated, so anyone who holds the old key can forge one.'**
+  String get arcaRotationErrNewerEpochResume;
 
   /// No description provided for @arcaRotationErrFailed.
   ///
   /// In en, this message translates to:
   /// **'The change stopped half way and may have been partly saved. Type the same 24 words to finish it. Do not make a new key.'**
   String get arcaRotationErrFailed;
+
+  /// No description provided for @arcaRotationErrClassEmptied.
+  ///
+  /// In en, this message translates to:
+  /// **'The change stopped half way: a class that the published change has is empty in the folder (it can be the logins, not only the vault). Put back ALL the files of that class that you did not mean to delete, only files that were there when the change started (for example from the trash), and NEVER an old backup as a whole: files you deleted on purpose would come back and be published to every device, credentials included. One file is only the minimum the program demands: the rest would be published as removed on every device. Then type the SAME 24 words again. If you emptied it on purpose: put any one file back, finish the change with the same 24 words, and only then delete it and sync. Another key would not finish it.'**
+  String get arcaRotationErrClassEmptied;
 
   /// No description provided for @arcaRotationErrOther.
   ///
