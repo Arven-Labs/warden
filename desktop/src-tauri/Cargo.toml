@@ -55,4 +55,4 @@ warden-sync = { path = "../../crates/warden-sync", features = ["arca"] }
 tauri = { version = "2", features = ["test"] }
 # Only to build a `PendingEpoch` (an `ObjectId`) in the tests of `arca_mode_cmds.rs`: the code itself never names an arca type. Same pin as
 # `warden-sync` and `warden-server`, so the lock gets no new package.
-arca-core = { git = "https://github.com/Arven-Labs/arca", rev = "95754fcc234332e6c1ccea14e0626e82114e8251", features = ["hub"] }
+arca-core = { git = "https://github.com/Arven-Labs/arca", rev = "499628b28024f76a3fb24f30e24ac05e74bb5997", features = ["hub"] }
