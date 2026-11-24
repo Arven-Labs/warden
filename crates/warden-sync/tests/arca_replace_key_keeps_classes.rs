@@ -1,42 +1,52 @@
 //! P-49 (round 5, investigation): does `SyncEngine::arca_replace_key` lose the entries of the `secret` (MCP logins) and `config`
-//! classes of the group when the device that swaps its key has no folder for them?
+//! classes of the group when the device that swaps its key is behind?
 //!
 //! The question (Sessions 127 and 129): `begin_epoch` lost them on a first attempt (`prev = None`, arca#198, fixed in arca-core
 //! `499628b`). `arca_replace_key` does not call `begin_epoch`: it wipes the local replica and the state, takes a snapshot of the
-//! folder as it is at the new epoch (no `prev`), pulls the hub, seeds the state with the head the person confirmed and saves the key
-//! last. Is its first manifest, which lists no `secret` and no `config` (the device has no folder for them), a base that makes the
-//! next merge drop what only the hub lists?
+//! folders as they are at the new epoch (no `prev`), pulls the hub, seeds the state with the head the person confirmed and saves the
+//! key last. Is that first manifest, which lists only what the device has folders for, a base that makes the next merge drop what
+//! only the hub lists?
 //!
 //! What was read (arca-core `499628b`, `Engine::merge_inner`, and `arca_sync.rs`): the cycle after the swap finds two tips of the
-//! new epoch in the local store (the snapshot of the swap, and the head pulled from the hub). `merge_inner` takes the base from
+//! new epoch in the local store (the snapshot of the swap, and the head pulled from the hub), so it does NOT take a snapshot of its
+//! own (`arca_sync` only does that when there is one tip, and it is the folder's). It merges. `merge_inner` takes the base from
 //! `common_ancestor(...)`, which is `None` for two roots (no common manifest in the graph), and falls back to an empty list
 //! (`map_or(&[], ...)`). With an empty base, `merge_files` sees a path that only one side lists as created on that side, and keeps
-//! it. So the hypothesis is that nothing is lost, and these tests are expected to be green: only the CI can confirm. If one is red,
-//! the failing assertion names what was lost, and the code is not touched here.
+//! it; a path that both list with another text is a `BothEdited` conflict (the side with the greater `(created_at, id)` wins; the
+//! loser of a `secret` or `config` conflict is written in clear text to `arca-conflicts/<class>/`, and the loser of a vault conflict
+//! is kept as a `.conflito-*` copy in the vault); a path that both list with the same text is one entry.
 //!
 //! The scenario, with a real HTTP hub in this process (`arca_core::server::handle` behind an `axum` router, over a `DiskStore`, the
 //! way the hub of `warden-server` serves the same contract; that hub is not reachable from this crate, because `warden-server`
 //! depends on `warden-sync` and not the other way round):
 //! - `b` is a plain arca engine with a folder for each of the three classes. It publishes `x.md` (vault), `settings.json` (config)
-//!   and `github.json` (secret) at epoch 0. It is not a `SyncEngine`: Warden never has a folder for `config`.
-//! - `a` and `d` are `SyncEngine`s with only the vault (no logins folder, so `secret_accepted` is false). Both sync until they hold
-//!   the same head, which lists the three classes.
+//!   and two logins (secret) at epoch 0. It is not a `SyncEngine`: the `Roots` of a Warden vault never have a folder for `config`
+//!   (`arca_engine_open` in `arca_sync.rs` builds them with `config: None`), so a `config` entry only enters a group through an arca
+//!   client that is not Warden, and `b` plays that client.
+//! - `a` and `d` are `SyncEngine`s. `a` has only the vault. `d` has only the vault too, except in the test that says it accepted
+//!   the logins (`with_oauth_dir` and `arca_accept_logins`). Both sync until they hold the same head.
 //! - `a` writes `from-a.md`, rotates to epoch 1 by `PendingRotation::confirm` (what the screens call) and syncs: the hub now holds
 //!   the epoch-1 head, which carries the other classes re-encrypted (since `499628b`).
-//! - `d`, which stayed at epoch 0, writes its local files, swaps the key with `arca_replace_key` (key, epoch and head code as `a`
-//!   hands them over) and runs one cycle.
+//! - `d`, which stayed at epoch 0, does what the test says to its folders, swaps the key with `arca_replace_key` (key, epoch and
+//!   head code as `a` hands them over) and runs one cycle.
 //!
 //! The epochs here are 0 (before) and 1 (after): a key made by `init_fresh` starts at epoch 0 and one rotation makes it 1 (the task
 //! text of this investigation called them 1 and 2).
 //!
 //! Each test states its premise first and checks it in the same run (the head of the hub at the new epoch lists the other classes,
-//! `d` has no folder for them, the swap and the cycle reached the hub), then the result by opening the manifests of the hub and of
-//! `d` with the keys of the epoch. The case with no local file and the case with local files are two tests so one does not hide the
-//! other. A file name or a text here is not one of the fixtures of the sibling tests.
+//! what `d` has and has not, the swap and the cycle reached the hub), then the result by opening the manifests of the hub and of
+//! `d` with the keys of the epoch. A file name or a text here is not one of the fixtures of the sibling tests.
 //!
-//! Not here: what happens to a file that `d` EDITED while behind (the swap's snapshot and the head pulled would both list the path
-//! with different texts and no common ancestor, which by my reading of `merge_files` is a conflict; not run), and a hub that hides
-//! the head (`arca_mode.rs` of warden-server).
+//! Tests:
+//! - the device has no folder for `config` or the logins (the plain case), and the same with a vault file only it has;
+//! - the device accepted the logins: one login equal to the hub's and one edited while behind (a conflict by the rule above);
+//! - the device deleted a vault file while behind: today it comes back. That is what the empty base of the swap does (nothing in the
+//!   swap's snapshot says "deleted"), and whether it is acceptable is a decision of the owner, so the test only pins what happens.
+//!
+//! Not here: a vault file that `d` EDITED while behind. The same empty base turns it into a spurious `.conflito-*` copy (the swap's
+//! snapshot and the head pulled both list the path, with different texts and no common ancestor); `warden-server`'s
+//! `tests/arca_mode.rs`, `a_local_edit_made_since_the_rotation_survives_the_swap`, already fixes it (nothing is lost, the text is
+//! duplicated). And a hub that hides the head (same file).
 #![cfg(feature = "arca")]
 
 use std::collections::BTreeMap;
@@ -51,7 +61,7 @@ use arca_core::envelope::Header;
 use arca_core::heads::{tips, Head};
 use arca_core::hub::HubStore;
 use arca_core::manifest::{Class, FileEntry, Manifest};
-use arca_core::object::ObjectKind;
+use arca_core::object::{ObjectId, ObjectKind};
 use arca_core::server;
 use arca_core::state::DeviceState;
 use arca_core::store::BlobStore;
@@ -63,6 +73,7 @@ use axum::Router;
 use sha2::{Digest, Sha256};
 use warden_sync::arca_mode::{folder_path_for, load_mode, mode_path_for, state_path_for, store_path_for};
 use warden_sync::arca_rotation::PendingRotation;
+use warden_sync::arca_sync::ArcaSyncReport;
 use warden_sync::manifest::load_secrets;
 use warden_sync::SyncEngine;
 
@@ -70,6 +81,9 @@ use warden_sync::SyncEngine;
 const SHARED_NOTE: (&str, &str) = ("x.md", "Plano de retorno da frota, rev. 7: café às 9h30\n");
 const SETTINGS: (&str, &str) = ("settings.json", r#"{"tema":"claro","limite":42}"#);
 const LOGIN: (&str, &str) = ("github.json", r#"{"token":"tok-fake-4711"}"#);
+const LOGIN_2: (&str, &str) = ("slack.json", r#"{"token":"tok-fake-0815"}"#);
+/// What `d` makes of `LOGIN_2` while it is behind: the same login with another text.
+const LOGIN_2_EDITED_ON_D: (&str, &str) = ("slack.json", r#"{"token":"tok-fake-0815-trocado-no-d"}"#);
 /// Written on `a` after `d` last synced, so only `a` (and the hub, once `a` syncs) has it.
 const ONLY_ON_A: (&str, &str) = ("from-a.md", "Escrito só no a, antes da rotação.\n");
 /// A vault file that `d` has and the hub does not.
@@ -85,6 +99,11 @@ fn unique_dir(name: &str) -> PathBuf {
 
 fn sha256_of(text: &str) -> [u8; 32] {
     Sha256::digest(text.as_bytes()).into()
+}
+
+/// The first 8 bytes of the sha256 of `text`, in hex: how the copy of a loser is named.
+fn sha_prefix_of(text: &str) -> String {
+    sha256_of(text)[..8].iter().map(|byte| format!("{byte:02x}")).collect()
 }
 
 // ---- the hub ----
@@ -177,9 +196,20 @@ fn entry<'a>(manifest: &'a Manifest, class: Class, path: &str) -> &'a FileEntry 
     manifest.files.iter().find(|file| file.class == class && file.path == path).unwrap_or_else(|| panic!("{class:?}:{path} is not listed; the manifest lists {:?}", tags(manifest)))
 }
 
+/// Every entry that `before` lists is in `after` with the same text, except the `changed` ones (which may be there with another text).
+fn assert_entries_kept(before: &Head, after: &Head, changed: &[(Class, &str)]) {
+    for kept in &before.manifest.files {
+        if changed.iter().any(|(class, path)| *class == kept.class && *path == kept.path) {
+            continue;
+        }
+        let now = entry(&after.manifest, kept.class, &kept.path);
+        assert_eq!(now.sha256, kept.sha256, "{:?}:{} changed its content", kept.class, kept.path);
+    }
+}
+
 // ---- the devices ----
 
-/// A `SyncEngine` with only the vault: no logins folder is wired in (`with_oauth_dir`), and Warden never has one for `config`.
+/// A `SyncEngine`. With `with_logins` the host wired a logins folder in (`with_oauth_dir`); Warden never has one for `config`.
 struct Device {
     base: PathBuf,
     engine: SyncEngine,
@@ -188,6 +218,10 @@ struct Device {
 impl Device {
     fn vault(&self) -> PathBuf {
         self.base.join("vault")
+    }
+
+    fn logins_dir(&self) -> PathBuf {
+        self.base.join("mcp_oauth")
     }
 
     fn manifest_path(&self) -> PathBuf {
@@ -202,15 +236,27 @@ impl Device {
         std::fs::write(self.vault().join(path), text).unwrap();
     }
 
-    /// The files of the vault folder (it holds no subfolder in these tests), name to text.
-    fn files(&self) -> BTreeMap<String, String> {
+    fn write_login(&self, (path, text): (&str, &str)) {
+        std::fs::write(self.logins_dir().join(path), text).unwrap();
+    }
+
+    /// The files of a folder that holds no subfolder in these tests, name to text.
+    fn files_in(dir: PathBuf) -> BTreeMap<String, String> {
         let mut found = BTreeMap::new();
-        for entry in std::fs::read_dir(self.vault()).unwrap() {
+        for entry in std::fs::read_dir(&dir).unwrap() {
             let entry = entry.unwrap();
-            assert!(entry.file_type().unwrap().is_file(), "{:?} in the vault folder is not a file", entry.path());
+            assert!(entry.file_type().unwrap().is_file(), "{:?} in {dir:?} is not a file", entry.path());
             found.insert(entry.file_name().to_string_lossy().into_owned(), std::fs::read_to_string(entry.path()).unwrap());
         }
         found
+    }
+
+    fn files(&self) -> BTreeMap<String, String> {
+        Device::files_in(self.vault())
+    }
+
+    fn logins(&self) -> BTreeMap<String, String> {
+        Device::files_in(self.logins_dir())
     }
 
     /// The name of everything under `base` (folders end in `/`), sorted.
@@ -234,20 +280,31 @@ impl Device {
         names
     }
 
-    /// What is inside `arca-conflicts/` (the folder itself exists once a cycle ran, empty, and is not what this is looking for).
-    fn in_the_conflicts_folder(&self) -> Vec<String> {
-        self.listing().into_iter().filter(|name| name.starts_with("arca-conflicts/") && name != "arca-conflicts/").collect()
+    /// The files inside `arca-conflicts/` (the folder itself exists after a cycle that reaches the merge, empty, and is not what this
+    /// is looking for; nor are the folders of the classes in it).
+    fn conflict_files(&self) -> Vec<String> {
+        self.listing().into_iter().filter(|name| name.starts_with("arca-conflicts/") && !name.ends_with('/')).collect()
     }
 
     fn secrets(&self) -> warden_sync::manifest::SyncSecrets {
         load_secrets(&self.base.join("sync_secrets.json")).unwrap().unwrap()
     }
+
+    fn assert_nothing_of_the_other_classes(&self, when: &str) {
+        for forbidden in ["settings", "github", "slack", "conflito", "mcp_oauth"] {
+            assert!(self.listing().iter().all(|name| !name.contains(forbidden)), "{when}: something of d is named like {forbidden}: {:?}", self.listing());
+        }
+        assert_eq!(self.conflict_files(), Vec::<String>::new(), "{when}: the conflicts folder of d holds a copy");
+    }
 }
 
-fn device(name: &str) -> Device {
+fn device(name: &str, with_logins: bool) -> Device {
     let base = unique_dir(name);
     std::fs::create_dir_all(base.join("vault")).unwrap();
-    let engine = SyncEngine::new(base.join("vault"), base.join("config.toml"), base.join("sync_secrets.json"), base.join("sync_manifest.json"));
+    let mut engine = SyncEngine::new(base.join("vault"), base.join("config.toml"), base.join("sync_secrets.json"), base.join("sync_manifest.json"));
+    if with_logins {
+        engine = engine.with_oauth_dir(base.join("mcp_oauth"));
+    }
     Device { base, engine }
 }
 
@@ -259,9 +316,12 @@ fn files_of(pairs: &[(&str, &str)]) -> BTreeMap<String, String> {
 /// first manifest of the group at epoch 0 to the hub.
 async fn publish_as_a_device_with_all_three_classes(key: [u8; 32], hub: &HubStore) {
     let base = unique_dir("b");
-    for (class_dir, (path, text)) in [("vault", SHARED_NOTE), ("config", SETTINGS), ("secret", LOGIN)] {
+    let classes: [(&str, &[(&str, &str)]); 3] = [("vault", &[SHARED_NOTE]), ("config", &[SETTINGS]), ("secret", &[LOGIN, LOGIN_2])];
+    for (class_dir, files) in classes {
         std::fs::create_dir_all(base.join(class_dir)).unwrap();
-        std::fs::write(base.join(class_dir).join(path), text).unwrap();
+        for (path, text) in files {
+            std::fs::write(base.join(class_dir).join(path), text).unwrap();
+        }
     }
     let engine = Engine::new(DiskStore::open(base.join("store")).unwrap(), EpochKeys::derive(&VaultKey::from_bytes(key), 0), "device-b").unwrap();
     let roots = Roots { vault: Some(base.join("vault")), config: Some(base.join("config")), secret: Some(base.join("secret")) };
@@ -271,18 +331,38 @@ async fn publish_as_a_device_with_all_three_classes(key: [u8; 32], hub: &HubStor
 }
 
 /// One cycle that must go through; the clock moves so every manifest has its own time.
-async fn cycle(device: &Device, hub: &HubStore, clock: &mut u64, what: &str) -> warden_sync::arca_sync::ArcaSyncReport {
+async fn cycle(device: &Device, hub: &HubStore, clock: &mut u64, what: &str) -> ArcaSyncReport {
     *clock += 1;
     device.engine.arca_sync(hub, *clock).await.unwrap_or_else(|e| panic!("{what}: the cycle failed: {e:#}"))
 }
 
-/// The scenario of the module doc. `local_in_d` are the vault files `d` writes after it last synced (and before the swap).
-async fn replacing_the_key_keeps_the_other_classes(name: &str, local_in_d: &[(&str, &str)]) {
+// ---- the story, in steps the tests share ----
+
+struct Group {
+    hub: Hub,
+    clock: u64,
+    a: Device,
+    d: Device,
+    a_hub: HubStore,
+    d_hub: HubStore,
+    key_0: [u8; 32],
+}
+
+/// What `a` hands over after it rotated.
+struct Rotated {
+    key_1: [u8; 32],
+    epoch_1: u32,
+    seed: ObjectId,
+    /// The head of the hub at the new epoch, before `d` does anything.
+    head_before: Head,
+}
+
+/// The group at epoch 0: `b` publishes the three classes, `a` and `d` sync until they hold the same head. With `d_accepts_logins`,
+/// `d` also has the logins folder and accepted that the logins travel (so it holds the group's two logins, equal to the hub's).
+async fn group_at_epoch_0(name: &str, d_accepts_logins: bool) -> Group {
     let hub = hub().await;
     let mut clock = 100;
-
-    // ---- the group at epoch 0: b publishes the three classes, a and d (vault only) sync until they hold the same head ----
-    let a = device(&format!("{name}-a"));
+    let a = device(&format!("{name}-a"), false);
     a.engine.init_fresh().unwrap();
     let key_0 = a.engine.export_vault_key().unwrap();
     publish_as_a_device_with_all_three_classes(key_0, &hub.store_of("b")).await;
@@ -291,123 +371,231 @@ async fn replacing_the_key_keeps_the_other_classes(name: &str, local_in_d: &[(&s
     let (a_hub, d_hub) = (hub.store_of("a"), hub.store_of("d"));
     cycle(&a, &a_hub, &mut clock, "a, first").await;
 
-    let d = device(&format!("{name}-d"));
+    let d = device(&format!("{name}-d"), d_accepts_logins);
     d.engine.adopt_vault_key(key_0, 0).unwrap();
     clock += 1;
     d.engine.arca_enable(false, clock).await.unwrap();
     cycle(&d, &d_hub, &mut clock, "d, first").await;
     cycle(&a, &a_hub, &mut clock, "a, second").await;
+    if d_accepts_logins {
+        d.engine.arca_accept_logins().await.unwrap_or_else(|e| panic!("d accepting the logins: {e:#}"));
+        cycle(&d, &d_hub, &mut clock, "d, after accepting the logins").await;
+        cycle(&a, &a_hub, &mut clock, "a, after d accepted the logins").await;
+        assert!(load_mode(&mode_path_for(&d.manifest_path())).unwrap().expect("d is in arca mode").secret_accepted, "premise: d accepted the logins");
+        assert_eq!(d.logins(), files_of(&[LOGIN, LOGIN_2]), "premise: d holds the two logins of the group, equal to the hub's");
+    }
 
     let head_0 = the_one_tip(&hub.state.store, &key_0, 0, "the hub before the rotation").await;
-    assert_eq!(tags(&head_0.manifest), sorted(&["Vault:x.md", "Config:settings.json", "Secret:github.json"]), "premise: the head of the hub at epoch 0 lists the three classes");
+    assert_eq!(
+        tags(&head_0.manifest),
+        sorted(&["Vault:x.md", "Config:settings.json", "Secret:github.json", "Secret:slack.json"]),
+        "premise: the head of the hub at epoch 0 lists the three classes"
+    );
     assert_eq!(d.files(), files_of(&[SHARED_NOTE]), "premise: d has the shared note and nothing else in its vault");
+    Group { hub, clock, a, d, a_hub, d_hub, key_0 }
+}
 
-    // ---- a rotates to epoch 1 and syncs ----
-    a.write(ONLY_ON_A);
+/// `a` writes a file, rotates to epoch 1 and syncs; what it hands over is read back from the hub.
+async fn a_rotates(g: &mut Group) -> Rotated {
+    g.a.write(ONLY_ON_A);
     let rotation = PendingRotation::generate().unwrap();
     let phrase = rotation.phrase().unwrap();
     let words: Vec<&str> = phrase.words().collect();
     let typed: Vec<&str> = rotation.positions().iter().map(|position| words[position - 1]).collect();
-    clock += 1;
-    rotation.confirm(&typed, true, &a.engine, clock).await.unwrap();
-    cycle(&a, &a_hub, &mut clock, "a, after the rotation").await;
-    let (key_1, epoch_1, seed) = (a.secrets().vault_key, a.secrets().key_epoch, a.engine.arca_head_id().await.unwrap());
+    g.clock += 1;
+    rotation.confirm(&typed, true, &g.a.engine, g.clock).await.unwrap();
+    cycle(&g.a, &g.a_hub, &mut g.clock, "a, after the rotation").await;
+    let (key_1, epoch_1, seed) = (g.a.secrets().vault_key, g.a.secrets().key_epoch, g.a.engine.arca_head_id().await.unwrap());
     assert_eq!(epoch_1, 1, "premise: a rotated once");
-    assert_ne!(key_1, key_0, "premise: a has another key");
+    assert_ne!(key_1, g.key_0, "premise: a has another key");
 
-    // PREMISE 1: the head of the hub at the new epoch lists the other classes (the new epoch carries them re-encrypted), and it is
-    // the head `a` shows as its head code.
-    let head_before = the_one_tip(&hub.state.store, &key_1, epoch_1, "the hub after the rotation").await;
+    // PREMISE: the head of the hub at the new epoch lists the other classes (the new epoch carries them re-encrypted), with the
+    // texts `b` wrote, and it is the head `a` shows as its head code.
+    let head_before = the_one_tip(&g.hub.state.store, &key_1, epoch_1, "the hub after the rotation").await;
     assert_eq!(head_before.id, seed, "premise: the head code that a hands over is the head of the hub");
     assert_eq!(
         tags(&head_before.manifest),
-        sorted(&["Vault:x.md", "Vault:from-a.md", "Config:settings.json", "Secret:github.json"]),
+        sorted(&["Vault:x.md", "Vault:from-a.md", "Config:settings.json", "Secret:github.json", "Secret:slack.json"]),
         "premise: the epoch-1 head of the hub lists the config and the secret entries"
     );
-    assert_eq!(entry(&head_before.manifest, Class::Config, SETTINGS.0).sha256.0, sha256_of(SETTINGS.1), "premise: the config entry is the one b wrote");
-    assert_eq!(entry(&head_before.manifest, Class::Secret, LOGIN.0).sha256.0, sha256_of(LOGIN.1), "premise: the secret entry is the one b wrote");
+    for (class, (path, text)) in [(Class::Config, SETTINGS), (Class::Secret, LOGIN), (Class::Secret, LOGIN_2)] {
+        assert_eq!(entry(&head_before.manifest, class, path).sha256.0, sha256_of(text), "premise: {class:?}:{path} is the one b wrote");
+    }
+    Rotated { key_1, epoch_1, seed, head_before }
+}
 
-    // PREMISE 2: d stayed at epoch 0, has no folder for those classes, and sees the new epoch.
-    d.engine.arca_sync(&d_hub, clock + 1).await.expect_err("d, still at epoch 0, stops on the newer epoch");
-    assert!(!d.engine.arca_pending_epochs().await.unwrap().is_empty(), "premise: d sees the newer epoch");
-    assert_eq!(d.secrets().key_epoch, 0, "premise: d is still at epoch 0");
-    assert!(!load_mode(&mode_path_for(&d.manifest_path())).unwrap().expect("d is in arca mode").secret_accepted, "premise: d did not accept the logins");
-    assert!(!d.base.join("mcp_oauth").exists(), "premise: d has no logins folder");
+/// `d`, still at epoch 0, stops on the newer epoch.
+async fn d_sees_the_newer_epoch(g: &Group) {
+    g.d.engine.arca_sync(&g.d_hub, g.clock + 1).await.expect_err("d, still at epoch 0, stops on the newer epoch");
+    assert!(!g.d.engine.arca_pending_epochs().await.unwrap().is_empty(), "premise: d sees the newer epoch");
+    assert_eq!(g.d.secrets().key_epoch, 0, "premise: d is still at epoch 0");
+}
+
+/// The swap and one cycle. Returns the report of the cycle and the head of the hub afterwards, after checking what every case shares:
+/// the swap and the cycle reached the hub, the head is new and `d`'s, and `d`'s own head and folder pointer are the hub's.
+async fn swap_and_cycle(g: &mut Group, rotated: &Rotated) -> (ArcaSyncReport, Head) {
+    let (requests_before, objects_before) = (g.hub.requests(), g.hub.objects().await);
+    g.clock += 1;
+    g.d.engine.arca_replace_key(&g.d_hub, rotated.key_1, rotated.epoch_1, rotated.seed, g.clock).await.expect("the swap goes through");
+    assert!(g.hub.requests() > requests_before, "premise: the swap talked to the hub (it pulls)");
+    let state = DeviceState::load(&state_path_for(&g.d.manifest_path())).unwrap().expect("the swap seeds the state");
+    assert_eq!((state.key_epoch, state.last_accepted.0), (rotated.epoch_1, rotated.seed.hash), "the state holds the head the person confirmed");
+    assert_eq!(g.d.secrets().vault_key, rotated.key_1, "the swap saved the new key");
+    assert!(g.d.engine.arca_pending_epochs().await.unwrap().is_empty(), "nothing newer is pending after the swap");
+
+    let report = cycle(&g.d, &g.d_hub, &mut g.clock, "d, after the swap").await;
+
+    // PREMISE: the cycle reached the hub. The files that `d` had are listed by the snapshot of the swap (the blobs and the manifest are
+    // in `d`'s store by then); the cycle merges that snapshot with the head it pulled (it takes no snapshot of its own with two tips)
+    // and its push sends all of it, with the merge manifest. So the head below is a new one, and it is `d`'s.
+    assert!(g.hub.objects().await > objects_before, "premise: the cycle after the swap wrote objects to the hub");
+    let head_after = the_one_tip(&g.hub.state.store, &rotated.key_1, rotated.epoch_1, "the hub after d's cycle").await;
+    assert_ne!(head_after.id, rotated.head_before.id, "premise: the hub has a new head, written by d");
+    assert_eq!(head_after.manifest.device, g.d.secrets().device_id, "premise: the new head is d's");
+
+    let head_of_d = the_one_tip(&g.d.store(), &rotated.key_1, rotated.epoch_1, "d's own store").await;
+    assert_eq!(head_of_d.id, head_after.id, "d's head is the head of the hub");
+    assert_eq!(std::fs::read_to_string(folder_path_for(&g.d.manifest_path())).unwrap().trim(), head_after.id.to_string(), "the folder pointer of d follows the head");
+    (report, head_after)
+}
+
+/// `a` syncs after `d`: the vaults are the same, and `a` took `d`'s head as it was.
+async fn a_converges_with_d(g: &mut Group, rotated: &Rotated, head_after: &Head) {
+    cycle(&g.a, &g.a_hub, &mut g.clock, "a, after d's cycle").await;
+    assert_eq!(g.a.files(), g.d.files(), "the vault of a and the vault of d are the same");
+    let head_last = the_one_tip(&g.hub.state.store, &rotated.key_1, rotated.epoch_1, "the hub after a's last cycle").await;
+    assert_eq!(head_last.id, head_after.id, "a took d's head as it was, and wrote nothing over it");
+}
+
+// ---- the tests ----
+
+/// The plain case: `d` has no folder for `config` or the logins. `local_in_d` are the vault files it writes while behind.
+async fn replacing_the_key_keeps_the_other_classes(name: &str, local_in_d: &[(&str, &str)]) {
+    let mut g = group_at_epoch_0(name, false).await;
+    let rotated = a_rotates(&mut g).await;
+    d_sees_the_newer_epoch(&g).await;
+
+    // PREMISE: d has no folder for those classes and did not accept the logins.
+    assert!(!load_mode(&mode_path_for(&g.d.manifest_path())).unwrap().expect("d is in arca mode").secret_accepted, "premise: d did not accept the logins");
+    assert!(!g.d.logins_dir().exists(), "premise: d has no logins folder");
     for local in local_in_d {
-        d.write(*local);
+        g.d.write(*local);
     }
     let expected_in_d_before: Vec<(&str, &str)> = [SHARED_NOTE].into_iter().chain(local_in_d.iter().copied()).collect();
-    assert_eq!(d.files(), files_of(&expected_in_d_before), "premise: d's vault is the shared note and its own files");
-    for forbidden in ["settings", "github", "conflito", "mcp_oauth"] {
-        assert!(d.listing().iter().all(|name| !name.contains(forbidden)), "premise: nothing of d is named like {forbidden}: {:?}", d.listing());
-    }
-    assert_eq!(d.in_the_conflicts_folder(), Vec::<String>::new(), "premise: the conflicts folder of d holds nothing");
+    assert_eq!(g.d.files(), files_of(&expected_in_d_before), "premise: d's vault is the shared note and its own files");
+    g.d.assert_nothing_of_the_other_classes("premise");
 
-    // ---- the swap and one cycle ----
-    let (requests_before, objects_before) = (hub.requests(), hub.objects().await);
-    clock += 1;
-    d.engine.arca_replace_key(&d_hub, key_1, epoch_1, seed, clock).await.expect("the swap goes through");
-    assert!(hub.requests() > requests_before, "premise: the swap talked to the hub (it pulls)");
-    let state = DeviceState::load(&state_path_for(&d.manifest_path())).unwrap().expect("the swap seeds the state");
-    assert_eq!((state.key_epoch, state.last_accepted.0), (epoch_1, seed.hash), "the state holds the head the person confirmed");
-    assert_eq!(d.secrets().vault_key, key_1, "the swap saved the new key");
-    assert!(d.engine.arca_pending_epochs().await.unwrap().is_empty(), "nothing newer is pending after the swap");
-
-    let report = cycle(&d, &d_hub, &mut clock, "d, after the swap").await;
-
-    // PREMISE 3: the cycle reached the hub (d pushed what it wrote: a merge manifest at least), so the head below is not the old one
-    // read twice.
-    assert!(hub.objects().await > objects_before, "premise: the cycle after the swap wrote objects to the hub");
-    let head_after = the_one_tip(&hub.state.store, &key_1, epoch_1, "the hub after d's cycle").await;
-    assert_ne!(head_after.id, head_before.id, "premise: the hub has a new head, written by d");
-    assert_eq!(head_after.manifest.device, d.secrets().device_id, "premise: the new head is d's");
+    let (report, head_after) = swap_and_cycle(&mut g, &rotated).await;
 
     // RESULT: the hub's head still lists the other classes, with the same content; nothing that was listed is gone; what d had is up.
-    let mut expected_tags = vec!["Vault:x.md".to_string(), "Vault:from-a.md".to_string(), "Config:settings.json".to_string(), "Secret:github.json".to_string()];
+    let mut expected_tags = tags(&rotated.head_before.manifest);
     expected_tags.extend(local_in_d.iter().map(|(path, _)| format!("Vault:{path}")));
     expected_tags.sort();
     assert_eq!(tags(&head_after.manifest), expected_tags, "the hub's head after the swap and one cycle");
-    for before in &head_before.manifest.files {
-        let after = entry(&head_after.manifest, before.class, &before.path);
-        assert_eq!(after.sha256, before.sha256, "{:?}:{} changed its content", before.class, before.path);
-    }
-    assert_eq!(entry(&head_after.manifest, Class::Config, SETTINGS.0).sha256.0, sha256_of(SETTINGS.1));
-    assert_eq!(entry(&head_after.manifest, Class::Secret, LOGIN.0).sha256.0, sha256_of(LOGIN.1));
+    assert_entries_kept(&rotated.head_before, &head_after, &[]);
     for (path, text) in local_in_d {
         assert_eq!(entry(&head_after.manifest, Class::Vault, path).sha256.0, sha256_of(text), "{path}: d's file went up with its own content");
     }
-
-    // d's own head is the hub's, and its folder pointer follows it.
-    let head_of_d = the_one_tip(&d.store(), &key_1, epoch_1, "d's own store").await;
-    assert_eq!(head_of_d.id, head_after.id, "d's head is the head of the hub");
-    assert_eq!(std::fs::read_to_string(folder_path_for(&d.manifest_path())).unwrap().trim(), head_after.id.to_string(), "the folder pointer of d follows the head");
 
     // No conflict, no copy, and nothing of the other classes written under the device's folder.
     assert_eq!(report.conflicts, 0, "no conflict was settled: {report:?}");
     assert_eq!(report.secret_losers_saved, 0, "{report:?}");
     let mut expected_in_d: Vec<(&str, &str)> = vec![SHARED_NOTE, ONLY_ON_A];
     expected_in_d.extend(local_in_d.iter().copied());
-    assert_eq!(d.files(), files_of(&expected_in_d), "d's vault: the shared note, what only a had, and d's own files (no `.conflito-*` copy)");
-    for forbidden in ["settings", "github", "conflito", "mcp_oauth"] {
-        assert!(d.listing().iter().all(|name| !name.contains(forbidden)), "d's folder holds something named like {forbidden}: {:?}", d.listing());
-    }
-    assert_eq!(d.in_the_conflicts_folder(), Vec::<String>::new(), "the conflicts folder of d holds a copy");
-    assert!(!d.base.join("mcp_oauth").exists(), "d did not get a logins folder it never had");
+    assert_eq!(g.d.files(), files_of(&expected_in_d), "d's vault: the shared note, what only a had, and d's own files (no `.conflito-*` copy)");
+    g.d.assert_nothing_of_the_other_classes("result");
+    assert!(!g.d.logins_dir().exists(), "d did not get a logins folder it never had");
 
-    // The vault of d converges with a's.
-    cycle(&a, &a_hub, &mut clock, "a, after d's cycle").await;
-    assert_eq!(a.files(), d.files(), "the vault of a and the vault of d are the same");
-    let head_last = the_one_tip(&hub.state.store, &key_1, epoch_1, "the hub after a's last cycle").await;
-    assert_eq!(head_last.id, head_after.id, "a took d's head as it was, and wrote nothing over it");
+    a_converges_with_d(&mut g, &rotated, &head_after).await;
 }
 
 #[tokio::test]
-async fn a_device_that_swaps_its_key_leaves_the_secret_and_config_entries_on_the_hub() {
+async fn a_device_without_folders_for_config_and_logins_leaves_those_entries_on_the_hub_when_it_swaps_its_key() {
     replacing_the_key_keeps_the_other_classes("swap-plain", &[]).await;
 }
 
-/// d has a vault file that the hub does not: it goes up with the first cycle and the other classes stay.
+/// `d` has a vault file that the hub does not: it is in the snapshot of the swap, goes up with the cycle, and the other classes stay.
 #[tokio::test]
-async fn a_local_vault_file_of_the_swapping_device_goes_up_and_the_other_classes_stay() {
+async fn a_vault_file_only_the_swapping_device_has_goes_up_with_the_cycle_and_the_other_classes_stay() {
     replacing_the_key_keeps_the_other_classes("swap-local", &[ONLY_ON_D]).await;
+}
+
+/// `d` has the logins folder and accepted the logins at epoch 0, so the group's two logins are in it. While behind it changes one of
+/// them (`slack.json`); `github.json` stays equal to the hub's. Both are in the snapshot of the swap (the folder is a root of `d`),
+/// and the head pulled lists both: no common ancestor, so an empty base.
+///
+/// What happens (the rule in the module doc), pinned here:
+/// - the equal login is one entry, and no conflict;
+/// - the edited one is a `BothEdited` conflict, in which the version with the greater `(created_at, id)` wins. The snapshot of the swap
+///   is newer than the head `a` made (the clock only goes up), so `d`'s text wins: it is the one in the head of the hub, and the file
+///   of `d` is not touched. The hub's text of that login (`b`'s) loses as the head of the group, but is not lost: the cycle writes it,
+///   in clear text, to `arca-conflicts/secret/slack.json.conflito-<device of the loser>-<16 hex of its sha256>` on `d` before it
+///   stores the merge manifest, and `arca_list_losers` shows it. (The old text is also still in the hub's blobs of the epoch-1 head
+///   that `a` published.)
+/// - the other classes are intact.
+#[tokio::test]
+async fn a_swapping_device_that_accepted_the_logins_keeps_the_equal_one_and_saves_the_loser_of_the_edited_one() {
+    let mut g = group_at_epoch_0("swap-logins", true).await;
+    let rotated = a_rotates(&mut g).await;
+    d_sees_the_newer_epoch(&g).await;
+
+    // PREMISE: d has the folder, accepted, and holds the hub's logins; then it changes one while behind.
+    g.d.write_login(LOGIN_2_EDITED_ON_D);
+    assert_eq!(g.d.logins(), files_of(&[LOGIN, LOGIN_2_EDITED_ON_D]), "premise: d holds one login equal to the hub's and one with another text");
+    assert_ne!(sha256_of(LOGIN_2_EDITED_ON_D.1), sha256_of(LOGIN_2.1), "premise: the texts differ");
+    assert_eq!(g.d.conflict_files(), Vec::<String>::new(), "premise: the conflicts folder of d holds nothing");
+    assert_eq!(entry(&rotated.head_before.manifest, Class::Secret, LOGIN.0).sha256.0, sha256_of(LOGIN.1), "premise: the hub has the equal login");
+    assert_eq!(entry(&rotated.head_before.manifest, Class::Secret, LOGIN_2.0).sha256.0, sha256_of(LOGIN_2.1), "premise: the hub has the other login with its own text");
+
+    let (report, head_after) = swap_and_cycle(&mut g, &rotated).await;
+
+    // RESULT, on the hub: the same entries as before, each once; the equal login is the same; the edited one is d's; config is intact.
+    assert_eq!(tags(&head_after.manifest), tags(&rotated.head_before.manifest), "the hub's head lists the same entries, each once");
+    assert_entries_kept(&rotated.head_before, &head_after, &[(Class::Secret, LOGIN_2.0)]);
+    assert_eq!(entry(&head_after.manifest, Class::Secret, LOGIN.0).sha256.0, sha256_of(LOGIN.1), "the equal login is one entry with the same text");
+    assert_eq!(entry(&head_after.manifest, Class::Secret, LOGIN_2.0).sha256.0, sha256_of(LOGIN_2_EDITED_ON_D.1), "the edited login: d's text won (its snapshot is the newer)");
+    assert_eq!(entry(&head_after.manifest, Class::Config, SETTINGS.0).sha256.0, sha256_of(SETTINGS.1), "config is intact");
+
+    // RESULT, on d: one conflict (the edited login), and the loser (the hub's text) is saved in clear text, named by who it came from.
+    assert_eq!(report.conflicts, 1, "only the edited login is a conflict: {report:?}");
+    let loser_device = g.a.secrets().device_id;
+    let copy = format!("arca-conflicts/secret/{}.conflito-{loser_device}-{}", LOGIN_2.0, sha_prefix_of(LOGIN_2.1));
+    assert_eq!(g.d.conflict_files(), vec![copy.clone()], "the conflicts folder holds the loser of the edited login and nothing else");
+    assert_eq!(std::fs::read_to_string(g.d.base.join(&copy)).unwrap(), LOGIN_2.1, "the copy has the hub's text");
+    let losers = g.d.engine.arca_list_losers().await.unwrap();
+    assert_eq!(losers.len(), 1, "{losers:?}");
+    assert_eq!((losers[0].class, losers[0].path.as_str(), losers[0].device.as_str(), losers[0].sha_prefix.as_str(), losers[0].edited), (Class::Secret, LOGIN_2.0, loser_device.as_str(), sha_prefix_of(LOGIN_2.1).as_str(), false));
+    // d's own logins are not touched: the winner is its own text.
+    assert_eq!(g.d.logins(), files_of(&[LOGIN, LOGIN_2_EDITED_ON_D]), "the logins folder of d is as it was");
+    assert_eq!(g.d.files(), files_of(&[SHARED_NOTE, ONLY_ON_A]), "d's vault: the shared note and what only a had");
+
+    a_converges_with_d(&mut g, &rotated, &head_after).await;
+}
+
+/// `d` deletes a vault file while it is behind, before the swap. TODAY: the file comes back, with no conflict. The snapshot of the
+/// swap is a root with no base: it lists no `x.md`, but nothing in it says "deleted", and the head pulled lists it. With an empty base
+/// the merge reads that as "created on the hub's side" and keeps it. This is a consequence of the empty base of the swap, not of the
+/// classes; whether it is acceptable (a deletion made while behind is undone) is a decision for the owner and, if it is not, an ADR.
+/// This test only pins what happens.
+#[tokio::test]
+async fn a_vault_file_deleted_while_behind_comes_back_after_the_swap() {
+    let mut g = group_at_epoch_0("swap-deleted", false).await;
+    let rotated = a_rotates(&mut g).await;
+    d_sees_the_newer_epoch(&g).await;
+
+    // PREMISE: d deleted `x.md` while behind (the hub's head, at the new epoch, lists it).
+    std::fs::remove_file(g.d.vault().join(SHARED_NOTE.0)).unwrap();
+    assert_eq!(g.d.files(), BTreeMap::new(), "premise: d's vault has no file");
+    assert!(tags(&rotated.head_before.manifest).contains(&"Vault:x.md".to_string()), "premise: the hub's head lists x.md");
+
+    let (report, head_after) = swap_and_cycle(&mut g, &rotated).await;
+
+    // RESULT (today): x.md is back, as the hub has it, and nothing else changed.
+    assert_eq!(report.conflicts, 0, "the deleted file is not a conflict: {report:?}");
+    assert_eq!(g.d.files(), files_of(&[SHARED_NOTE, ONLY_ON_A]), "x.md is back in d's vault, with the hub's text");
+    assert_eq!(tags(&head_after.manifest), tags(&rotated.head_before.manifest), "the hub's head lists the same entries");
+    assert_entries_kept(&rotated.head_before, &head_after, &[]);
+    g.d.assert_nothing_of_the_other_classes("result");
+
+    a_converges_with_d(&mut g, &rotated, &head_after).await;
 }
