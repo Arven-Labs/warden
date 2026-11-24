@@ -52,6 +52,21 @@ fn epoch_keys(secrets: &crate::manifest::SyncSecrets) -> EpochKeys {
 /// A cycle that needs more merges than this is not converging: each merge joins one pair of tips.
 const MAX_MERGES_PER_CYCLE: usize = 64;
 
+/// The refusal of a first rotation attempt over a vault folder with no file (`refuse_if_the_vault_was_emptied`). No local path and
+/// nothing about the phrase or the key: on a resume no phrase was shown, and each screen says what to do with the one it showed.
+/// The words "no file" are what the tests look for.
+const VAULT_EMPTIED_REFUSAL: &str = concat!(
+    "the vault folder has no file, but the newest manifest in this device's store lists vault files, so publishing the new key epoch now would send an empty vault to every device. ",
+    "First check that the disk or mount point the folder lives on is mounted. ",
+    "If this device pulled changes that it has not applied yet, sync first. ",
+    "Otherwise put back ALL the vault files that you did not mean to delete, only files that were there before (for example from the trash) and NEVER an old backup as a whole, because files deleted on purpose would come back and be published to every device. ",
+    "If you emptied the vault on purpose: put any one file in it, change the key, and only then delete it and sync"
+);
+
+/// The start of the refusal when the vault folder cannot be read at all (not "gone": that is `VAULT_EMPTIED_REFUSAL`); the error
+/// of the operating system follows it. Nothing was written. It has no path: the error is the OS message only.
+const VAULT_UNREADABLE_REFUSAL: &str = "the vault folder cannot be read, and the newest manifest in this device's store lists vault files, so no new key epoch was published. Check that the disk or mount point the folder lives on is mounted and that this program may read it, then try again: ";
+
 /// A file of the logins folder that the snapshot left out, and why (the arca's own reason text).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SkippedLogin {
@@ -271,7 +286,8 @@ impl SyncEngine {
     /// checked the declaration and the words: nothing here asks the person anything.
     ///
     /// Under the sync lock, in this order (the person already holds the phrase of `new_key`, so a stop between two steps loses
-    /// nothing, and repeating it with the same key finishes it):
+    /// nothing, and repeating it with the same key finishes it). Before the first of them, a first attempt is refused when the vault
+    /// folder has no file and the head of the current epoch lists some (`refuse_if_the_vault_was_emptied`): nothing is written.
     /// 1. `begin_epoch` on the local store with the **current** secrets: a full snapshot of the live folder at epoch + 1, and the
     ///    arca state moves to the new epoch. It adopts a manifest of the new epoch that an earlier try already published.
     /// 2. `arca_folder.txt` points at that manifest: the cycle keeps which manifest the folder reflects, and an old id would be read
@@ -288,7 +304,13 @@ impl SyncEngine {
         let Some(mode) = load_mode(&mode_path_for(&self.manifest_path)).map_err(open_refusal)? else {
             return Err(RotationError::NotInArcaMode.into());
         };
-        let (engine, roots) = self.arca_engine(mode.secret_accepted, false).map_err(open_refusal)?;
+        // The engine is opened WITHOUT creating the vault folder: `arca_engine_with` would turn "folder gone" into "folder empty"
+        // before the check below, and a refusal would leave a folder the person never had here.
+        let secrets = self.load_secrets().map_err(open_refusal)?;
+        let (engine, roots) = self.arca_engine_open(secrets, mode.secret_accepted, false).map_err(open_refusal)?;
+        self.refuse_if_the_vault_was_emptied(&engine).await?;
+        // Past the check, a folder that is gone is a vault that never had a file: it is created empty, as every other entry point does.
+        std::fs::create_dir_all(self.vault.root()).map_err(|error| open_refusal(error.into()))?;
         let (_next, snapshot) = engine.begin_epoch(new_key, &roots, now_ms).await.map_err(rotation_error_of)?;
         let published = match snapshot {
             Snapshot::Created { id, .. } => id,
@@ -300,6 +322,43 @@ impl SyncEngine {
         secrets.vault_key = *new_key.export_bytes();
         secrets.key_epoch = secrets.key_epoch.checked_add(1).ok_or_else(|| RotationFailure::from(RotationError::Failed("there is no next key epoch".into())))?;
         crate::manifest::save_secrets(&self.secrets_path, &secrets).map_err(failed)
+    }
+
+    /// The floor `begin_epoch` does not have on a first attempt: it builds the new epoch's full snapshot on `prev = None` (there is no
+    /// manifest of the new epoch yet), and the arca's refusal of an emptied class (`ClassEmptied`) compares the folder with `prev`, so
+    /// an empty `prev` lets an empty folder through and the new epoch is published with no file at all. That is what the other devices
+    /// would take as the vault when they pair again. So here, before anything is written: the vault folder has no file the snapshot
+    /// would list (it is gone, or empty, or holds only what the scan skips) AND a tip of this device's store lists vault files:
+    /// refused. (`heads` gives the tips of the store, not "the manifest this device accepted": after a pull that was not applied yet
+    /// they differ, which the text of the refusal says.) A vault whose tips never listed a file still rotates. A folder that cannot be
+    /// read (anything but "not there") is also a refusal, with the real error: `begin_epoch` would meet it in its own scan and stop
+    /// with `Failed`, which tells the person to resume with the same 24 words after nothing was written.
+    ///
+    /// Only for the first attempt. A resume has a manifest of the new epoch in the store, which the engine of the current epoch sees as
+    /// a newer epoch it has not acknowledged (`NeedsNewKey`), so `heads` fails and this check steps aside: `begin_epoch` runs, and its
+    /// own floor (`ClassEmptied`) covers the resume. Any other failure of `heads` is also left to `begin_epoch`, which reads the same
+    /// storage and reports it with its own words. The refusal text says nothing about the phrase: the screens decide that (on a resume
+    /// none was shown).
+    async fn refuse_if_the_vault_was_emptied(&self, engine: &Engine<DiskStore>) -> Result<(), crate::arca_rotation::RotationFailure> {
+        use crate::arca_rotation::RotationError;
+        let Ok(heads) = engine.heads().await else { return Ok(()) };
+        let head_lists_files = heads.tips.iter().any(|tip| tip.manifest.files.iter().any(|file| file.class == Class::Vault));
+        if !head_lists_files {
+            return Ok(());
+        }
+        // The scan walks the whole folder with blocking calls, so it runs off the async thread, as the engine does with its own.
+        let root = self.vault.root().clone();
+        let scanned = tokio::task::spawn_blocking(move || arca_core::scan::scan_class_with(Class::Vault, &root, None)).await;
+        let folder_has_files = match scanned {
+            Ok(Ok(scan)) => !scan.candidates.is_empty(),
+            Ok(Err(error)) if error.kind() == std::io::ErrorKind::NotFound => false,
+            Ok(Err(error)) => return Err(RotationError::Refused(format!("{VAULT_UNREADABLE_REFUSAL}{error}")).into()),
+            Err(error) => return Err(RotationError::Refused(format!("{VAULT_UNREADABLE_REFUSAL}{error}")).into()),
+        };
+        if folder_has_files {
+            return Ok(());
+        }
+        Err(RotationError::Refused(VAULT_EMPTIED_REFUSAL.to_string()).into())
     }
 
     /// The last manifest this device accepted (the head of its arca state), for the head code the old device shows when it hands
@@ -775,6 +834,11 @@ impl SyncEngine {
     /// it saves the key.
     fn arca_engine_with(&self, secrets: crate::manifest::SyncSecrets, secret_accepted: bool, create_logins: bool) -> anyhow::Result<(Engine<DiskStore>, Roots)> {
         std::fs::create_dir_all(self.vault.root())?;
+        self.arca_engine_open(secrets, secret_accepted, create_logins)
+    }
+
+    /// `arca_engine_with` without creating the vault folder: only the rotation needs to look at it before it exists (`arca_rotate_to`).
+    fn arca_engine_open(&self, secrets: crate::manifest::SyncSecrets, secret_accepted: bool, create_logins: bool) -> anyhow::Result<(Engine<DiskStore>, Roots)> {
         let secret_root = if secret_accepted { self.prepare_logins_root(create_logins)? } else { None };
         let store = DiskStore::open(store_path_for(&self.manifest_path))?;
         let keys = epoch_keys(&secrets);
