@@ -1,24 +1,20 @@
-//! Investigation (P-49, audit): what does `PendingRotation::confirm` do on the **first** attempt of a rotation when the vault folder
-//! is gone or empty, on a device whose arca head still lists a file?
+//! P-49 (audit): `PendingRotation::confirm` on the **first** attempt of a rotation when the vault folder is gone or empty, on a device
+//! whose arca head still lists a file, must be refused before anything is written.
 //!
-//! The worry: `begin_epoch` would publish a full snapshot of the epoch N + 1 with no file at all (`base_version` none), and the
-//! other devices, once they pair again, would take that empty manifest as the vault.
-//!
-//! What the code says (read, not run; only the CI runs this), and why the assertions below are written as they are:
-//! - `SyncEngine::arca_engine_with` runs `create_dir_all(vault root)` before anything else, so a folder that is gone is not an
-//!   error for the arca: it reaches `begin_epoch` as an **empty** folder, the same as one the person emptied.
-//! - `Engine::begin_epoch` (arca-core, the pinned rev) passes `prev = None` to `build_snapshot` on a first attempt (no manifest of
-//!   the new epoch yet: `own.is_empty()`). The refusal of an emptied class (`ClassEmptied`) compares the files found with
-//!   `prev_files`, and with `prev = None` that list is empty, so `had == 0` and the floor never fires. It only fires on a resume,
-//!   when the manifest of the new epoch is already out (that is the case `arca_sync.rs` already tests).
-//! - So the reading of the code is that a first attempt is **not** refused here, and publishes an empty manifest of epoch 1. The
-//!   assertions below say what **should** happen (the rotation is refused and the store keeps only the epoch-0 manifest), so this
-//!   file is expected to be RED for the folder gone and the folder empty, and GREEN for the control (a folder with a file).
+//! Why: `Engine::begin_epoch` (arca-core, the pinned rev) passes `prev = None` to `build_snapshot` on a first attempt (no manifest of
+//! the new epoch yet: `own.is_empty()`). The refusal of an emptied class (`ClassEmptied`) compares the files found with `prev_files`,
+//! and with `prev = None` that list is empty, so `had == 0` and the floor never fires: the new epoch was published with no file at
+//! all (`base_version` none), which the other devices would take as the vault when they pair again. And
+//! `SyncEngine::arca_engine_with` ran `create_dir_all(vault root)` first, so a folder that was gone reached `begin_epoch` as an empty
+//! one. The CI showed it: on the commit with only these tests, the folder gone and the folder empty both ended with the store
+//! holding `[(0, ["note.md"]), (1, [])]`. The fix is `SyncEngine::refuse_if_the_vault_was_emptied` in `arca_sync.rs`.
 //!
 //! Each test states its premise first (what the folder and the store looked like when `confirm` was called) and checks the store
-//! afterwards by opening the manifests with the keys of each epoch, not only by the result of the call.
+//! afterwards by opening the manifests with the keys of each epoch, not only by the result of the call. The control (a folder with a
+//! file) and the vault that never had a file show the refusal is about the emptied folder and nothing else.
 //!
-//! Not here: what another device does with that manifest (it needs a second device and a hub), and the fix.
+//! Not here: what another device does with an empty manifest of the new epoch (it needs a second device and a hub), and the resume
+//! of a stopped rotation over an emptied folder (`arca_sync.rs` tests it: `ClassEmptied`).
 #![cfg(feature = "arca")]
 
 use std::path::PathBuf;
@@ -31,7 +27,7 @@ use arca_core::manifest::Manifest;
 use arca_core::object::ObjectKind;
 use arca_core::store::BlobStore;
 use warden_sync::arca_mode::store_path_for;
-use warden_sync::arca_rotation::{PendingRotation, RotationFailure};
+use warden_sync::arca_rotation::{PendingRotation, RotationError, RotationFailure};
 use warden_sync::manifest::{load_secrets, SyncSecrets};
 use warden_sync::{ArweaveClient, SyncEngine};
 
@@ -135,6 +131,9 @@ async fn rotate(device: &Device) -> (Result<(), RotationFailure>, VaultKey) {
 async fn assert_nothing_was_published(device: &Device, premise: &Premise, result: Result<(), RotationFailure>, new_key: &VaultKey, what: &str) {
     let after = device.store_view(&premise.old_key, new_key).await;
     assert!(result.is_err(), "{what}: the rotation was accepted, and the store now holds (epoch, files): {after:?}");
+    // A refusal "before this attempt wrote anything" (`Refused`), not a stop half way (`Failed`, which tells the person to resume).
+    let failure = result.as_ref().unwrap_err();
+    assert!(matches!(failure.error, RotationError::Refused(_)), "{what}: expected a refusal, got {failure:?}");
     assert_eq!(after, vec![(0, vec!["note.md".to_string()])], "{what}: the rotation failed with {result:?} but the store changed");
     assert_eq!(std::fs::read(device.base.join("sync_secrets.json")).unwrap(), premise.secrets_bytes, "{what}: the saved key or epoch changed");
     assert_eq!(device.folder_pointer(), premise.folder_pointer, "{what}: the folder pointer moved");
@@ -149,6 +148,8 @@ async fn a_vault_folder_that_is_gone_does_not_publish_an_empty_manifest_of_the_n
 
     let (result, new_key) = rotate(&device).await;
     assert_nothing_was_published(&device, &premise, result, &new_key, "vault folder gone").await;
+    // The refusal does not leave behind a folder the person did not have.
+    assert!(!device.vault().exists(), "the refused rotation created the vault folder");
 }
 
 #[tokio::test]
@@ -182,4 +183,24 @@ async fn control_a_vault_folder_with_a_file_rotates_and_publishes_the_file_in_th
     let after = device.store_view(&premise.old_key, &new_key).await;
     assert_eq!(after, vec![(0, vec!["note.md".to_string()]), (1, vec!["note.md".to_string()])]);
     assert_ne!(device.folder_pointer(), premise.folder_pointer, "the folder pointer follows the new manifest");
+}
+
+/// The other side of the refusal: a vault whose head never listed a file has nothing to lose, so a folder that is gone does not stop
+/// the rotation, and (as before the refusal existed) the folder is created empty by the rotation.
+#[tokio::test]
+async fn a_vault_that_never_had_a_file_still_rotates_even_with_the_folder_gone() {
+    let device = device("never-had-a-file");
+    device.engine.init_fresh().unwrap();
+    device.engine.arca_enable_after_pull(false, false, 7).await.unwrap();
+    let old_key = VaultKey::from_bytes(device.secrets().vault_key);
+    assert_eq!(device.store_view(&old_key, &old_key).await, vec![(0, Vec::<String>::new())], "premise: the epoch-0 manifest lists no file");
+    std::fs::remove_dir_all(device.vault()).unwrap();
+    assert!(!device.vault().exists(), "premise: the vault folder is gone when the rotation is called");
+
+    let (result, new_key) = rotate(&device).await;
+    result.unwrap();
+
+    assert_eq!(device.secrets().key_epoch, 1);
+    assert_eq!(device.store_view(&old_key, &new_key).await, vec![(0, Vec::<String>::new()), (1, Vec::<String>::new())]);
+    assert!(device.vault().is_dir(), "the rotation creates the vault folder, as every other entry point does");
 }

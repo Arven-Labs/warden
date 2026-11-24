@@ -271,7 +271,8 @@ impl SyncEngine {
     /// checked the declaration and the words: nothing here asks the person anything.
     ///
     /// Under the sync lock, in this order (the person already holds the phrase of `new_key`, so a stop between two steps loses
-    /// nothing, and repeating it with the same key finishes it):
+    /// nothing, and repeating it with the same key finishes it). Before the first of them, a first attempt is refused when the vault
+    /// folder has no file and the head of the current epoch lists some (`refuse_if_the_vault_was_emptied`): nothing is written.
     /// 1. `begin_epoch` on the local store with the **current** secrets: a full snapshot of the live folder at epoch + 1, and the
     ///    arca state moves to the new epoch. It adopts a manifest of the new epoch that an earlier try already published.
     /// 2. `arca_folder.txt` points at that manifest: the cycle keeps which manifest the folder reflects, and an old id would be read
@@ -288,7 +289,13 @@ impl SyncEngine {
         let Some(mode) = load_mode(&mode_path_for(&self.manifest_path)).map_err(open_refusal)? else {
             return Err(RotationError::NotInArcaMode.into());
         };
-        let (engine, roots) = self.arca_engine(mode.secret_accepted, false).map_err(open_refusal)?;
+        // The engine is opened WITHOUT creating the vault folder: `arca_engine_with` would turn "folder gone" into "folder empty"
+        // before the check below, and a refusal would leave a folder the person never had here.
+        let secrets = self.load_secrets().map_err(open_refusal)?;
+        let (engine, roots) = self.arca_engine_open(secrets, mode.secret_accepted, false).map_err(open_refusal)?;
+        self.refuse_if_the_vault_was_emptied(&engine).await?;
+        // Past the check, a folder that is gone is a vault that never had a file: it is created empty, as every other entry point does.
+        std::fs::create_dir_all(self.vault.root()).map_err(|error| open_refusal(error.into()))?;
         let (_next, snapshot) = engine.begin_epoch(new_key, &roots, now_ms).await.map_err(rotation_error_of)?;
         let published = match snapshot {
             Snapshot::Created { id, .. } => id,
@@ -300,6 +307,38 @@ impl SyncEngine {
         secrets.vault_key = *new_key.export_bytes();
         secrets.key_epoch = secrets.key_epoch.checked_add(1).ok_or_else(|| RotationFailure::from(RotationError::Failed("there is no next key epoch".into())))?;
         crate::manifest::save_secrets(&self.secrets_path, &secrets).map_err(failed)
+    }
+
+    /// The floor `begin_epoch` does not have on a first attempt: it builds the new epoch's full snapshot on `prev = None` (there is no
+    /// manifest of the new epoch yet), and the arca's refusal of an emptied class (`ClassEmptied`) compares the folder with `prev`, so
+    /// an empty `prev` lets an empty folder through and the new epoch is published with no file at all. That is what the other devices
+    /// would take as the vault when they pair again. So here, before anything is written: the vault folder has no file the snapshot
+    /// would list (it is gone, or empty, or holds only what the scan skips) AND the head of the current epoch lists vault files:
+    /// refused. A vault whose head never listed a file still rotates.
+    ///
+    /// Only for the first attempt. A resume has a manifest of the new epoch in the store, which the engine of the current epoch sees as
+    /// a newer epoch it has not acknowledged (`NeedsNewKey`), so `heads` fails and this check steps aside: `begin_epoch` runs, and its
+    /// own floor (`ClassEmptied`) covers the resume. Any other failure of `heads` is also left to `begin_epoch`, which reads the same
+    /// storage and reports it with its own words.
+    async fn refuse_if_the_vault_was_emptied(&self, engine: &Engine<DiskStore>) -> Result<(), crate::arca_rotation::RotationFailure> {
+        use crate::arca_rotation::{RotationError, RotationFailure};
+        let Ok(heads) = engine.heads().await else { return Ok(()) };
+        let head_lists_files = heads.tips.iter().any(|tip| tip.manifest.files.iter().any(|file| file.class == Class::Vault));
+        if !head_lists_files {
+            return Ok(());
+        }
+        let folder_has_files = match arca_core::scan::scan_class_with(Class::Vault, self.vault.root(), None) {
+            Ok(scan) => !scan.candidates.is_empty(),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => false,
+            // Not a folder, not readable: `begin_epoch` meets the same error in its own scan and reports it.
+            Err(_) => true,
+        };
+        if folder_has_files {
+            return Ok(());
+        }
+        Err(RotationFailure::from(RotationError::Refused(
+            "the vault folder has no file, but the last manifest this device accepted lists vault files, so publishing the new key epoch now would send an empty vault to every device. The key was not changed and the phrase just shown can be thrown away. Put back ALL the vault files that you did not mean to delete, only files that were there before (for example from the trash) and NEVER an old backup as a whole, because files deleted on purpose would come back and be published to every device. Then change the key again. If you emptied the vault on purpose: put any one file in it, change the key, and only then delete it and sync".to_string(),
+        )))
     }
 
     /// The last manifest this device accepted (the head of its arca state), for the head code the old device shows when it hands
@@ -775,6 +814,11 @@ impl SyncEngine {
     /// it saves the key.
     fn arca_engine_with(&self, secrets: crate::manifest::SyncSecrets, secret_accepted: bool, create_logins: bool) -> anyhow::Result<(Engine<DiskStore>, Roots)> {
         std::fs::create_dir_all(self.vault.root())?;
+        self.arca_engine_open(secrets, secret_accepted, create_logins)
+    }
+
+    /// `arca_engine_with` without creating the vault folder: only the rotation needs to look at it before it exists (`arca_rotate_to`).
+    fn arca_engine_open(&self, secrets: crate::manifest::SyncSecrets, secret_accepted: bool, create_logins: bool) -> anyhow::Result<(Engine<DiskStore>, Roots)> {
         let secret_root = if secret_accepted { self.prepare_logins_root(create_logins)? } else { None };
         let store = DiskStore::open(store_path_for(&self.manifest_path))?;
         let keys = epoch_keys(&secrets);
