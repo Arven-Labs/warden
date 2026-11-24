@@ -99,6 +99,11 @@ pub enum Command {
     ArcaSwapGrant,
     /// `/arca swap offer` — on the device still on the old key: replaces it with the new one. Asks to confirm.
     ArcaSwapOffer,
+    /// `/arca rotate` — after losing a device: makes a new vault key, shows its 24 words once, asks for 3 of them back and the
+    /// declaration that the lost device's token was revoked on the hub, then rotates (P-49, arca ADR 0018, Warden ADR 0002).
+    ArcaRotate,
+    /// `/arca rotate resume` — finishes a rotation that stopped half way: the same 24 words are typed again, no new key is made.
+    ArcaRotateResume,
     /// `/arca pair offer` — on the new device: offers itself to the hub and waits for the key (arca ADR 0016).
     ArcaPairOffer,
     /// `/arca pair grant` — on the device that has the key: hands it to a waiting offer.
@@ -206,11 +211,47 @@ pub fn parse_command(input: &str) -> ParseOutcome {
         ("arca", ["ack"]) => Command::ArcaAck,
         ("arca", ["swap", "grant"]) => Command::ArcaSwapGrant,
         ("arca", ["swap", "offer"]) => Command::ArcaSwapOffer,
+        ("arca", ["rotate"]) => Command::ArcaRotate,
+        ("arca", ["rotate", "resume"]) => Command::ArcaRotateResume,
         ("arca", ["pair", "offer"]) => Command::ArcaPairOffer,
         ("arca", ["pair", "grant"]) => Command::ArcaPairGrant,
         _ => return ParseOutcome::Unrecognized(trimmed.to_string()),
     };
     ParseOutcome::Recognized(command)
+}
+
+/// Whether `input` starts `/arca rotate` and is not exactly `/arca rotate` or `/arca rotate resume`: the person typed something
+/// after it, and for `resume` that something is probably the 24 words. The parser refuses it (arguments are never read from the
+/// line), but the REPL must also keep that line out of the line history (saved in clear text) and out of the "unknown command"
+/// card, which echoes the line: the caller asks this before doing either. Whitespace and the case of the first two words are
+/// read the way `parse_command` reads them, and an `/arca ROTATE resume ...` that the parser does not know still counts.
+pub fn is_rotate_with_arguments(input: &str) -> bool {
+    let Some(rest) = input.trim().strip_prefix('/') else { return false };
+    let mut words = rest.split_whitespace();
+    let starts_arca_rotate = words.next().is_some_and(|head| head.eq_ignore_ascii_case("arca")) && words.next().is_some_and(|sub| sub.eq_ignore_ascii_case("rotate"));
+    starts_arca_rotate && matches!(parse_command(input), ParseOutcome::Unrecognized(_))
+}
+
+/// A phrase has 24 words; no command of this grammar takes anywhere near 12 tokens that the parser then refuses.
+const PHRASE_LINE_TOKENS: usize = 12;
+/// 24 words of 3 letters or more are 95 characters even with a comma or a zero-width space between them: a refused command line of
+/// 64 or more is not worth keeping either, and catches a phrase whose words are not separated by whitespace.
+const PHRASE_LINE_CHARS: usize = 64;
+
+/// Whether a submitted line may hold the 24 words, so the REPL must keep it out of the line history (saved in clear text) and must
+/// not echo it. The rule does not trust the first words (`/arca rotat resume ...`, `/arca resume ...`, `/rotate ...`, a zero-width
+/// space inside a word all slip past any list of prefixes): it is `/arca rotate ...` with arguments (the exact case the text of a
+/// stop half way sends people to), or any line that starts with `/`, that the parser refuses, and that is as long as a phrase
+/// (12 or more whitespace-separated tokens, or 64 or more characters). A command the parser knows never counts, however long, and
+/// neither does chat (no slash: whether chat should be guarded is the owner's decision, not this rule's).
+pub fn may_hold_a_phrase(input: &str) -> bool {
+    if is_rotate_with_arguments(input) {
+        return true;
+    }
+    let trimmed = input.trim();
+    trimmed.starts_with('/')
+        && matches!(parse_command(input), ParseOutcome::Unrecognized(_))
+        && (trimmed.split_whitespace().count() >= PHRASE_LINE_TOKENS || trimmed.chars().count() >= PHRASE_LINE_CHARS)
 }
 
 /// Parses a provider `kind` the way a user would type it (matching the config file's own
@@ -252,7 +293,7 @@ const AGENTS_SUBCOMMANDS: &[&str] = &["use", "tree", "create", "edit", "remove"]
 const SKILLS_SUBCOMMANDS: &[&str] = &["show", "create", "edit", "remove", "path", "file", "attach", "detach"];
 const SSH_SUBCOMMANDS: &[&str] = &["add", "edit", "remove", "on", "off", "test"];
 const SYNC_SUBCOMMANDS: &[&str] = &["push", "pull", "pair", "git"];
-const ARCA_SUBCOMMANDS: &[&str] = &["on", "sync", "ack", "swap", "pair"];
+const ARCA_SUBCOMMANDS: &[&str] = &["on", "sync", "ack", "swap", "rotate", "pair"];
 
 /// Parses the word currently being typed (the last whitespace-separated token) out of a
 /// `/`-prefixed `input`, along with its candidate completions from the fixed part of the grammar
@@ -512,6 +553,113 @@ mod tests {
         for line in ["/arca swap", "/arca swap grant https://hub", "/arca swap offer token123", "/arca swap now", "/arca swap offer --yes"] {
             assert!(matches!(parse_command(line), ParseOutcome::Unrecognized(_)), "{line}");
         }
+    }
+
+    #[test]
+    fn arca_rotate_and_its_resume_parse_and_take_no_arguments() {
+        assert!(matches!(assert_recognized("/arca rotate"), Command::ArcaRotate));
+        assert!(matches!(assert_recognized("/arca rotate resume"), Command::ArcaRotateResume));
+        // The tokenizer collapses whitespace, so a run of spaces between the words is the same command.
+        assert!(matches!(assert_recognized("  /arca   rotate    resume  "), Command::ArcaRotateResume));
+        // No argument is ever taken from the line: this only proves the PARSER refuses them. What keeps a phrase typed there out
+        // of the line history and out of the "unknown command" card is `is_rotate_with_arguments` (tested below) and the
+        // REPL's use of it (`remember_line`, `unknown_command_lines` in `interactive.rs`).
+        let phrase_on_the_line = format!("/arca rotate resume {}", ["zoo"; 24].join(" "));
+        for line in [
+            "/arca rotate now",
+            "/arca rotate --yes",
+            "/arca rotate revoked",
+            "/arca rotate resume now",
+            "/arca rotate resume --yes",
+            "/arca rotate resume abandon",
+            "/arca rotate resume resume",
+            "/arca resume",
+            "/arca rotate rotate",
+            phrase_on_the_line.as_str(),
+        ] {
+            assert!(matches!(parse_command(line), ParseOutcome::Unrecognized(_)), "{line}");
+        }
+    }
+
+    #[test]
+    fn a_rotate_line_with_arguments_is_told_apart_from_the_two_exact_commands() {
+        // The phrase of the official BIP-39 vector for 32 bytes of 0xff (arca-core `recovery.rs`): a real one, not "word word".
+        let phrase = format!("{} vote", ["zoo"; 23].join(" "));
+        let with_phrase = format!("/arca rotate resume {phrase}");
+        let shouty = format!("/ARCA rotate resume {phrase}");
+        let upper_sub = format!("/arca ROTATE resume {phrase}");
+        let slash_space = format!("/ arca rotate resume {phrase}");
+        let padded = format!("   /arca   rotate   resume   {phrase}   ");
+        for line in [
+            with_phrase.as_str(),
+            shouty.as_str(),
+            upper_sub.as_str(),
+            slash_space.as_str(),
+            padded.as_str(),
+            "/arca rotate resume abandon",
+            "/arca rotate now",
+            "/arca rotate --yes",
+            "/arca rotate rotate",
+        ] {
+            assert!(is_rotate_with_arguments(line), "{line}");
+        }
+        for line in ["/arca rotate", "/arca rotate resume", "  /arca   rotate   resume  ", "/arca sync", "/arca swap now", "/arca rotated", "/arca", "/nonsense", "hello rotate", "arca rotate resume x", ""] {
+            assert!(!is_rotate_with_arguments(line), "{line}: only a line that starts /arca rotate and is not one of the two commands");
+        }
+    }
+
+    #[test]
+    fn any_unknown_slash_line_that_may_hold_a_phrase_is_told_apart_whatever_its_first_words() {
+        // The phrase of the official BIP-39 vector for 32 bytes of 0xff (arca-core `recovery.rs`): a real one.
+        let phrase = format!("{} vote", ["zoo"; 23].join(" "));
+        let zero_width_joined = phrase.replace(' ', "\u{200B}");
+        let comma_joined = phrase.replace(' ', ",");
+        let lines = [
+            format!("/arca rotat resume {phrase}"),
+            format!("/arca rotatex {phrase}"),
+            format!("/arca resume {phrase}"),
+            format!("/arca rotate-resume {phrase}"),
+            format!("/rotate resume {phrase}"),
+            format!("/arca sync {phrase}"),
+            format!("/arca\u{200B}rotate resume {phrase}"),
+            format!("/arca rotate\u{200B}resume {phrase}"),
+            // No whitespace between the words at all: one token, but far too long for a command.
+            format!("/arca rotate resume {zero_width_joined}"),
+            format!("/arca rotat resume {zero_width_joined}"),
+            format!("/arca rotat resume {comma_joined}"),
+            // The exact forms the older rule already knew.
+            format!("/arca rotate resume {phrase}"),
+            format!("  /ARCA  rotate  resume  {phrase}  "),
+        ];
+        for line in &lines {
+            assert!(may_hold_a_phrase(line), "a line of {} characters and {} tokens was not caught", line.chars().count(), line.split_whitespace().count());
+        }
+        // 12 tokens in all is the edge of the token rule (a phrase has 24); these lines are short, so the length rule is not what decides.
+        let ten_words = ["zoo"; 10].join(" ");
+        let eleven_words = ["zoo"; 11].join(" ");
+        assert!(!may_hold_a_phrase(&format!("/nonsense {ten_words}")), "11 tokens");
+        assert!(may_hold_a_phrase(&format!("/nonsense {eleven_words}")), "12 tokens");
+    }
+
+    #[test]
+    fn what_is_not_an_unknown_slash_line_or_is_short_is_left_alone() {
+        let long_but_known = "/skills attach name file a b c d e f g h i j k l m n o p q r s t u v w x y z";
+        assert!(matches!(parse_command(long_but_known), ParseOutcome::Recognized(_)), "the line really is a command");
+        // A recognized command never counts, however long; nor does chat (no slash: that is the owner's product decision, not this rule).
+        let chat = ["zoo"; 24].join(" ");
+        for line in [long_but_known, chat.as_str(), "/arca rotate", "/arca rotate resume", "/nonsense", "/models bogus", "/nonsense now", "/ssh bogus vps", "", "   "] {
+            assert!(!may_hold_a_phrase(line), "{line}");
+        }
+    }
+
+    #[test]
+    fn ghost_suggestion_knows_the_arca_rotate_subcommand() {
+        // `rotate` is the only `/arca` subcommand that starts with "r", so one letter is enough.
+        assert_eq!(ghost_suggestion("/arca r").as_deref(), Some("otate"));
+        assert_eq!(ghost_suggestion("/arca ro").as_deref(), Some("tate"));
+        // The others are not disturbed: `swap` and `sync` still need their second letter.
+        assert_eq!(ghost_suggestion("/arca s"), None);
+        assert_eq!(ghost_suggestion("/arca sw").as_deref(), Some("ap"));
     }
 
     #[test]
