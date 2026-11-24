@@ -105,8 +105,23 @@ Future<void> _typeInto(WidgetTester tester, String key, String text) async {
   await tester.pump();
 }
 
+// The framework only accepts the transitions Android makes: resumed > inactive > hidden > paused, and the way back through the same steps.
+void _goToBackground(WidgetTester tester) {
+  for (final state in [AppLifecycleState.inactive, AppLifecycleState.hidden, AppLifecycleState.paused]) {
+    tester.binding.handleAppLifecycleStateChanged(state);
+  }
+}
+
+void _backToForeground(WidgetTester tester) {
+  for (final state in [AppLifecycleState.hidden, AppLifecycleState.inactive, AppLifecycleState.resumed]) {
+    tester.binding.handleAppLifecycleStateChanged(state);
+  }
+}
+
 /// Opens the screen the way the app does, on top of another route, so that leaving it is a real pop.
 Future<void> _open(WidgetTester tester, _Backend backend, SecureWindow? window, {Locale locale = const Locale('en')}) async {
+  // An app left over from an earlier call in the same test would keep its pushed route: start from nothing.
+  await tester.pumpWidget(const SizedBox());
   // The phrase and the three fields are taller than the default test window: a tall one keeps everything built and tappable.
   tester.view.physicalSize = const Size(800, 3200);
   tester.view.devicePixelRatio = 1;
@@ -265,19 +280,18 @@ void main() {
     });
 
     testWidgets('going to the background keeps the window protected (the recents thumbnail), and coming back asks again', (tester) async {
-      addTearDown(() => tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed));
       final window = _FakeSecureWindow();
       await _open(tester, _Backend(), window);
       await _tap(tester, 'arca-rotation-begin');
       expect(window.calls, ['enable']);
 
-      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
+      _goToBackground(tester);
       await tester.pump();
 
       expect(window.calls, ['enable'], reason: 'released here, the recents thumbnail would show the 24 words');
       expect(window.protected, isTrue);
 
-      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+      _backToForeground(tester);
       await tester.pump();
 
       expect(window.calls, ['enable', 'enable'], reason: 'the window may have been rebuilt meanwhile: the flag is asked again');
@@ -285,12 +299,11 @@ void main() {
     });
 
     testWidgets('coming back to the front without the phrase asks for nothing', (tester) async {
-      addTearDown(() => tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed));
       final window = _FakeSecureWindow();
       await _open(tester, _Backend(), window);
 
-      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
-      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+      _goToBackground(tester);
+      _backToForeground(tester);
       await tester.pump();
 
       expect(window.calls, isEmpty);
@@ -329,7 +342,6 @@ void main() {
 
     testWidgets('each word is read with its position and nothing else, in English and in Portuguese', (tester) async {
       final handle = tester.ensureSemantics();
-      addTearDown(handle.dispose);
       for (final (locale, words) in [(const Locale('en'), en), (const Locale('pt'), pt)]) {
         await _open(tester, _Backend(), _FakeSecureWindow(), locale: locale);
         await _tap(tester, 'arca-rotation-begin');
@@ -342,25 +354,27 @@ void main() {
         expect(find.bySemanticsLabel('${words.arcaRotationWordLabel(3)}: able'), findsOneWidget, reason: '$locale');
       }
       expect(en.arcaRotationWordLabel(3), 'Word 3', reason: 'the text the label is built from (app_en.arb)');
+      // Disposed here, not in a tear-down: the framework checks for open handles before the tear-downs run.
+      handle.dispose();
     });
 
     testWidgets('the warning comes before the instructions and the words, and is announced when it appears', (tester) async {
       final handle = tester.ensureSemantics();
-      addTearDown(handle.dispose);
       await _open(tester, _Backend(), _FakeSecureWindow());
       await _tap(tester, 'arca-rotation-begin');
       final warning = find.byKey(const Key('arca-rotation-capture-warning'));
 
       expect(labelOf(tester, warning), en.arcaRotationCaptureWarning);
+      // `containsSemantics` is deprecated in favour of `isSemantics`, whose parameters could not be checked here (no Flutter on this machine).
+      // ignore: deprecated_member_use
       expect(tester.getSemantics(warning), containsSemantics(isLiveRegion: true), reason: 'TalkBack reads it when it shows up, before anything else');
       final warningTop = tester.getTopLeft(warning).dy;
       expect(warningTop, lessThan(tester.getTopLeft(find.text(en.arcaRotationPhraseIntro)).dy), reason: 'read top to bottom: the warning is the first thing');
       expect(warningTop, lessThan(tester.getTopLeft(find.text('1. abandon')).dy));
+      handle.dispose();
     });
 
     testWidgets('the words are read in the order of the phrase', (tester) async {
-      final handle = tester.ensureSemantics();
-      addTearDown(handle.dispose);
       await _open(tester, _Backend(), _FakeSecureWindow());
       await _tap(tester, 'arca-rotation-begin');
 
@@ -373,7 +387,6 @@ void main() {
 
     testWidgets('the fields and the buttons are named by what they do', (tester) async {
       final handle = tester.ensureSemantics();
-      addTearDown(handle.dispose);
       await _open(tester, _Backend(), _FakeSecureWindow());
       await _tap(tester, 'arca-rotation-begin');
 
@@ -383,6 +396,7 @@ void main() {
       expect(labelOf(tester, find.byKey(const Key('arca-rotation-revoked'))), contains(en.arcaRotationRevoked));
       expect(labelOf(tester, find.byKey(const Key('arca-rotation-confirm'))), en.arcaRotationConfirm);
       expect(labelOf(tester, find.byKey(const Key('arca-rotation-cancel'))), en.arcaRotationCancel);
+      handle.dispose();
     });
   });
 }
