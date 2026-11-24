@@ -29,8 +29,18 @@ class _Backend implements ArcaModeBackend {
   bridge_rot.ArcaRotationFailure? confirmFailure;
   int cancelCalls = 0;
 
+  /// Holds `rotationBegin` until the test lets it go: the bridge is still making the key.
+  Completer<void>? beginGate;
+
+  /// True once `rotationBegin` has answered (the key exists in the bridge); [cancelsAfterBegin] counts the cancels that came after that.
+  bool beginAnswered = false;
+  int cancelsAfterBegin = 0;
+
   @override
   Future<bridge_rot.RotationStartDto> rotationBegin() async {
+    final gate = beginGate;
+    if (gate != null) await gate.future;
+    beginAnswered = true;
     final failure = beginFailure;
     if (failure != null) throw failure;
     return bridge_rot.RotationStartDto(phrase: _phrase, positions: Uint32List.fromList(_positions));
@@ -46,7 +56,10 @@ class _Backend implements ArcaModeBackend {
   Future<void> rotationResume(String phrase) async {}
 
   @override
-  Future<void> rotationCancel() async => cancelCalls++;
+  Future<void> rotationCancel() async {
+    cancelCalls++;
+    if (beginAnswered) cancelsAfterBegin++;
+  }
 
   @override
   Future<bridge.ArcaModeStatusDto> status() => throw UnimplementedError();
@@ -314,6 +327,7 @@ void main() {
       expect(window.calls.first, 'enable', reason: 'premise: the request was made before it failed');
       expect(find.text(arcaRotationErrorText(en, bridge_rot.ArcaRotationErrorKind.other)), findsOneWidget, reason: 'premise: the failure reached the screen, with no phrase');
       expect(find.text('1. abandon'), findsNothing);
+      expect(window.calls, ['enable', 'disable'], reason: 'the `catch` of begin releases at once: back in idle, nothing is protected, and the screen is still here');
 
       await tester.state<NavigatorState>(find.byType(Navigator).first).maybePop();
       await _settle(tester);
@@ -321,6 +335,25 @@ void main() {
       expect(find.byType(ArcaRotationScreen), findsNothing, reason: 'premise: the screen was left');
       expect(window.calls, ['enable', 'disable'], reason: 'released exactly once, whichever of the two exits did it');
       expect(window.protected, isFalse);
+    });
+
+    testWidgets('the screen gone while the bridge is still making the key: the window is never asked, and the key is dropped once it exists', (tester) async {
+      final window = _FakeSecureWindow();
+      final backend = _Backend()..beginGate = Completer<void>();
+      await tester.pumpWidget(testApp(home: ArcaRotationScreen(backend: backend, secureWindow: window)));
+      await tester.tap(find.byKey(const Key('arca-rotation-begin')));
+      await _settle(tester);
+      expect(backend.beginAnswered, isFalse, reason: 'premise: the bridge has not answered yet');
+
+      await tester.pumpWidget(testApp(home: const SizedBox()));
+      expect(window.calls, isEmpty, reason: 'premise: nothing was protected, so leaving had nothing to release');
+      expect(backend.cancelCalls, 1, reason: 'premise: `dispose` asked the bridge to drop the key, but it answered before the key was made');
+      backend.beginGate!.complete();
+      await _settle(tester);
+
+      expect(window.calls, isEmpty, reason: 'a screen that is gone must not turn on a flag that lives on the whole Activity');
+      expect(backend.cancelsAfterBegin, 1, reason: 'the key made after `dispose` is dropped by a cancel that comes after it');
+      expect(tester.takeException(), isNull);
     });
 
     testWidgets('the screen replaced while the window is still being protected: released, and no phrase ever drawn', (tester) async {
@@ -381,6 +414,26 @@ void main() {
       await tester.pump();
 
       expect(window.calls, ['enable', 'enable'], reason: 'the window may have been rebuilt meanwhile: the flag is asked again');
+      expect(window.protected, isTrue);
+    });
+
+    // A regression guard for the re-ask on `resumed`: it fails if the condition narrows to the `showing` step only (a mutation), not on
+    // the code before this change, which already re-asked in every step but idle.
+    testWidgets('in the "resume" step too, going to the background keeps the window protected and coming back asks again', (tester) async {
+      final window = _FakeSecureWindow();
+      await _open(tester, _Backend(), window);
+      await _tap(tester, 'arca-rotation-resume-open');
+      expect(window.calls, ['enable'], reason: 'premise: the resume step protects the window');
+
+      _goToBackground(tester);
+      await tester.pump();
+
+      expect(window.calls, ['enable'], reason: 'nothing released in the background');
+
+      _backToForeground(tester);
+      await tester.pump();
+
+      expect(window.calls, ['enable', 'enable']);
       expect(window.protected, isTrue);
     });
 
