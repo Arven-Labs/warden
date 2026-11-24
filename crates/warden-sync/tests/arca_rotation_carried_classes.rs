@@ -7,10 +7,10 @@
 //! current keys, sealed with the new ones). It refuses before it writes a manifest:
 //! - `HeadNotAccepted`: the head lists such entries and is not the manifest this device accepted (no state file, or a head that is
 //!   ahead of the accepted one: a pull not applied yet). Re-encrypting what a manifest not yet accepted lists would carry a forged
-//!   entry across the rotation. The way out is a sync, but the lost device's token has to be revoked BEFORE it (a sync would accept
-//!   the head as it is).
-//! - `Integrity`, `MissingObject`, `Store(Corrupt)`: a blob of such an entry is not what its manifest says (`verify_carried`, which
-//!   reads every one of them before anything is sent).
+//!   entry across the rotation. The way out is a sync, but a sync accepts the head as it is, and revoking the lost device's token only
+//!   stops new publications (a manifest already pulled stays in the store): who does not recognise the change must not sync.
+//! - `Integrity`, `MissingObject`, `Store(Corrupt)`: a blob of such an entry is not what its manifest says, or the size the manifest
+//!   declares is over the ceiling (`verify_carried`, which checks the sizes first and then reads every blob, before anything is sent).
 //! - `ClassEmptied`: a class with a folder that has no file while the head lists entries of it.
 //!
 //! None of those publishes a manifest, so none of them may read as "stopped half way: resume with the same 24 words" (`Failed`):
@@ -204,6 +204,9 @@ enum Damage {
     Overwritten,
     /// The blob is fine, but the manifest says a `sha256` that is not the one of its content (`Integrity`).
     WrongSha256,
+    /// The blob is fine, but the manifest declares a `size` of `u64::MAX`, over the ceiling that `verify_carried` checks before it
+    /// reads any blob (`Integrity`, with no damaged storage behind it).
+    DeclaredSizeOverTheCeiling,
 }
 
 struct Published {
@@ -232,7 +235,8 @@ async fn publish_head_of_another_device(device: &Device, extra: &[(Class, &str, 
         if damage == Damage::WrongSha256 && index == extra.len() - 1 {
             sha256[0] ^= 0xff;
         }
-        manifest.files.push(FileEntry { path: (*path).to_string(), class: *class, blob: Hash32(sealed.id.hash), size: content.len() as u64, sha256: Hash32(sha256) });
+        let size = if damage == Damage::DeclaredSizeOverTheCeiling && index == extra.len() - 1 { u64::MAX } else { content.len() as u64 };
+        manifest.files.push(FileEntry { path: (*path).to_string(), class: *class, blob: Hash32(sealed.id.hash), size, sha256: Hash32(sha256) });
         last_blob = sealed.id;
     }
     manifest.files.sort_by(|a, b| (a.class, &a.path).cmp(&(b.class, &b.path)));
@@ -240,7 +244,7 @@ async fn publish_head_of_another_device(device: &Device, extra: &[(Class, &str, 
     store.put(&sealed.id, &sealed.bytes).await.unwrap();
 
     match damage {
-        Damage::None | Damage::WrongSha256 => {}
+        Damage::None | Damage::WrongSha256 | Damage::DeclaredSizeOverTheCeiling => {}
         Damage::Removed => store.delete(&last_blob).await.unwrap(),
         Damage::Overwritten => std::fs::write(store.root().join(last_blob.to_string()), b"not what was stored").unwrap(),
     }
@@ -330,9 +334,13 @@ async fn assert_refused(device: &Device, premise: &Premise, result: Result<(), R
     failure.error.to_string()
 }
 
-fn assert_says_to_revoke_before_syncing(text: &str, class: Class, what: &str) {
+/// Revoking the token only stops new publications: a manifest already pulled stays in the store, and a sync accepts it as it is. So
+/// the text tells who does not recognise the change not to sync, and does not promise that revoking first makes a sync safe.
+fn assert_says_not_to_sync_what_is_not_recognised(text: &str, class: Class, what: &str) {
     assert!(text.contains(&format!("{class:?}")), "{what}: the class that has no folder is named: {text}");
-    assert!(text.contains("revoke the lost device's token on the hub BEFORE you sync"), "{what}: {text}");
+    assert!(text.contains("If you do not recognise a change made by another device, do not sync"), "{what}: {text}");
+    assert!(text.contains("revoke the lost device's token on the hub (that only stops new publications"), "{what}: {text}");
+    assert!(!text.contains("BEFORE you sync"), "{what}: the old advice (revoke, then sync): {text}");
     assert!(!text.contains("24 words"), "{what}: nothing was published, so there is no phrase to resume with: {text}");
 }
 
@@ -352,7 +360,7 @@ async fn a_head_with_logins_and_no_state_file_is_refused_with_sync_first_and_not
 
     let (result, new_key) = rotate(&device).await;
     let text = assert_refused(&device, &premise, result, &new_key, Some(Remedy::SyncFirst), "no state").await;
-    assert_says_to_revoke_before_syncing(&text, Class::Secret, "no state");
+    assert_says_not_to_sync_what_is_not_recognised(&text, Class::Secret, "no state");
 }
 
 /// Not the case the fixture suggests: the device HAS a state, and the manifest it accepted is a real one of its own store, just not
@@ -370,32 +378,52 @@ async fn a_head_ahead_of_the_accepted_manifest_is_refused_with_sync_first_even_w
 
     let (result, new_key) = rotate(&device).await;
     let text = assert_refused(&device, &premise, result, &new_key, Some(Remedy::SyncFirst), "head ahead").await;
-    assert_says_to_revoke_before_syncing(&text, Class::Config, "head ahead");
+    assert_says_not_to_sync_what_is_not_recognised(&text, Class::Config, "head ahead");
 }
 
-/// The blob of an entry that the rotation would re-encrypt is not what the accepted manifest says: the three ways it can be wrong.
-/// The head IS the accepted manifest here (so it is not `HeadNotAccepted` that refuses), and only the last of two logins is spoiled,
-/// so the check has to look at all of them. The control, the same device with nothing spoiled, is the last test of this file.
-#[tokio::test]
-async fn a_blob_that_is_not_what_the_accepted_head_says_is_refused_with_needs_repair_and_nothing_is_written() {
-    for (damage, what) in [(Damage::Removed, "blob removed (MissingObject)"), (Damage::Overwritten, "blob overwritten (Store(Corrupt))"), (Damage::WrongSha256, "sha256 of the manifest is wrong (Integrity)")] {
-        let device = device_in_arca_mode("spoiled", &[NOTE], None).await;
-        let published = publish_head_of_another_device(&device, &[(Class::Secret, GITHUB.0, GITHUB.1), (Class::Secret, SLACK.0, SLACK.1)], damage).await;
-        accept(&device, &published.head);
-        assert_eq!(accepted_head(&device), Some(Hash32(published.head.hash)), "{what}: premise: the device accepted the head");
-        // the premise about the blob, read the way the arca reads it
-        let store = device.store();
-        match damage {
-            Damage::Removed => assert_eq!(store.get(&published.last_blob).await.unwrap(), None, "{what}: premise: the blob is gone"),
-            Damage::Overwritten => assert_eq!(verified_get(&store, &published.last_blob).await, Err(StoreError::Corrupt), "{what}: premise: the bytes do not have the hash of the id"),
-            Damage::WrongSha256 => assert!(verified_get(&store, &published.last_blob).await.unwrap().is_some(), "{what}: premise: the blob is there and intact"),
-            Damage::None => unreachable!(),
-        }
-        let premise = premise(&device).await;
-
-        let (result, new_key) = rotate(&device).await;
-        assert_refused(&device, &premise, result, &new_key, Some(Remedy::NeedsRepair), what).await;
+/// An entry that the rotation would re-encrypt is not what the accepted manifest says. The head IS the accepted manifest here (so it
+/// is not `HeadNotAccepted` that refuses), and only the last of two logins is spoiled, so the check has to look at all of them. One
+/// test per way it can be wrong, so a failure in one does not hide the others. The control, the same device with nothing spoiled, is
+/// the last test of this file.
+async fn a_spoiled_login_is_refused_with_needs_repair_and_nothing_is_written(damage: Damage, what: &str) {
+    let device = device_in_arca_mode("spoiled", &[NOTE], None).await;
+    let published = publish_head_of_another_device(&device, &[(Class::Secret, GITHUB.0, GITHUB.1), (Class::Secret, SLACK.0, SLACK.1)], damage).await;
+    accept(&device, &published.head);
+    assert_eq!(accepted_head(&device), Some(Hash32(published.head.hash)), "{what}: premise: the device accepted the head");
+    // the premise about the blob, read the way the arca reads it
+    let store = device.store();
+    match damage {
+        Damage::Removed => assert_eq!(store.get(&published.last_blob).await.unwrap(), None, "{what}: premise: the blob is gone"),
+        Damage::Overwritten => assert_eq!(verified_get(&store, &published.last_blob).await, Err(StoreError::Corrupt), "{what}: premise: the bytes do not have the hash of the id"),
+        Damage::WrongSha256 | Damage::DeclaredSizeOverTheCeiling => assert!(verified_get(&store, &published.last_blob).await.unwrap().is_some(), "{what}: premise: the blob is there and intact"),
+        Damage::None => unreachable!(),
     }
+    let premise = premise(&device).await;
+
+    let (result, new_key) = rotate(&device).await;
+    assert_refused(&device, &premise, result, &new_key, Some(Remedy::NeedsRepair), what).await;
+}
+
+#[tokio::test]
+async fn a_login_blob_that_is_gone_is_refused_with_needs_repair_and_nothing_is_written() {
+    a_spoiled_login_is_refused_with_needs_repair_and_nothing_is_written(Damage::Removed, "blob removed (MissingObject)").await;
+}
+
+#[tokio::test]
+async fn a_login_blob_with_other_bytes_is_refused_with_needs_repair_and_nothing_is_written() {
+    a_spoiled_login_is_refused_with_needs_repair_and_nothing_is_written(Damage::Overwritten, "blob overwritten (Store(Corrupt))").await;
+}
+
+#[tokio::test]
+async fn a_login_whose_manifest_says_another_sha256_is_refused_with_needs_repair_and_nothing_is_written() {
+    a_spoiled_login_is_refused_with_needs_repair_and_nothing_is_written(Damage::WrongSha256, "sha256 of the manifest is wrong (Integrity)").await;
+}
+
+/// `Integrity` that is not a damaged disk: the manifest declares a size over the ceiling `verify_carried` allows, which it checks
+/// before it reads any blob (the blob is intact here, and the other login is fine).
+#[tokio::test]
+async fn a_login_whose_manifest_declares_a_size_over_the_ceiling_is_refused_with_needs_repair_and_nothing_is_written() {
+    a_spoiled_login_is_refused_with_needs_repair_and_nothing_is_written(Damage::DeclaredSizeOverTheCeiling, "declared size over the ceiling (Integrity)").await;
 }
 
 /// The class has a folder (the logins were accepted) and it is empty, while the head lists a login: publishing would send an empty
@@ -418,20 +446,23 @@ async fn an_emptied_logins_folder_on_a_first_attempt_is_a_refusal_with_no_remedy
     assert!(!text.contains("24 words"), "nothing was published, so there is no phrase to resume with: {text}");
 }
 
-/// The other side: a **resume**. A rotation that stopped after it published the manifest of epoch 1 and before it saved the key; the
-/// person then emptied the logins folder. This one IS a stop (`Failed`), the remedy is the same phrase with the files back, and with
-/// them back the same phrase finishes it.
-#[tokio::test]
-async fn an_emptied_logins_folder_on_a_resume_stays_a_stop_and_the_same_phrase_finishes_it_once_the_login_is_back() {
-    let device = device_in_arca_mode("resume-emptied", &[NOTE], Some(&[GITHUB])).await;
-    let old_key = device.old_key();
-    let pending = PendingRotation::generate().unwrap();
-    let phrase = pending.phrase().unwrap();
-    let new_key = VaultKey::from_phrase(phrase.expose()).unwrap();
+/// A rotation that stopped after it published the manifest of epoch 1 and before it saved the key (the manifest is in the store and
+/// the state moved to it, but `sync_secrets.json` and `arca_folder.txt` still say epoch 0); the person then emptied the logins folder.
+struct StoppedRotation {
+    device: Device,
+    /// The 24 words of the key that the stopped rotation was going to.
+    phrase: String,
+    new_key: VaultKey,
+    /// The manifest of epoch 1 that the stopped rotation published.
+    published: ObjectId,
+}
 
-    // What an earlier attempt that stopped half way left: the manifest of epoch 1 is in the store and the state moved to it, but
-    // `sync_secrets.json` and `arca_folder.txt` still say epoch 0.
-    let earlier = Engine::new(device.store(), EpochKeys::derive(&old_key, 0), device.secrets().device_id).unwrap().with_state(device.state_path());
+async fn rotation_stopped_with_the_logins_folder_emptied(name: &str) -> StoppedRotation {
+    let device = device_in_arca_mode(name, &[NOTE], Some(&[GITHUB])).await;
+    let pending = PendingRotation::generate().unwrap();
+    let phrase = pending.phrase().unwrap().expose().to_string();
+    let new_key = VaultKey::from_phrase(&phrase).unwrap();
+    let earlier = Engine::new(device.store(), EpochKeys::derive(&device.old_key(), 0), device.secrets().device_id).unwrap().with_state(device.state_path());
     let roots = Roots { vault: Some(device.vault()), config: None, secret: Some(device.oauth()) };
     let (_next, snapshot) = earlier.begin_epoch(&new_key, &roots, 50).await.unwrap();
     let Snapshot::Created { id: published, .. } = snapshot else { panic!("the earlier attempt published the manifest of epoch 1") };
@@ -439,26 +470,60 @@ async fn an_emptied_logins_folder_on_a_resume_stays_a_stop_and_the_same_phrase_f
     assert_eq!(std::fs::read_dir(device.oauth()).unwrap().count(), 0, "premise: the logins folder exists and is empty");
     assert_eq!(device.secrets().key_epoch, 0, "premise: the key was not saved yet");
     assert_eq!(DeviceState::load(&device.state_path()).unwrap().map(|state| state.key_epoch), Some(1), "premise: the state already moved to epoch 1");
-    let premise = premise_with_epoch_one(&device, &new_key).await;
-    assert_eq!(
-        premise.view,
-        vec![(0, vec!["Vault:note.md".to_string(), "Secret:github.json".to_string()]), (1, vec!["Vault:note.md".to_string(), "Secret:github.json".to_string()])],
-        "premise: both epochs list the login that the folder no longer has"
-    );
+    StoppedRotation { device, phrase, new_key, published }
+}
 
-    let result = PendingRotation::from_phrase(phrase.expose()).unwrap().confirm_detailed(&[], true, &device.engine, 100).await;
+fn both_epochs_list_the_login() -> StoreView {
+    vec![(0, vec!["Vault:note.md".to_string(), "Secret:github.json".to_string()]), (1, vec!["Vault:note.md".to_string(), "Secret:github.json".to_string()])]
+}
+
+/// The failure of a resume with the logins emptied: a stop (`Failed`) whose remedy is the same phrase with the files back.
+fn assert_is_the_stop_of_an_emptied_class(failure: &RotationFailure, what: &str) {
+    assert!(matches!(failure.error, RotationError::Failed(_)), "{what}: a resume that finds the class emptied is a stop: {failure:?}");
+    assert_eq!(failure.remedy, Some(Remedy::ClassEmptied), "{what}: {failure:?}");
+    assert!(failure.error.to_string().contains("SAME 24 words"), "{what}: {}", failure.error);
+}
+
+/// The other side: a **resume**. This one IS a stop (`Failed`), the remedy is the same phrase with the files back, and with them back
+/// the same phrase finishes it.
+#[tokio::test]
+async fn an_emptied_logins_folder_on_a_resume_stays_a_stop_and_the_same_phrase_finishes_it_once_the_login_is_back() {
+    let StoppedRotation { device, phrase, new_key, published } = rotation_stopped_with_the_logins_folder_emptied("resume-emptied").await;
+    let old_key = device.old_key();
+    let premise = premise_with_epoch_one(&device, &new_key).await;
+    assert_eq!(premise.view, both_epochs_list_the_login(), "premise: both epochs list the login that the folder no longer has");
+
+    let result = PendingRotation::from_phrase(&phrase).unwrap().confirm_detailed(&[], true, &device.engine, 100).await;
     let failure = assert_failed_and_unchanged(&device, &premise, result, &new_key, "resume with the logins emptied").await;
-    assert!(matches!(failure.error, RotationError::Failed(_)), "a resume that finds the class emptied is a stop: {failure:?}");
-    assert_eq!(failure.remedy, Some(Remedy::ClassEmptied), "{failure:?}");
-    assert!(failure.error.to_string().contains("SAME 24 words"), "{}", failure.error);
+    assert_is_the_stop_of_an_emptied_class(&failure, "resume with the logins emptied");
 
     // The remedy works: the login is back, and the same phrase adopts the manifest that is already out.
     std::fs::write(device.oauth().join(GITHUB.0), GITHUB.1).unwrap();
-    PendingRotation::from_phrase(phrase.expose()).unwrap().confirm_detailed(&[], true, &device.engine, 100).await.unwrap();
+    PendingRotation::from_phrase(&phrase).unwrap().confirm_detailed(&[], true, &device.engine, 100).await.unwrap();
     assert_eq!(device.secrets().key_epoch, 1);
     assert_eq!(device.secrets().vault_key, *new_key.export_bytes());
     assert_eq!(device.folder_pointer().trim(), published.to_string(), "the pointer follows the manifest the earlier attempt published");
     assert_eq!(device.store_view(&old_key, &new_key).await, premise.view, "no second manifest of epoch 1 was published");
+}
+
+/// The same resume, after the person acknowledged the epoch of the stopped rotation (what the text of `NewerEpoch` says not to do, but
+/// a person can). The engine of the current epoch then steps over that manifest (`heads` works again), so a sign taken from `heads`
+/// would read this resume as a first attempt and say "nothing was published" with the new epoch's manifest in the store. The sign is
+/// the epoch in the headers of the store, so it is still a stop.
+#[tokio::test]
+async fn an_emptied_logins_folder_on_a_resume_stays_a_stop_even_if_the_new_epoch_was_acknowledged() {
+    let StoppedRotation { device, phrase, new_key, published } = rotation_stopped_with_the_logins_folder_emptied("resume-acknowledged").await;
+    let pending = device.engine.arca_pending_epochs().await.unwrap();
+    assert_eq!(pending.len(), 1, "premise: the manifest of epoch 1 blocks the vault until it is acknowledged");
+    assert_eq!(pending[0].id, published);
+    device.engine.arca_acknowledge_epochs(&pending).await.unwrap();
+    assert_eq!(device.engine.arca_pending_epochs().await.unwrap(), vec![], "premise: nothing is pending any more, so `heads` works again");
+    let premise = premise_with_epoch_one(&device, &new_key).await;
+    assert_eq!(premise.view, both_epochs_list_the_login(), "premise: both epochs list the login that the folder no longer has");
+
+    let result = PendingRotation::from_phrase(&phrase).unwrap().confirm_detailed(&[], true, &device.engine, 100).await;
+    let failure = assert_failed_and_unchanged(&device, &premise, result, &new_key, "resume, epoch acknowledged").await;
+    assert_is_the_stop_of_an_emptied_class(&failure, "resume, epoch acknowledged");
 }
 
 /// The control of the refusals above: same device, same call, the head IS the accepted manifest and every blob is as the manifest

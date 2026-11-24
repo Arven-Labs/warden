@@ -307,14 +307,14 @@ impl SyncEngine {
         // The engine is opened WITHOUT creating the vault folder: `arca_engine_with` would turn "folder gone" into "folder empty"
         // before the check below, and a refusal would leave a folder the person never had here.
         let secrets = self.load_secrets().map_err(open_refusal)?;
+        let current_epoch = secrets.key_epoch;
         let (engine, roots) = self.arca_engine_open(secrets, mode.secret_accepted, false).map_err(open_refusal)?;
         self.refuse_if_the_vault_was_emptied(&engine).await?;
         // Past the check, a folder that is gone is a vault that never had a file: it is created empty, as every other entry point does.
         std::fs::create_dir_all(self.vault.root()).map_err(|error| open_refusal(error.into()))?;
-        // The same sign `refuse_if_the_vault_was_emptied` uses for "a resume": a manifest of the new epoch already in the store reads as a
-        // newer epoch this engine has not acknowledged. It tells `rotation_error_of` whether a class emptied (or a blob that fails) is a
-        // refusal (a first attempt published nothing) or a stop (the manifest of the new epoch is out).
-        let first_attempt = !matches!(engine.heads().await, Err(EngineError::NeedsNewKey { .. }));
+        // Whether a manifest of the new epoch is already in the store (a resume). It tells `rotation_error_of` whether a class emptied (or
+        // a blob that fails) is a refusal (a first attempt published nothing) or a stop (the manifest of the new epoch is out).
+        let first_attempt = no_manifest_of_the_next_epoch(store_path_for(&self.manifest_path), current_epoch).await;
         let (_next, snapshot) = engine.begin_epoch(new_key, &roots, now_ms).await.map_err(|error| rotation_error_of(error, first_attempt))?;
         let published = match snapshot {
             Snapshot::Created { id, .. } => id,
@@ -328,19 +328,22 @@ impl SyncEngine {
         crate::manifest::save_secrets(&self.secrets_path, &secrets).map_err(failed)
     }
 
-    /// The floor `begin_epoch` does not have on a first attempt: it builds the new epoch's full snapshot on `prev = None` (there is no
-    /// manifest of the new epoch yet), and the arca's refusal of an emptied class (`ClassEmptied`) compares the folder with `prev`, so
-    /// an empty `prev` lets an empty folder through and the new epoch is published with no file at all. That is what the other devices
-    /// would take as the vault when they pair again. So here, before anything is written: the vault folder has no file the snapshot
-    /// would list (it is gone, or empty, or holds only what the scan skips) AND a tip of this device's store lists vault files:
+    /// Defence in depth for the first attempt. Before arca-core `499628b` `begin_epoch` had no floor there: it built the new epoch's
+    /// full snapshot on `prev = None`, the refusal of an emptied class (`ClassEmptied`) compared the folder with that empty `prev`, and
+    /// the new epoch was published with no file at all, which is what the other devices would take as the vault when they pair again.
+    /// Since `499628b` the engine takes the old head as the base of the floor, so `begin_epoch` refuses this case too (`ClassEmptied`,
+    /// read as a refusal by `rotation_error_of` on a first attempt). This check stays because it refuses BEFORE anything is written:
+    /// the engine's floor comes after the blobs of the other folders (the logins) were sent. So here: the vault folder has no file the
+    /// snapshot would list (it is gone, or empty, or holds only what the scan skips) AND a tip of this device's store lists vault files:
     /// refused. (`heads` gives the tips of the store, not "the manifest this device accepted": after a pull that was not applied yet
     /// they differ, which the text of the refusal says.) A vault whose tips never listed a file still rotates. A folder that cannot be
     /// read (anything but "not there") is also a refusal, with the real error: `begin_epoch` would meet it in its own scan and stop
     /// with `Failed`, which tells the person to resume with the same 24 words after nothing was written.
     ///
-    /// Only for the first attempt. A resume has a manifest of the new epoch in the store, which the engine of the current epoch sees as
+    /// Meant for the first attempt. A resume has a manifest of the new epoch in the store, which the engine of the current epoch sees as
     /// a newer epoch it has not acknowledged (`NeedsNewKey`), so `heads` fails and this check steps aside: `begin_epoch` runs, and its
-    /// own floor (`ClassEmptied`) covers the resume. Any other failure of `heads` is also left to `begin_epoch`, which reads the same
+    /// own floor (`ClassEmptied`) covers the resume. (If the person acknowledged that epoch, `heads` steps over it and this check can
+    /// run on a resume: it still refuses before writing anything.) Any other failure of `heads` is also left to `begin_epoch`, which reads the same
     /// storage and reports it with its own words. The refusal text says nothing about the phrase: the screens decide that (on a resume
     /// none was shown).
     async fn refuse_if_the_vault_was_emptied(&self, engine: &Engine<DiskStore>) -> Result<(), crate::arca_rotation::RotationFailure> {
@@ -987,7 +990,8 @@ fn ensure_complete(report: &ReplicateReport, what: &str) -> anyhow::Result<()> {
 /// - `StateNotSaved`: the change *was* made, only the anti-rollback record behind it was not written. Saying so keeps the
 ///   person from thinking work was lost, and repeating the cycle is safe.
 /// - `HeadNotAccepted`: only `begin_epoch` returns it, on the first attempt. The way out is a sync, but a sync accepts the newest
-///   manifest as it is, even one that the lost device forged with its token, so the token has to be revoked first.
+///   manifest as it is, even one that the lost device forged with its token. Revoking the token only stops NEW publications: a
+///   manifest already pulled stays in the store, so a person who does not recognise the change must not sync.
 fn engine_failure(error: EngineError, what: &str) -> anyhow::Error {
     match error {
         EngineError::Busy => anyhow::anyhow!("{what}: another program is using this vault or Warden's sync state, so this cycle did nothing; the next one tries again"),
@@ -996,7 +1000,7 @@ fn engine_failure(error: EngineError, what: &str) -> anyhow::Error {
             "{what}: another device switched this vault to a newer key (epoch {found}; this device has {have}), so this cycle did nothing. If it was you or a device you trust, pair this device again to get the new key. If you do not recognise it, look at the pending epochs first and only then acknowledge them: the epoch of an object is not authenticated, so anyone who holds the old key can forge one"
         ),
         EngineError::HeadNotAccepted { class } => anyhow::anyhow!(
-            "{what}: the newest manifest in this device's store lists entries of class {class:?} that this device has no folder for, and it is not the manifest this device accepted, so nothing was published; revoke the lost device's token on the hub BEFORE you sync: a sync would accept the newest manifest as it is, even a forged one, and the new key epoch would carry it"
+            "{what}: the newest manifest in this device's store lists entries of class {class:?} that this device has no folder for, and it is not the manifest this device accepted, so nothing was published. If you do not recognise a change made by another device, do not sync: revoke the lost device's token on the hub (that only stops new publications, a manifest already pulled stays in this device's store) and look at the newest manifest on the hub first. A sync accepts the newest manifest as it is, even a forged one, and the new key epoch would carry what it lists"
         ),
         other => anyhow::Error::from(other).context(what.to_string()),
     }
@@ -1021,8 +1025,8 @@ fn open_refusal(error: anyhow::Error) -> crate::arca_rotation::RotationFailure {
 /// the person to resume with the same 24 words. Do not widen the refusal list without that proof: a wrong "nothing was changed"
 /// makes the person throw away a key that was already published.
 ///
-/// `first_attempt` is whether no manifest of the new epoch is in the store yet (the sign `refuse_if_the_vault_was_emptied` uses: the
-/// engine of the current epoch reads such a manifest as a newer epoch it has not acknowledged). On a first attempt `begin_epoch`
+/// `first_attempt` is whether no manifest of the new epoch is in the store yet (`no_manifest_of_the_next_epoch`, read from the headers,
+/// and `false` at any doubt: a stop is the harmless reading). On a first attempt `begin_epoch`
 /// takes the old head as the base of the floor `ClassEmptied` and of the entries of the classes this device has no folder for, which
 /// it re-encrypts (arca#198). What it can then return, with the manifest written last in every case:
 /// - `HeadNotAccepted`: before `build_snapshot` runs. Only born on a first attempt.
@@ -1052,8 +1056,9 @@ fn rotation_error_of(error: EngineError, first_attempt: bool) -> crate::arca_rot
         // them") and `merge` too. Only diverging tips are.
         EngineError::Diverged { rejected, .. } if *rejected > 0 => (true, Some(Remedy::NeedsRepair)),
         EngineError::Diverged { .. } | EngineError::Interrupted | EngineError::IncompleteApply | EngineError::HeadNotAccepted { .. } => (true, Some(Remedy::SyncFirst)),
-        // A blob the rotation would re-encrypt is not what its manifest says, or is not there: the local storage is damaged, and a
-        // new key meets the same blob.
+        // A blob the rotation would re-encrypt is not what its manifest says, or is not there (damaged local storage), or the sizes the
+        // manifest declares for those entries are over the ceiling `verify_carried` allows (`Integrity` as well, before any blob is read:
+        // a manifest that lies, not a damaged disk). Either way a new key meets the same entries.
         EngineError::Integrity | EngineError::MissingObject | EngineError::Store(StoreError::Corrupt) if first_attempt => (true, Some(Remedy::NeedsRepair)),
         EngineError::Rollback => (true, Some(Remedy::StorageChanged)),
         EngineError::Busy => (true, Some(Remedy::Busy)),
@@ -1073,16 +1078,42 @@ fn rotation_error_of(error: EngineError, first_attempt: bool) -> crate::arca_rot
     }
 }
 
+/// Whether the arca's local store holds no manifest of the epoch after `current_epoch`: the rotation has not published anything yet
+/// (a first attempt). Read from the clear header of every manifest, so it holds whatever key made it and whether or not the person
+/// acknowledged that epoch (`heads` would step over an acknowledged one and read a resume as a first attempt).
+///
+/// Any doubt answers `false` (a manifest that cannot be listed, read or decoded, no next epoch to publish): `false` makes the error a
+/// stop (`Failed`: resume with the same 24 words), the reading that cannot make anyone throw away a key that was already published.
+async fn no_manifest_of_the_next_epoch(store_path: std::path::PathBuf, current_epoch: u32) -> bool {
+    let Some(next_epoch) = current_epoch.checked_add(1) else { return false };
+    let Ok(store) = DiskStore::open(store_path) else { return false };
+    let Ok(ids) = store.list(ObjectKind::Manifest).await else { return false };
+    for id in ids {
+        let Ok(Some(bytes)) = store.get(&id).await else { return false };
+        let Ok((header, _)) = arca_core::envelope::Header::decode(&bytes) else { return false };
+        if header.key_epoch == next_epoch {
+            return false;
+        }
+    }
+    true
+}
+
 /// The refusal of a first attempt whose folder of `class` has no file the snapshot would list while the head lists `had` entries of
 /// it (`ClassEmptied`): publishing would send an empty class to every device. Nothing about the phrase or the key: nothing was
 /// published, and each screen says what to do with the phrase it showed. No path and no name of a file.
+///
+/// The arca's floor comes after the blobs of the other folders were sent, so blobs of the vault folder may already be in the local
+/// store with no manifest citing them, and the next sync may send them to the hub: the text says so. For the logins class the file that
+/// unlocks the floor has to be one the arca counts (`is_login_entry`: a login name, `[A-Za-z0-9_-]+.json`, up to `MAX_LOGIN_BYTES`).
 fn class_emptied_refusal(class: Class, had: usize) -> String {
+    let unlocking_file = if class == Class::Secret { "a file with a valid login name (letters, digits, `_` or `-`, then `.json`)" } else { "any one file" };
     format!(
         "starting the new key epoch: the folder of class {class:?} has no file that this device would publish, but the newest manifest in this device's store lists {had} entries of that class, so no new key epoch was published. \
+         Files of the vault folder may already be in this device's local store (no manifest cites them), and the next sync may send them to the hub. \
          First check that the disk or mount point the folder lives on is mounted. \
          If this device pulled changes that it has not applied yet, sync first. \
          Otherwise put back ALL the {class:?} files that you did not mean to delete, only files that were there before (for example from the trash) and NEVER an old backup as a whole, because files deleted on purpose would come back and be published to every device. \
-         If you emptied it on purpose: put any one file in that folder, change the key, and only then delete it and sync"
+         If you emptied it on purpose: put {unlocking_file} in that folder, change the key, and only then delete it and sync"
     )
 }
 
@@ -1193,17 +1224,21 @@ mod tests {
     }
 
     #[test]
-    fn a_head_this_device_did_not_accept_is_a_refusal_that_says_to_revoke_the_token_before_syncing() {
+    fn a_head_this_device_did_not_accept_is_a_refusal_that_says_not_to_sync_what_the_person_does_not_recognise() {
         use crate::arca_rotation::{Remedy, RotationError};
         // `Engine::begin_epoch` returns `HeadNotAccepted` before `build_snapshot` runs (arca-core `499628b`), on the first attempt only,
-        // so nothing was published: the way out is a sync, but a sync accepts the head as it is, so the lost device's token goes first.
+        // so nothing was published: the way out is a sync, but a sync accepts the head as it is, and revoking the lost device's token
+        // only stops new publications (a manifest already pulled stays in the store), so who does not recognise the change must not sync.
         for class in [Class::Config, Class::Secret] {
             let failure = rotation_error_of(EngineError::HeadNotAccepted { class }, true);
             assert!(matches!(failure.error, RotationError::Refused(_)), "{failure:?}");
             assert_eq!(failure.remedy, Some(Remedy::SyncFirst), "{failure:?}");
             let text = failure.error.to_string();
             assert!(text.contains(&format!("class {class:?}")), "the class that has no folder is named: {text}");
-            assert!(text.contains("revoke the lost device's token on the hub BEFORE you sync"), "{text}");
+            assert!(text.contains("If you do not recognise a change made by another device, do not sync"), "{text}");
+            assert!(text.contains("revoke the lost device's token on the hub (that only stops new publications"), "{text}");
+            assert!(text.contains("look at the newest manifest on the hub first"), "{text}");
+            assert!(!text.contains("BEFORE you sync"), "the old advice (revoke, then sync) is gone: {text}");
             assert!(text.contains("nothing was published"), "{text}");
             assert!(!text.contains("24 words"), "no phrase to resume with: {text}");
             assert!(text.contains(Remedy::SyncFirst.hint()), "{text}");
@@ -1235,7 +1270,54 @@ mod tests {
             assert!(text.contains(&format!("put back ALL the {class:?} files")), "{text}");
             assert!(text.contains("no new key epoch was published"), "{text}");
             assert!(!text.contains("24 words") && !text.contains("SAME"), "{text}");
+            // the blobs the engine's floor leaves behind, and what the sync may do with them
+            assert!(text.contains("may already be in this device's local store (no manifest cites them), and the next sync may send them to the hub"), "{text}");
+            // the file that unlocks the floor: for the logins it has to be a login name, or the arca does not count it
+            assert_eq!(text.contains("a file with a valid login name (letters, digits, `_` or `-`, then `.json`)"), class == Class::Secret, "{text}");
+            assert_eq!(text.contains("put any one file in that folder"), class != Class::Secret, "{text}");
         }
+    }
+
+    /// The sign that tells a first attempt from a resume reads the headers of the store, so it does not depend on the key that made a
+    /// manifest or on whether the person acknowledged its epoch (`heads` does), and a doubt reads as a resume (a stop).
+    #[tokio::test]
+    async fn a_rotation_is_a_first_attempt_only_if_no_manifest_of_the_next_epoch_is_in_the_store() {
+        use arca_core::crypto::seal;
+        use arca_core::object::ObjectKind;
+        use arca_core::store::BlobStore;
+        fn fresh_store(name: &str) -> (PathBuf, DiskStore) {
+            let dir = std::env::temp_dir().join(format!("warden-sync-first-attempt-{name}-{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
+            let store = DiskStore::open(&dir).unwrap();
+            (dir, store)
+        }
+        // an object of kind manifest of that epoch: only its clear header is read, so the body does not have to be a manifest
+        async fn put_manifest_of_epoch(store: &DiskStore, epoch: u32, key: u8) {
+            let sealed = seal(&EpochKeys::derive(&VaultKey::from_bytes([key; 32]), epoch), ObjectKind::Manifest, b"only the header is read").unwrap();
+            store.put(&sealed.id, &sealed.bytes).await.unwrap();
+        }
+
+        let (dir, _store) = fresh_store("empty");
+        assert!(no_manifest_of_the_next_epoch(dir, 0).await, "an empty store: nothing was published");
+
+        let (dir, store) = fresh_store("current");
+        put_manifest_of_epoch(&store, 0, 1).await;
+        assert!(no_manifest_of_the_next_epoch(dir, 0).await, "only the current epoch is there");
+
+        // the next epoch, made with a key that is not the one being rotated to: still a manifest of the next epoch
+        let (dir, store) = fresh_store("next");
+        put_manifest_of_epoch(&store, 0, 1).await;
+        put_manifest_of_epoch(&store, 1, 9).await;
+        assert!(!no_manifest_of_the_next_epoch(dir.clone(), 0).await, "a manifest of epoch 1 is in the store");
+        // the same store seen from a device that already is at epoch 1: epoch 2 is the next one, and none is there
+        assert!(no_manifest_of_the_next_epoch(dir, 1).await);
+
+        // a doubt (a manifest whose header does not decode) is the harmless reading: a stop
+        let (dir, store) = fresh_store("doubt");
+        store.put(&ObjectId::of(ObjectKind::Manifest, b"garbage"), b"garbage").await.unwrap();
+        assert!(!no_manifest_of_the_next_epoch(dir, 0).await);
+        // no next epoch to publish
+        let (dir, _store) = fresh_store("overflow");
+        assert!(!no_manifest_of_the_next_epoch(dir, u32::MAX).await);
     }
 
     #[test]
