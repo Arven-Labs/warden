@@ -277,16 +277,18 @@ impl SyncEngine {
     /// 2. `arca_folder.txt` points at that manifest: the cycle keeps which manifest the folder reflects, and an old id would be read
     ///    with a key that cannot open it.
     /// 3. `sync_secrets.json` gets the new key and epoch in one atomic save: they are a pair.
-    pub(crate) async fn arca_rotate_to(&self, new_key: &VaultKey, now_ms: u64) -> Result<(), crate::arca_rotation::RotationError> {
-        use crate::arca_rotation::RotationError;
-        let failed = |error: anyhow::Error| RotationError::Failed(format!("{error:#}"));
-        // Until `begin_epoch` writes, nothing is on disk: what goes wrong here is a refusal, not a stop half way.
-        let refused = |error: anyhow::Error| RotationError::Refused(format!("{error:#}"));
-        let _one_sync_at_a_time = self.sync_lock().await.map_err(refused)?;
-        let Some(mode) = load_mode(&mode_path_for(&self.manifest_path)).map_err(refused)? else {
-            return Err(RotationError::NotInArcaMode);
+    pub(crate) async fn arca_rotate_to(&self, new_key: &VaultKey, now_ms: u64) -> Result<(), crate::arca_rotation::RotationFailure> {
+        use crate::arca_rotation::{RotationError, RotationFailure};
+        let failed = |error: anyhow::Error| RotationFailure::stopped(None, format!("{error:#}"));
+        // Until `begin_epoch` writes, nothing is on disk: what goes wrong here is a refusal, not a stop half way. `sync_lock` waits
+        // `LOCK_WAIT` and then fails because another Warden process is still syncing: that one is `Busy` (close it, try again). The
+        // mode file and `arca_engine` (unreadable secrets, a logins folder that is a link or overlaps the vault, a store that cannot
+        // be opened) are not cured by closing a program: `NeedsRepair`, with the real error as the text.
+        let _one_sync_at_a_time = self.sync_lock().await.map_err(lock_refusal)?;
+        let Some(mode) = load_mode(&mode_path_for(&self.manifest_path)).map_err(open_refusal)? else {
+            return Err(RotationError::NotInArcaMode.into());
         };
-        let (engine, roots) = self.arca_engine(mode.secret_accepted, false).map_err(refused)?;
+        let (engine, roots) = self.arca_engine(mode.secret_accepted, false).map_err(open_refusal)?;
         let (_next, snapshot) = engine.begin_epoch(new_key, &roots, now_ms).await.map_err(rotation_error_of)?;
         let published = match snapshot {
             Snapshot::Created { id, .. } => id,
@@ -296,7 +298,7 @@ impl SyncEngine {
 
         let mut secrets = self.load_secrets().map_err(failed)?;
         secrets.vault_key = *new_key.export_bytes();
-        secrets.key_epoch = secrets.key_epoch.checked_add(1).ok_or_else(|| RotationError::Failed("there is no next key epoch".into()))?;
+        secrets.key_epoch = secrets.key_epoch.checked_add(1).ok_or_else(|| RotationFailure::from(RotationError::Failed("there is no next key epoch".into())))?;
         crate::manifest::save_secrets(&self.secrets_path, &secrets).map_err(failed)
     }
 
@@ -927,32 +929,55 @@ fn engine_failure(error: EngineError, what: &str) -> anyhow::Error {
     }
 }
 
+/// The sync lock could not be taken (another Warden process kept it for the whole wait): nothing was written, and closing that
+/// program and trying again is what resolves it.
+fn lock_refusal(error: anyhow::Error) -> crate::arca_rotation::RotationFailure {
+    crate::arca_rotation::RotationFailure::refused(crate::arca_rotation::Remedy::Busy, format!("{error:#}"))
+}
+
+/// The vault could not be opened before `begin_epoch` (the mode file, the secrets, the logins folder, the store): nothing was
+/// written, and neither another key nor closing a program cures it.
+fn open_refusal(error: anyhow::Error) -> crate::arca_rotation::RotationFailure {
+    crate::arca_rotation::RotationFailure::refused(crate::arca_rotation::Remedy::NeedsRepair, format!("{error:#}"))
+}
+
 /// How a `begin_epoch` error reaches the person. Only the errors `begin_epoch` returns **before its first write** are refusals
 /// (read in `Engine::begin_epoch`; its tests prove the store is unchanged for `KeyNotRotated`, `EpochOverflow`, `Diverged`,
 /// `Interrupted`, `Rollback` and `NeedsNewKey`, the rest is by reading the code); any other one (a store error, `StateNotSaved`) may come after the new
 /// manifest went out, so it stays `Failed`, which tells the person to resume with the same 24 words. Do not widen the refusal
 /// list without that proof: a wrong "nothing was changed" makes the person throw away a key that was already published.
-fn rotation_error_of(error: EngineError) -> crate::arca_rotation::RotationError {
-    use crate::arca_rotation::RotationError;
-    let wrote_nothing = matches!(
-        error,
-        EngineError::Object(arca_core::Error::KeyNotRotated | arca_core::Error::EpochOverflow)
-            | EngineError::Diverged { .. }
-            | EngineError::Rollback
-            | EngineError::Interrupted
-            | EngineError::IncompleteApply
-            | EngineError::CorruptJournal
-            | EngineError::CorruptState
-            | EngineError::Busy
-    );
+///
+/// Each refusal carries the `Remedy` that resolves it, because a new key cures only the first (`KeyNotRotated`): the others are
+/// about the folder, the storage or the arca's files, and the same trouble meets the next key too. `ClassEmptied` is a stop, not a
+/// refusal: `begin_epoch` returns it only when a manifest of the new epoch is already published (`prev` is `None` otherwise, so the
+/// class had no entries to lose), so a new key would meet that epoch (`NewerEpoch`); the way out is the same phrase, files back.
+fn rotation_error_of(error: EngineError) -> crate::arca_rotation::RotationFailure {
+    use crate::arca_rotation::{Remedy, RotationError, RotationFailure};
     if matches!(error, EngineError::NeedsNewKey { .. }) {
-        return RotationError::NewerEpoch;
+        return RotationError::NewerEpoch.into();
     }
-    let text = format!("{:#}", engine_failure(error, "starting the new key epoch"));
-    if wrote_nothing {
-        RotationError::Refused(text)
+    let (wrote_nothing, remedy) = match &error {
+        EngineError::Object(arca_core::Error::KeyNotRotated) => (true, Some(Remedy::SameKey)),
+        EngineError::Object(arca_core::Error::EpochOverflow) | EngineError::CorruptJournal | EngineError::CorruptState => (true, Some(Remedy::NeedsRepair)),
+        // An unreadable manifest is not joined by a sync: the cycle refuses to build on it ("cannot be read; refusing to build on
+        // them") and `merge` too. Only diverging tips are.
+        EngineError::Diverged { rejected, .. } if *rejected > 0 => (true, Some(Remedy::NeedsRepair)),
+        EngineError::Diverged { .. } | EngineError::Interrupted | EngineError::IncompleteApply => (true, Some(Remedy::SyncFirst)),
+        EngineError::Rollback => (true, Some(Remedy::StorageChanged)),
+        EngineError::Busy => (true, Some(Remedy::Busy)),
+        EngineError::ClassEmptied { .. } => (false, Some(Remedy::ClassEmptied)),
+        _ => (false, None),
+    };
+    // `engine_failure` says "this cycle did nothing; the next one tries again" for `Busy`: true for the sync loop, false here, where
+    // one call by the person is all there is and nobody tries again.
+    let text = if matches!(error, EngineError::Busy) {
+        "starting the new key epoch: another operation is using the vault's folder or the sync state".to_string()
     } else {
-        RotationError::Failed(text)
+        format!("{:#}", engine_failure(error, "starting the new key epoch"))
+    };
+    match (wrote_nothing, remedy) {
+        (true, Some(remedy)) => RotationFailure::refused(remedy, text),
+        (_, remedy) => RotationFailure::stopped(remedy, text),
     }
 }
 
@@ -980,23 +1005,32 @@ mod tests {
 
     #[test]
     fn only_the_errors_begin_epoch_returns_before_its_first_write_are_refusals() {
-        use crate::arca_rotation::RotationError;
+        use crate::arca_rotation::{Remedy, RotationError};
         // The refusals: arca-core `begin_epoch` returns each of them before `build_snapshot` puts anything (read in the code; its
         // tests cover `KeyNotRotated`, `EpochOverflow`, `Diverged`, `Interrupted`, `Rollback` and `NeedsNewKey`, not the others).
-        for before_any_write in [
-            EngineError::Object(arca_core::Error::KeyNotRotated),
-            EngineError::Object(arca_core::Error::EpochOverflow),
-            EngineError::Diverged { tips: 2, rejected: 0 },
-            EngineError::Rollback,
-            EngineError::Interrupted,
-            EngineError::IncompleteApply,
-            EngineError::CorruptJournal,
-            EngineError::CorruptState,
-            EngineError::Busy,
+        // Each one comes with what resolves it, because only the first is cured by another key.
+        for (before_any_write, remedy) in [
+            (EngineError::Object(arca_core::Error::KeyNotRotated), Remedy::SameKey),
+            (EngineError::Object(arca_core::Error::EpochOverflow), Remedy::NeedsRepair),
+            // Only diverging tips are joined by a sync (`merge`); an unreadable manifest blocks the merge and the snapshot alike
+            // (`arca_sync.rs`: "cannot be read; refusing to build on them"), so syncing cannot cure it.
+            (EngineError::Diverged { tips: 2, rejected: 0 }, Remedy::SyncFirst),
+            (EngineError::Diverged { tips: 3, rejected: 0 }, Remedy::SyncFirst),
+            (EngineError::Diverged { tips: 1, rejected: 3 }, Remedy::NeedsRepair),
+            (EngineError::Diverged { tips: 2, rejected: 1 }, Remedy::NeedsRepair),
+            (EngineError::Rollback, Remedy::StorageChanged),
+            (EngineError::Interrupted, Remedy::SyncFirst),
+            (EngineError::IncompleteApply, Remedy::SyncFirst),
+            (EngineError::CorruptJournal, Remedy::NeedsRepair),
+            (EngineError::CorruptState, Remedy::NeedsRepair),
+            (EngineError::Busy, Remedy::Busy),
         ] {
-            assert!(matches!(rotation_error_of(before_any_write.clone()), RotationError::Refused(_)), "{before_any_write:?}");
+            let failure = rotation_error_of(before_any_write.clone());
+            assert!(matches!(failure.error, RotationError::Refused(_)), "{before_any_write:?}");
+            assert_eq!(failure.remedy, Some(remedy), "{before_any_write:?}");
+            assert!(failure.error.to_string().contains(remedy.hint()), "the person is told what resolves it: {}", failure.error);
         }
-        assert_eq!(rotation_error_of(EngineError::NeedsNewKey { have: 1, found: 2 }), RotationError::NewerEpoch);
+        assert_eq!(rotation_error_of(EngineError::NeedsNewKey { have: 1, found: 2 }), RotationError::NewerEpoch.into());
         // Anything else can come from inside `build_snapshot`, after the blobs or the manifest went out: the person must resume with
         // the same 24 words, so none of these may read as "nothing was changed".
         for may_have_written in [
@@ -1006,9 +1040,39 @@ mod tests {
             EngineError::Io(std::io::ErrorKind::PermissionDenied),
             EngineError::MissingObject,
             EngineError::JournalTooLarge,
+            // an object error that is not one of the two refusals comes from inside `build_snapshot` (sealing, a manifest that does
+            // not fit the rules), after the blobs may be out
+            EngineError::Object(arca_core::Error::Decrypt),
+            EngineError::Object(arca_core::Error::Encrypt),
+            EngineError::Object(arca_core::Error::WrongKeyEpoch { found: 2, expected: 1 }),
+            EngineError::Object(arca_core::Error::InvalidManifest("too many files")),
         ] {
-            assert!(matches!(rotation_error_of(may_have_written.clone()), RotationError::Failed(_)), "{may_have_written:?}");
+            let failure = rotation_error_of(may_have_written.clone());
+            assert!(matches!(failure.error, RotationError::Failed(_)), "{may_have_written:?}");
+            assert_eq!(failure.remedy, None, "{may_have_written:?}");
         }
+    }
+
+    #[test]
+    fn a_busy_engine_in_a_rotation_does_not_promise_a_next_cycle_that_nobody_runs() {
+        use crate::arca_rotation::Remedy;
+        // `engine_failure` says "this cycle did nothing; the next one tries again", true for the sync loop. A rotation is one call by
+        // the person: nobody tries again, so the text must not say so.
+        let text = rotation_error_of(EngineError::Busy).error.to_string();
+        assert!(!text.contains("next one tries again"), "{text}");
+        assert!(!text.contains("this cycle did nothing"), "{text}");
+        assert!(text.contains(Remedy::Busy.hint()), "{text}");
+    }
+
+    #[test]
+    fn a_class_emptied_by_a_resume_is_a_stop_not_a_refusal_and_does_not_send_to_a_new_key() {
+        use crate::arca_rotation::{Remedy, RotationError};
+        // `ClassEmptied` is only reachable when a manifest of the new epoch is already published (`begin_epoch` builds on `None`
+        // otherwise, so `had` is 0): the stop is real, and the way out is the same phrase with the files back.
+        let failure = rotation_error_of(EngineError::ClassEmptied { class: Class::Vault, had: 3 });
+        assert!(matches!(failure.error, RotationError::Failed(_)), "{failure:?}");
+        assert_eq!(failure.remedy, Some(Remedy::ClassEmptied));
+        assert!(failure.error.to_string().contains("SAME 24 words"), "{}", failure.error);
     }
 
     #[test]
@@ -1457,6 +1521,107 @@ mod tests {
         let after = secrets_of(&device);
         assert_eq!((after.vault_key, after.key_epoch), (old.vault_key, 0));
         assert_eq!(epochs_of(&manifests_in_store(&device).await), vec![0]);
+    }
+
+    async fn confirm_detailed_with(pending: PendingRotation, device: &Device, words: &[String]) -> Result<(), crate::arca_rotation::RotationFailure> {
+        let refs: Vec<&str> = words.iter().map(String::as_str).collect();
+        pending.confirm_detailed(&refs, true, &device.engine, 100).await
+    }
+
+    #[tokio::test]
+    async fn resuming_a_change_that_already_finished_is_refused_as_the_key_in_use_and_writes_nothing() {
+        use crate::arca_rotation::Remedy;
+        let device = device_in_arca_mode("rotate-resume-finished").await;
+        let pending = PendingRotation::generate().unwrap();
+        let shown = pending.phrase().unwrap().expose().to_string();
+        let words = asked_words(&pending);
+        confirm_with(pending, &device, &words, true).await.unwrap();
+        let finished = secrets_of(&device);
+
+        // The person types the 24 words again (they were not sure it worked): the key is already the one in use.
+        let again = PendingRotation::from_phrase(&shown).unwrap();
+        let failure = confirm_detailed_with(again, &device, &[]).await.unwrap_err();
+        assert!(matches!(failure.error, RotationError::Refused(_)), "{failure:?}");
+        assert_eq!(failure.remedy, Some(Remedy::SameKey));
+        let after = secrets_of(&device);
+        assert_eq!((after.vault_key, after.key_epoch), (finished.vault_key, 1));
+        assert_eq!(epochs_of(&manifests_in_store(&device).await), vec![0, 1]);
+    }
+
+    #[tokio::test]
+    async fn a_sync_lock_that_another_process_keeps_is_a_busy_refusal_not_a_repair() {
+        use crate::arca_rotation::{Remedy, RotationError};
+        use crate::lock::SyncLock;
+        let device = device_in_arca_mode("rotate-lock-held").await;
+        let lock_path = crate::lock::lock_path_for(&device.base.join("sync_manifest.json"));
+        let _held_by_the_other_program = SyncLock::acquire(&lock_path).await.unwrap();
+        // `sync_lock` waits `LOCK_WAIT` (10 minutes) and then fails with this very error: here the wait is short, and the error is the
+        // one `arca_rotate_to` turns into the refusal (it takes the failure of `sync_lock` through `lock_refusal`).
+        let error = SyncLock::acquire_with_timeout(&lock_path, std::time::Duration::from_millis(300)).await.unwrap_err();
+        assert!(error.to_string().contains("another Warden process is still syncing this vault"), "{error:#}");
+
+        let failure = lock_refusal(error);
+
+        assert!(matches!(failure.error, RotationError::Refused(_)), "{failure:?}");
+        assert_eq!(failure.remedy, Some(Remedy::Busy), "{failure:?}");
+        assert!(failure.error.to_string().contains(Remedy::Busy.hint()), "{}", failure.error);
+        // and what is not the lock (the mode file, `arca_engine`) stays the repair kind
+        assert_eq!(open_refusal(anyhow::anyhow!("secrets are not json")).remedy, Some(Remedy::NeedsRepair));
+    }
+
+    #[tokio::test]
+    async fn a_vault_whose_secrets_cannot_be_read_is_refused_as_needing_repair_not_as_a_busy_program_and_writes_nothing() {
+        use crate::arca_rotation::Remedy;
+        let device = device_in_arca_mode("rotate-secrets-unreadable").await;
+        // `arca_engine` cannot load the secrets: the closure before `begin_epoch` refuses, and nothing is on disk yet. Another
+        // program holding the vault is not what is wrong, so "close it and try again" would be false.
+        std::fs::write(secrets_path_of(&device), b"{ this is not json").unwrap();
+        let before = std::fs::read(secrets_path_of(&device)).unwrap();
+        let pending = PendingRotation::generate().unwrap();
+        let words = asked_words(&pending);
+
+        let failure = confirm_detailed_with(pending, &device, &words).await.unwrap_err();
+
+        assert!(matches!(failure.error, RotationError::Refused(_)), "{failure:?}");
+        assert_eq!(failure.remedy, Some(Remedy::NeedsRepair), "{failure:?}");
+        let text = failure.error.to_string();
+        assert!(text.contains(Remedy::NeedsRepair.hint()), "{text}");
+        assert!(!text.contains("another program"), "{text}");
+        assert_eq!(std::fs::read(secrets_path_of(&device)).unwrap(), before);
+        assert_eq!(epochs_of(&manifests_in_store(&device).await), vec![0]);
+    }
+
+    #[tokio::test]
+    async fn a_resume_over_an_emptied_class_stops_with_the_same_phrase_as_the_way_out_and_finishes_once_the_files_are_back() {
+        use crate::arca_rotation::Remedy;
+        let device = device_in_arca_mode("rotate-class-emptied").await;
+        let pending = PendingRotation::generate().unwrap();
+        let shown = pending.phrase().unwrap().expose().to_string();
+        let words = asked_words(&pending);
+        // The first try stops after publishing the new manifest (the secrets cannot be saved).
+        std::fs::create_dir(device.base.join("sync_secrets.tmp")).unwrap();
+        assert!(matches!(confirm_with(pending, &device, &words, true).await, Err(RotationError::Failed(_))));
+        std::fs::remove_dir(device.base.join("sync_secrets.tmp")).unwrap();
+        // Then the vault folder is recreated empty: the manifest already published has `note.md`, the folder does not.
+        std::fs::remove_file(device.base.join("vault/note.md")).unwrap();
+
+        // Another key does not cure it: it meets the epoch already published, and says nothing about the folder.
+        assert_eq!(rotate(&device).await, Err(RotationError::NewerEpoch));
+
+        let resumed = PendingRotation::from_phrase(&shown).unwrap();
+        let failure = confirm_detailed_with(resumed, &device, &[]).await.unwrap_err();
+        assert!(matches!(failure.error, RotationError::Failed(_)), "{failure:?}");
+        assert_eq!(failure.remedy, Some(Remedy::ClassEmptied));
+        assert_eq!(secrets_of(&device).key_epoch, 0, "nothing was saved");
+        assert_eq!(epochs_of(&manifests_in_store(&device).await), vec![0, 1]);
+
+        // The exit the text gives: put the files back and finish with the same 24 words.
+        std::fs::write(device.base.join("vault/note.md"), b"hello").unwrap();
+        confirm_with(PendingRotation::from_phrase(&shown).unwrap(), &device, &[], true).await.unwrap();
+        let saved = secrets_of(&device);
+        assert_eq!(saved.key_epoch, 1);
+        assert_eq!(VaultKey::from_bytes(saved.vault_key).to_phrase().unwrap().expose(), shown);
+        assert_eq!(epochs_of(&manifests_in_store(&device).await), vec![0, 1]);
     }
 
     #[test]

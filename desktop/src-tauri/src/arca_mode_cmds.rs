@@ -346,23 +346,29 @@ impl std::fmt::Debug for RotationStart {
 
 /// Why a confirmation failed, for the screen. `partial` is true only when the rotation may have written something before it stopped
 /// (`RotationError::Failed`): then the person has to **resume with the same 24 words**, not start a new key (the core finishes a
-/// half-way stop only with the same key). Every other refusal happens before the first write.
+/// half-way stop only with the same key). Every other refusal happens before the first write of that attempt.
+///
+/// `newer_epoch` is true for `RotationError::NewerEpoch`. On a **resume** it suggests that the phrase typed may not be the one of
+/// the rotation that stopped (that one would have been adopted), so the screen must not say that an earlier attempt published it.
+/// It does not prove it: `Engine::load` answers `NeedsNewKey` for any object of a greater epoch that this device did not
+/// acknowledge, and a forged object (its header epoch is not authenticated) gives the same error with the right phrase.
 #[derive(Serialize, Debug, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct RotationFailure {
     pub partial: bool,
     pub message: String,
+    pub newer_epoch: bool,
 }
 
 impl RotationFailure {
     fn nothing_written(message: impl Into<String>) -> Self {
-        Self { partial: false, message: message.into() }
+        Self { partial: false, message: message.into(), newer_epoch: false }
     }
 }
 
 impl From<RotationError> for RotationFailure {
     fn from(error: RotationError) -> Self {
-        Self { partial: matches!(error, RotationError::Failed(_)), message: error.to_string() }
+        Self { partial: matches!(error, RotationError::Failed(_)), message: error.to_string(), newer_epoch: matches!(error, RotationError::NewerEpoch) }
     }
 }
 
@@ -971,9 +977,36 @@ mod tests {
     }
 
     #[test]
+    fn an_emptied_class_is_a_stop_that_opens_the_resume_with_its_way_out_in_the_message() {
+        use warden_sync::arca_rotation::Remedy;
+        // `ClassEmptied` comes as `Failed` with its remedy in the text: `partial` is what opens the resume, with the same 24 words.
+        let stopped = RotationFailure::from(RotationError::Failed(Remedy::ClassEmptied.hint().to_string()));
+        assert!(stopped.partial, "{stopped:?}");
+        assert!(stopped.message.contains("SAME 24 words"), "{stopped:?}");
+        assert!(!stopped.newer_epoch, "{stopped:?}");
+    }
+
+    #[test]
+    fn only_a_newer_epoch_says_so_because_on_a_resume_it_proves_the_phrase_is_not_the_published_one() {
+        let newer = RotationFailure::from(RotationError::NewerEpoch);
+        assert!(newer.newer_epoch && !newer.partial, "{newer:?}");
+        for other in [
+            RotationError::NotDeclared,
+            RotationError::WordMismatch,
+            RotationError::BadPhrase,
+            RotationError::NotInArcaMode,
+            RotationError::Refused("same key".to_string()),
+            RotationError::Failed("disk full".to_string()),
+        ] {
+            assert!(!RotationFailure::from(other.clone()).newer_epoch, "{other:?}");
+        }
+        assert!(!RotationFailure::nothing_written("no rotation was started").newer_epoch);
+    }
+
+    #[test]
     fn the_failure_reaches_the_screen_in_camel_case_and_the_start_never_prints_the_phrase() {
-        let failure = RotationFailure { partial: true, message: "x".to_string() };
-        assert_eq!(serde_json::to_string(&failure).unwrap(), r#"{"partial":true,"message":"x"}"#);
+        let failure = RotationFailure { partial: true, message: "x".to_string(), newer_epoch: false };
+        assert_eq!(serde_json::to_string(&failure).unwrap(), r#"{"partial":true,"message":"x","newerEpoch":false}"#);
         let start = RotationStart { phrase: vec!["abandon".to_string()], positions: vec![1] };
         assert!(!format!("{start:?}").contains("abandon"), "the words must not reach a log");
     }
