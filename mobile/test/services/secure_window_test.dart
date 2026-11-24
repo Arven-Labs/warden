@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mobile/services/secure_window.dart';
@@ -11,6 +13,32 @@ void main() {
   tearDown(() => messenger.setMockMethodCallHandler(channel, null));
 
   group('PlatformSecureWindow', () {
+    testWidgets('a platform that never answers does not hold the caller forever: it gives up after a couple of seconds and does not throw', (tester) async {
+      final silence = Completer<Object?>();
+      var asked = 0;
+      messenger.setMockMethodCallHandler(channel, (call) {
+        asked++;
+        return silence.future;
+      });
+      try {
+        var enabled = false;
+        var disabled = false;
+        unawaited(const PlatformSecureWindow().enable().then((_) => enabled = true));
+        unawaited(const PlatformSecureWindow().disable().then((_) => disabled = true));
+        await tester.pump(const Duration(milliseconds: 500));
+
+        expect(asked, 2, reason: 'premise: both requests reached the channel and nobody answered');
+        expect(enabled || disabled, isFalse, reason: 'premise: still waiting well before the limit');
+
+        await tester.pump(const Duration(seconds: 3));
+
+        expect(enabled, isTrue, reason: 'enable returned without an answer');
+        expect(disabled, isTrue, reason: 'disable returned without an answer');
+      } finally {
+        if (!silence.isCompleted) silence.complete(null);
+      }
+    });
+
     test('enable and disable reach the Android side as "enable" and "disable" on the secure_window channel', () async {
       final calls = <String>[];
       messenger.setMockMethodCallHandler(channel, (call) async {

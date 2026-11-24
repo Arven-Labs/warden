@@ -69,6 +69,9 @@ class _FakeSecureWindow implements SecureWindow {
   final calls = <String>[];
   Completer<void>? enableGate;
 
+  /// `enable` fails after the request was recorded: what a platform that took the request and then broke would do.
+  bool enableThrows = false;
+
   /// The window is protected when the last thing asked was `enable`.
   bool get protected => calls.isNotEmpty && calls.last == 'enable';
 
@@ -77,6 +80,7 @@ class _FakeSecureWindow implements SecureWindow {
     calls.add('enable');
     final gate = enableGate;
     if (gate != null) await gate.future;
+    if (enableThrows) throw StateError('the platform broke after taking the request');
   }
 
   @override
@@ -248,10 +252,11 @@ void main() {
       expect(window.protected, isFalse);
     });
 
-    testWidgets('a confirm that fails drops the phrase, and the window is released with it, wherever the screen goes next', (tester) async {
-      for (final (kind, nextKey) in [
-        (bridge_rot.ArcaRotationErrorKind.wordMismatch, 'arca-rotation-begin'),
-        (bridge_rot.ArcaRotationErrorKind.failed, 'arca-rotation-resume-field'),
+    testWidgets('a confirm that fails drops the phrase: back to the start the window is released, into "resume" it stays protected', (tester) async {
+      // `failed` goes on in "resume", where the person types the 24 words in a visible field: no gap in the protection on the way there.
+      for (final (kind, nextKey, calls) in [
+        (bridge_rot.ArcaRotationErrorKind.wordMismatch, 'arca-rotation-begin', ['enable', 'disable']),
+        (bridge_rot.ArcaRotationErrorKind.failed, 'arca-rotation-resume-field', ['enable']),
       ]) {
         final window = _FakeSecureWindow();
         final backend = _Backend()..confirmFailure = _failure(kind);
@@ -262,21 +267,102 @@ void main() {
         await _tap(tester, 'arca-rotation-confirm');
         await _tap(tester, 'arca-rotation-confirm-yes');
 
-        expect(find.byKey(Key(nextKey)), findsOneWidget, reason: '$kind: premise, the screen went to the step without the phrase');
-        expect(find.text('1. abandon'), findsNothing, reason: '$kind');
-        expect(window.calls, ['enable', 'disable'], reason: '$kind');
-        expect(window.protected, isFalse, reason: '$kind');
+        expect(find.byKey(Key(nextKey)), findsOneWidget, reason: '$kind: premise, the screen went to the expected step');
+        expect(find.text('1. abandon'), findsNothing, reason: '$kind: the phrase is gone either way');
+        expect(window.calls, calls, reason: '$kind');
+        expect(window.protected, calls.last == 'enable', reason: '$kind');
       }
     });
 
-    testWidgets('the steps without the phrase never ask for it', (tester) async {
+    testWidgets('idle asks for nothing; opening "resume" protects the window, and leaving it for idle releases it', (tester) async {
       final window = _FakeSecureWindow();
       await _open(tester, _Backend(), window);
+      expect(window.calls, isEmpty, reason: 'idle');
 
       await _tap(tester, 'arca-rotation-resume-open');
 
       expect(find.byKey(const Key('arca-rotation-resume-field')), findsOneWidget, reason: 'premise: the resume step is on screen');
-      expect(window.calls, isEmpty);
+      expect(window.calls, ['enable'], reason: 'the 24 words are typed here, in a field that shows them');
+      expect(window.protected, isTrue);
+
+      await _tap(tester, 'arca-rotation-cancel');
+
+      expect(find.byKey(const Key('arca-rotation-begin')), findsOneWidget, reason: 'premise: back to idle');
+      expect(window.calls, ['enable', 'disable']);
+      expect(window.protected, isFalse);
+    });
+
+    testWidgets('leaving the "resume" step by going back releases the window', (tester) async {
+      final window = _FakeSecureWindow();
+      await _open(tester, _Backend(), window);
+      await _tap(tester, 'arca-rotation-resume-open');
+      expect(window.protected, isTrue);
+
+      await tester.state<NavigatorState>(find.byType(Navigator).first).maybePop();
+      await _settle(tester);
+
+      expect(find.byType(ArcaRotationScreen), findsNothing, reason: 'premise: the screen was left');
+      expect(window.calls, ['enable', 'disable']);
+    });
+
+    testWidgets('an enable that fails after it was asked does not leave the window protected: it is released when the screen goes', (tester) async {
+      final window = _FakeSecureWindow()..enableThrows = true;
+      await _open(tester, _Backend(), window);
+
+      await _tap(tester, 'arca-rotation-begin');
+
+      expect(window.calls.first, 'enable', reason: 'premise: the request was made before it failed');
+      expect(find.text(arcaRotationErrorText(en, bridge_rot.ArcaRotationErrorKind.other)), findsOneWidget, reason: 'premise: the failure reached the screen, with no phrase');
+      expect(find.text('1. abandon'), findsNothing);
+
+      await tester.state<NavigatorState>(find.byType(Navigator).first).maybePop();
+      await _settle(tester);
+
+      expect(find.byType(ArcaRotationScreen), findsNothing, reason: 'premise: the screen was left');
+      expect(window.calls, ['enable', 'disable'], reason: 'released exactly once, whichever of the two exits did it');
+      expect(window.protected, isFalse);
+    });
+
+    testWidgets('the screen replaced while the window is still being protected: released, and no phrase ever drawn', (tester) async {
+      final window = _FakeSecureWindow()..enableGate = Completer<void>();
+      await tester.pumpWidget(testApp(home: ArcaRotationScreen(backend: _Backend(), secureWindow: window)));
+      await tester.tap(find.byKey(const Key('arca-rotation-begin')));
+      await _settle(tester);
+      expect(window.calls, ['enable'], reason: 'premise: the request is in flight');
+
+      await tester.pumpWidget(testApp(home: const SizedBox()));
+      window.enableGate!.complete();
+      await _settle(tester);
+
+      expect(window.calls, ['enable', 'disable'], reason: 'one release, and nothing asked again after the screen was gone');
+      expect(window.protected, isFalse);
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('a platform that never answers does not freeze the screen: after the wait it shows the phrase and is free again', (tester) async {
+      final messenger = TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+      const channel = MethodChannel(secureWindowChannelName);
+      final silence = Completer<Object?>();
+      messenger.setMockMethodCallHandler(channel, (call) => silence.future);
+      addTearDown(() => messenger.setMockMethodCallHandler(channel, null));
+      try {
+        await _open(tester, _Backend(), null);
+
+        await tester.tap(find.byKey(const Key('arca-rotation-begin')));
+        await tester.pump(const Duration(milliseconds: 100));
+        expect(find.text('1. abandon'), findsNothing, reason: 'premise: still waiting for the platform, so the window is not yet known to be safe');
+        expect(find.byType(LinearProgressIndicator), findsOneWidget, reason: 'premise: busy');
+
+        await tester.pump(const Duration(seconds: 3));
+        await tester.pump();
+
+        expect(find.text('1. abandon'), findsOneWidget, reason: 'fail-open: the phrase shows with its own warning');
+        expect(find.byType(LinearProgressIndicator), findsNothing, reason: 'not busy any more: the back button works again');
+        expect(find.byKey(const Key('arca-rotation-cancel')), findsOneWidget);
+        expect(tester.takeException(), isNull);
+      } finally {
+        if (!silence.isCompleted) silence.complete(null);
+      }
     });
 
     testWidgets('going to the background keeps the window protected (the recents thumbnail), and coming back asks again', (tester) async {
