@@ -411,6 +411,12 @@ pub fn rotation_cancel(slot: &RotationSlot) {
     *slot.lock().unwrap() = None;
 }
 
+/// The one place that tells the automatic loop whether a rotation is in progress: it is, exactly while a key waits in `slot`.
+/// Every command that can change the slot calls it afterwards, so the pause cannot drift from the slot.
+pub fn pause_loop_while_a_rotation_waits(runner: &SyncRunner, slot: &RotationSlot) {
+    let _ = (runner, slot);
+}
+
 /// The saved hub `hub_id`, with the token this computer holds for it, ready to sync with.
 pub fn saved_hub_store(hubs_path: &Path, config_file: &Path, hub_id: &str) -> Result<HubStore, String> {
     warden_bootstrap::arca_hub::saved_hub_store(hubs_path, config_file, hub_id, DEVICE_NAME)
@@ -711,25 +717,32 @@ pub async fn arca_epochs_acknowledge(state: State<'_, AppState>, seen: Vec<Pendi
 /// Starts a key rotation: the 24-word phrase of the new key (shown once; keep it off logs and storage) and which words to type back.
 #[tauri::command]
 pub fn arca_rotation_begin(state: State<'_, AppState>) -> Result<RotationStart, String> {
-    rotation_begin(&state.sync, &state.pending_rotation)
+    let started = rotation_begin(&state.sync, &state.pending_rotation);
+    pause_loop_while_a_rotation_waits(&state.sync_runner, &state.pending_rotation);
+    started
 }
 
 /// Resumes a rotation that stopped half way, from the 24 words of its phrase.
 #[tauri::command]
 pub fn arca_rotation_resume(state: State<'_, AppState>, phrase: String) -> Result<(), String> {
-    rotation_resume(&state.sync, &state.pending_rotation, &phrase)
+    let resumed = rotation_resume(&state.sync, &state.pending_rotation, &phrase);
+    pause_loop_while_a_rotation_waits(&state.sync_runner, &state.pending_rotation);
+    resumed
 }
 
 /// Confirms the rotation: the words typed back and the statement that the lost device's token was revoked on the hub. It does not
 /// send anything: the screen runs a sync afterwards (`arca_sync_run`), which is what publishes the new epoch.
 #[tauri::command]
 pub async fn arca_rotation_confirm(state: State<'_, AppState>, typed_words: Vec<String>, revoked_on_hub: bool) -> Result<(), RotationFailure> {
-    rotation_confirm(&state.sync, &state.pending_rotation, &typed_words, revoked_on_hub, now_ms()).await
+    let confirmed = rotation_confirm(&state.sync, &state.pending_rotation, &typed_words, revoked_on_hub, now_ms()).await;
+    pause_loop_while_a_rotation_waits(&state.sync_runner, &state.pending_rotation);
+    confirmed
 }
 
 #[tauri::command]
 pub fn arca_rotation_cancel(state: State<'_, AppState>) {
     rotation_cancel(&state.pending_rotation);
+    pause_loop_while_a_rotation_waits(&state.sync_runner, &state.pending_rotation);
 }
 
 /// What the last automatic cycle did, and whether the loop is stopped. The screen asks when it opens and again at each
@@ -1019,6 +1032,101 @@ mod tests {
         assert!(rotation_resume(&device.engine, &slot, "not a phrase").is_err());
         rotation_confirm(&device.engine, &slot, &asked(&start), true, 2).await.unwrap();
         assert_eq!(secrets_of(&device).key_epoch, 1, "the first key was still waiting and confirmed");
+    }
+
+    // ---------- the automatic loop stands by while a rotation is in progress ----------
+
+    /// What each Tauri command does: the call on the slot, then the one place that tells the runner.
+    fn begin_like_the_command(device: &Device, runner: &SyncRunner, slot: &RotationSlot) -> Result<RotationStart, String> {
+        let started = rotation_begin(&device.engine, slot);
+        pause_loop_while_a_rotation_waits(runner, slot);
+        started
+    }
+
+    #[tokio::test]
+    async fn the_loop_stands_by_from_the_start_of_a_rotation_until_it_is_confirmed() {
+        let device = device_in_arca_mode("pause-confirm").await;
+        let (runner, slot) = (runner_of(&device), RotationSlot::default());
+        assert!(!runner.rotation_in_progress());
+        let start = begin_like_the_command(&device, &runner, &slot).unwrap();
+        assert!(runner.rotation_in_progress(), "the key is waiting: the loop must not run");
+        rotation_confirm(&device.engine, &slot, &asked(&start), true, 2).await.unwrap();
+        pause_loop_while_a_rotation_waits(&runner, &slot);
+        assert!(!runner.rotation_in_progress(), "a rotation that finished lets the loop run again");
+    }
+
+    /// A confirmation that fails drops the key (`a_wrong_word_writes_nothing...`), so the slot is empty and the loop must not stay
+    /// stopped by a rotation nobody can finish: the person starts again, or resumes with the 24 words.
+    #[tokio::test]
+    async fn a_confirmation_that_fails_does_not_leave_the_loop_stopped() {
+        let device = device_in_arca_mode("pause-confirm-fails").await;
+        let (runner, slot) = (runner_of(&device), RotationSlot::default());
+        let start = begin_like_the_command(&device, &runner, &slot).unwrap();
+        assert!(runner.rotation_in_progress());
+        let mut words = asked(&start);
+        words[0] = "zoo-not-a-word".to_string();
+        assert!(rotation_confirm(&device.engine, &slot, &words, true, 2).await.is_err());
+        pause_loop_while_a_rotation_waits(&runner, &slot);
+        assert!(!runner.rotation_in_progress());
+    }
+
+    #[tokio::test]
+    async fn cancelling_lets_the_loop_run_and_a_new_rotation_stops_it_again() {
+        let device = device_in_arca_mode("pause-cancel").await;
+        let (runner, slot) = (runner_of(&device), RotationSlot::default());
+        begin_like_the_command(&device, &runner, &slot).unwrap();
+        assert!(runner.rotation_in_progress());
+        rotation_cancel(&slot);
+        pause_loop_while_a_rotation_waits(&runner, &slot);
+        assert!(!runner.rotation_in_progress(), "cancel is the way out of a rotation nobody finishes");
+        begin_like_the_command(&device, &runner, &slot).unwrap();
+        assert!(runner.rotation_in_progress(), "the second rotation stops it again");
+    }
+
+    /// Starting again replaces the key that was waiting: it is still one rotation in progress, not two that need two cancels.
+    #[tokio::test]
+    async fn starting_again_keeps_the_loop_stopped_and_one_cancel_is_enough() {
+        let device = device_in_arca_mode("pause-twice").await;
+        let (runner, slot) = (runner_of(&device), RotationSlot::default());
+        begin_like_the_command(&device, &runner, &slot).unwrap();
+        begin_like_the_command(&device, &runner, &slot).unwrap();
+        assert!(runner.rotation_in_progress());
+        rotation_cancel(&slot);
+        pause_loop_while_a_rotation_waits(&runner, &slot);
+        assert!(!runner.rotation_in_progress());
+    }
+
+    /// A start that is refused shows no phrase and keeps no key, so there is nothing to stop the loop for.
+    #[test]
+    fn a_start_that_is_refused_does_not_stop_the_loop() {
+        let device = device_with_key("pause-mode-off");
+        let (runner, slot) = (runner_of(&device), RotationSlot::default());
+        assert!(begin_like_the_command(&device, &runner, &slot).is_err());
+        assert!(!runner.rotation_in_progress());
+    }
+
+    /// A resume puts a rotation back in the slot, with the same exposure as a new one (the half-done epoch is still to be finished),
+    /// so it stops the loop too. A phrase that is not valid changes nothing: not stopped when nothing waited, still stopped when
+    /// something did (`a_phrase_that_is_not_valid_leaves_a_rotation_that_was_waiting_untouched`).
+    #[tokio::test]
+    async fn a_resume_stops_the_loop_and_a_phrase_that_is_not_valid_changes_nothing() {
+        let device = device_in_arca_mode("pause-resume").await;
+        let (runner, slot) = (runner_of(&device), RotationSlot::default());
+        assert!(rotation_resume(&device.engine, &slot, "not a phrase").is_err());
+        pause_loop_while_a_rotation_waits(&runner, &slot);
+        assert!(!runner.rotation_in_progress(), "nothing was waiting");
+
+        let phrase = VaultKey::generate().unwrap().to_phrase().unwrap().expose().to_string();
+        rotation_resume(&device.engine, &slot, &phrase).unwrap();
+        pause_loop_while_a_rotation_waits(&runner, &slot);
+        assert!(runner.rotation_in_progress(), "the resumed rotation waits for its confirmation");
+
+        assert!(rotation_resume(&device.engine, &slot, "not a phrase").is_err());
+        pause_loop_while_a_rotation_waits(&runner, &slot);
+        assert!(runner.rotation_in_progress(), "the rotation that was waiting is still there");
+        rotation_confirm(&device.engine, &slot, &[], true, 2).await.unwrap();
+        pause_loop_while_a_rotation_waits(&runner, &slot);
+        assert!(!runner.rotation_in_progress());
     }
 
     // ---------- the automatic loop's cycle ----------

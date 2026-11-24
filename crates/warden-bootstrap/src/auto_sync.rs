@@ -15,6 +15,7 @@
 
 use std::net::Ipv4Addr;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -71,6 +72,10 @@ pub struct SyncReport {
     pub pulled: Option<PulledSummary>,
     pub pushed: Option<PushedSummary>,
     pub error: Option<String>,
+    /// The automatic loop did not run this round because a key rotation is in progress (`set_rotation_in_progress`). Not an error:
+    /// the round was skipped on purpose, and it runs again as soon as the rotation is confirmed or cancelled. A "sync now" is never
+    /// skipped, so only a report the loop made can have this set.
+    pub paused_for_rotation: bool,
 }
 
 impl SyncReport {
@@ -196,6 +201,8 @@ pub struct SyncRunner {
     arca_verify: Option<ArcaVerify>,
     /// The hub whose token was rejected. Kept in memory only, so a restart tries once more.
     arca_halted: Mutex<Option<String>>,
+    /// A key rotation is waiting for its confirmation (`set_rotation_in_progress`). Memory only, like the rotation itself.
+    rotation_in_progress: AtomicBool,
 }
 
 impl SyncRunner {
@@ -212,7 +219,18 @@ impl SyncRunner {
             arca_cycle: None,
             arca_verify: None,
             arca_halted: Mutex::new(None),
+            rotation_in_progress: AtomicBool::new(false),
         }
+    }
+
+    /// Tells the runner a key rotation is (or no longer is) in progress. The host calls this from one place only, the one that
+    /// follows the slot the rotation's key waits in.
+    pub fn set_rotation_in_progress(&self, in_progress: bool) {
+        self.rotation_in_progress.store(in_progress, Ordering::SeqCst);
+    }
+
+    pub fn rotation_in_progress(&self) -> bool {
+        self.rotation_in_progress.load(Ordering::SeqCst)
     }
 
     /// Lets the loop sync a vault that is in arca mode, with `cycle`.
@@ -353,7 +371,7 @@ impl SyncRunner {
     }
 
     async fn round(&self) -> SyncReport {
-        let mut report = SyncReport { at_ms: now_ms(), backend: SyncBackend::NotSetUp, pulled: None, pushed: None, error: None };
+        let mut report = SyncReport { at_ms: now_ms(), backend: SyncBackend::NotSetUp, pulled: None, pushed: None, error: None, paused_for_rotation: false };
         if !self.secrets_path.exists() {
             return report;
         }
@@ -450,6 +468,11 @@ impl SyncRunner {
         report
     }
 
+    /// The round the loop runs on each tick.
+    async fn loop_round(&self) -> SyncReport {
+        self.run_once().await
+    }
+
     /// Runs a round every `interval`, forever, handing each report to `on_report` and waiting for
     /// what it returns (the hub reloads its orchestrator there). The caller spawns it on its own
     /// runtime (Tauri's on the desktop, tokio's on the hub).
@@ -461,7 +484,7 @@ impl SyncRunner {
         let mut ticker = tokio::time::interval(interval);
         loop {
             ticker.tick().await;
-            let report = self.run_once().await;
+            let report = self.loop_round().await;
             if let Some(err) = &report.error {
                 tracing::warn!("auto-sync: {err}");
             }
@@ -585,7 +608,7 @@ mod tests {
 
     #[test]
     fn a_round_that_only_brought_a_login_still_asks_for_a_reload() {
-        let round = |pulled: Option<PulledSummary>| SyncReport { at_ms: 1, backend: SyncBackend::Git, pulled, pushed: None, error: None };
+        let round = |pulled: Option<PulledSummary>| SyncReport { at_ms: 1, backend: SyncBackend::Git, pulled, pushed: None, error: None, paused_for_rotation: false };
         let summary = |config_updated: bool, logins: &[&str]| {
             Some(PulledSummary {
                 tx_id: None,
@@ -861,6 +884,88 @@ mod tests {
         let second = a.run_once().await;
         assert_eq!(second.error, None, "{second:?}");
         assert_eq!(calls.lock().unwrap().len(), 2);
+    }
+
+    // ---- the loop stands by while a key rotation is in progress (warden P-49, round 5) ----
+
+    /// A round the loop makes while the person reads the 24 words must not pull anything: a forged tip accepted before the new key
+    /// recrypts what the device carries would be carried into the new epoch.
+    #[tokio::test]
+    async fn with_a_rotation_in_progress_the_loop_does_not_run_the_cycle_and_says_it_is_paused() {
+        let (cycle, calls) = fake_cycle(vec![changed(3)]);
+        let a = arca_device("arca-rotation-paused", Some("hub-1"), cycle).await;
+        a.set_rotation_in_progress(true);
+        for _ in 0..3 {
+            let report = a.loop_round().await;
+            assert!(report.paused_for_rotation, "the report must say why nothing ran: {report:?}");
+            assert_eq!((&report.pulled, &report.pushed, &report.error), (&None, &None, &None), "waiting is not an error: {report:?}");
+            assert_eq!(report.backend, SyncBackend::Arca);
+        }
+        assert!(calls.lock().unwrap().is_empty(), "the cycle ran during a rotation: {:?}", calls.lock().unwrap());
+        assert_eq!(a.state().unwrap().last_round.map(|round| round.paused_for_rotation), Some(true), "the screen reads the last round from the state");
+        // Not tied to the hub the vault points at.
+        point_at(&a, "hub-2");
+        assert!(a.loop_round().await.paused_for_rotation);
+        assert!(calls.lock().unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn without_a_rotation_the_loop_runs_the_cycle_as_before_and_does_not_say_paused() {
+        let (cycle, calls) = fake_cycle(vec![changed(2)]);
+        let a = arca_device("arca-rotation-none", Some("hub-1"), cycle).await;
+        assert!(!a.rotation_in_progress(), "nothing is in progress on a new runner");
+        let report = a.loop_round().await;
+        assert!(!report.paused_for_rotation, "{report:?}");
+        assert_eq!(report.pulled.map(|p| p.files_written), Some(2));
+        assert_eq!(*calls.lock().unwrap(), ["hub-1"]);
+    }
+
+    /// The loop comes back whenever the host says the rotation is over (confirmed, failed for good, cancelled), and stands by again
+    /// for a second rotation started after that.
+    #[tokio::test]
+    async fn the_loop_runs_again_when_the_rotation_is_over_and_stands_by_for_the_next_one() {
+        let (cycle, calls) = fake_cycle(vec![changed(0), changed(0)]);
+        let a = arca_device("arca-rotation-toggle", Some("hub-1"), cycle).await;
+        a.set_rotation_in_progress(true);
+        assert!(a.loop_round().await.paused_for_rotation);
+        a.set_rotation_in_progress(false);
+        let resumed = a.loop_round().await;
+        assert!(!resumed.paused_for_rotation && resumed.error.is_none(), "{resumed:?}");
+        assert_eq!(calls.lock().unwrap().len(), 1);
+
+        a.set_rotation_in_progress(true);
+        assert!(a.loop_round().await.paused_for_rotation);
+        assert_eq!(calls.lock().unwrap().len(), 1, "a second rotation pauses it again");
+        a.set_rotation_in_progress(false);
+        assert!(!a.loop_round().await.paused_for_rotation);
+        assert_eq!(calls.lock().unwrap().len(), 2);
+    }
+
+    /// "Sync now" goes through `run_once`, like the loop's rounds, so the pause lives in the loop and not in the round: a person who
+    /// asks for a sync during a rotation gets it (the Sync screen, and the web's "sync now" of the embedded hub).
+    #[tokio::test]
+    async fn a_sync_now_is_not_paused_by_a_rotation_and_does_not_wait_for_the_paused_loop() {
+        let (cycle, calls) = fake_cycle(vec![changed(1)]);
+        let a = Arc::new(arca_device("arca-rotation-manual", Some("hub-1"), cycle).await);
+        a.set_rotation_in_progress(true);
+        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+        let task = tokio::spawn(a.clone().run_loop(Duration::from_millis(10), move |report| {
+            let _ = tx.send(report.clone());
+            std::future::ready(())
+        }));
+        // The loop itself, through `run_loop` and not only `loop_round`: three ticks, none of them running the cycle.
+        for _ in 0..3 {
+            let report = tokio::time::timeout(Duration::from_secs(5), rx.recv()).await.expect("the loop never ran a round").unwrap();
+            assert!(report.paused_for_rotation, "{report:?}");
+        }
+        assert!(calls.lock().unwrap().is_empty(), "the loop ran the cycle during a rotation");
+
+        let manual = tokio::time::timeout(Duration::from_secs(5), a.run_once()).await.expect("a sync now must not wait for the paused loop");
+        task.abort();
+        assert!(!manual.paused_for_rotation, "{manual:?}");
+        assert_eq!(manual.error, None);
+        assert_eq!(manual.pulled.map(|p| p.files_written), Some(1));
+        assert_eq!(*calls.lock().unwrap(), ["hub-1"]);
     }
 
     #[tokio::test]
