@@ -232,9 +232,26 @@ pub fn is_rotate_with_arguments(input: &str) -> bool {
     starts_arca_rotate && matches!(parse_command(input), ParseOutcome::Unrecognized(_))
 }
 
-// SKELETON (first commit of the last review round of `/arca rotate`): answers wrongly on purpose; the next commit writes it.
+/// A phrase has 24 words; no command of this grammar takes anywhere near 12 tokens that the parser then refuses.
+const PHRASE_LINE_TOKENS: usize = 12;
+/// 24 words of 3 letters or more are 95 characters even with a comma or a zero-width space between them: a refused command line of
+/// 64 or more is not worth keeping either, and catches a phrase whose words are not separated by whitespace.
+const PHRASE_LINE_CHARS: usize = 64;
+
+/// Whether a submitted line may hold the 24 words, so the REPL must keep it out of the line history (saved in clear text) and must
+/// not echo it. The rule does not trust the first words (`/arca rotat resume ...`, `/arca resume ...`, `/rotate ...`, a zero-width
+/// space inside a word all slip past any list of prefixes): it is `/arca rotate ...` with arguments (the exact case the text of a
+/// stop half way sends people to), or any line that starts with `/`, that the parser refuses, and that is as long as a phrase
+/// (12 or more whitespace-separated tokens, or 64 or more characters). A command the parser knows never counts, however long, and
+/// neither does chat (no slash: whether chat should be guarded is the owner's decision, not this rule's).
 pub fn may_hold_a_phrase(input: &str) -> bool {
-    is_rotate_with_arguments(input)
+    if is_rotate_with_arguments(input) {
+        return true;
+    }
+    let trimmed = input.trim();
+    trimmed.starts_with('/')
+        && matches!(parse_command(input), ParseOutcome::Unrecognized(_))
+        && (trimmed.split_whitespace().count() >= PHRASE_LINE_TOKENS || trimmed.chars().count() >= PHRASE_LINE_CHARS)
 }
 
 /// Parses a provider `kind` the way a user would type it (matching the config file's own

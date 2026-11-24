@@ -258,7 +258,9 @@ impl LineEditor {
 
 fn load_history(path: &Path) -> Vec<String> {
     std::fs::read_to_string(path)
-        .map(|contents| contents.lines().filter(|line| !line.is_empty()).map(str::to_string).collect())
+        // A file written by an older session may already hold a phrase: the same rule as for a new line, so it is neither recalled
+        // nor written back.
+        .map(|contents| contents.lines().filter(|line| keep_in_history(line)).map(str::to_string).collect())
         .unwrap_or_default()
 }
 
@@ -783,7 +785,7 @@ async fn read_line(line_history: &mut Vec<String>, terminal: &mut CliTerminal) -
 /// keys. A blank line does not, and neither does `/arca rotate ...` with anything after it: that is where the 24 words of a
 /// `resume` end up when typed on the line (the text of a stop half way tells the person to run `resume`).
 fn keep_in_history(line: &str) -> bool {
-    !line.trim().is_empty() && !commands::is_rotate_with_arguments(line)
+    !line.trim().is_empty() && !commands::may_hold_a_phrase(line)
 }
 
 fn remember_line(history: &mut Vec<String>, line: &str) {
@@ -792,22 +794,35 @@ fn remember_line(history: &mut Vec<String>, line: &str) {
     }
 }
 
-// SKELETON (first commit of the last review round of `/arca rotate`): answers wrongly on purpose; the next commit writes it.
-fn cancelled_lines(_resuming: bool) -> Vec<String> {
-    vec![tr!("arca.cancelled")]
+/// What the card says when a rotation is given up (Ctrl+D on the phrase screen or on a question, a "no" to "change it now?"). In
+/// `/arca rotate` a phrase was shown and nothing will ever use it, so it says so, like the refusals that wrote nothing; a resume
+/// showed no phrase.
+fn cancelled_lines(resuming: bool) -> Vec<String> {
+    let mut lines = vec![tr!("arca.cancelled")];
+    if !resuming {
+        lines.push(tr!("arca.rotate_discarded"));
+    }
+    lines
 }
 
-fn phrase_screen_still_valid(_shown_for: (u16, u16), _now: Option<(u16, u16)>) -> bool {
-    true
+fn rotation_cancelled_card(terminal: &mut CliTerminal, resuming: bool) -> anyhow::Result<()> {
+    render_message_card(terminal, "arca", accent_style(), cancelled_lines(resuming).into_iter().map(|line| (line, Style::default())).collect())
 }
 
-/// What the REPL says for a line that is not a command. It echoes the line, except for `/arca rotate ...` with arguments, which
-/// may hold the 24 words: that gets a fixed message that never repeats the line.
+/// Whether the phrase screen laid out for a terminal of `shown_for` columns x lines may go on, given the size read `now` (`None`
+/// when it could not be read). Any change ends it: the rows were worked out once for that size and a smaller terminal cuts them.
+fn phrase_screen_still_valid(shown_for: (u16, u16), now: Option<(u16, u16)>) -> bool {
+    now == Some(shown_for)
+}
+
+/// What the REPL says for a line that is not a command. It names the command by its FIRST word only: the rest of the line may be
+/// the 24 words (see `commands::may_hold_a_phrase`), and an unknown command is not worth echoing in full anyway. `/arca rotate ...`
+/// with arguments gets a fixed message that says what to do instead.
 fn unknown_command_lines(raw: &str) -> String {
     if commands::is_rotate_with_arguments(raw) {
         tr!("arca.rotate_no_arguments")
     } else {
-        tr!("command.unknown", command = raw)
+        tr!("command.unknown", command = raw.split_whitespace().next().unwrap_or(""))
     }
 }
 
@@ -3854,9 +3869,14 @@ enum PhraseScreen {
 }
 
 /// Draws the phrase box until the person presses Enter, gives up with Ctrl+C / Ctrl+D, or the terminal is resized.
-fn wait_for_the_phrase_to_be_read(terminal: &mut CliTerminal, rows: &[String]) -> anyhow::Result<PhraseScreen> {
+fn wait_for_the_phrase_to_be_read(terminal: &mut CliTerminal, rows: &[String], shown_for: (u16, u16)) -> anyhow::Result<PhraseScreen> {
     let (title, keys) = (tr!("arca.rotate_phrase_title"), tr!("arca.rotate_phrase_keys"));
     loop {
+        // Looked at before EVERY frame, not only when a resize event arrives: `discard_pending_keys` reads (and so loses) resize
+        // events too, and an event can come in between two polls.
+        if !phrase_screen_still_valid(shown_for, crossterm::terminal::size().ok()) {
+            return Ok(PhraseScreen::Resized);
+        }
         terminal.draw(|frame| render_phrase_box(frame, rows, &title, &keys))?;
         if !event::poll(POLL_INTERVAL)? {
             continue;
@@ -3880,12 +3900,28 @@ fn wait_for_the_phrase_to_be_read(terminal: &mut CliTerminal, rows: &[String]) -
 /// says so: a terminal that reflows on a resize, tmux/screen copy mode, a screen recorder or `script`, and the emulators that keep the
 /// cells in their scrollback after a full clear can still hold a copy of what was drawn. The terminal goes back to its usual height
 /// before the result is looked at.
-fn show_phrase_once(terminal: &mut CliTerminal, rows: &[String]) -> anyhow::Result<PhraseScreen> {
+///
+/// `shown_for` is the terminal size (columns, lines) the rows were laid out for. After a resize `terminal.clear()` is NOT enough:
+/// it erases from the viewport origin the terminal object last knew, which only `draw` recomputes, so the words could stay on
+/// the screen. On that path the whole screen and its scrollback are wiped (`clear_screen`, as when the program starts), and the
+/// card that follows says the words may still be visible, not that they were erased.
+fn show_phrase_once(terminal: &mut CliTerminal, rows: &[String], shown_for: (u16, u16)) -> anyhow::Result<PhraseScreen> {
     terminal.clear()?;
     *terminal = new_inline_terminal_with_height((rows.len() + PHRASE_BOX_EXTRA_LINES) as u16)?;
+    // This reads (and loses) a resize event that came in meanwhile, so the size is looked at again right after.
     discard_pending_keys();
-    let screen = wait_for_the_phrase_to_be_read(terminal, rows);
-    terminal.clear()?;
+    let screen = if phrase_screen_still_valid(shown_for, crossterm::terminal::size().ok()) {
+        wait_for_the_phrase_to_be_read(terminal, rows, shown_for)
+    } else {
+        Ok(PhraseScreen::Resized)
+    };
+    if matches!(screen, Ok(PhraseScreen::Resized)) {
+        let _ = terminal.autoresize();
+        let _ = terminal.clear();
+        clear_screen()?;
+    } else {
+        terminal.clear()?;
+    }
     *terminal = new_inline_terminal()?;
     screen
 }
@@ -3966,7 +4002,7 @@ async fn send_the_new_epoch(terminal: &mut CliTerminal, engine: &warden_sync::Sy
 /// not an error that says nothing about the rotation. `resuming` is `/arca rotate resume` (see `rotation_error_lines`).
 async fn finish_arca_rotate(terminal: &mut CliTerminal, engine: &warden_sync::SyncEngine, outcome: ArcaRotate, resuming: bool) -> anyhow::Result<()> {
     match outcome {
-        ArcaRotate::Cancelled => cancelled_card(terminal),
+        ArcaRotate::Cancelled => rotation_cancelled_card(terminal, resuming),
         ArcaRotate::Refused(error) => render_message_card(terminal, "arca", error_style(), rotation_error_lines(&error, resuming).into_iter().map(|line| (line, error_style())).collect()),
         ArcaRotate::Done => {
             let _ = render_message_card(terminal, "arca", accent_style(), vec![(tr!("arca.rotate_sending"), Style::default())]);
@@ -3991,16 +4027,17 @@ async fn cmd_arca_rotate(terminal: &mut CliTerminal, session: &CliSession) -> an
     }
     // Before a key is made or anything is shown: a terminal that cannot show all 24 words would let the person confirm a view that
     // was cut. The size is looked at again while the words are on the screen (`PhraseScreen::Resized`).
-    let (columns, lines) = crossterm::terminal::size().unwrap_or((80, 24));
+    // A size that cannot be read is a refusal too: guessing one (80x24) could show a box that does not fit.
+    let Ok((columns, lines)) = crossterm::terminal::size() else { return arca_error_card(terminal, tr!("arca.rotate_size_unknown")) };
     let Some(per_row) = phrase_layout(columns as usize, lines as usize) else { return arca_error_card(terminal, tr!("arca.rotate_terminal_small")) };
     let pending = PendingRotation::generate()?;
     render_message_card(terminal, "arca", accent_style(), vec![(tr!("arca.rotate_intro"), Style::default())])?;
     let rows = phrase_rows(pending.phrase()?.words(), per_row);
-    let screen = show_phrase_once(terminal, &rows);
+    let screen = show_phrase_once(terminal, &rows, (columns, lines));
     drop(rows);
     match screen? {
         PhraseScreen::WrittenDown => {}
-        PhraseScreen::Cancelled => return cancelled_card(terminal),
+        PhraseScreen::Cancelled => return rotation_cancelled_card(terminal, false),
         PhraseScreen::Resized => return arca_error_card(terminal, tr!("arca.rotate_resized")),
     }
     let outcome = ask_and_rotate(&engine, &mut TerminalAsker { terminal: &mut *terminal }, pending, now_millis()).await?;
