@@ -2,6 +2,7 @@
 //! out, with no `ratatui`/terminal dependency, so it's unit-testable the same way `LineEditor` is.
 
 use warden_bootstrap::Provider;
+use warden_sync::arca_rotation::PendingRotation;
 
 /// How many calls `/ssh log` shows without a number, and the most it shows (what the screens read too).
 const SSH_LOG_DEFAULT: usize = 20;
@@ -252,6 +253,15 @@ pub fn may_hold_a_phrase(input: &str) -> bool {
     trimmed.starts_with('/')
         && matches!(parse_command(input), ParseOutcome::Unrecognized(_))
         && (trimmed.split_whitespace().count() >= PHRASE_LINE_TOKENS || trimmed.chars().count() >= PHRASE_LINE_CHARS)
+}
+
+/// Whether a submitted line is, by itself, the 24-word recovery phrase: a chat line with no command around it. The REPL must not
+/// send it to the model, keep it in the line history (saved in clear text) or echo it; `may_hold_a_phrase` only guards lines that
+/// start with `/`. The test is the one `/arca rotate resume` applies to what is typed there (`PendingRotation::from_phrase`): 24
+/// words of the English list with a valid checksum, in any case and with any whitespace between (and around) them. So 24 words
+/// with a wrong checksum, 23 or 25 words, a phrase inside a sentence, or words separated by commas are NOT caught: they are chat.
+pub fn is_bare_phrase(input: &str) -> bool {
+    PendingRotation::from_phrase(input.trim()).is_ok()
 }
 
 /// Parses a provider `kind` the way a user would type it (matching the config file's own
@@ -649,6 +659,76 @@ mod tests {
         let chat = ["zoo"; 24].join(" ");
         for line in [long_but_known, chat.as_str(), "/arca rotate", "/arca rotate resume", "/nonsense", "/models bogus", "/nonsense now", "/ssh bogus vps", "", "   "] {
             assert!(!may_hold_a_phrase(line), "{line}");
+        }
+    }
+
+    /// Three real BIP-39 phrases of 24 words, copied from the official vectors in arca-core `recovery.rs` (`VECTORS`, at the revision
+    /// `warden-sync` pins; the first, 0xff, is the `ZOO_PHRASE` of the `interactive.rs` tests). Not one of them is the 0xff phrase only:
+    /// a rule that matched just that one would pass with a fixture of "zoo".
+    fn real_phrases() -> [String; 3] {
+        [
+            format!("{} vote", ["zoo"; 23].join(" ")),
+            format!("{} art", ["abandon"; 23].join(" ")),
+            "legal winner thank year wave sausage worth useful legal winner thank year wave sausage worth useful legal winner thank year wave sausage worth title".to_string(),
+        ]
+    }
+
+    #[test]
+    fn a_chat_line_that_is_a_valid_phrase_is_told_apart_whatever_its_case_and_spacing() {
+        for (index, phrase) in real_phrases().iter().enumerate() {
+            // (The messages name the phrase by its index: a failing run must not put a phrase in the log.)
+            let spaced_out = phrase.replace(' ', "   ");
+            let tabbed = phrase.replace(' ', "\t");
+            let lines = [
+                phrase.clone(),
+                format!("  {phrase}  "),
+                format!("{phrase}\n"),
+                phrase.to_uppercase(),
+                format!("  {}  ", phrase.to_uppercase()),
+                spaced_out,
+                tabbed,
+            ];
+            for (variant, line) in lines.iter().enumerate() {
+                assert!(is_bare_phrase(line), "phrase #{index}, variant #{variant} was not caught");
+            }
+        }
+    }
+
+    #[test]
+    fn what_is_not_a_valid_phrase_on_its_own_is_left_to_the_chat() {
+        let [zoo, abandon, legal] = real_phrases();
+        // 24 words of the list, but not a phrase: the checksum word is wrong (the real one ends in "vote" / "art" / "title").
+        let wrong_checksum = ["zoo"; 24].join(" ");
+        let wrong_checksum_abandon = ["abandon"; 24].join(" ");
+        let swapped_last_word = legal.replace("title", "zoo");
+        // A valid phrase with one word less, or one more.
+        let twenty_three_words = zoo.replacen(" vote", "", 1);
+        let twenty_five_words = format!("{abandon} zoo");
+        let phrase_in_a_sentence = format!("my phrase is {legal}");
+        let phrase_with_a_question = format!("{zoo} ?");
+        // A word that is not on the list at all.
+        let unknown_word = zoo.replacen("vote", "votes", 1);
+        let not_a_phrase = [
+            wrong_checksum.as_str(),
+            wrong_checksum_abandon.as_str(),
+            swapped_last_word.as_str(),
+            twenty_three_words.as_str(),
+            twenty_five_words.as_str(),
+            phrase_in_a_sentence.as_str(),
+            phrase_with_a_question.as_str(),
+            unknown_word.as_str(),
+            "hello",
+            "please explain what a zoo is and why the abandon rate matters",
+            "",
+            "   ",
+        ];
+        for (index, line) in not_a_phrase.iter().enumerate() {
+            assert!(!is_bare_phrase(line), "line #{index} was blocked, but it is not a phrase on its own");
+        }
+        // A line with a slash is the business of `may_hold_a_phrase` and the parser, not of this rule (a "/zoo" is not a word of the list).
+        for (index, phrase) in [&zoo, &abandon, &legal].into_iter().enumerate() {
+            assert!(!is_bare_phrase(&format!("/{phrase}")), "phrase #{index} behind a slash");
+            assert!(!is_bare_phrase(&format!("/arca rotate resume {phrase}")), "phrase #{index} after /arca rotate resume");
         }
     }
 
