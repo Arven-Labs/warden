@@ -1,5 +1,11 @@
 package com.warden.mobile
 
 import io.flutter.embedding.android.FlutterActivity
+import io.flutter.embedding.engine.FlutterEngine
 
-class MainActivity : FlutterActivity()
+class MainActivity : FlutterActivity() {
+    override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
+        super.configureFlutterEngine(flutterEngine)
+        SecureWindowChannel.register(flutterEngine.dartExecutor.binaryMessenger, this)
+    }
+}

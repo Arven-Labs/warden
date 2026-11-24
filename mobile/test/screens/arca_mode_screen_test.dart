@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mobile/l10n/generated/app_localizations_en.dart';
 import 'package:mobile/l10n/generated/app_localizations_pt.dart';
@@ -9,6 +10,7 @@ import 'package:mobile/screens/arca_mode_screen.dart';
 import 'package:mobile/services/arca_mode_flow.dart';
 import 'package:mobile/services/arca_pair_flow.dart';
 import 'package:mobile/services/connection_settings.dart';
+import 'package:mobile/services/secure_window.dart';
 import 'package:mobile/src/rust/api/arca_mode.dart' as bridge;
 import 'package:mobile/src/rust/api/arca_pair.dart' as bridge_pair;
 import 'package:mobile/src/rust/api/arca_rotation.dart' as bridge_rot;
@@ -863,6 +865,14 @@ void main() {
   });
 
   group('the key rotation (P-49)', () {
+    // The rotation screen asks Android to protect the window (`secure_window` channel) before it shows the words. A real platform call
+    // does not finish inside a widget test, so the channel is answered here; what is asked of it is tested in `arca_rotation_screen_test.dart`.
+    setUp(() {
+      TestWidgetsFlutterBinding.ensureInitialized();
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger.setMockMethodCallHandler(const MethodChannel(secureWindowChannelName), (call) async => null);
+    });
+    tearDown(() => TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger.setMockMethodCallHandler(const MethodChannel(secureWindowChannelName), null));
+
     // The phrase and the three fields are taller than the default test window: a tall one keeps everything built and tappable.
     Future<FakeBackend> shown(WidgetTester tester, {bool on = true, List<bridge.PendingEpochDto>? epochs, Locale locale = const Locale('en')}) async {
       tester.view.physicalSize = const Size(800, 3200);

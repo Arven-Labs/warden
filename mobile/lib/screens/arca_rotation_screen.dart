@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import '../l10n/generated/app_localizations.dart';
 import '../services/arca_mode_flow.dart';
 import '../services/arca_pair_flow.dart' show TypedOnlyFormatter;
+import '../services/secure_window.dart';
 import '../src/rust/api/arca_rotation.dart' as bridge_rotation;
 
 /// The key rotation for "I lost a device" (P-49): see the plan in `project/PENDING.md`. Pops `true` once the rotation was confirmed.
@@ -12,9 +13,12 @@ import '../src/rust/api/arca_rotation.dart' as bridge_rotation;
 /// The new key lives in the bridge, never here: this screen only holds the 24 words it was shown (in memory, never written) until the
 /// person confirms, cancels or leaves. Every way out drops the key in the bridge. Nothing here can paste: the words are typed.
 class ArcaRotationScreen extends StatefulWidget {
-  const ArcaRotationScreen({super.key, required this.backend});
+  const ArcaRotationScreen({super.key, required this.backend, this.secureWindow = const PlatformSecureWindow()});
 
   final ArcaModeBackend backend;
+
+  /// Blocks screenshots and the recent-apps thumbnail while the 24 words are showing.
+  final SecureWindow secureWindow;
 
   @override
   State<ArcaRotationScreen> createState() => _ArcaRotationScreenState();
@@ -22,7 +26,7 @@ class ArcaRotationScreen extends StatefulWidget {
 
 enum _Step { idle, showing, resuming }
 
-class _ArcaRotationScreenState extends State<ArcaRotationScreen> {
+class _ArcaRotationScreenState extends State<ArcaRotationScreen> with WidgetsBindingObserver {
   _Step _step = _Step.idle;
 
   /// Set synchronously before the first await of an action: a second tap meanwhile finds it and does nothing.
@@ -39,15 +43,47 @@ class _ArcaRotationScreenState extends State<ArcaRotationScreen> {
   String? _error;
 
   @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+  }
+
+  @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     for (final controller in _wordControllers) {
       controller.dispose();
     }
     _resumeController.dispose();
+    // Whatever way out (confirm, back, the screen replaced): the window may be captured again. Not before: in the background it stays protected.
+    unawaited(_protect(false));
     // Leaving with the phrase showing (or half way) must not leave a key waiting in the bridge. After a confirm there is nothing left to drop.
     unawaited(widget.backend.rotationCancel().catchError((_) {}));
     super.dispose();
   }
+
+  /// In the background the window stays protected: that is what keeps the words out of the recent-apps thumbnail. Coming back, in every step
+  /// but idle (`showing` and `resuming`), the flag is asked again, in case the window was rebuilt meanwhile (asking is idempotent).
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    // `enable()` directly, not `_protect(true)` (which would do nothing): a step other than idle implies `_protecting == true`.
+    if (state == AppLifecycleState.resumed && _step != _Step.idle) unawaited(widget.secureWindow.enable());
+  }
+
+  /// True from the moment the window was asked to be protected until it was asked to be released. Set BEFORE the request goes out, so a
+  /// request that fails half way is still released on the way out: the flag lives on the whole Activity, and a stuck one would hide every screen.
+  bool _protecting = false;
+
+  Future<void> _protect(bool on) {
+    if (_protecting == on) return Future.value();
+    _protecting = on;
+    return on ? widget.secureWindow.enable() : widget.secureWindow.disable();
+  }
+
+  /// The one rule: the window is protected in every step but idle. The 24 words are shown in `showing` and typed back in `resuming` (a
+  /// field that shows them), so moving between the two never lets go. Called after every change of [_step]; `_begin` asks first instead
+  /// (see there), because the words must not be drawn before the window is protected.
+  Future<void> _syncSecure() => _protect(_step != _Step.idle);
 
   bridge_rotation.ArcaRotationErrorKind _kindOf(Object error) => error is bridge_rotation.ArcaRotationFailure ? error.kind : bridge_rotation.ArcaRotationErrorKind.other;
 
@@ -73,13 +109,30 @@ class _ArcaRotationScreenState extends State<ArcaRotationScreen> {
     setState(() => _error = null);
     try {
       final start = await widget.backend.rotationBegin();
-      if (!mounted) return;
+      if (!mounted) {
+        // Left while the bridge was making the key: `dispose` had nothing to release, and its cancel may have reached the bridge before the
+        // key existed. Do not touch the window (the flag lives on the whole Activity), and drop the key now that it is there.
+        // Known limit: the bridge's rotation slot is global (`SLOT` in crates/warden-mobile-bridge/src/api/arca_rotation.rs), so in a very
+        // narrow window this cancel of a discarded screen can erase the key of a second screen opened right after. Recoverable: that
+        // screen's confirm answers "no rotation", nothing was written, and the person starts again.
+        unawaited(widget.backend.rotationCancel().catchError((_) {}));
+        return;
+      }
+      // The window is protected before the first word can be drawn. The real service never throws and gives up after a couple of seconds
+      // (a window that cannot be protected is no reason to stop: the screen carries its own warning).
+      await _protect(true);
+      if (!mounted) {
+        // Left while asking: `dispose` already released the window (`_protecting` was set before the request went out).
+        return;
+      }
       setState(() {
         _phrase = start.phrase;
         _positions = start.positions.toList();
         _step = _Step.showing;
       });
     } catch (error) {
+      // Back in idle: whatever was asked of the window is released now, not only when the screen goes.
+      unawaited(_protect(false));
       if (mounted) setState(() => _error = arcaRotationErrorText(l10n, _kindOf(error)));
     } finally {
       _busy = false;
@@ -94,6 +147,7 @@ class _ArcaRotationScreenState extends State<ArcaRotationScreen> {
       _wipe();
       _step = _Step.resuming;
     });
+    unawaited(_syncSecure());
   }
 
   Future<void> _cancel() async {
@@ -103,6 +157,7 @@ class _ArcaRotationScreenState extends State<ArcaRotationScreen> {
       _wipe();
       _step = _Step.idle;
     });
+    unawaited(_syncSecure());
     try {
       await widget.backend.rotationCancel();
     } catch (_) {
@@ -153,6 +208,7 @@ class _ArcaRotationScreenState extends State<ArcaRotationScreen> {
         _step = kind == bridge_rotation.ArcaRotationErrorKind.failed || kind == bridge_rotation.ArcaRotationErrorKind.classEmptied ? _Step.resuming : _Step.idle;
         _busy = false;
       });
+      unawaited(_syncSecure());
       return;
     }
     _busy = false;
@@ -229,11 +285,27 @@ class _ArcaRotationScreenState extends State<ArcaRotationScreen> {
       ];
 
   List<Widget> _showing(AppLocalizations l10n) => [
-        Text(l10n.arcaRotationPhraseIntro),
+        // First, and a live region: TalkBack announces it the moment the words appear, before it reads anything else.
+        Semantics(
+          container: true,
+          liveRegion: true,
+          label: l10n.arcaRotationCaptureWarning,
+          excludeSemantics: true,
+          child: Text(l10n.arcaRotationCaptureWarning, key: const Key('arca-rotation-capture-warning'), style: TextStyle(color: Theme.of(context).colorScheme.error)),
+        ),
         const SizedBox(height: 8),
-        Text(l10n.arcaRotationCaptureWarning, key: const Key('arca-rotation-capture-warning'), style: TextStyle(color: Theme.of(context).colorScheme.error)),
+        Text(l10n.arcaRotationPhraseIntro),
         const SizedBox(height: 16),
-        Wrap(spacing: 16, runSpacing: 4, children: [for (var i = 0; i < _phrase.length; i++) Text('${i + 1}. ${_phrase[i]}')]),
+        // One stop per word, read as "Word 3: able": the position belongs to the word, and the order is the phrase's (top to bottom, left to right).
+        Wrap(spacing: 16, runSpacing: 4, children: [
+          for (var i = 0; i < _phrase.length; i++)
+            Semantics(
+              container: true,
+              label: '${l10n.arcaRotationWordLabel(i + 1)}: ${_phrase[i]}',
+              excludeSemantics: true,
+              child: Text('${i + 1}. ${_phrase[i]}'),
+            ),
+        ]),
         const SizedBox(height: 16),
         Text(l10n.arcaRotationTypeBack),
         const SizedBox(height: 8),
