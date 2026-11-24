@@ -52,6 +52,21 @@ fn epoch_keys(secrets: &crate::manifest::SyncSecrets) -> EpochKeys {
 /// A cycle that needs more merges than this is not converging: each merge joins one pair of tips.
 const MAX_MERGES_PER_CYCLE: usize = 64;
 
+/// The refusal of a first rotation attempt over a vault folder with no file (`refuse_if_the_vault_was_emptied`). No local path and
+/// nothing about the phrase or the key: on a resume no phrase was shown, and each screen says what to do with the one it showed.
+/// The words "no file" are what the tests look for.
+const VAULT_EMPTIED_REFUSAL: &str = concat!(
+    "the vault folder has no file, but the newest manifest in this device's store lists vault files, so publishing the new key epoch now would send an empty vault to every device. ",
+    "First check that the disk or mount point the folder lives on is mounted. ",
+    "If this device pulled changes that it has not applied yet, sync first. ",
+    "Otherwise put back ALL the vault files that you did not mean to delete, only files that were there before (for example from the trash) and NEVER an old backup as a whole, because files deleted on purpose would come back and be published to every device. ",
+    "If you emptied the vault on purpose: put any one file in it, change the key, and only then delete it and sync"
+);
+
+/// The start of the refusal when the vault folder cannot be read at all (not "gone": that is `VAULT_EMPTIED_REFUSAL`); the error
+/// of the operating system follows it. Nothing was written. It has no path: the error is the OS message only.
+const VAULT_UNREADABLE_REFUSAL: &str = "the vault folder cannot be read, and the newest manifest in this device's store lists vault files, so no new key epoch was published. Check that the disk or mount point the folder lives on is mounted and that this program may read it, then try again: ";
+
 /// A file of the logins folder that the snapshot left out, and why (the arca's own reason text).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SkippedLogin {
@@ -313,32 +328,37 @@ impl SyncEngine {
     /// manifest of the new epoch yet), and the arca's refusal of an emptied class (`ClassEmptied`) compares the folder with `prev`, so
     /// an empty `prev` lets an empty folder through and the new epoch is published with no file at all. That is what the other devices
     /// would take as the vault when they pair again. So here, before anything is written: the vault folder has no file the snapshot
-    /// would list (it is gone, or empty, or holds only what the scan skips) AND the head of the current epoch lists vault files:
-    /// refused. A vault whose head never listed a file still rotates.
+    /// would list (it is gone, or empty, or holds only what the scan skips) AND a tip of this device's store lists vault files:
+    /// refused. (`heads` gives the tips of the store, not "the manifest this device accepted": after a pull that was not applied yet
+    /// they differ, which the text of the refusal says.) A vault whose tips never listed a file still rotates. A folder that cannot be
+    /// read (anything but "not there") is also a refusal, with the real error: `begin_epoch` would meet it in its own scan and stop
+    /// with `Failed`, which tells the person to resume with the same 24 words after nothing was written.
     ///
     /// Only for the first attempt. A resume has a manifest of the new epoch in the store, which the engine of the current epoch sees as
     /// a newer epoch it has not acknowledged (`NeedsNewKey`), so `heads` fails and this check steps aside: `begin_epoch` runs, and its
     /// own floor (`ClassEmptied`) covers the resume. Any other failure of `heads` is also left to `begin_epoch`, which reads the same
-    /// storage and reports it with its own words.
+    /// storage and reports it with its own words. The refusal text says nothing about the phrase: the screens decide that (on a resume
+    /// none was shown).
     async fn refuse_if_the_vault_was_emptied(&self, engine: &Engine<DiskStore>) -> Result<(), crate::arca_rotation::RotationFailure> {
-        use crate::arca_rotation::{RotationError, RotationFailure};
+        use crate::arca_rotation::RotationError;
         let Ok(heads) = engine.heads().await else { return Ok(()) };
         let head_lists_files = heads.tips.iter().any(|tip| tip.manifest.files.iter().any(|file| file.class == Class::Vault));
         if !head_lists_files {
             return Ok(());
         }
-        let folder_has_files = match arca_core::scan::scan_class_with(Class::Vault, self.vault.root(), None) {
-            Ok(scan) => !scan.candidates.is_empty(),
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => false,
-            // Not a folder, not readable: `begin_epoch` meets the same error in its own scan and reports it.
-            Err(_) => true,
+        // The scan walks the whole folder with blocking calls, so it runs off the async thread, as the engine does with its own.
+        let root = self.vault.root().clone();
+        let scanned = tokio::task::spawn_blocking(move || arca_core::scan::scan_class_with(Class::Vault, &root, None)).await;
+        let folder_has_files = match scanned {
+            Ok(Ok(scan)) => !scan.candidates.is_empty(),
+            Ok(Err(error)) if error.kind() == std::io::ErrorKind::NotFound => false,
+            Ok(Err(error)) => return Err(RotationError::Refused(format!("{VAULT_UNREADABLE_REFUSAL}{error}")).into()),
+            Err(error) => return Err(RotationError::Refused(format!("{VAULT_UNREADABLE_REFUSAL}{error}")).into()),
         };
         if folder_has_files {
             return Ok(());
         }
-        Err(RotationFailure::from(RotationError::Refused(
-            "the vault folder has no file, but the last manifest this device accepted lists vault files, so publishing the new key epoch now would send an empty vault to every device. The key was not changed and the phrase just shown can be thrown away. Put back ALL the vault files that you did not mean to delete, only files that were there before (for example from the trash) and NEVER an old backup as a whole, because files deleted on purpose would come back and be published to every device. Then change the key again. If you emptied the vault on purpose: put any one file in it, change the key, and only then delete it and sync".to_string(),
-        )))
+        Err(RotationError::Refused(VAULT_EMPTIED_REFUSAL.to_string()).into())
     }
 
     /// The last manifest this device accepted (the head of its arca state), for the head code the old device shows when it hands

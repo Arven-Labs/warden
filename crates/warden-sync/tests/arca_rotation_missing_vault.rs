@@ -26,7 +26,7 @@ use arca_core::envelope::Header;
 use arca_core::manifest::Manifest;
 use arca_core::object::ObjectKind;
 use arca_core::store::BlobStore;
-use warden_sync::arca_mode::store_path_for;
+use warden_sync::arca_mode::{state_path_for, store_path_for};
 use warden_sync::arca_rotation::{PendingRotation, RotationError, RotationFailure};
 use warden_sync::manifest::{load_secrets, SyncSecrets};
 use warden_sync::{ArweaveClient, SyncEngine};
@@ -50,6 +50,32 @@ impl Device {
 
     fn folder_pointer(&self) -> String {
         std::fs::read_to_string(self.base.join("arca_folder.txt")).unwrap()
+    }
+
+    /// The bytes of the arca's anti-rollback state file (`None` if it is not there).
+    fn state_bytes(&self) -> Option<Vec<u8>> {
+        std::fs::read(state_path_for(&self.base.join("sync_manifest.json"))).ok()
+    }
+
+    /// The name of everything under `base` (folders end in `/`), sorted, except the lock file that every sync takes and leaves behind.
+    fn listing(&self) -> Vec<String> {
+        let mut names = Vec::new();
+        let mut pending = vec![self.base.clone()];
+        while let Some(dir) = pending.pop() {
+            for entry in std::fs::read_dir(&dir).unwrap() {
+                let entry = entry.unwrap();
+                let path = entry.path();
+                let relative = path.strip_prefix(&self.base).unwrap().to_string_lossy().into_owned();
+                if entry.file_type().unwrap().is_dir() {
+                    pending.push(path);
+                    names.push(format!("{relative}/"));
+                } else if relative != "sync_manifest.lock" {
+                    names.push(relative);
+                }
+            }
+        }
+        names.sort();
+        names
     }
 
     /// Every manifest of the arca's own store, opened with the keys of its epoch: epoch 0 with `old`, epoch 1 with `new`. A manifest
@@ -102,9 +128,12 @@ struct Premise {
     old_key: VaultKey,
     secrets_bytes: Vec<u8>,
     folder_pointer: String,
+    state_bytes: Option<Vec<u8>>,
+    listing: Vec<String>,
 }
 
-/// The state every case shares, asserted (not assumed): a first attempt, with an epoch-0 manifest that lists `note.md`.
+/// The state every case shares, asserted (not assumed): a first attempt, with an epoch-0 manifest that lists `note.md`. Call it
+/// **after** the test changed the vault folder: the listing it keeps is the one the refusal must leave as it is.
 async fn assert_first_attempt_premise(device: &Device) -> Premise {
     let secrets = device.secrets();
     assert_eq!(secrets.key_epoch, 0, "the device starts at epoch 0");
@@ -112,7 +141,14 @@ async fn assert_first_attempt_premise(device: &Device) -> Premise {
     // `new` is not used while the store has only epoch 0; a key that opens nothing would fail the view, so pass the old one.
     let view = device.store_view(&old_key, &old_key).await;
     assert_eq!(view, vec![(0, vec!["note.md".to_string()])], "first attempt: only the epoch-0 manifest exists, and it lists note.md");
-    Premise { old_key, secrets_bytes: std::fs::read(device.base.join("sync_secrets.json")).unwrap(), folder_pointer: device.folder_pointer() }
+    assert!(device.state_bytes().is_some(), "the device has an anti-rollback state file, so a rewrite of it would show");
+    Premise {
+        old_key,
+        secrets_bytes: std::fs::read(device.base.join("sync_secrets.json")).unwrap(),
+        folder_pointer: device.folder_pointer(),
+        state_bytes: device.state_bytes(),
+        listing: device.listing(),
+    }
 }
 
 /// Calls the rotation to a fresh key, typing back the words asked. Returns the result and the new key (so the store can be opened
@@ -137,14 +173,20 @@ async fn assert_nothing_was_published(device: &Device, premise: &Premise, result
     assert_eq!(after, vec![(0, vec!["note.md".to_string()])], "{what}: the rotation failed with {result:?} but the store changed");
     assert_eq!(std::fs::read(device.base.join("sync_secrets.json")).unwrap(), premise.secrets_bytes, "{what}: the saved key or epoch changed");
     assert_eq!(device.folder_pointer(), premise.folder_pointer, "{what}: the folder pointer moved");
+    assert_eq!(device.state_bytes(), premise.state_bytes, "{what}: the anti-rollback state file changed");
+    assert_eq!(device.listing(), premise.listing, "{what}: files or folders appeared or vanished under the device's folder");
+    // The text says what happened and what to do, and nothing about a phrase: on a resume none was shown, and each screen decides.
+    let RotationError::Refused(text) = &failure.error else { unreachable!("checked above") };
+    assert!(text.contains("no file"), "{what}: the refusal does not say the folder has no file: {text}");
+    assert!(!text.contains("thrown away"), "{what}: the refusal says something about the phrase: {text}");
 }
 
 #[tokio::test]
 async fn a_vault_folder_that_is_gone_does_not_publish_an_empty_manifest_of_the_new_epoch() {
     let device = device_in_arca_mode("folder-gone").await;
-    let premise = assert_first_attempt_premise(&device).await;
     std::fs::remove_dir_all(device.vault()).unwrap();
     assert!(!device.vault().exists(), "premise: the vault folder is gone when the rotation is called");
+    let premise = assert_first_attempt_premise(&device).await;
 
     let (result, new_key) = rotate(&device).await;
     assert_nothing_was_published(&device, &premise, result, &new_key, "vault folder gone").await;
@@ -155,9 +197,9 @@ async fn a_vault_folder_that_is_gone_does_not_publish_an_empty_manifest_of_the_n
 #[tokio::test]
 async fn a_vault_folder_that_is_empty_does_not_publish_an_empty_manifest_of_the_new_epoch() {
     let device = device_in_arca_mode("folder-empty").await;
-    let premise = assert_first_attempt_premise(&device).await;
     std::fs::remove_file(device.vault().join("note.md")).unwrap();
     assert_eq!(std::fs::read_dir(device.vault()).unwrap().count(), 0, "premise: the vault folder exists and is empty when the rotation is called");
+    let premise = assert_first_attempt_premise(&device).await;
 
     let (result, new_key) = rotate(&device).await;
     assert_nothing_was_published(&device, &premise, result, &new_key, "vault folder empty").await;
