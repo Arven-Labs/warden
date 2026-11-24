@@ -33,17 +33,33 @@ abstract class ArcaModeBackend {
 }
 
 /// The sentence for a rotation failure kind, in the app's language (the Rust text is English and never shown as the main message).
-String arcaRotationErrorText(AppLocalizations l10n, bridge_rotation.ArcaRotationErrorKind kind) => switch (kind) {
-      bridge_rotation.ArcaRotationErrorKind.notInArcaMode => l10n.arcaRotationErrNotInArcaMode,
-      bridge_rotation.ArcaRotationErrorKind.notDeclared => l10n.arcaRotationErrNotDeclared,
-      bridge_rotation.ArcaRotationErrorKind.wordMismatch => l10n.arcaRotationErrWordMismatch,
-      bridge_rotation.ArcaRotationErrorKind.badPhrase => l10n.arcaRotationErrBadPhrase,
-      bridge_rotation.ArcaRotationErrorKind.noRotation => l10n.arcaRotationErrNoRotation,
-      bridge_rotation.ArcaRotationErrorKind.refused => l10n.arcaRotationErrRefused,
-      bridge_rotation.ArcaRotationErrorKind.newerEpoch => l10n.arcaRotationErrNewerEpoch,
-      bridge_rotation.ArcaRotationErrorKind.failed => l10n.arcaRotationErrFailed,
-      bridge_rotation.ArcaRotationErrorKind.other => l10n.arcaRotationErrOther,
-    };
+///
+/// A refusal (`sameKey`, `busy`, `syncFirst`, `storageChanged`, `needsRepair`, `newerEpoch`) is a sentence about THIS attempt plus the
+/// cause and what resolves it. Only the key in use is cured by a new key; the rest say what to do instead. [resuming] is true when the
+/// person typed the 24 words of a key (a resume): an earlier attempt may already have published that very key, so the sentence must
+/// not say it was discarded, and says to keep the words. Otherwise the key was just made and is spent.
+String arcaRotationErrorText(AppLocalizations l10n, bridge_rotation.ArcaRotationErrorKind kind, {bool resuming = false}) {
+  String refusal(String cause) => '${resuming ? l10n.arcaRotationNotWrittenResume : l10n.arcaRotationNotWrittenNew} $cause';
+  return switch (kind) {
+    bridge_rotation.ArcaRotationErrorKind.notInArcaMode => l10n.arcaRotationErrNotInArcaMode,
+    bridge_rotation.ArcaRotationErrorKind.notDeclared => l10n.arcaRotationErrNotDeclared,
+    bridge_rotation.ArcaRotationErrorKind.wordMismatch => l10n.arcaRotationErrWordMismatch,
+    bridge_rotation.ArcaRotationErrorKind.badPhrase => l10n.arcaRotationErrBadPhrase,
+    bridge_rotation.ArcaRotationErrorKind.noRotation => l10n.arcaRotationErrNoRotation,
+    bridge_rotation.ArcaRotationErrorKind.sameKey => refusal(resuming ? l10n.arcaRotationCauseSameKeyResume : l10n.arcaRotationCauseSameKey),
+    bridge_rotation.ArcaRotationErrorKind.busy => refusal(l10n.arcaRotationCauseBusy),
+    bridge_rotation.ArcaRotationErrorKind.syncFirst => refusal(l10n.arcaRotationCauseSyncFirst),
+    bridge_rotation.ArcaRotationErrorKind.storageChanged => refusal(l10n.arcaRotationCauseStorageChanged),
+    bridge_rotation.ArcaRotationErrorKind.needsRepair => refusal(l10n.arcaRotationCauseNeedsRepair),
+    // On a resume a newer epoch suggests the phrase may NOT be the one an earlier attempt published (that one would have been adopted),
+    // so the sentence about an earlier attempt would not hold: its own text, with no context prefix. It is not proof: a forged object of
+    // a greater epoch (its header is not authenticated) gives the same error with the right phrase, and the text says so.
+    bridge_rotation.ArcaRotationErrorKind.newerEpoch => resuming ? l10n.arcaRotationErrNewerEpochResume : refusal(l10n.arcaRotationCauseNewerEpoch),
+    bridge_rotation.ArcaRotationErrorKind.failed => l10n.arcaRotationErrFailed,
+    bridge_rotation.ArcaRotationErrorKind.classEmptied => l10n.arcaRotationErrClassEmptied,
+    bridge_rotation.ArcaRotationErrorKind.other => l10n.arcaRotationErrOther,
+  };
+}
 
 /// The sentence for a failure kind, in the app's language (the Rust text is English and never shown as the main message).
 String arcaModeErrorText(AppLocalizations l10n, bridge.ArcaModeErrorKind kind) => switch (kind) {

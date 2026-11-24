@@ -149,7 +149,8 @@ class _ArcaRotationScreenState extends State<ArcaRotationScreen> {
       setState(() {
         _wipe();
         _error = arcaRotationErrorText(l10n, kind);
-        _step = kind == bridge_rotation.ArcaRotationErrorKind.failed ? _Step.resuming : _Step.idle;
+        // A stop (`failed`, or an emptied class that the same 24 words finish once the files are back) goes on in "resume".
+        _step = kind == bridge_rotation.ArcaRotationErrorKind.failed || kind == bridge_rotation.ArcaRotationErrorKind.classEmptied ? _Step.resuming : _Step.idle;
         _busy = false;
       });
       return;
@@ -170,7 +171,7 @@ class _ArcaRotationScreenState extends State<ArcaRotationScreen> {
       // `resume` writes nothing: here `other` really is "nothing was changed".
       if (mounted) {
         setState(() {
-          _error = arcaRotationErrorText(l10n, _kindOf(error));
+          _error = arcaRotationErrorText(l10n, _kindOf(error), resuming: true);
           _busy = false;
         });
       }
@@ -184,7 +185,8 @@ class _ArcaRotationScreenState extends State<ArcaRotationScreen> {
       final kind = error is bridge_rotation.ArcaRotationFailure && error.kind != bridge_rotation.ArcaRotationErrorKind.other ? error.kind : bridge_rotation.ArcaRotationErrorKind.failed;
       if (mounted) {
         setState(() {
-          _error = arcaRotationErrorText(l10n, kind);
+          // `resuming`: an earlier attempt may already have published this key, so the text says nothing was written by THIS one.
+          _error = arcaRotationErrorText(l10n, kind, resuming: true);
           _busy = false;
         });
       }

@@ -2424,7 +2424,7 @@ class AppLocalizationsPt extends AppLocalizations {
 
   @override
   String get arcaRotationResumeIntro =>
-      'A troca parou no meio. Digite as mesmas 24 palavras que você anotou, separadas por espaço, para terminá-la. Não crie uma chave nova.';
+      'Use para terminar uma troca que parou no meio. Digite as mesmas 24 palavras que você anotou, separadas por espaço. Outra chave não terminaria essa troca.';
 
   @override
   String get arcaRotationResumeLabel => 'As 24 palavras';
@@ -2453,16 +2453,52 @@ class AppLocalizationsPt extends AppLocalizations {
       'Não há mais chave à espera. Recomece para ganhar uma nova.';
 
   @override
-  String get arcaRotationErrRefused =>
-      'A troca foi recusada antes de gravar qualquer coisa, e essa chave foi descartada. Recomece para ganhar uma nova.';
+  String get arcaRotationNotWrittenNew =>
+      'Nada foi gravado e essa chave foi descartada.';
 
   @override
-  String get arcaRotationErrNewerEpoch =>
-      'Já existe uma chave mais nova guardada e este dispositivo ainda não a aceitou: nada foi alterado e essa chave foi descartada. Se uma troca anterior neste dispositivo parou no meio, recomece e digite as 24 palavras dela. Se outro dispositivo trocou a chave, pareie este de novo ou veja primeiro as trocas de chave pendentes.';
+  String get arcaRotationNotWrittenResume =>
+      'Nada foi gravado nesta tentativa, mas uma tentativa anterior pode já ter publicado essa chave: guarde as suas 24 palavras.';
+
+  @override
+  String get arcaRotationCauseSameKey =>
+      'Essa chave é a que o cofre já usa. Recomece para ganhar uma chave nova.';
+
+  @override
+  String get arcaRotationCauseSameKeyResume =>
+      'Essa chave já é a que o cofre usa: se você estava terminando uma troca, ela já terminou. Se uma troca anterior parou no meio com OUTRA frase, digite as 24 palavras dela (uma chave nova bate na época já publicada). Se você não estava terminando nada, recomece para ganhar uma chave nova.';
+
+  @override
+  String get arcaRotationCauseBusy =>
+      'Outro programa está usando a pasta do cofre ou o estado de sincronização. Feche-o, espere um pouco e tente de novo.';
+
+  @override
+  String get arcaRotationCauseSyncFirst =>
+      'As cópias do cofre ainda não concordam, ou há uma atualização interrompida esperando. Sincronize primeiro e tente de novo.';
+
+  @override
+  String get arcaRotationCauseStorageChanged =>
+      'O armazenamento não continua mais o histórico que este dispositivo aceitou (voltou no tempo, foi trocado ou esvaziado). Confira o hub ou a pasta com que ele sincroniza e tente de novo. Não apague os arquivos de estado de sincronização para contornar: isso desliga a proteção contra o armazenamento voltar no tempo.';
+
+  @override
+  String get arcaRotationCauseNeedsRepair =>
+      'Algo de que este dispositivo precisa não pode ser usado: o estado de sincronização está danificado, um manifest guardado não pode ser lido, a pasta de logins não é utilizável, ou não existe próxima época de chave. Trocar a chave não resolve isso, e esta tela também não. Não apague os arquivos de estado de sincronização para contornar: isso desliga a proteção contra o armazenamento voltar no tempo.';
+
+  @override
+  String get arcaRotationCauseNewerEpoch =>
+      'Já existe uma chave mais nova guardada e este dispositivo ainda não a aceitou. Se uma troca de chave neste dispositivo parou no meio com outra frase, use Retomar uma troca que parou no meio, digite as 24 palavras dela e não aceite a época dela. Se foi você ou um dispositivo de confiança que trocou a chave, pareie este dispositivo de novo. Se você não reconhece a troca, veja primeiro as trocas de chave pendentes e só então aceite-as: a época de um objeto guardado não é autenticada, então quem tem a chave antiga pode forjar uma.';
+
+  @override
+  String get arcaRotationErrNewerEpochResume =>
+      'Nada foi gravado. Estas 24 palavras podem não ser as da troca que parou no meio (um objeto forjado de uma época mais nova causa o mesmo erro): confira as trocas de chave pendentes. Se uma troca neste dispositivo parou mesmo, digite as 24 palavras dela e não aceite a época dela. Se foi você ou um dispositivo de confiança que trocou a chave, pareie este dispositivo de novo. Se você não reconhece a troca, veja primeiro as trocas de chave pendentes e só então aceite-as: a época de um objeto guardado não é autenticada, então quem tem a chave antiga pode forjar uma.';
 
   @override
   String get arcaRotationErrFailed =>
       'A troca parou no meio e pode ter sido gravada em parte. Digite as mesmas 24 palavras para terminá-la. Não crie uma chave nova.';
+
+  @override
+  String get arcaRotationErrClassEmptied =>
+      'A troca parou no meio: uma classe que a troca já publicada tem está vazia na pasta (pode ser a de logins, não só a do cofre). Recoloque TODOS os arquivos dessa classe que você não quis apagar, só arquivos que estavam lá quando a troca começou (por exemplo, da lixeira), e NUNCA um backup antigo inteiro: arquivos que você apagou de propósito voltariam e seriam publicados em todos os dispositivos, credenciais inclusive. Um arquivo é só o mínimo que o programa exige: o resto seria publicado como removido em todos os dispositivos. Depois digite de novo as MESMAS 24 palavras. Se você esvaziou de propósito: recoloque um arquivo qualquer, termine a troca com as mesmas 24 palavras e só então apague e sincronize. Outra chave não terminaria a troca.';
 
   @override
   String get arcaRotationErrOther =>
