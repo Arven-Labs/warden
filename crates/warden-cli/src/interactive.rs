@@ -256,20 +256,190 @@ impl LineEditor {
     }
 }
 
-fn load_history(path: &Path) -> Vec<String> {
-    std::fs::read_to_string(path)
-        // A file written by an older session may already hold a phrase: the same rule as for a new line, so it is neither recalled
-        // nor written back.
-        .map(|contents| contents.lines().filter(|line| keep_in_history(line)).map(str::to_string).collect())
-        .unwrap_or_default()
+/// What `load_history` did to the file itself, besides reading it.
+#[derive(Debug, PartialEq, Eq)]
+enum HistoryScrub {
+    /// Nothing in the file looked like a phrase: it was not rewritten.
+    Untouched,
+    /// A line that is, by itself, a valid phrase was erased from the file.
+    BarePhrase,
+    /// A line that may hold a phrase (`may_hold_a_phrase`) was erased from the file, and none of the erased lines is a phrase by
+    /// itself. That includes `/arca rotate resume <24 words>`: the line has a prefix, so `is_bare_phrase` is false for it, but it very
+    /// likely is the phrase. The card for this state is the doubtful one: it still says to treat the phrase as exposed if it was
+    /// one. A line with a BOM (U+FEFF) before the words, or with a loose `\r` among them, is not something `is_bare_phrase` is
+    /// known to accept either (not checked here), so it ends up here when it starts with a slash and is long, and is not refused
+    /// at all otherwise.
+    MaybePhrase,
+    /// A line that looked like a phrase is still in the file: it could not be rewritten.
+    Failed,
+}
+
+/// Reads the line history. The file is closed to other users on the way (mode 0600 on Unix, whatever the umask of the session that
+/// made it); the directory only if it is Warden's own (`close_dir_if_ours`).
+///
+/// A file written by an older session may already hold a phrase. It is neither recalled nor written back, and, since the save at the
+/// end of the session never runs after a crash, a kill or a closed terminal, the file is rewritten right here, without the line
+/// (`write_private`). Only a line that `keep_in_history` refuses and that is not blank counts: a file with blank lines and nothing
+/// else to refuse is left as it is. The answer says how sure the load is: a refused line that is a valid phrase by itself
+/// (`is_bare_phrase`: the checksum holds) is `BarePhrase`; if every refused line is only a slash line `may_hold_a_phrase` suspects, it
+/// is `MaybePhrase`. The file is read as bytes and decoded with replacement characters: bytes that are not UTF-8 must not make the
+/// load skip the whole file (and its phrase).
+fn load_history(path: &Path) -> (Vec<String>, HistoryScrub) {
+    load_history_with(path, default_warden_dir().as_deref())
+}
+
+/// `load_history` with the directory Warden calls its own given by the caller (`None`: there is none).
+fn load_history_with(path: &Path, ours: Option<&Path>) -> (Vec<String>, HistoryScrub) {
+    close_to_others(path, ours);
+    let Ok(bytes) = std::fs::read(path) else {
+        return (Vec::new(), HistoryScrub::Untouched);
+    };
+    let contents = String::from_utf8_lossy(&bytes);
+    let mut kept = Vec::new();
+    let mut refused_a_line = false;
+    let mut refused_a_phrase = false;
+    for line in contents.lines() {
+        if keep_in_history(line) {
+            kept.push(line.to_string());
+        } else if !line.trim().is_empty() {
+            refused_a_line = true;
+            refused_a_phrase |= commands::is_bare_phrase(line);
+        }
+    }
+    if !refused_a_line {
+        return (kept, HistoryScrub::Untouched);
+    }
+    let scrub = match write_private(path, &history_text(&kept)) {
+        Ok(()) if refused_a_phrase => HistoryScrub::BarePhrase,
+        Ok(()) => HistoryScrub::MaybePhrase,
+        Err(_) => HistoryScrub::Failed,
+    };
+    (kept, scrub)
 }
 
 fn save_history(path: &Path, history: &[String]) {
+    save_history_with(path, history, default_warden_dir().as_deref());
+}
+
+/// `save_history` with the directory Warden calls its own given by the caller (`None`: there is none).
+fn save_history_with(path: &Path, history: &[String], ours: Option<&Path>) {
     if let Some(parent) = path.parent() {
-        let _ = std::fs::create_dir_all(parent);
+        make_private_dir(parent, ours);
     }
+    let _ = write_private(path, &history_text(history));
+}
+
+/// The text of the card shown before the first prompt, if the load said something about the old file.
+fn history_warning(scrub: &HistoryScrub, path: Option<&Path>) -> Option<String> {
+    match (scrub, path) {
+        (HistoryScrub::BarePhrase, _) => Some(tr!("history.phrase_scrubbed")),
+        (HistoryScrub::MaybePhrase, _) => Some(tr!("history.phrase_maybe_scrubbed")),
+        (HistoryScrub::Failed, Some(path)) => Some(tr!("history.phrase_not_scrubbed", path = path.display())),
+        _ => None,
+    }
+}
+
+/// The file's text: the last `MAX_HISTORY_ENTRIES` lines, one per line, no final newline.
+fn history_text(history: &[String]) -> String {
     let start = history.len().saturating_sub(MAX_HISTORY_ENTRIES);
-    let _ = std::fs::write(path, history[start..].join("\n"));
+    history[start..].join("\n")
+}
+
+/// The folder Warden itself names as its own, when it is the default one: `<config dir>/warden`. The same rule as
+/// `default_warden_dir` of `warden-sync` (`manifest.rs`, P175d), which is private to that crate: with `--data-dir` the folder belongs
+/// to the operator, so it is never ours to change.
+///
+/// For this file the `--data-dir` branch does not happen today: the CLI has no such option, so `data_dir()` is always `None` and
+/// the history is always `<config dir>/warden/cli_history.txt` (`history_path` in `main.rs`). If the CLI gains `--data-dir`,
+/// `history_path` and `ours` (this function) must change together, or the history would move out of the folder this rule names
+/// and stop being closed (or, the other way round, a folder the operator named would be closed).
+fn default_warden_dir() -> Option<PathBuf> {
+    match warden_core::paths::data_dir() {
+        Some(_) => None,
+        None => warden_core::paths::warden_dir(),
+    }
+}
+
+/// Creates the directory with mode 0700 on Unix when it (or a parent of it) does not exist yet, and does not change the mode of
+/// one that exists, except under `close_dir_if_ours`. Silent when it cannot: the history is a convenience and must not stop the
+/// REPL.
+fn make_private_dir(dir: &Path, ours: Option<&Path>) {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::DirBuilderExt;
+        let _ = std::fs::DirBuilder::new().recursive(true).mode(0o700).create(dir);
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = std::fs::create_dir_all(dir);
+    }
+    close_dir_if_ours(dir, ours);
+}
+
+/// An existing history file goes to 0600 (Unix; nothing changes on Windows), and so does its directory under `close_dir_if_ours`.
+/// Silent when it cannot.
+fn close_to_others(path: &Path, ours: Option<&Path>) {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let _ = std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600));
+    }
+    if let Some(parent) = path.parent() {
+        close_dir_if_ours(parent, ours);
+    }
+}
+
+/// Sets 0700 on `dir` when it is exactly `ours` and is open to its group or to others. The rule of `close_parent_if_ours` of
+/// `warden-sync` (`manifest.rs`, P175d), which is private to that crate and says why: any other folder is left as it is, because the
+/// path comes from the caller and a `chmod` on a folder nobody here created (the system temp dir, a shared one, the operator's
+/// `--data-dir`) would be an effect nobody asked for. Silent when it cannot. Outside Unix there is no mode to set.
+fn close_dir_if_ours(dir: &Path, ours: Option<&Path>) {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        if ours == Some(dir) && std::fs::metadata(dir).is_ok_and(|meta| meta.permissions().mode() & 0o077 != 0) {
+            let _ = std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o700));
+        }
+    }
+    #[cfg(not(unix))]
+    let _ = (dir, ours);
+}
+
+/// Writes `text` to `path`: into a temporary file in the same directory (a name of its own each time; mode 0600 from the first byte
+/// on Unix), flushed to disk, then `rename` over the old file, then the directory is flushed too (Unix, best effort). Against a
+/// stop of the process (a kill, a crash) in the middle this leaves the old file or the new one, never half of one, and the new file
+/// is private whatever the old one was. The temporary file is removed if anything fails. A power cut can still lose the rename on a
+/// file system that does not honour the directory flush: the old file is then what stays.
+fn write_private(path: &Path, text: &str) -> std::io::Result<()> {
+    static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let name = path.file_name().ok_or_else(|| std::io::Error::new(std::io::ErrorKind::InvalidInput, "history path has no file name"))?;
+    let nanos = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |since| since.as_nanos());
+    let unique = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let temporary = path.with_file_name(format!(".{}.{}.{nanos}.{unique}.tmp", name.to_string_lossy(), std::process::id()));
+    let written = write_new_file(&temporary, text).and_then(|()| std::fs::rename(&temporary, path));
+    if written.is_err() {
+        let _ = std::fs::remove_file(&temporary);
+        return written;
+    }
+    #[cfg(unix)]
+    if let Some(parent) = path.parent().filter(|parent| !parent.as_os_str().is_empty()) {
+        let _ = std::fs::File::open(parent).and_then(|dir| dir.sync_all());
+    }
+    written
+}
+
+/// Creates `path` (it must not exist) with mode 0600 on Unix, writes `text` and flushes it to disk.
+fn write_new_file(path: &Path, text: &str) -> std::io::Result<()> {
+    let mut options = std::fs::OpenOptions::new();
+    options.write(true).create_new(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600);
+    }
+    let mut file = options.open(path)?;
+    file.write_all(text.as_bytes())?;
+    file.sync_all()
 }
 
 /// `ghost` is the dim, non-editable completion suffix shown right after the typed text (see
@@ -4280,7 +4450,10 @@ where
     F: Fn() -> Fut,
     Fut: std::future::Future<Output = anyhow::Result<Orchestrator>>,
 {
-    let mut line_history = history_path.map(load_history).unwrap_or_default();
+    let (mut line_history, scrub) = match history_path {
+        Some(path) => load_history(path),
+        None => (Vec::new(), HistoryScrub::Untouched),
+    };
     let mut history: Vec<Message> = Vec::new();
 
     clear_screen()?;
@@ -4293,6 +4466,12 @@ where
     // position, which contends with reading key events — reused here means that query only ever
     // happens once, before the loop below starts reading any key at all).
     let mut terminal = new_inline_terminal()?;
+
+    // An old history file held something that looked like the recovery phrase (`load_history` already took it out of the file, or
+    // could not): the person is told before the first prompt that it counts as exposed. The card has no part of the line.
+    if let Some(text) = history_warning(&scrub, history_path) {
+        render_message_card(&mut terminal, "arca", Style::default().fg(Color::Rgb(241, 196, 15)), vec![(text, Style::default())])?;
+    }
 
     let config_path_for_grants = config_path.clone();
     let mut session = CliSession {
@@ -4425,6 +4604,46 @@ mod tests {
     /// What a test that asserts on the words pins first: the language is per thread here, never the process's.
     fn speak(locale: i18n::Locale) {
         i18n::set_locale(locale);
+    }
+
+    /// A new, empty directory of its own for a history file (never `temp_dir()` itself: the history code sets the permissions of
+    /// the directory that holds the file, and that must not be a shared one). The caller removes it.
+    fn history_dir(name: &str) -> PathBuf {
+        static COUNTER: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+        let unique = COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let dir = std::env::temp_dir().join(format!("warden-cli-history-{name}-{}-{unique}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    #[cfg(unix)]
+    fn mode_of(path: &Path) -> u32 {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::metadata(path).unwrap().permissions().mode() & 0o777
+    }
+
+    #[cfg(unix)]
+    fn set_mode(path: &Path, mode: u32) {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(path, std::fs::Permissions::from_mode(mode)).unwrap();
+    }
+
+    /// What is in `dir`, by name (sorted): a temporary file left behind shows up here.
+    fn names_in(dir: &Path) -> Vec<String> {
+        let mut names: Vec<String> = std::fs::read_dir(dir).unwrap().map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned()).collect();
+        names.sort();
+        names
+    }
+
+    /// The phrases the history tests plant in an old file: the official 0xff vector (`ZOO_PHRASE`, from arca-core `recovery.rs`, the
+    /// same one the tests above use), the all-"abandon" one and the "legal winner" one (the other two official vectors, as in
+    /// `a_phrase_typed_as_chat_is_neither_kept_in_the_history_nor_saved_nor_reloaded`).
+    fn planted_phrases() -> [String; 3] {
+        [
+            ZOO_PHRASE.to_string(),
+            format!("{} art", ["abandon"; 23].join(" ")),
+            "legal winner thank year wave sausage worth useful legal winner thank year wave sausage worth useful legal winner thank year wave sausage worth title".to_string(),
+        ]
     }
 
     #[test]
@@ -5776,10 +5995,10 @@ mod tests {
                     remember_line(&mut history, typed);
                 }
                 assert_eq!(history, vec!["/arca on", "/arca rotate resume", "/arca rotate", "hello"], "only the line with words stays out; blank lines never go in");
-                let path = std::env::temp_dir().join(format!("warden-cli-history-{}.txt", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
+                let path = history_dir("rotate-line").join("cli_history.txt");
                 save_history(&path, &history);
                 let saved = std::fs::read_to_string(&path).unwrap();
-                let _ = std::fs::remove_file(&path);
+                let _ = std::fs::remove_dir_all(path.parent().unwrap());
                 for part in &secret {
                     assert!(!saved.contains(part.as_str()), "the phrase reached the history file");
                 }
@@ -5834,10 +6053,10 @@ mod tests {
                 }
                 assert_eq!(history, vec!["/arca on", "hello"], "the line with the words stays out of the history");
                 // What an OLDER session already wrote is not reloaded (and so not written back either).
-                let path = std::env::temp_dir().join(format!("warden-cli-history-old-{}.txt", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
+                let path = history_dir("unknown-slash").join("cli_history.txt");
                 std::fs::write(&path, format!("/arca on\n{line}\n\nhello\n/nonsense now\n")).unwrap();
-                let loaded = load_history(&path);
-                let _ = std::fs::remove_file(&path);
+                let (loaded, _) = load_history(&path);
+                let _ = std::fs::remove_dir_all(path.parent().unwrap());
                 assert_eq!(loaded, vec!["/arca on", "hello", "/nonsense now"], "the old line with the words is dropped on load; the rest is kept");
                 for locale in [i18n::Locale::En, i18n::Locale::PtBr] {
                     speak(locale);
@@ -5871,16 +6090,337 @@ mod tests {
                 }
                 // (`assert!` and not `assert_eq!`: a failing run must not print the history, which may hold a phrase, in the log.)
                 assert!(history == ["/arca on", wrong_checksum.as_str(), twenty_three_words.as_str(), sentence.as_str()], "phrase #{index}: only the phrase stays out ({} lines kept)", history.len());
-                let path = std::env::temp_dir().join(format!("warden-cli-history-bare-{}.txt", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
+                let path = history_dir("bare-phrase").join("cli_history.txt");
                 save_history(&path, &history);
                 let saved = std::fs::read_to_string(&path).unwrap();
                 assert!(saved == history.join("\n"), "phrase #{index}: the file holds exactly the lines kept");
                 // What an OLDER session already wrote is not reloaded (and so not written back either).
                 std::fs::write(&path, format!("/arca on\n{line}\n{sentence}\n")).unwrap();
-                let loaded = load_history(&path);
-                let _ = std::fs::remove_file(&path);
+                let (loaded, _) = load_history(&path);
+                let _ = std::fs::remove_dir_all(path.parent().unwrap());
                 assert!(loaded == ["/arca on", sentence.as_str()], "phrase #{index}: the old line with the phrase is dropped on load ({} lines loaded)", loaded.len());
             }
+        }
+    }
+
+    // (The messages of the history-file tests name the case by its index and never print a line or the file: a failing run must not
+    // put a phrase in the log.)
+
+    #[cfg(unix)]
+    #[test]
+    fn a_history_file_is_created_private_in_a_private_directory() {
+        let base = history_dir("new-private");
+        // The directory of the file does not exist yet: the save creates it (with the parents), as the first session does.
+        let path = base.join("warden").join("cli_history.txt");
+        save_history(&path, &["/arca on".to_string(), "hello".to_string()]);
+        assert!(std::fs::read_to_string(&path).unwrap() == "/arca on\nhello", "the file holds the lines saved");
+        let file_mode = mode_of(&path);
+        let dir_mode = mode_of(path.parent().unwrap());
+        let _ = std::fs::remove_dir_all(&base);
+        assert!(file_mode == 0o600, "the new history file must be readable by its owner only (mode {file_mode:o})");
+        assert!(dir_mode == 0o700, "the new history directory must be open to its owner only (mode {dir_mode:o})");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_file_that_was_open_is_closed_on_load_and_on_save_and_a_directory_that_is_not_warden_s_keeps_its_mode() {
+        // A directory that is not the Warden one (here a test directory; in real life the operator's `--data-dir`, or any shared
+        // folder the path was pointed at): the file is ours to close, the directory is not.
+        let dir = history_dir("open-before");
+        let path = dir.join("cli_history.txt");
+        std::fs::write(&path, "/arca on\nhello").unwrap();
+        set_mode(&path, 0o644);
+        set_mode(&dir, 0o755);
+        // Loading closes the file even though nothing is rewritten (no phrase in it).
+        let (loaded, scrub) = load_history(&path);
+        assert!(loaded == ["/arca on", "hello"] && scrub == HistoryScrub::Untouched, "a file without a phrase is read as it is");
+        let (file_after_load, dir_after_load) = (mode_of(&path), mode_of(&dir));
+        // Saving closes it too, if something opened it again between the two.
+        set_mode(&path, 0o644);
+        save_history(&path, &loaded);
+        let (file_after_save, dir_after_save) = (mode_of(&path), mode_of(&dir));
+        // `ours` naming another directory, or none, is the same case.
+        let elsewhere = dir.join("elsewhere");
+        let _ = load_history_with(&path, Some(&elsewhere));
+        save_history_with(&path, &loaded, None);
+        let dir_after_others = mode_of(&dir);
+        let _ = std::fs::remove_dir_all(&dir);
+        assert!(file_after_load == 0o600, "after the load the file is {file_after_load:o}");
+        assert!(file_after_save == 0o600, "after the save the file is {file_after_save:o}");
+        assert!(dir_after_load == 0o755 && dir_after_save == 0o755 && dir_after_others == 0o755, "the mode of a directory that already existed and is not Warden's must not change ({dir_after_load:o}, {dir_after_save:o}, {dir_after_others:o})");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn the_warden_directory_itself_is_closed_when_it_is_open_to_its_group_or_to_others() {
+        // The P175d rule of `warden-sync` (`close_parent_if_ours`): exactly `<config dir>/warden` (no `--data-dir`), and only if
+        // it is open to the group or to others.
+        for open in [0o755, 0o750, 0o705] {
+            let dir = history_dir("ours");
+            let path = dir.join("cli_history.txt");
+            std::fs::write(&path, "hello").unwrap();
+            set_mode(&dir, open);
+            let _ = load_history_with(&path, Some(&dir));
+            let after_load = mode_of(&dir);
+            set_mode(&dir, open);
+            save_history_with(&path, &["hello".to_string()], Some(&dir));
+            let after_save = mode_of(&dir);
+            let _ = std::fs::remove_dir_all(&dir);
+            assert!(after_load == 0o700, "directory {open:o} after the load: {after_load:o}");
+            assert!(after_save == 0o700, "directory {open:o} after the save: {after_save:o}");
+        }
+        // One that is already closed, tighter than 0700, is left as it is.
+        let dir = history_dir("ours-tight");
+        let path = dir.join("cli_history.txt");
+        std::fs::write(&path, "hello").unwrap();
+        set_mode(&dir, 0o500);
+        let _ = load_history_with(&path, Some(&dir));
+        let after = mode_of(&dir);
+        set_mode(&dir, 0o700);
+        let _ = std::fs::remove_dir_all(&dir);
+        assert!(after == 0o500, "a directory with no bit for group or others is not touched ({after:o})");
+    }
+
+    #[test]
+    fn an_old_phrase_is_erased_from_the_history_file_at_load_not_at_the_end_of_the_session() {
+        // A phrase typed before the filter existed, between lines that are not phrases: one that is 24 words of the list but not a
+        // phrase (wrong checksum), a sentence and an unknown slash command are chat and stay.
+        let wrong_checksum = ["zoo"; 24].join(" ");
+        for (index, phrase) in planted_phrases().into_iter().enumerate() {
+            let dir = history_dir("scrub");
+            let path = dir.join("cli_history.txt");
+            let old = format!("list my files\n/models\n{phrase}\n{wrong_checksum}\nwhat is a zoo\n  {}  \n/nonsense now", phrase.to_uppercase().replace(' ', "   "));
+            std::fs::write(&path, old).unwrap();
+            let (loaded, scrub) = load_history(&path);
+            // No save in between: what a crash or a kill of the session would leave.
+            let on_disk = std::fs::read_to_string(&path).unwrap();
+            let _ = std::fs::remove_dir_all(&dir);
+            let kept = ["list my files", "/models", wrong_checksum.as_str(), "what is a zoo", "/nonsense now"];
+            assert!(scrub == HistoryScrub::BarePhrase, "phrase #{index}: the load must say that it erased a line that is a phrase");
+            assert!(loaded == kept, "phrase #{index}: the lines that are not phrases stay, in the same order ({} loaded)", loaded.len());
+            assert!(!on_disk.contains(&phrase) && !on_disk.contains(&phrase.to_uppercase().replace(' ', "   ")), "phrase #{index}: the phrase is still in the file after the load");
+            assert!(on_disk == kept.join("\n"), "phrase #{index}: the file holds exactly the lines that stay, in order");
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn the_rewritten_history_file_is_private_even_if_the_old_one_was_open() {
+        let dir = history_dir("scrub-mode");
+        let path = dir.join("cli_history.txt");
+        std::fs::write(&path, format!("hello\n{ZOO_PHRASE}\n")).unwrap();
+        set_mode(&path, 0o644);
+        let (_, scrub) = load_history(&path);
+        let mode = mode_of(&path);
+        let _ = std::fs::remove_dir_all(&dir);
+        assert!(scrub == HistoryScrub::BarePhrase, "the load must have rewritten the file");
+        assert!(mode == 0o600,"the rewritten file must be private (mode {mode:o})");
+    }
+
+    #[test]
+    fn a_history_file_without_a_phrase_is_not_rewritten_and_nothing_is_said() {
+        // Blank lines and a final newline are what a rewrite would take out: they staying is the proof that the file was not touched.
+        let old = "/arca on\n\nlist my files\n\n/nonsense now\n";
+        let dir = history_dir("no-scrub");
+        let path = dir.join("cli_history.txt");
+        std::fs::write(&path, old).unwrap();
+        let (loaded, scrub) = load_history(&path);
+        let on_disk = std::fs::read_to_string(&path).unwrap();
+        let names = names_in(&dir);
+        let _ = std::fs::remove_dir_all(&dir);
+        assert!(loaded == ["/arca on", "list my files", "/nonsense now"], "the lines are read as before ({} loaded)", loaded.len());
+        assert!(scrub == HistoryScrub::Untouched, "no phrase: no warning");
+        assert!(on_disk == old, "the file must stay byte for byte as it was");
+        assert!(names == ["cli_history.txt"], "nothing else is created: {names:?}");
+        // No file at all (the first session) is not a phrase either.
+        let (none, scrub_none) = load_history(&std::env::temp_dir().join("warden-cli-history-that-does-not-exist").join("cli_history.txt"));
+        assert!(none.is_empty() && scrub_none == HistoryScrub::Untouched);
+    }
+
+    #[test]
+    fn rewriting_the_history_file_leaves_no_temporary_file_behind() {
+        let dir = history_dir("atomic");
+        let path = dir.join("cli_history.txt");
+        std::fs::write(&path, format!("hello\n{ZOO_PHRASE}\nworld")).unwrap();
+        let (loaded, scrub) = load_history(&path);
+        assert!(scrub == HistoryScrub::BarePhrase, "the load must have rewritten the file");
+        let after_load = names_in(&dir);
+        // The save at the end of the session goes the same way.
+        save_history(&path, &loaded);
+        let after_save = names_in(&dir);
+        let on_disk = std::fs::read_to_string(&path).unwrap();
+        let _ = std::fs::remove_dir_all(&dir);
+        assert!(after_load == ["cli_history.txt"], "after the load: {after_load:?}");
+        assert!(after_save == ["cli_history.txt"], "after the save: {after_save:?}");
+        assert!(on_disk == "hello\nworld", "the file holds the lines that stay");
+    }
+
+    /// Lines that `may_hold_a_phrase` refuses but that are not a phrase by themselves (no checksum to check): a long unknown
+    /// command, `/arca rotate` with something after it, and a long path that starts with a slash. Their words are made up on
+    /// purpose: no card may repeat them.
+    const MAYBE_LINES: [&str; 3] = [
+        "/nonsense narwhal quokka axolotl pangolin ocelot capybara wombat lemur marmot gerbil tapir ibex",
+        "/arca rotate now",
+        "/narwhal/quokka/axolotl/pangolin/ocelot/capybara/wombat/lemur/marmot/gerbil/tapir",
+    ];
+
+    #[test]
+    fn the_load_tells_a_line_that_is_a_valid_phrase_from_one_that_only_may_hold_one() {
+        // The line itself says which: a valid phrase (checksum and all) is certain; the rest of what `keep_in_history` refuses is a
+        // guess about a line that starts with a slash.
+        for (index, phrase) in planted_phrases().into_iter().enumerate() {
+            let dir = history_dir("level-bare");
+            let path = dir.join("cli_history.txt");
+            std::fs::write(&path, format!("hello\n{phrase}\n")).unwrap();
+            let (_, scrub) = load_history(&path);
+            let _ = std::fs::remove_dir_all(&dir);
+            assert!(scrub == HistoryScrub::BarePhrase, "phrase #{index}: a valid phrase on its own line is certain");
+        }
+        for (index, line) in MAYBE_LINES.iter().enumerate() {
+            let dir = history_dir("level-maybe");
+            let path = dir.join("cli_history.txt");
+            std::fs::write(&path, format!("hello\n{line}\nworld")).unwrap();
+            let (loaded, scrub) = load_history(&path);
+            let on_disk = std::fs::read_to_string(&path).unwrap();
+            let _ = std::fs::remove_dir_all(&dir);
+            assert!(scrub == HistoryScrub::MaybePhrase, "line #{index}: a line that only may hold a phrase is a doubt, not a certainty");
+            assert!(loaded == ["hello", "world"] && on_disk == "hello\nworld", "line #{index}: it is erased all the same");
+        }
+        // Both in one file: the certain one wins.
+        for phrase in planted_phrases() {
+            let dir = history_dir("level-both");
+            let path = dir.join("cli_history.txt");
+            std::fs::write(&path, format!("{}\nhello\n{phrase}\n{}", MAYBE_LINES[0], MAYBE_LINES[1])).unwrap();
+            let (loaded, scrub) = load_history(&path);
+            let _ = std::fs::remove_dir_all(&dir);
+            assert!(scrub == HistoryScrub::BarePhrase && loaded == ["hello"], "with a certain line and a doubtful one the warning is the strong one");
+        }
+    }
+
+    #[test]
+    fn bytes_that_are_not_utf8_do_not_make_the_load_skip_the_file_and_the_phrase_in_it() {
+        // A guard: the file is read as bytes and decoded with replacement characters. `read_to_string` would fail on the first
+        // invalid byte and the whole file, phrase included, would be left alone (and `Untouched`).
+        for (index, phrase) in planted_phrases().into_iter().enumerate() {
+            let dir = history_dir("not-utf8");
+            let path = dir.join("cli_history.txt");
+            let mut old = b"hello\n\xff before\n".to_vec();
+            old.extend_from_slice(phrase.as_bytes());
+            old.extend_from_slice(b"\n\xff after\nworld");
+            std::fs::write(&path, &old).unwrap();
+            let (loaded, scrub) = load_history(&path);
+            let on_disk = std::fs::read(&path).unwrap();
+            let _ = std::fs::remove_dir_all(&dir);
+            let kept = ["hello", "\u{FFFD} before", "\u{FFFD} after", "world"];
+            assert!(scrub == HistoryScrub::BarePhrase, "phrase #{index}: the phrase between invalid bytes is found");
+            assert!(loaded == kept, "phrase #{index}: the other lines stay, an invalid byte becoming U+FFFD ({} loaded)", loaded.len());
+            assert!(on_disk == kept.join("\n").as_bytes(), "phrase #{index}: the file holds exactly those lines, with no phrase");
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn when_the_history_file_cannot_be_rewritten_the_old_file_stays_whole_and_the_load_says_so() {
+        // The only case where the phrase stays on the disk: the directory lets the file be read but not a new file be made in it
+        // (mode 0500). Root ignores the mode, so there is nothing to see: the probe skips the test then.
+        let dir = history_dir("failed");
+        let path = dir.join("cli_history.txt");
+        let old = format!("hello\n{ZOO_PHRASE}\nworld");
+        std::fs::write(&path, &old).unwrap();
+        set_mode(&dir, 0o500);
+        let probe = std::fs::File::create(dir.join("probe"));
+        if probe.is_ok() {
+            set_mode(&dir, 0o700);
+            let _ = std::fs::remove_dir_all(&dir);
+            eprintln!("skipped: this user can create files in a 0500 directory (root)");
+            return;
+        }
+        let (loaded, scrub) = load_history(&path);
+        let on_disk = std::fs::read(&path).unwrap();
+        let names = names_in(&dir);
+        set_mode(&dir, 0o700);
+        let _ = std::fs::remove_dir_all(&dir);
+        assert!(scrub == HistoryScrub::Failed, "the load must say that it could not rewrite the file");
+        assert!(on_disk == old.as_bytes(), "the old file is left whole, byte for byte");
+        assert!(loaded == ["hello", "world"], "the phrase is not in memory even when it is still on the disk ({} loaded)", loaded.len());
+        assert!(names == ["cli_history.txt"], "no temporary file is left: {names:?}");
+    }
+
+    #[test]
+    fn the_card_is_chosen_by_what_the_load_did() {
+        let path = Path::new("/home/someone/cli_history.txt");
+        speak(i18n::Locale::En);
+        assert!(history_warning(&HistoryScrub::Untouched, Some(path)).is_none(), "nothing found: no card");
+        assert!(history_warning(&HistoryScrub::Untouched, None).is_none());
+        let bare = history_warning(&HistoryScrub::BarePhrase, Some(path)).unwrap();
+        let maybe = history_warning(&HistoryScrub::MaybePhrase, Some(path)).unwrap();
+        let failed = history_warning(&HistoryScrub::Failed, Some(path)).unwrap();
+        assert_eq!(bare, tr!("history.phrase_scrubbed"));
+        assert_eq!(maybe, tr!("history.phrase_maybe_scrubbed"));
+        assert_eq!(failed, tr!("history.phrase_not_scrubbed", path = path.display()));
+        assert!(bare != maybe && bare != failed && maybe != failed, "three different texts");
+        assert!(history_warning(&HistoryScrub::BarePhrase, None).is_some() && history_warning(&HistoryScrub::MaybePhrase, None).is_some(), "the erasing is said with no path too");
+        assert!(history_warning(&HistoryScrub::Failed, None).is_none(), "a failure with no file to name has nothing to say");
+    }
+
+    #[test]
+    fn the_cards_say_how_sure_they_are_and_what_the_erasing_does_not_reach() {
+        for locale in [i18n::Locale::En, i18n::Locale::PtBr] {
+            speak(locale);
+            let path = Path::new("/home/someone/cli_history.txt");
+            for (name, text) in [
+                ("bare", history_warning(&HistoryScrub::BarePhrase, Some(path)).unwrap()),
+                ("maybe", history_warning(&HistoryScrub::MaybePhrase, Some(path)).unwrap()),
+                ("failed", history_warning(&HistoryScrub::Failed, Some(path)).unwrap()),
+            ] {
+                assert!(!text.starts_with("history."), "{locale:?} {name}: the key is missing from the catalog");
+                assert!(text.contains("/arca rotate") && text.contains("EXPOS"), "{locale:?} {name}: {text}");
+                let (backups, sessions) = if locale == i18n::Locale::En { ("backup", "session") } else { ("backup", "sessão") };
+                assert!(text.contains(backups) && text.contains(sessions), "{locale:?} {name}: backups and sessions still open are said: {text}");
+            }
+        }
+        speak(i18n::Locale::En);
+        let path = Path::new("/home/someone/cli_history.txt");
+        let bare = history_warning(&HistoryScrub::BarePhrase, Some(path)).unwrap();
+        let maybe = history_warning(&HistoryScrub::MaybePhrase, Some(path)).unwrap();
+        let failed = history_warning(&HistoryScrub::Failed, Some(path)).unwrap();
+        assert!(bare.contains("looked like") && bare.contains("AI provider") && bare.contains("snapshot") && bare.contains("free blocks"), "{bare}");
+        assert!(maybe.contains("MAY have held") && maybe.contains("If it was"), "the doubtful text is a doubt: {maybe}");
+        assert!(!maybe.contains("looked like"), "{maybe}");
+        assert!(failed.contains("could not") && failed.contains("/home/someone/cli_history.txt") && failed.contains("that line from the file"), "{failed}");
+        speak(i18n::Locale::PtBr);
+        let bare_pt = history_warning(&HistoryScrub::BarePhrase, Some(path)).unwrap();
+        let maybe_pt = history_warning(&HistoryScrub::MaybePhrase, Some(path)).unwrap();
+        let failed_pt = history_warning(&HistoryScrub::Failed, Some(path)).unwrap();
+        assert!(bare_pt.contains("parecia") && bare_pt.contains("provedor de IA") && bare_pt.contains("snapshot") && bare_pt.contains("blocos livres"), "{bare_pt}");
+        assert!(maybe_pt.contains("PODIA conter") && maybe_pt.contains("Se era"), "{maybe_pt}");
+        assert!(!maybe_pt.contains("parecia"), "{maybe_pt}");
+        assert!(failed_pt.contains("não foi possível") && failed_pt.contains("/home/someone/cli_history.txt") && failed_pt.contains("essa linha do arquivo"), "{failed_pt}");
+        assert!(bare != bare_pt && maybe != maybe_pt && failed != failed_pt, "the pt-BR texts are not the English ones");
+    }
+
+    #[test]
+    fn the_card_a_load_produces_repeats_no_word_of_the_line_it_erased() {
+        // The whole way: a file with the line planted, the load, the card. Words of the line that are not part of the command
+        // itself (`/arca rotate` is named by every card, on purpose) must not be in any card, in either language; a card that echoed
+        // the line would put the phrase back on the screen.
+        let mut planted: Vec<String> = planted_phrases().to_vec();
+        planted.extend(MAYBE_LINES.iter().map(|line| line.to_string()));
+        for (index, line) in planted.iter().enumerate() {
+            let words: std::collections::BTreeSet<String> = line.split(|c: char| !c.is_alphabetic()).filter(|word| !word.is_empty() && !["arca", "rotate"].contains(word)).map(str::to_lowercase).collect();
+            assert!(!words.is_empty(), "line #{index} has words to look for");
+            let dir = history_dir("card-words");
+            let path = dir.join("cli_history.txt");
+            std::fs::write(&path, format!("hello\n{line}\n")).unwrap();
+            let (_, scrub) = load_history(&path);
+            for locale in [i18n::Locale::En, i18n::Locale::PtBr] {
+                speak(locale);
+                let card = history_warning(&scrub, Some(&path)).expect("a card for an erased line");
+                assert!(!card.starts_with("history."), "line #{index}: the key is missing from the catalog");
+                let repeated = card.split(|c: char| !c.is_alphabetic()).filter(|word| words.contains(&word.to_lowercase())).count();
+                assert!(repeated == 0, "line #{index} {locale:?}: the card repeats {repeated} word(s) of the line");
+            }
+            let _ = std::fs::remove_dir_all(&dir);
         }
     }
 
