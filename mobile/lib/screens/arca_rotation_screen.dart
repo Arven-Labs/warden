@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import '../l10n/generated/app_localizations.dart';
 import '../services/arca_mode_flow.dart';
 import '../services/arca_pair_flow.dart' show TypedOnlyFormatter;
+import '../services/secure_window.dart';
 import '../src/rust/api/arca_rotation.dart' as bridge_rotation;
 
 /// The key rotation for "I lost a device" (P-49): see the plan in `project/PENDING.md`. Pops `true` once the rotation was confirmed.
@@ -12,9 +13,12 @@ import '../src/rust/api/arca_rotation.dart' as bridge_rotation;
 /// The new key lives in the bridge, never here: this screen only holds the 24 words it was shown (in memory, never written) until the
 /// person confirms, cancels or leaves. Every way out drops the key in the bridge. Nothing here can paste: the words are typed.
 class ArcaRotationScreen extends StatefulWidget {
-  const ArcaRotationScreen({super.key, required this.backend});
+  const ArcaRotationScreen({super.key, required this.backend, this.secureWindow = const PlatformSecureWindow()});
 
   final ArcaModeBackend backend;
+
+  /// Blocks screenshots and the recent-apps thumbnail while the 24 words are showing.
+  final SecureWindow secureWindow;
 
   @override
   State<ArcaRotationScreen> createState() => _ArcaRotationScreenState();
