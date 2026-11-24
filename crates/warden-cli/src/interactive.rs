@@ -795,21 +795,26 @@ fn remember_line(history: &mut Vec<String>, line: &str) {
     }
 }
 
-/// Where a submitted line (already trimmed) goes. Skeleton: it never says `BlockedPhrase` yet, and the loop does not use it yet.
-#[allow(dead_code)]
+/// Where a submitted line (already trimmed) goes. The REPL loop dispatches on this and on nothing else, so the only route that reaches
+/// the model is `Parsed(ParseOutcome::NotACommand)`, and a recovery phrase typed as chat can never be that one.
 enum LineRoute {
+    /// Nothing typed: ask again.
     Blank,
+    /// `exit` or `quit` without a slash.
     Exit,
+    /// The line is the 24-word recovery phrase on its own (`commands::is_bare_phrase`): a fixed card, never the model, never echoed.
     BlockedPhrase,
+    /// A command, an unknown command, or chat.
     Parsed(ParseOutcome),
 }
 
-#[allow(dead_code)]
 fn classify_line(trimmed: &str) -> LineRoute {
     if trimmed.is_empty() {
         LineRoute::Blank
     } else if trimmed == "exit" || trimmed == "quit" {
         LineRoute::Exit
+    } else if commands::is_bare_phrase(trimmed) {
+        LineRoute::BlockedPhrase
     } else {
         LineRoute::Parsed(commands::parse_command(trimmed))
     }
@@ -4313,21 +4318,19 @@ where
         };
 
         let trimmed = input.trim();
-        if trimmed.is_empty() {
-            continue;
-        }
-        if trimmed == "exit" || trimmed == "quit" {
-            break;
-        }
+        let outcome = match classify_line(trimmed) {
+            LineRoute::Blank => continue,
+            LineRoute::Exit => break,
+            // The recovery phrase typed as chat would go to the AI provider as the text of a turn. It is neither sent, nor echoed in
+            // the "you" card, nor kept (`read_line` already left it out of the line history); the card is a fixed text.
+            LineRoute::BlockedPhrase => {
+                render_message_card(&mut terminal, &tr!("common.error"), error_style(), vec![(tr!("arca.phrase_in_chat"), Style::default())])?;
+                continue;
+            }
+            LineRoute::Parsed(outcome) => outcome,
+        };
 
-        // The recovery phrase typed as chat: it would go to the AI provider as the text of a turn. It is neither sent, nor echoed in
-        // the "you" card, nor kept (`read_line` already left it out of the line history); the card is a fixed text.
-        if commands::is_bare_phrase(trimmed) {
-            render_message_card(&mut terminal, &tr!("common.error"), error_style(), vec![(tr!("arca.phrase_in_chat"), Style::default())])?;
-            continue;
-        }
-
-        match commands::parse_command(trimmed) {
+        match outcome {
             ParseOutcome::NotACommand => {}
             ParseOutcome::Recognized(Command::Exit) => break,
             ParseOutcome::Recognized(command) => {

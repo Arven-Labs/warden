@@ -394,7 +394,7 @@ pub const CATALOG: &[(&str, &str)] = &[
     ("arca.rotate_size_unknown", "não foi possível ler o tamanho do terminal, então nenhuma chave foi gerada e nada foi mostrado nem escrito. Tente /arca rotate de novo."),
     ("arca.rotate_no_arguments", "/arca rotate e /arca rotate resume não recebem nada na linha: ficaria no histórico de linhas. Rode o comando sozinho; o /arca rotate resume pede as 24 palavras num campo escondido. A linha que você digitou não foi guardada e não aparece aqui."),
     ("arca.phrase_in_chat", "Essa linha parece a frase de recuperação de 24 palavras, então não foi enviada ao modelo, não foi guardada no histórico de linhas e não aparece aqui. Para trocar a chave, rode /arca rotate ou /arca rotate resume: as palavras são pedidas num campo escondido."),
-    ("arca.rotate_discarded","A frase que foi mostrada está descartada: nada a usa, e você pode jogar o papel fora."),
+    ("arca.rotate_discarded", "A frase que foi mostrada está descartada: nada a usa, e você pode jogar o papel fora."),
     ("arca.rotate_ask_word", " palavra {position} da chave nova (digite de volta) "),
     ("arca.rotate_ask_phrase", " as 24 palavras da chave nova (não aparecem e não são guardadas) "),
     ("arca.rotate_ask_revoked", " você revogou o token do dispositivo perdido no hub (fora do Warden)? Sem isso, ele continua sincronizando. (s/n) "),
