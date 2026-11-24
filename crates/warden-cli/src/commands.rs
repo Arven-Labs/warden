@@ -232,6 +232,11 @@ pub fn is_rotate_with_arguments(input: &str) -> bool {
     starts_arca_rotate && matches!(parse_command(input), ParseOutcome::Unrecognized(_))
 }
 
+// SKELETON (first commit of the last review round of `/arca rotate`): answers wrongly on purpose; the next commit writes it.
+pub fn may_hold_a_phrase(input: &str) -> bool {
+    is_rotate_with_arguments(input)
+}
+
 /// Parses a provider `kind` the way a user would type it (matching the config file's own
 /// `#[serde(rename_all = "snake_case")]` spelling) — there's no `FromStr` on `Provider` itself
 /// since its only other consumer (`toml`) goes through `serde`, not `str::parse`.
@@ -583,6 +588,50 @@ mod tests {
         }
         for line in ["/arca rotate", "/arca rotate resume", "  /arca   rotate   resume  ", "/arca sync", "/arca swap now", "/arca rotated", "/arca", "/nonsense", "hello rotate", "arca rotate resume x", ""] {
             assert!(!is_rotate_with_arguments(line), "{line}: only a line that starts /arca rotate and is not one of the two commands");
+        }
+    }
+
+    #[test]
+    fn any_unknown_slash_line_that_may_hold_a_phrase_is_told_apart_whatever_its_first_words() {
+        // The phrase of the official BIP-39 vector for 32 bytes of 0xff (arca-core `recovery.rs`): a real one.
+        let phrase = format!("{} vote", ["zoo"; 23].join(" "));
+        let zero_width_joined = phrase.replace(' ', "\u{200B}");
+        let comma_joined = phrase.replace(' ', ",");
+        let lines = [
+            format!("/arca rotat resume {phrase}"),
+            format!("/arca rotatex {phrase}"),
+            format!("/arca resume {phrase}"),
+            format!("/arca rotate-resume {phrase}"),
+            format!("/rotate resume {phrase}"),
+            format!("/arca sync {phrase}"),
+            format!("/arca\u{200B}rotate resume {phrase}"),
+            format!("/arca rotate\u{200B}resume {phrase}"),
+            // No whitespace between the words at all: one token, but far too long for a command.
+            format!("/arca rotate resume {zero_width_joined}"),
+            format!("/arca rotat resume {zero_width_joined}"),
+            format!("/arca rotat resume {comma_joined}"),
+            // The exact forms the older rule already knew.
+            format!("/arca rotate resume {phrase}"),
+            format!("  /ARCA  rotate  resume  {phrase}  "),
+        ];
+        for line in &lines {
+            assert!(may_hold_a_phrase(line), "a line of {} characters and {} tokens was not caught", line.chars().count(), line.split_whitespace().count());
+        }
+        // 12 tokens in all is the edge of the token rule (a phrase has 24); these lines are short, so the length rule is not what decides.
+        let ten_words = ["zoo"; 10].join(" ");
+        let eleven_words = ["zoo"; 11].join(" ");
+        assert!(!may_hold_a_phrase(&format!("/nonsense {ten_words}")), "11 tokens");
+        assert!(may_hold_a_phrase(&format!("/nonsense {eleven_words}")), "12 tokens");
+    }
+
+    #[test]
+    fn what_is_not_an_unknown_slash_line_or_is_short_is_left_alone() {
+        let long_but_known = "/skills attach name file a b c d e f g h i j k l m n o p q r s t u v w x y z";
+        assert!(matches!(parse_command(long_but_known), ParseOutcome::Recognized(_)), "the line really is a command");
+        // A recognized command never counts, however long; nor does chat (no slash: that is the owner's product decision, not this rule).
+        let chat = ["zoo"; 24].join(" ");
+        for line in [long_but_known, chat.as_str(), "/arca rotate", "/arca rotate resume", "/nonsense", "/models bogus", "/nonsense now", "/ssh bogus vps", "", "   "] {
+            assert!(!may_hold_a_phrase(line), "{line}");
         }
     }
 

@@ -792,6 +792,15 @@ fn remember_line(history: &mut Vec<String>, line: &str) {
     }
 }
 
+// SKELETON (first commit of the last review round of `/arca rotate`): answers wrongly on purpose; the next commit writes it.
+fn cancelled_lines(_resuming: bool) -> Vec<String> {
+    vec![tr!("arca.cancelled")]
+}
+
+fn phrase_screen_still_valid(_shown_for: (u16, u16), _now: Option<(u16, u16)>) -> bool {
+    true
+}
+
 /// What the REPL says for a line that is not a command. It echoes the line, except for `/arca rotate ...` with arguments, which
 /// may hold the 24 words: that gets a fixed message that never repeats the line.
 fn unknown_command_lines(raw: &str) -> String {
@@ -5716,9 +5725,10 @@ mod tests {
                 }
             }
         }
-        // Every other unknown command is still echoed as before, and recalled from the history.
+        // A short unknown command is still recalled from the history; the card names the command (its first word), not the rest.
         speak(i18n::Locale::En);
-        assert!(unknown_command_lines("/nonsense now").contains("/nonsense now"));
+        let said_short = unknown_command_lines("/nonsense now");
+        assert!(said_short.contains("/nonsense") && !said_short.contains("now"), "{said_short}");
         let mut history = Vec::new();
         remember_line(&mut history, "/nonsense now");
         assert_eq!(history, vec!["/nonsense now"]);
@@ -5726,6 +5736,98 @@ mod tests {
         assert!(said.contains("hidden") && !said.contains("abandon"), "{said}");
         speak(i18n::Locale::PtBr);
         assert!(unknown_command_lines("/arca rotate resume abandon").contains("escondido"));
+    }
+
+    #[test]
+    fn a_phrase_on_any_unknown_slash_line_is_neither_kept_nor_echoed_nor_saved_nor_reloaded() {
+        let made = PendingRotation::generate().unwrap();
+        let made_phrase = made.phrase().unwrap();
+        for phrase in [ZOO_PHRASE.to_string(), made_phrase.expose().to_string()] {
+            let words: Vec<&str> = phrase.split(' ').collect();
+            let secret = [phrase.clone(), words[..12].join(" "), words[12..].join(" ")];
+            let zero_width_joined = phrase.replace(' ', "\u{200B}");
+            let comma_joined = phrase.replace(' ', ",");
+            let lines = [
+                format!("/arca rotat resume {phrase}"),
+                format!("/arca rotatex {phrase}"),
+                format!("/arca resume {phrase}"),
+                format!("/arca rotate-resume {phrase}"),
+                format!("/rotate resume {phrase}"),
+                format!("/arca\u{200B}rotate resume {phrase}"),
+                format!("/arca rotate\u{200B}resume {phrase}"),
+                format!("/arca rotat resume {zero_width_joined}"),
+                format!("/arca rotat resume {comma_joined}"),
+            ];
+            for line in &lines {
+                let mut history = Vec::new();
+                for typed in ["/arca on", line.as_str(), "hello"] {
+                    remember_line(&mut history, typed);
+                }
+                assert_eq!(history, vec!["/arca on", "hello"], "the line with the words stays out of the history");
+                // What an OLDER session already wrote is not reloaded (and so not written back either).
+                let path = std::env::temp_dir().join(format!("warden-cli-history-old-{}.txt", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
+                std::fs::write(&path, format!("/arca on\n{line}\n\nhello\n/nonsense now\n")).unwrap();
+                let loaded = load_history(&path);
+                let _ = std::fs::remove_file(&path);
+                assert_eq!(loaded, vec!["/arca on", "hello", "/nonsense now"], "the old line with the words is dropped on load; the rest is kept");
+                for locale in [i18n::Locale::En, i18n::Locale::PtBr] {
+                    speak(locale);
+                    let said = unknown_command_lines(line);
+                    for part in &secret {
+                        assert!(!said.contains(part.as_str()), "the phrase was echoed in the unknown-command card");
+                    }
+                    assert!(!said.contains("resume") || said.contains("/arca rotate resume"), "only the first word is echoed, never the rest of the line: {said}");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn an_unknown_command_is_echoed_by_its_first_word_only() {
+        speak(i18n::Locale::En);
+        let said = unknown_command_lines("/models bogus --token hunter2");
+        assert!(said.contains("/models") && !said.contains("bogus") && !said.contains("hunter2"), "{said}");
+        speak(i18n::Locale::PtBr);
+        let said_pt = unknown_command_lines("/models bogus --token hunter2");
+        assert!(said_pt.contains("/models") && !said_pt.contains("hunter2"), "{said_pt}");
+    }
+
+    #[test]
+    fn a_cancelled_rotation_says_the_phrase_that_was_shown_is_void_but_a_resume_has_none_to_void() {
+        speak(i18n::Locale::En);
+        let rotate = cancelled_lines(false);
+        assert_eq!(rotate.len(), 2);
+        assert_eq!(rotate[0], tr!("arca.cancelled"));
+        assert!(rotate[1].contains("discarded"), "{rotate:?}");
+        assert_eq!(cancelled_lines(true), vec![tr!("arca.cancelled")], "a resume showed no phrase");
+        speak(i18n::Locale::PtBr);
+        assert!(cancelled_lines(false)[1].contains("descartada"));
+    }
+
+    #[test]
+    fn the_phrase_screen_goes_on_only_while_the_terminal_is_the_size_it_was_laid_out_for() {
+        assert!(phrase_screen_still_valid((80, 24), Some((80, 24))));
+        for now in [Some((79, 24)), Some((80, 23)), Some((120, 40)), Some((0, 0)), None] {
+            assert!(!phrase_screen_still_valid((80, 24), now), "{now:?}: a size that changed or cannot be read ends the screen");
+        }
+    }
+
+    #[test]
+    fn what_the_person_reads_after_a_resize_does_not_say_the_words_were_erased_and_says_to_clear_the_terminal() {
+        speak(i18n::Locale::En);
+        let resized = tr!("arca.rotate_resized");
+        assert!(resized.contains("may still be visible") && resized.contains("clear the terminal") && resized.contains("Nothing was written"), "{resized}");
+        assert!(!resized.contains("were cleared"), "{resized}");
+        speak(i18n::Locale::PtBr);
+        let resized_pt = tr!("arca.rotate_resized");
+        assert!(resized_pt.contains("ainda estar visíveis") && resized_pt.contains("limpe o terminal"), "{resized_pt}");
+        assert!(!resized_pt.contains("foram apagadas"), "{resized_pt}");
+        // When the size cannot be read nothing is made, and the text says that, not "too small".
+        speak(i18n::Locale::En);
+        let unknown = tr!("arca.rotate_size_unknown");
+        assert!(unknown.contains("size") && unknown.contains("no key was made") && !unknown.contains("too small"), "{unknown}");
+        speak(i18n::Locale::PtBr);
+        assert!(tr!("arca.rotate_size_unknown").contains("tamanho"));
     }
 
     /// The person, from a script: what each field answers, in order; `None` is Ctrl+D. It remembers the titles it was asked.
