@@ -380,13 +380,16 @@ fn require_arca_mode(engine: &SyncEngine) -> Result<(), String> {
     }
 }
 
-/// The one place that puts a key in the slot or takes it out, and the one that tells the automatic loop (`runner`) whether one waits:
-/// the loop stands by exactly while a key waits in `slot` or a confirmation runs (`SyncRunner::confirming_rotation`). The slot is
-/// changed and the runner told under the slot's lock, so two calls finishing together cannot leave the older answer last and the
-/// pause cannot drift from the slot. `confirm` takes the key by itself, for it must also start its guard under that lock.
+/// The place that puts a key in the slot (`begin`, `resume`) or empties it (`cancel`), and tells the automatic loop (`runner`) whether
+/// one waits: the loop stands by exactly while a key waits in `slot` or a confirmation runs (`SyncRunner::confirming_rotation`). The
+/// slot is changed and the runner told under the slot's lock, so two calls finishing together cannot leave the older answer last and
+/// the pause cannot drift from the slot. `take_key_to_confirm` also takes the key out, by itself, for it must start its guard under
+/// that same lock.
 ///
-/// A person who closes the screen without confirming leaves the key in the slot and the loop paused, with no timeout (an open
-/// decision); `cancel` is the way out. Closing the app clears both, since the slot and the pause live only in memory.
+/// The screen (`ArcaRotationBlock.tsx`) already calls `arca_rotation_cancel` when it unmounts, so leaving the screen frees the loop.
+/// What is left is a cleanup that did not run (the `invoke` failed, the webview was reloaded or hung): then the key stays in the slot
+/// and the loop stays paused, with no deadline. A later `cancel`, a new `begin` that is confirmed, or closing the app ends it, since the
+/// slot and the pause live only in memory. Whether the pause should expire is an open decision for the owner.
 fn set_slot(runner: &SyncRunner, slot: &RotationSlot, key: Option<PendingRotation>) {
     let mut held = slot.lock().unwrap();
     *held = key;
@@ -1082,6 +1085,34 @@ mod tests {
         assert!(device.runner.rotation_in_progress(), "the cancel came while the confirmation runs");
         drop(confirming);
         assert!(!device.runner.rotation_in_progress(), "the confirmation ended");
+    }
+
+    /// The real `rotation_confirm`, stopped in the middle: the sync file lock is held by someone else (another Warden process), so the
+    /// confirmation has the key out of the slot and sleeps in `sync_lock().await` (it retries every 250 ms). The loop must stand by
+    /// for all of it, and a cancel meanwhile must not free it. If `rotation_confirm` did not hold its guard through the `await` (say
+    /// `let (pending, _) = ...` in place of `let (pending, _confirming) = ...`), the first assert after the timeout fails.
+    #[tokio::test]
+    async fn the_loop_stands_by_through_a_confirmation_that_waits_for_the_sync_lock() {
+        use warden_sync::lock::{lock_path_for, SyncLock};
+        let device = device_in_arca_mode("pause-confirm-waits-for-lock").await;
+        let slot = RotationSlot::default();
+        let start = rotation_begin(&device.engine, &device.runner, &slot).unwrap();
+        let held = SyncLock::acquire(&lock_path_for(&device.base.join("sync_manifest.json"))).await.unwrap();
+
+        let words = asked(&start);
+        let mut confirm = Box::pin(rotation_confirm(&device.engine, &device.runner, &slot, &words, true, 2));
+        let waiting = tokio::time::timeout(std::time::Duration::from_millis(50), &mut confirm).await;
+        assert!(waiting.is_err(), "the confirmation must be stuck on the sync lock, not finished: {waiting:?}");
+        assert!(slot.lock().unwrap().is_none(), "the confirmation has the key out of the slot");
+        assert!(device.runner.rotation_in_progress(), "a confirmation is running: the loop must stand by");
+
+        rotation_cancel(&device.runner, &slot);
+        assert!(device.runner.rotation_in_progress(), "a cancel while the confirmation runs must not free the loop");
+
+        drop(held);
+        confirm.await.unwrap();
+        assert!(!device.runner.rotation_in_progress(), "the confirmation ended, so the loop runs again");
+        assert_eq!(secrets_of(&device).key_epoch, 1, "the confirmation finished once the lock was free");
     }
 
     /// Nothing waiting: a confirmation that finds no key does not pause the loop (and does not leave a guard behind).

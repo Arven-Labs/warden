@@ -18,9 +18,11 @@ use crate::settings::{keys_match, SettingsHost, SharedOrchestrator, WRONG_KEY_DE
 
 const NO_SYNC: &str = "this hub doesn't offer vault sync over the network";
 
-/// What the automatic loop did not do because a key rotation is waiting for confirmation. The DTO has no field for "paused", and a
-/// quiet round (no pull, no push, no error) reads as "nothing changed", so the web shows this in its error banner.
-const PAUSED_FOR_ROTATION: &str = "auto-sync paused: a key rotation is waiting for confirmation";
+/// What the automatic loop did not do because a key rotation is in progress (waiting for its confirmation, or being confirmed). The
+/// DTO has no field for "paused", and a quiet round (no pull, no push, no error) reads as "nothing changed", so the web shows this in
+/// its error banner. The paused round stays as the last round until the next tick that runs, so the banner can outlive the rotation
+/// by up to one interval.
+const PAUSED_FOR_ROTATION: &str = "auto-sync paused: a key rotation is in progress";
 
 pub fn round_dto(report: &SyncReport) -> SyncRoundDto {
     SyncRoundDto {
@@ -160,7 +162,7 @@ mod tests {
     fn a_round_paused_for_a_rotation_reaches_the_web_as_an_error_that_says_so() {
         let dto = round_dto(&round(None, true));
         assert_eq!(dto.at_ms, 42);
-        assert_eq!(dto.error.as_deref(), Some("auto-sync paused: a key rotation is waiting for confirmation"));
+        assert_eq!(dto.error.as_deref(), Some("auto-sync paused: a key rotation is in progress"));
         assert!(dto.pulled.is_none() && dto.pushed.is_none());
     }
 

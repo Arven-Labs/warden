@@ -74,7 +74,8 @@ pub struct SyncReport {
     pub error: Option<String>,
     /// The automatic loop did not run this round because a key rotation is in progress (`set_rotation_in_progress`). Not an error:
     /// the round was skipped on purpose, and it runs again as soon as the rotation is confirmed or cancelled. A "sync now" is never
-    /// skipped, so only a report the loop made can have this set.
+    /// skipped, so only a report the loop made can have this set. It stays as the last round (`SyncState::last_round`) until the next
+    /// tick that runs, so a screen reading it right after the rotation ended can still see "paused".
     pub paused_for_rotation: bool,
 }
 
@@ -250,6 +251,11 @@ impl SyncRunner {
     }
 
     /// Whether the loop must stand by: a key waits for its confirmation, or a confirmation is running.
+    ///
+    /// The ORDER of the two reads matters (`waiting` first, then `confirming`). The host starts a confirmation by raising
+    /// `confirming` and only then clearing `waiting` (`take_key_to_confirm`). Read in this order, a reader that sees `waiting`
+    /// already cleared is sure to see `confirming` raised; read the other way round, it could see `confirming` at 0 (before the
+    /// raise) and `waiting` false (after the clear) and let the loop run in that instant.
     pub fn rotation_in_progress(&self) -> bool {
         self.rotation_waiting.load(Ordering::SeqCst) || self.rotation_confirming.load(Ordering::SeqCst) > 0
     }
@@ -1014,7 +1020,7 @@ mod tests {
 
     /// A tick that passed the first look and queued behind a long "sync now" must look again once it has the round lock: a rotation
     /// may have begun meanwhile, and a cycle that starts after that is the one the pause is meant to stop.
-    #[tokio::test]
+    #[tokio::test(flavor = "current_thread")]
     async fn a_tick_that_queued_behind_a_sync_now_looks_again_before_it_starts_a_cycle() {
         let (cycle, calls) = fake_cycle(vec![]);
         let a = Arc::new(arca_device("arca-rotation-queued", Some("hub-1"), cycle).await);
@@ -1023,10 +1029,14 @@ mod tests {
             let a = a.clone();
             async move { a.loop_round().await }
         });
-        // On this test's single-threaded runtime, the tick runs up to the round lock, which is taken.
+        // The precondition (the tick passed the first look and waits for the round lock) depends on the `current_thread` runtime above:
+        // the spawned task only runs when this one yields, and then runs until it cannot go on. A tick that had got past the lock would
+        // have run the cycle (the script is empty, so it would have panicked and finished); a tick that was paused would have
+        // finished. So a tick that is not finished here is the one waiting for the lock.
         tokio::task::yield_now().await;
         tokio::task::yield_now().await;
-        assert!(!a.rotation_in_progress(), "the tick must have passed the first look with no rotation");
+        assert!(!tick.is_finished(), "the tick must be waiting for the round lock, past its first look");
+        assert!(!a.rotation_in_progress(), "and it passed that look with no rotation in progress");
         a.set_rotation_in_progress(true);
         drop(sync_now);
         let report = tokio::time::timeout(Duration::from_secs(5), tick).await.expect("the tick never finished").expect("the tick panicked (the cycle ran?)");
