@@ -6,6 +6,13 @@
 
 ---
 
+### 2026-11-24 — arca: rodada 5 do P-49, equipe de 4 tarefas (warden#259 e #260 neste repo; arca#208 e #210 no arca; nenhum mesclado até este registro). O detalhe, os achados e a medição estão no `SESSIONS.md` da arca (Sessão 130)
+
+- **warden#259 (só testes, `eb1d724d`, CI verde no run 45494154845)**: `arca_replace_key` mais um ciclo **não perde** Secret nem Config do hub. Fixados, sem correção: um arquivo apagado pelo dispositivo atrasado **ressurge** e uma edição que o hub também tem vira `.conflito-*` espúrio (base vazia da troca); em conflito de login o texto perdedor fica em claro em `arca-conflicts/secret/` (P-34).
+- **warden#260 (§4, `eb065706`, CI verde no run 45495772925)**: o loop automático do desktop não roda o ciclo enquanto há chave no slot ou `confirm` rodando (`SyncRunner::loop_round`, `paused_for_rotation` em `SyncReport`, guard RAII no `rotation_confirm`, fiação dentro de `rotation_begin/resume/confirm/cancel`; a web mostra a pausa como erro em `round_dto`). "Sync now" e `arca_sync_run` não pausam. Controle #261 vermelho em 8 testes e fechado. **Em aberto, suas**: prazo da pausa e falha parcial do `confirm` (hoje religa o loop). Limites: só fecha a janela entre `begin` e `confirm`; o desktop não mostra a pausa (tela e `.arb`); a rotação feita pelo CLI corre em outro processo e não liga o aviso (já era assim).
+
+---
+
 ### 2026-11-24 — arca: rodada 3 do P-49, o histórico do CLI (warden#251, mesclado) e a correção do `begin_epoch` no `arca-core` (arca#198, mesclado; o Warden ainda NÃO usa)
 
 - **Pedido**: "pode seguir" (onda 2). O detalhe das decisões, dos limites e do contrato com o Warden está no `project/SESSIONS.md` e no ADR 0018 da arca (Sessão 128).
