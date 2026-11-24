@@ -112,6 +112,9 @@ class _ArcaRotationScreenState extends State<ArcaRotationScreen> with WidgetsBin
       if (!mounted) {
         // Left while the bridge was making the key: `dispose` had nothing to release, and its cancel may have reached the bridge before the
         // key existed. Do not touch the window (the flag lives on the whole Activity), and drop the key now that it is there.
+        // Known limit: the bridge's rotation slot is global (`SLOT` in crates/warden-mobile-bridge/src/api/arca_rotation.rs), so in a very
+        // narrow window this cancel of a discarded screen can erase the key of a second screen opened right after. Recoverable: that
+        // screen's confirm answers "no rotation", nothing was written, and the person starts again.
         unawaited(widget.backend.rotationCancel().catchError((_) {}));
         return;
       }
@@ -119,8 +122,7 @@ class _ArcaRotationScreenState extends State<ArcaRotationScreen> with WidgetsBin
       // (a window that cannot be protected is no reason to stop: the screen carries its own warning).
       await _protect(true);
       if (!mounted) {
-        // Left while asking: `dispose` already released it (`_protecting` was set before the request went out). Safe and idempotent.
-        unawaited(_protect(false));
+        // Left while asking: `dispose` already released the window (`_protecting` was set before the request went out).
         return;
       }
       setState(() {
