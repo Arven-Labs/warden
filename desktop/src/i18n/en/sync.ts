@@ -181,7 +181,7 @@ export const sync = {
   "arca.rotationDoneNotSent": "The key was changed on this computer, but it was not sent to the hub: {message}. Sync again to send it.",
   "arca.rotationDoneNoHub": "The key was changed on this computer. Choose a hub and sync to send it.",
   "arca.rotationFailed": "The key was not changed: {message}",
-  "arca.rotationResumeNewerEpoch": "These 24 words are not those of the change that stopped half way, so nothing was written. Type the 24 words of that change. Detail: {message}",
+  "arca.rotationResumeNewerEpoch": "Nothing was written. These 24 words may not be the ones of the change that stopped half way (a forged object of a newer epoch causes the same error): check the pending key changes. If a change on this device did stop, type the 24 words of that change and do not accept its epoch. If it was you or a device you trust that changed the key, pair this device again. If you do not recognise it, look at the pending key changes first and only then accept them: the epoch of an object is not authenticated, so anyone who holds the old key can forge one. Detail: {message}",
   "arca.rotationResumeNotWritten": "Nothing was written by this attempt, but an earlier attempt may already have published this key: keep the 24 words. Detail: {message}",
   "arca.rotationPartial": "The change stopped half way: {message}. Do not make a new key. The same 24 words are in the box below: confirm to finish it with the same key.",
   "arca.keptTitle": "Files set aside",

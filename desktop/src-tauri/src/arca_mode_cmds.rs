@@ -348,8 +348,10 @@ impl std::fmt::Debug for RotationStart {
 /// (`RotationError::Failed`): then the person has to **resume with the same 24 words**, not start a new key (the core finishes a
 /// half-way stop only with the same key). Every other refusal happens before the first write of that attempt.
 ///
-/// `newer_epoch` is true for `RotationError::NewerEpoch`. On a **resume** it proves that the phrase typed is not the one of the
-/// rotation that stopped (that one would have been adopted), so the screen must not say that an earlier attempt published it.
+/// `newer_epoch` is true for `RotationError::NewerEpoch`. On a **resume** it suggests that the phrase typed may not be the one of
+/// the rotation that stopped (that one would have been adopted), so the screen must not say that an earlier attempt published it.
+/// It does not prove it: `Engine::load` answers `NeedsNewKey` for any object of a greater epoch that this device did not
+/// acknowledge, and a forged object (its header epoch is not authenticated) gives the same error with the right phrase.
 #[derive(Serialize, Debug, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct RotationFailure {

@@ -51,7 +51,7 @@ impl std::fmt::Display for RotationError {
             RotationError::NotInArcaMode => f.write_str("this vault is not in arca mode: turn it on first"),
             RotationError::Refused(why) => write!(f, "this attempt wrote nothing: {why}"),
             RotationError::NewerEpoch => f.write_str(
-                "a newer key epoch is already stored and this device has not accepted it, so this attempt wrote nothing. If an earlier change of key on this device stopped half way with another phrase, finish it with the 24 words of that one, and do not acknowledge its epoch. If another device changed the key, look at the pending epochs first and acknowledge them only if you recognise the change, then pair this device again: the epoch of an object is not authenticated, so anyone who holds the old key can forge one",
+                "a newer key epoch is already stored and this device has not accepted it, so this attempt wrote nothing. If an earlier change of key on this device stopped half way with another phrase, finish it with the 24 words of that one, and do not acknowledge its epoch. If it was you or a device you trust that changed the key, pair this device again to get the new key. If you do not recognise it, look at the pending epochs first and only then acknowledge them: the epoch of an object is not authenticated, so anyone who holds the old key can forge one",
             ),
             RotationError::Failed(why) => write!(f, "the key was not rotated: {why}"),
         }
@@ -67,7 +67,8 @@ pub enum Remedy {
     /// The new key is the one in use (arca `KeyNotRotated`). Another key cures it; on a resume it means the change was already
     /// finished with this very key.
     SameKey,
-    /// Another program holds the vault's folder or the sync state (arca `Busy`, and only that): try again later.
+    /// Another program holds the vault's folder or the sync state (arca `Busy`), or another Warden process kept the sync lock for the
+    /// whole wait (`sync_lock`): close it and try again later.
     Busy,
     /// The copies diverge (more than one tip, none unreadable), or an interrupted apply waits for its recovery (arca `Diverged` with
     /// `rejected == 0`, `Interrupted`, `IncompleteApply`): the normal sync joins and recovers them, then it can be tried again.
@@ -93,7 +94,7 @@ impl Remedy {
             Remedy::SyncFirst => "run a sync first: it joins diverging copies and finishes an interrupted apply; then try again (a new key is not needed)",
             Remedy::StorageChanged => "the storage no longer continues the history this device accepted: check the hub or folder it syncs with before trying again (a new key does not fix it). Do not delete state files to get around it: that turns off the protection against the storage going back in time",
             Remedy::NeedsRepair => "something this device needs cannot be used (the arca's state or journal file is damaged, a manifest in the local storage cannot be read, the logins folder is not usable, or no next key epoch exists): this screen cannot fix it, and a new key does not either. Do not delete state files to get around it: that turns off the protection against the storage going back in time",
-            Remedy::ClassEmptied => "a class that the already published manifest has is empty in the folder (it can be the logins class, not only the vault): put back at least ONE file of that class, only files that were there when the change started (for example from the trash) and NEVER an old backup as a whole, because files deleted on purpose would come back and be published to every device, credentials included; then finish with the SAME 24 words (a new key would meet the epoch already published). If you emptied it on purpose: put any one file back, finish the change with the same 24 words, and only then delete it and sync",
+            Remedy::ClassEmptied => "a class that the already published manifest has is empty in the folder (it can be the logins class, not only the vault): put back ALL the files of that class that you did not mean to delete, only files that were there when the change started (for example from the trash) and NEVER an old backup as a whole, because files deleted on purpose would come back and be published to every device, credentials included. One file is only the minimum the program demands: the rest would be published as removed on every device. Then finish with the SAME 24 words (a new key would meet the epoch already published). If you emptied it on purpose: put any one file back, finish the change with the same 24 words, and only then delete it and sync",
         }
     }
 }

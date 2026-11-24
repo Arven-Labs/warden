@@ -278,18 +278,17 @@ impl SyncEngine {
     ///    with a key that cannot open it.
     /// 3. `sync_secrets.json` gets the new key and epoch in one atomic save: they are a pair.
     pub(crate) async fn arca_rotate_to(&self, new_key: &VaultKey, now_ms: u64) -> Result<(), crate::arca_rotation::RotationFailure> {
-        use crate::arca_rotation::{Remedy, RotationError, RotationFailure};
+        use crate::arca_rotation::{RotationError, RotationFailure};
         let failed = |error: anyhow::Error| RotationFailure::stopped(None, format!("{error:#}"));
-        // Until `begin_epoch` writes, nothing is on disk: what goes wrong here is a refusal, not a stop half way. What can fail here is
-        // not "another program holds the vault" (`sync_lock` waits, it does not fail for being busy): it is the sync lock file, the mode
-        // file or `arca_engine` (unreadable secrets, a logins folder that is a link or overlaps the vault, the store that cannot be
-        // opened). Closing a program does not cure those, so the remedy is the repair one and the text is the real error.
-        let refused = |error: anyhow::Error| RotationFailure::refused(Remedy::NeedsRepair, format!("{error:#}"));
-        let _one_sync_at_a_time = self.sync_lock().await.map_err(refused)?;
-        let Some(mode) = load_mode(&mode_path_for(&self.manifest_path)).map_err(refused)? else {
+        // Until `begin_epoch` writes, nothing is on disk: what goes wrong here is a refusal, not a stop half way. `sync_lock` waits
+        // `LOCK_WAIT` and then fails because another Warden process is still syncing: that one is `Busy` (close it, try again). The
+        // mode file and `arca_engine` (unreadable secrets, a logins folder that is a link or overlaps the vault, a store that cannot
+        // be opened) are not cured by closing a program: `NeedsRepair`, with the real error as the text.
+        let _one_sync_at_a_time = self.sync_lock().await.map_err(lock_refusal)?;
+        let Some(mode) = load_mode(&mode_path_for(&self.manifest_path)).map_err(open_refusal)? else {
             return Err(RotationError::NotInArcaMode.into());
         };
-        let (engine, roots) = self.arca_engine(mode.secret_accepted, false).map_err(refused)?;
+        let (engine, roots) = self.arca_engine(mode.secret_accepted, false).map_err(open_refusal)?;
         let (_next, snapshot) = engine.begin_epoch(new_key, &roots, now_ms).await.map_err(rotation_error_of)?;
         let published = match snapshot {
             Snapshot::Created { id, .. } => id,
@@ -928,6 +927,18 @@ fn engine_failure(error: EngineError, what: &str) -> anyhow::Error {
         ),
         other => anyhow::Error::from(other).context(what.to_string()),
     }
+}
+
+/// The sync lock could not be taken (another Warden process kept it for the whole wait): nothing was written, and closing that
+/// program and trying again is what resolves it.
+fn lock_refusal(error: anyhow::Error) -> crate::arca_rotation::RotationFailure {
+    crate::arca_rotation::RotationFailure::refused(crate::arca_rotation::Remedy::Busy, format!("{error:#}"))
+}
+
+/// The vault could not be opened before `begin_epoch` (the mode file, the secrets, the logins folder, the store): nothing was
+/// written, and neither another key nor closing a program cures it.
+fn open_refusal(error: anyhow::Error) -> crate::arca_rotation::RotationFailure {
+    crate::arca_rotation::RotationFailure::refused(crate::arca_rotation::Remedy::NeedsRepair, format!("{error:#}"))
 }
 
 /// How a `begin_epoch` error reaches the person. Only the errors `begin_epoch` returns **before its first write** are refusals
