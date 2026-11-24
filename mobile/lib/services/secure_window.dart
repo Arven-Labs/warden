@@ -1,5 +1,3 @@
-import 'package:flutter/services.dart';
-
 /// Name of the platform channel `MainActivity` answers on (Android only).
 const secureWindowChannelName = 'com.warden.mobile/secure_window';
 
