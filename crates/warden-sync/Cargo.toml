@@ -31,7 +31,7 @@ warden-core = { path = "../warden-core", default-features = false }
 warden-truthid = { path = "../warden-truthid" }
 # The arca core without its network client: the key epoch is found at pairing (`arca_pairing.rs`, `discover_epoch`), which the mobile
 # bridge also does. Pinned by commit, like in `warden-server`.
-arca-core = { git = "https://github.com/Arven-Labs/arca", rev = "95754fcc234332e6c1ccea14e0626e82114e8251", default-features = false }
+arca-core = { git = "https://github.com/Arven-Labs/arca", rev = "499628b28024f76a3fb24f30e24ac05e74bb5997", default-features = false }
 
 [features]
 # The arca sync cycle (`arca_sync.rs`), off by default: arca's `hub` feature pulls `reqwest` with the `aws-lc-rs` TLS provider

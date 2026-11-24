@@ -1129,6 +1129,24 @@ mod tests {
     }
 
     #[test]
+    fn a_head_this_device_did_not_accept_is_a_refusal_that_says_to_revoke_the_token_before_syncing() {
+        use crate::arca_rotation::{Remedy, RotationError};
+        // `Engine::begin_epoch` returns `HeadNotAccepted` before `build_snapshot` runs (arca-core `499628b`), on the first attempt only,
+        // so nothing was published: the way out is a sync, but a sync accepts the head as it is, so the lost device's token goes first.
+        for class in [Class::Config, Class::Secret] {
+            let failure = rotation_error_of(EngineError::HeadNotAccepted { class });
+            assert!(matches!(failure.error, RotationError::Refused(_)), "{failure:?}");
+            assert_eq!(failure.remedy, Some(Remedy::SyncFirst), "{failure:?}");
+            let text = failure.error.to_string();
+            assert!(text.contains(&format!("class {class:?}")), "the class that has no folder is named: {text}");
+            assert!(text.contains("revoke the lost device's token on the hub BEFORE you sync"), "{text}");
+            assert!(text.contains("nothing was published"), "{text}");
+            assert!(!text.contains("24 words"), "no phrase to resume with: {text}");
+            assert!(text.contains(Remedy::SyncFirst.hint()), "{text}");
+        }
+    }
+
+    #[test]
     fn a_class_emptied_by_a_resume_is_a_stop_not_a_refusal_and_does_not_send_to_a_new_key() {
         use crate::arca_rotation::{Remedy, RotationError};
         // `ClassEmptied` is only reachable when a manifest of the new epoch is already published (`begin_epoch` builds on `None`
