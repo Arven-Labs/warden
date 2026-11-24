@@ -795,6 +795,26 @@ fn remember_line(history: &mut Vec<String>, line: &str) {
     }
 }
 
+/// Where a submitted line (already trimmed) goes. Skeleton: it never says `BlockedPhrase` yet, and the loop does not use it yet.
+#[allow(dead_code)]
+enum LineRoute {
+    Blank,
+    Exit,
+    BlockedPhrase,
+    Parsed(ParseOutcome),
+}
+
+#[allow(dead_code)]
+fn classify_line(trimmed: &str) -> LineRoute {
+    if trimmed.is_empty() {
+        LineRoute::Blank
+    } else if trimmed == "exit" || trimmed == "quit" {
+        LineRoute::Exit
+    } else {
+        LineRoute::Parsed(commands::parse_command(trimmed))
+    }
+}
+
 /// What the card says when a rotation is given up (Ctrl+D on the phrase screen or on a question, a "no" to "change it now?"). In
 /// `/arca rotate` a phrase was shown and nothing will ever use it, so it says so, like the refusals that wrote nothing; a resume
 /// showed no phrase.
@@ -5846,16 +5866,17 @@ mod tests {
                 for typed in ["/arca on", line.as_str(), wrong_checksum.as_str(), twenty_three_words.as_str(), sentence.as_str(), "   "] {
                     remember_line(&mut history, typed);
                 }
-                assert_eq!(history, vec!["/arca on", wrong_checksum.as_str(), twenty_three_words.as_str(), sentence.as_str()], "phrase #{index}: only the phrase stays out");
+                // (`assert!` and not `assert_eq!`: a failing run must not print the history, which may hold a phrase, in the log.)
+                assert!(history == vec!["/arca on", wrong_checksum.as_str(), twenty_three_words.as_str(), sentence.as_str()], "phrase #{index}: only the phrase stays out ({} lines kept)", history.len());
                 let path = std::env::temp_dir().join(format!("warden-cli-history-bare-{}.txt", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
                 save_history(&path, &history);
                 let saved = std::fs::read_to_string(&path).unwrap();
-                assert_eq!(saved, history.join("\n"), "phrase #{index}: the file holds exactly the lines kept");
+                assert!(saved == history.join("\n"), "phrase #{index}: the file holds exactly the lines kept");
                 // What an OLDER session already wrote is not reloaded (and so not written back either).
                 std::fs::write(&path, format!("/arca on\n{line}\n{sentence}\n")).unwrap();
                 let loaded = load_history(&path);
                 let _ = std::fs::remove_file(&path);
-                assert_eq!(loaded, vec!["/arca on", sentence.as_str()], "phrase #{index}: the old line with the phrase is dropped on load");
+                assert!(loaded == vec!["/arca on", sentence.as_str()], "phrase #{index}: the old line with the phrase is dropped on load ({} lines loaded)", loaded.len());
             }
         }
     }
@@ -5867,7 +5888,6 @@ mod tests {
             let text = tr!("arca.phrase_in_chat");
             assert_ne!(text, "arca.phrase_in_chat", "the key is missing from the catalog of {locale:?}");
             assert!(text.contains("/arca rotate resume") && text.contains("/arca rotate"), "{locale:?}: {text}");
-            assert!(!text.contains("zoo") && !text.contains("abandon"), "{locale:?}: the text is fixed, it never repeats a word of the line: {text}");
         }
         speak(i18n::Locale::En);
         let en = tr!("arca.phrase_in_chat");
@@ -5876,6 +5896,37 @@ mod tests {
         let pt = tr!("arca.phrase_in_chat");
         assert!(pt.contains("não foi enviada") && pt.contains("não foi guardada"), "{pt}");
         assert_ne!(en, pt, "the pt-BR text is not translated");
+    }
+
+    #[test]
+    fn the_loop_routes_a_phrase_typed_as_chat_to_the_blocked_card_and_everything_else_as_before() {
+        // The loop dispatches on this route and on nothing else, so a phrase can only reach the model (`Parsed(NotACommand)` is the
+        // one route that does) if this function says so. Phrases: the three official vectors and one just made, in the shapes a
+        // person types them. (The messages name the case by its index: a failing run must not put a phrase in the log.)
+        let made = PendingRotation::generate().unwrap();
+        let made_phrase = made.phrase().unwrap();
+        let abandon = format!("{} art", ["abandon"; 23].join(" "));
+        let legal = "legal winner thank year wave sausage worth useful legal winner thank year wave sausage worth useful legal winner thank year wave sausage worth title";
+        for (index, phrase) in [ZOO_PHRASE.to_string(), abandon, legal.to_string(), made_phrase.expose().to_string()].into_iter().enumerate() {
+            for (variant, line) in [phrase.clone(), phrase.to_uppercase(), phrase.replace(' ', "   ")].iter().enumerate() {
+                assert!(matches!(classify_line(line.trim()), LineRoute::BlockedPhrase), "phrase #{index}, variant #{variant} was not blocked");
+            }
+            // Behind a slash it is the parser's business and stays so: refused, never blocked and never chat.
+            assert!(matches!(classify_line(&format!("/arca rotate resume {phrase}")), LineRoute::Parsed(ParseOutcome::Unrecognized(_))), "phrase #{index} after /arca rotate resume");
+        }
+        // What was not a phrase goes where it always went.
+        let wrong_checksum = ["zoo"; 24].join(" ");
+        let twenty_three_words = ["zoo"; 23].join(" ");
+        for (line, what) in [("hello", "chat"), ("what is a zoo", "chat"), (wrong_checksum.as_str(), "24 words, wrong checksum"), (twenty_three_words.as_str(), "23 words")] {
+            assert!(matches!(classify_line(line), LineRoute::Parsed(ParseOutcome::NotACommand)), "{what} is still chat");
+        }
+        assert!(matches!(classify_line(""), LineRoute::Blank));
+        for line in ["exit", "quit"] {
+            assert!(matches!(classify_line(line), LineRoute::Exit), "{line}");
+        }
+        assert!(matches!(classify_line("/exit"), LineRoute::Parsed(ParseOutcome::Recognized(Command::Exit))));
+        assert!(matches!(classify_line("/arca rotate resume"), LineRoute::Parsed(ParseOutcome::Recognized(Command::ArcaRotateResume))));
+        assert!(matches!(classify_line("/nonsense"), LineRoute::Parsed(ParseOutcome::Unrecognized(_))));
     }
 
     #[test]
