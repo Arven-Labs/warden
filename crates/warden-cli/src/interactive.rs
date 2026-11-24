@@ -263,7 +263,12 @@ enum HistoryScrub {
     Untouched,
     /// A line that is, by itself, a valid phrase was erased from the file.
     BarePhrase,
-    /// A line that may hold a phrase (`may_hold_a_phrase`) was erased from the file.
+    /// A line that may hold a phrase (`may_hold_a_phrase`) was erased from the file, and none of the erased lines is a phrase by
+    /// itself. That includes `/arca rotate resume <24 words>`: the line has a prefix, so `is_bare_phrase` is false for it, but it very
+    /// likely is the phrase. The card for this state is the doubtful one: it still says to treat the phrase as exposed if it was
+    /// one. A line with a BOM (U+FEFF) before the words, or with a loose `\r` among them, is not something `is_bare_phrase` is
+    /// known to accept either (not checked here), so it ends up here when it starts with a slash and is long, and is not refused
+    /// at all otherwise.
     MaybePhrase,
     /// A line that looked like a phrase is still in the file: it could not be rewritten.
     Failed,
@@ -340,9 +345,14 @@ fn history_text(history: &[String]) -> String {
     history[start..].join("\n")
 }
 
-/// The folder Warden itself names as its own, when it is the default one: `<config dir>/warden`. With `--data-dir` the folder belongs
-/// to the operator, so it is never ours to change. The same rule as `default_warden_dir` of `warden-sync` (`manifest.rs`, P175d),
-/// which is private to that crate.
+/// The folder Warden itself names as its own, when it is the default one: `<config dir>/warden`. The same rule as
+/// `default_warden_dir` of `warden-sync` (`manifest.rs`, P175d), which is private to that crate: with `--data-dir` the folder belongs
+/// to the operator, so it is never ours to change.
+///
+/// For this file the `--data-dir` branch does not happen today: the CLI has no such option, so `data_dir()` is always `None` and
+/// the history is always `<config dir>/warden/cli_history.txt` (`history_path` in `main.rs`). If the CLI gains `--data-dir`,
+/// `history_path` and `ours` (this function) must change together, or the history would move out of the folder this rule names
+/// and stop being closed (or, the other way round, a folder the operator named would be closed).
 fn default_warden_dir() -> Option<PathBuf> {
     match warden_core::paths::data_dir() {
         Some(_) => None,
@@ -6284,6 +6294,27 @@ mod tests {
             let (loaded, scrub) = load_history(&path);
             let _ = std::fs::remove_dir_all(&dir);
             assert!(scrub == HistoryScrub::BarePhrase && loaded == ["hello"], "with a certain line and a doubtful one the warning is the strong one");
+        }
+    }
+
+    #[test]
+    fn bytes_that_are_not_utf8_do_not_make_the_load_skip_the_file_and_the_phrase_in_it() {
+        // A guard: the file is read as bytes and decoded with replacement characters. `read_to_string` would fail on the first
+        // invalid byte and the whole file, phrase included, would be left alone (and `Untouched`).
+        for (index, phrase) in planted_phrases().into_iter().enumerate() {
+            let dir = history_dir("not-utf8");
+            let path = dir.join("cli_history.txt");
+            let mut old = b"hello\n\xff before\n".to_vec();
+            old.extend_from_slice(phrase.as_bytes());
+            old.extend_from_slice(b"\n\xff after\nworld");
+            std::fs::write(&path, &old).unwrap();
+            let (loaded, scrub) = load_history(&path);
+            let on_disk = std::fs::read(&path).unwrap();
+            let _ = std::fs::remove_dir_all(&dir);
+            let kept = ["hello", "\u{FFFD} before", "\u{FFFD} after", "world"];
+            assert!(scrub == HistoryScrub::BarePhrase, "phrase #{index}: the phrase between invalid bytes is found");
+            assert!(loaded == kept, "phrase #{index}: the other lines stay, an invalid byte becoming U+FFFD ({} loaded)", loaded.len());
+            assert!(on_disk == kept.join("\n").as_bytes(), "phrase #{index}: the file holds exactly those lines, with no phrase");
         }
     }
 
