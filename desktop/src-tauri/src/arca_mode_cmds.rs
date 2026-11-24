@@ -9,7 +9,7 @@ use std::sync::{Arc, Mutex};
 
 use serde::{Deserialize, Serialize};
 use tauri::State;
-use warden_bootstrap::auto_sync::{ArcaCycleError, ArcaCycleSummary, ArcaVerifySummary, SyncRunner};
+use warden_bootstrap::auto_sync::{ArcaCycleError, ArcaCycleSummary, ArcaVerifySummary, RotationConfirming, SyncRunner};
 use warden_bootstrap::saved_hubs;
 use warden_sync::arca_mode::ArcaVerifyState;
 use warden_sync::arca_rotation::{PendingRotation, RotationError};
@@ -380,35 +380,69 @@ fn require_arca_mode(engine: &SyncEngine) -> Result<(), String> {
     }
 }
 
-/// Generates the new key, keeps it in `slot` (replacing one that was waiting) and returns the phrase to show once. Writes nothing.
-pub fn rotation_begin(engine: &SyncEngine, slot: &RotationSlot) -> Result<RotationStart, String> {
+/// The place that puts a key in the slot (`begin`, `resume`) or empties it (`cancel`), and tells the automatic loop (`runner`) whether
+/// one waits: the loop stands by exactly while a key waits in `slot` or a confirmation runs (`SyncRunner::confirming_rotation`). The
+/// slot is changed and the runner told under the slot's lock, so two calls finishing together cannot leave the older answer last and
+/// the pause cannot drift from the slot. `take_key_to_confirm` also takes the key out, by itself, for it must start its guard under
+/// that same lock.
+///
+/// The screen (`ArcaRotationBlock.tsx`) already calls `arca_rotation_cancel` when it unmounts, so leaving the screen frees the loop.
+/// What is left is a cleanup that did not run (the `invoke` failed, the webview was reloaded or hung): then the key stays in the slot
+/// and the loop stays paused, with no deadline. A later `cancel`, a new `begin` that is confirmed, or closing the app ends it, since the
+/// slot and the pause live only in memory. Whether the pause should expire is an open decision for the owner.
+fn set_slot(runner: &SyncRunner, slot: &RotationSlot, key: Option<PendingRotation>) {
+    let mut held = slot.lock().unwrap();
+    *held = key;
+    runner.set_rotation_in_progress(held.is_some());
+}
+
+/// Generates the new key, keeps it in `slot` (replacing one that was waiting), pauses the automatic loop and returns the phrase to
+/// show once. Writes nothing to the vault.
+pub fn rotation_begin(engine: &SyncEngine, runner: &SyncRunner, slot: &RotationSlot) -> Result<RotationStart, String> {
     require_arca_mode(engine)?;
     let pending = PendingRotation::generate().map_err(|e| format!("{e:#}"))?;
     let phrase = pending.phrase().map_err(|e| e.to_string())?;
     let start = RotationStart { phrase: phrase.words().map(str::to_string).collect(), positions: pending.positions() };
-    *slot.lock().unwrap() = Some(pending);
+    set_slot(runner, slot, Some(pending));
     Ok(start)
 }
 
-/// Resumes a rotation that stopped half way: the 24 words typed are the confirmation, so none are asked back. A phrase that is not
-/// valid leaves the slot empty (whatever was waiting there is dropped).
-pub fn rotation_resume(engine: &SyncEngine, slot: &RotationSlot, phrase: &str) -> Result<(), String> {
+/// Resumes a rotation that stopped half way: the 24 words typed are the confirmation, so none are asked back. It puts the key back
+/// in the slot, so it pauses the automatic loop like a new rotation. A phrase that is not valid leaves the slot as it was (a key that
+/// was waiting keeps waiting; an empty slot stays empty).
+pub fn rotation_resume(engine: &SyncEngine, runner: &SyncRunner, slot: &RotationSlot, phrase: &str) -> Result<(), String> {
     require_arca_mode(engine)?;
     let pending = PendingRotation::from_phrase(phrase).map_err(|e| e.to_string())?;
-    *slot.lock().unwrap() = Some(pending);
+    set_slot(runner, slot, Some(pending));
     Ok(())
 }
 
 /// Rotates to the key waiting in `slot`. The key leaves the slot first: it is consumed by one try, right or wrong, so a second click
-/// finds nothing and a wrong word means starting again (the right words cannot be guessed on the same key).
-pub async fn rotation_confirm(engine: &SyncEngine, slot: &RotationSlot, typed_words: &[String], revoked_on_hub: bool, now_ms: u64) -> Result<(), RotationFailure> {
-    let pending = slot.lock().unwrap().take().ok_or_else(|| RotationFailure::nothing_written("no rotation was started: start it again"))?;
+/// finds nothing and a wrong word means starting again (the right words cannot be guessed on the same key). The automatic loop stays
+/// paused while it runs, even though the slot is empty then (a cancel meanwhile does not free it), and is let go when it ends, in any
+/// way: the guard is released on every return and on a panic. After a failed confirmation the slot is empty, so the loop runs again.
+pub async fn rotation_confirm(engine: &SyncEngine, runner: &SyncRunner, slot: &RotationSlot, typed_words: &[String], revoked_on_hub: bool, now_ms: u64) -> Result<(), RotationFailure> {
+    let (pending, _confirming) = take_key_to_confirm(runner, slot)?;
     let typed: Vec<&str> = typed_words.iter().map(String::as_str).collect();
     pending.confirm(&typed, revoked_on_hub, engine, now_ms).await.map_err(RotationFailure::from)
 }
 
-pub fn rotation_cancel(slot: &RotationSlot) {
-    *slot.lock().unwrap() = None;
+/// Takes the key out of the slot for a confirmation and, in the same hold of the slot's lock, starts the guard that keeps the loop
+/// paused until the confirmation ends: there is no instant with an empty slot and no confirmation. With no key, nothing runs.
+fn take_key_to_confirm<'a>(runner: &'a SyncRunner, slot: &RotationSlot) -> Result<(PendingRotation, RotationConfirming<'a>), RotationFailure> {
+    let mut held = slot.lock().unwrap();
+    let Some(pending) = held.take() else {
+        return Err(RotationFailure::nothing_written("no rotation was started: start it again"));
+    };
+    let confirming = runner.confirming_rotation();
+    runner.set_rotation_in_progress(false);
+    Ok((pending, confirming))
+}
+
+/// Drops the key that was waiting and lets the automatic loop run again. A confirmation that is already running is not stopped, and
+/// keeps the loop paused until it ends.
+pub fn rotation_cancel(runner: &SyncRunner, slot: &RotationSlot) {
+    set_slot(runner, slot, None);
 }
 
 /// The saved hub `hub_id`, with the token this computer holds for it, ready to sync with.
@@ -711,25 +745,25 @@ pub async fn arca_epochs_acknowledge(state: State<'_, AppState>, seen: Vec<Pendi
 /// Starts a key rotation: the 24-word phrase of the new key (shown once; keep it off logs and storage) and which words to type back.
 #[tauri::command]
 pub fn arca_rotation_begin(state: State<'_, AppState>) -> Result<RotationStart, String> {
-    rotation_begin(&state.sync, &state.pending_rotation)
+    rotation_begin(&state.sync, &state.sync_runner, &state.pending_rotation)
 }
 
 /// Resumes a rotation that stopped half way, from the 24 words of its phrase.
 #[tauri::command]
 pub fn arca_rotation_resume(state: State<'_, AppState>, phrase: String) -> Result<(), String> {
-    rotation_resume(&state.sync, &state.pending_rotation, &phrase)
+    rotation_resume(&state.sync, &state.sync_runner, &state.pending_rotation, &phrase)
 }
 
 /// Confirms the rotation: the words typed back and the statement that the lost device's token was revoked on the hub. It does not
 /// send anything: the screen runs a sync afterwards (`arca_sync_run`), which is what publishes the new epoch.
 #[tauri::command]
 pub async fn arca_rotation_confirm(state: State<'_, AppState>, typed_words: Vec<String>, revoked_on_hub: bool) -> Result<(), RotationFailure> {
-    rotation_confirm(&state.sync, &state.pending_rotation, &typed_words, revoked_on_hub, now_ms()).await
+    rotation_confirm(&state.sync, &state.sync_runner, &state.pending_rotation, &typed_words, revoked_on_hub, now_ms()).await
 }
 
 #[tauri::command]
 pub fn arca_rotation_cancel(state: State<'_, AppState>) {
-    rotation_cancel(&state.pending_rotation);
+    rotation_cancel(&state.sync_runner, &state.pending_rotation);
 }
 
 /// What the last automatic cycle did, and whether the loop is stopped. The screen asks when it opens and again at each
@@ -778,6 +812,8 @@ mod tests {
     struct Device {
         base: PathBuf,
         engine: SyncEngine,
+        /// What the automatic loop is told about the rotation (`rotation_*` take it with the engine).
+        runner: SyncRunner,
     }
 
     fn device(name: &str) -> Device {
@@ -789,7 +825,8 @@ mod tests {
         // A gateway nobody listens on: a Pull that reaches for it fails at once instead of going to the real network.
         let dead = ArweaveClient::new("http://127.0.0.1:1/graphql", "http://127.0.0.1:1");
         let engine = SyncEngine::new(base.join("vault"), base.join("config.toml"), base.join("sync_secrets.json"), base.join("sync_manifest.json")).with_arweave_client(dead).with_oauth_dir(base.join("mcp_oauth"));
-        Device { base, engine }
+        let runner = SyncRunner::new(base.join("vault"), base.join("config.toml"), base.join("sync_secrets.json"), base.join("sync_manifest.json"), base.join("git"));
+        Device { base, engine, runner }
     }
 
     fn device_with_key(name: &str) -> Device {
@@ -825,7 +862,7 @@ mod tests {
     fn a_rotation_cannot_start_with_the_mode_off_and_no_phrase_is_shown() {
         let device = device_with_key("rotation-off");
         let slot = RotationSlot::default();
-        let error = rotation_begin(&device.engine, &slot).unwrap_err();
+        let error = rotation_begin(&device.engine, &device.runner, &slot).unwrap_err();
         assert!(error.contains("arca mode"), "{error}");
         assert!(slot.lock().unwrap().is_none(), "nothing is kept when nothing was shown");
     }
@@ -834,7 +871,7 @@ mod tests {
     async fn a_rotation_shows_24_words_and_asks_for_3_of_them_in_ascending_order() {
         let device = device_in_arca_mode("rotation-begin").await;
         let slot = RotationSlot::default();
-        let start = rotation_begin(&device.engine, &slot).unwrap();
+        let start = rotation_begin(&device.engine, &device.runner, &slot).unwrap();
         assert_eq!(start.phrase.len(), 24);
         assert_eq!(start.positions.len(), 3);
         assert!(start.positions.windows(2).all(|pair| pair[0] < pair[1]), "{:?}", start.positions);
@@ -853,11 +890,11 @@ mod tests {
     async fn starting_again_replaces_the_key_that_was_waiting() {
         let device = device_in_arca_mode("rotation-twice").await;
         let slot = RotationSlot::default();
-        let first = rotation_begin(&device.engine, &slot).unwrap();
-        let second = rotation_begin(&device.engine, &slot).unwrap();
+        let first = rotation_begin(&device.engine, &device.runner, &slot).unwrap();
+        let second = rotation_begin(&device.engine, &device.runner, &slot).unwrap();
         assert_ne!(first.phrase, second.phrase, "a new key, a new phrase");
         // Only the second phrase confirms: the first key was dropped.
-        rotation_confirm(&device.engine, &slot, &asked(&second), true, 2).await.unwrap();
+        rotation_confirm(&device.engine, &device.runner, &slot, &asked(&second), true, 2).await.unwrap();
         let rotated = secrets_of(&device);
         assert_eq!(rotated.vault_key, *VaultKey::from_phrase(&second.phrase.join(" ")).unwrap().export_bytes());
     }
@@ -866,7 +903,7 @@ mod tests {
     async fn confirming_with_no_rotation_started_is_refused_and_writes_nothing() {
         let device = device_in_arca_mode("rotation-none").await;
         let before = secrets_of(&device);
-        let error = rotation_confirm(&device.engine, &RotationSlot::default(), &[], true, 2).await.unwrap_err();
+        let error = rotation_confirm(&device.engine, &device.runner, &RotationSlot::default(), &[], true, 2).await.unwrap_err();
         assert!(error.message.contains("no rotation") && !error.partial, "{error:?}");
         let after = secrets_of(&device);
         assert_eq!((after.vault_key, after.key_epoch), (before.vault_key, before.key_epoch));
@@ -877,8 +914,8 @@ mod tests {
         let device = device_in_arca_mode("rotation-undeclared").await;
         let before = secrets_of(&device);
         let slot = RotationSlot::default();
-        let start = rotation_begin(&device.engine, &slot).unwrap();
-        let error = rotation_confirm(&device.engine, &slot, &asked(&start), false, 2).await.unwrap_err();
+        let start = rotation_begin(&device.engine, &device.runner, &slot).unwrap();
+        let error = rotation_confirm(&device.engine, &device.runner, &slot, &asked(&start), false, 2).await.unwrap_err();
         assert!(error.message.contains("revoked") && !error.partial, "{error:?}");
         let after = secrets_of(&device);
         assert_eq!((after.vault_key, after.key_epoch), (before.vault_key, before.key_epoch));
@@ -889,10 +926,10 @@ mod tests {
         let device = device_in_arca_mode("rotation-wrong-word").await;
         let before = secrets_of(&device);
         let slot = RotationSlot::default();
-        let start = rotation_begin(&device.engine, &slot).unwrap();
+        let start = rotation_begin(&device.engine, &device.runner, &slot).unwrap();
         let mut words = asked(&start);
         words[0] = "zoo-not-a-word".to_string();
-        let error = rotation_confirm(&device.engine, &slot, &words, true, 2).await.unwrap_err();
+        let error = rotation_confirm(&device.engine, &device.runner, &slot, &words, true, 2).await.unwrap_err();
         assert!(error.message.contains("words") && !error.partial, "{error:?}");
         let after = secrets_of(&device);
         assert_eq!((after.vault_key, after.key_epoch), (before.vault_key, before.key_epoch));
@@ -904,14 +941,14 @@ mod tests {
         let device = device_in_arca_mode("rotation-ok").await;
         let before = secrets_of(&device);
         let slot = RotationSlot::default();
-        let start = rotation_begin(&device.engine, &slot).unwrap();
-        rotation_confirm(&device.engine, &slot, &asked(&start), true, 2).await.unwrap();
+        let start = rotation_begin(&device.engine, &device.runner, &slot).unwrap();
+        rotation_confirm(&device.engine, &device.runner, &slot, &asked(&start), true, 2).await.unwrap();
         let after = secrets_of(&device);
         assert_eq!(after.key_epoch, before.key_epoch + 1);
         assert_eq!(after.vault_key, *VaultKey::from_phrase(&start.phrase.join(" ")).unwrap().export_bytes(), "the key saved is the one whose phrase was shown");
         assert!(slot.lock().unwrap().is_none());
         // A second click finds nothing to rotate.
-        let again = rotation_confirm(&device.engine, &slot, &asked(&start), true, 3).await.unwrap_err();
+        let again = rotation_confirm(&device.engine, &device.runner, &slot, &asked(&start), true, 3).await.unwrap_err();
         assert!(again.message.contains("no rotation"), "{again:?}");
         assert_eq!(secrets_of(&device).key_epoch, before.key_epoch + 1);
     }
@@ -921,8 +958,8 @@ mod tests {
         let device = device_in_arca_mode("rotation-resume").await;
         let phrase = VaultKey::generate().unwrap().to_phrase().unwrap().expose().to_string();
         let slot = RotationSlot::default();
-        rotation_resume(&device.engine, &slot, &phrase).unwrap();
-        rotation_confirm(&device.engine, &slot, &[], true, 2).await.unwrap();
+        rotation_resume(&device.engine, &device.runner, &slot, &phrase).unwrap();
+        rotation_confirm(&device.engine, &device.runner, &slot, &[], true, 2).await.unwrap();
         let after = secrets_of(&device);
         assert_eq!(after.vault_key, *VaultKey::from_phrase(&phrase).unwrap().export_bytes());
         assert_eq!(after.key_epoch, 1);
@@ -932,7 +969,7 @@ mod tests {
     async fn a_phrase_that_is_not_24_valid_words_is_refused_on_resume() {
         let device = device_in_arca_mode("rotation-bad-phrase").await;
         let slot = RotationSlot::default();
-        let error = rotation_resume(&device.engine, &slot, "these are not twenty four words").unwrap_err();
+        let error = rotation_resume(&device.engine, &device.runner, &slot, "these are not twenty four words").unwrap_err();
         assert!(error.contains("phrase"), "{error}");
         assert!(slot.lock().unwrap().is_none());
     }
@@ -942,7 +979,7 @@ mod tests {
         let device = device_with_key("rotation-resume-off");
         let phrase = VaultKey::generate().unwrap().to_phrase().unwrap().expose().to_string();
         let slot = RotationSlot::default();
-        assert!(rotation_resume(&device.engine, &slot, &phrase).unwrap_err().contains("arca mode"));
+        assert!(rotation_resume(&device.engine, &device.runner, &slot, &phrase).unwrap_err().contains("arca mode"));
         assert!(slot.lock().unwrap().is_none());
     }
 
@@ -950,10 +987,10 @@ mod tests {
     async fn cancelling_drops_the_key_and_a_later_confirm_finds_nothing() {
         let device = device_in_arca_mode("rotation-cancel").await;
         let slot = RotationSlot::default();
-        let start = rotation_begin(&device.engine, &slot).unwrap();
-        rotation_cancel(&slot);
+        let start = rotation_begin(&device.engine, &device.runner, &slot).unwrap();
+        rotation_cancel(&device.runner, &slot);
         assert!(slot.lock().unwrap().is_none());
-        let error = rotation_confirm(&device.engine, &slot, &asked(&start), true, 2).await.unwrap_err();
+        let error = rotation_confirm(&device.engine, &device.runner, &slot, &asked(&start), true, 2).await.unwrap_err();
         assert!(error.message.contains("no rotation"), "{error:?}");
         assert_eq!(secrets_of(&device).key_epoch, 0);
     }
@@ -1015,10 +1052,141 @@ mod tests {
     async fn a_phrase_that_is_not_valid_leaves_a_rotation_that_was_waiting_untouched() {
         let device = device_in_arca_mode("rotation-resume-keeps").await;
         let slot = RotationSlot::default();
-        let start = rotation_begin(&device.engine, &slot).unwrap();
-        assert!(rotation_resume(&device.engine, &slot, "not a phrase").is_err());
-        rotation_confirm(&device.engine, &slot, &asked(&start), true, 2).await.unwrap();
+        let start = rotation_begin(&device.engine, &device.runner, &slot).unwrap();
+        assert!(rotation_resume(&device.engine, &device.runner, &slot, "not a phrase").is_err());
+        rotation_confirm(&device.engine, &device.runner, &slot, &asked(&start), true, 2).await.unwrap();
         assert_eq!(secrets_of(&device).key_epoch, 1, "the first key was still waiting and confirmed");
+    }
+
+    // ---------- the automatic loop stands by while a rotation is in progress ----------
+
+    #[tokio::test]
+    async fn the_loop_stands_by_from_the_start_of_a_rotation_until_it_is_confirmed() {
+        let device = device_in_arca_mode("pause-confirm").await;
+        let slot = RotationSlot::default();
+        assert!(!device.runner.rotation_in_progress());
+        let start = rotation_begin(&device.engine, &device.runner, &slot).unwrap();
+        assert!(device.runner.rotation_in_progress(), "the key is waiting: the loop must not run");
+        rotation_confirm(&device.engine, &device.runner, &slot, &asked(&start), true, 2).await.unwrap();
+        assert!(!device.runner.rotation_in_progress(), "a rotation that finished lets the loop run again (and the guard was released)");
+    }
+
+    /// A confirmation takes the key out of the slot at once, so for as long as it runs the slot is empty: a cancel that comes meanwhile
+    /// (the screen unmounting) must not free the loop in the middle of it. The guard is taken in the same hold of the slot's lock.
+    #[tokio::test]
+    async fn a_cancel_during_a_confirmation_does_not_free_the_loop() {
+        let device = device_in_arca_mode("pause-cancel-mid-confirm").await;
+        let slot = RotationSlot::default();
+        rotation_begin(&device.engine, &device.runner, &slot).unwrap();
+        let (_key, confirming) = take_key_to_confirm(&device.runner, &slot).unwrap();
+        assert!(slot.lock().unwrap().is_none(), "the confirmation has the key");
+        assert!(device.runner.rotation_in_progress(), "the slot is empty and the loop must still stand by");
+        rotation_cancel(&device.runner, &slot);
+        assert!(device.runner.rotation_in_progress(), "the cancel came while the confirmation runs");
+        drop(confirming);
+        assert!(!device.runner.rotation_in_progress(), "the confirmation ended");
+    }
+
+    /// The real `rotation_confirm`, stopped in the middle: the sync file lock is held by someone else (another Warden process), so the
+    /// confirmation has the key out of the slot and sleeps in `sync_lock().await` (it retries every 250 ms). The loop must stand by
+    /// for all of it, and a cancel meanwhile must not free it. If `rotation_confirm` did not hold its guard through the `await` (say
+    /// `let (pending, _) = ...` in place of `let (pending, _confirming) = ...`), the first assert after the timeout fails.
+    #[tokio::test]
+    async fn the_loop_stands_by_through_a_confirmation_that_waits_for_the_sync_lock() {
+        use warden_sync::lock::{lock_path_for, SyncLock};
+        let device = device_in_arca_mode("pause-confirm-waits-for-lock").await;
+        let slot = RotationSlot::default();
+        let start = rotation_begin(&device.engine, &device.runner, &slot).unwrap();
+        let held = SyncLock::acquire(&lock_path_for(&device.base.join("sync_manifest.json"))).await.unwrap();
+
+        let words = asked(&start);
+        let mut confirm = Box::pin(rotation_confirm(&device.engine, &device.runner, &slot, &words, true, 2));
+        let waiting = tokio::time::timeout(std::time::Duration::from_millis(50), &mut confirm).await;
+        assert!(waiting.is_err(), "the confirmation must be stuck on the sync lock, not finished: {waiting:?}");
+        assert!(slot.lock().unwrap().is_none(), "the confirmation has the key out of the slot");
+        assert!(device.runner.rotation_in_progress(), "a confirmation is running: the loop must stand by");
+
+        rotation_cancel(&device.runner, &slot);
+        assert!(device.runner.rotation_in_progress(), "a cancel while the confirmation runs must not free the loop");
+
+        drop(held);
+        confirm.await.unwrap();
+        assert!(!device.runner.rotation_in_progress(), "the confirmation ended, so the loop runs again");
+        assert_eq!(secrets_of(&device).key_epoch, 1, "the confirmation finished once the lock was free");
+    }
+
+    /// Nothing waiting: a confirmation that finds no key does not pause the loop (and does not leave a guard behind).
+    #[test]
+    fn a_confirmation_that_finds_no_key_does_not_pause_the_loop() {
+        let device = device_with_key("pause-confirm-nokey");
+        assert!(take_key_to_confirm(&device.runner, &RotationSlot::default()).is_err());
+        assert!(!device.runner.rotation_in_progress());
+    }
+
+    /// A confirmation that fails drops the key (`a_wrong_word_writes_nothing...`), so the slot is empty and the loop must not stay
+    /// stopped by a rotation nobody can finish: the person starts again, or resumes with the 24 words.
+    #[tokio::test]
+    async fn a_confirmation_that_fails_does_not_leave_the_loop_stopped() {
+        let device = device_in_arca_mode("pause-confirm-fails").await;
+        let slot = RotationSlot::default();
+        let start = rotation_begin(&device.engine, &device.runner, &slot).unwrap();
+        assert!(device.runner.rotation_in_progress());
+        let mut words = asked(&start);
+        words[0] = "zoo-not-a-word".to_string();
+        assert!(rotation_confirm(&device.engine, &device.runner, &slot, &words, true, 2).await.is_err());
+        assert!(!device.runner.rotation_in_progress());
+    }
+
+    #[tokio::test]
+    async fn cancelling_lets_the_loop_run_and_a_new_rotation_stops_it_again() {
+        let device = device_in_arca_mode("pause-cancel").await;
+        let slot = RotationSlot::default();
+        rotation_begin(&device.engine, &device.runner, &slot).unwrap();
+        assert!(device.runner.rotation_in_progress());
+        rotation_cancel(&device.runner, &slot);
+        assert!(!device.runner.rotation_in_progress(), "cancel is the way out of a rotation nobody finishes");
+        rotation_begin(&device.engine, &device.runner, &slot).unwrap();
+        assert!(device.runner.rotation_in_progress(), "the second rotation stops it again");
+    }
+
+    /// Starting again replaces the key that was waiting: it is still one rotation in progress, not two that need two cancels.
+    #[tokio::test]
+    async fn starting_again_keeps_the_loop_stopped_and_one_cancel_is_enough() {
+        let device = device_in_arca_mode("pause-twice").await;
+        let slot = RotationSlot::default();
+        rotation_begin(&device.engine, &device.runner, &slot).unwrap();
+        rotation_begin(&device.engine, &device.runner, &slot).unwrap();
+        assert!(device.runner.rotation_in_progress());
+        rotation_cancel(&device.runner, &slot);
+        assert!(!device.runner.rotation_in_progress());
+    }
+
+    /// A start that is refused shows no phrase and keeps no key, so there is nothing to stop the loop for.
+    #[test]
+    fn a_start_that_is_refused_does_not_stop_the_loop() {
+        let device = device_with_key("pause-mode-off");
+        assert!(rotation_begin(&device.engine, &device.runner, &RotationSlot::default()).is_err());
+        assert!(!device.runner.rotation_in_progress());
+    }
+
+    /// A resume puts a rotation back in the slot, with the same exposure as a new one (the half-done epoch is still to be finished),
+    /// so it stops the loop too. A phrase that is not valid changes nothing: not stopped when nothing waited, still stopped when
+    /// something did (`a_phrase_that_is_not_valid_leaves_a_rotation_that_was_waiting_untouched`).
+    #[tokio::test]
+    async fn a_resume_stops_the_loop_and_a_phrase_that_is_not_valid_changes_nothing() {
+        let device = device_in_arca_mode("pause-resume").await;
+        let slot = RotationSlot::default();
+        assert!(rotation_resume(&device.engine, &device.runner, &slot, "not a phrase").is_err());
+        assert!(!device.runner.rotation_in_progress(), "nothing was waiting");
+
+        let phrase = VaultKey::generate().unwrap().to_phrase().unwrap().expose().to_string();
+        rotation_resume(&device.engine, &device.runner, &slot, &phrase).unwrap();
+        assert!(device.runner.rotation_in_progress(), "the resumed rotation waits for its confirmation");
+
+        assert!(rotation_resume(&device.engine, &device.runner, &slot, "not a phrase").is_err());
+        assert!(device.runner.rotation_in_progress(), "the rotation that was waiting is still there");
+        rotation_confirm(&device.engine, &device.runner, &slot, &[], true, 2).await.unwrap();
+        assert!(!device.runner.rotation_in_progress());
     }
 
     // ---------- the automatic loop's cycle ----------
