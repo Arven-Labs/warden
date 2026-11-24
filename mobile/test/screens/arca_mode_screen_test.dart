@@ -767,30 +767,40 @@ void main() {
       }
     });
 
-    test('an emptied class names the class that can be the logins, asks for ONE file and never a whole old backup, and gives the way out of who emptied it on purpose', () {
+    test('an emptied class names the class that can be the logins, asks for ALL the files that were not meant to be deleted (one is only the minimum) and never a whole old backup, and gives the way out of who emptied it on purpose', () {
       final text = arcaRotationErrorText(en, bridge_rot.ArcaRotationErrorKind.classEmptied);
       expect(text, contains('logins'), reason: text);
-      expect(text, contains('ONE file'), reason: text);
+      expect(text, contains('ALL the files of that class that you did not mean to delete'), reason: text);
+      expect(text, contains('One file is only the minimum the program demands'), reason: text);
+      expect(text, contains('published as removed on every device'), reason: text);
+      expect(text, isNot(contains('ONE file')), reason: 'one file is not the advice: it is the minimum');
       expect(text, contains('NEVER an old backup'), reason: text);
       expect(text, contains('on purpose'), reason: text);
       expect(text, contains('only then delete it and sync'), reason: text);
       final textPt = arcaRotationErrorText(pt, bridge_rot.ArcaRotationErrorKind.classEmptied);
       expect(textPt, contains('logins'), reason: textPt);
-      expect(textPt, contains('UM arquivo'), reason: textPt);
+      expect(textPt, contains('TODOS os arquivos dessa classe que você não quis apagar'), reason: textPt);
+      expect(textPt, contains('Um arquivo é só o mínimo que o programa exige'), reason: textPt);
+      expect(textPt, contains('publicado como removido em todos os dispositivos'), reason: textPt);
+      expect(textPt, isNot(contains('UM arquivo')), reason: textPt);
       expect(textPt, contains('NUNCA um backup antigo'), reason: textPt);
       expect(textPt, contains('de propósito'), reason: textPt);
       expect(textPt, contains('só então apague e sincronize'), reason: textPt);
     });
 
-    test('a newer epoch on a resume says the phrase is NOT the one of the change that stopped, never that an earlier attempt published it', () {
+    test('a newer epoch on a resume says the phrase MAY not be the one of the change that stopped (a forged object gives the same error), never that an earlier attempt published it', () {
       final text = arcaRotationErrorText(en, bridge_rot.ArcaRotationErrorKind.newerEpoch, resuming: true);
-      expect(text, contains('not those of the change that stopped'), reason: text);
+      expect(text, contains('may not be the ones of the change that stopped'), reason: text);
+      expect(text, contains('forged object of a newer epoch causes the same error'), reason: text);
+      expect(text, isNot(contains('are not those of the change')), reason: 'it is not proof');
       expect(text, contains('24 words'), reason: text);
       for (final forbidden in ['earlier attempt', 'discarded', 'new key']) {
         expect(text.toLowerCase(), isNot(contains(forbidden)), reason: text);
       }
       final textPt = arcaRotationErrorText(pt, bridge_rot.ArcaRotationErrorKind.newerEpoch, resuming: true);
-      expect(textPt, contains('não são as da troca que parou'), reason: textPt);
+      expect(textPt, contains('podem não ser as da troca que parou'), reason: textPt);
+      expect(textPt, contains('objeto forjado de uma época mais nova causa o mesmo erro'), reason: textPt);
+      expect(textPt, isNot(contains('não são as da troca')), reason: textPt);
       for (final forbidden in ['tentativa anterior', 'descartada', 'chave nova']) {
         expect(textPt.toLowerCase(), isNot(contains(forbidden)), reason: textPt);
       }
@@ -805,6 +815,25 @@ void main() {
         final textPt = arcaRotationErrorText(pt, bridge_rot.ArcaRotationErrorKind.newerEpoch, resuming: resuming);
         expect(textPt, contains('não é autenticada'), reason: textPt);
         expect(textPt, contains('não aceite a época dela'), reason: textPt);
+      }
+    });
+
+    test('a newer epoch gives the advice in the order of the engine: pair again if you trust it; if you do not recognise it, look at the pending changes and only then accept them', () {
+      // Accepting (acknowledging) a legitimate epoch hides the real rotation, and pairing then finds nothing newer.
+      for (final resuming in [false, true]) {
+        for (final (text, trust, unknown, look, then) in [
+          (arcaRotationErrorText(en, bridge_rot.ArcaRotationErrorKind.newerEpoch, resuming: resuming), 'pair this device again', 'If you do not recognise it', 'at the pending key changes first', 'only then accept them'),
+          (arcaRotationErrorText(pt, bridge_rot.ArcaRotationErrorKind.newerEpoch, resuming: resuming), 'pareie este dispositivo de novo', 'Se você não reconhece a troca', 'veja primeiro as trocas de chave pendentes', 'só então aceite-as'),
+        ]) {
+          for (final needle in [trust, unknown, look, then]) {
+            expect(text, contains(needle), reason: '$resuming: $text');
+          }
+          expect(text.indexOf(trust), lessThan(text.indexOf(unknown)), reason: text);
+          expect(text.indexOf(unknown), lessThan(text.indexOf(look)), reason: text);
+          expect(text.indexOf(look), lessThan(text.indexOf(then)), reason: text);
+          expect(text, isNot(contains('only if you recognise')), reason: 'the inverted advice');
+          expect(text, isNot(contains('só se você reconhecer')), reason: 'the inverted advice');
+        }
       }
     });
 
