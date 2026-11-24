@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/services.dart';
 
 /// Name of the platform channel `MainActivity` answers on (Android only).
@@ -27,13 +29,19 @@ class PlatformSecureWindow implements SecureWindow {
   @override
   Future<void> disable() => _call('disable');
 
+  /// How long to wait for the platform. The screen waits for `enable` before it draws the words, and its back button is blocked meanwhile:
+  /// a platform that never answers must not freeze it.
+  static const _wait = Duration(seconds: 2);
+
   Future<void> _call(String method) async {
     try {
-      await _channel.invokeMethod<void>(method);
+      await _channel.invokeMethod<void>(method).timeout(_wait);
     } on MissingPluginException {
       // iOS and the desktop have no such flag: nothing to protect with, nothing to undo.
     } on PlatformException {
       // Android could not change the window. The screen still carries its own warning against photographing the words.
+    } on TimeoutException {
+      // No answer: same as above (fail open, the person is not stopped).
     }
   }
 }

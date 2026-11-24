@@ -56,7 +56,7 @@ class _ArcaRotationScreenState extends State<ArcaRotationScreen> with WidgetsBin
     }
     _resumeController.dispose();
     // Whatever way out (confirm, back, the screen replaced): the window may be captured again. Not before: in the background it stays protected.
-    if (_step == _Step.showing) unawaited(widget.secureWindow.disable());
+    unawaited(_protect(false));
     // Leaving with the phrase showing (or half way) must not leave a key waiting in the bridge. After a confirm there is nothing left to drop.
     unawaited(widget.backend.rotationCancel().catchError((_) {}));
     super.dispose();
@@ -66,15 +66,28 @@ class _ArcaRotationScreenState extends State<ArcaRotationScreen> with WidgetsBin
   /// asked again, in case the window was rebuilt meanwhile (asking is idempotent).
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.resumed && _step == _Step.showing) unawaited(widget.secureWindow.enable());
+    if (state == AppLifecycleState.resumed && _step != _Step.idle) unawaited(widget.secureWindow.enable());
   }
+
+  /// True from the moment the window was asked to be protected until it was asked to be released. Set BEFORE the request goes out, so a
+  /// request that fails half way is still released on the way out: the flag lives on the whole Activity, and a stuck one would hide every screen.
+  bool _protecting = false;
+
+  Future<void> _protect(bool on) {
+    if (_protecting == on) return Future.value();
+    _protecting = on;
+    return on ? widget.secureWindow.enable() : widget.secureWindow.disable();
+  }
+
+  /// The one rule: the window is protected in every step but idle. The 24 words are shown in `showing` and typed back in `resuming` (a
+  /// field that shows them), so moving between the two never lets go. Called after every change of [_step]; `_begin` asks first instead
+  /// (see there), because the words must not be drawn before the window is protected.
+  Future<void> _syncSecure() => _protect(_step != _Step.idle);
 
   bridge_rotation.ArcaRotationErrorKind _kindOf(Object error) => error is bridge_rotation.ArcaRotationFailure ? error.kind : bridge_rotation.ArcaRotationErrorKind.other;
 
   /// Forgets the phrase and everything typed. The state of the screen after a dropped key.
   void _wipe() {
-    // The words are gone from the screen, so the window may be captured again.
-    if (_step == _Step.showing) unawaited(widget.secureWindow.disable());
     _phrase = const [];
     _positions = const [];
     for (final controller in _wordControllers) {
@@ -95,20 +108,19 @@ class _ArcaRotationScreenState extends State<ArcaRotationScreen> with WidgetsBin
     setState(() => _error = null);
     try {
       final start = await widget.backend.rotationBegin();
-      // The window is protected before the first word can be drawn. `enable` never throws: a window that cannot be protected is no reason
-      // to stop, and the screen carries its own warning.
-      await widget.secureWindow.enable();
-      if (!mounted) {
-        // Left while asking: `dispose` saw no phrase showing and released nothing, so the flag taken just now is released here.
-        unawaited(widget.secureWindow.disable());
-        return;
-      }
+      // The window is protected before the first word can be drawn. The real service never throws and gives up after a couple of seconds
+      // (a window that cannot be protected is no reason to stop: the screen carries its own warning).
+      await _protect(true);
+      // Left while asking: `dispose` already released it (`_protecting` was set before the request went out).
+      if (!mounted) return;
       setState(() {
         _phrase = start.phrase;
         _positions = start.positions.toList();
         _step = _Step.showing;
       });
     } catch (error) {
+      // Back in idle: whatever was asked of the window is released now, not only when the screen goes.
+      unawaited(_protect(false));
       if (mounted) setState(() => _error = arcaRotationErrorText(l10n, _kindOf(error)));
     } finally {
       _busy = false;
@@ -123,6 +135,7 @@ class _ArcaRotationScreenState extends State<ArcaRotationScreen> with WidgetsBin
       _wipe();
       _step = _Step.resuming;
     });
+    unawaited(_syncSecure());
   }
 
   Future<void> _cancel() async {
@@ -132,6 +145,7 @@ class _ArcaRotationScreenState extends State<ArcaRotationScreen> with WidgetsBin
       _wipe();
       _step = _Step.idle;
     });
+    unawaited(_syncSecure());
     try {
       await widget.backend.rotationCancel();
     } catch (_) {
@@ -182,6 +196,7 @@ class _ArcaRotationScreenState extends State<ArcaRotationScreen> with WidgetsBin
         _step = kind == bridge_rotation.ArcaRotationErrorKind.failed || kind == bridge_rotation.ArcaRotationErrorKind.classEmptied ? _Step.resuming : _Step.idle;
         _busy = false;
       });
+      unawaited(_syncSecure());
       return;
     }
     _busy = false;
@@ -273,7 +288,6 @@ class _ArcaRotationScreenState extends State<ArcaRotationScreen> with WidgetsBin
         Wrap(spacing: 16, runSpacing: 4, children: [
           for (var i = 0; i < _phrase.length; i++)
             Semantics(
-              key: Key('arca-rotation-phrase-${i + 1}'),
               container: true,
               label: '${l10n.arcaRotationWordLabel(i + 1)}: ${_phrase[i]}',
               excludeSemantics: true,
