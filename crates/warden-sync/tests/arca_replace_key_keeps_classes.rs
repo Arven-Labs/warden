@@ -234,6 +234,11 @@ impl Device {
         names
     }
 
+    /// What is inside `arca-conflicts/` (the folder itself exists once a cycle ran, empty, and is not what this is looking for).
+    fn in_the_conflicts_folder(&self) -> Vec<String> {
+        self.listing().into_iter().filter(|name| name.starts_with("arca-conflicts/") && name != "arca-conflicts/").collect()
+    }
+
     fn secrets(&self) -> warden_sync::manifest::SyncSecrets {
         load_secrets(&self.base.join("sync_secrets.json")).unwrap().unwrap()
     }
@@ -333,9 +338,10 @@ async fn replacing_the_key_keeps_the_other_classes(name: &str, local_in_d: &[(&s
     }
     let expected_in_d_before: Vec<(&str, &str)> = [SHARED_NOTE].into_iter().chain(local_in_d.iter().copied()).collect();
     assert_eq!(d.files(), files_of(&expected_in_d_before), "premise: d's vault is the shared note and its own files");
-    for forbidden in ["settings", "github", "conflito", "mcp_oauth", "arca-conflicts/"] {
+    for forbidden in ["settings", "github", "conflito", "mcp_oauth"] {
         assert!(d.listing().iter().all(|name| !name.contains(forbidden)), "premise: nothing of d is named like {forbidden}: {:?}", d.listing());
     }
+    assert_eq!(d.in_the_conflicts_folder(), Vec::<String>::new(), "premise: the conflicts folder of d holds nothing");
 
     // ---- the swap and one cycle ----
     let (requests_before, objects_before) = (hub.requests(), hub.objects().await);
@@ -385,7 +391,7 @@ async fn replacing_the_key_keeps_the_other_classes(name: &str, local_in_d: &[(&s
     for forbidden in ["settings", "github", "conflito", "mcp_oauth"] {
         assert!(d.listing().iter().all(|name| !name.contains(forbidden)), "d's folder holds something named like {forbidden}: {:?}", d.listing());
     }
-    assert!(d.listing().iter().all(|name| !name.starts_with("arca-conflicts/")), "the conflicts folder of d holds a copy: {:?}", d.listing());
+    assert_eq!(d.in_the_conflicts_folder(), Vec::<String>::new(), "the conflicts folder of d holds a copy");
     assert!(!d.base.join("mcp_oauth").exists(), "d did not get a logins folder it never had");
 
     // The vault of d converges with a's.
