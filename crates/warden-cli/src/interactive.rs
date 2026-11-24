@@ -258,7 +258,6 @@ impl LineEditor {
 
 /// What `load_history` did to the file itself, besides reading it.
 #[derive(Debug, PartialEq, Eq)]
-#[allow(dead_code)] // skeleton: the next commit builds `MaybePhrase`
 enum HistoryScrub {
     /// Nothing in the file looked like a phrase: it was not rewritten.
     Untouched,
@@ -270,50 +269,57 @@ enum HistoryScrub {
     Failed,
 }
 
-/// Reads the line history. The file (and the directory that holds it) is closed to other users on the way (`close_to_others`, Unix),
-/// whatever the umask of the session that made it.
+/// Reads the line history. The file is closed to other users on the way (mode 0600 on Unix, whatever the umask of the session that
+/// made it); the directory only if it is Warden's own (`close_dir_if_ours`).
 ///
 /// A file written by an older session may already hold a phrase. It is neither recalled nor written back, and, since the save at the
 /// end of the session never runs after a crash, a kill or a closed terminal, the file is rewritten right here, without the line
 /// (`write_private`). Only a line that `keep_in_history` refuses and that is not blank counts: a file with blank lines and nothing
-/// else to refuse is left as it is.
+/// else to refuse is left as it is. The answer says how sure the load is: a refused line that is a valid phrase by itself
+/// (`is_bare_phrase`: the checksum holds) is `BarePhrase`; if every refused line is only a slash line `may_hold_a_phrase` suspects, it
+/// is `MaybePhrase`. The file is read as bytes and decoded with replacement characters: bytes that are not UTF-8 must not make the
+/// load skip the whole file (and its phrase).
 fn load_history(path: &Path) -> (Vec<String>, HistoryScrub) {
-    load_history_with(path, None)
+    load_history_with(path, default_warden_dir().as_deref())
 }
 
 /// `load_history` with the directory Warden calls its own given by the caller (`None`: there is none).
-fn load_history_with(path: &Path, _ours: Option<&Path>) -> (Vec<String>, HistoryScrub) {
-    close_to_others(path);
-    let Ok(contents) = std::fs::read_to_string(path) else {
+fn load_history_with(path: &Path, ours: Option<&Path>) -> (Vec<String>, HistoryScrub) {
+    close_to_others(path, ours);
+    let Ok(bytes) = std::fs::read(path) else {
         return (Vec::new(), HistoryScrub::Untouched);
     };
+    let contents = String::from_utf8_lossy(&bytes);
     let mut kept = Vec::new();
     let mut refused_a_line = false;
+    let mut refused_a_phrase = false;
     for line in contents.lines() {
         if keep_in_history(line) {
             kept.push(line.to_string());
         } else if !line.trim().is_empty() {
             refused_a_line = true;
+            refused_a_phrase |= commands::is_bare_phrase(line);
         }
     }
     if !refused_a_line {
         return (kept, HistoryScrub::Untouched);
     }
     let scrub = match write_private(path, &history_text(&kept)) {
-        Ok(()) => HistoryScrub::BarePhrase,
+        Ok(()) if refused_a_phrase => HistoryScrub::BarePhrase,
+        Ok(()) => HistoryScrub::MaybePhrase,
         Err(_) => HistoryScrub::Failed,
     };
     (kept, scrub)
 }
 
 fn save_history(path: &Path, history: &[String]) {
-    save_history_with(path, history, None);
+    save_history_with(path, history, default_warden_dir().as_deref());
 }
 
 /// `save_history` with the directory Warden calls its own given by the caller (`None`: there is none).
-fn save_history_with(path: &Path, history: &[String], _ours: Option<&Path>) {
+fn save_history_with(path: &Path, history: &[String], ours: Option<&Path>) {
     if let Some(parent) = path.parent() {
-        make_private_dir(parent);
+        make_private_dir(parent, ours);
     }
     let _ = write_private(path, &history_text(history));
 }
@@ -321,7 +327,8 @@ fn save_history_with(path: &Path, history: &[String], _ours: Option<&Path>) {
 /// The text of the card shown before the first prompt, if the load said something about the old file.
 fn history_warning(scrub: &HistoryScrub, path: Option<&Path>) -> Option<String> {
     match (scrub, path) {
-        (HistoryScrub::BarePhrase | HistoryScrub::MaybePhrase, _) => Some(tr!("history.phrase_scrubbed")),
+        (HistoryScrub::BarePhrase, _) => Some(tr!("history.phrase_scrubbed")),
+        (HistoryScrub::MaybePhrase, _) => Some(tr!("history.phrase_maybe_scrubbed")),
         (HistoryScrub::Failed, Some(path)) => Some(tr!("history.phrase_not_scrubbed", path = path.display())),
         _ => None,
     }
@@ -333,47 +340,80 @@ fn history_text(history: &[String]) -> String {
     history[start..].join("\n")
 }
 
-/// Creates the directory (and the missing parents) with mode 0700 on Unix, and closes one that already exists. Silent when it
-/// cannot: the history is a convenience and must not stop the REPL. `dir` is the application's own directory, not a shared one.
-fn make_private_dir(dir: &Path) {
+/// The folder Warden itself names as its own, when it is the default one: `<config dir>/warden`. With `--data-dir` the folder belongs
+/// to the operator, so it is never ours to change. The same rule as `default_warden_dir` of `warden-sync` (`manifest.rs`, P175d),
+/// which is private to that crate.
+fn default_warden_dir() -> Option<PathBuf> {
+    match warden_core::paths::data_dir() {
+        Some(_) => None,
+        None => warden_core::paths::warden_dir(),
+    }
+}
+
+/// Creates the directory with mode 0700 on Unix when it (or a parent of it) does not exist yet, and does not change the mode of
+/// one that exists, except under `close_dir_if_ours`. Silent when it cannot: the history is a convenience and must not stop the
+/// REPL.
+fn make_private_dir(dir: &Path, ours: Option<&Path>) {
     #[cfg(unix)]
     {
-        use std::os::unix::fs::{DirBuilderExt, PermissionsExt};
+        use std::os::unix::fs::DirBuilderExt;
         let _ = std::fs::DirBuilder::new().recursive(true).mode(0o700).create(dir);
-        let _ = std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o700));
     }
     #[cfg(not(unix))]
     {
         let _ = std::fs::create_dir_all(dir);
     }
+    close_dir_if_ours(dir, ours);
 }
 
-/// An existing history file goes to 0600 and its directory to 0700 (Unix; nothing changes on Windows). Silent when it cannot.
-fn close_to_others(path: &Path) {
+/// An existing history file goes to 0600 (Unix; nothing changes on Windows), and so does its directory under `close_dir_if_ours`.
+/// Silent when it cannot.
+fn close_to_others(path: &Path, ours: Option<&Path>) {
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
         let _ = std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600));
-        if let Some(parent) = path.parent().filter(|parent| !parent.as_os_str().is_empty()) {
-            let _ = std::fs::set_permissions(parent, std::fs::Permissions::from_mode(0o700));
-        }
     }
-    #[cfg(not(unix))]
-    {
-        let _ = path;
+    if let Some(parent) = path.parent() {
+        close_dir_if_ours(parent, ours);
     }
 }
 
-/// Writes `text` to `path` atomically: into a temporary file in the same directory (mode 0600 from the first byte on Unix), then
-/// `rename` over the old file. A stop in the middle leaves the old file or the new one, never half of one, and the new file is
-/// private whatever the old one was. The temporary file is removed if anything fails.
+/// Sets 0700 on `dir` when it is exactly `ours` and is open to its group or to others. The rule of `close_parent_if_ours` of
+/// `warden-sync` (`manifest.rs`, P175d), which is private to that crate and says why: any other folder is left as it is, because the
+/// path comes from the caller and a `chmod` on a folder nobody here created (the system temp dir, a shared one, the operator's
+/// `--data-dir`) would be an effect nobody asked for. Silent when it cannot. Outside Unix there is no mode to set.
+fn close_dir_if_ours(dir: &Path, ours: Option<&Path>) {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        if ours == Some(dir) && std::fs::metadata(dir).is_ok_and(|meta| meta.permissions().mode() & 0o077 != 0) {
+            let _ = std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o700));
+        }
+    }
+    #[cfg(not(unix))]
+    let _ = (dir, ours);
+}
+
+/// Writes `text` to `path`: into a temporary file in the same directory (a name of its own each time; mode 0600 from the first byte
+/// on Unix), flushed to disk, then `rename` over the old file, then the directory is flushed too (Unix, best effort). Against a
+/// stop of the process (a kill, a crash) in the middle this leaves the old file or the new one, never half of one, and the new file
+/// is private whatever the old one was. The temporary file is removed if anything fails. A power cut can still lose the rename on a
+/// file system that does not honour the directory flush: the old file is then what stays.
 fn write_private(path: &Path, text: &str) -> std::io::Result<()> {
+    static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
     let name = path.file_name().ok_or_else(|| std::io::Error::new(std::io::ErrorKind::InvalidInput, "history path has no file name"))?;
-    let temporary = path.with_file_name(format!(".{}.{}.tmp", name.to_string_lossy(), std::process::id()));
-    let _ = std::fs::remove_file(&temporary);
+    let nanos = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |since| since.as_nanos());
+    let unique = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let temporary = path.with_file_name(format!(".{}.{}.{nanos}.{unique}.tmp", name.to_string_lossy(), std::process::id()));
     let written = write_new_file(&temporary, text).and_then(|()| std::fs::rename(&temporary, path));
     if written.is_err() {
         let _ = std::fs::remove_file(&temporary);
+        return written;
+    }
+    #[cfg(unix)]
+    if let Some(parent) = path.parent().filter(|parent| !parent.as_os_str().is_empty()) {
+        let _ = std::fs::File::open(parent).and_then(|dir| dir.sync_all());
     }
     written
 }
