@@ -62,10 +62,11 @@ class _ArcaRotationScreenState extends State<ArcaRotationScreen> with WidgetsBin
     super.dispose();
   }
 
-  /// In the background the window stays protected: that is what keeps the words out of the recent-apps thumbnail. Coming back, the flag is
-  /// asked again, in case the window was rebuilt meanwhile (asking is idempotent).
+  /// In the background the window stays protected: that is what keeps the words out of the recent-apps thumbnail. Coming back, in every step
+  /// but idle (`showing` and `resuming`), the flag is asked again, in case the window was rebuilt meanwhile (asking is idempotent).
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
+    // `enable()` directly, not `_protect(true)` (which would do nothing): a step other than idle implies `_protecting == true`.
     if (state == AppLifecycleState.resumed && _step != _Step.idle) unawaited(widget.secureWindow.enable());
   }
 
@@ -108,11 +109,20 @@ class _ArcaRotationScreenState extends State<ArcaRotationScreen> with WidgetsBin
     setState(() => _error = null);
     try {
       final start = await widget.backend.rotationBegin();
+      if (!mounted) {
+        // Left while the bridge was making the key: `dispose` had nothing to release, and its cancel may have reached the bridge before the
+        // key existed. Do not touch the window (the flag lives on the whole Activity), and drop the key now that it is there.
+        unawaited(widget.backend.rotationCancel().catchError((_) {}));
+        return;
+      }
       // The window is protected before the first word can be drawn. The real service never throws and gives up after a couple of seconds
       // (a window that cannot be protected is no reason to stop: the screen carries its own warning).
       await _protect(true);
-      // Left while asking: `dispose` already released it (`_protecting` was set before the request went out).
-      if (!mounted) return;
+      if (!mounted) {
+        // Left while asking: `dispose` already released it (`_protecting` was set before the request went out). Safe and idempotent.
+        unawaited(_protect(false));
+        return;
+      }
       setState(() {
         _phrase = start.phrase;
         _positions = start.positions.toList();
