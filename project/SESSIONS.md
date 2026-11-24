@@ -6,6 +6,15 @@
 
 ---
 
+### 2026-11-24 — arca: rodada 3 do P-49, o histórico do CLI (warden#251, mesclado) e a correção do `begin_epoch` no `arca-core` (arca#198, mesclado; o Warden ainda NÃO usa)
+
+- **Pedido**: "pode seguir" (onda 2). O detalhe das decisões, dos limites e do contrato com o Warden está no `project/SESSIONS.md` e no ADR 0018 da arca (Sessão 128).
+- **warden#251** (`36cc049a`, CI verde em `ee060409`): `cli_history.txt` criado com 0600 (diretório ausente criado com 0700); o modo de um diretório **existente** só muda na regra P175d (`<config>/warden`, sem `--data-dir`, só com bit de grupo/outros), replicada de `warden-sync/manifest.rs` porque o helper é privado; se o `load_history` descarta linha recusada por `keep_in_history`, regrava o arquivo de forma atômica (temporário único + rename + `sync_all` do diretório) e mostra um card em dois níveis (`BarePhrase`: certeza, `MaybePhrase`: heurística, `Failed`: não conseguiu). Controles vermelhos: 6 e 6 testes por asserção. **Limites**: sessão antiga ainda aberta regrava o histórico ao sair, backups e snapshots do disco, `conversations/` do CLI não verificado, temporário órfão se o processo morrer, Windows, `/folder` e `run_plain` sem guarda, regra P175d duplicada em dois crates.
+- **Pendente no Warden (o que esta rodada não fez)**: subir o `rev` do `arca-core` (hoje `95754fc`) para `499628b` e mapear em `rotation_error_of`/`engine_failure`: `HeadNotAccepted` => `Refused` + `Remedy::SyncFirst` (texto: revogar o token do dispositivo perdido no hub **antes** de sincronizar), e `ClassEmptied`/`Integrity`/`MissingObject`/`Store(Corrupt)` numa 1ª tentativa => recusa, não "parada, retome com as mesmas 24 palavras" (nada foi publicado); o comentário e o teste (`arca_sync.rs` ~1016 e ~1132) que dizem que `ClassEmptied` só ocorre na retomada deixam de valer. Até lá o buraco de Secret/Config na 1ª tentativa **continua no Warden**; a única proteção é a guarda do cofre (#244, só Vault). [warden#253](https://github.com/Arven-Labs/warden/pull/253) (guarda interina) ficou como rascunho, não mesclar.
+- **Não verificado**: o efeito em outro dispositivo, `arca_replace_key`, terminal real do REPL.
+
+---
+
 ### 2026-11-24 — arca: rodada 2 do P-49, equipe de 3 (frase sem barra no CLI, `FLAG_SECURE` no celular, rotação com cofre vazio) ([warden#242](https://github.com/Arven-Labs/warden/pull/242), [#245](https://github.com/Arven-Labs/warden/pull/245), [#244](https://github.com/Arven-Labs/warden/pull/244); todos mesclados)
 
 - **Pedido**: "segue no p49 multiagente". Plan mode. Frentes escolhidas: E1 (frase sem barra), E2 (0600 no histórico, **não feita**, onda 2), B (celular), G (textos e rastros do núcleo). Fora: C (I4, §4) e `zeroize` no CLI. O `arca-core` não mudou.
