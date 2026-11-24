@@ -412,9 +412,15 @@ pub fn rotation_cancel(slot: &RotationSlot) {
 }
 
 /// The one place that tells the automatic loop whether a rotation is in progress: it is, exactly while a key waits in `slot`.
-/// Every command that can change the slot calls it afterwards, so the pause cannot drift from the slot.
+/// Every command that can change the slot calls it afterwards, so the pause cannot drift from the slot. `confirm` takes the key out
+/// of the slot before it starts, so the pause stays on while it runs and is lifted once it ends, whether it worked or not.
+/// Read and set under the slot's lock, so two commands finishing together cannot leave the older answer last.
+///
+/// A person who closes the screen without cancelling leaves the key in the slot and the loop stopped, with no timeout; `cancel` (or
+/// confirming) is the way out. Closing the app clears both, since the slot and the pause live only in memory.
 pub fn pause_loop_while_a_rotation_waits(runner: &SyncRunner, slot: &RotationSlot) {
-    let _ = (runner, slot);
+    let waiting = slot.lock().unwrap();
+    runner.set_rotation_in_progress(waiting.is_some());
 }
 
 /// The saved hub `hub_id`, with the token this computer holds for it, ready to sync with.

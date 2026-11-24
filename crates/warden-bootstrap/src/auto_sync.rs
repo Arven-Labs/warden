@@ -468,9 +468,18 @@ impl SyncRunner {
         report
     }
 
-    /// The round the loop runs on each tick.
+    /// The round the loop runs on each tick: `run_once`, unless a key rotation is in progress. Then nothing is pulled, so a tip forged
+    /// by whoever holds the old key and a token not yet revoked is not accepted before the rotation recrypts what the device carries.
+    /// The pause is only here and not in `round`, which "sync now" shares. It does not take the round lock either: a round that is
+    /// running (a "sync now", or one started just before the rotation) is not waited for.
     async fn loop_round(&self) -> SyncReport {
-        self.run_once().await
+        if !self.rotation_in_progress() {
+            return self.run_once().await;
+        }
+        // Rotation only exists in arca mode, so that is the backend the loop would have run.
+        let report = SyncReport { at_ms: now_ms(), backend: SyncBackend::Arca, pulled: None, pushed: None, error: None, paused_for_rotation: true };
+        *self.last.lock().unwrap() = Some(report.clone());
+        report
     }
 
     /// Runs a round every `interval`, forever, handing each report to `on_report` and waiting for
@@ -487,6 +496,9 @@ impl SyncRunner {
             let report = self.loop_round().await;
             if let Some(err) = &report.error {
                 tracing::warn!("auto-sync: {err}");
+            }
+            if report.paused_for_rotation {
+                tracing::info!("auto-sync: paused while a key rotation is in progress (confirm or cancel it to resume)");
             }
             on_report(&report).await;
         }
