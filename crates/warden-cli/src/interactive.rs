@@ -5870,7 +5870,7 @@ mod tests {
                     remember_line(&mut history, typed);
                 }
                 // (`assert!` and not `assert_eq!`: a failing run must not print the history, which may hold a phrase, in the log.)
-                assert!(history == vec!["/arca on", wrong_checksum.as_str(), twenty_three_words.as_str(), sentence.as_str()], "phrase #{index}: only the phrase stays out ({} lines kept)", history.len());
+                assert!(history == ["/arca on", wrong_checksum.as_str(), twenty_three_words.as_str(), sentence.as_str()], "phrase #{index}: only the phrase stays out ({} lines kept)", history.len());
                 let path = std::env::temp_dir().join(format!("warden-cli-history-bare-{}.txt", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
                 save_history(&path, &history);
                 let saved = std::fs::read_to_string(&path).unwrap();
@@ -5879,7 +5879,7 @@ mod tests {
                 std::fs::write(&path, format!("/arca on\n{line}\n{sentence}\n")).unwrap();
                 let loaded = load_history(&path);
                 let _ = std::fs::remove_file(&path);
-                assert!(loaded == vec!["/arca on", sentence.as_str()], "phrase #{index}: the old line with the phrase is dropped on load ({} lines loaded)", loaded.len());
+                assert!(loaded == ["/arca on", sentence.as_str()], "phrase #{index}: the old line with the phrase is dropped on load ({} lines loaded)", loaded.len());
             }
         }
     }
