@@ -311,7 +311,11 @@ impl SyncEngine {
         self.refuse_if_the_vault_was_emptied(&engine).await?;
         // Past the check, a folder that is gone is a vault that never had a file: it is created empty, as every other entry point does.
         std::fs::create_dir_all(self.vault.root()).map_err(|error| open_refusal(error.into()))?;
-        let (_next, snapshot) = engine.begin_epoch(new_key, &roots, now_ms).await.map_err(rotation_error_of)?;
+        // The same sign `refuse_if_the_vault_was_emptied` uses for "a resume": a manifest of the new epoch already in the store reads as a
+        // newer epoch this engine has not acknowledged. It tells `rotation_error_of` whether a class emptied (or a blob that fails) is a
+        // refusal (a first attempt published nothing) or a stop (the manifest of the new epoch is out).
+        let first_attempt = !matches!(engine.heads().await, Err(EngineError::NeedsNewKey { .. }));
+        let (_next, snapshot) = engine.begin_epoch(new_key, &roots, now_ms).await.map_err(|error| rotation_error_of(error, first_attempt))?;
         let published = match snapshot {
             Snapshot::Created { id, .. } => id,
             Snapshot::Unchanged { head, .. } => head,
@@ -976,18 +980,23 @@ fn ensure_complete(report: &ReplicateReport, what: &str) -> anyhow::Result<()> {
 
 /// An engine call that failed, as an error the person can read: `what` is what the cycle was doing.
 ///
-/// Two failures get their own words, because the arca's are about its internals and the person has to know what to do next:
+/// A few failures get their own words, because the arca's are about its internals and the person has to know what to do next:
 /// - `Busy`: another program holds the vault's folder or the arca's device state. Warden's own cycles never get here (the
 ///   `sync_lock` makes them wait), so it is something else touching the same files. Nothing was read or written; the loop tries
 ///   again on its next tick, so there is no retry here (it would hide that something else is at work).
 /// - `StateNotSaved`: the change *was* made, only the anti-rollback record behind it was not written. Saying so keeps the
 ///   person from thinking work was lost, and repeating the cycle is safe.
+/// - `HeadNotAccepted`: only `begin_epoch` returns it, on the first attempt. The way out is a sync, but a sync accepts the newest
+///   manifest as it is, even one that the lost device forged with its token, so the token has to be revoked first.
 fn engine_failure(error: EngineError, what: &str) -> anyhow::Error {
     match error {
         EngineError::Busy => anyhow::anyhow!("{what}: another program is using this vault or Warden's sync state, so this cycle did nothing; the next one tries again"),
         EngineError::StateNotSaved => anyhow::anyhow!("{what}: the change was made, but this device's sync state could not be saved; the next cycle repeats it safely"),
         EngineError::NeedsNewKey { have, found } => anyhow::anyhow!(
             "{what}: another device switched this vault to a newer key (epoch {found}; this device has {have}), so this cycle did nothing. If it was you or a device you trust, pair this device again to get the new key. If you do not recognise it, look at the pending epochs first and only then acknowledge them: the epoch of an object is not authenticated, so anyone who holds the old key can forge one"
+        ),
+        EngineError::HeadNotAccepted { class } => anyhow::anyhow!(
+            "{what}: the newest manifest in this device's store lists entries of class {class:?} that this device has no folder for, and it is not the manifest this device accepted, so nothing was published; revoke the lost device's token on the hub BEFORE you sync: a sync would accept the newest manifest as it is, even a forged one, and the new key epoch would carry it"
         ),
         other => anyhow::Error::from(other).context(what.to_string()),
     }
@@ -1005,20 +1014,36 @@ fn open_refusal(error: anyhow::Error) -> crate::arca_rotation::RotationFailure {
     crate::arca_rotation::RotationFailure::refused(crate::arca_rotation::Remedy::NeedsRepair, format!("{error:#}"))
 }
 
-/// How a `begin_epoch` error reaches the person. Only the errors `begin_epoch` returns **before its first write** are refusals
-/// (read in `Engine::begin_epoch`; its tests prove the store is unchanged for `KeyNotRotated`, `EpochOverflow`, `Diverged`,
-/// `Interrupted`, `Rollback` and `NeedsNewKey`, the rest is by reading the code); any other one (a store error, `StateNotSaved`) may come after the new
-/// manifest went out, so it stays `Failed`, which tells the person to resume with the same 24 words. Do not widen the refusal
-/// list without that proof: a wrong "nothing was changed" makes the person throw away a key that was already published.
+/// How a `begin_epoch` error reaches the person. Only the errors `begin_epoch` returns **before it publishes a manifest of the new
+/// epoch** are refusals (read in `Engine::begin_epoch` and `build_snapshot`, arca-core `499628b`; its tests prove the store is
+/// unchanged for `KeyNotRotated`, `EpochOverflow`, `Diverged`, `Interrupted`, `Rollback` and `NeedsNewKey`, the rest is by reading the
+/// code); any other one (a store error, `StateNotSaved`) may come after the new manifest went out, so it stays `Failed`, which tells
+/// the person to resume with the same 24 words. Do not widen the refusal list without that proof: a wrong "nothing was changed"
+/// makes the person throw away a key that was already published.
+///
+/// `first_attempt` is whether no manifest of the new epoch is in the store yet (the sign `refuse_if_the_vault_was_emptied` uses: the
+/// engine of the current epoch reads such a manifest as a newer epoch it has not acknowledged). On a first attempt `begin_epoch`
+/// takes the old head as the base of the floor `ClassEmptied` and of the entries of the classes this device has no folder for, which
+/// it re-encrypts (arca#198). What it can then return, with the manifest written last in every case:
+/// - `HeadNotAccepted`: before `build_snapshot` runs. Only born on a first attempt.
+/// - `Integrity`, `MissingObject`, `Store(Corrupt)`: reading a blob of an entry it re-encrypts, first in `verify_carried` (before any
+///   write) and again in `reseal_carried`, after the blobs of the folders and before the manifest. Nothing reads a blob on a resume
+///   (it carries nothing), so these are refusals only when `first_attempt`.
+/// - `ClassEmptied`: the floor comes after the blobs of the folders were sent, so a first attempt that is refused here can leave
+///   blobs that no manifest cites (inert: a retry seals others, since the nonce is random), never a manifest.
 ///
 /// Each refusal carries the `Remedy` that resolves it, because a new key cures only the first (`KeyNotRotated`): the others are
-/// about the folder, the storage or the arca's files, and the same trouble meets the next key too. `ClassEmptied` is a stop, not a
-/// refusal: `begin_epoch` returns it only when a manifest of the new epoch is already published (`prev` is `None` otherwise, so the
-/// class had no entries to lose), so a new key would meet that epoch (`NewerEpoch`); the way out is the same phrase, files back.
-fn rotation_error_of(error: EngineError) -> crate::arca_rotation::RotationFailure {
+/// about the folder, the storage or the arca's files, and the same trouble meets the next key too. `ClassEmptied` is a refusal with
+/// no remedy on a first attempt (nothing was published: put the files of the class back and try again), and a **stop** on a resume:
+/// a manifest of the new epoch is already published, so a new key would meet that epoch (`NewerEpoch`); the way out is the same
+/// phrase, files back.
+fn rotation_error_of(error: EngineError, first_attempt: bool) -> crate::arca_rotation::RotationFailure {
     use crate::arca_rotation::{Remedy, RotationError, RotationFailure};
     if matches!(error, EngineError::NeedsNewKey { .. }) {
         return RotationError::NewerEpoch.into();
+    }
+    if let (true, EngineError::ClassEmptied { class, had }) = (first_attempt, &error) {
+        return RotationError::Refused(class_emptied_refusal(*class, *had)).into();
     }
     let (wrote_nothing, remedy) = match &error {
         EngineError::Object(arca_core::Error::KeyNotRotated) => (true, Some(Remedy::SameKey)),
@@ -1026,7 +1051,10 @@ fn rotation_error_of(error: EngineError) -> crate::arca_rotation::RotationFailur
         // An unreadable manifest is not joined by a sync: the cycle refuses to build on it ("cannot be read; refusing to build on
         // them") and `merge` too. Only diverging tips are.
         EngineError::Diverged { rejected, .. } if *rejected > 0 => (true, Some(Remedy::NeedsRepair)),
-        EngineError::Diverged { .. } | EngineError::Interrupted | EngineError::IncompleteApply => (true, Some(Remedy::SyncFirst)),
+        EngineError::Diverged { .. } | EngineError::Interrupted | EngineError::IncompleteApply | EngineError::HeadNotAccepted { .. } => (true, Some(Remedy::SyncFirst)),
+        // A blob the rotation would re-encrypt is not what its manifest says, or is not there: the local storage is damaged, and a
+        // new key meets the same blob.
+        EngineError::Integrity | EngineError::MissingObject | EngineError::Store(StoreError::Corrupt) if first_attempt => (true, Some(Remedy::NeedsRepair)),
         EngineError::Rollback => (true, Some(Remedy::StorageChanged)),
         EngineError::Busy => (true, Some(Remedy::Busy)),
         EngineError::ClassEmptied { .. } => (false, Some(Remedy::ClassEmptied)),
@@ -1043,6 +1071,19 @@ fn rotation_error_of(error: EngineError) -> crate::arca_rotation::RotationFailur
         (true, Some(remedy)) => RotationFailure::refused(remedy, text),
         (_, remedy) => RotationFailure::stopped(remedy, text),
     }
+}
+
+/// The refusal of a first attempt whose folder of `class` has no file the snapshot would list while the head lists `had` entries of
+/// it (`ClassEmptied`): publishing would send an empty class to every device. Nothing about the phrase or the key: nothing was
+/// published, and each screen says what to do with the phrase it showed. No path and no name of a file.
+fn class_emptied_refusal(class: Class, had: usize) -> String {
+    format!(
+        "starting the new key epoch: the folder of class {class:?} has no file that this device would publish, but the newest manifest in this device's store lists {had} entries of that class, so no new key epoch was published. \
+         First check that the disk or mount point the folder lives on is mounted. \
+         If this device pulled changes that it has not applied yet, sync first. \
+         Otherwise put back ALL the {class:?} files that you did not mean to delete, only files that were there before (for example from the trash) and NEVER an old backup as a whole, because files deleted on purpose would come back and be published to every device. \
+         If you emptied it on purpose: put any one file in that folder, change the key, and only then delete it and sync"
+    )
 }
 
 /// The manifest the vault folder reflects. A missing or unreadable file with the mode on is an error: guessing would bring back
@@ -1072,7 +1113,8 @@ mod tests {
         use crate::arca_rotation::{Remedy, RotationError};
         // The refusals: arca-core `begin_epoch` returns each of them before `build_snapshot` puts anything (read in the code; its
         // tests cover `KeyNotRotated`, `EpochOverflow`, `Diverged`, `Interrupted`, `Rollback` and `NeedsNewKey`, not the others).
-        // Each one comes with what resolves it, because only the first is cured by another key.
+        // Each one comes with what resolves it, because only the first is cured by another key. They are refusals on a first attempt
+        // and on a resume alike.
         for (before_any_write, remedy) in [
             (EngineError::Object(arca_core::Error::KeyNotRotated), Remedy::SameKey),
             (EngineError::Object(arca_core::Error::EpochOverflow), Remedy::NeedsRepair),
@@ -1088,21 +1130,25 @@ mod tests {
             (EngineError::CorruptJournal, Remedy::NeedsRepair),
             (EngineError::CorruptState, Remedy::NeedsRepair),
             (EngineError::Busy, Remedy::Busy),
+            // before `build_snapshot` runs, and only on a first attempt
+            (EngineError::HeadNotAccepted { class: Class::Secret }, Remedy::SyncFirst),
         ] {
-            let failure = rotation_error_of(before_any_write.clone());
-            assert!(matches!(failure.error, RotationError::Refused(_)), "{before_any_write:?}");
-            assert_eq!(failure.remedy, Some(remedy), "{before_any_write:?}");
-            assert!(failure.error.to_string().contains(remedy.hint()), "the person is told what resolves it: {}", failure.error);
+            for first_attempt in [true, false] {
+                let failure = rotation_error_of(before_any_write.clone(), first_attempt);
+                assert!(matches!(failure.error, RotationError::Refused(_)), "{before_any_write:?} (first attempt: {first_attempt})");
+                assert_eq!(failure.remedy, Some(remedy), "{before_any_write:?} (first attempt: {first_attempt})");
+                assert!(failure.error.to_string().contains(remedy.hint()), "the person is told what resolves it: {}", failure.error);
+            }
         }
-        assert_eq!(rotation_error_of(EngineError::NeedsNewKey { have: 1, found: 2 }), RotationError::NewerEpoch.into());
+        for first_attempt in [true, false] {
+            assert_eq!(rotation_error_of(EngineError::NeedsNewKey { have: 1, found: 2 }, first_attempt), RotationError::NewerEpoch.into());
+        }
         // Anything else can come from inside `build_snapshot`, after the blobs or the manifest went out: the person must resume with
-        // the same 24 words, so none of these may read as "nothing was changed".
+        // the same 24 words, so none of these may read as "nothing was changed", on a first attempt or on a resume.
         for may_have_written in [
             EngineError::Store(StoreError::Unavailable(std::io::ErrorKind::TimedOut)),
-            EngineError::Store(StoreError::Corrupt),
             EngineError::StateNotSaved,
             EngineError::Io(std::io::ErrorKind::PermissionDenied),
-            EngineError::MissingObject,
             EngineError::JournalTooLarge,
             // an object error that is not one of the two refusals comes from inside `build_snapshot` (sealing, a manifest that does
             // not fit the rules), after the blobs may be out
@@ -1111,9 +1157,27 @@ mod tests {
             EngineError::Object(arca_core::Error::WrongKeyEpoch { found: 2, expected: 1 }),
             EngineError::Object(arca_core::Error::InvalidManifest("too many files")),
         ] {
-            let failure = rotation_error_of(may_have_written.clone());
-            assert!(matches!(failure.error, RotationError::Failed(_)), "{may_have_written:?}");
-            assert_eq!(failure.remedy, None, "{may_have_written:?}");
+            for first_attempt in [true, false] {
+                let failure = rotation_error_of(may_have_written.clone(), first_attempt);
+                assert!(matches!(failure.error, RotationError::Failed(_)), "{may_have_written:?} (first attempt: {first_attempt})");
+                assert_eq!(failure.remedy, None, "{may_have_written:?} (first attempt: {first_attempt})");
+            }
+        }
+    }
+
+    #[test]
+    fn a_blob_that_the_rotation_would_re_encrypt_and_cannot_read_is_a_refusal_only_on_a_first_attempt() {
+        use crate::arca_rotation::{Remedy, RotationError};
+        // Only a first attempt reads blobs (`verify_carried` before any write, `reseal_carried` before the manifest). On a resume nothing
+        // does, so one of these errors there is not something this module has proof of, and stays a stop.
+        for blob_error in [EngineError::Integrity, EngineError::MissingObject, EngineError::Store(StoreError::Corrupt)] {
+            let refused = rotation_error_of(blob_error.clone(), true);
+            assert!(matches!(refused.error, RotationError::Refused(_)), "{blob_error:?}: {refused:?}");
+            assert_eq!(refused.remedy, Some(Remedy::NeedsRepair), "{blob_error:?}");
+            assert!(refused.error.to_string().contains(Remedy::NeedsRepair.hint()), "{}", refused.error);
+            let stopped = rotation_error_of(blob_error.clone(), false);
+            assert!(matches!(stopped.error, RotationError::Failed(_)), "{blob_error:?}: {stopped:?}");
+            assert_eq!(stopped.remedy, None, "{blob_error:?}");
         }
     }
 
@@ -1122,7 +1186,7 @@ mod tests {
         use crate::arca_rotation::Remedy;
         // `engine_failure` says "this cycle did nothing; the next one tries again", true for the sync loop. A rotation is one call by
         // the person: nobody tries again, so the text must not say so.
-        let text = rotation_error_of(EngineError::Busy).error.to_string();
+        let text = rotation_error_of(EngineError::Busy, true).error.to_string();
         assert!(!text.contains("next one tries again"), "{text}");
         assert!(!text.contains("this cycle did nothing"), "{text}");
         assert!(text.contains(Remedy::Busy.hint()), "{text}");
@@ -1134,7 +1198,7 @@ mod tests {
         // `Engine::begin_epoch` returns `HeadNotAccepted` before `build_snapshot` runs (arca-core `499628b`), on the first attempt only,
         // so nothing was published: the way out is a sync, but a sync accepts the head as it is, so the lost device's token goes first.
         for class in [Class::Config, Class::Secret] {
-            let failure = rotation_error_of(EngineError::HeadNotAccepted { class });
+            let failure = rotation_error_of(EngineError::HeadNotAccepted { class }, true);
             assert!(matches!(failure.error, RotationError::Refused(_)), "{failure:?}");
             assert_eq!(failure.remedy, Some(Remedy::SyncFirst), "{failure:?}");
             let text = failure.error.to_string();
@@ -1149,12 +1213,29 @@ mod tests {
     #[test]
     fn a_class_emptied_by_a_resume_is_a_stop_not_a_refusal_and_does_not_send_to_a_new_key() {
         use crate::arca_rotation::{Remedy, RotationError};
-        // `ClassEmptied` is only reachable when a manifest of the new epoch is already published (`begin_epoch` builds on `None`
-        // otherwise, so `had` is 0): the stop is real, and the way out is the same phrase with the files back.
-        let failure = rotation_error_of(EngineError::ClassEmptied { class: Class::Vault, had: 3 });
+        // On a resume a manifest of the new epoch is already published (`first_attempt` is false), so the stop is real, and the way out
+        // is the same phrase with the files back. (The first attempt is the next test.)
+        let failure = rotation_error_of(EngineError::ClassEmptied { class: Class::Vault, had: 3 }, false);
         assert!(matches!(failure.error, RotationError::Failed(_)), "{failure:?}");
         assert_eq!(failure.remedy, Some(Remedy::ClassEmptied));
         assert!(failure.error.to_string().contains("SAME 24 words"), "{}", failure.error);
+    }
+
+    #[test]
+    fn a_class_emptied_on_a_first_attempt_is_a_refusal_with_no_remedy_that_says_nothing_was_published() {
+        use crate::arca_rotation::RotationError;
+        // Since arca#198 `begin_epoch` has the old head as the base of the floor on a first attempt, so `ClassEmptied` can come before
+        // any manifest of the new epoch exists. Not a stop: there is nothing to resume, and the phrase is not mentioned (the screens say
+        // what to do with the one they showed). Two classes and two counts, so the text is not one fixed sentence.
+        for (class, had) in [(Class::Secret, 2), (Class::Vault, 3)] {
+            let failure = rotation_error_of(EngineError::ClassEmptied { class, had }, true);
+            let RotationError::Refused(text) = &failure.error else { panic!("a refusal was expected: {failure:?}") };
+            assert_eq!(failure.remedy, None, "{failure:?}");
+            assert!(text.contains(&format!("class {class:?}")) && text.contains(&format!("lists {had} entries")), "{text}");
+            assert!(text.contains(&format!("put back ALL the {class:?} files")), "{text}");
+            assert!(text.contains("no new key epoch was published"), "{text}");
+            assert!(!text.contains("24 words") && !text.contains("SAME"), "{text}");
+        }
     }
 
     #[test]
