@@ -182,7 +182,7 @@ export const syncPt: Record<keyof typeof sync, string> = {
   "arca.rotationDoneNotSent": "A chave foi trocada neste computador, mas não foi enviada ao hub: {message}. Sincronize de novo para enviar.",
   "arca.rotationDoneNoHub": "A chave foi trocada neste computador. Escolha um hub e sincronize para enviar.",
   "arca.rotationFailed": "A chave não foi trocada: {message}",
-  "arca.rotationResumeNewerEpoch": "Estas 24 palavras não são as da troca que parou no meio, então nada foi gravado. Digite as 24 palavras dessa troca. Detalhe: {message}",
+  "arca.rotationResumeNewerEpoch": "Nada foi gravado. Estas 24 palavras podem não ser as da troca que parou no meio (um objeto forjado de uma época mais nova causa o mesmo erro): confira as trocas de chave pendentes. Se uma troca neste dispositivo parou mesmo, digite as 24 palavras dela e não aceite a época dela. Se foi você ou um dispositivo de confiança que trocou a chave, pareie este dispositivo de novo. Se você não reconhece a troca, veja primeiro as trocas de chave pendentes e só então aceite-as: a época de um objeto não é autenticada, então quem tem a chave antiga pode forjar uma. Detalhe: {message}",
   "arca.rotationResumeNotWritten": "Nada foi gravado nesta tentativa, mas uma tentativa anterior pode já ter publicado essa chave: guarde as 24 palavras. Detalhe: {message}",
   "arca.rotationPartial": "A troca parou no meio: {message}. Não gere uma chave nova. As mesmas 24 palavras estão na caixa abaixo: confirme para terminar com a mesma chave.",
   "arca.keptTitle": "Arquivos guardados",
