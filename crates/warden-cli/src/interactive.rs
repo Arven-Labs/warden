@@ -5821,6 +5821,56 @@ mod tests {
     }
 
     #[test]
+    fn a_phrase_typed_as_chat_is_neither_kept_in_the_history_nor_saved_nor_reloaded() {
+        // Same three real phrases as the `commands.rs` tests (official BIP-39 vectors of arca-core `recovery.rs`; `ZOO_PHRASE` is the
+        // first), plus one just made: not only the fixture of this module.
+        let made = PendingRotation::generate().unwrap();
+        let made_phrase = made.phrase().unwrap();
+        let abandon = format!("{} art", ["abandon"; 23].join(" "));
+        let legal = "legal winner thank year wave sausage worth useful legal winner thank year wave sausage worth useful legal winner thank year wave sausage worth title";
+        // 24 words of the list that are NOT a phrase (wrong checksum word), 23 words and a sentence: plain chat, kept as before.
+        let wrong_checksum = ["zoo"; 24].join(" ");
+        let twenty_three_words = ["zoo"; 23].join(" ");
+        let sentence = "what is a zoo".to_string();
+        for (index, phrase) in [ZOO_PHRASE.to_string(), abandon, legal.to_string(), made_phrase.expose().to_string()].into_iter().enumerate() {
+            for line in [phrase.clone(), format!("  {}  ", phrase.to_uppercase()), phrase.replace(' ', "   ")] {
+                let mut history = Vec::new();
+                for typed in ["/arca on", line.as_str(), wrong_checksum.as_str(), twenty_three_words.as_str(), sentence.as_str(), "   "] {
+                    remember_line(&mut history, typed);
+                }
+                assert_eq!(history, vec!["/arca on", wrong_checksum.as_str(), twenty_three_words.as_str(), sentence.as_str()], "phrase #{index}: only the phrase stays out");
+                let path = std::env::temp_dir().join(format!("warden-cli-history-bare-{}.txt", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
+                save_history(&path, &history);
+                let saved = std::fs::read_to_string(&path).unwrap();
+                assert_eq!(saved, history.join("\n"), "phrase #{index}: the file holds exactly the lines kept");
+                // What an OLDER session already wrote is not reloaded (and so not written back either).
+                std::fs::write(&path, format!("/arca on\n{line}\n{sentence}\n")).unwrap();
+                let loaded = load_history(&path);
+                let _ = std::fs::remove_file(&path);
+                assert_eq!(loaded, vec!["/arca on", sentence.as_str()], "phrase #{index}: the old line with the phrase is dropped on load");
+            }
+        }
+    }
+
+    #[test]
+    fn the_card_for_a_phrase_typed_as_chat_says_it_was_not_sent_nor_kept_and_where_the_rotation_is() {
+        for locale in [i18n::Locale::En, i18n::Locale::PtBr] {
+            speak(locale);
+            let text = tr!("arca.phrase_in_chat");
+            assert_ne!(text, "arca.phrase_in_chat", "the key is missing from the catalog of {locale:?}");
+            assert!(text.contains("/arca rotate resume") && text.contains("/arca rotate"), "{locale:?}: {text}");
+            assert!(!text.contains("zoo") && !text.contains("abandon"), "{locale:?}: the text is fixed, it never repeats a word of the line: {text}");
+        }
+        speak(i18n::Locale::En);
+        let en = tr!("arca.phrase_in_chat");
+        assert!(en.contains("not sent") && en.contains("not kept"), "{en}");
+        speak(i18n::Locale::PtBr);
+        let pt = tr!("arca.phrase_in_chat");
+        assert!(pt.contains("não foi enviada") && pt.contains("não foi guardada"), "{pt}");
+        assert_ne!(en, pt, "the pt-BR text is not translated");
+    }
+
+    #[test]
     fn an_unknown_command_is_echoed_by_its_first_word_only() {
         speak(i18n::Locale::En);
         let said = unknown_command_lines("/models bogus --token hunter2");
