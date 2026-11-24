@@ -31,7 +31,10 @@ pub enum RotationError {
     /// Refused **before this attempt wrote anything**: the new key is the one in use, there is no next epoch, the heads diverge,
     /// another program holds the vault, or (first attempt only) the vault folder has no file (or cannot be read) while the newest
     /// manifest in the store lists vault files: putting the files back cures that one, a new key does not, and the text of `why`
-    /// says so. Only for the first of these does a new key help (`RotationFailure::remedy` says which cures
+    /// says so. The same for a first attempt when that manifest lists logins or configuration of other devices that this device
+    /// cannot carry to the new epoch (it did not accept the logins, its logins folder has no login, or the configuration class that
+    /// this program never carries): sync, accept the logins, or use a client of the arca that carries the class, then try again.
+    /// Only for the first of these does a new key help (`RotationFailure::remedy` says which cures
     /// what, and the text of `why` already carries it). An earlier attempt may have published the manifest of this very key, so
     /// this says nothing about the store: it is about this attempt.
     Refused(String),

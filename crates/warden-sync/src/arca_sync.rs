@@ -67,6 +67,29 @@ const VAULT_EMPTIED_REFUSAL: &str = concat!(
 /// of the operating system follows it. Nothing was written. It has no path: the error is the OS message only.
 const VAULT_UNREADABLE_REFUSAL: &str = "the vault folder cannot be read, and the newest manifest in this device's store lists vault files, so no new key epoch was published. Check that the disk or mount point the folder lives on is mounted and that this program may read it, then try again: ";
 
+/// The refusal of a first rotation attempt when the head lists logins that this device cannot carry to the new epoch
+/// (`refuse_if_the_head_lists_what_this_device_cannot_carry`). Same rules as `VAULT_EMPTIED_REFUSAL`: no local path, nothing about the
+/// phrase or the key. It does not say "no file": that is the words the tests look for in the vault refusal.
+const LOGINS_NOT_CARRIED_REFUSAL: &str = concat!(
+    "the newest manifest in this device's store lists logins (MCP) of other devices, and this device cannot carry them to the new key epoch: it does not sync the logins, or its logins folder holds no login, so publishing the new epoch now would drop them for every device. ",
+    "No new key epoch was published and nothing was written. ",
+    "If this device pulled changes that it has not applied yet, sync first. ",
+    "Then turn the logins on for this device (accept them) so that it has them, and change the key again. ",
+    "If the logins folder was emptied by mistake, put back ALL the login files that you did not mean to delete, only files that were there before"
+);
+
+/// The start of the refusal when the logins folder cannot be read at all (the counterpart of `VAULT_UNREADABLE_REFUSAL`); the error of
+/// the operating system follows it. Nothing was written. It has no path: the error is the OS message only.
+const LOGINS_UNREADABLE_REFUSAL: &str = "the logins folder cannot be read, and the newest manifest in this device's store lists logins of other devices, so no new key epoch was published. Check that the disk or mount point the folder lives on is mounted and that this program may read it, then try again: ";
+
+/// The refusal of a first rotation attempt when the head lists configuration (class `config`): this program never mounts a root for
+/// that class, so the new epoch would not carry it. Same rules as the other refusals: no local path, nothing about the phrase.
+const CONFIG_NOT_CARRIED_REFUSAL: &str = concat!(
+    "the newest manifest in this device's store lists configuration files of other devices, and this program does not carry that class, so publishing the new key epoch now would drop them for every device. ",
+    "No new key epoch was published and nothing was written. ",
+    "Syncing first does not change this: the key of this vault can only be changed by a client of the arca that carries the configuration class"
+);
+
 /// A file of the logins folder that the snapshot left out, and why (the arca's own reason text).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SkippedLogin {
@@ -287,7 +310,9 @@ impl SyncEngine {
     ///
     /// Under the sync lock, in this order (the person already holds the phrase of `new_key`, so a stop between two steps loses
     /// nothing, and repeating it with the same key finishes it). Before the first of them, a first attempt is refused when the vault
-    /// folder has no file and the head of the current epoch lists some (`refuse_if_the_vault_was_emptied`): nothing is written.
+    /// folder has no file and the head of the current epoch lists some (`refuse_if_the_vault_was_emptied`), or when the head lists
+    /// logins or configuration that this device cannot carry (`refuse_if_the_head_lists_what_this_device_cannot_carry`): nothing is
+    /// written.
     /// 1. `begin_epoch` on the local store with the **current** secrets: a full snapshot of the live folder at epoch + 1, and the
     ///    arca state moves to the new epoch. It adopts a manifest of the new epoch that an earlier try already published.
     /// 2. `arca_folder.txt` points at that manifest: the cycle keeps which manifest the folder reflects, and an old id would be read
@@ -309,7 +334,8 @@ impl SyncEngine {
         let secrets = self.load_secrets().map_err(open_refusal)?;
         let (engine, roots) = self.arca_engine_open(secrets, mode.secret_accepted, false).map_err(open_refusal)?;
         self.refuse_if_the_vault_was_emptied(&engine).await?;
-        // Past the check, a folder that is gone is a vault that never had a file: it is created empty, as every other entry point does.
+        self.refuse_if_the_head_lists_what_this_device_cannot_carry(&engine, &roots).await?;
+        // Past the checks, a folder that is gone is a vault that never had a file: it is created empty, as every other entry point does.
         std::fs::create_dir_all(self.vault.root()).map_err(|error| open_refusal(error.into()))?;
         let (_next, snapshot) = engine.begin_epoch(new_key, &roots, now_ms).await.map_err(rotation_error_of)?;
         let published = match snapshot {
@@ -359,6 +385,51 @@ impl SyncEngine {
             return Ok(());
         }
         Err(RotationError::Refused(VAULT_EMPTIED_REFUSAL.to_string()).into())
+    }
+
+    /// The same floor for the other two classes (interim: the fix is in the arca-core, `begin_epoch` on `prev = None`). The new
+    /// epoch's snapshot is built on `prev = None`, so an entry of a class that this device has no root for does not get carried over,
+    /// and the refusal of an emptied class has nothing to compare with. Before anything is written, on a first attempt (the same
+    /// condition as above: `heads` works; on a resume it fails and `begin_epoch` has its own floor), the rotation is refused when a
+    /// tip of the store lists:
+    /// - any `config` entry: the Warden never mounts a root for that class (`roots.config` is always `None`), so the new epoch
+    ///   would not have it; or
+    /// - a `secret` entry that this device would accept (`is_login_entry`, the entry filter of the engine) and this device cannot
+    ///   carry the logins: it has no logins root (the person did not accept the logins here, the folder is gone, or the host wired
+    ///   none; `arca_engine_open` gives `None` for each), or the folder has no login file the snapshot would list (the scan with
+    ///   `is_login_file_name`, as the engine's own). The folder is only read, never created: `prepare_logins_root` ran with `create`
+    ///   false, and what it did not find is not made here.
+    ///
+    /// Left alone on purpose: a `secret` entry that the filter refuses (a name no device writes) is not a login that gets lost; and
+    /// a logins folder with some login file passes even if the head lists others that the folder lacks (as in the vault check: this
+    /// is about a folder with none, not a diff). A logins folder that cannot be read (anything but "not there") is a refusal with the
+    /// real error, as for the vault.
+    async fn refuse_if_the_head_lists_what_this_device_cannot_carry(&self, engine: &Engine<DiskStore>, roots: &Roots) -> Result<(), crate::arca_rotation::RotationFailure> {
+        use crate::arca_rotation::RotationError;
+        let Ok(heads) = engine.heads().await else { return Ok(()) };
+        let files = || heads.tips.iter().flat_map(|tip| tip.manifest.files.iter());
+        if files().any(|file| file.class == Class::Config) {
+            return Err(RotationError::Refused(CONFIG_NOT_CARRIED_REFUSAL.to_string()).into());
+        }
+        if !files().any(|file| file.class == Class::Secret && is_login_entry(file)) {
+            return Ok(());
+        }
+        let Some(logins_root) = roots.secret.clone() else {
+            return Err(RotationError::Refused(LOGINS_NOT_CARRIED_REFUSAL.to_string()).into());
+        };
+        // Blocking walk, off the async thread, with the scan filter the engine uses for this class.
+        let login_filter: arca_core::scan::ScanFilter = is_login_file_name;
+        let scanned = tokio::task::spawn_blocking(move || arca_core::scan::scan_class_with(Class::Secret, &logins_root, Some(login_filter))).await;
+        let folder_has_logins = match scanned {
+            Ok(Ok(scan)) => !scan.candidates.is_empty(),
+            Ok(Err(error)) if error.kind() == std::io::ErrorKind::NotFound => false,
+            Ok(Err(error)) => return Err(RotationError::Refused(format!("{LOGINS_UNREADABLE_REFUSAL}{error}")).into()),
+            Err(error) => return Err(RotationError::Refused(format!("{LOGINS_UNREADABLE_REFUSAL}{error}")).into()),
+        };
+        if folder_has_logins {
+            return Ok(());
+        }
+        Err(RotationError::Refused(LOGINS_NOT_CARRIED_REFUSAL.to_string()).into())
     }
 
     /// The last manifest this device accepted (the head of its arca state), for the head code the old device shows when it hands
