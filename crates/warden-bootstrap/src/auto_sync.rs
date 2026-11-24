@@ -15,7 +15,7 @@
 
 use std::net::Ipv4Addr;
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -202,7 +202,20 @@ pub struct SyncRunner {
     /// The hub whose token was rejected. Kept in memory only, so a restart tries once more.
     arca_halted: Mutex<Option<String>>,
     /// A key rotation is waiting for its confirmation (`set_rotation_in_progress`). Memory only, like the rotation itself.
-    rotation_in_progress: AtomicBool,
+    rotation_waiting: AtomicBool,
+    /// How many confirmations are running (`confirming_rotation`). A confirmation takes the key out of the slot at once, so the slot
+    /// alone would say "nothing in progress" while it writes.
+    rotation_confirming: AtomicUsize,
+}
+
+/// Held by a rotation's confirmation for as long as it runs; the loop stays paused until it is dropped, whichever way the
+/// confirmation ends (a panic included).
+pub struct RotationConfirming<'a>(&'a AtomicUsize);
+
+impl Drop for RotationConfirming<'_> {
+    fn drop(&mut self) {
+        self.0.fetch_sub(1, Ordering::SeqCst);
+    }
 }
 
 impl SyncRunner {
@@ -219,18 +232,26 @@ impl SyncRunner {
             arca_cycle: None,
             arca_verify: None,
             arca_halted: Mutex::new(None),
-            rotation_in_progress: AtomicBool::new(false),
+            rotation_waiting: AtomicBool::new(false),
+            rotation_confirming: AtomicUsize::new(0),
         }
     }
 
-    /// Tells the runner a key rotation is (or no longer is) in progress. The host calls this from one place only, the one that
-    /// follows the slot the rotation's key waits in.
-    pub fn set_rotation_in_progress(&self, in_progress: bool) {
-        self.rotation_in_progress.store(in_progress, Ordering::SeqCst);
+    /// Tells the runner whether a rotation's key is waiting for its confirmation. The host sets it from the rotation functions only,
+    /// under the lock of the slot the key waits in, so it cannot drift from the slot.
+    pub fn set_rotation_in_progress(&self, waiting: bool) {
+        self.rotation_waiting.store(waiting, Ordering::SeqCst);
     }
 
+    /// Marks a confirmation as running until the returned guard is dropped. Take it while the key is still in the slot's lock.
+    pub fn confirming_rotation(&self) -> RotationConfirming<'_> {
+        self.rotation_confirming.fetch_add(1, Ordering::SeqCst);
+        RotationConfirming(&self.rotation_confirming)
+    }
+
+    /// Whether the loop must stand by: a key waits for its confirmation, or a confirmation is running.
     pub fn rotation_in_progress(&self) -> bool {
-        self.rotation_in_progress.load(Ordering::SeqCst)
+        self.rotation_waiting.load(Ordering::SeqCst) || self.rotation_confirming.load(Ordering::SeqCst) > 0
     }
 
     /// Lets the loop sync a vault that is in arca mode, with `cycle`.
@@ -365,6 +386,11 @@ impl SyncRunner {
     /// Runs one round now, waiting for any round already running to finish first.
     pub async fn run_once(&self) -> SyncReport {
         let _serialized = self.lock.lock().await;
+        self.round_and_record().await
+    }
+
+    /// One round, kept as the last one. The caller holds the round lock.
+    async fn round_and_record(&self) -> SyncReport {
         let report = self.round().await;
         *self.last.lock().unwrap() = Some(report.clone());
         report
@@ -468,14 +494,26 @@ impl SyncRunner {
         report
     }
 
-    /// The round the loop runs on each tick: `run_once`, unless a key rotation is in progress. Then nothing is pulled, so a tip forged
-    /// by whoever holds the old key and a token not yet revoked is not accepted before the rotation recrypts what the device carries.
-    /// The pause is only here and not in `round`, which "sync now" shares. It does not take the round lock either: a round that is
-    /// running (a "sync now", or one started just before the rotation) is not waited for.
+    /// The round the loop runs on each tick: a normal round, unless a key rotation is in progress. Then nothing is pulled, so a tip
+    /// forged by whoever holds the old key and a token not yet revoked is not accepted before the rotation recrypts what the device
+    /// carries. The pause is only here and not in `round`, which "sync now" shares.
+    ///
+    /// It looks twice: before the round lock, so a paused tick does not queue behind a long "sync now", and again after taking it, so
+    /// a tick that queued behind one while no rotation was in progress does not start a new cycle after the rotation began. A round
+    /// that had already started when the rotation began still finishes.
     async fn loop_round(&self) -> SyncReport {
-        if !self.rotation_in_progress() {
-            return self.run_once().await;
+        if self.rotation_in_progress() {
+            return self.paused_round();
         }
+        let _serialized = self.lock.lock().await;
+        if self.rotation_in_progress() {
+            return self.paused_round();
+        }
+        self.round_and_record().await
+    }
+
+    /// The report of a tick the loop skipped because of a rotation, kept as the last round.
+    fn paused_round(&self) -> SyncReport {
         // Rotation only exists in arca mode, so that is the backend the loop would have run.
         let report = SyncReport { at_ms: now_ms(), backend: SyncBackend::Arca, pulled: None, pushed: None, error: None, paused_for_rotation: true };
         *self.last.lock().unwrap() = Some(report.clone());
@@ -951,6 +989,62 @@ mod tests {
         a.set_rotation_in_progress(false);
         assert!(!a.loop_round().await.paused_for_rotation);
         assert_eq!(calls.lock().unwrap().len(), 2);
+    }
+
+    /// A confirmation takes the key out of the slot at once, so for as long as it writes nothing "waits" any more: a cancel that comes
+    /// meanwhile (the screen unmounting) would otherwise free the loop in the middle of it.
+    #[tokio::test]
+    async fn a_confirmation_that_is_running_keeps_the_loop_paused_even_when_no_key_waits() {
+        let (cycle, calls) = fake_cycle(vec![changed(0)]);
+        let a = arca_device("arca-rotation-confirming", Some("hub-1"), cycle).await;
+        a.set_rotation_in_progress(true);
+        let first = a.confirming_rotation();
+        a.set_rotation_in_progress(false);
+        assert!(a.rotation_in_progress(), "a confirmation is running");
+        assert!(a.loop_round().await.paused_for_rotation);
+        let second = a.confirming_rotation();
+        drop(first);
+        assert!(a.rotation_in_progress(), "the second confirmation is still running");
+        drop(second);
+        assert!(!a.rotation_in_progress(), "every way a confirmation ends drops its guard");
+        assert!(calls.lock().unwrap().is_empty(), "the cycle ran while a confirmation did");
+        assert!(!a.loop_round().await.paused_for_rotation);
+        assert_eq!(*calls.lock().unwrap(), ["hub-1"]);
+    }
+
+    /// A tick that passed the first look and queued behind a long "sync now" must look again once it has the round lock: a rotation
+    /// may have begun meanwhile, and a cycle that starts after that is the one the pause is meant to stop.
+    #[tokio::test]
+    async fn a_tick_that_queued_behind_a_sync_now_looks_again_before_it_starts_a_cycle() {
+        let (cycle, calls) = fake_cycle(vec![]);
+        let a = Arc::new(arca_device("arca-rotation-queued", Some("hub-1"), cycle).await);
+        let sync_now = a.lock.lock().await;
+        let tick = tokio::spawn({
+            let a = a.clone();
+            async move { a.loop_round().await }
+        });
+        // On this test's single-threaded runtime, the tick runs up to the round lock, which is taken.
+        tokio::task::yield_now().await;
+        tokio::task::yield_now().await;
+        assert!(!a.rotation_in_progress(), "the tick must have passed the first look with no rotation");
+        a.set_rotation_in_progress(true);
+        drop(sync_now);
+        let report = tokio::time::timeout(Duration::from_secs(5), tick).await.expect("the tick never finished").expect("the tick panicked (the cycle ran?)");
+        assert!(report.paused_for_rotation, "{report:?}");
+        assert!(calls.lock().unwrap().is_empty(), "a cycle started after the rotation began");
+    }
+
+    /// The other half: a paused tick does not queue behind a round that is running, and does not hold the lock.
+    #[tokio::test]
+    async fn a_paused_tick_does_not_wait_for_a_round_that_is_running() {
+        let (cycle, _) = fake_cycle(vec![]);
+        let a = arca_device("arca-rotation-no-wait", Some("hub-1"), cycle).await;
+        a.set_rotation_in_progress(true);
+        let sync_now = a.lock.lock().await;
+        let report = tokio::time::timeout(Duration::from_secs(5), a.loop_round()).await.expect("a paused tick waited for the round lock");
+        assert!(report.paused_for_rotation);
+        drop(sync_now);
+        assert!(a.lock.try_lock().is_ok(), "the paused tick left the lock taken");
     }
 
     /// "Sync now" goes through `run_once`, like the loop's rounds, so the pause lives in the loop and not in the round: a person who

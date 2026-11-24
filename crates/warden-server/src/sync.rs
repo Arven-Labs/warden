@@ -18,12 +18,16 @@ use crate::settings::{keys_match, SettingsHost, SharedOrchestrator, WRONG_KEY_DE
 
 const NO_SYNC: &str = "this hub doesn't offer vault sync over the network";
 
+/// What the automatic loop did not do because a key rotation is waiting for confirmation. The DTO has no field for "paused", and a
+/// quiet round (no pull, no push, no error) reads as "nothing changed", so the web shows this in its error banner.
+const PAUSED_FOR_ROTATION: &str = "auto-sync paused: a key rotation is waiting for confirmation";
+
 pub fn round_dto(report: &SyncReport) -> SyncRoundDto {
     SyncRoundDto {
         at_ms: report.at_ms,
         pulled: report.pulled.as_ref().map(|p| SyncPulledDto { files_written: p.files_written, files_deleted: p.files_deleted, config_updated: p.config_updated }),
         pushed: report.pushed.as_ref().map(|p| SyncPushedDto { commit_sha: p.commit_sha.clone(), files_changed: p.files_changed }),
-        error: report.error.clone(),
+        error: report.error.clone().or_else(|| report.paused_for_rotation.then(|| PAUSED_FOR_ROTATION.to_string())),
     }
 }
 
@@ -145,6 +149,28 @@ mod tests {
     use warden_core::tool::ToolSpec;
 
     const KEY: &str = "pairing-key-0123456789-0123456789";
+
+    fn round(error: Option<&str>, paused_for_rotation: bool) -> SyncReport {
+        SyncReport { at_ms: 42, backend: SyncBackend::Arca, pulled: None, pushed: None, error: error.map(String::from), paused_for_rotation }
+    }
+
+    /// The web has no field for "paused", and a round with nothing in it reads as "nothing changed": a round the loop skipped for a
+    /// rotation must show up in the error banner.
+    #[test]
+    fn a_round_paused_for_a_rotation_reaches_the_web_as_an_error_that_says_so() {
+        let dto = round_dto(&round(None, true));
+        assert_eq!(dto.at_ms, 42);
+        assert_eq!(dto.error.as_deref(), Some("auto-sync paused: a key rotation is waiting for confirmation"));
+        assert!(dto.pulled.is_none() && dto.pushed.is_none());
+    }
+
+    #[test]
+    fn a_round_that_was_not_paused_reaches_the_web_as_before() {
+        assert_eq!(round_dto(&round(None, false)).error, None, "a quiet round stays quiet");
+        assert_eq!(round_dto(&round(Some("pull: connection refused"), false)).error.as_deref(), Some("pull: connection refused"));
+        // An error the round did have is not hidden behind the pause text.
+        assert_eq!(round_dto(&round(Some("pull: connection refused"), true)).error.as_deref(), Some("pull: connection refused"));
+    }
 
     fn runner(name: &str) -> (SyncRunner, PathBuf) {
         let dir = std::env::temp_dir().join(format!(
