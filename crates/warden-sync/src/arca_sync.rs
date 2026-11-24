@@ -1538,6 +1538,27 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn a_sync_lock_that_another_process_keeps_is_a_busy_refusal_not_a_repair() {
+        use crate::arca_rotation::{Remedy, RotationError};
+        use crate::lock::SyncLock;
+        let device = device_in_arca_mode("rotate-lock-held").await;
+        let lock_path = crate::lock::lock_path_for(&device.base.join("sync_manifest.json"));
+        let _held_by_the_other_program = SyncLock::acquire(&lock_path).await.unwrap();
+        // `sync_lock` waits `LOCK_WAIT` (10 minutes) and then fails with this very error: here the wait is short, and the error is the
+        // one `arca_rotate_to` turns into the refusal (it takes the failure of `sync_lock` through `lock_refusal`).
+        let error = SyncLock::acquire_with_timeout(&lock_path, std::time::Duration::from_millis(300)).await.unwrap_err();
+        assert!(error.to_string().contains("another Warden process is still syncing this vault"), "{error:#}");
+
+        let failure = lock_refusal(error);
+
+        assert!(matches!(failure.error, RotationError::Refused(_)), "{failure:?}");
+        assert_eq!(failure.remedy, Some(Remedy::Busy), "{failure:?}");
+        assert!(failure.error.to_string().contains(Remedy::Busy.hint()), "{}", failure.error);
+        // and what is not the lock (the mode file, `arca_engine`) stays the repair kind
+        assert_eq!(open_refusal(anyhow::anyhow!("secrets are not json")).remedy, Some(Remedy::NeedsRepair));
+    }
+
+    #[tokio::test]
     async fn a_vault_whose_secrets_cannot_be_read_is_refused_as_needing_repair_not_as_a_busy_program_and_writes_nothing() {
         use crate::arca_rotation::Remedy;
         let device = device_in_arca_mode("rotate-secrets-unreadable").await;

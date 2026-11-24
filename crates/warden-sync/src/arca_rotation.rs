@@ -219,17 +219,19 @@ mod tests {
     #[test]
     fn a_newer_epoch_says_what_to_do_for_each_of_its_two_causes() {
         let text = RotationError::NewerEpoch.to_string();
-        // another device rotated: pair again, or look at the pending epochs before acknowledging
-        assert!(text.contains("pair this device again"), "{text}");
-        assert!(text.contains("pending epochs"), "{text}");
-        // an earlier change of this device stopped half way with another phrase: type the 24 words of that one
         assert!(text.contains("24 words"), "{text}");
         assert!(text.contains("this attempt"), "{text}");
-        // the epoch of a stored object is not authenticated (the warning `engine_failure` gives): look first, acknowledge only then,
-        // and never acknowledge the epoch of a change of this device that stopped (it is finished with its 24 words)
+        assert!(text.contains("do not acknowledge"), "{text}");
         assert!(text.contains("not authenticated"), "{text}");
         assert!(text.contains("anyone who holds the old key can forge one"), "{text}");
-        assert!(text.contains("do not acknowledge"), "{text}");
+        // The ORDER is the advice (the same as `engine_failure`): if it was you or a device you trust, PAIR again; only if you do not
+        // recognise the change, look at the pending epochs and only then acknowledge. Acknowledging a legitimate epoch hides the real
+        // rotation, and pairing would then find nothing newer (`NothingNewer`).
+        let at = |needle: &str| text.find(needle).unwrap_or_else(|| panic!("missing {needle:?}: {text}"));
+        assert!(at("pair this device again") < at("If you do not recognise it"), "{text}");
+        assert!(at("If you do not recognise it") < at("look at the pending epochs first"), "{text}");
+        assert!(at("look at the pending epochs first") < at("only then acknowledge them"), "{text}");
+        assert!(!text.contains("acknowledge them only if you recognise"), "the inverted advice: {text}");
     }
 
     #[test]
@@ -251,7 +253,7 @@ mod tests {
             (Remedy::SyncFirst, "run a sync first: it joins diverging copies and finishes an interrupted apply; then try again (a new key is not needed)"),
             (Remedy::StorageChanged, "the storage no longer continues the history this device accepted: check the hub or folder it syncs with before trying again (a new key does not fix it). Do not delete state files to get around it: that turns off the protection against the storage going back in time"),
             (Remedy::NeedsRepair, "something this device needs cannot be used (the arca's state or journal file is damaged, a manifest in the local storage cannot be read, the logins folder is not usable, or no next key epoch exists): this screen cannot fix it, and a new key does not either. Do not delete state files to get around it: that turns off the protection against the storage going back in time"),
-            (Remedy::ClassEmptied, "a class that the already published manifest has is empty in the folder (it can be the logins class, not only the vault): put back at least ONE file of that class, only files that were there when the change started (for example from the trash) and NEVER an old backup as a whole, because files deleted on purpose would come back and be published to every device, credentials included; then finish with the SAME 24 words (a new key would meet the epoch already published). If you emptied it on purpose: put any one file back, finish the change with the same 24 words, and only then delete it and sync"),
+            (Remedy::ClassEmptied, "a class that the already published manifest has is empty in the folder (it can be the logins class, not only the vault): put back ALL the files of that class that you did not mean to delete, only files that were there when the change started (for example from the trash) and NEVER an old backup as a whole, because files deleted on purpose would come back and be published to every device, credentials included. One file is only the minimum the program demands: the rest would be published as removed on every device. Then finish with the SAME 24 words (a new key would meet the epoch already published). If you emptied it on purpose: put any one file back, finish the change with the same 24 words, and only then delete it and sync"),
         ];
         assert_eq!(expected.len(), REMEDIES.len());
         for (remedy, hint) in expected {
