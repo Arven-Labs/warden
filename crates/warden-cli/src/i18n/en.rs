@@ -394,6 +394,8 @@ pub const CATALOG: &[(&str, &str)] = &[
     ("arca.rotate_size_unknown", "could not read the terminal size, so no key was made and nothing was shown or written. Try /arca rotate again."),
     ("arca.rotate_no_arguments", "/arca rotate and /arca rotate resume take nothing on the line: it would stay in the line history. Run the command alone; /arca rotate resume asks for the 24 words in a hidden field. The line you typed was not kept and is not shown here."),
     ("arca.phrase_in_chat", "That line looks like the 24-word recovery phrase, so it was not sent to the model, not kept in the line history and is not shown here. To rotate the key, run /arca rotate or /arca rotate resume: the words are asked for in a hidden field."),
+    ("history.phrase_scrubbed", "One line of the old line history looked like the 24-word recovery phrase and was erased from the history file. Treat that phrase as EXPOSED: it may already have reached the AI provider and still be in a copy of the history. Run /arca rotate to make a new key."),
+    ("history.phrase_not_scrubbed", "One line of the old line history looked like the 24-word recovery phrase, but the history file could not be rewritten, so the line is still in {path}. Delete that file by hand. Treat the phrase as EXPOSED: it may already have reached the AI provider and a copy of the history. Run /arca rotate to make a new key."),
     ("arca.rotate_discarded", "The phrase that was shown is discarded: nothing uses it, and you may throw the paper away."),
     ("arca.rotate_ask_word", " word {position} of the new key (type it back) "),
     ("arca.rotate_ask_phrase", " the 24 words of the new key (not shown, not stored) "),

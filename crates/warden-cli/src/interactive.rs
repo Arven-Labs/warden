@@ -258,7 +258,6 @@ impl LineEditor {
 
 /// What `load_history` did to the file itself, besides reading it.
 #[derive(Debug, PartialEq, Eq)]
-#[allow(dead_code)] // skeleton: the next commit builds `Rewritten` and `Failed` and reads all three
 enum HistoryScrub {
     /// Nothing in the file looked like a phrase: it was not rewritten.
     Untouched,
@@ -268,21 +267,107 @@ enum HistoryScrub {
     Failed,
 }
 
+/// Reads the line history. The file (and the directory that holds it) is closed to other users on the way (`close_to_others`, Unix),
+/// whatever the umask of the session that made it.
+///
+/// A file written by an older session may already hold a phrase. It is neither recalled nor written back, and, since the save at the
+/// end of the session never runs after a crash, a kill or a closed terminal, the file is rewritten right here, without the line
+/// (`write_private`). Only a line that `keep_in_history` refuses and that is not blank counts: a file with blank lines and nothing
+/// else to refuse is left as it is.
 fn load_history(path: &Path) -> (Vec<String>, HistoryScrub) {
-    let lines = std::fs::read_to_string(path)
-        // A file written by an older session may already hold a phrase: the same rule as for a new line, so it is neither recalled
-        // nor written back.
-        .map(|contents| contents.lines().filter(|line| keep_in_history(line)).map(str::to_string).collect())
-        .unwrap_or_default();
-    (lines, HistoryScrub::Untouched)
+    close_to_others(path);
+    let Ok(contents) = std::fs::read_to_string(path) else {
+        return (Vec::new(), HistoryScrub::Untouched);
+    };
+    let mut kept = Vec::new();
+    let mut refused_a_line = false;
+    for line in contents.lines() {
+        if keep_in_history(line) {
+            kept.push(line.to_string());
+        } else if !line.trim().is_empty() {
+            refused_a_line = true;
+        }
+    }
+    if !refused_a_line {
+        return (kept, HistoryScrub::Untouched);
+    }
+    let scrub = match write_private(path, &history_text(&kept)) {
+        Ok(()) => HistoryScrub::Rewritten,
+        Err(_) => HistoryScrub::Failed,
+    };
+    (kept, scrub)
 }
 
 fn save_history(path: &Path, history: &[String]) {
     if let Some(parent) = path.parent() {
-        let _ = std::fs::create_dir_all(parent);
+        make_private_dir(parent);
     }
+    let _ = write_private(path, &history_text(history));
+}
+
+/// The file's text: the last `MAX_HISTORY_ENTRIES` lines, one per line, no final newline.
+fn history_text(history: &[String]) -> String {
     let start = history.len().saturating_sub(MAX_HISTORY_ENTRIES);
-    let _ = std::fs::write(path, history[start..].join("\n"));
+    history[start..].join("\n")
+}
+
+/// Creates the directory (and the missing parents) with mode 0700 on Unix, and closes one that already exists. Silent when it
+/// cannot: the history is a convenience and must not stop the REPL. `dir` is the application's own directory, not a shared one.
+fn make_private_dir(dir: &Path) {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::{DirBuilderExt, PermissionsExt};
+        let _ = std::fs::DirBuilder::new().recursive(true).mode(0o700).create(dir);
+        let _ = std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o700));
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = std::fs::create_dir_all(dir);
+    }
+}
+
+/// An existing history file goes to 0600 and its directory to 0700 (Unix; nothing changes on Windows). Silent when it cannot.
+fn close_to_others(path: &Path) {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let _ = std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600));
+        if let Some(parent) = path.parent().filter(|parent| !parent.as_os_str().is_empty()) {
+            let _ = std::fs::set_permissions(parent, std::fs::Permissions::from_mode(0o700));
+        }
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = path;
+    }
+}
+
+/// Writes `text` to `path` atomically: into a temporary file in the same directory (mode 0600 from the first byte on Unix), then
+/// `rename` over the old file. A stop in the middle leaves the old file or the new one, never half of one, and the new file is
+/// private whatever the old one was. The temporary file is removed if anything fails.
+fn write_private(path: &Path, text: &str) -> std::io::Result<()> {
+    let name = path.file_name().ok_or_else(|| std::io::Error::new(std::io::ErrorKind::InvalidInput, "history path has no file name"))?;
+    let temporary = path.with_file_name(format!(".{}.{}.tmp", name.to_string_lossy(), std::process::id()));
+    let _ = std::fs::remove_file(&temporary);
+    let written = write_new_file(&temporary, text).and_then(|()| std::fs::rename(&temporary, path));
+    if written.is_err() {
+        let _ = std::fs::remove_file(&temporary);
+    }
+    written
+}
+
+/// Creates `path` (it must not exist) with mode 0600 on Unix, writes `text` and flushes it to disk.
+fn write_new_file(path: &Path, text: &str) -> std::io::Result<()> {
+    let mut options = std::fs::OpenOptions::new();
+    options.write(true).create_new(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600);
+    }
+    let mut file = options.open(path)?;
+    file.write_all(text.as_bytes())?;
+    file.sync_all()
 }
 
 /// `ghost` is the dim, non-editable completion suffix shown right after the typed text (see
@@ -4293,7 +4378,7 @@ where
     F: Fn() -> Fut,
     Fut: std::future::Future<Output = anyhow::Result<Orchestrator>>,
 {
-    let (mut line_history, _scrub) = match history_path {
+    let (mut line_history, scrub) = match history_path {
         Some(path) => load_history(path),
         None => (Vec::new(), HistoryScrub::Untouched),
     };
@@ -4309,6 +4394,17 @@ where
     // position, which contends with reading key events — reused here means that query only ever
     // happens once, before the loop below starts reading any key at all).
     let mut terminal = new_inline_terminal()?;
+
+    // An old history file held something that looked like the recovery phrase (`load_history` already took it out of the file, or
+    // could not): the person is told before the first prompt that it counts as exposed. The card has no part of the line.
+    let history_warning = match (&scrub, history_path) {
+        (HistoryScrub::Rewritten, _) => Some(tr!("history.phrase_scrubbed")),
+        (HistoryScrub::Failed, Some(path)) => Some(tr!("history.phrase_not_scrubbed", path = path.display())),
+        _ => None,
+    };
+    if let Some(text) = history_warning {
+        render_message_card(&mut terminal, "arca", Style::default().fg(Color::Rgb(241, 196, 15)), vec![(text, Style::default())])?;
+    }
 
     let config_path_for_grants = config_path.clone();
     let mut session = CliSession {
