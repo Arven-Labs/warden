@@ -19,9 +19,21 @@ abstract class SecureWindow {
 class PlatformSecureWindow implements SecureWindow {
   const PlatformSecureWindow();
 
-  @override
-  Future<void> enable() async {}
+  static const _channel = MethodChannel(secureWindowChannelName);
 
   @override
-  Future<void> disable() async {}
+  Future<void> enable() => _call('enable');
+
+  @override
+  Future<void> disable() => _call('disable');
+
+  Future<void> _call(String method) async {
+    try {
+      await _channel.invokeMethod<void>(method);
+    } on MissingPluginException {
+      // iOS and the desktop have no such flag: nothing to protect with, nothing to undo.
+    } on PlatformException {
+      // Android could not change the window. The screen still carries its own warning against photographing the words.
+    }
+  }
 }
