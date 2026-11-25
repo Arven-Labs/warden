@@ -47,6 +47,14 @@ Implementa o item 4. Detalhes que o texto acima não fixava:
 - **Época já reconhecida fica fora**: quem reconheceu a época pendente escolheu seguir com a chave velha; `foreign_epochs` vazio dá `NothingNewer` (decisão do dono, 2026-11-20).
 - **Limite**: a base do merge é uma raiz sem ancestral comum, então remoções que outros dispositivos fizeram desde a rotação podem ressuscitar na pasta deste; edições concorrentes viram conflito, não perda.
 
+## Atualização (2026-11-25): o que a investigação do `arca_replace_key` provou (warden#259)
+Pergunta da Sessão 127: `arca_replace_key` repete o `prev = None` do `begin_epoch` e perde Secret e Config do hub? Resposta de `crates/warden-sync/tests/arca_replace_key_keeps_classes.rs`: **não perde**. O ciclo depois da troca acha duas pontas da época nova (o snapshot da troca e a ponta puxada do hub), então faz **merge**, e o `merge_inner` usa uma base vazia quando as duas pontas são raízes sem ancestral comum. O que a base vazia causa, fixado nos testes e **não corrigido**:
+- **Arquivo apagado ressurge.** Um arquivo do cofre que o dispositivo atrasado apagou volta, porque nada no snapshot da troca diz "apagado". O teste só fixa o que acontece; se é aceitável é decisão do dono.
+- **Edição do mesmo arquivo vira conflito espúrio.** Uma edição feita enquanto atrasado, de um arquivo que o hub também lista, gera uma cópia `.conflito-*` no cofre (nada se perde, o texto duplica). O caso está em `crates/warden-server/tests/arca_mode.rs`, `a_local_edit_made_since_the_rotation_survives_the_swap`.
+- **Texto perdedor de login fica em claro.** Em conflito de login (dispositivo que aceitou os logins) o perdedor é gravado em texto claro em `arca-conflicts/secret/` (P-34), e o de Config em `arca-conflicts/config/`.
+- **Quem vence depende do relógio.** A regra é o maior `(created_at, id)`; `created_at` vem do aparelho, então um relógio adiantado ganha o conflito.
+Não coberto: a base vazia com um hub real escondendo a ponta (o teste usa um hub HTTP em processo), e o fluxo num aparelho real. Mesmo modelo que leu o código escreveu esta nota; sem revisão independente.
+
 ## Não validado
 - Conferido no código: há **um** `sync_secrets.json` e **um** `sync_manifest.json` por instalação (`paths.rs`), então o par chave e época é por instalação. Se um dia houver mais de um cofre por instalação, a rotação de um mudaria a chave dos outros.
 - O comportamento com um hub real escondendo manifests da época nova; o custo de `begin_epoch` em cofre grande; a frase BIP-39 e o fluxo inteiro num aparelho real (nada disso foi executado).
