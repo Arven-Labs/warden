@@ -381,16 +381,18 @@ fn require_arca_mode(engine: &SyncEngine) -> Result<(), String> {
 }
 
 /// The place that puts a key in the slot (`begin`, `resume`) or empties it (`cancel`), and tells the automatic loop (`runner`) whether
-/// one waits: the loop stands by while a key waits in `slot`, while a confirmation runs (`SyncRunner::confirming_rotation`) and after
-/// a confirmation that stopped half way (`keep_the_pause_after_a_stop_half_way`, until a `cancel` or a `resume` that is confirmed). The
-/// slot is changed and the runner told under the slot's lock, so two calls finishing together cannot leave the older answer last and
-/// the pause cannot drift from the slot. `take_key_to_confirm` also takes the key out, by itself, for it must start its guard under
-/// that same lock.
+/// one waits. The loop stands by on three independent grounds (`SyncRunner::rotation_in_progress`): a key waits in `slot`
+/// (`set_rotation_in_progress`, told here); a confirmation runs (`SyncRunner::confirming_rotation`); and a rotation was left half done
+/// (`set_rotation_half_done`, see `rotation_confirm`), which has no key in the slot. The slot is changed and the runner told under the
+/// slot's lock, so two calls finishing together cannot leave the older answer last and the "key waits" answer follows the slot at each
+/// call. The other two are not derived from the slot. `take_key_to_confirm` also takes the key out, by itself, for it must start its
+/// guard under that same lock.
 ///
-/// The screen (`ArcaRotationBlock.tsx`) already calls `arca_rotation_cancel` when it unmounts, so leaving the screen frees the loop.
-/// What is left is a cleanup that did not run (the `invoke` failed, the webview was reloaded or hung): then the key stays in the slot
-/// and the loop stays paused, with no deadline. A later `cancel`, a new `begin` that is confirmed, or closing the app ends it, since the
-/// slot and the pause live only in memory. The pause has no deadline: that is the owner's decision (2026-11-27).
+/// The screen (`ArcaRotationBlock.tsx`) already calls `arca_rotation_cancel` when it unmounts, so leaving the screen frees a loop that
+/// was stopped by a waiting key. What is left is a cleanup that did not run (the `invoke` failed, the webview was reloaded or hung): then
+/// the key stays in the slot and the loop stays paused, with no deadline. A later `cancel`, a new `begin` that is confirmed, or closing
+/// the app ends it, since the slot and the pause live only in memory. The pause has no deadline: that is the owner's decision
+/// (2026-11-27).
 fn set_slot(runner: &SyncRunner, slot: &RotationSlot, key: Option<PendingRotation>) {
     let mut held = slot.lock().unwrap();
     *held = key;
@@ -420,27 +422,33 @@ pub fn rotation_resume(engine: &SyncEngine, runner: &SyncRunner, slot: &Rotation
 
 /// Rotates to the key waiting in `slot`. The key leaves the slot first: it is consumed by one try, right or wrong, so a second click
 /// finds nothing and a wrong word means starting again (the right words cannot be guessed on the same key). The automatic loop stays
-/// paused while it runs, even though the slot is empty then (a cancel meanwhile does not free it), and the guard is released when it
-/// ends, in any way: on every return and on a panic. What the loop does after that depends on how it ended: a success, or a refusal
-/// that wrote nothing (`RotationFailure::partial` false), leaves the slot empty and the loop runs again. A stop half way (`partial`
-/// true: the new epoch may be out, the key not saved yet) is a rotation still to be finished with the same 24 words, so the pause is
-/// kept, with no deadline, until the person resumes and confirms it or cancels (or closes the app: the pause lives only in memory).
+/// paused while it runs, even though the slot is empty then, and the guard is released when it ends, in any way: on every return and on
+/// a panic. After that, what keeps the loop stopped is the **half-done state** (`SyncRunner::set_rotation_half_done`), not the last
+/// try: a stop half way (`partial` true: the new epoch may be out, the key not saved yet) raises it; **only** a success ends it, and a
+/// `cancel` (or closing the app: it lives only in memory). Every other outcome leaves it as it was, so a refusal that wrote nothing
+/// (`partial` false) frees the loop only when no rotation was half done before it (a first try); after a stop half way, a refused
+/// resume, a wrong word or a new rotation leaves the loop stopped, with no deadline (the owner's decision, 2026-11-27). The state is
+/// told under `_confirming`, still alive, so the loop never sees a gap between the guard and it.
+///
+/// A `cancel` that comes while this runs is not stopped from ending the state, and this one then raises it again if it stops half way:
+/// the screen has already gone then, so only a new visit to it (resume or cancel) or a restart of the app ends it. Known limit.
 pub async fn rotation_confirm(engine: &SyncEngine, runner: &SyncRunner, slot: &RotationSlot, typed_words: &[String], revoked_on_hub: bool, now_ms: u64) -> Result<(), RotationFailure> {
     let (pending, _confirming) = take_key_to_confirm(runner, slot)?;
     let typed: Vec<&str> = typed_words.iter().map(String::as_str).collect();
     let outcome = pending.confirm(&typed, revoked_on_hub, engine, now_ms).await.map_err(RotationFailure::from);
-    if matches!(&outcome, Err(failure) if failure.partial) {
-        // Still under `_confirming`: the loop never sees a gap between the guard and the kept pause.
-        keep_the_pause_after_a_stop_half_way(runner, slot);
+    match &outcome {
+        Ok(()) => set_half_done(runner, slot, false),
+        Err(failure) if failure.partial => set_half_done(runner, slot, true),
+        Err(_) => {}
     }
     outcome
 }
 
-/// Keeps the loop paused for a rotation that stopped half way and has no key in the slot (the try consumed it). Under the slot's lock,
-/// like `set_slot`, so it is ordered against a `cancel` or a `resume` that comes meanwhile. `rotation_cancel` is what ends it.
-fn keep_the_pause_after_a_stop_half_way(runner: &SyncRunner, slot: &RotationSlot) {
+/// Tells the runner whether a rotation is left half done, under the slot's lock like `set_slot`, so it is ordered against a `cancel`
+/// or a `resume` that comes meanwhile.
+fn set_half_done(runner: &SyncRunner, slot: &RotationSlot, half_done: bool) {
     let _held = slot.lock().unwrap();
-    runner.set_rotation_in_progress(true);
+    runner.set_rotation_half_done(half_done);
 }
 
 /// Takes the key out of the slot for a confirmation and, in the same hold of the slot's lock, starts the guard that keeps the loop
@@ -455,10 +463,14 @@ fn take_key_to_confirm<'a>(runner: &'a SyncRunner, slot: &RotationSlot) -> Resul
     Ok((pending, confirming))
 }
 
-/// Drops the key that was waiting and lets the automatic loop run again. A confirmation that is already running is not stopped, and
-/// keeps the loop paused until it ends.
+/// Drops the key that was waiting, ends the half-done state (the person gives up the rotation that stopped half way) and lets the
+/// automatic loop run again. A confirmation that is already running is not stopped, and keeps the loop paused until it ends (and if
+/// it then stops half way, it raises the half-done state again: see `rotation_confirm`).
 pub fn rotation_cancel(runner: &SyncRunner, slot: &RotationSlot) {
-    set_slot(runner, slot, None);
+    let mut held = slot.lock().unwrap();
+    *held = None;
+    runner.set_rotation_in_progress(false);
+    runner.set_rotation_half_done(false);
 }
 
 /// The saved hub `hub_id`, with the token this computer holds for it, ready to sync with.
