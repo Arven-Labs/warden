@@ -483,6 +483,7 @@ pub fn rotation_cancel(runner: &SyncRunner, slot: &RotationSlot) {
 /// stopped, as for `rotation_cancel`.
 pub fn rotation_leave(runner: &SyncRunner, slot: &RotationSlot) {
     set_slot(runner, slot, None);
+    runner.set_rotation_half_done(false);
 }
 
 /// The saved hub `hub_id`, with the token this computer holds for it, ready to sync with.
