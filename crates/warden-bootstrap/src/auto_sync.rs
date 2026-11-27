@@ -208,6 +208,8 @@ pub struct SyncRunner {
     /// How many confirmations are running (`confirming_rotation`). A confirmation takes the key out of the slot at once, so the slot
     /// alone would say "nothing in progress" while it writes.
     rotation_confirming: AtomicUsize,
+    /// A confirmation stopped half way and the rotation was not finished or cancelled since (`set_rotation_half_done`). Memory only.
+    rotation_half_done: AtomicBool,
 }
 
 /// Held by a rotation's confirmation for as long as it runs; the loop stays paused until it is dropped, whichever way the
@@ -236,7 +238,19 @@ impl SyncRunner {
             arca_halted: Mutex::new(None),
             rotation_waiting: AtomicBool::new(false),
             rotation_confirming: AtomicUsize::new(0),
+            rotation_half_done: AtomicBool::new(false),
         }
+    }
+
+    /// Tells the runner whether a rotation was left half done (a confirmation stopped after it may have written something).
+    pub fn set_rotation_half_done(&self, half_done: bool) {
+        self.rotation_half_done.store(half_done, Ordering::SeqCst);
+    }
+
+    /// Whether a rotation was left half done and not finished or cancelled since. Not the same as `rotation_in_progress`: this one
+    /// is the state itself, so a test (or a screen) can tell a pause that is kept on purpose from a guard that leaked.
+    pub fn rotation_half_done(&self) -> bool {
+        self.rotation_half_done.load(Ordering::SeqCst)
     }
 
     /// Tells the runner whether a rotation is waiting to be finished: its key waits for the confirmation, or a confirmation stopped half
@@ -1016,6 +1030,24 @@ mod tests {
         drop(second);
         assert!(!a.rotation_in_progress(), "every way a confirmation ends drops its guard");
         assert!(calls.lock().unwrap().is_empty(), "the cycle ran while a confirmation did");
+        assert!(!a.loop_round().await.paused_for_rotation);
+        assert_eq!(*calls.lock().unwrap(), ["hub-1"]);
+    }
+
+    /// A rotation left half done keeps the loop paused with no key waiting and no confirmation running: the key is gone from the slot
+    /// but the new epoch may be out in the local store, so what the pause guards against is still open.
+    #[tokio::test]
+    async fn a_rotation_left_half_done_keeps_the_loop_paused_with_no_key_waiting_and_no_confirmation_running() {
+        let (cycle, calls) = fake_cycle(vec![changed(0)]);
+        let a = arca_device("arca-rotation-half-done", Some("hub-1"), cycle).await;
+        assert!(!a.rotation_half_done(), "nothing is half done on a new runner");
+        a.set_rotation_half_done(true);
+        a.set_rotation_in_progress(false);
+        assert!(a.rotation_in_progress(), "half done: the loop must stand by");
+        assert!(a.loop_round().await.paused_for_rotation);
+        assert!(calls.lock().unwrap().is_empty(), "the cycle ran while a rotation was half done");
+        a.set_rotation_half_done(false);
+        assert!(!a.rotation_in_progress());
         assert!(!a.loop_round().await.paused_for_rotation);
         assert_eq!(*calls.lock().unwrap(), ["hub-1"]);
     }
