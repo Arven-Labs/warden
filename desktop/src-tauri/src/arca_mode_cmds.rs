@@ -474,7 +474,6 @@ pub fn rotation_cancel(runner: &SyncRunner, slot: &RotationSlot) {
     let mut held = slot.lock().unwrap();
     *held = None;
     runner.set_rotation_in_progress(false);
-    runner.set_rotation_half_done(false);
 }
 
 /// What the screen does when it unmounts: drops the key that was waiting in the slot and tells the loop no key waits, like the cancel
