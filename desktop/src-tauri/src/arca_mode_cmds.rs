@@ -443,7 +443,7 @@ pub async fn rotation_confirm(engine: &SyncEngine, runner: &SyncRunner, slot: &R
     match &outcome {
         Ok(()) => set_half_done(runner, slot, false),
         Err(failure) if failure.partial => set_half_done(runner, slot, true),
-        Err(_) => {}
+        Err(_) => set_half_done(runner, slot, false),
     }
     outcome
 }
