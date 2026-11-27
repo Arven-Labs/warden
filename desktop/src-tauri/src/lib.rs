@@ -1514,6 +1514,7 @@ pub fn run() {
             arca_mode_cmds::arca_rotation_resume,
             arca_mode_cmds::arca_rotation_confirm,
             arca_mode_cmds::arca_rotation_cancel,
+            arca_mode_cmds::arca_rotation_leave,
             arca_mode_cmds::arca_mode_enable,
             arca_mode_cmds::arca_mode_accept_logins,
             arca_mode_cmds::arca_mode_revoke_logins,

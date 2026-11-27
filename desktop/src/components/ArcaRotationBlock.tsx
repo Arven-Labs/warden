@@ -23,9 +23,11 @@ function ArcaRotationBlock({ hubId }: { hubId: string }) {
   const busyRef = useRef(false);
 
   // Leaving the screen drops the key that was waiting in the backend (best effort: nothing was written, so a failure loses nothing).
+  // It is `leave`, not `cancel`: leaving is not giving up a rotation that stopped half way (only the Cancel button does that), so the
+  // backend keeps the automatic sync stopped for it.
   useEffect(() => {
     return () => {
-      void invoke("arca_rotation_cancel").catch(() => {});
+      void invoke("arca_rotation_leave").catch(() => {});
     };
   }, []);
 
