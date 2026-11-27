@@ -202,7 +202,8 @@ pub struct SyncRunner {
     arca_verify: Option<ArcaVerify>,
     /// The hub whose token was rejected. Kept in memory only, so a restart tries once more.
     arca_halted: Mutex<Option<String>>,
-    /// A key rotation is waiting for its confirmation (`set_rotation_in_progress`). Memory only, like the rotation itself.
+    /// A key rotation is waiting for its confirmation, or for the person to resume one that stopped half way
+    /// (`set_rotation_in_progress`). Memory only, like the rotation itself.
     rotation_waiting: AtomicBool,
     /// How many confirmations are running (`confirming_rotation`). A confirmation takes the key out of the slot at once, so the slot
     /// alone would say "nothing in progress" while it writes.
@@ -238,8 +239,9 @@ impl SyncRunner {
         }
     }
 
-    /// Tells the runner whether a rotation's key is waiting for its confirmation. The host sets it from the rotation functions only,
-    /// under the lock of the slot the key waits in, so it cannot drift from the slot.
+    /// Tells the runner whether a rotation is waiting to be finished: its key waits for the confirmation, or a confirmation stopped half
+    /// way and the person has yet to resume it (the host keeps it set then, with no key in the slot, until a cancel). The host sets it
+    /// from the rotation functions only, under the lock of the slot the key waits in, so it cannot drift from the slot.
     pub fn set_rotation_in_progress(&self, waiting: bool) {
         self.rotation_waiting.store(waiting, Ordering::SeqCst);
     }
