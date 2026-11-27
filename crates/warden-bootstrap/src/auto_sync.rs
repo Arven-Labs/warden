@@ -202,11 +202,16 @@ pub struct SyncRunner {
     arca_verify: Option<ArcaVerify>,
     /// The hub whose token was rejected. Kept in memory only, so a restart tries once more.
     arca_halted: Mutex<Option<String>>,
-    /// A key rotation is waiting for its confirmation (`set_rotation_in_progress`). Memory only, like the rotation itself.
+    /// A key rotation's key is waiting in the host's slot for its confirmation (`set_rotation_in_progress`). Memory only, like the
+    /// rotation itself.
     rotation_waiting: AtomicBool,
     /// How many confirmations are running (`confirming_rotation`). A confirmation takes the key out of the slot at once, so the slot
     /// alone would say "nothing in progress" while it writes.
     rotation_confirming: AtomicUsize,
+    /// A confirmation stopped half way (the new epoch may be out in the local store, the key not saved yet) and the rotation was not
+    /// confirmed with success or cancelled since (`set_rotation_half_done`). Independent of `rotation_waiting` on purpose: a refused
+    /// try after the stop clears `waiting` (the key left the slot) and must not end this. Memory only, so a restart ends it.
+    rotation_half_done: AtomicBool,
 }
 
 /// Held by a rotation's confirmation for as long as it runs; the loop stays paused until it is dropped, whichever way the
@@ -235,11 +240,27 @@ impl SyncRunner {
             arca_halted: Mutex::new(None),
             rotation_waiting: AtomicBool::new(false),
             rotation_confirming: AtomicUsize::new(0),
+            rotation_half_done: AtomicBool::new(false),
         }
     }
 
+    /// Tells the runner whether a rotation was left half done (a confirmation stopped after it may have written something). The host
+    /// raises it on that stop, and lowers it only when a confirmation succeeds or the person cancels. Like `set_rotation_in_progress`,
+    /// it is set from the rotation functions only, under the lock of the slot.
+    pub fn set_rotation_half_done(&self, half_done: bool) {
+        self.rotation_half_done.store(half_done, Ordering::SeqCst);
+    }
+
+    /// Whether a rotation was left half done and not finished or cancelled since. Not the same as `rotation_in_progress`: this one
+    /// is the state itself, so a test can tell a pause that is kept on purpose from a guard that leaked. Nothing in the screens reads it
+    /// (the half-done pause is invisible on the desktop: a known gap, not fixed here); the report only says `paused_for_rotation`.
+    pub fn rotation_half_done(&self) -> bool {
+        self.rotation_half_done.load(Ordering::SeqCst)
+    }
+
     /// Tells the runner whether a rotation's key is waiting for its confirmation. The host sets it from the rotation functions only,
-    /// under the lock of the slot the key waits in, so it cannot drift from the slot.
+    /// under the lock of the slot the key waits in, so the answer it gives follows the slot at the moment of each call. (A rotation
+    /// left half done has no key in the slot and is told apart: `set_rotation_half_done`.)
     pub fn set_rotation_in_progress(&self, waiting: bool) {
         self.rotation_waiting.store(waiting, Ordering::SeqCst);
     }
@@ -250,14 +271,15 @@ impl SyncRunner {
         RotationConfirming(&self.rotation_confirming)
     }
 
-    /// Whether the loop must stand by: a key waits for its confirmation, or a confirmation is running.
+    /// Whether the loop must stand by: a key waits for its confirmation, a confirmation is running, or a rotation was left half done.
     ///
-    /// The ORDER of the two reads matters (`waiting` first, then `confirming`). The host starts a confirmation by raising
+    /// The ORDER of the reads matters (`waiting`, then `confirming`, then `half_done`). The host starts a confirmation by raising
     /// `confirming` and only then clearing `waiting` (`take_key_to_confirm`). Read in this order, a reader that sees `waiting`
     /// already cleared is sure to see `confirming` raised; read the other way round, it could see `confirming` at 0 (before the
-    /// raise) and `waiting` false (after the clear) and let the loop run in that instant.
+    /// raise) and `waiting` false (after the clear) and let the loop run in that instant. The host also sets `half_done` while its
+    /// guard is still held, so a reader that sees `confirming` back at 0 is sure to see the final `half_done`.
     pub fn rotation_in_progress(&self) -> bool {
-        self.rotation_waiting.load(Ordering::SeqCst) || self.rotation_confirming.load(Ordering::SeqCst) > 0
+        self.rotation_waiting.load(Ordering::SeqCst) || self.rotation_confirming.load(Ordering::SeqCst) > 0 || self.rotation_half_done.load(Ordering::SeqCst)
     }
 
     /// Lets the loop sync a vault that is in arca mode, with `cycle`.
@@ -1014,6 +1036,24 @@ mod tests {
         drop(second);
         assert!(!a.rotation_in_progress(), "every way a confirmation ends drops its guard");
         assert!(calls.lock().unwrap().is_empty(), "the cycle ran while a confirmation did");
+        assert!(!a.loop_round().await.paused_for_rotation);
+        assert_eq!(*calls.lock().unwrap(), ["hub-1"]);
+    }
+
+    /// A rotation left half done keeps the loop paused with no key waiting and no confirmation running: the key is gone from the slot
+    /// but the new epoch may be out in the local store, so what the pause guards against is still open.
+    #[tokio::test]
+    async fn a_rotation_left_half_done_keeps_the_loop_paused_with_no_key_waiting_and_no_confirmation_running() {
+        let (cycle, calls) = fake_cycle(vec![changed(0)]);
+        let a = arca_device("arca-rotation-half-done", Some("hub-1"), cycle).await;
+        assert!(!a.rotation_half_done(), "nothing is half done on a new runner");
+        a.set_rotation_half_done(true);
+        a.set_rotation_in_progress(false);
+        assert!(a.rotation_in_progress(), "half done: the loop must stand by");
+        assert!(a.loop_round().await.paused_for_rotation);
+        assert!(calls.lock().unwrap().is_empty(), "the cycle ran while a rotation was half done");
+        a.set_rotation_half_done(false);
+        assert!(!a.rotation_in_progress());
         assert!(!a.loop_round().await.paused_for_rotation);
         assert_eq!(*calls.lock().unwrap(), ["hub-1"]);
     }
