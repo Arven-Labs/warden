@@ -473,6 +473,12 @@ pub fn rotation_cancel(runner: &SyncRunner, slot: &RotationSlot) {
     runner.set_rotation_half_done(false);
 }
 
+/// What the screen does when it unmounts. Skeleton: for now it is still the cancel (what the screen has always called there).
+#[allow(dead_code)]
+pub fn rotation_leave(runner: &SyncRunner, slot: &RotationSlot) {
+    rotation_cancel(runner, slot);
+}
+
 /// The saved hub `hub_id`, with the token this computer holds for it, ready to sync with.
 pub fn saved_hub_store(hubs_path: &Path, config_file: &Path, hub_id: &str) -> Result<HubStore, String> {
     warden_bootstrap::arca_hub::saved_hub_store(hubs_path, config_file, hub_id, DEVICE_NAME)
@@ -1282,7 +1288,7 @@ mod tests {
         rotation_resume(&device.engine, &device.runner, &slot, &phrase).unwrap();
         let saved = break_the_mode_file(&device);
         let refused = rotation_confirm(&device.engine, &device.runner, &slot, &[], true, 3).await.unwrap_err();
-        assert!(!refused.partial && refused.message.contains("this attempt wrote nothing"), "the premise: a real Refused, nothing written: {refused:?}");
+        assert!(is_a_repair_refusal(&refused), "the premise: a real Refused (not a newer epoch, not a stop), nothing written: {refused:?}");
         assert!(device.runner.rotation_in_progress(), "the rotation is still half done: the loop must keep standing by");
         assert!(device.runner.rotation_half_done(), "a refusal does not end the half-done state");
 
@@ -1325,12 +1331,65 @@ mod tests {
         rotation_resume(&device.engine, &device.runner, &slot, &start.phrase.join(" ")).unwrap();
         break_the_mode_file(&device);
         let refused = rotation_confirm(&device.engine, &device.runner, &slot, &[], true, 3).await.unwrap_err();
-        assert!(!refused.partial, "the premise: refused, not a stop half way: {refused:?}");
+        assert!(is_a_repair_refusal(&refused), "the premise: a real Refused, not a stop half way: {refused:?}");
         assert!(device.runner.rotation_in_progress());
 
         rotation_cancel(&device.runner, &slot);
         assert!(!device.runner.rotation_in_progress(), "the person gave up: the loop runs again");
         assert!(!device.runner.rotation_half_done());
+    }
+
+    /// The screen drops the key it was holding when it unmounts (`rotation_leave`), and that is all it does: leaving the screen is not
+    /// giving up the half-done rotation (only the Cancel button, `rotation_cancel`, a success or a restart of the app end that).
+    /// Without a key in the slot there is nothing for a leave to drop, so the loop must keep standing by.
+    #[tokio::test]
+    async fn leaving_the_screen_does_not_end_a_half_done_rotation() {
+        let device = device_in_arca_mode("pause-half-way-then-leave").await;
+        let slot = RotationSlot::default();
+        let start = stop_half_way(&device, &slot).await;
+        assert!(device.runner.rotation_half_done(), "the premise: the rotation is half done");
+
+        rotation_leave(&device.runner, &slot);
+        assert!(device.runner.rotation_in_progress(), "leaving the screen must not free the loop of a half-done rotation");
+        assert!(device.runner.rotation_half_done(), "and does not end the half-done state");
+
+        // With a key resumed and waiting: the leave drops that key, and the half-done state still holds the loop.
+        rotation_resume(&device.engine, &device.runner, &slot, &start.phrase.join(" ")).unwrap();
+        rotation_leave(&device.runner, &slot);
+        assert!(slot.lock().unwrap().is_none(), "the key that was waiting is dropped");
+        assert!(device.runner.rotation_in_progress(), "still half done: the loop keeps standing by");
+        assert!(device.runner.rotation_half_done());
+
+        // The Cancel button is what ends it.
+        rotation_cancel(&device.runner, &slot);
+        assert!(!device.runner.rotation_in_progress());
+        assert!(!device.runner.rotation_half_done(), "cancel still ends the half-done state");
+    }
+
+    /// Nothing half done: a leave is what the cleanup of the screen always was, it drops the key that was waiting and frees the loop.
+    #[tokio::test]
+    async fn leaving_the_screen_drops_a_waiting_key_and_frees_the_loop() {
+        let device = device_in_arca_mode("pause-leave-waiting-key").await;
+        let slot = RotationSlot::default();
+        let start = rotation_begin(&device.engine, &device.runner, &slot).unwrap();
+        assert!(device.runner.rotation_in_progress(), "the premise: a key waits and the loop stands by");
+        assert!(!device.runner.rotation_half_done());
+
+        rotation_leave(&device.runner, &slot);
+        assert!(slot.lock().unwrap().is_none(), "the key that was waiting is dropped");
+        assert!(!device.runner.rotation_in_progress(), "nothing half done: the loop runs again");
+        assert!(!device.runner.rotation_half_done());
+        let error = rotation_confirm(&device.engine, &device.runner, &slot, &asked(&start), true, 2).await.unwrap_err();
+        assert!(error.message.contains("no rotation"), "the key is gone: {error:?}");
+        assert_eq!(secrets_of(&device).key_epoch, 0);
+    }
+
+    /// A real `Refused` that comes before the first write: `NeedsRepair` (the broken mode file), which is told apart from a
+    /// `NewerEpoch` (its text also says "this attempt wrote nothing"): `newer_epoch` is false and the text is that of `Refused`
+    /// (it starts with it and ends with the hint of the remedy).
+    fn is_a_repair_refusal(failure: &RotationFailure) -> bool {
+        use warden_sync::arca_rotation::Remedy;
+        !failure.partial && !failure.newer_epoch && failure.message.starts_with("this attempt wrote nothing: ") && failure.message.contains(Remedy::NeedsRepair.hint())
     }
 
     #[tokio::test]

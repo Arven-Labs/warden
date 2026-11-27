@@ -1065,6 +1065,25 @@ describe("the arca mode of the vault on the desktop", () => {
         assert.equal(await page.getByText("word01", { exact: true }).count(), 0, "the phrase is not on the page any more");
         assert.equal(asked(calls, "arca_rotation_confirm").length, 0);
         assert.ok(asked(calls, "arca_rotation_cancel").length >= 1, "the key waiting in the backend is dropped");
+        assert.equal(asked(calls, "arca_rotation_leave").length, 0, "the button is the cancel, not the cleanup of leaving the screen");
+        assert.deepEqual(errors, [], "the page raised no error");
+      } finally {
+        await context.close();
+      }
+    });
+
+    // Leaving the screen is not giving up: a rotation that stopped half way keeps the loop stopped until the person cancels or finishes it,
+    // so the cleanup of the unmount must not be the cancel (`arca_rotation_leave` only drops the key that was waiting).
+    test("leaving the screen tells the backend to leave, not to cancel", { timeout: TIMEOUT }, async () => {
+      const { context, page, calls, errors } = await openSync(ON, { arca_rotation_begin: () => START });
+      try {
+        await startRotation(page);
+        assert.equal(asked(calls, "arca_rotation_leave").length, 0, "nothing is left while the screen is open");
+        await page.getByRole("button", { name: "Skills", exact: true }).click();
+        for (let wait = 0; wait < 50 && asked(calls, "arca_rotation_leave").length === 0; wait++) await page.waitForTimeout(100);
+        assert.ok(asked(calls, "arca_rotation_leave").length >= 1, "the key waiting in the backend is dropped when the screen is left");
+        assert.equal(asked(calls, "arca_rotation_cancel").length, 0, "leaving the screen does not cancel: that would end a half-done rotation");
+        assert.equal(asked(calls, "arca_rotation_confirm").length, 0);
         assert.deepEqual(errors, [], "the page raised no error");
       } finally {
         await context.close();
