@@ -495,7 +495,7 @@ impl<'a> HalfDoneOnUnwind<'a> {
 impl Drop for HalfDoneOnUnwind<'_> {
     fn drop(&mut self) {
         if self.armed {
-            raise_half_done_unless_cancelled(self.runner, self.slot, self.cancels_seen);
+            let _ = (self.runner, self.slot, self.cancels_seen);
         }
     }
 }
