@@ -125,15 +125,40 @@ struct LineEditor {
     draft: Option<Vec<char>>,
     /// A secret being typed: the box shows a dot per character instead of the text.
     masked: bool,
+    /// How many words a pasted text must have to be taken (`paste`): `Some` only for the field of the recovery phrase
+    /// (`new_phrase_field`). A paste into any other field is not taken.
+    paste_words: Option<usize>,
+}
+
+/// What `LineEditor::paste` did with a pasted text.
+#[derive(Debug, PartialEq, Eq)]
+enum PasteOutcome {
+    /// The words are in the field, as if they had been typed.
+    Filled,
+    /// The text had `found` words and the field wants another number: nothing was entered.
+    Refused { found: usize },
+    /// This field does not take pastes: nothing was entered.
+    Ignored,
 }
 
 impl LineEditor {
     fn new(history: Vec<String>) -> Self {
-        Self { buffer: Vec::new(), cursor: 0, history, history_index: None, draft: None, masked: false }
+        Self { buffer: Vec::new(), cursor: 0, history, history_index: None, draft: None, masked: false, paste_words: None }
     }
 
     fn new_masked() -> Self {
         Self { masked: true, ..Self::new(Vec::new()) }
+    }
+
+    /// The field of the recovery phrase (`/arca rotate resume`): masked, with no history, and the only one that takes a paste.
+    fn new_phrase_field() -> Self {
+        Self { paste_words: Some(PHRASE_WORDS), ..Self::new_masked() }
+    }
+
+    /// A pasted text for the field. SKELETON: a paste is still not handled, like before this change.
+    fn paste(&mut self, pasted: &str) -> PasteOutcome {
+        let _ = pasted;
+        PasteOutcome::Ignored
     }
 
     fn is_empty(&self) -> bool {
@@ -1040,6 +1065,20 @@ async fn read_field(terminal: &mut CliTerminal, title: &str, initial: &str) -> a
 async fn read_secret_field(terminal: &mut CliTerminal, title: &str) -> anyhow::Result<LineOutcome> {
     let mut editor = LineEditor::new_masked();
     drive_line_editor(terminal, &mut editor, title, false).await
+}
+
+/// What the field says in its border, in place of its title, after a paste it refused. It carries two numbers and nothing from the
+/// pasted text: the words are the recovery phrase, and a message must never repeat them.
+fn paste_refused_notice(found: usize) -> String {
+    tr!("arca.rotate_paste_refused", found = found, expected = PHRASE_WORDS)
+}
+
+/// Gives a pasted text to the field; the notice to show when the field refused it, `None` when it took it (or does not take pastes).
+fn take_paste(editor: &mut LineEditor, pasted: &str) -> Option<String> {
+    match editor.paste(pasted) {
+        PasteOutcome::Refused { found } => Some(paste_refused_notice(found)),
+        PasteOutcome::Filled | PasteOutcome::Ignored => None,
+    }
 }
 
 /// Hands an SSH approval request from the turn's task (where the tool runs) to the loop in
@@ -6590,6 +6629,120 @@ mod tests {
         let mut asker = ScriptedAsker::new(Vec::new());
         assert_eq!(typed_words_from(&mut asker, &[]).await.unwrap(), Some(Vec::new()));
         assert!(asker.asked.is_empty());
+    }
+
+    // ---------- pasting the phrase into the field of `/arca rotate resume` ----------
+
+    /// The official BIP-39 vector for 32 bytes of 0x7f, valid checksum: the one `the_loop_routes_a_phrase_typed_as_chat_...` calls
+    /// `legal` (the other official vectors there are `ZOO_PHRASE` and the all-"abandon" one). Its words are not the fixture of the
+    /// rotation tests (`ZOO_PHRASE`), so a field that only worked for that one would fail here.
+    const LEGAL_PHRASE: &str = "legal winner thank year wave sausage worth useful legal winner thank year wave sausage worth useful legal winner thank year wave sausage worth title";
+
+    /// `count` words of the phrase (wrapping around), one per line, as a terminal pastes text copied from a list.
+    fn pasted_words(count: usize) -> String {
+        let words: Vec<&str> = LEGAL_PHRASE.split(' ').collect();
+        (0..count).map(|index| words[index % words.len()]).collect::<Vec<_>>().join("\n")
+    }
+
+    #[test]
+    fn a_pasted_phrase_fills_the_field_whatever_separates_the_words() {
+        let words: Vec<&str> = LEGAL_PHRASE.split(' ').collect();
+        assert_eq!(words.len(), 24);
+        let mixed: String = words.iter().enumerate().map(|(index, word)| format!("{word}{}", ["\n", "\r\n", " ", "\r", "  \t", "\n\n"][index % 6])).collect();
+        for (what, pasted) in [
+            ("one word per line", words.join("\n")),
+            ("CRLF", words.join("\r\n")),
+            ("CR only", words.join("\r")),
+            ("spaces", words.join(" ")),
+            ("tabs and wide gaps", words.join("\t  ")),
+            ("mixed separators and a line break at each end", format!("\n{mixed}\r\n")),
+        ] {
+            let mut editor = LineEditor::new_phrase_field();
+            assert_eq!(editor.paste(&pasted), PasteOutcome::Filled, "{what}");
+            let submitted = editor.submit();
+            assert_eq!(submitted, LEGAL_PHRASE, "{what}: the field holds the words one space apart, the way they would be typed");
+            let pending = PendingRotation::from_phrase(&submitted).unwrap_or_else(|_| panic!("{what}: the field's text is a valid phrase"));
+            assert_eq!(pending.phrase().unwrap().expose(), LEGAL_PHRASE, "{what}: it is the same key");
+        }
+        // Capitals are kept as pasted, like typed ones: `PendingRotation::from_phrase` is what ignores the case.
+        let mut editor = LineEditor::new_phrase_field();
+        assert_eq!(editor.paste(&words.join("\r\n").to_uppercase()), PasteOutcome::Filled);
+        let submitted = editor.submit();
+        assert_eq!(submitted, LEGAL_PHRASE.to_uppercase());
+        assert!(PendingRotation::from_phrase(&submitted).is_ok());
+        // The paste only counts words: whether they are a phrase is `from_phrase`'s answer, as for typing.
+        let mut editor = LineEditor::new_phrase_field();
+        assert_eq!(editor.paste(&["zoo"; 24].join("\n")), PasteOutcome::Filled);
+        assert!(PendingRotation::from_phrase(&editor.submit()).is_err(), "24 words with a wrong checksum fill the field and are refused later");
+    }
+
+    #[test]
+    fn a_paste_that_is_not_24_words_is_refused_and_enters_nothing() {
+        for count in [0usize, 1, 23, 25, 48] {
+            let mut editor = LineEditor::new_phrase_field();
+            assert_eq!(editor.paste(&pasted_words(count)), PasteOutcome::Refused { found: count }, "{count} words");
+            assert!(editor.is_empty(), "{count} words: nothing may be entered");
+        }
+        for blank in ["", "\n", "  \r\n \t "] {
+            let mut editor = LineEditor::new_phrase_field();
+            assert_eq!(editor.paste(blank), PasteOutcome::Refused { found: 0 }, "{blank:?}");
+        }
+        // What was typed before stays when the paste is refused.
+        let mut editor = LineEditor::new_phrase_field();
+        for c in "typed".chars() {
+            editor.insert(c);
+        }
+        assert_eq!(editor.paste(&pasted_words(23)), PasteOutcome::Refused { found: 23 });
+        assert_eq!(editor.as_str(), "typed");
+    }
+
+    #[test]
+    fn the_refusal_says_the_two_counts_and_none_of_the_words() {
+        let words: Vec<&str> = LEGAL_PHRASE.split(' ').collect();
+        for locale in [i18n::Locale::En, i18n::Locale::PtBr] {
+            speak(locale);
+            for count in [23usize, 25] {
+                let pasted = pasted_words(count);
+                let mut editor = LineEditor::new_phrase_field();
+                let notice = take_paste(&mut editor, &pasted).unwrap_or_else(|| panic!("{locale:?}, {count} words: a paste of the wrong size is refused"));
+                assert!(notice.contains(&count.to_string()) && notice.contains("24"), "{locale:?}: the notice says how many words came and how many are wanted: {notice}");
+                let lowered = notice.to_lowercase();
+                for (index, word) in words.iter().enumerate() {
+                    assert!(!lowered.contains(word), "{locale:?}, {count} words: the notice repeats word #{index} of the paste");
+                }
+                assert!(!notice.contains(&pasted), "{locale:?}, {count} words: the notice repeats the paste");
+            }
+        }
+        speak(i18n::Locale::En);
+        let english = paste_refused_notice(23);
+        speak(i18n::Locale::PtBr);
+        assert_ne!(english, paste_refused_notice(23), "the pt-BR text is not translated");
+    }
+
+    #[test]
+    fn a_pasted_phrase_replaces_what_was_typed_and_never_reaches_a_history() {
+        let mut editor = LineEditor::new_phrase_field();
+        for c in "legal wi".chars() {
+            editor.insert(c);
+        }
+        assert_eq!(take_paste(&mut editor, &LEGAL_PHRASE.replace(' ', "\r\n")), None, "a paste that fits is not refused");
+        let submitted = editor.submit();
+        assert_eq!(submitted, LEGAL_PHRASE, "a paste replaces what was in the field, it is not added to it");
+        // The field has no history to put it in or to recall it from.
+        assert!(editor.history.is_empty());
+        editor.history_up();
+        assert!(editor.is_empty(), "nothing to recall after the phrase was submitted");
+        assert!(!keep_in_history(&submitted), "and the line history would not keep it either");
+    }
+
+    #[test]
+    fn only_the_phrase_field_takes_a_paste() {
+        for mut editor in [LineEditor::new(Vec::new()), LineEditor::new_masked()] {
+            assert_eq!(editor.paste(LEGAL_PHRASE), PasteOutcome::Ignored);
+            assert!(editor.is_empty(), "a field that does not take pastes enters nothing");
+            assert_eq!(take_paste(&mut editor, &pasted_words(23)), None, "and says nothing about it");
+        }
+        assert!(LineEditor::new_phrase_field().masked, "the phrase is never shown");
     }
 
     #[tokio::test]
