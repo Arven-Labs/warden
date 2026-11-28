@@ -33,9 +33,11 @@ pub enum RotationError {
     /// manifest in the store lists vault files: putting the files back cures that one, a new key does not, and the text of `why`
     /// says so. Only for the first of these does a new key help (`RotationFailure::remedy` says which cures
     /// what, and the text of `why` already carries it). An earlier attempt may have published the manifest of this very key, so
-    /// this says nothing about the store: it is about this attempt. One rare exception to "wrote nothing": the engine decides the
-    /// floor `ClassEmptied` before it sends any blob (arca#208), but a file that vanishes between its two passes over the folder is
-    /// caught by a second floor after some blobs were sent; those blobs have no manifest that cites them and are inert.
+    /// this says nothing about the store: it is about this attempt. Rare exceptions to "wrote nothing", all with blobs that no
+    /// manifest cites (inert): the engine decides the floor `ClassEmptied` before it sends any blob (arca#208), but a file that
+    /// vanishes between its two passes over the folder is caught by a second floor after some blobs were sent; and the re-seal of the
+    /// carried entries (`Integrity`, `MissingObject` or `Store(Corrupt)` right after `verify_carried` passed) can fail after the blobs
+    /// of the folders and some re-sealed ones were sent.
     Refused(String),
     /// A newer key epoch than this device's is already in the store and was not acknowledged. This attempt wrote nothing, but a new
     /// key will hit the same wall: either another device rotated (pair again or look at the pending epochs), or an earlier rotation

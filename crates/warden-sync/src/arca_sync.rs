@@ -331,11 +331,10 @@ impl SyncEngine {
     /// Defence in depth for the first attempt. Before arca-core `499628b` `begin_epoch` had no floor there: it built the new epoch's
     /// full snapshot on `prev = None`, the refusal of an emptied class (`ClassEmptied`) compared the folder with that empty `prev`, and
     /// the new epoch was published with no file at all, which is what the other devices would take as the vault when they pair again.
-    /// Since `499628b` the engine takes the old head as the base of the floor, so `begin_epoch` refuses this case too (`ClassEmptied`,
-    /// read as a refusal by `rotation_error_of` on a first attempt). Since arca#208 (`c8e0941`) that floor is also decided on the first
-    /// pass over the candidates, BEFORE any blob of theirs is sent, so the engine refuses without writing here as well. The one
-    /// exception is the engine's second floor (a file that vanishes between its two passes), which can leave blobs that no manifest
-    /// cites. This check stays as defence in depth: it refuses before the engine runs at all. So here: the vault folder has no file the
+    /// From `499628b` the engine takes the old head as the base of the floor, so `begin_epoch` refuses this case too (`ClassEmptied`,
+    /// read as a refusal by `rotation_error_of` on a first attempt), and from arca#208 (`c8e0941`) it does so BEFORE any blob of the
+    /// candidates is sent. This check stays because it refuses before the engine runs at all, which also covers the engine's second
+    /// floor (a file that vanishes between its two passes, after some blobs were sent). So here: the vault folder has no file the
     /// snapshot would list (it is gone, or empty, or holds only what the scan skips) AND a tip of this device's store lists vault files:
     /// refused. (`heads` gives the tips of the store, not "the manifest this device accepted": after a pull that was not applied yet
     /// they differ, which the text of the refusal says.) A vault whose tips never listed a file still rotates. A folder that cannot be
@@ -1021,7 +1020,7 @@ fn open_refusal(error: anyhow::Error) -> crate::arca_rotation::RotationFailure {
 }
 
 /// How a `begin_epoch` error reaches the person. Only the errors `begin_epoch` returns **before it publishes a manifest of the new
-/// epoch** are refusals (read in `Engine::begin_epoch` and `build_snapshot`, arca-core `499628b`; its tests prove the store is
+/// epoch** are refusals (read in `Engine::begin_epoch` and `build_snapshot`, arca-core `499628b`, still true at `c8e0941`; its tests prove the store is
 /// unchanged for `KeyNotRotated`, `EpochOverflow`, `Diverged`, `Interrupted`, `Rollback` and `NeedsNewKey`, the rest is by reading the
 /// code); any other one (a store error, `StateNotSaved`) may come after the new manifest went out, so it stays `Failed`, which tells
 /// the person to resume with the same 24 words. Do not widen the refusal list without that proof: a wrong "nothing was changed"
@@ -1034,11 +1033,13 @@ fn open_refusal(error: anyhow::Error) -> crate::arca_rotation::RotationFailure {
 /// - `HeadNotAccepted`: before `build_snapshot` runs. Only born on a first attempt.
 /// - `Integrity`, `MissingObject`, `Store(Corrupt)`: reading a blob of an entry it re-encrypts, first in `verify_carried` (before any
 ///   write) and again in `reseal_carried`, after the blobs of the folders and before the manifest. Nothing reads a blob on a resume
-///   (it carries nothing), so these are refusals only when `first_attempt`.
+///   (it carries nothing), so these are refusals only when `first_attempt`. A blob that passes `verify_carried` and then goes missing
+///   or is spoiled before `reseal_carried` (rare) is also a refusal, but the blobs of the folders and the carried ones already
+///   re-sealed stay in the store with no manifest to cite them (inert).
 /// - `ClassEmptied`: since arca#208 (`c8e0941`) the floor is decided on the first pass over the candidates, before any blob of theirs
-///   is sent, so a first attempt that is refused here wrote nothing. The one exception is the second floor (a file that vanishes
+///   is sent, so a first attempt that is refused here wrote nothing. The exception is the second floor (a file that vanishes
 ///   between the two passes), which can leave blobs that no manifest cites (inert: a retry seals others, since the nonce is random),
-///   never a manifest.
+///   never a manifest. The re-seal of the carried entries can also leave such blobs when it fails (see the previous item).
 ///
 /// Each refusal carries the `Remedy` that resolves it, because a new key cures only the first (`KeyNotRotated`): the others are
 /// about the folder, the storage or the arca's files, and the same trouble meets the next key too. `ClassEmptied` is a refusal with
@@ -1107,11 +1108,13 @@ async fn no_manifest_of_the_next_epoch(store_path: std::path::PathBuf, current_e
 /// published, and each screen says what to do with the phrase it showed. No path and no name of a file.
 ///
 /// Up to arca-core `499628b` the arca's floor came after the blobs of the other folders were sent, so blobs of the vault folder could
-/// already be in the local store with no manifest citing them, and the next sync could send them to the hub: the text says so. Since
-/// arca#208 (`c8e0941`) the floor comes before any blob of the candidates, so that sentence only holds for the second floor (a file
-/// that vanishes between the engine's two passes). The text was kept as it is (decision of 2026-11-28: nothing the person reads
-/// changes); it is the careful side of a rare case. For the logins class the file that
-/// unlocks the floor has to be one the arca counts (`is_login_entry`: a login name, `[A-Za-z0-9_-]+.json`, up to `MAX_LOGIN_BYTES`).
+/// already be in the local store with no manifest citing them, and the next sync could send them to the hub: the text says so.
+/// Since arca#208 (`c8e0941`) the floor comes before any blob of the candidates, so that sentence only holds for the second floor
+/// (a file that vanishes between the engine's two passes). The text was kept as it is (decision of 2026-11-28: nothing the person
+/// reads changes); it is the careful side of a rare case.
+///
+/// For the logins class the file that unlocks the floor has to be one the arca counts (`is_login_entry`: a login name,
+/// `[A-Za-z0-9_-]+.json`, up to `MAX_LOGIN_BYTES`).
 fn class_emptied_refusal(class: Class, had: usize) -> String {
     let unlocking_file = if class == Class::Secret { "a file with a valid login name (letters, digits, `_` or `-`, then `.json`)" } else { "any one file" };
     format!(
@@ -1233,7 +1236,7 @@ mod tests {
     #[test]
     fn a_head_this_device_did_not_accept_is_a_refusal_that_says_not_to_sync_what_the_person_does_not_recognise() {
         use crate::arca_rotation::{Remedy, RotationError};
-        // `Engine::begin_epoch` returns `HeadNotAccepted` before `build_snapshot` runs (arca-core `499628b`), on the first attempt only,
+        // `Engine::begin_epoch` returns `HeadNotAccepted` before `build_snapshot` runs (arca-core `499628b`, still true at `c8e0941`), on the first attempt only,
         // so nothing was published: the way out is a sync, but a sync accepts the head as it is, and revoking the lost device's token
         // only stops new publications (a manifest already pulled stays in the store), so who does not recognise the change must not sync.
         for class in [Class::Config, Class::Secret] {
