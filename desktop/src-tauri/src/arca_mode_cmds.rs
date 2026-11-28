@@ -437,7 +437,8 @@ pub fn rotation_resume(engine: &SyncEngine, runner: &SyncRunner, slot: &Rotation
 /// it again if it stops half way, so only a new visit to the screen (resume, or the Cancel button) or a restart of the app ends it;
 /// and a panic inside `pending.confirm` releases the guard without raising the state.
 pub async fn rotation_confirm(engine: &SyncEngine, runner: &SyncRunner, slot: &RotationSlot, typed_words: &[String], revoked_on_hub: bool, now_ms: u64) -> Result<(), RotationFailure> {
-    let (pending, _confirming) = take_key_to_confirm(runner, slot)?;
+    let (pending, _confirming, cancels_seen) = take_key_to_confirm(runner, slot)?;
+    let mut on_unwind = HalfDoneOnUnwind::new(runner, slot, cancels_seen);
     let typed: Vec<&str> = typed_words.iter().map(String::as_str).collect();
     let outcome = pending.confirm(&typed, revoked_on_hub, engine, now_ms).await.map_err(RotationFailure::from);
     match &outcome {
@@ -445,7 +446,33 @@ pub async fn rotation_confirm(engine: &SyncEngine, runner: &SyncRunner, slot: &R
         Err(failure) if failure.partial => set_half_done(runner, slot, true),
         Err(_) => {}
     }
+    on_unwind.disarm();
     outcome
+}
+
+/// Armed by `rotation_confirm` until it knows the outcome. Dropped armed (a panic inside the confirmation), it is meant to raise the
+/// half-done state. (Skeleton: it does nothing yet.)
+struct HalfDoneOnUnwind<'a> {
+    runner: &'a SyncRunner,
+    slot: &'a RotationSlot,
+    cancels_seen: u64,
+    armed: bool,
+}
+
+impl<'a> HalfDoneOnUnwind<'a> {
+    fn new(runner: &'a SyncRunner, slot: &'a RotationSlot, cancels_seen: u64) -> Self {
+        Self { runner, slot, cancels_seen, armed: true }
+    }
+
+    fn disarm(&mut self) {
+        self.armed = false;
+    }
+}
+
+impl Drop for HalfDoneOnUnwind<'_> {
+    fn drop(&mut self) {
+        let _ = (self.runner, self.slot, self.cancels_seen, self.armed);
+    }
 }
 
 /// Tells the runner whether a rotation is left half done, under the slot's lock like `set_slot`, so it is ordered against a `cancel`
@@ -457,14 +484,14 @@ fn set_half_done(runner: &SyncRunner, slot: &RotationSlot, half_done: bool) {
 
 /// Takes the key out of the slot for a confirmation and, in the same hold of the slot's lock, starts the guard that keeps the loop
 /// paused until the confirmation ends: there is no instant with an empty slot and no confirmation. With no key, nothing runs.
-fn take_key_to_confirm<'a>(runner: &'a SyncRunner, slot: &RotationSlot) -> Result<(PendingRotation, RotationConfirming<'a>), RotationFailure> {
+fn take_key_to_confirm<'a>(runner: &'a SyncRunner, slot: &RotationSlot) -> Result<(PendingRotation, RotationConfirming<'a>, u64), RotationFailure> {
     let mut held = slot.lock().unwrap();
     let Some(pending) = held.take() else {
         return Err(RotationFailure::nothing_written("no rotation was started: start it again"));
     };
     let confirming = runner.confirming_rotation();
     runner.set_rotation_in_progress(false);
-    Ok((pending, confirming))
+    Ok((pending, confirming, runner.rotation_cancels()))
 }
 
 /// Drops the key that was waiting, ends the half-done state (the person gives up the rotation that stopped half way) and lets the
@@ -1125,7 +1152,7 @@ mod tests {
         let device = device_in_arca_mode("pause-cancel-mid-confirm").await;
         let slot = RotationSlot::default();
         rotation_begin(&device.engine, &device.runner, &slot).unwrap();
-        let (_key, confirming) = take_key_to_confirm(&device.runner, &slot).unwrap();
+        let (_key, confirming, _cancels_seen) = take_key_to_confirm(&device.runner, &slot).unwrap();
         assert!(slot.lock().unwrap().is_none(), "the confirmation has the key");
         assert!(device.runner.rotation_in_progress(), "the slot is empty and the loop must still stand by");
         rotation_cancel(&device.runner, &slot);
@@ -1350,6 +1377,138 @@ mod tests {
         rotation_cancel(&device.runner, &slot);
         assert!(!device.runner.rotation_in_progress(), "the person gave up: the loop runs again");
         assert!(!device.runner.rotation_half_done());
+    }
+
+    /// The real `rotation_confirm`, kept in the middle of its run, with `cancels` cancels arriving meanwhile, and then let finish. The
+    /// sync file lock is held by someone else (another Warden process), so the confirmation has the key out of the slot and waits in
+    /// `sync_lock().await`; the cancels come in that window, then the lock is freed. The premises are asserted here: the confirmation
+    /// was still running when the cancels came, and the cancels did not free the loop.
+    async fn confirm_with_cancels_in_the_middle(device: &Device, slot: &RotationSlot, words: &[String], cancels: usize) -> Result<(), RotationFailure> {
+        use warden_sync::lock::{lock_path_for, SyncLock};
+        let held = SyncLock::acquire(&lock_path_for(&device.base.join("sync_manifest.json"))).await.unwrap();
+        let mut confirm = Box::pin(rotation_confirm(&device.engine, &device.runner, slot, words, true, 2));
+        let waiting = tokio::time::timeout(std::time::Duration::from_millis(50), &mut confirm).await;
+        assert!(waiting.is_err(), "the premise: the confirmation is stuck on the sync lock, not finished: {waiting:?}");
+        assert!(slot.lock().unwrap().is_none(), "the premise: the confirmation has the key out of the slot");
+        for _ in 0..cancels {
+            rotation_cancel(&device.runner, slot);
+        }
+        assert!(device.runner.rotation_in_progress(), "the cancels came while the confirmation runs: they must not free the loop");
+        drop(held);
+        confirm.await
+    }
+
+    /// Decision of the owner (2026-11-28): a cancel that comes while a confirmation runs wins over it. The confirmation then stops
+    /// half way (the pointer cannot be written), but the person already gave the rotation up and left the screen: it must not raise the
+    /// half-done state, so the loop runs again.
+    #[tokio::test]
+    async fn a_cancel_during_a_confirmation_that_stops_half_way_wins_and_the_loop_runs_again() {
+        let device = device_in_arca_mode("pause-cancel-wins").await;
+        let slot = RotationSlot::default();
+        let start = rotation_begin(&device.engine, &device.runner, &slot).unwrap();
+        break_the_folder_pointer(&device);
+
+        let failure = confirm_with_cancels_in_the_middle(&device, &slot, &asked(&start), 1).await.unwrap_err();
+        assert!(failure.partial, "the premise: the confirmation stopped half way (a stop that may have written): {failure:?}");
+        assert_eq!(secrets_of(&device).key_epoch, 0, "the new key was not saved");
+        assert!(!device.runner.rotation_half_done(), "the cancel won: the half-done state is not raised");
+        assert!(!device.runner.rotation_in_progress(), "nothing waits, nothing runs, nothing is half done: the loop runs again");
+    }
+
+    /// Same as above without the cancel: the control. The gap that was closed must not turn into a regression (a stop half way that
+    /// nobody cancelled still keeps the loop stopped), and it shows the cancel is the only difference.
+    #[tokio::test]
+    async fn the_same_stop_half_way_without_a_cancel_still_raises_the_half_done_state() {
+        let device = device_in_arca_mode("pause-no-cancel-control").await;
+        let slot = RotationSlot::default();
+        let start = rotation_begin(&device.engine, &device.runner, &slot).unwrap();
+        break_the_folder_pointer(&device);
+
+        let failure = confirm_with_cancels_in_the_middle(&device, &slot, &asked(&start), 0).await.unwrap_err();
+        assert!(failure.partial, "the premise: the confirmation stopped half way: {failure:?}");
+        assert!(device.runner.rotation_half_done(), "no cancel came: the stop half way raises the state");
+        assert!(device.runner.rotation_in_progress());
+    }
+
+    /// A cancel that came BEFORE the confirmation began does not count as one "during" it: the person started again after it. The
+    /// counter the confirmation reads at its start already has that cancel, so it is not moved by it (a count read as 0, or a flag
+    /// that stayed up, would take the old cancel for a new one and swallow this stop).
+    #[tokio::test]
+    async fn a_cancel_from_before_the_confirmation_does_not_stop_it_from_raising_the_half_done_state() {
+        let device = device_in_arca_mode("pause-old-cancel").await;
+        let slot = RotationSlot::default();
+        rotation_begin(&device.engine, &device.runner, &slot).unwrap();
+        rotation_cancel(&device.runner, &slot);
+        let start = rotation_begin(&device.engine, &device.runner, &slot).unwrap();
+        break_the_folder_pointer(&device);
+
+        let failure = confirm_with_cancels_in_the_middle(&device, &slot, &asked(&start), 0).await.unwrap_err();
+        assert!(failure.partial, "the premise: the confirmation stopped half way: {failure:?}");
+        assert!(device.runner.rotation_half_done(), "the old cancel does not win over a rotation that began after it");
+        assert!(device.runner.rotation_in_progress());
+    }
+
+    /// Two cancels in the same window win the same way as one (the count moved, whatever by how much).
+    #[tokio::test]
+    async fn two_cancels_during_a_confirmation_that_stops_half_way_win_like_one() {
+        let device = device_in_arca_mode("pause-two-cancels").await;
+        let slot = RotationSlot::default();
+        // A cancel before, so the count the confirmation starts from is not 0 (not the value of a new runner).
+        rotation_begin(&device.engine, &device.runner, &slot).unwrap();
+        rotation_cancel(&device.runner, &slot);
+        let start = rotation_begin(&device.engine, &device.runner, &slot).unwrap();
+        break_the_folder_pointer(&device);
+
+        let failure = confirm_with_cancels_in_the_middle(&device, &slot, &asked(&start), 2).await.unwrap_err();
+        assert!(failure.partial, "the premise: the confirmation stopped half way: {failure:?}");
+        assert!(!device.runner.rotation_half_done(), "two cancels won");
+        assert!(!device.runner.rotation_in_progress(), "the loop runs again");
+    }
+
+    /// The pause of a confirmation that panics: `pending.confirm` cannot be made to panic from here (it belongs to `warden-sync`), so
+    /// the guard that `rotation_confirm` arms is tested alone, dropped by a panic caught around it. The slot and the runner are the
+    /// ones of a device; nothing else of the confirmation is involved.
+    #[test]
+    fn a_confirmation_that_panics_raises_the_half_done_state_when_no_cancel_came() {
+        let device = device_with_key("unwind-raises");
+        let slot = RotationSlot::default();
+        let seen = device.runner.rotation_cancels();
+        let panicked = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let _armed = HalfDoneOnUnwind::new(&device.runner, &slot, seen);
+            panic!("inside the confirmation");
+        }));
+        assert!(panicked.is_err(), "the premise: the closure panicked and the guard was dropped by the unwinding");
+        assert!(device.runner.rotation_half_done(), "the panic may have come after a write: the rotation is half done");
+        assert!(device.runner.rotation_in_progress());
+    }
+
+    /// And the cancel that came while it ran wins here too, with a count that does not start at 0.
+    #[test]
+    fn a_confirmation_that_panics_does_not_raise_the_half_done_state_when_a_cancel_came() {
+        let device = device_with_key("unwind-cancelled");
+        let slot = RotationSlot::default();
+        rotation_cancel(&device.runner, &slot);
+        let seen = device.runner.rotation_cancels();
+        let panicked = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let _armed = HalfDoneOnUnwind::new(&device.runner, &slot, seen);
+            rotation_cancel(&device.runner, &slot);
+            panic!("inside the confirmation");
+        }));
+        assert!(panicked.is_err(), "the premise: the closure panicked and the guard was dropped by the unwinding");
+        assert!(!device.runner.rotation_half_done(), "the cancel won");
+        assert!(!device.runner.rotation_in_progress());
+    }
+
+    /// A guard that was disarmed (the outcome was known: a success or a refusal that wrote nothing) raises nothing when dropped.
+    #[test]
+    fn a_disarmed_guard_raises_nothing_when_it_is_dropped() {
+        let device = device_with_key("unwind-disarmed");
+        let slot = RotationSlot::default();
+        let mut guard = HalfDoneOnUnwind::new(&device.runner, &slot, device.runner.rotation_cancels());
+        guard.disarm();
+        drop(guard);
+        assert!(!device.runner.rotation_half_done());
+        assert!(!device.runner.rotation_in_progress());
     }
 
     /// The screen drops the key it was holding when it unmounts (`rotation_leave`), and that is all it does: leaving the screen is not

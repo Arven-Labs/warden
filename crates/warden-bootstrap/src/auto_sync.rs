@@ -15,7 +15,7 @@
 
 use std::net::Ipv4Addr;
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -212,6 +212,9 @@ pub struct SyncRunner {
     /// confirmed with success or cancelled since (`set_rotation_half_done`). Independent of `rotation_waiting` on purpose: a refused
     /// try after the stop clears `waiting` (the key left the slot) and must not end this. Memory only, so a restart ends it.
     rotation_half_done: AtomicBool,
+    /// How many times the person cancelled a rotation (`note_rotation_cancel`). Only ever goes up, so a confirmation can tell "a
+    /// cancel came while I ran" (the value moved) from "there was a cancel once" (the value it read at the start already has it).
+    rotation_cancels: AtomicU64,
 }
 
 /// Held by a rotation's confirmation for as long as it runs; the loop stays paused until it is dropped, whichever way the
@@ -241,7 +244,20 @@ impl SyncRunner {
             rotation_waiting: AtomicBool::new(false),
             rotation_confirming: AtomicUsize::new(0),
             rotation_half_done: AtomicBool::new(false),
+            rotation_cancels: AtomicU64::new(0),
         }
+    }
+
+    /// Counts one cancel of a rotation. The host calls it from `rotation_cancel`, under the lock of the slot, together with the
+    /// other writes of the cancel.
+    pub fn note_rotation_cancel(&self) {
+        self.rotation_cancels.fetch_add(1, Ordering::SeqCst);
+    }
+
+    /// How many cancels were counted (`note_rotation_cancel`) since this runner was created. A confirmation reads it when it starts
+    /// and compares it when it ends.
+    pub fn rotation_cancels(&self) -> u64 {
+        self.rotation_cancels.load(Ordering::SeqCst)
     }
 
     /// Tells the runner whether a rotation was left half done (a confirmation stopped after it may have written something). The host
@@ -1056,6 +1072,23 @@ mod tests {
         assert!(!a.rotation_in_progress());
         assert!(!a.loop_round().await.paused_for_rotation);
         assert_eq!(*calls.lock().unwrap(), ["hub-1"]);
+    }
+
+    /// The count of cancels is what lets a confirmation tell a cancel that came while it ran from one that came before it began: it
+    /// starts at 0 and only goes up, one per cancel, and no other call of the rotation moves it.
+    #[tokio::test]
+    async fn the_count_of_rotation_cancels_starts_at_zero_and_only_a_cancel_moves_it() {
+        let (cycle, _calls) = fake_cycle(vec![changed(0)]);
+        let a = arca_device("arca-rotation-cancel-count", Some("hub-1"), cycle).await;
+        assert_eq!(a.rotation_cancels(), 0, "a new runner has seen no cancel");
+        a.set_rotation_in_progress(true);
+        a.set_rotation_half_done(true);
+        drop(a.confirming_rotation());
+        assert_eq!(a.rotation_cancels(), 0, "the other calls of a rotation do not count as a cancel");
+        a.note_rotation_cancel();
+        assert_eq!(a.rotation_cancels(), 1);
+        a.note_rotation_cancel();
+        assert_eq!(a.rotation_cancels(), 2, "each cancel counts, so two in a row are told apart from one");
     }
 
     /// A tick that passed the first look and queued behind a long "sync now" must look again once it has the round lock: a rotation
