@@ -84,19 +84,20 @@ describe("the line that says the automatic sync is paused by a key change left h
     assert.equal(rotationHalfDoneShown(old), false);
   });
 
-  // The words name the buttons the person has to click: `arca.rotationResume` opens the box for the 24 words, and `arca.cancel` is
-  // there (ArcaRotationBlock.tsx); in the idle step the Cancel button does not exist yet.
-  for (const [lang, texts, paused, words] of [
-    ["English", en, /paused/, /24 words/],
-    ["Portuguese", ptBR, /pausada/, /24 palavras/],
+  // The block below has different buttons in each step (the idle step has "Resume an interrupted change…" and no Cancel; the resume
+  // step, where a stop in this session lands, has "Finish the change" and Cancel), so the text names the two ways out and no button.
+  for (const [lang, texts, paused, sameWords, finish, cancel] of [
+    ["English", en, /paused/, /same 24 words/, /finish it/, /cancel it/],
+    ["Portuguese", ptBR, /pausada/, /mesmas 24 palavras/, /termine a troca/, /cancele-a/],
   ]) {
-    test(`the text in ${lang} says it is paused, asks for the same 24 words and names the real buttons`, () => {
+    test(`the text in ${lang} says it is paused and gives the two ways out (finish with the same 24 words, or cancel) without naming a button`, () => {
       const text = texts["arca.rotationHalfDone"];
       assert.ok(text, "the key exists");
       assert.match(text, paused);
-      assert.match(text, words);
-      assert.ok(text.includes(`"${texts["arca.rotationResume"].replace("…", "")}`), `names the button that resumes: ${text}`);
-      assert.ok(text.includes(`"${texts["arca.cancel"]}"`), `names the button that gives up: ${text}`);
+      assert.match(text, sameWords);
+      assert.match(text, finish);
+      assert.match(text, cancel);
+      assert.doesNotMatch(text, /["“”]/, `quotes no button label, which exists in only one step: ${text}`);
       assert.doesNotMatch(text, /\{/, "has no placeholder: nothing is passed to it");
     });
   }
