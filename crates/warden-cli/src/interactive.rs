@@ -217,7 +217,7 @@ impl LineEditor {
         }
         let words_text = words.join(" ");
         if words.len() == whole_phrase {
-            if words_text.chars().count() > PASTE_FIELD_MAX_CHARS {
+            if words_text.chars().count() >= PASTE_FIELD_MAX_CHARS {
                 return PasteOutcome::TooLarge;
             }
             self.clear_line();
