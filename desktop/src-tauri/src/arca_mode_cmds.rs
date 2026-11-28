@@ -460,7 +460,7 @@ pub fn rotation_resume(engine: &SyncEngine, runner: &SyncRunner, slot: &Rotation
 /// - The half-done state lives only in memory (the owner's decision): a restart ends it even though the new epoch may be out.
 pub async fn rotation_confirm(engine: &SyncEngine, runner: &SyncRunner, slot: &RotationSlot, typed_words: &[String], revoked_on_hub: bool, now_ms: u64) -> Result<(), RotationFailure> {
     let (pending, _confirming, cancels_seen) = take_key_to_confirm(runner, slot)?;
-    let mut on_unwind = HalfDoneOnUnwind::new(runner, slot, cancels_seen);
+    let mut on_unwind = HalfDoneOnUnwind::new(runner, slot, 0);
     let typed: Vec<&str> = typed_words.iter().map(String::as_str).collect();
     let outcome = pending.confirm(&typed, revoked_on_hub, engine, now_ms).await.map_err(RotationFailure::from);
     match &outcome {
