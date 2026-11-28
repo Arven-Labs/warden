@@ -40,11 +40,18 @@ pub struct ModeStatus {
     pub rotation_half_done: bool,
 }
 
-pub fn mode_status(engine: &SyncEngine, _runner: &SyncRunner, pending_send: bool) -> Result<ModeStatus, String> {
+pub fn mode_status(engine: &SyncEngine, runner: &SyncRunner, pending_send: bool) -> Result<ModeStatus, String> {
     let mode = engine.arca_mode().map_err(|e| format!("{e:#}"))?;
     let on = mode.is_some();
     let logins_accepted = mode.as_ref().is_some_and(|m| m.secret_accepted);
-    Ok(ModeStatus { has_key: engine.is_initialized(), on, pending_send, hub_id: mode.and_then(|m| m.hub_id), logins_accepted, rotation_half_done: false })
+    Ok(ModeStatus {
+        has_key: engine.is_initialized(),
+        on,
+        pending_send,
+        hub_id: mode.and_then(|m| m.hub_id),
+        logins_accepted,
+        rotation_half_done: runner.rotation_half_done(),
+    })
 }
 
 /// Chooses the saved hub the automatic sync uses. The hub has to be saved (`hubs.json` is the desktop's, so the check is here and not
