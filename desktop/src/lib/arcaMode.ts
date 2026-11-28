@@ -17,7 +17,7 @@ export interface ModeStatus {
 /** Whether the section says that the automatic sync is paused by a key change left half way. Only that state: while a key merely waits
  * for its confirmation the rotation block is open on the screen and says what is going on. */
 export function rotationHalfDoneShown(status: ModeStatus | null): boolean {
-  return status !== null && status.on && status.rotationHalfDone === true;
+  return status !== null && status.rotationHalfDone === true;
 }
 
 /** What the section says about the MCP logins: nothing before the mode is on (the choice is a box in the confirmation); once on,
