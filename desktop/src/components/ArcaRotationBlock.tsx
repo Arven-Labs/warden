@@ -115,7 +115,6 @@ function ArcaRotationBlock({ hubId, onChanged }: { hubId: string; onChanged: () 
     }
     reset();
     // A success ended the half-done state; this is before the sync below, which can take a while.
-    onChanged();
     if (hubId === "") {
       setOutcome({ ok: true, text: t("arca.rotationDoneNoHub") });
     } else {
