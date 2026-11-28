@@ -20,6 +20,17 @@
 
 ---
 
+### 2026-11-28 — arca: rodada 10 do P-49 (warden#281 e #283, mesclados; o detalhe, as 8 mutações e a medição estão no `SESSIONS.md` da arca, Sessão 136)
+
+- **[warden#281](https://github.com/Arven-Labs/warden/pull/281)** (mesclado, `23387c3`): `ModeStatus.rotation_half_done` (`desktop/src-tauri/src/arca_mode_cmds.rs`, lido de `SyncRunner::rotation_half_done()`) e a linha "sync automático pausado, troca de chave pela metade" na seção do modo arca (`ArcaModeSection.tsx`), só no estado meio-feito. O status recarrega pelo `onChanged` do `ArcaRotationBlock` ao fim de falha, sucesso e cancelar; uma parada fora dessas ações só aparece ao remontar a tela. Texto nos dois idiomas, sem citar botão que só existe num passo.
+- **[warden#283](https://github.com/Arven-Labs/warden/pull/283)** (mesclado, `5ab24c7`): `/arca rotate resume` aceita colar a frase (bracketed paste ligado só enquanto o campo da frase está ativo, só Unix). 24 palavras exatas substituem o campo; outro número entra no cursor, normalizado a um espaço; colagem acima de 1024 bytes ou campo acima de 512 caracteres é recusada com aviso fixo sem palavras. `apply_event` é a função pura do laço. Windows continua com o bug original (`\r` submete cedo).
+- **Mutações**: 8 de 8 pegas pelo teste previsto (4 em cada PR; os nomes estão na Sessão 136 da arca). Nenhuma caiu no compilador; o clippy do Warden só avisa.
+- **Comentários desatualizados corrigidos no #281**: `auto_sync.rs` (doc de `rotation_half_done`) e o "Known limits" de `rotation_confirm`.
+- **Não verificado**: a colagem em terminal real (tmux, macOS, SSH); `BracketedPasteGuard` e a ligação `cmd_arca_rotate_resume` → `read_phrase_field` sem teste nem mutação; a tela da pausa só em e2e com backend de mentira; o delta final de cada PR não teve 2ª revisão completa.
+- **Em aberto**: S2 e S3 da auditoria do #283 (cópias da frase sem zeroize; `ESC[201~` dentro da colagem), risco conhecido; no passo `idle` o aviso manda abrir "Retomar uma troca interrompida" (alternativa de mostrar o Cancelar ali é mudança de código, não feita); `Remedy::VaultEmptied` e os textos do celular (codegen no PC do dono); o worktree `core-guarda-secret` (Sessão 135) sumiu.
+
+---
+
 ### 2026-11-28 — arca: rodada 9 do P-49, T4 (warden#270: o `rev` do `arca-core` sobe de `499628b` para `c8e0941`; mesclado, `bced18f`). O detalhe da rodada está no `SESSIONS.md` da arca (Sessão 134); as rodadas 6 a 8 também ficaram só lá
 
 - **warden#270 (§4, dependência e rotação, CI verde no head `c7c42293`, run `46092301296`)**: troca o `rev` nos 3 `Cargo.toml` (4 linhas) e no bloco `arca-core` do `Cargo.lock` (1 linha: as dependências do `arca-core` não mudaram entre os dois revs). O `arca-core` novo traz `now`/`created_at` em ms (arca#214; o Warden já passava ms), o piso `ClassEmptied` antes dos blobs (arca#208), `NeedsNewKey` no `apply` sem estado (arca#211) e a herança dos reconhecimentos no `begin_epoch` (arca#220; para o Warden é na prática no-op, porque ele usa `with_state`).
