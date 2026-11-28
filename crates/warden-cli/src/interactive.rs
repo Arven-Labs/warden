@@ -113,6 +113,37 @@ impl Drop for RawModeGuard {
     }
 }
 
+/// Bracketed paste (the terminal wraps a paste in `ESC[200~ ... ESC[201~`, which crossterm reads as ONE `Event::Paste`) for the
+/// lifetime of this guard, and off again on drop, on every way out of the field: an early `?`-return and a panic as well (like
+/// `RawModeGuard`). Without it each line break of a pasted phrase reaches the field as a key: `\r` is Enter and submits it
+/// half way, and `\n` is Ctrl+J, which the field ignores, so two words end up glued.
+///
+/// Unix only: crossterm's Windows event reader (`event/sys/windows`, crossterm 0.29) has no `Event::Paste` at all, and a terminal
+/// that wrapped a paste in the markers there could deliver them as keys. There, and on a terminal that does not know the
+/// sequence, nothing changes: a paste is typed key by key, as before. A terminal that refuses the command (`execute!` fails)
+/// leaves the guard off.
+struct BracketedPasteGuard {
+    enabled: bool,
+}
+
+impl BracketedPasteGuard {
+    fn enable() -> Self {
+        #[cfg(unix)]
+        let enabled = crossterm::execute!(io::stdout(), crossterm::event::EnableBracketedPaste).is_ok();
+        #[cfg(not(unix))]
+        let enabled = false;
+        Self { enabled }
+    }
+}
+
+impl Drop for BracketedPasteGuard {
+    fn drop(&mut self) {
+        if self.enabled {
+            let _ = crossterm::execute!(io::stdout(), crossterm::event::DisableBracketedPaste);
+        }
+    }
+}
+
 /// A small hand-rolled line editor: a UTF-8-aware cursor over a `Vec<char>`, plus a persisted
 /// history list with the usual up/down recall (including restoring an in-progress draft when
 /// paging back down past the newest history entry). Every method here is plain, terminal-free
@@ -125,15 +156,87 @@ struct LineEditor {
     draft: Option<Vec<char>>,
     /// A secret being typed: the box shows a dot per character instead of the text.
     masked: bool,
+    /// How many words make a pasted text a WHOLE phrase that replaces the field (`paste`): `Some` only for the field of the
+    /// recovery phrase (`new_phrase_field`). A paste into any other field is not taken.
+    paste_words: Option<usize>,
+}
+
+/// The most bytes a pasted text may have, looked at before it is split into words. A phrase is 24 words of at most 8 letters, so
+/// this is several times what one needs. It does NOT bound what a paste puts in memory: crossterm has already gathered the whole
+/// paste, as bytes and then as the `String` of `Event::Paste`, before `paste` sees it (its parser returns nothing until `ESC[201~`
+/// is in the buffer, `crossterm-0.29.0/src/event/sys/unix/parse.rs:813-821`). What it spares is the list of words, the joined
+/// text and the field that a big paste would otherwise build.
+const PASTE_MAX_BYTES: usize = 1024;
+/// The most characters the field may hold after a PASTE (`paste` refuses the one that would leave more). It is a limit on pastes
+/// only: typing, and a terminal without bracketed paste (where a paste arrives as keys), have no limit, and `render_input_box`
+/// still places the cursor with `inner.x + cursor as u16`, which does not saturate. So this keeps a paste from making the field
+/// big; it does not promise the field never gets big.
+const PASTE_FIELD_MAX_CHARS: usize = 512;
+
+/// What `LineEditor::paste` did with a pasted text.
+#[derive(Debug, PartialEq, Eq)]
+enum PasteOutcome {
+    /// The words are in the field: a whole phrase replaced it, any other number of words went in at the cursor.
+    Filled,
+    /// The text, or the field after it, would be too big (`PASTE_MAX_BYTES`, `PASTE_FIELD_MAX_CHARS`): nothing was entered.
+    TooLarge,
+    /// Nothing was entered and nothing is said: this field does not take pastes, or the text had no words in it.
+    Ignored,
 }
 
 impl LineEditor {
     fn new(history: Vec<String>) -> Self {
-        Self { buffer: Vec::new(), cursor: 0, history, history_index: None, draft: None, masked: false }
+        Self { buffer: Vec::new(), cursor: 0, history, history_index: None, draft: None, masked: false, paste_words: None }
     }
 
     fn new_masked() -> Self {
         Self { masked: true, ..Self::new(Vec::new()) }
+    }
+
+    /// The field of the recovery phrase (`/arca rotate resume`): masked, with no history, and the only one that takes a paste.
+    fn new_phrase_field() -> Self {
+        Self { paste_words: Some(PHRASE_WORDS), ..Self::new_masked() }
+    }
+
+    /// A pasted text for the field (`Event::Paste`, which only arrives while `BracketedPasteGuard` is on). More than
+    /// `PASTE_MAX_BYTES` is refused before anything is split. The text is then split on any whitespace (a line break, `\r\n`, a tab,
+    /// spaces), the way `PendingRotation::from_phrase` reads a phrase, and the words are put back one ASCII space apart. With
+    /// exactly the number of words of a whole phrase they REPLACE what was in the field; with any other number (12 now and 12 later,
+    /// say) they go in at the cursor, with a space added next to a neighbour that is not one, so the pieces never run together
+    /// and never double a space. A result of more than `PASTE_FIELD_MAX_CHARS` characters is refused, and so is the text with no
+    /// words in it (it does nothing). Whether the words are a valid phrase is not asked here: that is `from_phrase`'s answer, as for
+    /// typed words.
+    fn paste(&mut self, pasted: &str) -> PasteOutcome {
+        let Some(whole_phrase) = self.paste_words else { return PasteOutcome::Ignored };
+        if pasted.len() > PASTE_MAX_BYTES {
+            return PasteOutcome::TooLarge;
+        }
+        let words: Vec<&str> = pasted.split_whitespace().collect();
+        if words.is_empty() {
+            return PasteOutcome::Ignored;
+        }
+        let words_text = words.join(" ");
+        if words.len() == whole_phrase {
+            if words_text.chars().count() > PASTE_FIELD_MAX_CHARS {
+                return PasteOutcome::TooLarge;
+            }
+            self.clear_line();
+            words_text.chars().for_each(|c| self.insert(c));
+            return PasteOutcome::Filled;
+        }
+        let mut piece = String::new();
+        if self.cursor > 0 && self.buffer[self.cursor - 1] != ' ' {
+            piece.push(' ');
+        }
+        piece.push_str(&words_text);
+        if self.cursor < self.buffer.len() && self.buffer[self.cursor] != ' ' {
+            piece.push(' ');
+        }
+        if self.buffer.len() + piece.chars().count() > PASTE_FIELD_MAX_CHARS {
+            return PasteOutcome::TooLarge;
+        }
+        piece.chars().for_each(|c| self.insert(c));
+        PasteOutcome::Filled
     }
 
     fn is_empty(&self) -> bool {
@@ -889,57 +992,68 @@ const POLL_INTERVAL: Duration = Duration::from_millis(30);
 /// any), appending its suffix plus a trailing space — a no-op when there's nothing to accept
 /// (ambiguous, already complete, or the cursor isn't at the end of the buffer).
 async fn drive_line_editor(terminal: &mut CliTerminal, editor: &mut LineEditor, title: &str, suggest_commands: bool) -> anyhow::Result<LineOutcome> {
+    // What a paste the field refused says in the border, in place of `title`, until the next key (`take_paste`).
+    let mut notice: Option<String> = None;
     loop {
         let ghost = if suggest_commands && editor.cursor_at_end() { commands::ghost_suggestion(&editor.as_str()) } else { None };
-        terminal.draw(|frame| render_input_box(frame, editor, title, ghost.as_deref()))?;
+        terminal.draw(|frame| render_input_box(frame, editor, notice.as_deref().unwrap_or(title), ghost.as_deref()))?;
 
         if !event::poll(POLL_INTERVAL)? {
             continue;
         }
 
-        match event::read()? {
-            Event::Key(key) if key.kind == KeyEventKind::Press => match (key.code, key.modifiers) {
-                (KeyCode::Enter, _) => {
-                    let text = editor.submit();
-                    terminal.clear()?;
-                    return Ok(LineOutcome::Submitted(text));
-                }
-                // Matches GNU readline: Ctrl+D only quits on an empty line, so it can't be
-                // mistaken for "discard what I just typed" — same reason rustyline's `Eof` never
-                // fired on a non-empty buffer before this module dropped it. In a wizard
-                // (`read_field`), this same `Exit` outcome means "cancel this field/wizard"
-                // rather than "quit the REPL" — the caller decides which.
-                (KeyCode::Char('d'), m) if m.contains(KeyModifiers::CONTROL) && editor.is_empty() => {
-                    terminal.clear()?;
-                    return Ok(LineOutcome::Exit);
-                }
-                (KeyCode::Tab, _) => {
-                    if let Some(suffix) = &ghost {
-                        for c in suffix.chars() {
-                            editor.insert(c);
-                        }
-                        editor.insert(' ');
-                    }
-                }
-                (KeyCode::Char('c'), m) if m.contains(KeyModifiers::CONTROL) => editor.clear_line(),
-                (KeyCode::Char('a'), m) if m.contains(KeyModifiers::CONTROL) => editor.move_home(),
-                (KeyCode::Char('e'), m) if m.contains(KeyModifiers::CONTROL) => editor.move_end(),
-                (KeyCode::Char('u'), m) if m.contains(KeyModifiers::CONTROL) => editor.clear_line(),
-                (KeyCode::Char('w'), m) if m.contains(KeyModifiers::CONTROL) => editor.delete_word_backward(),
-                (KeyCode::Char(c), m) if !m.contains(KeyModifiers::CONTROL) && !m.contains(KeyModifiers::ALT) => editor.insert(c),
-                (KeyCode::Backspace, _) => editor.backspace(),
-                (KeyCode::Delete, _) => editor.delete_forward(),
-                (KeyCode::Left, _) => editor.move_left(),
-                (KeyCode::Right, _) => editor.move_right(),
-                (KeyCode::Home, _) => editor.move_home(),
-                (KeyCode::End, _) => editor.move_end(),
-                (KeyCode::Up, _) => editor.history_up(),
-                (KeyCode::Down, _) => editor.history_down(),
-                _ => {}
-            },
-            _ => {}
+        if let Some(outcome) = apply_event(editor, &mut notice, event::read()?, ghost.as_deref()) {
+            terminal.clear()?;
+            return Ok(outcome);
         }
     }
+}
+
+/// What one terminal event does to the field: edits `editor`, sets or clears `notice` (what a refused paste says in the border) and
+/// says whether the event ended the field (`Some`). Terminal-free, so the wiring of every key and of `Event::Paste` is tested
+/// without a terminal; `drive_line_editor` only reads the event, draws, and clears the box when this returns `Some`.
+fn apply_event(editor: &mut LineEditor, notice: &mut Option<String>, event: Event, ghost: Option<&str>) -> Option<LineOutcome> {
+    if matches!(&event, Event::Key(key) if key.kind == KeyEventKind::Press) {
+        *notice = None;
+    }
+    match event {
+        // Only arrives while `BracketedPasteGuard` is on, which only the field of the phrase does (`read_phrase_field`).
+        Event::Paste(pasted) => *notice = take_paste(editor, &pasted),
+        Event::Key(key) if key.kind == KeyEventKind::Press => match (key.code, key.modifiers) {
+            (KeyCode::Enter, _) => return Some(LineOutcome::Submitted(editor.submit())),
+            // Matches GNU readline: Ctrl+D only quits on an empty line, so it can't be
+            // mistaken for "discard what I just typed" — same reason rustyline's `Eof` never
+            // fired on a non-empty buffer before this module dropped it. In a wizard
+            // (`read_field`), this same `Exit` outcome means "cancel this field/wizard"
+            // rather than "quit the REPL" — the caller decides which.
+            (KeyCode::Char('d'), m) if m.contains(KeyModifiers::CONTROL) && editor.is_empty() => return Some(LineOutcome::Exit),
+            (KeyCode::Tab, _) => {
+                if let Some(suffix) = ghost {
+                    for c in suffix.chars() {
+                        editor.insert(c);
+                    }
+                    editor.insert(' ');
+                }
+            }
+            (KeyCode::Char('c'), m) if m.contains(KeyModifiers::CONTROL) => editor.clear_line(),
+            (KeyCode::Char('a'), m) if m.contains(KeyModifiers::CONTROL) => editor.move_home(),
+            (KeyCode::Char('e'), m) if m.contains(KeyModifiers::CONTROL) => editor.move_end(),
+            (KeyCode::Char('u'), m) if m.contains(KeyModifiers::CONTROL) => editor.clear_line(),
+            (KeyCode::Char('w'), m) if m.contains(KeyModifiers::CONTROL) => editor.delete_word_backward(),
+            (KeyCode::Char(c), m) if !m.contains(KeyModifiers::CONTROL) && !m.contains(KeyModifiers::ALT) => editor.insert(c),
+            (KeyCode::Backspace, _) => editor.backspace(),
+            (KeyCode::Delete, _) => editor.delete_forward(),
+            (KeyCode::Left, _) => editor.move_left(),
+            (KeyCode::Right, _) => editor.move_right(),
+            (KeyCode::Home, _) => editor.move_home(),
+            (KeyCode::End, _) => editor.move_end(),
+            (KeyCode::Up, _) => editor.history_up(),
+            (KeyCode::Down, _) => editor.history_down(),
+            _ => {}
+        },
+        _ => {}
+    }
+    None
 }
 
 async fn read_line(line_history: &mut Vec<String>, terminal: &mut CliTerminal) -> anyhow::Result<LineOutcome> {
@@ -1040,6 +1154,27 @@ async fn read_field(terminal: &mut CliTerminal, title: &str, initial: &str) -> a
 async fn read_secret_field(terminal: &mut CliTerminal, title: &str) -> anyhow::Result<LineOutcome> {
     let mut editor = LineEditor::new_masked();
     drive_line_editor(terminal, &mut editor, title, false).await
+}
+
+/// The field of the 24-word phrase (`/arca rotate resume`): `read_secret_field` plus a paste of the whole phrase. Bracketed paste is
+/// on only while this field is (`BracketedPasteGuard`), so a pasted phrase with line breaks arrives as one event instead of as keys,
+/// and the field takes it by the rules of `LineEditor::paste` (24 words replace the field, other counts go in at the cursor, a big
+/// one is refused). The editor has no history (`LineEditor::new_phrase_field` is `new_masked` underneath), and the text comes back
+/// only as the answer, like a typed one.
+async fn read_phrase_field(terminal: &mut CliTerminal, title: &str) -> anyhow::Result<LineOutcome> {
+    let _bracketed_paste = BracketedPasteGuard::enable();
+    let mut editor = LineEditor::new_phrase_field();
+    drive_line_editor(terminal, &mut editor, title, false).await
+}
+
+/// Gives a pasted text to the field; the notice to show in its border, in place of the title, when the field refused it as too big,
+/// `None` otherwise. The notice is a fixed text: no word of the paste and no count of them, because the paste may be the recovery
+/// phrase and a message must never repeat it.
+fn take_paste(editor: &mut LineEditor, pasted: &str) -> Option<String> {
+    match editor.paste(pasted) {
+        PasteOutcome::TooLarge => Some(tr!("arca.rotate_paste_too_large")),
+        PasteOutcome::Filled | PasteOutcome::Ignored => None,
+    }
 }
 
 /// Hands an SSH approval request from the turn's task (where the tool runs) to the loop in
@@ -4250,7 +4385,7 @@ async fn cmd_arca_rotate_resume(terminal: &mut CliTerminal, session: &CliSession
     }
     render_message_card(terminal, "arca", accent_style(), vec![(tr!("arca.rotate_resume_intro"), Style::default())])?;
     discard_pending_keys();
-    let LineOutcome::Submitted(typed_phrase) = read_secret_field(terminal, &tr!("arca.rotate_ask_phrase")).await? else { return cancelled_card(terminal) };
+    let LineOutcome::Submitted(typed_phrase) = read_phrase_field(terminal, &tr!("arca.rotate_ask_phrase")).await? else { return cancelled_card(terminal) };
     if typed_phrase.trim().is_empty() {
         return cancelled_card(terminal);
     }
@@ -6590,6 +6725,331 @@ mod tests {
         let mut asker = ScriptedAsker::new(Vec::new());
         assert_eq!(typed_words_from(&mut asker, &[]).await.unwrap(), Some(Vec::new()));
         assert!(asker.asked.is_empty());
+    }
+
+    // ---------- pasting the phrase into the field of `/arca rotate resume` ----------
+
+    /// The official BIP-39 vector for 32 bytes of 0x7f, valid checksum: the one `the_loop_routes_a_phrase_typed_as_chat_...` calls
+    /// `legal` (the other official vectors there are `ZOO_PHRASE` and the all-"abandon" one). Its words are not the fixture of the
+    /// rotation tests (`ZOO_PHRASE`), so a field that only worked for that one would fail here.
+    const LEGAL_PHRASE: &str = "legal winner thank year wave sausage worth useful legal winner thank year wave sausage worth useful legal winner thank year wave sausage worth title";
+
+    /// `count` words of the phrase (wrapping around), one per line, as a terminal pastes text copied from a list.
+    fn pasted_words(count: usize) -> String {
+        let words: Vec<&str> = LEGAL_PHRASE.split(' ').collect();
+        (0..count).map(|index| words[index % words.len()]).collect::<Vec<_>>().join("\n")
+    }
+
+    #[test]
+    fn a_pasted_phrase_fills_the_field_whatever_separates_the_words() {
+        let words: Vec<&str> = LEGAL_PHRASE.split(' ').collect();
+        assert_eq!(words.len(), 24);
+        let mixed: String = words.iter().enumerate().map(|(index, word)| format!("{word}{}", ["\n", "\r\n", " ", "\r", "  \t", "\n\n"][index % 6])).collect();
+        for (what, pasted) in [
+            ("one word per line", words.join("\n")),
+            ("CRLF", words.join("\r\n")),
+            ("CR only", words.join("\r")),
+            ("spaces", words.join(" ")),
+            ("tabs and wide gaps", words.join("\t  ")),
+            ("mixed separators and a line break at each end", format!("\n{mixed}\r\n")),
+        ] {
+            let mut editor = LineEditor::new_phrase_field();
+            assert_eq!(editor.paste(&pasted), PasteOutcome::Filled, "{what}");
+            let submitted = editor.submit();
+            assert_eq!(submitted, LEGAL_PHRASE, "{what}: the field holds the words one space apart, the way they would be typed");
+            let pending = PendingRotation::from_phrase(&submitted).unwrap_or_else(|_| panic!("{what}: the field's text is a valid phrase"));
+            assert_eq!(pending.phrase().unwrap().expose(), LEGAL_PHRASE, "{what}: it is the same key");
+        }
+        // Capitals are kept as pasted, like typed ones: `PendingRotation::from_phrase` is what ignores the case.
+        let mut editor = LineEditor::new_phrase_field();
+        assert_eq!(editor.paste(&words.join("\r\n").to_uppercase()), PasteOutcome::Filled);
+        let submitted = editor.submit();
+        assert_eq!(submitted, LEGAL_PHRASE.to_uppercase());
+        assert!(PendingRotation::from_phrase(&submitted).is_ok());
+        // The paste only counts words: whether they are a phrase is `from_phrase`'s answer, as for typing.
+        let mut editor = LineEditor::new_phrase_field();
+        assert_eq!(editor.paste(&["zoo"; 24].join("\n")), PasteOutcome::Filled);
+        assert!(PendingRotation::from_phrase(&editor.submit()).is_err(), "24 words with a wrong checksum fill the field and are refused later");
+    }
+
+    /// A field with `typed` already in it and the cursor at the end.
+    fn phrase_field_with(typed: &str) -> LineEditor {
+        let mut editor = LineEditor::new_phrase_field();
+        typed.chars().for_each(|c| editor.insert(c));
+        editor
+    }
+
+    #[test]
+    fn a_paste_of_any_other_number_of_words_goes_in_at_the_cursor_one_space_apart() {
+        let words: Vec<&str> = LEGAL_PHRASE.split(' ').collect();
+        // 12 words now and 12 later (what typing allowed): the two pieces make the phrase, with no glued or doubled space.
+        let mut editor = LineEditor::new_phrase_field();
+        assert_eq!(editor.paste(&words[..12].join("\r\n")), PasteOutcome::Filled);
+        assert_eq!(editor.as_str(), words[..12].join(" "), "the first piece alone");
+        assert_eq!(editor.paste(&format!("\n{}\n", words[12..].join("\n"))), PasteOutcome::Filled);
+        let submitted = editor.submit();
+        assert_eq!(submitted, LEGAL_PHRASE);
+        assert!(PendingRotation::from_phrase(&submitted).is_ok());
+        // 23 and 25 words are not a whole phrase either: they are put in, and the checksum of `from_phrase` is what refuses later.
+        for count in [1usize, 23, 25] {
+            let mut editor = LineEditor::new_phrase_field();
+            assert_eq!(editor.paste(&pasted_words(count)), PasteOutcome::Filled, "{count} words");
+            assert_eq!(editor.as_str(), pasted_words(count).replace('\n', " "), "{count} words");
+        }
+        // At the cursor, and a space is added only where the neighbour is not one.
+        let mut editor = phrase_field_with("aaa bbb");
+        (0..4).for_each(|_| editor.move_left());
+        assert_eq!(editor.paste("x\n\ny\r\n"), PasteOutcome::Filled);
+        assert_eq!(editor.as_str(), "aaa x y bbb", "between a word and a space: one space before, none after");
+        let mut editor = phrase_field_with("aaabbb");
+        (0..3).for_each(|_| editor.move_left());
+        assert_eq!(editor.paste("x"), PasteOutcome::Filled);
+        assert_eq!(editor.as_str(), "aaa x bbb", "inside a word: a space on both sides");
+        let mut editor = phrase_field_with("aaa ");
+        assert_eq!(editor.paste("\nx"), PasteOutcome::Filled);
+        assert_eq!(editor.as_str(), "aaa x", "after a space: no second one");
+    }
+
+    /// `count` words of `letter`, `long` of them with `long_length` letters and the rest with one less, one per line: the sum of the
+    /// letters is what decides how many characters the field gets (the words are joined with 23 spaces).
+    fn words_of(letter: &str, count: usize, long: usize, long_length: usize) -> String {
+        (0..count).map(|index| letter.repeat(if index < long { long_length } else { long_length - 1 })).collect::<Vec<_>>().join("\n")
+    }
+
+    #[test]
+    fn a_paste_keeps_what_is_typed_unless_it_is_exactly_a_whole_phrase() {
+        // Read in `paste`: the field is replaced only when the number of words IS `paste_words`; 23 and 25 go in at the cursor, so
+        // "abc" stays, with the cursor at the end (a space before the words) and inside it (a space on both sides).
+        for count in [23usize, 25] {
+            let joined = pasted_words(count).replace('\n', " ");
+            let mut editor = phrase_field_with("abc");
+            assert_eq!(editor.paste(&pasted_words(count)), PasteOutcome::Filled, "{count} words, cursor at the end");
+            assert_eq!(editor.as_str(), format!("abc {joined}"), "{count} words, cursor at the end");
+            let mut editor = phrase_field_with("abc");
+            editor.move_left();
+            editor.move_left();
+            assert_eq!(editor.paste(&pasted_words(count)), PasteOutcome::Filled, "{count} words, cursor after the first letter");
+            assert_eq!(editor.as_str(), format!("a {joined} bc"), "{count} words, cursor after the first letter");
+        }
+        // 24 words replace it wherever the cursor was, and the cursor ends after them (the next key goes at the end).
+        for moves_left in [0usize, 3, 8] {
+            let mut editor = phrase_field_with("legal wi");
+            (0..moves_left).for_each(|_| editor.move_left());
+            assert_eq!(editor.paste(&pasted_words(24)), PasteOutcome::Filled, "cursor {moves_left} to the left");
+            assert_eq!(editor.as_str(), LEGAL_PHRASE, "cursor {moves_left} to the left: what was typed is gone");
+            editor.insert('!');
+            assert_eq!(editor.as_str(), format!("{LEGAL_PHRASE}!"), "cursor {moves_left} to the left: the cursor is at the end");
+        }
+    }
+
+    #[test]
+    fn a_paste_goes_in_at_the_cursor_wherever_it_is() {
+        // Read in `paste`: no space before the words at the start of the field, and a space after them when the next character is
+        // not a space; a space before them when the previous character is not a space, and none after them at the end.
+        let mut editor = phrase_field_with("x y");
+        (0..3).for_each(|_| editor.move_left());
+        assert_eq!(editor.paste("bbb"), PasteOutcome::Filled);
+        assert_eq!(editor.as_str(), "bbb x y", "at the start, before a letter");
+        editor.insert('!');
+        assert_eq!(editor.as_str(), "bbb !x y", "the cursor is after the pasted words and the space that was added");
+        let mut editor = phrase_field_with(" x");
+        (0..2).for_each(|_| editor.move_left());
+        assert_eq!(editor.paste("bbb"), PasteOutcome::Filled);
+        assert_eq!(editor.as_str(), "bbb x", "at the start, before a space: none added");
+        let mut editor = phrase_field_with("x y");
+        assert_eq!(editor.paste("bbb"), PasteOutcome::Filled);
+        assert_eq!(editor.as_str(), "x y bbb", "at the end, after a letter");
+    }
+
+    #[test]
+    fn the_512_characters_of_a_whole_phrase_are_counted_in_characters_and_the_limit_is_inclusive() {
+        // 24 words are 23 spaces and the letters: 489 letters make exactly 512 characters (9 words of 21 and 15 of 20), 490 make 513.
+        let exactly = words_of("w", 24, 9, 21);
+        let one_over = words_of("w", 24, 10, 21);
+        assert_eq!(exactly.replace('\n', " ").chars().count(), PASTE_FIELD_MAX_CHARS);
+        assert_eq!(one_over.replace('\n', " ").chars().count(), PASTE_FIELD_MAX_CHARS + 1);
+        let mut editor = phrase_field_with("typed");
+        assert_eq!(editor.paste(&exactly), PasteOutcome::Filled);
+        assert_eq!(editor.buffer.len(), PASTE_FIELD_MAX_CHARS, "the whole phrase replaced the field");
+        let mut editor = phrase_field_with("typed");
+        assert_eq!(editor.paste(&one_over), PasteOutcome::TooLarge);
+        assert_eq!(editor.as_str(), "typed", "the field does not change");
+        // The same count in two-byte characters: 512 characters take 1000 bytes or more, and it is the characters that are counted.
+        let accented = words_of("é", 24, 9, 21);
+        assert!(accented.len() > PASTE_FIELD_MAX_CHARS && accented.len() < PASTE_MAX_BYTES, "{} bytes", accented.len());
+        let mut editor = phrase_field_with("typed");
+        assert_eq!(editor.paste(&accented), PasteOutcome::Filled);
+        assert_eq!(editor.buffer.len(), PASTE_FIELD_MAX_CHARS);
+        assert_eq!(editor.paste(&words_of("é", 24, 10, 21)), PasteOutcome::TooLarge, "513 characters of 2 bytes each");
+    }
+
+    #[test]
+    fn the_limits_count_bytes_of_the_paste_and_characters_of_the_field() {
+        // One word of 300 two-byte letters: 600 bytes, 300 characters. The field limit is on characters, so it goes in.
+        let word = "é".repeat(300);
+        assert_eq!((word.len(), word.chars().count()), (600, 300));
+        let mut editor = LineEditor::new_phrase_field();
+        assert_eq!(editor.paste(&word), PasteOutcome::Filled, "inserted at the cursor");
+        assert_eq!(editor.buffer.len(), 300);
+        // Into a field that already holds 200: 200 + a space + 300 = 501 characters, under 512, but over 512 if bytes were counted.
+        let mut editor = phrase_field_with(&"a".repeat(200));
+        assert_eq!(editor.paste(&word), PasteOutcome::Filled, "the piece is counted in characters");
+        assert_eq!(editor.buffer.len(), 501);
+        // 24 words of 15 two-byte letters: 383 characters but 743 bytes, over 512: counted in characters, a whole phrase goes in.
+        let whole = vec!["é".repeat(15); 24].join("\n");
+        assert!(whole.len() > PASTE_FIELD_MAX_CHARS && whole.len() <= PASTE_MAX_BYTES);
+        let mut editor = phrase_field_with("typed");
+        assert_eq!(editor.paste(&whole), PasteOutcome::Filled);
+        assert_eq!(editor.buffer.len(), 24 * 15 + 23);
+        // The paste limit is on BYTES of the text as it arrives, before blanks are thrown away: a word and 400 ideographic spaces (3
+        // bytes each, and whitespace to `split_whitespace`) are 404 characters but 1204 bytes, so a count of characters would take it.
+        let wide_blanks = format!("word{}", "\u{3000}".repeat(400));
+        assert!(wide_blanks.chars().count() < PASTE_MAX_BYTES && wide_blanks.len() > PASTE_MAX_BYTES);
+        let mut editor = phrase_field_with("typed");
+        assert_eq!(editor.paste(&wide_blanks), PasteOutcome::TooLarge);
+        assert_eq!(editor.as_str(), "typed");
+    }
+
+    #[test]
+    fn a_paste_with_no_words_does_nothing() {
+        for blank in ["", "\n", "  \r\n \t "] {
+            let mut editor = phrase_field_with("typed");
+            assert_eq!(editor.paste(blank), PasteOutcome::Ignored, "{blank:?}");
+            assert_eq!(take_paste(&mut editor, blank), None, "{blank:?}: and says nothing");
+            assert_eq!(editor.as_str(), "typed", "{blank:?}");
+        }
+    }
+
+    #[test]
+    fn a_paste_over_1024_bytes_or_leaving_the_field_over_512_characters_is_refused_and_enters_nothing() {
+        // 2000 bytes: refused before it is split, whatever is in it (words, or only blanks).
+        for (what, pasted) in [("words", "a ".repeat(1000)), ("blanks", " ".repeat(2000)), ("the phrase over and over", format!("{LEGAL_PHRASE}\n").repeat(8))] {
+            assert!(pasted.len() > PASTE_MAX_BYTES, "{what}");
+            let mut editor = phrase_field_with("typed");
+            assert_eq!(editor.paste(&pasted), PasteOutcome::TooLarge, "{what}");
+            assert_eq!(editor.as_str(), "typed", "{what}: the field does not change");
+        }
+        // The limit is on bytes, and 1024 is inside it: a word and blanks that make exactly 1024 bytes goes in, one more does not.
+        let exactly = format!("word{}", " ".repeat(PASTE_MAX_BYTES - 4));
+        assert_eq!(exactly.len(), 1024);
+        let mut editor = LineEditor::new_phrase_field();
+        assert_eq!(editor.paste(&exactly), PasteOutcome::Filled);
+        assert_eq!(editor.as_str(), "word");
+        assert_eq!(LineEditor::new_phrase_field().paste(&format!("{exactly} ")), PasteOutcome::TooLarge);
+        // The field after the paste may have 512 characters: 500 + a space + 11 does, 500 + a space + 12 does not.
+        let mut editor = phrase_field_with(&"a".repeat(500));
+        assert_eq!(editor.paste(&"b".repeat(12)), PasteOutcome::TooLarge);
+        assert_eq!(editor.as_str(), "a".repeat(500), "the field does not change");
+        assert_eq!(editor.paste(&"b".repeat(11)), PasteOutcome::Filled);
+        assert_eq!(editor.buffer.len(), PASTE_FIELD_MAX_CHARS);
+        // A whole phrase that replaces the field has to fit too: 24 words of 30 letters are under 1024 bytes and over 512 characters.
+        let long_words = vec!["w".repeat(30); 24].join(" ");
+        assert!(long_words.len() < PASTE_MAX_BYTES && long_words.len() > PASTE_FIELD_MAX_CHARS);
+        let mut editor = phrase_field_with("typed");
+        assert_eq!(editor.paste(&long_words), PasteOutcome::TooLarge);
+        assert_eq!(editor.as_str(), "typed");
+    }
+
+    #[test]
+    fn the_notice_of_a_refused_paste_is_a_fixed_text_that_repeats_nothing() {
+        // A paste made of the phrase's own words, too big: whatever it says, the notice is exactly this and nothing else.
+        let pasted = format!("{LEGAL_PHRASE}\n").repeat(8);
+        for (locale, expected) in [(i18n::Locale::En, " paste too large: nothing was pasted "), (i18n::Locale::PtBr, " colagem grande demais: nada foi colado ")] {
+            speak(locale);
+            let mut editor = LineEditor::new_phrase_field();
+            assert_eq!(take_paste(&mut editor, &pasted).as_deref(), Some(expected), "{locale:?}");
+        }
+        speak(i18n::Locale::En);
+    }
+
+    #[test]
+    fn a_whole_phrase_pasted_replaces_what_was_typed() {
+        let mut editor = phrase_field_with("legal wi");
+        assert_eq!(take_paste(&mut editor, &LEGAL_PHRASE.replace(' ', "\r\n")), None, "a paste that fits is not refused");
+        assert_eq!(editor.submit(), LEGAL_PHRASE, "24 words replace what was in the field, they are not added to it");
+    }
+
+    #[test]
+    fn only_the_phrase_field_takes_a_paste_and_it_is_masked_with_no_history() {
+        for mut editor in [LineEditor::new(Vec::new()), LineEditor::new_masked()] {
+            assert_eq!(editor.paste(LEGAL_PHRASE), PasteOutcome::Ignored);
+            assert!(editor.is_empty(), "a field that does not take pastes enters nothing");
+            assert_eq!(take_paste(&mut editor, &pasted_words(23)), None, "and says nothing about it");
+        }
+        // What `read_phrase_field` builds: the phrase is never shown, there is no history to recall it from, and 24 words are a whole one.
+        let phrase_field = LineEditor::new_phrase_field();
+        assert!(phrase_field.masked);
+        assert!(phrase_field.history.is_empty());
+        assert_eq!(phrase_field.paste_words, Some(24));
+    }
+
+    fn key(code: KeyCode) -> Event {
+        Event::Key(crossterm::event::KeyEvent::new(code, KeyModifiers::NONE))
+    }
+
+    /// The wiring `drive_line_editor` runs for every event, without the terminal: the paste reaches the field, the notice shows and
+    /// clears, and Enter and Ctrl+D end it the way they did before.
+    #[test]
+    fn an_event_of_the_terminal_pastes_into_the_phrase_field_and_enter_hands_it_over() {
+        speak(i18n::Locale::En);
+        let mut notice = None;
+        // 24 words with line breaks, as the terminal hands them over: ONE event, not a key per character.
+        let mut editor = LineEditor::new_phrase_field();
+        assert!(apply_event(&mut editor, &mut notice, Event::Paste(LEGAL_PHRASE.replace(' ', "\r\n")), None).is_none(), "a paste does not end the field");
+        assert_eq!(notice, None);
+        assert!(matches!(apply_event(&mut editor, &mut notice, key(KeyCode::Enter), None), Some(LineOutcome::Submitted(text)) if text == LEGAL_PHRASE));
+        // 12 words go in at the cursor, then 12 more, then Enter.
+        let words: Vec<&str> = LEGAL_PHRASE.split(' ').collect();
+        let mut editor = LineEditor::new_phrase_field();
+        apply_event(&mut editor, &mut notice, Event::Paste(words[..12].join("\n")), None);
+        apply_event(&mut editor, &mut notice, Event::Paste(words[12..].join("\n")), None);
+        assert!(matches!(apply_event(&mut editor, &mut notice, key(KeyCode::Enter), None), Some(LineOutcome::Submitted(text)) if text == LEGAL_PHRASE));
+        // A paste that is too big shows the notice and changes nothing; any key clears it, and a key release does not.
+        let mut editor = phrase_field_with("typed");
+        assert!(apply_event(&mut editor, &mut notice, Event::Paste(format!("{LEGAL_PHRASE}\n").repeat(8)), None).is_none());
+        assert_eq!(notice.as_deref(), Some(" paste too large: nothing was pasted "));
+        assert_eq!(editor.as_str(), "typed");
+        let release = crossterm::event::KeyEvent::new_with_kind(KeyCode::Char('x'), KeyModifiers::NONE, KeyEventKind::Release);
+        apply_event(&mut editor, &mut notice, Event::Key(release), None);
+        assert!(notice.is_some(), "a key release is not a key press");
+        assert!(apply_event(&mut editor, &mut notice, key(KeyCode::Char('!')), None).is_none());
+        assert_eq!(notice, None);
+        assert_eq!(editor.as_str(), "typed!");
+        // A paste that fits takes the notice away too.
+        notice = Some("old".to_string());
+        apply_event(&mut editor, &mut notice, Event::Paste("one".to_string()), None);
+        assert_eq!(notice, None);
+        // Enter on a field that does not take pastes, and a paste event that reaches one anyway.
+        let mut ordinary = LineEditor::new(Vec::new());
+        assert!(apply_event(&mut ordinary, &mut notice, Event::Paste(LEGAL_PHRASE.to_string()), None).is_none());
+        assert!(ordinary.is_empty(), "a field that does not take pastes enters nothing");
+        assert_eq!(notice, None);
+        "hi".chars().for_each(|c| {
+            apply_event(&mut ordinary, &mut notice, key(KeyCode::Char(c)), None);
+        });
+        assert!(matches!(apply_event(&mut ordinary, &mut notice, key(KeyCode::Enter), None), Some(LineOutcome::Submitted(text)) if text == "hi"));
+    }
+
+    #[test]
+    fn ctrl_d_ends_an_empty_field_and_is_ignored_with_text_in_it() {
+        let ctrl_d = || Event::Key(crossterm::event::KeyEvent::new(KeyCode::Char('d'), KeyModifiers::CONTROL));
+        let mut notice = None;
+        let mut editor = phrase_field_with("typed");
+        assert!(apply_event(&mut editor, &mut notice, ctrl_d(), None).is_none(), "Ctrl+D with text is not a way out");
+        assert_eq!(editor.as_str(), "typed");
+        let mut editor = LineEditor::new_phrase_field();
+        assert!(matches!(apply_event(&mut editor, &mut notice, ctrl_d(), None), Some(LineOutcome::Exit)));
+    }
+
+    #[test]
+    fn tab_accepts_the_ghost_it_is_given() {
+        let mut notice = None;
+        let mut editor = LineEditor::new(Vec::new());
+        "/mo".chars().for_each(|c| editor.insert(c));
+        assert!(apply_event(&mut editor, &mut notice, key(KeyCode::Tab), Some("dels")).is_none());
+        assert_eq!(editor.as_str(), "/models ");
+        assert!(apply_event(&mut editor, &mut notice, key(KeyCode::Tab), None).is_none());
+        assert_eq!(editor.as_str(), "/models ", "nothing to accept");
     }
 
     #[tokio::test]
