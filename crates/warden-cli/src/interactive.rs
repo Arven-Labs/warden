@@ -1018,7 +1018,7 @@ fn apply_event(editor: &mut LineEditor, notice: &mut Option<String>, event: Even
     }
     match event {
         // Only arrives while `BracketedPasteGuard` is on, which only the field of the phrase does (`read_phrase_field`).
-        Event::Paste(pasted) => *notice = take_paste(editor, &pasted),
+        Event::Paste(_) => {}
         Event::Key(key) if key.kind == KeyEventKind::Press => match (key.code, key.modifiers) {
             (KeyCode::Enter, _) => return Some(LineOutcome::Submitted(editor.submit())),
             // Matches GNU readline: Ctrl+D only quits on an empty line, so it can't be
