@@ -2,9 +2,11 @@
 
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
-import { clearSummary, deletableIds, hubChoice, loginsView, loopView, noticesOf, sizeLabel, summaryOf, verifyErrorMessage, verifyView, viewOf } from "../src/lib/arcaMode.ts";
+import { en } from "../src/i18n/en.ts";
+import { ptBR } from "../src/i18n/pt-BR.ts";
+import { clearSummary, deletableIds, hubChoice, loginsView, loopView, noticesOf, rotationHalfDoneShown, sizeLabel, summaryOf, verifyErrorMessage, verifyView, viewOf } from "../src/lib/arcaMode.ts";
 
-const status = (over) => ({ hasKey: true, on: false, pendingSend: false, loginsAccepted: false, ...over });
+const status = (over) => ({ hasKey: true, on: false, pendingSend: false, loginsAccepted: false, rotationHalfDone: false, ...over });
 const report = (over) => ({
   snapshotCreated: false,
   pulled: 0,
@@ -59,6 +61,53 @@ describe("what the screen says about the MCP logins (class secret), which travel
   test("once accepted it says they are syncing, and offers nothing", () => {
     assert.equal(loginsView(status({ on: true, loginsAccepted: true })), "syncing");
   });
+});
+
+describe("the line that says the automatic sync is paused by a key change left half way", () => {
+  test("it shows only when the backend says a rotation was left half done and the mode is on (the only place the rotation block lives)", () => {
+    assert.equal(rotationHalfDoneShown(status({ on: true, rotationHalfDone: true })), true);
+    assert.equal(rotationHalfDoneShown(status({ on: true, rotationHalfDone: true, hasKey: false, pendingSend: true, loginsAccepted: true })), true);
+  });
+
+  test("it does not show while nothing is half done, whatever else the status says (a key that merely waits is not this)", () => {
+    assert.equal(rotationHalfDoneShown(status({ on: true, rotationHalfDone: false })), false);
+    assert.equal(rotationHalfDoneShown(status({ on: true, rotationHalfDone: false, pendingSend: true, loginsAccepted: true, hubId: "hub-1" })), false);
+  });
+
+  test("it does not show before the status arrives, nor with the mode off", () => {
+    assert.equal(rotationHalfDoneShown(null), false);
+    assert.equal(rotationHalfDoneShown(status({ on: false, rotationHalfDone: true })), false);
+  });
+
+  test("an answer that does not carry the field (an older backend) shows nothing", () => {
+    const old = { hasKey: true, on: true, pendingSend: false, loginsAccepted: false };
+    assert.equal(rotationHalfDoneShown(old), false);
+  });
+
+  // The block below has different buttons in each step: the idle step (whoever comes back to the screen) has "Change the key…" and
+  // "Resume an interrupted change…" and no Cancel; the resume step (where a stop in this session lands) has "Finish the change" and
+  // Cancel, and no "Resume…". So the text names the way in that only the idle step needs ("open X if it is not open yet"), says not to
+  // use the button that starts a new key, and names no button of the resume step. The labels come from the dictionary (without the
+  // "…"), so renaming a button breaks this test.
+  const label = (texts, key) => texts[key].replace("…", "");
+  for (const [lang, texts, paused, sameWords, finish, cancel, below, doNotUse] of [
+    ["English", en, /paused/, /same 24 words/, /finish it/, /cancel it/, /below/, "Do not use"],
+    ["Portuguese", ptBR, /pausada/, /mesmas 24 palavras/, /termine a troca/, /cancele-a/, /abaixo/, "Não use"],
+  ]) {
+    test(`the text in ${lang} says it is paused, gives the two ways out, says where (below) and names the way in, not the button of a new key`, () => {
+      const text = texts["arca.rotationHalfDone"];
+      assert.ok(text, "the key exists");
+      assert.match(text, paused);
+      assert.match(text, sameWords);
+      assert.match(text, finish);
+      assert.match(text, cancel);
+      assert.match(text, below);
+      assert.ok(text.includes(`"${label(texts, "arca.rotationResume")}"`), `names the button that opens the resume: ${text}`);
+      assert.ok(text.includes(`${doNotUse} "${label(texts, "arca.rotationStart")}"`), `says not to use the button of a new key: ${text}`);
+      assert.doesNotMatch(text, new RegExp(`"${texts["arca.rotationResumeGo"]}"|"${texts["arca.cancel"]}"`), "names no button that exists only in the resume step");
+      assert.doesNotMatch(text, /\{/, "has no placeholder: nothing is passed to it");
+    });
+  }
 });
 
 describe("which hub the selector shows for the automatic sync", () => {

@@ -1143,6 +1143,88 @@ describe("the arca mode of the vault on the desktop", () => {
       }
     });
 
+    // The status is only asked at some moments (mounting, and what the rotation block reports with `onChanged`): the line has to appear
+    // after the stop and go away after the Cancel without the screen being opened again. The backend here flips `rotationHalfDone`
+    // at the same moments the real one does (the confirmation that stops half way raises it; the cancel ends it).
+    test("a rotation left half done says the automatic sync is paused, and the line goes away when the person cancels it", { timeout: TIMEOUT }, async () => {
+      let halfDone = false;
+      const { context, page, calls, errors } = await openSync(() => ({ ...ON(), rotationHalfDone: halfDone }), {
+        arca_rotation_begin: () => START,
+        arca_rotation_confirm: () => {
+          halfDone = true;
+          return Promise.reject({ partial: true, message: "the key was not rotated: disk full" });
+        },
+        arca_rotation_cancel: () => {
+          halfDone = false;
+          return null;
+        },
+      });
+      try {
+        const line = page.getByText(/Automatic sync is paused/);
+        await startRotation(page);
+        assert.equal(await line.count(), 0, "the premise: a key that only waits is not a rotation left half done");
+
+        await fillAsked(page);
+        await page.getByRole("checkbox", { name: "I revoked the lost device's token on the hub" }).check();
+        await page.getByRole("button", { name: "Change the key", exact: true }).click();
+        await page.getByRole("button", { name: "Yes, change the key", exact: true }).click();
+        await page.getByText(/The change stopped half way: the key was not rotated: disk full/).waitFor();
+        await line.waitFor({ timeout: 5000 });
+        assert.equal(await line.count(), 1, "one line, shown after the stop without opening the screen again");
+        await snap(page, "desktop-arca-rotation-half-done", { focus: heading(page), top: true });
+
+        await page.getByRole("button", { name: "Cancel", exact: true }).click();
+        await line.waitFor({ state: "detached", timeout: 5000 });
+        assert.ok(asked(calls, "arca_rotation_cancel").length >= 1, "the Cancel button is what ended it");
+        assert.deepEqual(errors, [], "the page raised no error");
+      } finally {
+        await context.close();
+      }
+    });
+
+    // The other way out: finishing the rotation with the same 24 words. The only thing that asks for the status again here is the
+    // `onChanged` of the rotation block (nothing else on the screen reads the status after a confirmation), and `arca_sync_run`, which
+    // the block calls after the success, changes nothing in the mock: so the line only goes away if the block reports the success.
+    test("a rotation left half done says the automatic sync is paused, and the line goes away when the person finishes it", { timeout: TIMEOUT }, async () => {
+      let halfDone = false;
+      let confirms = 0;
+      const { context, page, calls, errors } = await openSync(() => ({ ...ON(), rotationHalfDone: halfDone }), {
+        arca_rotation_begin: () => START,
+        arca_rotation_resume: () => null,
+        arca_rotation_confirm: () => {
+          confirms += 1;
+          if (confirms === 1) {
+            halfDone = true;
+            return Promise.reject({ partial: true, message: "the key was not rotated: disk full" });
+          }
+          halfDone = false;
+          return null;
+        },
+        arca_sync_run: () => CLEAN_CYCLE,
+      });
+      try {
+        const line = page.getByText(/Automatic sync is paused/);
+        await startRotation(page);
+        await fillAsked(page);
+        await page.getByRole("checkbox", { name: "I revoked the lost device's token on the hub" }).check();
+        await page.getByRole("button", { name: "Change the key", exact: true }).click();
+        await page.getByRole("button", { name: "Yes, change the key", exact: true }).click();
+        await page.getByText(/The change stopped half way: the key was not rotated: disk full/).waitFor();
+        await line.waitFor({ timeout: 5000 });
+
+        await page.getByRole("checkbox", { name: "I revoked the lost device's token on the hub" }).check();
+        await page.getByRole("button", { name: "Finish the change", exact: true }).click();
+        await page.getByRole("button", { name: "Yes, change the key", exact: true }).click();
+        await page.getByText("The key was changed and sent to the hub.").waitFor();
+        await line.waitFor({ state: "detached", timeout: 5000 });
+        assert.equal(asked(calls, "arca_rotation_confirm").length, 2, "the second confirmation is what finished it");
+        assert.equal(asked(calls, "arca_rotation_cancel").length, 0, "the Cancel button was not used");
+        assert.deepEqual(errors, [], "the page raised no error");
+      } finally {
+        await context.close();
+      }
+    });
+
     test("a refusal on resume keeps the words typed so a typo is fixed in place", { timeout: TIMEOUT }, async () => {
       const { context, page, errors } = await openSync(ON, {
         arca_rotation_resume: () => Promise.reject("that is not a valid 24-word phrase"),

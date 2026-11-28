@@ -10,8 +10,10 @@ type Outcome = { ok: true; text: string } | { ok: false; text: string } | null;
 /** P-49, desktop: the key rotation for "I lost a device" (arca ADR 0018, Warden ADR 0002). The work is `PendingRotation` in
  * `warden_sync::arca_rotation`; the key waits in the backend, and only its phrase comes here, once. The phrase lives in this component's
  * state and nowhere else (no storage, no log): it is dropped when the person confirms, cancels, or leaves the screen. A rotation sends
- * nothing by itself, so after it worked this runs the normal sync with the chosen hub. */
-function ArcaRotationBlock({ hubId }: { hubId: string }) {
+ * nothing by itself, so after it worked this runs the normal sync with the chosen hub. `onChanged` is called when a confirmation ends
+ * (with success or not) and after a cancel: those are the moments the backend's "left half done" state can change, and the section
+ * that owns the status asks for it again (see `rotationHalfDoneShown`). */
+function ArcaRotationBlock({ hubId, onChanged }: { hubId: string; onChanged: () => void }) {
   const [step, setStep] = useState<Step>({ kind: "idle" });
   const [typed, setTyped] = useState<string[]>([]);
   const [phrase, setPhrase] = useState("");
@@ -46,6 +48,7 @@ function ArcaRotationBlock({ hubId }: { hubId: string }) {
     } catch {
       // Nothing was written; the key is dropped when the app closes.
     }
+    onChanged();
   }
 
   async function begin() {
@@ -106,9 +109,13 @@ function ArcaRotationBlock({ hubId }: { hubId: string }) {
       setOutcome({ ok: false, text });
       busyRef.current = false;
       setBusy(false);
+      // A stop half way raised the backend's state (or a refusal left it as it was): the section asks for it again.
+      onChanged();
       return;
     }
     reset();
+    // A success ended the half-done state; this is before the sync below, which can take a while.
+    onChanged();
     if (hubId === "") {
       setOutcome({ ok: true, text: t("arca.rotationDoneNoHub") });
     } else {

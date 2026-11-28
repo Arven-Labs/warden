@@ -268,8 +268,9 @@ impl SyncRunner {
     }
 
     /// Whether a rotation was left half done and not finished or cancelled since. Not the same as `rotation_in_progress`: this one
-    /// is the state itself, so a test can tell a pause that is kept on purpose from a guard that leaked. Nothing in the screens reads it
-    /// (the half-done pause is invisible on the desktop: a known gap, not fixed here); the report only says `paused_for_rotation`.
+    /// is the state itself, so a test can tell a pause that is kept on purpose from a guard that leaked. The desktop reads it for
+    /// the status line of the Sync screen (`mode_status` in `desktop/src-tauri/src/arca_mode_cmds.rs` fills `ModeStatus.rotation_half_done`
+    /// from it); the report of a round still only says `paused_for_rotation`.
     pub fn rotation_half_done(&self) -> bool {
         self.rotation_half_done.load(Ordering::SeqCst)
     }

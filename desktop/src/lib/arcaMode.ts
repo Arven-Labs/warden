@@ -10,6 +10,14 @@ export interface ModeStatus {
   hubId: string | null;
   /** The person accepted that the MCP logins travel; until then they are neither sent nor applied. */
   loginsAccepted: boolean;
+  /** A key rotation stopped half way and was neither finished nor given up: the automatic sync stays paused for it. */
+  rotationHalfDone: boolean;
+}
+
+/** Whether the section says that the automatic sync is paused by a key change left half way. Only that state: while a key merely waits
+ * for its confirmation the rotation block is open on the screen and says what is going on. */
+export function rotationHalfDoneShown(status: ModeStatus | null): boolean {
+  return status !== null && status.on && status.rotationHalfDone === true;
 }
 
 /** What the section says about the MCP logins: nothing before the mode is on (the choice is a box in the confirmation); once on,

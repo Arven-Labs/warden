@@ -12,6 +12,7 @@ import {
   loginsView,
   loopView,
   noticesOf,
+  rotationHalfDoneShown,
   sizeLabel,
   summaryOf,
   verifyErrorMessage,
@@ -690,7 +691,8 @@ function ArcaModeSection() {
           </p>
         )}
         {integrityError && <p className="settings-error-banner">{t("arca.verifyFailed", { message: integrityError })}</p>}
-        {view === "on" && <ArcaRotationBlock hubId={selected} />}
+        {rotationHalfDoneShown(status) && <p className="settings-error-banner">{t("arca.rotationHalfDone")}</p>}
+        {view === "on" && <ArcaRotationBlock hubId={selected} onChanged={refreshStatus} />}
         {view === "on" && (epochs.length > 0 || epochsResult !== null) && epochsBlock()}
         {view === "on" && (losers.length > 0 || losersResult !== null) && losersBlock()}
         {view === "on" && (kept.length > 0 || keptResult !== null) && keptBlock()}
