@@ -1955,9 +1955,11 @@ mod tests {
         let slot = RotationSlot::default();
         let start = stop_half_way(&device, &slot).await;
         rotation_resume(&device.engine, &device.runner, &slot, &start.phrase.join(" ")).unwrap();
-        break_the_mode_file(&device);
+        let saved = break_the_mode_file(&device);
         let refused = rotation_confirm(&device.engine, &device.runner, &slot, &[], true, 3).await.unwrap_err();
         assert!(is_a_repair_refusal(&refused), "the premise: a real Refused, not a stop half way: {refused:?}");
+        // The status reads the mode file too, so it is mended before the status is asked.
+        mend_the_mode_file(&device, &saved);
         assert!(half_done_in_status(&device), "a refusal does not end it");
 
         rotation_cancel(&device.runner, &slot);
