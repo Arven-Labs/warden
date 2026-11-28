@@ -465,7 +465,7 @@ pub async fn rotation_confirm(engine: &SyncEngine, runner: &SyncRunner, slot: &R
     let outcome = pending.confirm(&typed, revoked_on_hub, engine, now_ms).await.map_err(RotationFailure::from);
     match &outcome {
         Ok(()) => set_half_done(runner, slot, false),
-        Err(failure) if failure.partial => raise_half_done_unless_cancelled(runner, slot, cancels_seen),
+        Err(failure) if failure.partial => set_half_done(runner, slot, true),
         Err(_) => {}
     }
     on_unwind.disarm();
