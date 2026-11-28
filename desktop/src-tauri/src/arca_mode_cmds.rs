@@ -50,7 +50,7 @@ pub fn mode_status(engine: &SyncEngine, runner: &SyncRunner, pending_send: bool)
         pending_send,
         hub_id: mode.and_then(|m| m.hub_id),
         logins_accepted,
-        rotation_half_done: runner.rotation_half_done(),
+        rotation_half_done: runner.rotation_in_progress(),
     })
 }
 
