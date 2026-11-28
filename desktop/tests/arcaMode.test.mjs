@@ -84,20 +84,27 @@ describe("the line that says the automatic sync is paused by a key change left h
     assert.equal(rotationHalfDoneShown(old), false);
   });
 
-  // The block below has different buttons in each step (the idle step has "Resume an interrupted change…" and no Cancel; the resume
-  // step, where a stop in this session lands, has "Finish the change" and Cancel), so the text names the two ways out and no button.
-  for (const [lang, texts, paused, sameWords, finish, cancel] of [
-    ["English", en, /paused/, /same 24 words/, /finish it/, /cancel it/],
-    ["Portuguese", ptBR, /pausada/, /mesmas 24 palavras/, /termine a troca/, /cancele-a/],
+  // The block below has different buttons in each step: the idle step (whoever comes back to the screen) has "Change the key…" and
+  // "Resume an interrupted change…" and no Cancel; the resume step (where a stop in this session lands) has "Finish the change" and
+  // Cancel, and no "Resume…". So the text names the way in that only the idle step needs ("open X if it is not open yet"), says not to
+  // use the button that starts a new key, and names no button of the resume step. The labels come from the dictionary (without the
+  // "…"), so renaming a button breaks this test.
+  const label = (texts, key) => texts[key].replace("…", "");
+  for (const [lang, texts, paused, sameWords, finish, cancel, below, doNotUse] of [
+    ["English", en, /paused/, /same 24 words/, /finish it/, /cancel it/, /below/, "Do not use"],
+    ["Portuguese", ptBR, /pausada/, /mesmas 24 palavras/, /termine a troca/, /cancele-a/, /abaixo/, "Não use"],
   ]) {
-    test(`the text in ${lang} says it is paused and gives the two ways out (finish with the same 24 words, or cancel) without naming a button`, () => {
+    test(`the text in ${lang} says it is paused, gives the two ways out, says where (below) and names the way in, not the button of a new key`, () => {
       const text = texts["arca.rotationHalfDone"];
       assert.ok(text, "the key exists");
       assert.match(text, paused);
       assert.match(text, sameWords);
       assert.match(text, finish);
       assert.match(text, cancel);
-      assert.doesNotMatch(text, /["“”]/, `quotes no button label, which exists in only one step: ${text}`);
+      assert.match(text, below);
+      assert.ok(text.includes(`"${label(texts, "arca.rotationResume")}"`), `names the button that opens the resume: ${text}`);
+      assert.ok(text.includes(`${doNotUse} "${label(texts, "arca.rotationStart")}"`), `says not to use the button of a new key: ${text}`);
+      assert.doesNotMatch(text, new RegExp(`"${texts["arca.rotationResumeGo"]}"|"${texts["arca.cancel"]}"`), "names no button that exists only in the resume step");
       assert.doesNotMatch(text, /\{/, "has no placeholder: nothing is passed to it");
     });
   }
