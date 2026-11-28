@@ -1408,18 +1408,45 @@ mod tests {
     /// `sync_lock().await`; the cancels come in that window, then the lock is freed. The premises are asserted here: the confirmation
     /// was still running when the cancels came, and the cancels did not free the loop.
     async fn confirm_with_cancels_in_the_middle(device: &Device, slot: &RotationSlot, words: &[String], cancels: usize) -> Result<(), RotationFailure> {
+        confirm_with_a_call_in_the_middle(device, slot, words, || {
+            for _ in 0..cancels {
+                rotation_cancel(&device.runner, slot);
+            }
+        })
+        .await
+    }
+
+    /// The same, with any `during` call in the window instead of cancels (`rotation_leave`, `rotation_begin`, `rotation_resume`).
+    async fn confirm_with_a_call_in_the_middle(device: &Device, slot: &RotationSlot, words: &[String], during: impl FnOnce()) -> Result<(), RotationFailure> {
         use warden_sync::lock::{lock_path_for, SyncLock};
         let held = SyncLock::acquire(&lock_path_for(&device.base.join("sync_manifest.json"))).await.unwrap();
         let mut confirm = Box::pin(rotation_confirm(&device.engine, &device.runner, slot, words, true, 2));
         let waiting = tokio::time::timeout(std::time::Duration::from_millis(50), &mut confirm).await;
         assert!(waiting.is_err(), "the premise: the confirmation is stuck on the sync lock, not finished: {waiting:?}");
         assert!(slot.lock().unwrap().is_none(), "the premise: the confirmation has the key out of the slot");
+        during();
+        assert!(device.runner.rotation_in_progress(), "the call came while the confirmation runs: it must not free the loop");
+        drop(held);
+        confirm.await
+    }
+
+    /// The real `rotation_confirm`, stuck on the sync lock like above, with `cancels` cancels in the window, and then DROPPED (the
+    /// future is thrown away before it ends, nothing was written: the pointer is whole and the lock was never taken). Deterministic
+    /// and without a panic: dropping the future runs the guards of `rotation_confirm` in the order they are declared, backwards.
+    async fn abandon_a_confirmation_in_the_middle(device: &Device, slot: &RotationSlot, words: &[String], cancels: usize) {
+        use warden_sync::lock::{lock_path_for, SyncLock};
+        let held = SyncLock::acquire(&lock_path_for(&device.base.join("sync_manifest.json"))).await.unwrap();
+        let mut confirm = Box::pin(rotation_confirm(&device.engine, &device.runner, slot, words, true, 2));
+        let waiting = tokio::time::timeout(std::time::Duration::from_millis(50), &mut confirm).await;
+        assert!(waiting.is_err(), "the premise: the confirmation is stuck on the sync lock, not finished: {waiting:?}");
+        assert!(slot.lock().unwrap().is_none(), "the premise: the confirmation has the key out of the slot");
+        assert!(!device.runner.rotation_half_done(), "the premise: nothing is half done while the confirmation waits");
         for _ in 0..cancels {
             rotation_cancel(&device.runner, slot);
         }
-        assert!(device.runner.rotation_in_progress(), "the cancels came while the confirmation runs: they must not free the loop");
+        assert!(device.runner.rotation_in_progress(), "the premise: the confirmation is still running");
+        drop(confirm);
         drop(held);
-        confirm.await
     }
 
     /// Decision of the owner (2026-11-28): a cancel that comes while a confirmation runs wins over it. The confirmation then stops
@@ -1521,6 +1548,77 @@ mod tests {
         assert!(panicked.is_err(), "the premise: the closure panicked and the guard was dropped by the unwinding");
         assert!(!device.runner.rotation_half_done(), "the cancel won");
         assert!(!device.runner.rotation_in_progress());
+    }
+
+    /// The guard INSIDE the real `rotation_confirm` (the tests above drop it alone): the future is thrown away in the middle of its run,
+    /// before any write, and the half-done state is raised, because stopping at an await is as uncertain as a panic. The count the
+    /// guard starts from is not 0 (a cancel came before), so a guard built with a literal 0 would see a cancel that never came and
+    /// raise nothing; a guard built after the `.await` does not exist yet when the future is dropped. (Whether the guard is
+    /// declared before or after `_confirming` is NOT observable here: both are gone by the time the future's drop returns, and no
+    /// reader runs in between.)
+    #[tokio::test]
+    async fn a_confirmation_dropped_in_the_middle_raises_the_half_done_state_when_no_cancel_came() {
+        let device = device_in_arca_mode("unwind-in-confirm-dropped").await;
+        let slot = RotationSlot::default();
+        rotation_begin(&device.engine, &device.runner, &slot).unwrap();
+        rotation_cancel(&device.runner, &slot);
+        let start = rotation_begin(&device.engine, &device.runner, &slot).unwrap();
+
+        abandon_a_confirmation_in_the_middle(&device, &slot, &asked(&start), 0).await;
+        assert!(slot.lock().unwrap().is_none(), "the key was consumed by the try");
+        assert_eq!(secrets_of(&device).key_epoch, 0, "nothing was written");
+        assert!(device.runner.rotation_half_done(), "the confirmation stopped at an await: it may have written, so the rotation is half done");
+        assert!(device.runner.rotation_in_progress(), "the guard of the confirmation is gone and the loop still stands by");
+
+        rotation_cancel(&device.runner, &slot);
+        assert!(!device.runner.rotation_in_progress(), "the Cancel button still ends it");
+    }
+
+    /// The same drop, with a cancel in the window: the cancel wins here too.
+    #[tokio::test]
+    async fn a_confirmation_dropped_in_the_middle_does_not_raise_the_half_done_state_when_a_cancel_came() {
+        let device = device_in_arca_mode("unwind-in-confirm-dropped-cancelled").await;
+        let slot = RotationSlot::default();
+        let start = rotation_begin(&device.engine, &device.runner, &slot).unwrap();
+
+        abandon_a_confirmation_in_the_middle(&device, &slot, &asked(&start), 1).await;
+        assert!(!device.runner.rotation_half_done(), "the cancel won");
+        assert!(!device.runner.rotation_in_progress(), "the loop runs again");
+    }
+
+    /// Runs a confirmation that stops half way for real, with `during` called in its window (stuck on the sync lock), and checks the
+    /// stop raised the half-done state: whatever `during` did, it was not a cancel, so the count did not move.
+    async fn stop_half_way_with_a_call_in_the_middle(name: &str, during: impl FnOnce(&Device, &RotationSlot, &RotationStart)) {
+        let device = device_in_arca_mode(name).await;
+        let slot = RotationSlot::default();
+        let start = rotation_begin(&device.engine, &device.runner, &slot).unwrap();
+        break_the_folder_pointer(&device);
+
+        let failure = confirm_with_a_call_in_the_middle(&device, &slot, &asked(&start), || during(&device, &slot, &start)).await.unwrap_err();
+        assert!(failure.partial, "the premise: the confirmation stopped half way: {failure:?}");
+        assert!(device.runner.rotation_half_done(), "that call is not a cancel: the stop half way raises the state");
+        assert!(device.runner.rotation_in_progress());
+    }
+
+    #[tokio::test]
+    async fn a_leave_during_a_confirmation_is_not_a_cancel() {
+        stop_half_way_with_a_call_in_the_middle("not-cancel-leave", |device, slot, _| rotation_leave(&device.runner, slot)).await;
+    }
+
+    #[tokio::test]
+    async fn a_begin_during_a_confirmation_is_not_a_cancel() {
+        stop_half_way_with_a_call_in_the_middle("not-cancel-begin", |device, slot, _| {
+            rotation_begin(&device.engine, &device.runner, slot).unwrap();
+        })
+        .await;
+    }
+
+    #[tokio::test]
+    async fn a_resume_during_a_confirmation_is_not_a_cancel() {
+        stop_half_way_with_a_call_in_the_middle("not-cancel-resume", |device, slot, start| {
+            rotation_resume(&device.engine, &device.runner, slot, &start.phrase.join(" ")).unwrap();
+        })
+        .await;
     }
 
     /// A guard that was disarmed (the outcome was known: a success or a refusal that wrote nothing) raises nothing when dropped.
