@@ -530,7 +530,7 @@ fn take_key_to_confirm<'a>(runner: &'a SyncRunner, slot: &RotationSlot) -> Resul
     };
     let confirming = runner.confirming_rotation();
     runner.set_rotation_in_progress(false);
-    Ok((pending, confirming, runner.rotation_cancels()))
+    Ok((pending, confirming, 0))
 }
 
 /// Drops the key that was waiting, ends the half-done state (the person gives up the rotation that stopped half way) and lets the
