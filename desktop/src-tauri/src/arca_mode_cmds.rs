@@ -464,8 +464,10 @@ pub fn rotation_resume(engine: &SyncEngine, runner: &SyncRunner, slot: &Rotation
 /// - The window that remains is the person ACKNOWLEDGING the pending epoch when the stop was between "manifest written" and "state
 ///   saved": the push would copy every manifest of the store (not verified by reading), so the one of the new epoch would reach
 ///   the hub with the old key.
-/// - Dropping the future raises the state with no deadline (the owner's decision, 2026-11-27) and the screen does not show it; what
-///   Tauri does with the future of a command (a reload of the window) was not verified by reading.
+/// - Dropping the future raises the state with no deadline (the owner's decision, 2026-11-27). The Sync screen shows the state
+///   (`ModeStatus.rotation_half_done`), but it asks for the status when it mounts, after its own actions (choosing the hub, turning
+///   the mode on, the logins) and when the rotation block reports the end of a confirmation or a cancel (`onChanged`), so a stop that
+///   comes from outside those moments shows only when the screen is opened again. What Tauri does with the future of a command (a reload of the window) was not verified by reading.
 /// - The Cancel button is `disabled={busy}` while a confirmation runs (`ArcaRotationBlock.tsx`), so a cancel during one only comes
 ///   from another window or a direct `invoke`: the rule closes a theoretical window.
 /// - The half-done state lives only in memory (the owner's decision): a restart ends it even though the new epoch may be out.
