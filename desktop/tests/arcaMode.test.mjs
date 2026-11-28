@@ -2,9 +2,11 @@
 
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
-import { clearSummary, deletableIds, hubChoice, loginsView, loopView, noticesOf, sizeLabel, summaryOf, verifyErrorMessage, verifyView, viewOf } from "../src/lib/arcaMode.ts";
+import { en } from "../src/i18n/en.ts";
+import { ptBR } from "../src/i18n/pt-BR.ts";
+import { clearSummary, deletableIds, hubChoice, loginsView, loopView, noticesOf, rotationHalfDoneShown, sizeLabel, summaryOf, verifyErrorMessage, verifyView, viewOf } from "../src/lib/arcaMode.ts";
 
-const status = (over) => ({ hasKey: true, on: false, pendingSend: false, loginsAccepted: false, ...over });
+const status = (over) => ({ hasKey: true, on: false, pendingSend: false, loginsAccepted: false, rotationHalfDone: false, ...over });
 const report = (over) => ({
   snapshotCreated: false,
   pulled: 0,
@@ -59,6 +61,45 @@ describe("what the screen says about the MCP logins (class secret), which travel
   test("once accepted it says they are syncing, and offers nothing", () => {
     assert.equal(loginsView(status({ on: true, loginsAccepted: true })), "syncing");
   });
+});
+
+describe("the line that says the automatic sync is paused by a key change left half way", () => {
+  test("it shows only when the backend says a rotation was left half done and the mode is on (the only place the rotation block lives)", () => {
+    assert.equal(rotationHalfDoneShown(status({ on: true, rotationHalfDone: true })), true);
+    assert.equal(rotationHalfDoneShown(status({ on: true, rotationHalfDone: true, hasKey: false, pendingSend: true, loginsAccepted: true })), true);
+  });
+
+  test("it does not show while nothing is half done, whatever else the status says (a key that merely waits is not this)", () => {
+    assert.equal(rotationHalfDoneShown(status({ on: true, rotationHalfDone: false })), false);
+    assert.equal(rotationHalfDoneShown(status({ on: true, rotationHalfDone: false, pendingSend: true, loginsAccepted: true, hubId: "hub-1" })), false);
+  });
+
+  test("it does not show before the status arrives, nor with the mode off", () => {
+    assert.equal(rotationHalfDoneShown(null), false);
+    assert.equal(rotationHalfDoneShown(status({ on: false, rotationHalfDone: true })), false);
+  });
+
+  test("an answer that does not carry the field (an older backend) shows nothing", () => {
+    const old = { hasKey: true, on: true, pendingSend: false, loginsAccepted: false };
+    assert.equal(rotationHalfDoneShown(old), false);
+  });
+
+  // The words name the buttons the person has to click: `arca.rotationResume` opens the box for the 24 words, and `arca.cancel` is
+  // there (ArcaRotationBlock.tsx); in the idle step the Cancel button does not exist yet.
+  for (const [lang, texts, paused, words] of [
+    ["English", en, /paused/, /24 words/],
+    ["Portuguese", ptBR, /pausada/, /24 palavras/],
+  ]) {
+    test(`the text in ${lang} says it is paused, asks for the same 24 words and names the real buttons`, () => {
+      const text = texts["arca.rotationHalfDone"];
+      assert.ok(text, "the key exists");
+      assert.match(text, paused);
+      assert.match(text, words);
+      assert.ok(text.includes(`"${texts["arca.rotationResume"].replace("…", "")}`), `names the button that resumes: ${text}`);
+      assert.ok(text.includes(`"${texts["arca.cancel"]}"`), `names the button that gives up: ${text}`);
+      assert.doesNotMatch(text, /\{/, "has no placeholder: nothing is passed to it");
+    });
+  }
 });
 
 describe("which hub the selector shows for the automatic sync", () => {

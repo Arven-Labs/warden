@@ -1909,6 +1909,71 @@ mod tests {
         assert_eq!(mode_status(&device.engine, &device.runner, false).unwrap().hub_id.as_deref(), Some("hub-1"));
     }
 
+    // ---------- the status says a rotation was left half done ----------
+
+    /// What the screen reads to say that the automatic sync is paused by a key change left half way.
+    fn half_done_in_status(device: &Device) -> bool {
+        mode_status(&device.engine, &device.runner, false).unwrap().rotation_half_done
+    }
+
+    /// The status follows the half-done state of the runner (`SyncRunner::rotation_half_done`), through the same stop half way the
+    /// tests of the loop provoke (`stop_half_way`: the confirmation published the new epoch and could not save the key). It holds
+    /// while the person leaves the screen and resumes, and only a success of the confirmation ends it.
+    #[tokio::test]
+    async fn the_status_says_a_rotation_stopped_half_way_until_it_is_finished() {
+        let device = device_in_arca_mode("status-half-done-finish").await;
+        let slot = RotationSlot::default();
+        assert!(!half_done_in_status(&device), "the premise: nothing was started");
+
+        let start = stop_half_way(&device, &slot).await;
+        assert!(device.runner.rotation_half_done(), "the premise: the runner is half done");
+        let status = mode_status(&device.engine, &device.runner, false).unwrap();
+        assert!(status.rotation_half_done, "the stop half way shows in the status");
+        assert!(status.on, "and the mode is on, which the screen needs to draw it");
+
+        rotation_leave(&device.runner, &slot);
+        assert!(half_done_in_status(&device), "leaving the screen does not end it: the screen that comes back must say it");
+        rotation_resume(&device.engine, &device.runner, &slot, &start.phrase.join(" ")).unwrap();
+        assert!(half_done_in_status(&device), "a resume that did not finish yet does not end it");
+
+        rotation_confirm(&device.engine, &device.runner, &slot, &[], true, 3).await.unwrap();
+        assert_eq!(secrets_of(&device).key_epoch, 1, "the premise: the resume finished the rotation");
+        assert!(!half_done_in_status(&device), "a success ends it and the status says so");
+    }
+
+    /// The other way out: the person gives up. After a refused try in between, so the status is not just "the last try failed".
+    #[tokio::test]
+    async fn the_status_stops_saying_it_after_a_cancel_even_when_a_refused_try_came_in_between() {
+        let device = device_in_arca_mode("status-half-done-cancel").await;
+        let slot = RotationSlot::default();
+        let start = stop_half_way(&device, &slot).await;
+        rotation_resume(&device.engine, &device.runner, &slot, &start.phrase.join(" ")).unwrap();
+        break_the_mode_file(&device);
+        let refused = rotation_confirm(&device.engine, &device.runner, &slot, &[], true, 3).await.unwrap_err();
+        assert!(is_a_repair_refusal(&refused), "the premise: a real Refused, not a stop half way: {refused:?}");
+        assert!(half_done_in_status(&device), "a refusal does not end it");
+
+        rotation_cancel(&device.runner, &slot);
+        assert!(!half_done_in_status(&device), "cancel ends it and the status says so");
+    }
+
+    /// The decision is to say it ONLY for the half-done state, not for every pause: while a key waits for its confirmation the loop is
+    /// paused too (`rotation_in_progress`), but the rotation block is open and says what is going on. A refusal that wrote nothing
+    /// also leaves nothing half done.
+    #[tokio::test]
+    async fn the_status_does_not_say_it_for_a_rotation_that_only_waits_or_was_refused_before_writing() {
+        let device = device_in_arca_mode("status-not-half-done").await;
+        let slot = RotationSlot::default();
+        let start = rotation_begin(&device.engine, &device.runner, &slot).unwrap();
+        assert!(device.runner.rotation_in_progress(), "the premise: the loop is paused by the key that waits");
+        assert!(!half_done_in_status(&device), "a key that waits is not a rotation left half done");
+
+        let failure = rotation_confirm(&device.engine, &device.runner, &slot, &asked(&start), false, 2).await.unwrap_err();
+        assert!(!failure.partial, "the premise: a refusal that wrote nothing: {failure:?}");
+        assert!(!device.runner.rotation_in_progress(), "the premise: the loop is free again");
+        assert!(!half_done_in_status(&device));
+    }
+
     // ---------- choosing the hub of the automatic sync ----------
 
     fn runner_of(device: &Device) -> SyncRunner {
