@@ -34,13 +34,17 @@ pub struct ModeStatus {
     pub hub_id: Option<String>,
     /// The person accepted that the MCP logins travel; until then they are not sent or applied.
     pub logins_accepted: bool,
+    /// A key rotation stopped half way and is not finished or given up (`SyncRunner::rotation_half_done`): the automatic sync stays
+    /// paused for it. Only this state, not every pause (`rotation_in_progress` is also true while a key waits, and the rotation block
+    /// is already open then).
+    pub rotation_half_done: bool,
 }
 
-pub fn mode_status(engine: &SyncEngine, pending_send: bool) -> Result<ModeStatus, String> {
+pub fn mode_status(engine: &SyncEngine, _runner: &SyncRunner, pending_send: bool) -> Result<ModeStatus, String> {
     let mode = engine.arca_mode().map_err(|e| format!("{e:#}"))?;
     let on = mode.is_some();
     let logins_accepted = mode.as_ref().is_some_and(|m| m.secret_accepted);
-    Ok(ModeStatus { has_key: engine.is_initialized(), on, pending_send, hub_id: mode.and_then(|m| m.hub_id), logins_accepted })
+    Ok(ModeStatus { has_key: engine.is_initialized(), on, pending_send, hub_id: mode.and_then(|m| m.hub_id), logins_accepted, rotation_half_done: false })
 }
 
 /// Chooses the saved hub the automatic sync uses. The hub has to be saved (`hubs.json` is the desktop's, so the check is here and not
@@ -788,7 +792,7 @@ pub fn now_ms() -> u64 {
 #[tauri::command]
 pub fn arca_mode_status(state: State<'_, AppState>) -> Result<ModeStatus, String> {
     let pending_send = state.pending_push.lock().unwrap().is_some();
-    mode_status(&state.sync, pending_send)
+    mode_status(&state.sync, &state.sync_runner, pending_send)
 }
 
 #[tauri::command]
@@ -1852,35 +1856,41 @@ mod tests {
     #[test]
     fn the_status_says_what_the_computer_has() {
         let none = device("status-none");
-        assert_eq!(mode_status(&none.engine, false).unwrap(), ModeStatus { has_key: false, on: false, pending_send: false, hub_id: None, logins_accepted: false });
+        assert_eq!(
+            mode_status(&none.engine, &none.runner, false).unwrap(),
+            ModeStatus { has_key: false, on: false, pending_send: false, hub_id: None, logins_accepted: false, rotation_half_done: false }
+        );
         let keyed = device_with_key("status-key");
-        assert_eq!(mode_status(&keyed.engine, true).unwrap(), ModeStatus { has_key: true, on: false, pending_send: true, hub_id: None, logins_accepted: false });
+        assert_eq!(
+            mode_status(&keyed.engine, &keyed.runner, true).unwrap(),
+            ModeStatus { has_key: true, on: false, pending_send: true, hub_id: None, logins_accepted: false, rotation_half_done: false }
+        );
     }
 
     #[tokio::test]
     async fn the_status_says_whether_the_logins_were_accepted() {
         let without = device_with_key("status-logins-no");
         enable(&without.engine, false, false, 1).await.unwrap();
-        assert!(!mode_status(&without.engine, false).unwrap().logins_accepted, "turned on without the logins");
+        assert!(!mode_status(&without.engine, &without.runner, false).unwrap().logins_accepted, "turned on without the logins");
         accept_logins(&without.engine).await.unwrap();
-        assert!(mode_status(&without.engine, false).unwrap().logins_accepted, "accepted afterwards");
+        assert!(mode_status(&without.engine, &without.runner, false).unwrap().logins_accepted, "accepted afterwards");
 
         let with = device_with_key("status-logins-yes");
         enable(&with.engine, false, true, 1).await.unwrap();
-        assert!(mode_status(&with.engine, false).unwrap().logins_accepted, "accepted when turning it on");
+        assert!(mode_status(&with.engine, &with.runner, false).unwrap().logins_accepted, "accepted when turning it on");
     }
 
     #[tokio::test]
     async fn revoking_the_logins_shows_in_the_status_and_asking_again_changes_nothing() {
         let device = device_with_key("status-revoke");
         enable(&device.engine, false, true, 1).await.unwrap();
-        assert!(mode_status(&device.engine, false).unwrap().logins_accepted);
+        assert!(mode_status(&device.engine, &device.runner, false).unwrap().logins_accepted);
         revoke_logins(&device.engine).await.unwrap();
-        assert!(!mode_status(&device.engine, false).unwrap().logins_accepted, "stopped");
+        assert!(!mode_status(&device.engine, &device.runner, false).unwrap().logins_accepted, "stopped");
         revoke_logins(&device.engine).await.unwrap();
-        assert!(mode_status(&device.engine, false).unwrap().on, "the mode itself stays on");
+        assert!(mode_status(&device.engine, &device.runner, false).unwrap().on, "the mode itself stays on");
         accept_logins(&device.engine).await.unwrap();
-        assert!(mode_status(&device.engine, false).unwrap().logins_accepted, "and the person can accept again");
+        assert!(mode_status(&device.engine, &device.runner, false).unwrap().logins_accepted, "and the person can accept again");
     }
 
     #[tokio::test]
@@ -1894,9 +1904,9 @@ mod tests {
     async fn the_status_says_which_hub_the_automatic_sync_uses_once_one_is_chosen() {
         let device = device_with_key("status-hub");
         enable(&device.engine, false, false, 1).await.unwrap();
-        assert_eq!(mode_status(&device.engine, false).unwrap().hub_id, None, "turned on, but no hub chosen yet");
+        assert_eq!(mode_status(&device.engine, &device.runner, false).unwrap().hub_id, None, "turned on, but no hub chosen yet");
         device.engine.arca_set_hub("hub-1").await.unwrap();
-        assert_eq!(mode_status(&device.engine, false).unwrap().hub_id.as_deref(), Some("hub-1"));
+        assert_eq!(mode_status(&device.engine, &device.runner, false).unwrap().hub_id.as_deref(), Some("hub-1"));
     }
 
     // ---------- choosing the hub of the automatic sync ----------
@@ -1913,9 +1923,9 @@ mod tests {
         let home = saved_hubs::save(&hubs, None, "Home", "https://hub.example/").unwrap();
         let work = saved_hubs::save(&hubs, None, "Work", "https://work.example/").unwrap();
         set_hub(&device.engine, &runner_of(&device), &hubs, &home.id).await.unwrap();
-        assert_eq!(mode_status(&device.engine, false).unwrap().hub_id, Some(home.id.clone()));
+        assert_eq!(mode_status(&device.engine, &device.runner, false).unwrap().hub_id, Some(home.id.clone()));
         set_hub(&device.engine, &runner_of(&device), &hubs, &work.id).await.unwrap();
-        assert_eq!(mode_status(&device.engine, false).unwrap().hub_id, Some(work.id), "the person can change their mind");
+        assert_eq!(mode_status(&device.engine, &device.runner, false).unwrap().hub_id, Some(work.id), "the person can change their mind");
     }
 
     #[tokio::test]
@@ -1927,7 +1937,7 @@ mod tests {
         set_hub(&device.engine, &runner_of(&device), &hubs, &home.id).await.unwrap();
         let error = set_hub(&device.engine, &runner_of(&device), &hubs, "hub-gone").await.unwrap_err();
         assert!(error.contains("no saved hub"), "{error}");
-        assert_eq!(mode_status(&device.engine, false).unwrap().hub_id, Some(home.id));
+        assert_eq!(mode_status(&device.engine, &device.runner, false).unwrap().hub_id, Some(home.id));
     }
 
     #[tokio::test]
@@ -1965,7 +1975,7 @@ mod tests {
         std::fs::write(device.base.join("vault/note.md"), b"hello").unwrap();
         enable(&device.engine, false, false, 1).await.unwrap();
         assert!(device.engine.arca_mode_on().unwrap());
-        assert!(mode_status(&device.engine, false).unwrap().on);
+        assert!(mode_status(&device.engine, &device.runner, false).unwrap().on);
     }
 
     #[tokio::test]
@@ -2346,10 +2356,10 @@ mod tests {
 
     #[test]
     fn the_payloads_reach_the_screen_in_camel_case() {
-        let status = serde_json::to_string(&ModeStatus { has_key: true, on: false, pending_send: true, hub_id: None, logins_accepted: false }).unwrap();
-        assert_eq!(status, r#"{"hasKey":true,"on":false,"pendingSend":true,"hubId":null,"loginsAccepted":false}"#);
-        let chosen = serde_json::to_string(&ModeStatus { has_key: true, on: true, pending_send: false, hub_id: Some("hub-1".into()), logins_accepted: true }).unwrap();
-        assert_eq!(chosen, r#"{"hasKey":true,"on":true,"pendingSend":false,"hubId":"hub-1","loginsAccepted":true}"#);
+        let status = serde_json::to_string(&ModeStatus { has_key: true, on: false, pending_send: true, hub_id: None, logins_accepted: false, rotation_half_done: false }).unwrap();
+        assert_eq!(status, r#"{"hasKey":true,"on":false,"pendingSend":true,"hubId":null,"loginsAccepted":false,"rotationHalfDone":false}"#);
+        let chosen = serde_json::to_string(&ModeStatus { has_key: true, on: true, pending_send: false, hub_id: Some("hub-1".into()), logins_accepted: true, rotation_half_done: true }).unwrap();
+        assert_eq!(chosen, r#"{"hasKey":true,"on":true,"pendingSend":false,"hubId":"hub-1","loginsAccepted":true,"rotationHalfDone":true}"#);
         let sync = SyncPayload::from(ArcaSyncReport { snapshot_created: true, pulled: 3, merges: 1, conflicts: 2, files_changed: 4, pushed: 5, ..Default::default() });
         assert_eq!(
             serde_json::to_string(&sync).unwrap(),
