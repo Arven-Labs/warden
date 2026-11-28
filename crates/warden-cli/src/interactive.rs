@@ -113,6 +113,37 @@ impl Drop for RawModeGuard {
     }
 }
 
+/// Bracketed paste (the terminal wraps a paste in `ESC[200~ ... ESC[201~`, which crossterm reads as ONE `Event::Paste`) for the
+/// lifetime of this guard, and off again on drop, on every way out of the field: an early `?`-return and a panic as well (like
+/// `RawModeGuard`). Without it each line break of a pasted phrase reaches the field as a key: `\r` is Enter and submits it
+/// half way, and `\n` is Ctrl+J, which the field ignores, so two words end up glued.
+///
+/// Unix only: crossterm's Windows event reader (`event/sys/windows`, crossterm 0.29) has no `Event::Paste` at all, and a terminal
+/// that wrapped a paste in the markers there could deliver them as keys. There, and on a terminal that does not know the
+/// sequence, nothing changes: a paste is typed key by key, as before. A terminal that refuses the command (`execute!` fails)
+/// leaves the guard off.
+struct BracketedPasteGuard {
+    enabled: bool,
+}
+
+impl BracketedPasteGuard {
+    fn enable() -> Self {
+        #[cfg(unix)]
+        let enabled = crossterm::execute!(io::stdout(), crossterm::event::EnableBracketedPaste).is_ok();
+        #[cfg(not(unix))]
+        let enabled = false;
+        Self { enabled }
+    }
+}
+
+impl Drop for BracketedPasteGuard {
+    fn drop(&mut self) {
+        if self.enabled {
+            let _ = crossterm::execute!(io::stdout(), crossterm::event::DisableBracketedPaste);
+        }
+    }
+}
+
 /// A small hand-rolled line editor: a UTF-8-aware cursor over a `Vec<char>`, plus a persisted
 /// history list with the usual up/down recall (including restoring an in-progress draft when
 /// paging back down past the newest history entry). Every method here is plain, terminal-free
@@ -155,10 +186,25 @@ impl LineEditor {
         Self { paste_words: Some(PHRASE_WORDS), ..Self::new_masked() }
     }
 
-    /// A pasted text for the field. SKELETON: a paste is still not handled, like before this change.
+    /// A pasted text for the field (`Event::Paste`, which only arrives while `BracketedPasteGuard` is on). The text is split on any
+    /// whitespace (a line break, `\r\n`, a tab, spaces), the way `PendingRotation::from_phrase` reads a phrase. With exactly the
+    /// number of words the field wants, they REPLACE what was in the field, one space apart, which is what typing them would have
+    /// left; with any other number nothing is entered. Whether the words are a valid phrase is not asked here: that is
+    /// `from_phrase`'s answer, as for typed words.
     fn paste(&mut self, pasted: &str) -> PasteOutcome {
-        let _ = pasted;
-        PasteOutcome::Ignored
+        let Some(wanted) = self.paste_words else { return PasteOutcome::Ignored };
+        let found = pasted.split_whitespace().count();
+        if found != wanted {
+            return PasteOutcome::Refused { found };
+        }
+        self.clear_line();
+        for (index, word) in pasted.split_whitespace().enumerate() {
+            if index > 0 {
+                self.insert(' ');
+            }
+            word.chars().for_each(|c| self.insert(c));
+        }
+        PasteOutcome::Filled
     }
 
     fn is_empty(&self) -> bool {
@@ -914,15 +960,23 @@ const POLL_INTERVAL: Duration = Duration::from_millis(30);
 /// any), appending its suffix plus a trailing space — a no-op when there's nothing to accept
 /// (ambiguous, already complete, or the cursor isn't at the end of the buffer).
 async fn drive_line_editor(terminal: &mut CliTerminal, editor: &mut LineEditor, title: &str, suggest_commands: bool) -> anyhow::Result<LineOutcome> {
+    // What a paste the field refused says in the border, in place of `title`, until the next key (`take_paste`).
+    let mut notice: Option<String> = None;
     loop {
         let ghost = if suggest_commands && editor.cursor_at_end() { commands::ghost_suggestion(&editor.as_str()) } else { None };
-        terminal.draw(|frame| render_input_box(frame, editor, title, ghost.as_deref()))?;
+        terminal.draw(|frame| render_input_box(frame, editor, notice.as_deref().unwrap_or(title), ghost.as_deref()))?;
 
         if !event::poll(POLL_INTERVAL)? {
             continue;
         }
 
-        match event::read()? {
+        let event = event::read()?;
+        if matches!(&event, Event::Key(key) if key.kind == KeyEventKind::Press) {
+            notice = None;
+        }
+        match event {
+            // Only arrives while `BracketedPasteGuard` is on, which only the field of the phrase does (`read_phrase_field`).
+            Event::Paste(pasted) => notice = take_paste(editor, &pasted),
             Event::Key(key) if key.kind == KeyEventKind::Press => match (key.code, key.modifiers) {
                 (KeyCode::Enter, _) => {
                     let text = editor.submit();
@@ -1064,6 +1118,16 @@ async fn read_field(terminal: &mut CliTerminal, title: &str, initial: &str) -> a
 /// Same as `read_field`, for a secret: empty box, a dot per character, nothing kept in any history.
 async fn read_secret_field(terminal: &mut CliTerminal, title: &str) -> anyhow::Result<LineOutcome> {
     let mut editor = LineEditor::new_masked();
+    drive_line_editor(terminal, &mut editor, title, false).await
+}
+
+/// The field of the 24-word phrase (`/arca rotate resume`): `read_secret_field` plus a paste of the whole phrase. Bracketed paste is
+/// on only while this field is (`BracketedPasteGuard`), so a pasted phrase with line breaks arrives as one event instead of as keys,
+/// and the field takes it only with exactly 24 words (`LineEditor::paste`). The editor has no history (`LineEditor::new_masked`),
+/// and the text comes back only as the answer, like a typed one.
+async fn read_phrase_field(terminal: &mut CliTerminal, title: &str) -> anyhow::Result<LineOutcome> {
+    let _bracketed_paste = BracketedPasteGuard::enable();
+    let mut editor = LineEditor::new_phrase_field();
     drive_line_editor(terminal, &mut editor, title, false).await
 }
 
@@ -4289,7 +4353,7 @@ async fn cmd_arca_rotate_resume(terminal: &mut CliTerminal, session: &CliSession
     }
     render_message_card(terminal, "arca", accent_style(), vec![(tr!("arca.rotate_resume_intro"), Style::default())])?;
     discard_pending_keys();
-    let LineOutcome::Submitted(typed_phrase) = read_secret_field(terminal, &tr!("arca.rotate_ask_phrase")).await? else { return cancelled_card(terminal) };
+    let LineOutcome::Submitted(typed_phrase) = read_phrase_field(terminal, &tr!("arca.rotate_ask_phrase")).await? else { return cancelled_card(terminal) };
     if typed_phrase.trim().is_empty() {
         return cancelled_card(terminal);
     }
