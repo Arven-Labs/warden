@@ -48,7 +48,6 @@ function ArcaRotationBlock({ hubId, onChanged }: { hubId: string; onChanged: () 
     } catch {
       // Nothing was written; the key is dropped when the app closes.
     }
-    onChanged();
   }
 
   async function begin() {
