@@ -556,7 +556,10 @@ pub fn rotation_cancel(runner: &SyncRunner, slot: &RotationSlot) {
 /// way (the Cancel button is). With a rotation half done the loop keeps standing by. A confirmation that is already running is not
 /// stopped, as for `rotation_cancel`.
 pub fn rotation_leave(runner: &SyncRunner, slot: &RotationSlot) {
-    set_slot(runner, slot, None);
+    let mut held = slot.lock().unwrap();
+    *held = None;
+    runner.set_rotation_in_progress(held.is_some());
+    runner.note_rotation_cancel();
 }
 
 /// The saved hub `hub_id`, with the token this computer holds for it, ready to sync with.
