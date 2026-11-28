@@ -3,9 +3,10 @@
 //!
 //! Since arca-core `499628b` (arca#198) the engine has this floor on a first attempt too: `begin_epoch` takes the old head as the base
 //! of `ClassEmptied`, and `rotation_error_of` reads that error on a first attempt as a refusal (`arca_rotation_carried_classes.rs`).
-//! The check of Warden (`refuse_if_the_vault_was_emptied`) stays as defence in depth, and it refuses BEFORE anything is written: the
-//! engine's floor comes after the blobs of the other folders (the logins) were sent, so it can leave blobs in the store. The cases
-//! below are the ones that check answers, and the paragraph that follows is the bug it was written for (the rev before `499628b`).
+//! The check of Warden (`refuse_if_the_vault_was_emptied`) stays as defence in depth, and it refuses BEFORE the engine runs: since
+//! arca#208 (`c8e0941`) the engine's floor comes before the blobs of the candidates, but its second floor (a file that vanishes
+//! between the two passes) can still leave blobs in the store, and this check does not. The cases below are the ones that check
+//! answers, and the paragraph that follows is the bug it was written for (the rev before `499628b`).
 //!
 //! Why: `Engine::begin_epoch` (arca-core, before `499628b`) passes `prev = None` to `build_snapshot` on a first attempt (no manifest of
 //! the new epoch yet: `own.is_empty()`). The refusal of an emptied class (`ClassEmptied`) compares the files found with `prev_files`,

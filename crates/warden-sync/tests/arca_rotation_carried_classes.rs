@@ -17,13 +17,17 @@
 //! that sends the person to repeat a rotation that never started. Before the fix `rotation_error_of` sent all of them to
 //! `Failed` with no remedy. The one that IS a stop is `ClassEmptied` on a **resume** (a manifest of the new epoch is already out).
 //!
-//! What was read, in `Engine::begin_epoch` and `build_snapshot` of arca-core `499628b`: `HeadNotAccepted` is returned before
-//! `build_snapshot` runs; `verify_carried` is the first thing `build_snapshot` does after scanning the folders (it reads, it does not
-//! write); the floor `ClassEmptied` comes after the blobs of the folders were sent (so a vault folder with files leaves orphan blobs
-//! that no manifest cites, never a manifest); `Store(Corrupt)` is only what `verified_get` returns, and the blobs `begin_epoch` reads
-//! are the carried ones (`verify_carried` before any write, `reseal_carried` after the blobs of the folders and before the manifest),
-//! so a resume (which carries nothing) cannot return it. The cases here keep the vault folder empty where the floor is tested, so
-//! the store can be compared whole.
+//! What was read, in `Engine::begin_epoch` and `build_snapshot` of arca-core `c8e0941` (arca#208): `HeadNotAccepted` is returned
+//! before `build_snapshot` runs; `verify_carried` is the first thing `build_snapshot` does after scanning the folders (it reads, it
+//! does not write); the floor `ClassEmptied` is decided on the first pass over the candidates, BEFORE any blob of theirs is sent (at
+//! `499628b` it came after, so a vault folder with files left orphan blobs that no manifest cites, never a manifest). The
+//! exceptions to "wrote nothing" that remain leave blobs with no manifest to cite them (inert) and are not provoked here, because
+//! they need a hook in the store: for `ClassEmptied`, the second floor (a file that vanishes between the two passes); and the
+//! re-seal of the carried entries (`Integrity`, `MissingObject` or `Store(Corrupt)` right after `verify_carried` passed).
+//! `Store(Corrupt)` is only what `verified_get` returns, and the blobs `begin_epoch` reads are the carried ones (`verify_carried`
+//! before any write, `reseal_carried` after the blobs of the folders and before the manifest), so a resume (which carries nothing)
+//! cannot return it. The floor cases compare the store whole, with the vault folder empty and with one new file in it (the case that
+//! failed at `499628b`: the blob of that file went to the store before the refusal).
 //!
 //! Each test states its premise first (what the folder, the state and the store held when `confirm` was called) and checks the store
 //! afterwards by opening the manifests with the keys of each epoch, and by listing the blobs and every file under the device.
@@ -441,6 +445,31 @@ async fn an_emptied_logins_folder_on_a_first_attempt_is_a_refusal_with_no_remedy
 
     let (result, new_key) = rotate(&device).await;
     let text = assert_refused(&device, &premise, result, &new_key, None, "emptied logins").await;
+    assert!(text.contains("Secret"), "{text}");
+    assert!(text.contains("put back ALL"), "{text}");
+    assert!(!text.contains("24 words"), "nothing was published, so there is no phrase to resume with: {text}");
+}
+
+/// The same refusal as above, but the vault folder HAS a file that the head does not list: a candidate that the engine would send as a
+/// new blob. The floor `ClassEmptied` (the logins folder is empty, the head lists a login) must be decided BEFORE that blob goes to the
+/// store, so "this attempt wrote nothing" is true: the blobs of the store are the same after as before (arca#208, `c8e0941`; with the
+/// rev before it the blob of the vault file was sent first and stayed in the store with no manifest to cite it). The only rule broken
+/// here is the emptied logins folder: the vault file is an ordinary one, and the head is not accepted, as above.
+#[tokio::test]
+async fn an_emptied_logins_folder_with_a_new_vault_file_on_a_first_attempt_is_a_refusal_and_sends_no_blob() {
+    let device = device_in_arca_mode("emptied-logins-new-vault-file", &[], Some(&[])).await;
+    let published = publish_head_of_another_device(&device, &[(Class::Secret, GITHUB.0, GITHUB.1)], Damage::None).await;
+    // A file that no manifest of the store lists, written after the device's first manifest: the engine would send it as a new blob.
+    std::fs::write(device.vault().join(NOTE.0), NOTE.1).unwrap();
+    assert_ne!(accepted_head(&device), Some(Hash32(published.head.hash)), "premise: the device did not accept the head");
+    assert_eq!(std::fs::read_dir(device.oauth()).unwrap().count(), 0, "premise: the logins folder exists and is empty");
+    assert_eq!(std::fs::read_dir(device.vault()).unwrap().count(), 1, "premise: the vault folder holds one file, a candidate to be sent");
+    let premise = premise(&device).await;
+    assert_eq!(premise.view, vec![(0, Vec::<String>::new()), (0, vec!["Secret:github.json".to_string()])], "premise: no manifest lists the vault file, and the head lists one login");
+    assert!(device.listing().contains(&"vault/note.md".to_string()), "premise: the file is under the device: {:?}", device.listing());
+
+    let (result, new_key) = rotate(&device).await;
+    let text = assert_refused(&device, &premise, result, &new_key, None, "emptied logins, new vault file").await;
     assert!(text.contains("Secret"), "{text}");
     assert!(text.contains("put back ALL"), "{text}");
     assert!(!text.contains("24 words"), "nothing was published, so there is no phrase to resume with: {text}");

@@ -6,6 +6,16 @@
 
 ---
 
+### 2026-11-28 — arca: rodada 9 do P-49, T4 (warden#270: o `rev` do `arca-core` sobe de `499628b` para `c8e0941`; PR em rascunho, NÃO mesclado até este registro). O detalhe da rodada está no `SESSIONS.md` da arca (Sessão 134); as rodadas 6 a 8 também ficaram só lá
+
+- **warden#270 (§4, dependência e rotação, CI verde no head `c7c42293`, run `46092301296`)**: troca o `rev` nos 3 `Cargo.toml` (4 linhas) e no bloco `arca-core` do `Cargo.lock` (1 linha: as dependências do `arca-core` não mudaram entre os dois revs). O `arca-core` novo traz `now`/`created_at` em ms (arca#214; o Warden já passava ms), o piso `ClassEmptied` antes dos blobs (arca#208), `NeedsNewKey` no `apply` sem estado (arca#211) e a herança dos reconhecimentos no `begin_epoch` (arca#220; para o Warden é na prática no-op, porque ele usa `with_state`).
+- **Teste novo e controle**: `an_emptied_logins_folder_with_a_new_vault_file_on_a_first_attempt_is_a_refusal_and_sends_no_blob` (1ª tentativa, pasta de logins vazia, cofre com arquivo novo: recusa e nenhum blob novo). Controle #271 (só o teste, sobre o `rev` antigo, run `46090194182`, `7c141e71`): único `FAILED` foi esse teste, com 2 blobs onde se esperava 1; fechado, branch apagada. O PR com o `rev` novo passou em `rust`, `mobile`, `android`, `desktop` e Web E2E: nenhum teste antigo do Warden quebrou com o `rev` novo.
+- **O que a revisão pegou (o worker e o CI não)**: `arca_rotation_missing_vault.rs` ainda dizia que o piso vem depois dos blobs (contradizia `arca_sync.rs`); e "a única exceção ao *wrote nothing* é o 2º piso" só valia para `ClassEmptied`: o re-selo dos carried (`Integrity`/`MissingObject`/`Corrupt` logo depois do `verify_carried`) também pode deixar blobs órfãos, mapeado como `Refused`. Raro e inofensivo (sem manifest que os cite), e já era assim no `499628b`.
+- **Em aberto, suas**: (1) o texto de `class_emptied_refusal` ("Files of the vault folder may already be in this device's local store ... the next sync may send them to the hub") só vale agora na corrida do 2º piso; ficou como estava por decisão sua (2026-11-28), e o teste de `arca_sync.rs` (~1281) o fixa, então mudar o texto exige mudar o teste; (2) `Remedy::VaultEmptied` e os textos do celular seguem pendentes de codegen no seu PC.
+- **Não verificado**: nada rodou na VM (só CI); o 2º piso e a falha do re-selo não têm teste no Warden; a origem de `now_ms` em Dart/TS (o auditor leu os chamadores Rust, o CLI e o Dart e todos passam ms); `cargo audit` e `deny` não rodaram, e as versões do lock não mudaram; manifests gravados em segundos antes do arca#214, se existirem, perdem todo desempate e levam selo de 1970 na cópia `.conflito-*`.
+
+---
+
 ### 2026-11-24 — arca: rodada 5 do P-49, equipe de 4 tarefas (warden#259 e #260 neste repo; arca#208 e #210 no arca; nenhum mesclado até este registro). O detalhe, os achados e a medição estão no `SESSIONS.md` da arca (Sessão 130)
 
 - **warden#259 (só testes, `eb1d724d`, CI verde no run 45494154845)**: `arca_replace_key` mais um ciclo **não perde** Secret nem Config do hub. Fixados, sem correção: um arquivo apagado pelo dispositivo atrasado **ressurge** e uma edição que o hub também tem vira `.conflito-*` espúrio (base vazia da troca); em conflito de login o texto perdedor fica em claro em `arca-conflicts/secret/` (P-34).
