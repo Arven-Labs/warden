@@ -433,9 +433,15 @@ pub fn rotation_resume(engine: &SyncEngine, runner: &SyncRunner, slot: &Rotation
 /// resume, a wrong word or a new rotation leaves the loop stopped, with no deadline (the owner's decision, 2026-11-27). The state is
 /// told under `_confirming`, still alive, so the loop never sees a gap between the guard and it.
 ///
-/// Known limits, not fixed here: a `cancel` that comes while this runs is not stopped from ending the state, and this one then raises
-/// it again if it stops half way, so only a new visit to the screen (resume, or the Cancel button) or a restart of the app ends it;
-/// and a panic inside `pending.confirm` releases the guard without raising the state.
+/// A `cancel` that comes while this runs **wins** (the owner's decision, 2026-11-28): the person gave the rotation up and the screen
+/// is gone, so a stop half way that comes after it does not raise the half-done state (see `rotation_cancel`). The confirmation
+/// compares the count of cancels (`SyncRunner::rotation_cancels`) it read in `take_key_to_confirm`, under the same hold of the slot's
+/// lock that started its guard, with the count when it ends; a cancel from before it began is already in the first value and does not
+/// count. A panic inside `pending.confirm` is treated like a stop half way (`HalfDoneOnUnwind`, declared after `_confirming`, so it
+/// is dropped first and the state is visible before the guard goes back to 0).
+///
+/// Known limit, not fixed here: the half-done state lives only in memory (the owner's decision), so a restart of the app ends it
+/// even though the new epoch may be out in the local store.
 pub async fn rotation_confirm(engine: &SyncEngine, runner: &SyncRunner, slot: &RotationSlot, typed_words: &[String], revoked_on_hub: bool, now_ms: u64) -> Result<(), RotationFailure> {
     let (pending, _confirming, cancels_seen) = take_key_to_confirm(runner, slot)?;
     let mut on_unwind = HalfDoneOnUnwind::new(runner, slot, cancels_seen);
@@ -443,15 +449,16 @@ pub async fn rotation_confirm(engine: &SyncEngine, runner: &SyncRunner, slot: &R
     let outcome = pending.confirm(&typed, revoked_on_hub, engine, now_ms).await.map_err(RotationFailure::from);
     match &outcome {
         Ok(()) => set_half_done(runner, slot, false),
-        Err(failure) if failure.partial => set_half_done(runner, slot, true),
+        Err(failure) if failure.partial => raise_half_done_unless_cancelled(runner, slot, cancels_seen),
         Err(_) => {}
     }
     on_unwind.disarm();
     outcome
 }
 
-/// Armed by `rotation_confirm` until it knows the outcome. Dropped armed (a panic inside the confirmation), it is meant to raise the
-/// half-done state. (Skeleton: it does nothing yet.)
+/// Armed by `rotation_confirm` until it knows the outcome (`disarm`). Dropped armed, which a panic inside the confirmation does (and
+/// also the future being dropped before it ends, which stops it at an await just as a panic would stop it), it applies the rule of a
+/// stop half way: it may have come after a write, so it raises the half-done state, unless a cancel came since `cancels_seen`.
 struct HalfDoneOnUnwind<'a> {
     runner: &'a SyncRunner,
     slot: &'a RotationSlot,
@@ -471,7 +478,9 @@ impl<'a> HalfDoneOnUnwind<'a> {
 
 impl Drop for HalfDoneOnUnwind<'_> {
     fn drop(&mut self) {
-        let _ = (self.runner, self.slot, self.cancels_seen, self.armed);
+        if self.armed {
+            raise_half_done_unless_cancelled(self.runner, self.slot, self.cancels_seen);
+        }
     }
 }
 
@@ -482,8 +491,20 @@ fn set_half_done(runner: &SyncRunner, slot: &RotationSlot, half_done: bool) {
     runner.set_rotation_half_done(half_done);
 }
 
+/// Raises the half-done state for a confirmation that stopped half way (or panicked), unless a cancel came since the confirmation
+/// read `cancels_seen`: the cancel won. The count is read under the slot's lock, the same one `rotation_cancel` counts under, so a
+/// cancel is either before this (the state is not raised) or after it (the cancel ends the state it raised).
+fn raise_half_done_unless_cancelled(runner: &SyncRunner, slot: &RotationSlot, cancels_seen: u64) {
+    let _held = slot.lock().unwrap();
+    if runner.rotation_cancels() == cancels_seen {
+        runner.set_rotation_half_done(true);
+    }
+}
+
 /// Takes the key out of the slot for a confirmation and, in the same hold of the slot's lock, starts the guard that keeps the loop
-/// paused until the confirmation ends: there is no instant with an empty slot and no confirmation. With no key, nothing runs.
+/// paused until the confirmation ends: there is no instant with an empty slot and no confirmation. With no key, nothing runs. It
+/// also returns the count of cancels (`SyncRunner::rotation_cancels`), read in that same hold: a cancel counts as "during" the
+/// confirmation only if it comes after this value.
 fn take_key_to_confirm<'a>(runner: &'a SyncRunner, slot: &RotationSlot) -> Result<(PendingRotation, RotationConfirming<'a>, u64), RotationFailure> {
     let mut held = slot.lock().unwrap();
     let Some(pending) = held.take() else {
@@ -495,13 +516,16 @@ fn take_key_to_confirm<'a>(runner: &'a SyncRunner, slot: &RotationSlot) -> Resul
 }
 
 /// Drops the key that was waiting, ends the half-done state (the person gives up the rotation that stopped half way) and lets the
-/// automatic loop run again. A confirmation that is already running is not stopped, and keeps the loop paused until it ends (and if
-/// it then stops half way, it raises the half-done state again: see `rotation_confirm`).
+/// automatic loop run again. A confirmation that is already running is not stopped, and keeps the loop paused until it ends, but the
+/// cancel is counted (`SyncRunner::note_rotation_cancel`, under the same hold of the lock as the other three writes) and wins over
+/// it: if the confirmation then stops half way, it does not raise the half-done state again (the owner's decision, 2026-11-28; see
+/// `rotation_confirm`). Neither state outlives the app: both live only in memory.
 pub fn rotation_cancel(runner: &SyncRunner, slot: &RotationSlot) {
     let mut held = slot.lock().unwrap();
     *held = None;
     runner.set_rotation_in_progress(false);
     runner.set_rotation_half_done(false);
+    runner.note_rotation_cancel();
 }
 
 /// What the screen does when it unmounts: drops the key that was waiting in the slot and tells the loop no key waits, like the cancel
