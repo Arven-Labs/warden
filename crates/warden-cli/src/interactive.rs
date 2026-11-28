@@ -162,10 +162,15 @@ struct LineEditor {
 }
 
 /// The most bytes a pasted text may have, looked at before it is split into words. A phrase is 24 words of at most 8 letters, so
-/// this is several times what one needs; it bounds what a paste can put in memory and on the screen.
+/// this is several times what one needs. It does NOT bound what a paste puts in memory: crossterm has already gathered the whole
+/// paste, as bytes and then as the `String` of `Event::Paste`, before `paste` sees it (its parser returns nothing until `ESC[201~`
+/// is in the buffer, `crossterm-0.29.0/src/event/sys/unix/parse.rs:813-821`). What it spares is the list of words, the joined
+/// text and the field that a big paste would otherwise build.
 const PASTE_MAX_BYTES: usize = 1024;
-/// The most characters the field may hold after a paste. The box draws a dot per character and places the cursor with an `as u16`
-/// (`render_input_box`), so a field that grows without limit would overflow that; typing a phrase never gets near this.
+/// The most characters the field may hold after a PASTE (`paste` refuses the one that would leave more). It is a limit on pastes
+/// only: typing, and a terminal without bracketed paste (where a paste arrives as keys), have no limit, and `render_input_box`
+/// still places the cursor with `inner.x + cursor as u16`, which does not saturate. So this keeps a paste from making the field
+/// big; it does not promise the field never gets big.
 const PASTE_FIELD_MAX_CHARS: usize = 512;
 
 /// What `LineEditor::paste` did with a pasted text.
