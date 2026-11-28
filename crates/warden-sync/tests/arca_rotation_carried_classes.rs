@@ -446,6 +446,31 @@ async fn an_emptied_logins_folder_on_a_first_attempt_is_a_refusal_with_no_remedy
     assert!(!text.contains("24 words"), "nothing was published, so there is no phrase to resume with: {text}");
 }
 
+/// The same refusal as above, but the vault folder HAS a file that the head does not list: a candidate that the engine would send as a
+/// new blob. The floor `ClassEmptied` (the logins folder is empty, the head lists a login) must be decided BEFORE that blob goes to the
+/// store, so "this attempt wrote nothing" is true: the blobs of the store are the same after as before (arca#208, `c8e0941`; with the
+/// rev before it the blob of the vault file was sent first and stayed in the store with no manifest to cite it). The only rule broken
+/// here is the emptied logins folder: the vault file is an ordinary one, and the head is not accepted, as above.
+#[tokio::test]
+async fn an_emptied_logins_folder_with_a_new_vault_file_on_a_first_attempt_is_a_refusal_and_sends_no_blob() {
+    let device = device_in_arca_mode("emptied-logins-new-vault-file", &[], Some(&[])).await;
+    let published = publish_head_of_another_device(&device, &[(Class::Secret, GITHUB.0, GITHUB.1)], Damage::None).await;
+    // A file that no manifest of the store lists, written after the device's first manifest: the engine would send it as a new blob.
+    std::fs::write(device.vault().join(NOTE.0), NOTE.1).unwrap();
+    assert_ne!(accepted_head(&device), Some(Hash32(published.head.hash)), "premise: the device did not accept the head");
+    assert_eq!(std::fs::read_dir(device.oauth()).unwrap().count(), 0, "premise: the logins folder exists and is empty");
+    assert_eq!(std::fs::read_dir(device.vault()).unwrap().count(), 1, "premise: the vault folder holds one file, a candidate to be sent");
+    let premise = premise(&device).await;
+    assert_eq!(premise.view, vec![(0, Vec::<String>::new()), (0, vec!["Secret:github.json".to_string()])], "premise: no manifest lists the vault file, and the head lists one login");
+    assert!(device.listing().contains(&"vault/note.md".to_string()), "premise: the file is under the device: {:?}", device.listing());
+
+    let (result, new_key) = rotate(&device).await;
+    let text = assert_refused(&device, &premise, result, &new_key, None, "emptied logins, new vault file").await;
+    assert!(text.contains("Secret"), "{text}");
+    assert!(text.contains("put back ALL"), "{text}");
+    assert!(!text.contains("24 words"), "nothing was published, so there is no phrase to resume with: {text}");
+}
+
 /// A rotation that stopped after it published the manifest of epoch 1 and before it saved the key (the manifest is in the store and
 /// the state moved to it, but `sync_secrets.json` and `arca_folder.txt` still say epoch 0); the person then emptied the logins folder.
 struct StoppedRotation {
