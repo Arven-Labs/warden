@@ -1106,8 +1106,11 @@ async fn no_manifest_of_the_next_epoch(store_path: std::path::PathBuf, current_e
 /// it (`ClassEmptied`): publishing would send an empty class to every device. Nothing about the phrase or the key: nothing was
 /// published, and each screen says what to do with the phrase it showed. No path and no name of a file.
 ///
-/// The arca's floor comes after the blobs of the other folders were sent, so blobs of the vault folder may already be in the local
-/// store with no manifest citing them, and the next sync may send them to the hub: the text says so. For the logins class the file that
+/// Up to arca-core `499628b` the arca's floor came after the blobs of the other folders were sent, so blobs of the vault folder could
+/// already be in the local store with no manifest citing them, and the next sync could send them to the hub: the text says so. Since
+/// arca#208 (`c8e0941`) the floor comes before any blob of the candidates, so that sentence only holds for the second floor (a file
+/// that vanishes between the engine's two passes). The text was kept as it is (decision of 2026-11-28: nothing the person reads
+/// changes); it is the careful side of a rare case. For the logins class the file that
 /// unlocks the floor has to be one the arca counts (`is_login_entry`: a login name, `[A-Za-z0-9_-]+.json`, up to `MAX_LOGIN_BYTES`).
 fn class_emptied_refusal(class: Class, had: usize) -> String {
     let unlocking_file = if class == Class::Secret { "a file with a valid login name (letters, digits, `_` or `-`, then `.json`)" } else { "any one file" };
