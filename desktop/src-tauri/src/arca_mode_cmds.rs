@@ -438,25 +438,26 @@ pub fn rotation_resume(engine: &SyncEngine, runner: &SyncRunner, slot: &Rotation
 /// compares the count of cancels (`SyncRunner::rotation_cancels`) it read in `take_key_to_confirm`, under the same hold of the slot's
 /// lock that started its guard, with the count when it ends; a cancel from before it began is already in the first value and does not
 /// count. A panic inside `pending.confirm` is treated like a stop half way (`HalfDoneOnUnwind`, declared after `_confirming`, so it
-/// is dropped first and the state is visible before the guard goes back to 0). The guard also raises the state when the FUTURE is
-/// dropped before it ends, even before any write: conservative on purpose (stopping at an await is as uncertain as a panic) and rare
-/// (the command has no timeout). Its `Drop` takes the slot's lock tolerating a poisoned one (`raise_half_done_unless_cancelled`), so
-/// it never panics while unwinding (that would abort the process).
+/// is dropped first and the state is visible before the guard goes back to 0), and so is the FUTURE being dropped before it ends,
+/// even before any write (conservative: stopping at an await is as uncertain as a panic). Only that `Drop` tolerates a poisoned slot
+/// (`raise_half_done_unless_cancelled`: a panic there, while unwinding, would abort the process); the other locks of the slot
+/// (`set_half_done`, `set_slot`, `rotation_cancel`, `take_key_to_confirm`) keep `.unwrap()`.
 ///
-/// What the cancel's win costs. The loop runs again with the OLD key while the manifest of the new epoch may be in the local store.
-/// What stops it is `heads()` of the arca, which answers `NeedsNewKey` (and `Rollback`, if the state was already moved) BEFORE any
-/// write to the hub: the cycle reads it before building on the tip (`warden-sync` `arca_sync.rs`, `engine.heads().await?` of the
-/// cycle; the arca's own `load()` is the other place, per the review of this change). Taken from the code and the review, **not
-/// tested end to end** (no test runs a cycle with `NeedsNewKey` after this stop). The window that remains is the person
-/// ACKNOWLEDGING the pending epoch when the stop was between "manifest written" and "state saved": the push copies every manifest of
-/// the store, so the one of the new epoch would reach the hub with the old key.
-///
-/// Reach of the rule: the Cancel button of the screen is `disabled={busy}` while a confirmation runs (`ArcaRotationBlock.tsx`), so a
-/// cancel during a confirmation only comes from another window or from a direct `invoke`: the rule closes a theoretical window.
-///
-/// Known limits, not fixed here: the half-done state lives only in memory (the owner's decision), so a restart of the app ends it
-/// even though the new epoch may be out in the local store; and the text of the cycle's `NeedsNewKey` tells "pair this device again"
-/// also to a person who interrupted their OWN rotation (a text outside this scope).
+/// # Known limits (not fixed here)
+/// - The cancel's win costs: the loop runs again with the OLD key while the manifest of the new epoch may be in the local store. What
+///   stops it is `heads()` of the arca (the cycle reads it first: `warden-sync` `arca_sync.rs`, `engine.heads().await?`), which only
+///   calls `load()` and answers `NeedsNewKey` there, before any write to the hub. The person then sees the arca's own text ("storage
+///   has a newer key epoch (N) than this device's keys (M)"), which does not say to resume with the same 24 words; `engine_failure`'s
+///   "pair this device again" is not on this path. (`Rollback` comes from the guard of `snapshot`/`merge`/`apply`, not read here.)
+///   Not tested end to end: no test runs a cycle after this stop.
+/// - The window that remains is the person ACKNOWLEDGING the pending epoch when the stop was between "manifest written" and "state
+///   saved": the push would copy every manifest of the store (not verified by reading), so the one of the new epoch would reach
+///   the hub with the old key.
+/// - Dropping the future raises the state with no deadline (the owner's decision, 2026-11-27) and the screen does not show it; what
+///   Tauri does with the future of a command (a reload of the window) was not verified by reading.
+/// - The Cancel button is `disabled={busy}` while a confirmation runs (`ArcaRotationBlock.tsx`), so a cancel during one only comes
+///   from another window or a direct `invoke`: the rule closes a theoretical window.
+/// - The half-done state lives only in memory (the owner's decision): a restart ends it even though the new epoch may be out.
 pub async fn rotation_confirm(engine: &SyncEngine, runner: &SyncRunner, slot: &RotationSlot, typed_words: &[String], revoked_on_hub: bool, now_ms: u64) -> Result<(), RotationFailure> {
     let (pending, _confirming, cancels_seen) = take_key_to_confirm(runner, slot)?;
     let mut on_unwind = HalfDoneOnUnwind::new(runner, slot, cancels_seen);
@@ -1596,7 +1597,9 @@ mod tests {
         assert!(!device.runner.rotation_in_progress(), "the Cancel button still ends it");
     }
 
-    /// The same drop, with a cancel in the window: the cancel wins here too.
+    /// The same drop, with a cancel in the window: the cancel wins here too. It only counts as proof TOGETHER with
+    /// `..._when_no_cancel_came`: here the count the guard starts from is 0, so a guard built with a literal `0` passes this test
+    /// as well; the other one starts from 1 and is the one that tells them apart.
     #[tokio::test]
     async fn a_confirmation_dropped_in_the_middle_does_not_raise_the_half_done_state_when_a_cancel_came() {
         let device = device_in_arca_mode("unwind-in-confirm-dropped-cancelled").await;
@@ -1641,6 +1644,31 @@ mod tests {
             rotation_resume(&device.engine, &device.runner, slot, &start.phrase.join(" ")).unwrap();
         })
         .await;
+    }
+
+    /// The helper the `Drop` of the guard calls, on a slot poisoned by another thread, called straight: no unwinding and no
+    /// `catch_unwind`. With a plain `lock().unwrap()` it would panic here, an ordinary failure of this test; with `into_inner` it
+    /// raises the half-done state. (The test below, with the guard dropped by a panic, is the complement: removing `into_inner`
+    /// there makes a panic inside the unwinding, which ABORTS the binary, so that mutation is not proof by assertion; this one is.)
+    #[test]
+    fn raising_the_half_done_state_works_on_a_poisoned_slot() {
+        let device = device_with_key("raise-poisoned-slot");
+        let slot = RotationSlot::default();
+        let poisoner = std::thread::scope(|scope| {
+            scope
+                .spawn(|| {
+                    let _held = slot.lock().unwrap();
+                    panic!("poisons the slot");
+                })
+                .join()
+        });
+        assert!(poisoner.is_err(), "the premise: the thread panicked holding the lock");
+        assert!(slot.is_poisoned(), "the premise: the slot is poisoned");
+
+        let seen = device.runner.rotation_cancels();
+        raise_half_done_unless_cancelled(&device.runner, &slot, seen);
+        assert!(device.runner.rotation_half_done(), "no cancel came: the state is raised even with the slot poisoned");
+        assert!(device.runner.rotation_in_progress());
     }
 
     /// The guard is dropped by a panic, so its lock of the slot must not panic too (a panic while unwinding aborts the whole process,
