@@ -400,7 +400,7 @@ pub const CATALOG: &[(&str, &str)] = &[
     ("arca.rotate_discarded", "The phrase that was shown is discarded: nothing uses it, and you may throw the paper away."),
     ("arca.rotate_ask_word", " word {position} of the new key (type it back) "),
     ("arca.rotate_ask_phrase", " the 24 words of the new key (not shown, not stored) "),
-    ("arca.rotate_paste_refused", " the paste has {found} words, the phrase has {expected}: nothing was entered. Paste it again or type it "),
+    ("arca.rotate_paste_too_large", " paste too large: nothing was pasted "),
     ("arca.rotate_ask_revoked", " did you revoke the lost device's token on the hub (outside Warden)? Without that, it keeps syncing. (y/n) "),
     ("arca.rotate_confirm", " change this vault's key now? The other devices stop syncing until they get the new key (/arca swap grant here, /arca swap offer there). It cannot be undone from here. (y/n) "),
     ("arca.rotate_sending", "the key was changed on this computer. Sending the new epoch to the hub with a normal cycle: give its address and this device's token (an empty field skips it, and /arca sync sends it later)."),

@@ -400,7 +400,7 @@ pub const CATALOG: &[(&str, &str)] = &[
     ("arca.rotate_discarded", "A frase que foi mostrada está descartada: nada a usa, e você pode jogar o papel fora."),
     ("arca.rotate_ask_word", " palavra {position} da chave nova (digite de volta) "),
     ("arca.rotate_ask_phrase", " as 24 palavras da chave nova (não aparecem e não são guardadas) "),
-    ("arca.rotate_paste_refused", " o que foi colado tem {found} palavras, a frase tem {expected}: nada foi digitado. Cole de novo ou digite "),
+    ("arca.rotate_paste_too_large", " colagem grande demais: nada foi colado "),
     ("arca.rotate_ask_revoked", " você revogou o token do dispositivo perdido no hub (fora do Warden)? Sem isso, ele continua sincronizando. (s/n) "),
     ("arca.rotate_confirm", " trocar a chave deste cofre agora? Os outros dispositivos param de sincronizar até receberem a chave nova (/arca swap grant aqui, /arca swap offer lá). Não dá para desfazer por aqui. (s/n) "),
     ("arca.rotate_sending", "a chave foi trocada neste computador. Enviando a época nova ao hub com um ciclo normal: informe o endereço dele e o token deste dispositivo (campo vazio pula, e o /arca sync envia depois)."),
