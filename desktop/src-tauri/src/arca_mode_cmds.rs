@@ -438,10 +438,25 @@ pub fn rotation_resume(engine: &SyncEngine, runner: &SyncRunner, slot: &Rotation
 /// compares the count of cancels (`SyncRunner::rotation_cancels`) it read in `take_key_to_confirm`, under the same hold of the slot's
 /// lock that started its guard, with the count when it ends; a cancel from before it began is already in the first value and does not
 /// count. A panic inside `pending.confirm` is treated like a stop half way (`HalfDoneOnUnwind`, declared after `_confirming`, so it
-/// is dropped first and the state is visible before the guard goes back to 0).
+/// is dropped first and the state is visible before the guard goes back to 0). The guard also raises the state when the FUTURE is
+/// dropped before it ends, even before any write: conservative on purpose (stopping at an await is as uncertain as a panic) and rare
+/// (the command has no timeout). Its `Drop` takes the slot's lock tolerating a poisoned one (`raise_half_done_unless_cancelled`), so
+/// it never panics while unwinding (that would abort the process).
 ///
-/// Known limit, not fixed here: the half-done state lives only in memory (the owner's decision), so a restart of the app ends it
-/// even though the new epoch may be out in the local store.
+/// What the cancel's win costs. The loop runs again with the OLD key while the manifest of the new epoch may be in the local store.
+/// What stops it is `heads()` of the arca, which answers `NeedsNewKey` (and `Rollback`, if the state was already moved) BEFORE any
+/// write to the hub: the cycle reads it before building on the tip (`warden-sync` `arca_sync.rs`, `engine.heads().await?` of the
+/// cycle; the arca's own `load()` is the other place, per the review of this change). Taken from the code and the review, **not
+/// tested end to end** (no test runs a cycle with `NeedsNewKey` after this stop). The window that remains is the person
+/// ACKNOWLEDGING the pending epoch when the stop was between "manifest written" and "state saved": the push copies every manifest of
+/// the store, so the one of the new epoch would reach the hub with the old key.
+///
+/// Reach of the rule: the Cancel button of the screen is `disabled={busy}` while a confirmation runs (`ArcaRotationBlock.tsx`), so a
+/// cancel during a confirmation only comes from another window or from a direct `invoke`: the rule closes a theoretical window.
+///
+/// Known limits, not fixed here: the half-done state lives only in memory (the owner's decision), so a restart of the app ends it
+/// even though the new epoch may be out in the local store; and the text of the cycle's `NeedsNewKey` tells "pair this device again"
+/// also to a person who interrupted their OWN rotation (a text outside this scope).
 pub async fn rotation_confirm(engine: &SyncEngine, runner: &SyncRunner, slot: &RotationSlot, typed_words: &[String], revoked_on_hub: bool, now_ms: u64) -> Result<(), RotationFailure> {
     let (pending, _confirming, cancels_seen) = take_key_to_confirm(runner, slot)?;
     let mut on_unwind = HalfDoneOnUnwind::new(runner, slot, cancels_seen);
@@ -493,9 +508,11 @@ fn set_half_done(runner: &SyncRunner, slot: &RotationSlot, half_done: bool) {
 
 /// Raises the half-done state for a confirmation that stopped half way (or panicked), unless a cancel came since the confirmation
 /// read `cancels_seen`: the cancel won. The count is read under the slot's lock, the same one `rotation_cancel` counts under, so a
-/// cancel is either before this (the state is not raised) or after it (the cancel ends the state it raised).
+/// cancel is either before this (the state is not raised) or after it (the cancel ends the state it raised). It is called from a
+/// `Drop` (`HalfDoneOnUnwind`), so a poisoned lock is taken as it is (`PoisonError::into_inner`): a panic here, while unwinding from
+/// another one, would abort the process. The slot holds an `Option<PendingRotation>`, which a panic in another thread leaves whole.
 fn raise_half_done_unless_cancelled(runner: &SyncRunner, slot: &RotationSlot, cancels_seen: u64) {
-    let _held = slot.lock().unwrap();
+    let _held = slot.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
     if runner.rotation_cancels() == cancels_seen {
         runner.set_rotation_half_done(true);
     }
@@ -520,6 +537,11 @@ fn take_key_to_confirm<'a>(runner: &'a SyncRunner, slot: &RotationSlot) -> Resul
 /// cancel is counted (`SyncRunner::note_rotation_cancel`, under the same hold of the lock as the other three writes) and wins over
 /// it: if the confirmation then stops half way, it does not raise the half-done state again (the owner's decision, 2026-11-28; see
 /// `rotation_confirm`). Neither state outlives the app: both live only in memory.
+///
+/// The cost of that win (the loop runs with the old key while the new epoch's manifest may be in the local store, held back by
+/// `NeedsNewKey` of `heads()`, not tested end to end, and the window of acknowledging the pending epoch) is described in
+/// `rotation_confirm`. Only `rotation_cancel` counts: `rotation_leave`, `rotation_begin` and `rotation_resume` do not move the count.
+/// From the screen, the Cancel button is disabled while a confirmation runs, so the case needs another window or a direct `invoke`.
 pub fn rotation_cancel(runner: &SyncRunner, slot: &RotationSlot) {
     let mut held = slot.lock().unwrap();
     *held = None;
@@ -1619,6 +1641,34 @@ mod tests {
             rotation_resume(&device.engine, &device.runner, slot, &start.phrase.join(" ")).unwrap();
         })
         .await;
+    }
+
+    /// The guard is dropped by a panic, so its lock of the slot must not panic too (a panic while unwinding aborts the whole process,
+    /// which here would also take the other tests of the binary down with it). The slot is poisoned by another thread that panicked
+    /// holding it; the guard takes it as it is and raises the half-done state.
+    #[test]
+    fn a_confirmation_that_panics_with_the_slot_poisoned_raises_the_half_done_state_without_aborting() {
+        let device = device_with_key("unwind-poisoned-slot");
+        let slot = RotationSlot::default();
+        let poisoner = std::thread::scope(|scope| {
+            scope
+                .spawn(|| {
+                    let _held = slot.lock().unwrap();
+                    panic!("poisons the slot");
+                })
+                .join()
+        });
+        assert!(poisoner.is_err(), "the premise: the thread panicked holding the lock");
+        assert!(slot.is_poisoned(), "the premise: the slot is poisoned");
+
+        let seen = device.runner.rotation_cancels();
+        let panicked = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let _armed = HalfDoneOnUnwind::new(&device.runner, &slot, seen);
+            panic!("inside the confirmation");
+        }));
+        assert!(panicked.is_err(), "the premise: the closure panicked and the guard was dropped by the unwinding");
+        assert!(device.runner.rotation_half_done(), "no cancel came: the state is raised even with the slot poisoned");
+        assert!(device.runner.rotation_in_progress());
     }
 
     /// A guard that was disarmed (the outcome was known: a success or a refusal that wrote nothing) raises nothing when dropped.
