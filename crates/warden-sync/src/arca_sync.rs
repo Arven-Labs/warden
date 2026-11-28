@@ -332,8 +332,10 @@ impl SyncEngine {
     /// full snapshot on `prev = None`, the refusal of an emptied class (`ClassEmptied`) compared the folder with that empty `prev`, and
     /// the new epoch was published with no file at all, which is what the other devices would take as the vault when they pair again.
     /// Since `499628b` the engine takes the old head as the base of the floor, so `begin_epoch` refuses this case too (`ClassEmptied`,
-    /// read as a refusal by `rotation_error_of` on a first attempt). This check stays because it refuses BEFORE anything is written:
-    /// the engine's floor comes after the blobs of the other folders (the logins) were sent. So here: the vault folder has no file the
+    /// read as a refusal by `rotation_error_of` on a first attempt). Since arca#208 (`c8e0941`) that floor is also decided on the first
+    /// pass over the candidates, BEFORE any blob of theirs is sent, so the engine refuses without writing here as well. The one
+    /// exception is the engine's second floor (a file that vanishes between its two passes), which can leave blobs that no manifest
+    /// cites. This check stays as defence in depth: it refuses before the engine runs at all. So here: the vault folder has no file the
     /// snapshot would list (it is gone, or empty, or holds only what the scan skips) AND a tip of this device's store lists vault files:
     /// refused. (`heads` gives the tips of the store, not "the manifest this device accepted": after a pull that was not applied yet
     /// they differ, which the text of the refusal says.) A vault whose tips never listed a file still rotates. A folder that cannot be
@@ -1033,8 +1035,10 @@ fn open_refusal(error: anyhow::Error) -> crate::arca_rotation::RotationFailure {
 /// - `Integrity`, `MissingObject`, `Store(Corrupt)`: reading a blob of an entry it re-encrypts, first in `verify_carried` (before any
 ///   write) and again in `reseal_carried`, after the blobs of the folders and before the manifest. Nothing reads a blob on a resume
 ///   (it carries nothing), so these are refusals only when `first_attempt`.
-/// - `ClassEmptied`: the floor comes after the blobs of the folders were sent, so a first attempt that is refused here can leave
-///   blobs that no manifest cites (inert: a retry seals others, since the nonce is random), never a manifest.
+/// - `ClassEmptied`: since arca#208 (`c8e0941`) the floor is decided on the first pass over the candidates, before any blob of theirs
+///   is sent, so a first attempt that is refused here wrote nothing. The one exception is the second floor (a file that vanishes
+///   between the two passes), which can leave blobs that no manifest cites (inert: a retry seals others, since the nonce is random),
+///   never a manifest.
 ///
 /// Each refusal carries the `Remedy` that resolves it, because a new key cures only the first (`KeyNotRotated`): the others are
 /// about the folder, the storage or the arca's files, and the same trouble meets the next key too. `ClassEmptied` is a refusal with

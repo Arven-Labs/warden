@@ -17,13 +17,15 @@
 //! that sends the person to repeat a rotation that never started. Before the fix `rotation_error_of` sent all of them to
 //! `Failed` with no remedy. The one that IS a stop is `ClassEmptied` on a **resume** (a manifest of the new epoch is already out).
 //!
-//! What was read, in `Engine::begin_epoch` and `build_snapshot` of arca-core `499628b`: `HeadNotAccepted` is returned before
-//! `build_snapshot` runs; `verify_carried` is the first thing `build_snapshot` does after scanning the folders (it reads, it does not
-//! write); the floor `ClassEmptied` comes after the blobs of the folders were sent (so a vault folder with files leaves orphan blobs
-//! that no manifest cites, never a manifest); `Store(Corrupt)` is only what `verified_get` returns, and the blobs `begin_epoch` reads
-//! are the carried ones (`verify_carried` before any write, `reseal_carried` after the blobs of the folders and before the manifest),
-//! so a resume (which carries nothing) cannot return it. The cases here keep the vault folder empty where the floor is tested, so
-//! the store can be compared whole.
+//! What was read, in `Engine::begin_epoch` and `build_snapshot` of arca-core `c8e0941` (arca#208): `HeadNotAccepted` is returned before `build_snapshot` runs; `verify_carried` is the first thing `build_snapshot`
+//! does after scanning the folders (it reads, it does not write); the floor `ClassEmptied` is decided on the first pass over the
+//! candidates, BEFORE any blob of theirs is sent (at `499628b` it came after, so a vault folder with files left orphan blobs that no
+//! manifest cites, never a manifest); the only exception left to "wrote nothing" is the second floor, for a file that vanishes
+//! between the two passes (it can leave blobs with no manifest; it cannot be provoked from here without a hook in the store);
+//! `Store(Corrupt)` is only what `verified_get` returns, and the blobs `begin_epoch` reads are the carried ones (`verify_carried`
+//! before any write, `reseal_carried` after the blobs of the folders and before the manifest), so a resume (which carries nothing)
+//! cannot return it. The floor cases compare the store whole, with the vault folder empty and with one new file in it (the case that
+//! failed at `499628b`: the blob of that file went to the store before the refusal).
 //!
 //! Each test states its premise first (what the folder, the state and the store held when `confirm` was called) and checks the store
 //! afterwards by opening the manifests with the keys of each epoch, and by listing the blobs and every file under the device.
