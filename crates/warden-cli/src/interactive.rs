@@ -6805,6 +6805,106 @@ mod tests {
         assert_eq!(editor.as_str(), "aaa x", "after a space: no second one");
     }
 
+    /// `count` words of `letter`, `long` of them with `long_length` letters and the rest with one less, one per line: the sum of the
+    /// letters is what decides how many characters the field gets (the words are joined with 23 spaces).
+    fn words_of(letter: &str, count: usize, long: usize, long_length: usize) -> String {
+        (0..count).map(|index| letter.repeat(if index < long { long_length } else { long_length - 1 })).collect::<Vec<_>>().join("\n")
+    }
+
+    #[test]
+    fn a_paste_keeps_what_is_typed_unless_it_is_exactly_a_whole_phrase() {
+        // Read in `paste`: the field is replaced only when the number of words IS `paste_words`; 23 and 25 go in at the cursor, so
+        // "abc" stays, with the cursor at the end (a space before the words) and inside it (a space on both sides).
+        for count in [23usize, 25] {
+            let joined = pasted_words(count).replace('\n', " ");
+            let mut editor = phrase_field_with("abc");
+            assert_eq!(editor.paste(&pasted_words(count)), PasteOutcome::Filled, "{count} words, cursor at the end");
+            assert_eq!(editor.as_str(), format!("abc {joined}"), "{count} words, cursor at the end");
+            let mut editor = phrase_field_with("abc");
+            editor.move_left();
+            editor.move_left();
+            assert_eq!(editor.paste(&pasted_words(count)), PasteOutcome::Filled, "{count} words, cursor after the first letter");
+            assert_eq!(editor.as_str(), format!("a {joined} bc"), "{count} words, cursor after the first letter");
+        }
+        // 24 words replace it wherever the cursor was, and the cursor ends after them (the next key goes at the end).
+        for moves_left in [0usize, 3, 8] {
+            let mut editor = phrase_field_with("legal wi");
+            (0..moves_left).for_each(|_| editor.move_left());
+            assert_eq!(editor.paste(&pasted_words(24)), PasteOutcome::Filled, "cursor {moves_left} to the left");
+            assert_eq!(editor.as_str(), LEGAL_PHRASE, "cursor {moves_left} to the left: what was typed is gone");
+            editor.insert('!');
+            assert_eq!(editor.as_str(), format!("{LEGAL_PHRASE}!"), "cursor {moves_left} to the left: the cursor is at the end");
+        }
+    }
+
+    #[test]
+    fn a_paste_goes_in_at_the_cursor_wherever_it_is() {
+        // Read in `paste`: no space before the words at the start of the field, and a space after them when the next character is
+        // not a space; a space before them when the previous character is not a space, and none after them at the end.
+        let mut editor = phrase_field_with("x y");
+        (0..3).for_each(|_| editor.move_left());
+        assert_eq!(editor.paste("bbb"), PasteOutcome::Filled);
+        assert_eq!(editor.as_str(), "bbb x y", "at the start, before a letter");
+        editor.insert('!');
+        assert_eq!(editor.as_str(), "bbb !x y", "the cursor is after the pasted words and the space that was added");
+        let mut editor = phrase_field_with(" x");
+        (0..2).for_each(|_| editor.move_left());
+        assert_eq!(editor.paste("bbb"), PasteOutcome::Filled);
+        assert_eq!(editor.as_str(), "bbb x", "at the start, before a space: none added");
+        let mut editor = phrase_field_with("x y");
+        assert_eq!(editor.paste("bbb"), PasteOutcome::Filled);
+        assert_eq!(editor.as_str(), "x y bbb", "at the end, after a letter");
+    }
+
+    #[test]
+    fn the_512_characters_of_a_whole_phrase_are_counted_in_characters_and_the_limit_is_inclusive() {
+        // 24 words are 23 spaces and the letters: 489 letters make exactly 512 characters (9 words of 21 and 15 of 20), 490 make 513.
+        let exactly = words_of("w", 24, 9, 21);
+        let one_over = words_of("w", 24, 10, 21);
+        assert_eq!(exactly.replace('\n', " ").chars().count(), PASTE_FIELD_MAX_CHARS);
+        assert_eq!(one_over.replace('\n', " ").chars().count(), PASTE_FIELD_MAX_CHARS + 1);
+        let mut editor = phrase_field_with("typed");
+        assert_eq!(editor.paste(&exactly), PasteOutcome::Filled);
+        assert_eq!(editor.buffer.len(), PASTE_FIELD_MAX_CHARS, "the whole phrase replaced the field");
+        let mut editor = phrase_field_with("typed");
+        assert_eq!(editor.paste(&one_over), PasteOutcome::TooLarge);
+        assert_eq!(editor.as_str(), "typed", "the field does not change");
+        // The same count in two-byte characters: 512 characters take 1000 bytes or more, and it is the characters that are counted.
+        let accented = words_of("é", 24, 9, 21);
+        assert!(accented.len() > PASTE_FIELD_MAX_CHARS && accented.len() < PASTE_MAX_BYTES, "{} bytes", accented.len());
+        let mut editor = phrase_field_with("typed");
+        assert_eq!(editor.paste(&accented), PasteOutcome::Filled);
+        assert_eq!(editor.buffer.len(), PASTE_FIELD_MAX_CHARS);
+        assert_eq!(editor.paste(&words_of("é", 24, 10, 21)), PasteOutcome::TooLarge, "513 characters of 2 bytes each");
+    }
+
+    #[test]
+    fn the_limits_count_bytes_of_the_paste_and_characters_of_the_field() {
+        // One word of 300 two-byte letters: 600 bytes, 300 characters. The field limit is on characters, so it goes in.
+        let word = "é".repeat(300);
+        assert_eq!((word.len(), word.chars().count()), (600, 300));
+        let mut editor = LineEditor::new_phrase_field();
+        assert_eq!(editor.paste(&word), PasteOutcome::Filled, "inserted at the cursor");
+        assert_eq!(editor.buffer.len(), 300);
+        // Into a field that already holds 200: 200 + a space + 300 = 501 characters, under 512, but over 512 if bytes were counted.
+        let mut editor = phrase_field_with(&"a".repeat(200));
+        assert_eq!(editor.paste(&word), PasteOutcome::Filled, "the piece is counted in characters");
+        assert_eq!(editor.buffer.len(), 501);
+        // 24 words of 15 two-byte letters: 383 characters but 743 bytes, over 512: counted in characters, a whole phrase goes in.
+        let whole = vec!["é".repeat(15); 24].join("\n");
+        assert!(whole.len() > PASTE_FIELD_MAX_CHARS && whole.len() <= PASTE_MAX_BYTES);
+        let mut editor = phrase_field_with("typed");
+        assert_eq!(editor.paste(&whole), PasteOutcome::Filled);
+        assert_eq!(editor.buffer.len(), 24 * 15 + 23);
+        // The paste limit is on BYTES of the text as it arrives, before blanks are thrown away: a word and 400 ideographic spaces (3
+        // bytes each, and whitespace to `split_whitespace`) are 404 characters but 1204 bytes, so a count of characters would take it.
+        let wide_blanks = format!("word{}", "\u{3000}".repeat(400));
+        assert!(wide_blanks.chars().count() < PASTE_MAX_BYTES && wide_blanks.len() > PASTE_MAX_BYTES);
+        let mut editor = phrase_field_with("typed");
+        assert_eq!(editor.paste(&wide_blanks), PasteOutcome::TooLarge);
+        assert_eq!(editor.as_str(), "typed");
+    }
+
     #[test]
     fn a_paste_with_no_words_does_nothing() {
         for blank in ["", "\n", "  \r\n \t "] {
