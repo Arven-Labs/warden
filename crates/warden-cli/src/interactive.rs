@@ -208,7 +208,7 @@ impl LineEditor {
     /// typed words.
     fn paste(&mut self, pasted: &str) -> PasteOutcome {
         let Some(whole_phrase) = self.paste_words else { return PasteOutcome::Ignored };
-        if pasted.len() > PASTE_MAX_BYTES {
+        if pasted.chars().count() > PASTE_MAX_BYTES {
             return PasteOutcome::TooLarge;
         }
         let words: Vec<&str> = pasted.split_whitespace().collect();
